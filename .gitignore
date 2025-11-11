@@ -1,0 +1,44 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Xcode (future Vision Pro app)
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+xcuserdata/
+DerivedData/
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+*.sql.gz
+*.db
+
+# Documentation build artifacts
+/target/doc/
+/docs/_build/
+
+# Temporary files
+tmp/
+*.tmp
+*.bak

@@ -1,0 +1,62 @@
+# ---------------------------------------------------------------------------
+# Beagle Workspace Manifest
+# Root Cargo.toml defining the multi-crate Rust workspace for the Beagle project
+# ---------------------------------------------------------------------------
+
+[workspace]
+members = [
+    "beagle-hypergraph",
+    "beagle-llm",
+    "beagle-server",
+    "beagle-sync",
+]
+resolver = "2"
+
+[workspace.package]
+authors = ["Dr. Demetrios Agourakis <contact@darwin-cluster.ai>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/darwin-cluster/beagle"
+version = "0.1.0"
+
+# ---------------------------------------------------------------------------
+# Shared dependency catalog for all workspace crates
+# Individual crates can opt-in via `workspace = true` declarations
+# Dependencies are alphabetically ordered for traceability
+# ---------------------------------------------------------------------------
+[workspace.dependencies]
+async-trait = "0.1"
+axum = "0.7"
+chrono = { version = "0.4", features = ["serde"] }
+criterion = "0.5"
+proptest = "1.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
+thiserror = "2.0"
+tokio = { version = "1.40", features = ["full"] }
+tokio-test = "0.4"
+tower = "0.5"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.10", features = ["serde", "v4"] }
+
+# ---------------------------------------------------------------------------
+# Build profile configuration tuned for development, production, and benchmarking
+# ---------------------------------------------------------------------------
+[profile.dev]
+debug = true
+incremental = true
+opt-level = 0
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+strip = true
+
+[profile.bench]
+debug = true
+inherits = "release"
+

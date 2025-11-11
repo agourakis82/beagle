@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# Beagle Hypergraph Crate Manifest
+# Defines the core hypergraph data structures and storage abstractions
+# ---------------------------------------------------------------------------
+
+[package]
+name = "beagle-hypergraph"
+authors.workspace = true
+categories = ["data-structures", "database"]
+description = "Hypergraph data structures and storage abstractions for Beagle"
+edition.workspace = true
+keywords = ["hypergraph", "graph-database", "knowledge-graph"]
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+# ---------------------------------------------------------------------------
+# Library target configuration
+# ---------------------------------------------------------------------------
+[lib]
+name = "beagle_hypergraph"
+path = "src/lib.rs"
+
+# ---------------------------------------------------------------------------
+# Crate features
+# ---------------------------------------------------------------------------
+[features]
+default = []
+in-memory = [] # Enable in-memory storage implementation (for testing)
+
+# ---------------------------------------------------------------------------
+# Runtime dependencies
+# Workspace-managed dependencies are shared across Beagle crates
+# ---------------------------------------------------------------------------
+[dependencies]
+anyhow = "1.0" # Error context propagation for domain services
+async-trait.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+# ---------------------------------------------------------------------------
+# Development and integration testing dependencies
+# ---------------------------------------------------------------------------
+[dev-dependencies]
+proptest.workspace = true
+testcontainers = "0.15" # Integration tests leveraging containerized services
+testcontainers-modules = { version = "0.3", features = ["postgres"] }
+tokio-test.workspace = true
+
