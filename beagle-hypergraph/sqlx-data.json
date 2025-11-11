@@ -1,0 +1,24 @@
+{
+  "db": "PostgreSQL",
+  "queries": {
+    "42799df09f28f38b73c4a0f90516dc432e7660d679d3ce8eb448cde2dad81608": {
+      "db_name": "PostgreSQL",
+      "query": "SELECT 1 as check",
+      "describe": {
+        "columns": [
+          {
+            "ordinal": 0,
+            "name": "check",
+            "type_info": "Int4"
+          }
+        ],
+        "parameters": {
+          "Left": []
+        },
+        "nullable": [
+          null
+        ]
+      }
+    }
+  }
+}

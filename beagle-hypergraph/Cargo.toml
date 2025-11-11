@@ -30,12 +30,17 @@ in-memory = [] # Enable in-memory storage implementation (for testing)
 
 # ---------------------------------------------------------------------------
 # Runtime dependencies
-# Workspace-managed dependencies are shared across Beagle crates
+# Workspace-managed dependencies são compartilhadas entre as crates do Beagle
 # ---------------------------------------------------------------------------
 [dependencies]
 anyhow = "1.0" # Error context propagation for domain services
 async-trait.workspace = true
 chrono.workspace = true
+futures = "0.3"
+pgvector = { version = "0.4", features = ["sqlx"] }
+prometheus = "0.13"
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+reqwest = { version = "0.11", features = ["json"] }
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
@@ -43,13 +48,20 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+console-subscriber = "0.2"
 
 # ---------------------------------------------------------------------------
 # Development and integration testing dependencies
 # ---------------------------------------------------------------------------
 [dev-dependencies]
-proptest.workspace = true
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+proptest = "1.4"
+beagle-db = { path = "../beagle-db" }
 testcontainers = "0.15" # Integration tests leveraging containerized services
 testcontainers-modules = { version = "0.3", features = ["postgres"] }
 tokio-test.workspace = true
+
+[[bench]]
+name = "hypergraph_benchmarks"
+harness = false
 
