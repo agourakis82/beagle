@@ -1,0 +1,36 @@
+# .tarpaulin.toml
+
+[coverage]
+
+exclude-files = [
+    "target/*",
+    "*/tests/*",
+    "*/benches/*",
+]
+
+exclude-lines = [
+    "derive",
+    "#\\[cfg\\(test\\)\\]",
+    "unreachable!",
+    "panic!",
+]
+
+# Fail if coverage below 85%
+fail-under = 85.0
+
+# Generate HTML report
+html = true
+out = ["Html", "Xml", "Json"]
+
+# Run tests with --all-features
+all-features = true
+
+# Timeout per test (seconds)
+timeout = 300
+
+
+
+
+
+
+

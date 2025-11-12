@@ -1,0 +1,15 @@
+# Cargo manifest for the beagle-sync crate
+[package]
+name = "beagle-sync"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+futures.workspace = true

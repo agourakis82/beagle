@@ -1,0 +1,19 @@
+# Cargo manifest for the beagle-llm crate
+[package]
+name = "beagle-llm"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+
+beagle-personality = { path = "../beagle-personality" }

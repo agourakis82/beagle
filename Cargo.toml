@@ -5,10 +5,12 @@
 
 [workspace]
 members = [
-    "beagle-hypergraph",
-    "beagle-llm",
-    "beagle-server",
-    "beagle-sync",
+    "crates/beagle-db",
+    "crates/beagle-hypergraph",
+    "crates/beagle-llm",
+    "crates/beagle-personality",
+    "crates/beagle-server",
+    "crates/beagle-sync",
 ]
 resolver = "2"
 
@@ -25,22 +27,59 @@ version = "0.1.0"
 # Dependencies are alphabetically ordered for traceability
 # ---------------------------------------------------------------------------
 [workspace.dependencies]
+# Async runtime
 async-trait = "0.1"
-axum = "0.7"
-chrono = { version = "0.4", features = ["serde"] }
-criterion = "0.5"
-proptest = "1.5"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
-thiserror = "2.0"
 tokio = { version = "1.40", features = ["full"] }
 tokio-test = "0.4"
+futures = "0.3"
+
+# Web framework
+axum = { version = "0.7", features = ["macros"] }
+axum-extra = { version = "0.9", features = ["typed-header"] }
 tower = "0.5"
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+tower-http = { version = "0.5", features = ["compression-full", "cors", "trace"] }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.10", features = ["serde", "v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# API docs
+utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "8.1", features = ["axum"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Config & environment
+dotenvy = "0.15"
+config = "0.14"
+
+# Auth & security
+jsonwebtoken = "9.3"
+argon2 = "0.5"
+
+# Rate limiting
+governor = "0.6"
+
+# Observability
+# Observability
+prometheus = "0.13"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-uuid = { version = "1.10", features = ["serde", "v4"] }
+once_cell = "1.19"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# Testing and benchmarking
+criterion = "0.5"
+proptest = "1.5"
 
 # ---------------------------------------------------------------------------
 # Build profile configuration tuned for development, production, and benchmarking

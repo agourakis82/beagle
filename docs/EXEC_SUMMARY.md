@@ -7,7 +7,7 @@ Exocórtex cognitivo que elimina fragmentação através de interface unificada 
 - **Core**: Rust (Axum, SQLx, Tokio)
 - **Desktop**: Tauri 2.0
 - **Mobile**: Swift + SwiftUI
-- **LLM**: Claude Haiku 4.5 (primário, 80%) + Sonnet 4.5 (15%) + Gemini 1.5 Pro (5%)
+- **LLM**: Claude Haiku 4.5 (primário, 80%), Sonnet 4.5 (15%), Gemini 1.5 Pro (5%)
 - **Databases**: PostgreSQL + pgvector, Neo4j, Qdrant
 - **Infraestrutura**: Kubernetes (5 nós), Darwin Core hypergraph backend
 
@@ -28,12 +28,13 @@ Exocórtex cognitivo que elimina fragmentação através de interface unificada 
 ## Status Atual
 - ✅ Repositórios mapeados (beagle, darwin-core, darwin-workspace)
 - ✅ Workspace Rust consolidado (crates: server, hypergraph, llm, sync)
-- 🔄 Artefatos legados arquivados em `legacy/`
-- ⏳ Auditoria Darwin e setup de bancos/K8s em planejamento
+- ✅ Personality Engine implementado e validado (3 testes)
+- ✅ Estrutura reorganizada (`crates/*`), manifests completos e build limpo (`SQLX_OFFLINE=true`)
+- 🔄 Provisionamento de Postgres/Redis (será concluído no T560 via Docker Compose)
+- ⏳ Meta-Agent (devil's advocate, pattern interrupt, serendipity engine)
 
 ## Próximos Passos
-1. Executar auditoria Darwin – gerar `docs/DARWIN_AUDIT.md`
-2. Provisionar PostgreSQL + pgvector, Neo4j e Qdrant no cluster
-3. Implementar `beagle-server` com endpoints `GET /health`, `POST /agents/route`
-4. Integrar `beagle-hypergraph` ao servidor (consulta e mutação)
-5. Documentar plano de migração contínua e estratégia de commits
+1. Subir e validar Postgres + Redis no T560 (Docker Compose + testes automatizados)
+2. Executar auditoria Darwin e documentar (`docs/DARWIN_AUDIT.md`)
+3. Implementar endpoints críticos no `beagle-server` (saúde, roteamento de agentes) e integrar `beagle-hypergraph`
+4. Definir estratégia de migração contínua e guidelines de commits

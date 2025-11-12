@@ -1,0 +1,24 @@
+coverage:
+  line: 85%
+  branch: 75%
+  function: 90%
+
+performance:
+  api_latency_p95: 200ms
+  api_latency_p99: 500ms
+  throughput_min: 5000 req/sec
+
+complexity:
+  cyclomatic_max: 10
+  cognitive_max: 15
+
+security:
+  vulnerabilities: 0
+  high_severity: 0
+  medium_severity: 0
+
+
+
+
+
+
