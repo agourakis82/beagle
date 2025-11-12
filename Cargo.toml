@@ -8,6 +8,7 @@ members = [
     "crates/beagle-db",
     "crates/beagle-hypergraph",
     "crates/beagle-llm",
+    "crates/beagle-memory",
     "crates/beagle-personality",
     "crates/beagle-server",
     "crates/beagle-sync",
@@ -32,6 +33,10 @@ async-trait = "0.1"
 tokio = { version = "1.40", features = ["full"] }
 tokio-test = "0.4"
 futures = "0.3"
+
+# Internal crates
+beagle-memory = { path = "crates/beagle-memory" }
+beagle-personality = { path = "crates/beagle-personality" }
 
 # Web framework
 axum = { version = "0.7", features = ["macros"] }

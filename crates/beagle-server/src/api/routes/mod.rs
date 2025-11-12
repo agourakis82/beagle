@@ -5,6 +5,9 @@ use axum::Router;
 use crate::state::AppState;
 
 pub mod auth;
+pub mod chat;
+pub mod chat_public;
+pub mod dev;
 pub mod health;
 pub mod hyperedges;
 pub mod metrics;
@@ -39,4 +42,14 @@ pub fn auth_routes() -> Router<AppState> {
 /// Rotas de telemetria e métricas.
 pub fn metrics_routes() -> Router<AppState> {
     Router::new().merge(metrics::router())
+}
+
+/// Rotas de chat com Vertex AI.
+pub fn chat_routes() -> Router<AppState> {
+    Router::new().merge(chat::router())
+}
+
+/// Rotas de chat públicas (sem autenticação).
+pub fn chat_public_routes() -> Router<AppState> {
+    Router::new().merge(chat_public::router())
 }
