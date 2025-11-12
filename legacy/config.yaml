@@ -1,0 +1,26 @@
+paths:
+  - /home/agourakis82/workspace
+health_checks:
+  - name: Darwin Core API
+    port: 8090
+    host: localhost
+    expect_http: true
+  - name: Darwin Workspace API
+    port: 8091
+    host: localhost
+    expect_http: true
+  - name: Darwin Analytics
+    port: 8093
+    host: localhost
+    expect_http: true
+  - name: Vector DB (Qdrant)
+    port: 6333
+    host: localhost
+    expect_http: true
+  - name: Ollama Runtime
+    port: 11434
+    host: localhost
+    expect_http: true
+report:
+  output_path: ARCHITECTURE.md
+
