@@ -9,15 +9,19 @@ pub mod causal_endpoint;
 pub mod chat;
 pub mod chat_public;
 pub mod debate;
+pub mod deep_research_endpoint;
 pub mod dev;
 pub mod health;
 pub mod hyperedges;
 pub mod metrics;
 pub mod nodes;
+pub mod neurosymbolic_endpoint;
 pub mod parallel_research;
 pub mod reasoning_endpoint;
 pub mod research;
 pub mod search;
+pub mod swarm_endpoint;
+pub mod temporal_endpoint;
 
 /// Rotas de health-check.
 pub fn health_routes() -> Router<AppState> {

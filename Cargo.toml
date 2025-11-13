@@ -91,6 +91,10 @@ reqwest = { version = "0.12", features = ["json"] }
 criterion = "0.5"
 proptest = "1.5"
 
+# Quantum-inspired computation
+num-complex = "0.4"
+rand = "0.8"
+
 # ---------------------------------------------------------------------------
 # Build profile configuration tuned for development, production, and benchmarking
 # ---------------------------------------------------------------------------

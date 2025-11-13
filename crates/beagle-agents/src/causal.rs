@@ -9,26 +9,19 @@ use std::sync::Arc;
 
 use tracing::info;
 
-
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 
 pub struct CausalGraph {
-
     pub nodes: Vec<CausalNode>,
 
     pub edges: Vec<CausalEdge>,
 
     pub metadata: CausalMetadata,
-
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 
 pub struct CausalNode {
-
     pub id: String,
 
     pub label: String,
@@ -36,15 +29,11 @@ pub struct CausalNode {
     pub node_type: NodeType,
 
     pub description: String,
-
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 
 pub enum NodeType {
-
     Variable,
 
     Intervention,
@@ -52,15 +41,11 @@ pub enum NodeType {
     Outcome,
 
     Confounder,
-
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 
 pub struct CausalEdge {
-
     pub from: String,
 
     pub to: String,
@@ -72,15 +57,11 @@ pub struct CausalEdge {
     pub evidence: Vec<String>,
 
     pub confounders: Vec<String>,
-
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 
 pub enum CausalEdgeType {
-
     DirectCause,
 
     IndirectCause,
@@ -88,29 +69,21 @@ pub enum CausalEdgeType {
     Mediator,
 
     Moderator,
-
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 
 pub struct CausalMetadata {
-
     pub source_text: String,
 
     pub confidence: f32,
 
     pub limitations: Vec<String>,
-
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 
 pub struct InterventionResult {
-
     pub intervention: String,
 
     pub target_variable: String,
@@ -124,15 +97,11 @@ pub struct InterventionResult {
     pub causal_mechanism: String,
 
     pub assumptions: Vec<String>,
-
 }
-
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 
 pub struct CounterfactualResult {
-
     pub original_scenario: String,
 
     pub counterfactual_scenario: String,
@@ -140,36 +109,24 @@ pub struct CounterfactualResult {
     pub predicted_outcome: String,
 
     pub confidence: f32,
-
 }
-
-
 
 pub struct CausalReasoner {
-
     llm: Arc<AnthropicClient>,
-
 }
 
-
-
 impl CausalReasoner {
-
     pub fn new(llm: Arc<AnthropicClient>) -> Self {
-
         Self { llm }
-
     }
-
-    
 
     /// Extract causal graph from scientific text
 
     pub async fn extract_causal_graph(&self, text: &str) -> Result<CausalGraph> {
-
-        info!("🔗 Extracting causal graph from text ({} chars)", text.len());
-
-        
+        info!(
+            "🔗 Extracting causal graph from text ({} chars)",
+            text.len()
+        );
 
         let prompt = format!(
 
@@ -205,10 +162,7 @@ impl CausalReasoner {
 
         );
 
-        
-
         let request = CompletionRequest {
-
             model: ModelType::ClaudeSonnet4,
 
             messages: vec![Message::user(prompt)],
@@ -218,109 +172,75 @@ impl CausalReasoner {
             temperature: 0.2,
 
             system: Some(
-
                 "You are a causal inference expert trained in Pearl's causal calculus. \
 
                  Only extract genuine causal relationships with empirical evidence. \
 
-                 Be conservative and rigorous.".to_string()
-
+                 Be conservative and rigorous."
+                    .to_string(),
             ),
-
         };
 
-        
-
         let response = self.llm.complete(request).await?;
-
-        
 
         // Parse JSON
 
         let content = response.content.trim();
 
         let json_content = if content.starts_with("```") {
-
             // Strip markdown if present
 
-            content.lines()
-
+            content
+                .lines()
                 .skip_while(|l| l.starts_with("```"))
-
                 .take_while(|l| !l.starts_with("```"))
-
                 .collect::<Vec<_>>()
-
                 .join("\n")
-
         } else {
-
             content.to_string()
-
         };
-
-        
 
         #[derive(Deserialize)]
 
         struct GraphData {
-
             nodes: Vec<CausalNode>,
 
             edges: Vec<CausalEdge>,
-
         }
 
-        
+        let data: GraphData = serde_json::from_str(&json_content).unwrap_or(GraphData {
+            nodes: vec![],
 
-        let data: GraphData = serde_json::from_str(&json_content)
+            edges: vec![],
+        });
 
-            .unwrap_or(GraphData {
-
-                nodes: vec![],
-
-                edges: vec![],
-
-            });
-
-        
-
-        info!("✅ Extracted {} nodes, {} edges", data.nodes.len(), data.edges.len());
-
-        
+        info!(
+            "✅ Extracted {} nodes, {} edges",
+            data.nodes.len(),
+            data.edges.len()
+        );
 
         Ok(CausalGraph {
-
             nodes: data.nodes,
 
             edges: data.edges,
 
             metadata: CausalMetadata {
-
                 source_text: text.chars().take(200).collect(),
 
                 confidence: 0.7,
 
                 limitations: vec![
-
                     "Extracted from observational text".to_string(),
-
                     "Requires experimental validation".to_string(),
-
                 ],
-
             },
-
         })
-
     }
-
-    
 
     /// Perform causal intervention: do(X = x)
 
     pub async fn intervention(
-
         &self,
 
         graph: &CausalGraph,
@@ -328,19 +248,12 @@ impl CausalReasoner {
         variable: &str,
 
         value: &str,
-
     ) -> Result<InterventionResult> {
-
         info!("🔬 Simulating intervention: do({} = {})", variable, value);
-
-        
 
         let graph_json = serde_json::to_string_pretty(graph)?;
 
-        
-
         let prompt = format!(
-
             "Given this causal graph:\n\n\
 
              {}\n\n\
@@ -366,15 +279,10 @@ impl CausalReasoner {
              - Causal mechanism explanation\n\
 
              - Key assumptions",
-
             graph_json, variable, value, variable
-
         );
 
-        
-
         let request = CompletionRequest {
-
             model: ModelType::ClaudeSonnet4,
 
             messages: vec![Message::user(prompt)],
@@ -383,18 +291,14 @@ impl CausalReasoner {
 
             temperature: 0.3,
 
-            system: Some("You are a causal inference expert using Pearl's do-calculus.".to_string()),
-
+            system: Some(
+                "You are a causal inference expert using Pearl's do-calculus.".to_string(),
+            ),
         };
-
-        
 
         let response = self.llm.complete(request).await?;
 
-        
-
         Ok(InterventionResult {
-
             intervention: format!("do({} = {})", variable, value),
 
             target_variable: variable.to_string(),
@@ -408,23 +312,15 @@ impl CausalReasoner {
             causal_mechanism: "See predicted effect".to_string(),
 
             assumptions: vec![
-
                 "No unmeasured confounding".to_string(),
-
                 "Graph structure is correct".to_string(),
-
             ],
-
         })
-
     }
-
-    
 
     /// Counterfactual reasoning: what if NOT X?
 
     pub async fn counterfactual(
-
         &self,
 
         graph: &CausalGraph,
@@ -434,19 +330,15 @@ impl CausalReasoner {
         actual_value: &str,
 
         counterfactual_value: &str,
-
     ) -> Result<CounterfactualResult> {
-
-        info!("🔄 Counterfactual: {} = {} vs {}", variable, actual_value, counterfactual_value);
-
-        
+        info!(
+            "🔄 Counterfactual: {} = {} vs {}",
+            variable, actual_value, counterfactual_value
+        );
 
         let graph_json = serde_json::to_string_pretty(graph)?;
 
-        
-
         let prompt = format!(
-
             "Given this causal graph and observed outcome with {} = {}:\n\n\
 
              {}\n\n\
@@ -462,21 +354,16 @@ impl CausalReasoner {
              3. Prediction: Compute counterfactual outcome\n\n\
 
              Be specific about which outcomes would change and by how much.",
-
-            variable, actual_value,
-
+            variable,
+            actual_value,
             graph_json,
-
-            variable, counterfactual_value,
-
-            variable, counterfactual_value
-
+            variable,
+            counterfactual_value,
+            variable,
+            counterfactual_value
         );
 
-        
-
         let request = CompletionRequest {
-
             model: ModelType::ClaudeSonnet4,
 
             messages: vec![Message::user(prompt)],
@@ -485,18 +372,15 @@ impl CausalReasoner {
 
             temperature: 0.3,
 
-            system: Some("You are a causal inference expert using Pearl's counterfactual reasoning.".to_string()),
-
+            system: Some(
+                "You are a causal inference expert using Pearl's counterfactual reasoning."
+                    .to_string(),
+            ),
         };
-
-        
 
         let response = self.llm.complete(request).await?;
 
-        
-
         Ok(CounterfactualResult {
-
             original_scenario: format!("{} = {}", variable, actual_value),
 
             counterfactual_scenario: format!("{} = {}", variable, counterfactual_value),
@@ -504,20 +388,13 @@ impl CausalReasoner {
             predicted_outcome: response.content,
 
             confidence: 0.6,
-
         })
-
     }
-
-    
 
     /// Visualize causal graph as ASCII art
 
     pub fn visualize_graph(&self, graph: &CausalGraph) -> String {
-
         let mut output = String::new();
-
-        
 
         output.push_str("╔════════════════════════════════════════════════════════════╗\n");
 
@@ -525,52 +402,38 @@ impl CausalReasoner {
 
         output.push_str("╚════════════════════════════════════════════════════════════╝\n\n");
 
-        
-
         output.push_str("Nodes:\n");
 
         for node in &graph.nodes {
-
-            output.push_str(&format!("  [{}] {} ({:?})\n", 
-
-                                    node.id, node.label, node.node_type));
-
+            output.push_str(&format!(
+                "  [{}] {} ({:?})\n",
+                node.id, node.label, node.node_type
+            ));
         }
-
-        
 
         output.push_str("\nCausal Edges:\n");
 
         for edge in &graph.edges {
-
             output.push_str(&format!(
-
                 "  {} --[{:?}, strength: {:.2}]--> {}\n",
-
                 edge.from, edge.edge_type, edge.strength, edge.to
-
             ));
 
-            
-
             if !edge.confounders.is_empty() {
-
-                output.push_str(&format!("    Confounders: {}\n", edge.confounders.join(", ")));
-
+                output.push_str(&format!(
+                    "    Confounders: {}\n",
+                    edge.confounders.join(", ")
+                ));
             }
-
         }
-
-        
 
         output.push_str(&format!("\nConfidence: {:.2}\n", graph.metadata.confidence));
 
-        output.push_str(&format!("Limitations: {}\n", graph.metadata.limitations.join("; ")));
-
-        
+        output.push_str(&format!(
+            "Limitations: {}\n",
+            graph.metadata.limitations.join("; ")
+        ));
 
         output
-
     }
-
 }

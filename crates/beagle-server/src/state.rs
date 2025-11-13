@@ -1,11 +1,26 @@
 //! Estado compartilhado da aplicação Axum.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use beagle_agents::{
+    // Existing
     CausalReasoner, CoordinatorAgent, DebateOrchestrator, HypergraphReasoner, QualityAgent,
     ResearcherAgent, RetrievalAgent, ValidationAgent,
+    // NEW - Deep Research
+    MCTSEngine, SimulationEngine,
+    // NEW - Swarm
+    SwarmOrchestrator,
+    // NEW - Temporal
+    TemporalReasoner,
+    // NEW - Meta-Cognitive
+    PerformanceMonitor, WeaknessAnalyzer, ArchitectureEvolver, SpecializedAgentFactory,
+    // NEW - Neuro-Symbolic
+    NeuralExtractor, HybridReasoner,
+    // NEW - Quantum
+    MeasurementOperator, InterferenceEngine,
+    // NEW - Adversarial
+    CompetitionArena,
 };
 use beagle_hypergraph::storage::CachedPostgresStorage;
 use beagle_llm::{AnthropicClient, GeminiClient, VertexAIClient};
@@ -31,6 +46,18 @@ pub struct AppState {
     debate_orchestrator: Option<Arc<DebateOrchestrator>>,
     hypergraph_reasoner: Option<Arc<HypergraphReasoner>>,
     causal_reasoner: Option<Arc<CausalReasoner>>,
+    // Revolutionary techniques (v2.0)
+    deep_research_engine: Option<Arc<MCTSEngine>>,
+    swarm_orchestrator: Option<Arc<SwarmOrchestrator>>,
+    temporal_reasoner: Option<Arc<TemporalReasoner>>,
+    performance_monitor: Arc<Mutex<PerformanceMonitor>>,
+    weakness_analyzer: Option<Arc<WeaknessAnalyzer>>,
+    architecture_evolver: Option<Arc<Mutex<ArchitectureEvolver>>>,
+    neural_extractor: Option<Arc<NeuralExtractor>>,
+    hybrid_reasoner: Option<Arc<Mutex<HybridReasoner>>>,
+    measurement_operator: Arc<MeasurementOperator>,
+    interference_engine: Arc<InterferenceEngine>,
+    competition_arena: Option<Arc<CompetitionArena>>,
 }
 
 impl AppState {
@@ -132,6 +159,78 @@ impl AppState {
             Arc::new(CausalReasoner::new(llm.clone()))
         });
 
+        // Performance monitoring (always active)
+        let performance_monitor = Arc::new(Mutex::new(PerformanceMonitor::new(1000)));
+
+        // Measurement operator (always active)
+        let measurement_operator = Arc::new(MeasurementOperator::new(0.7));
+
+        // Interference engine (always active)
+        let interference_engine = Arc::new(InterferenceEngine::new());
+
+        // Deep Research Engine
+        let deep_research_engine = if let (Some(ref anthropic), Some(ref debate), Some(ref reasoning), Some(ref causal)) 
+            = (&anthropic_client, &debate_orchestrator, &hypergraph_reasoner, &causal_reasoner) 
+        {
+            let simulator = Arc::new(SimulationEngine::new(
+                debate.clone(),
+                reasoning.clone(),
+                causal.clone(),
+            ));
+            let engine = MCTSEngine::new(
+                anthropic.clone(),
+                simulator,
+                20, // iterations
+            );
+            info!("✅ Deep Research Engine initialized (MCTS + PUCT)");
+            Some(Arc::new(engine))
+        } else {
+            warn!("⚠️  Deep Research Engine not initialized");
+            None
+        };
+
+        // Swarm Intelligence
+        let swarm_orchestrator = anthropic_client.as_ref().map(|llm| {
+            let swarm = SwarmOrchestrator::new(20, llm.clone()); // 20 agents
+            info!("✅ Swarm Intelligence initialized (20 agents)");
+            Arc::new(swarm)
+        });
+
+        // Temporal Multi-Scale
+        let temporal_reasoner = anthropic_client.as_ref().map(|llm| {
+            let reasoner = TemporalReasoner::new(llm.clone());
+            info!("✅ Temporal Multi-Scale Reasoner initialized");
+            Arc::new(reasoner)
+        });
+
+        // Meta-Cognitive
+        let (weakness_analyzer, architecture_evolver) = if let Some(ref anthropic) = anthropic_client {
+            let analyzer = Arc::new(WeaknessAnalyzer::new(anthropic.clone()));
+            let factory = SpecializedAgentFactory::new(anthropic.clone());
+            let evolver = Arc::new(Mutex::new(ArchitectureEvolver::new(factory)));
+            info!("✅ Meta-Cognitive System initialized");
+            (Some(analyzer), Some(evolver))
+        } else {
+            (None, None)
+        };
+
+        // Neuro-Symbolic
+        let (neural_extractor, hybrid_reasoner) = if let Some(ref anthropic) = anthropic_client {
+            let extractor = Arc::new(NeuralExtractor::new(anthropic.clone()));
+            let hybrid = Arc::new(Mutex::new(HybridReasoner::new(extractor.clone())));
+            info!("✅ Neuro-Symbolic Hybrid initialized");
+            (Some(extractor), Some(hybrid))
+        } else {
+            (None, None)
+        };
+
+        // Adversarial Self-Play
+        let competition_arena = anthropic_client.as_ref().map(|llm| {
+            let arena = CompetitionArena::new(llm.clone());
+            info!("✅ Adversarial Competition Arena initialized");
+            Arc::new(arena)
+        });
+
         Ok(Self {
             storage,
             jwt_secret: Arc::new(config.jwt_secret().to_owned()),
@@ -147,6 +246,17 @@ impl AppState {
             debate_orchestrator,
             hypergraph_reasoner,
             causal_reasoner,
+            deep_research_engine,
+            swarm_orchestrator,
+            temporal_reasoner,
+            performance_monitor,
+            weakness_analyzer,
+            architecture_evolver,
+            neural_extractor,
+            hybrid_reasoner,
+            measurement_operator,
+            interference_engine,
+            competition_arena,
         })
     }
 
@@ -206,5 +316,49 @@ impl AppState {
 
     pub fn causal_reasoner(&self) -> Option<Arc<CausalReasoner>> {
         self.causal_reasoner.clone()
+    }
+
+    pub fn deep_research_engine(&self) -> Option<Arc<MCTSEngine>> {
+        self.deep_research_engine.clone()
+    }
+
+    pub fn swarm_orchestrator(&self) -> Option<Arc<SwarmOrchestrator>> {
+        self.swarm_orchestrator.clone()
+    }
+
+    pub fn temporal_reasoner(&self) -> Option<Arc<TemporalReasoner>> {
+        self.temporal_reasoner.clone()
+    }
+
+    pub fn performance_monitor(&self) -> Arc<Mutex<PerformanceMonitor>> {
+        self.performance_monitor.clone()
+    }
+
+    pub fn weakness_analyzer(&self) -> Option<Arc<WeaknessAnalyzer>> {
+        self.weakness_analyzer.clone()
+    }
+
+    pub fn architecture_evolver(&self) -> Option<Arc<Mutex<ArchitectureEvolver>>> {
+        self.architecture_evolver.clone()
+    }
+
+    pub fn neural_extractor(&self) -> Option<Arc<NeuralExtractor>> {
+        self.neural_extractor.clone()
+    }
+
+    pub fn hybrid_reasoner(&self) -> Option<Arc<Mutex<HybridReasoner>>> {
+        self.hybrid_reasoner.clone()
+    }
+
+    pub fn measurement_operator(&self) -> Arc<MeasurementOperator> {
+        self.measurement_operator.clone()
+    }
+
+    pub fn interference_engine(&self) -> Arc<InterferenceEngine> {
+        self.interference_engine.clone()
+    }
+
+    pub fn competition_arena(&self) -> Option<Arc<CompetitionArena>> {
+        self.competition_arena.clone()
     }
 }

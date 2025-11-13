@@ -83,3 +83,5 @@ pub struct CompletionResponse {
     pub model: String,
     pub usage: Value,
 }
+
+

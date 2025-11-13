@@ -8,7 +8,10 @@ use std::time::Instant;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use super::{causal_endpoint, debate, parallel_research, reasoning_endpoint, research};
+use super::{
+    causal_endpoint, debate, deep_research_endpoint, neurosymbolic_endpoint, parallel_research,
+    reasoning_endpoint, research, swarm_endpoint, temporal_endpoint,
+};
 use crate::state::AppState;
 use beagle_llm::{CompletionRequest, Message, ModelType};
 
@@ -212,9 +215,13 @@ pub async fn dev_chat(
 
 pub fn dev_routes() -> Router<AppState> {
     Router::new()
+        // v1.0 features
         .route("/dev/chat", post(dev_chat))
         .route("/dev/research", post(research::research))
-        .route("/dev/research/parallel", post(parallel_research::parallel_research))
+        .route(
+            "/dev/research/parallel",
+            post(parallel_research::parallel_research),
+        )
         .route("/dev/debate", post(debate::debate))
         .route("/dev/reasoning", post(reasoning_endpoint::reasoning))
         .route(
@@ -224,6 +231,17 @@ pub fn dev_routes() -> Router<AppState> {
         .route(
             "/dev/causal/intervention",
             post(causal_endpoint::intervention),
+        )
+        // v2.0 revolutionary features
+        .route(
+            "/dev/deep-research",
+            post(deep_research_endpoint::deep_research),
+        )
+        .route("/dev/swarm", post(swarm_endpoint::swarm_explore))
+        .route("/dev/temporal", post(temporal_endpoint::temporal_analyze))
+        .route(
+            "/dev/neurosymbolic",
+            post(neurosymbolic_endpoint::neurosymbolic_reason),
         )
 }
 

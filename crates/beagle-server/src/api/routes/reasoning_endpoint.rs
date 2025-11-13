@@ -29,9 +29,10 @@ pub async fn reasoning(
 ) -> Result<Json<ReasoningResponse>, (StatusCode, String)> {
     info!("🕸️ /dev/reasoning - {} → {}", req.source, req.target);
 
-    let reasoner = state
-        .hypergraph_reasoner()
-        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "Reasoner not available".to_string()))?;
+    let reasoner = state.hypergraph_reasoner().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Reasoner not available".to_string(),
+    ))?;
 
     let paths = reasoner
         .find_reasoning_paths(&req.source, &req.target, req.max_hops)

@@ -29,12 +29,10 @@ pub async fn extract_causal_graph(
 ) -> Result<Json<CausalExtractionResponse>, (StatusCode, String)> {
     info!("🔗 /dev/causal/extract - {} chars", req.text.len());
 
-    let reasoner = state
-        .causal_reasoner()
-        .ok_or((
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Causal reasoner not available".to_string(),
-        ))?;
+    let reasoner = state.causal_reasoner().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Causal reasoner not available".to_string(),
+    ))?;
 
     let graph = reasoner
         .extract_causal_graph(&req.text)
@@ -59,14 +57,15 @@ pub async fn intervention(
     State(state): State<AppState>,
     Json(req): Json<InterventionRequest>,
 ) -> Result<Json<InterventionResult>, (StatusCode, String)> {
-    info!("🔬 /dev/causal/intervention - do({} = {})", req.variable, req.value);
+    info!(
+        "🔬 /dev/causal/intervention - do({} = {})",
+        req.variable, req.value
+    );
 
-    let reasoner = state
-        .causal_reasoner()
-        .ok_or((
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Causal reasoner not available".to_string(),
-        ))?;
+    let reasoner = state.causal_reasoner().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Causal reasoner not available".to_string(),
+    ))?;
 
     let result = reasoner
         .intervention(&req.graph, &req.variable, &req.value)
@@ -77,5 +76,3 @@ pub async fn intervention(
 
     Ok(Json(result))
 }
-
-
