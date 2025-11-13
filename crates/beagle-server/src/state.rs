@@ -3,6 +3,10 @@
 use std::sync::Arc;
 
 use anyhow::Context;
+use beagle_agents::{
+    CausalReasoner, CoordinatorAgent, DebateOrchestrator, HypergraphReasoner, QualityAgent,
+    ResearcherAgent, RetrievalAgent, ValidationAgent,
+};
 use beagle_hypergraph::storage::CachedPostgresStorage;
 use beagle_llm::{AnthropicClient, GeminiClient, VertexAIClient};
 use beagle_memory::ContextBridge;
@@ -14,7 +18,6 @@ use crate::config::Config;
 #[derive(Clone)]
 pub struct AppState {
     pub storage: Arc<CachedPostgresStorage>,
-    context_bridge: Arc<ContextBridge>,
     jwt_secret: Arc<String>,
     jwt_expiration_hours: i64,
     admin_username: Arc<String>,
@@ -22,6 +25,12 @@ pub struct AppState {
     vertex_client: Option<Arc<VertexAIClient>>,
     gemini_client: Option<Arc<GeminiClient>>,
     anthropic_client: Option<Arc<AnthropicClient>>,
+    context_bridge: Arc<ContextBridge>,
+    researcher_agent: Option<Arc<ResearcherAgent>>,
+    coordinator_agent: Option<Arc<CoordinatorAgent>>,
+    debate_orchestrator: Option<Arc<DebateOrchestrator>>,
+    hypergraph_reasoner: Option<Arc<HypergraphReasoner>>,
+    causal_reasoner: Option<Arc<CausalReasoner>>,
 }
 
 impl AppState {
@@ -78,9 +87,53 @@ impl AppState {
         let storage = Arc::new(storage);
         let context_bridge = Arc::new(ContextBridge::new(storage.clone()));
 
+        // Initialize Researcher Agent (sequencial) if Anthropic available
+        let researcher_agent = anthropic_client.as_ref().map(|anthropic| {
+            let personality = Arc::new(beagle_personality::PersonalityEngine::new());
+            let agent = ResearcherAgent::new(
+                anthropic.clone(),
+                personality.clone(),
+                context_bridge.clone(),
+            );
+            info!("✅ Researcher Agent (sequential) initialized");
+            Arc::new(agent)
+        });
+
+        // Initialize Coordinator Agent (parallel multi-agent) if Anthropic available
+        let coordinator_agent = anthropic_client.as_ref().map(|anthropic| {
+            let personality = Arc::new(beagle_personality::PersonalityEngine::new());
+            let coordinator = CoordinatorAgent::new(
+                anthropic.clone(),
+                personality.clone(),
+                context_bridge.clone(),
+            )
+            .register_agent(Arc::new(RetrievalAgent::new(context_bridge.clone())))
+            .register_agent(Arc::new(ValidationAgent::new(anthropic.clone())))
+            .register_agent(Arc::new(QualityAgent::new(anthropic.clone())));
+
+            info!(
+                "⚡ CoordinatorAgent (parallel) initialized with Retrieval + Validation + Quality"
+            );
+            Arc::new(coordinator)
+        });
+
+        let debate_orchestrator = anthropic_client.as_ref().map(|llm| {
+            info!("🥊 DebateOrchestrator initialized");
+            Arc::new(DebateOrchestrator::new(llm.clone()))
+        });
+
+        let hypergraph_reasoner = anthropic_client.as_ref().map(|llm| {
+            info!("🕸️ HypergraphReasoner initialized");
+            Arc::new(HypergraphReasoner::new(storage.clone(), llm.clone()))
+        });
+
+        let causal_reasoner = anthropic_client.as_ref().map(|llm| {
+            info!("🔗 CausalReasoner initialized");
+            Arc::new(CausalReasoner::new(llm.clone()))
+        });
+
         Ok(Self {
             storage,
-            context_bridge,
             jwt_secret: Arc::new(config.jwt_secret().to_owned()),
             jwt_expiration_hours: config.jwt_expiration_hours(),
             admin_username: Arc::new(config.admin_username().to_owned()),
@@ -88,6 +141,12 @@ impl AppState {
             vertex_client,
             gemini_client,
             anthropic_client,
+            context_bridge,
+            researcher_agent,
+            coordinator_agent,
+            debate_orchestrator,
+            hypergraph_reasoner,
+            causal_reasoner,
         })
     }
 
@@ -127,5 +186,25 @@ impl AppState {
 
     pub fn context_bridge(&self) -> Arc<ContextBridge> {
         self.context_bridge.clone()
+    }
+
+    pub fn researcher_agent(&self) -> Option<Arc<ResearcherAgent>> {
+        self.researcher_agent.clone()
+    }
+
+    pub fn coordinator_agent(&self) -> Option<Arc<CoordinatorAgent>> {
+        self.coordinator_agent.clone()
+    }
+
+    pub fn debate_orchestrator(&self) -> Option<Arc<DebateOrchestrator>> {
+        self.debate_orchestrator.clone()
+    }
+
+    pub fn hypergraph_reasoner(&self) -> Option<Arc<HypergraphReasoner>> {
+        self.hypergraph_reasoner.clone()
+    }
+
+    pub fn causal_reasoner(&self) -> Option<Arc<CausalReasoner>> {
+        self.causal_reasoner.clone()
     }
 }

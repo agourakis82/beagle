@@ -5,13 +5,18 @@ use axum::Router;
 use crate::state::AppState;
 
 pub mod auth;
+pub mod causal_endpoint;
 pub mod chat;
 pub mod chat_public;
+pub mod debate;
 pub mod dev;
 pub mod health;
 pub mod hyperedges;
 pub mod metrics;
 pub mod nodes;
+pub mod parallel_research;
+pub mod reasoning_endpoint;
+pub mod research;
 pub mod search;
 
 /// Rotas de health-check.

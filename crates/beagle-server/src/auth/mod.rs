@@ -72,10 +72,3 @@ impl FromRequestParts<AppState> for Claims {
         Claims::decode(bearer.token(), state.jwt_secret())
     }
 }
-
-
-
-
-
-
-

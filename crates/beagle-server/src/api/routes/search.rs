@@ -151,10 +151,3 @@ pub async fn neighborhood(
 
     Ok(Json(response))
 }
-
-
-
-
-
-
-

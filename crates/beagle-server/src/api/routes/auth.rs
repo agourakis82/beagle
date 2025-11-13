@@ -124,10 +124,3 @@ pub async fn me(claims: Claims) -> Json<MeResponse> {
         expires_at: claims.exp,
     })
 }
-
-
-
-
-
-
-

@@ -44,6 +44,7 @@ reqwest.workspace = true
 prometheus.workspace = true
 
 # Internal Beagle crates
+beagle-agents = { path = "../beagle-agents" }
 beagle-hypergraph = { path = "../beagle-hypergraph" }
 beagle-llm = { path = "../beagle-llm" }
 beagle-db = { path = "../beagle-db" }

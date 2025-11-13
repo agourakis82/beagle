@@ -1,0 +1,32 @@
+[package]
+name = "beagle-agents"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Core
+anyhow = "1.0"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Async
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+
+# Internal crates
+beagle-llm = { path = "../beagle-llm" }
+beagle-personality = { path = "../beagle-personality" }
+beagle-memory = { path = "../beagle-memory" }
+beagle-hypergraph = { path = "../beagle-hypergraph" }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Logging
+tracing = "0.1"
+
+[dev-dependencies]
+tokio-test = "0.4"

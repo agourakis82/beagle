@@ -421,10 +421,3 @@ mod tests {
             .expect("half-open deveria aceitar a operação");
     }
 }
-
-
-
-
-
-
-

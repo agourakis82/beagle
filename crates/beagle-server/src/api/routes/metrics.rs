@@ -12,10 +12,3 @@ pub fn router() -> Router<AppState> {
 async fn metrics_endpoint() -> Result<impl axum::response::IntoResponse, ApiError> {
     metrics::metrics_handler().await
 }
-
-
-
-
-
-
-

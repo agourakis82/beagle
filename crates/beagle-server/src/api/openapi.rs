@@ -2,7 +2,7 @@
 
 use utoipa::OpenApi;
 
-use crate::api::routes::{auth, health, hyperedges, nodes, search};
+use crate::api::routes::{auth, chat, health, hyperedges, nodes, search};
 
 /// Documento OpenAPI 3.1 do Beagle Server.
 #[derive(OpenApi)]
@@ -20,6 +20,7 @@ use crate::api::routes::{auth, health, hyperedges, nodes, search};
         health::health_check,
         health::readiness_check,
         health::liveness_check,
+        chat::chat_completion,
         auth::login,
         auth::me,
         nodes::create_node,
@@ -40,6 +41,8 @@ use crate::api::routes::{auth, health, hyperedges, nodes, search};
             auth::LoginRequest,
             auth::LoginResponse,
             auth::MeResponse,
+            chat::ChatRequest,
+            chat::ChatResponse,
             nodes::CreateNodeRequest,
             nodes::UpdateNodeRequest,
             nodes::NodeResponse,
@@ -56,16 +59,10 @@ use crate::api::routes::{auth, health, hyperedges, nodes, search};
     tags(
         (name = "health", description = "Monitoramento e prontidão"),
         (name = "auth", description = "Autenticação e identidade"),
+        (name = "chat", description = "Integração LLM via Vertex AI"),
         (name = "nodes", description = "Gestão de nós do hipergrafo"),
         (name = "hyperedges", description = "Gestão de hiperedges"),
         (name = "search", description = "Busca semântica e navegação"),
     )
 )]
 pub struct ApiDoc;
-
-
-
-
-
-
-

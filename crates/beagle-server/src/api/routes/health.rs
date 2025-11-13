@@ -95,10 +95,3 @@ pub async fn readiness_check() -> &'static str {
 pub async fn liveness_check() -> &'static str {
     "alive"
 }
-
-
-
-
-
-
-

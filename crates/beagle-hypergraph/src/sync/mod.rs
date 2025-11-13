@@ -5,10 +5,3 @@
 //! dispositivos heterogêneos.
 
 pub mod crdt;
-
-
-
-
-
-
-

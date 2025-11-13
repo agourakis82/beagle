@@ -3,7 +3,10 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use argon2::{password_hash::{rand_core::OsRng, PasswordHasher, SaltString}, Argon2};
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+    Argon2,
+};
 use config::{Environment, File};
 
 /// Configuração completa para o servidor REST.
@@ -18,6 +21,8 @@ pub struct Config {
     admin_username: String,
     admin_password_hash: String,
     rate_limit_requests_per_minute: u32,
+    vertex_project_id: Option<String>,
+    vertex_location: String,
 }
 
 impl Config {
@@ -78,6 +83,18 @@ impl Config {
             .map(|value| value.max(1) as u32)
             .unwrap_or_else(|_| default_rate_limit_requests());
 
+        let vertex_project_id = settings
+            .get_string("VERTEX_PROJECT_ID")
+            .or_else(|_| settings.get_string("GOOGLE_CLOUD_PROJECT"))
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+
+        let vertex_location = settings
+            .get_string("VERTEX_LOCATION")
+            .or_else(|_| settings.get_string("GOOGLE_CLOUD_REGION"))
+            .unwrap_or_else(|_| default_vertex_location().to_string());
+
         Ok(Self {
             host,
             port,
@@ -88,6 +105,8 @@ impl Config {
             admin_username,
             admin_password_hash,
             rate_limit_requests_per_minute,
+            vertex_project_id,
+            vertex_location,
         })
     }
 
@@ -140,6 +159,26 @@ impl Config {
     pub fn jwt_ttl(&self) -> Duration {
         Duration::from_secs((self.jwt_expiration_hours * 3600) as u64)
     }
+
+    /// Projeto GCP utilizado para Vertex AI, se configurado.
+    pub fn vertex_project_id(&self) -> Option<&str> {
+        self.vertex_project_id.as_deref()
+    }
+
+    /// Região Vertex AI (padrão `us-central1`).
+    pub fn vertex_location(&self) -> &str {
+        &self.vertex_location
+    }
+
+    /// API key da Anthropic, se fornecida.
+    pub fn anthropic_api_key(&self) -> Option<String> {
+        std::env::var("ANTHROPIC_API_KEY").ok()
+    }
+
+    /// Identificador opcional do modelo Gemini servido via Vertex.
+    pub fn vertex_model_id(&self) -> Option<String> {
+        std::env::var("VERTEX_MODEL_ID").ok()
+    }
 }
 
 fn resolve_password_hash(
@@ -190,4 +229,8 @@ fn default_admin_username() -> &'static str {
 
 const fn default_rate_limit_requests() -> u32 {
     100
+}
+
+const fn default_vertex_location() -> &'static str {
+    "us-central1"
 }

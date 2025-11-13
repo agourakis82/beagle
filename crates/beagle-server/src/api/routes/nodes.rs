@@ -295,10 +295,3 @@ pub async fn list_nodes(
 
     Ok(Json(slice))
 }
-
-
-
-
-
-
-

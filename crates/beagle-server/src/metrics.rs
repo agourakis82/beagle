@@ -77,10 +77,3 @@ pub async fn track_http_requests(request: Request<Body>, next: Next) -> Response
 
     response
 }
-
-
-
-
-
-
-

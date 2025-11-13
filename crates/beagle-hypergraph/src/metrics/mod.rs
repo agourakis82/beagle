@@ -4,10 +4,3 @@
 //! viabilizando coleta, registro e exportação de métricas operacionais.
 
 pub mod prometheus;
-
-
-
-
-
-
-

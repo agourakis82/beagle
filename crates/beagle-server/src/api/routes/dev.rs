@@ -8,6 +8,7 @@ use std::time::Instant;
 use tracing::{error, info};
 use uuid::Uuid;
 
+use super::{causal_endpoint, debate, parallel_research, reasoning_endpoint, research};
 use crate::state::AppState;
 use beagle_llm::{CompletionRequest, Message, ModelType};
 
@@ -210,7 +211,20 @@ pub async fn dev_chat(
 }
 
 pub fn dev_routes() -> Router<AppState> {
-    Router::new().route("/dev/chat", post(dev_chat))
+    Router::new()
+        .route("/dev/chat", post(dev_chat))
+        .route("/dev/research", post(research::research))
+        .route("/dev/research/parallel", post(parallel_research::parallel_research))
+        .route("/dev/debate", post(debate::debate))
+        .route("/dev/reasoning", post(reasoning_endpoint::reasoning))
+        .route(
+            "/dev/causal/extract",
+            post(causal_endpoint::extract_causal_graph),
+        )
+        .route(
+            "/dev/causal/intervention",
+            post(causal_endpoint::intervention),
+        )
 }
 
 fn parse_domain_override(raw: &str) -> Option<Domain> {
