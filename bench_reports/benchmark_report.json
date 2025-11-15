@@ -1,0 +1,59 @@
+{
+  "meta": {
+    "unit": "ms",
+    "ref": "grpc_dispatch_task",
+    "benches": [
+      "grpc_dispatch_task",
+      "rest_dispatch_task"
+    ],
+    "targets_ms": {
+      "grpc_dispatch_task": 50.0,
+      "rest_dispatch_task": 200.0
+    },
+    "criterion_root": "target/criterion"
+  },
+  "results": [
+    {
+      "name": "grpc_dispatch_task",
+      "status": "ok",
+      "mean_ns": 588598.7339341148,
+      "median_ns": 586286.5890151515,
+      "stddev_ns": 11227.303077918914,
+      "ci95_low_ns": 586478.0995017737,
+      "ci95_high_ns": 590792.4879504257,
+      "p95_ns": 607067.6474972914,
+      "mean_ms": 0.5885987339341148,
+      "median_ms": 0.5862865890151515,
+      "stddev_ms": 0.011227303077918914,
+      "ci95_low_ms": 0.5864780995017738,
+      "ci95_high_ms": 0.5907924879504257,
+      "p95_ms": 0.6070676474972915,
+      "throughput_rps": 1698.9503074805045,
+      "speedup_vs_ref": 1.0,
+      "target_ms": 50.0,
+      "target_met": true,
+      "error_message": null
+    },
+    {
+      "name": "rest_dispatch_task",
+      "status": "ok",
+      "mean_ns": 36015507.125,
+      "median_ns": 35978585.25,
+      "stddev_ns": 138562.99447874253,
+      "ci95_low_ns": 35990360.74,
+      "ci95_high_ns": 36045174.67,
+      "p95_ns": 36243443.25091753,
+      "mean_ms": 36.015507125,
+      "median_ms": 35.97858525,
+      "stddev_ms": 0.13856299447874254,
+      "ci95_low_ms": 35.99036074,
+      "ci95_high_ms": 36.04517467,
+      "p95_ms": 36.24344325091753,
+      "throughput_rps": 27.765817555456678,
+      "speedup_vs_ref": 0.016342925059787416,
+      "target_ms": 200.0,
+      "target_met": true,
+      "error_message": null
+    }
+  ]
+}

@@ -6,6 +6,7 @@
 pub mod cache;
 mod graph;
 mod metrics;
+#[cfg(feature = "tokio-console")]
 mod profiling;
 pub mod resilience;
 pub mod search;

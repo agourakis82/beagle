@@ -1,6 +1,7 @@
 //! Estado compartilhado da aplicação Axum.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
+use tokio::sync::Mutex;
 
 use anyhow::Context;
 use beagle_agents::{
@@ -26,6 +27,7 @@ use beagle_hypergraph::storage::CachedPostgresStorage;
 use beagle_llm::{AnthropicClient, GeminiClient, VertexAIClient};
 use beagle_memory::ContextBridge;
 use tracing::{info, warn};
+use beagle_events::{BeaglePulsar, EventPublisher};
 
 use crate::config::Config;
 
@@ -58,6 +60,9 @@ pub struct AppState {
     measurement_operator: Arc<MeasurementOperator>,
     interference_engine: Arc<InterferenceEngine>,
     competition_arena: Option<Arc<CompetitionArena>>,
+    // Events
+    pub pulsar: Arc<BeaglePulsar>,
+    pub event_publisher: Arc<Mutex<EventPublisher>>,
 }
 
 impl AppState {
@@ -231,6 +236,14 @@ impl AppState {
             Arc::new(arena)
         });
 
+        // Initialize Pulsar (events)
+        let pulsar = BeaglePulsar::new(
+            std::env::var("PULSAR_BROKER_URL").unwrap_or_else(|_| "pulsar://localhost:6650".to_string()),
+            None
+        ).await.with_context(|| "Falha ao conectar ao Apache Pulsar")?;
+        let pulsar = Arc::new(pulsar);
+        let event_publisher = Arc::new(Mutex::new(EventPublisher::new(&pulsar, "beagle.events").await?));
+
         Ok(Self {
             storage,
             jwt_secret: Arc::new(config.jwt_secret().to_owned()),
@@ -257,6 +270,8 @@ impl AppState {
             measurement_operator,
             interference_engine,
             competition_arena,
+            pulsar,
+            event_publisher,
         })
     }
 

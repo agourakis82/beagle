@@ -50,7 +50,12 @@ beagle-llm = { path = "../beagle-llm" }
 beagle-db = { path = "../beagle-db" }
 beagle-memory.workspace = true
 beagle-personality.workspace = true
+beagle-events = { path = "../beagle-events" }
 
 [dev-dependencies]
 tokio-test.workspace = true
+criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
 
+[[bench]]
+name = "rest_benchmarks"
+harness = false

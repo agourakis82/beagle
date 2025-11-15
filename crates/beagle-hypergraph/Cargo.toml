@@ -27,6 +27,7 @@ path = "src/lib.rs"
 [features]
 default = []
 in-memory = [] # Enable in-memory storage implementation (for testing)
+tokio-console = ["dep:console-subscriber"]
 
 # ---------------------------------------------------------------------------
 # Runtime dependencies
@@ -48,7 +49,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
-console-subscriber = "0.2"
+console-subscriber = { version = "0.2", optional = true }
 slog = "2.7"
 slog-async = "2.8"
 slog-json = "2.6"

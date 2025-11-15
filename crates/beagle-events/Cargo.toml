@@ -1,0 +1,27 @@
+[package]
+name = "beagle-events"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dr. Demetrios Chiuratto <demetrios@agourakis.med.br>"]
+
+[dependencies]
+pulsar = "6.0"
+tokio = { workspace = true, features = ["full"] }
+async-trait = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+prometheus = { workspace = true }
+backoff = { version = "0.4", features = ["tokio"] }
+lazy_static = "1.4"
+futures-util = "0.3"
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+testcontainers = "0.15"
+
+

@@ -13,6 +13,8 @@ members = [
     "crates/beagle-personality",
     "crates/beagle-server",
     "crates/beagle-sync",
+    "crates/beagle-events",
+    "crates/beagle-grpc",
 ]
 resolver = "2"
 

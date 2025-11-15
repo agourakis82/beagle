@@ -13,6 +13,7 @@ pub mod deep_research_endpoint;
 pub mod dev;
 pub mod health;
 pub mod hyperedges;
+pub mod events;
 pub mod metrics;
 pub mod nodes;
 pub mod neurosymbolic_endpoint;
@@ -61,4 +62,9 @@ pub fn chat_routes() -> Router<AppState> {
 /// Rotas de chat públicas (sem autenticação).
 pub fn chat_public_routes() -> Router<AppState> {
     Router::new().merge(chat_public::router())
+}
+
+/// Rotas de eventos (Pulsar).
+pub fn event_routes() -> Router<AppState> {
+    Router::new().merge(events::router())
 }

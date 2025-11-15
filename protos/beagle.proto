@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+package beagle.v1;
+
+// ============================================
+// AGENT SERVICE
+// ============================================
+
+service AgentService {
+  // Dispatch task to agent
+  rpc DispatchTask(DispatchTaskRequest) returns (DispatchTaskResponse);
+  // Get agent status
+  rpc GetAgentStatus(GetAgentStatusRequest) returns (AgentStatus);
+  // Stream agent outputs
+  rpc StreamAgentOutput(StreamAgentOutputRequest) returns (stream AgentOutput);
+}
+
+message DispatchTaskRequest {
+  string agent_id = 1;
+  string task_id = 2;
+  string task_type = 3;
+  map<string, string> parameters = 4;
+}
+
+message DispatchTaskResponse {
+  string task_id = 1;
+  string status = 2; // "queued", "running", "completed", "failed"
+}
+
+message GetAgentStatusRequest {
+  string agent_id = 1;
+}
+
+message AgentStatus {
+  string agent_id = 1;
+  string state = 2; // "idle", "busy", "error"
+  int64 tasks_completed = 3;
+  int64 tasks_failed = 4;
+  string current_task_id = 5;
+}
+
+message StreamAgentOutputRequest {
+  string task_id = 1;
+}
+
+message AgentOutput {
+  string task_id = 1;
+  string output_type = 2; // "log", "result", "error"
+  string content = 3;
+  int64 timestamp = 4;
+}
+
+// ============================================
+// MEMORY SERVICE
+// ============================================
+
+service MemoryService {
+  // Store memory entry
+  rpc StoreMemory(StoreMemoryRequest) returns (StoreMemoryResponse);
+  // Retrieve memory by ID
+  rpc RetrieveMemory(RetrieveMemoryRequest) returns (MemoryEntry);
+  // Semantic search
+  rpc SemanticSearch(SemanticSearchRequest) returns (SemanticSearchResponse);
+}
+
+message StoreMemoryRequest {
+  string content = 1;
+  map<string, string> metadata = 2;
+  repeated float embedding = 3;
+}
+
+message StoreMemoryResponse {
+  string memory_id = 1;
+  bool success = 2;
+}
+
+message RetrieveMemoryRequest {
+  string memory_id = 1;
+}
+
+message MemoryEntry {
+  string memory_id = 1;
+  string content = 2;
+  map<string, string> metadata = 3;
+  repeated float embedding = 4;
+  int64 created_at = 5;
+}
+
+message SemanticSearchRequest {
+  string query = 1;
+  int32 top_k = 2;
+  float threshold = 3;
+}
+
+message SemanticSearchResponse {
+  repeated SearchResult results = 1;
+}
+
+message SearchResult {
+  string memory_id = 1;
+  float similarity = 2;
+  string content = 3;
+}
+
+// ============================================
+// MODEL SERVICE
+// ============================================
+
+service ModelService {
+  // Query LLM
+  rpc Query(ModelQueryRequest) returns (ModelQueryResponse);
+  // Stream LLM response
+  rpc StreamQuery(ModelQueryRequest) returns (stream ModelChunk);
+}
+
+message ModelQueryRequest {
+  string model = 1; // "haiku", "sonnet", "gemini"
+  string prompt = 2;
+  map<string, string> parameters = 3;
+}
+
+message ModelQueryResponse {
+  string response = 1;
+  int32 tokens_used = 2;
+  float latency_ms = 3;
+}
+
+message ModelChunk {
+  string content = 1;
+  bool is_final = 2;
+}
+
+
