@@ -46,3 +46,15 @@ tmp/
 # Rust build dirs (all crates)
 target/
 **/target/
+
+# Python: virtual environments and caches
+venv/
+.venv/
+**/venv/
+**/.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
