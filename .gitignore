@@ -42,3 +42,7 @@ docker-compose.override.yml
 tmp/
 *.tmp
 *.bak
+
+# Rust build dirs (all crates)
+target/
+**/target/
