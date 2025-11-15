@@ -15,6 +15,7 @@ members = [
     "crates/beagle-sync",
     "crates/beagle-events",
     "crates/beagle-grpc",
+    "crates/beagle-neurosymbolic",
 ]
 resolver = "2"
 

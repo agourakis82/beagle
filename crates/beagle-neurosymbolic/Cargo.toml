@@ -1,0 +1,47 @@
+[package]
+name = "beagle-neurosymbolic"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dr. Demetrios Chiuratto <demetrios@agourakis.med.br>"]
+license = "MIT OR Apache-2.0"
+description = "Neuro-Symbolic hybrid reasoning engine (Neural + Logic + Constraints) for BEAGLE"
+repository = "https://github.com/darwin-cluster/beagle"
+
+[lib]
+name = "beagle_neurosymbolic"
+path = "src/lib.rs"
+
+[features]
+default = []
+# Enable Z3-backed constraint solver
+z3 = ["dep:z3"]
+# Enable integration with beagle-llm
+llm = ["dep:beagle-llm"]
+
+[dependencies]
+# Workspace-shared deps when available
+tokio = { workspace = true, features = ["full"] }
+async-trait = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+criterion = { workspace = true, optional = true }
+indexmap = "2.2"
+
+# Internal crates
+beagle-hypergraph = { path = "../beagle-hypergraph" }
+beagle-llm = { path = "../beagle-llm", optional = true }
+
+# Logic & reasoning
+# Note: Keeping prolog crate out for now to avoid heavy transitive deps; FOL implemented in-house
+# prolog = "0.6"
+
+# SMT solver (optional; enabled via feature "z3")
+z3 = { version = "0.12", optional = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+
