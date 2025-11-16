@@ -1,0 +1,27 @@
+# Artifact and cache exclusions for rsync
+target/
+**/target/
+venv/
+.venv/
+**/venv/
+**/.venv/
+node_modules/
+**/node_modules/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+*.log
+*.sql.gz
+*.db
+*.tmp
+*.bak
+tmp/
+logs/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+

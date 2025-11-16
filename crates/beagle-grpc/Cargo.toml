@@ -1,0 +1,27 @@
+[package]
+name = "beagle-grpc"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dr. Demetrios Chiuratto <demetrios@agourakis.med.br>"]
+
+[dependencies]
+tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost"] }
+prost = "0.13"
+tokio = { workspace = true, features = ["full"] }
+tokio-stream = "0.1"
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[build-dependencies]
+tonic-build = "0.12"
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+criterion = { workspace = true, features = ["html_reports", "async_tokio"] }
+uuid = { workspace = true }
+
+[[bench]]
+name = "grpc_benchmarks"
+harness = false
+

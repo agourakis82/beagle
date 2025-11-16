@@ -1,23 +1,39 @@
 # Rust build artifacts
 target/
+**/target/
 Cargo.lock
+**/*.rs.bk
+*.pdb
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
 *.so
 .Python
 *.egg-info/
 dist/
 build/
+venv/
+.venv/
+**/venv/
+**/.venv/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
 
-# Environment
+# Environment & Secrets
 .env
 .env.*
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
 !.env.example
 
-# IDE
+# IDEs
 .vscode/
 .idea/
 *.swp
@@ -33,9 +49,28 @@ data/corpus/papers/*.pdf
 
 # Logs
 *.log
+*.sql.gz
+*.db
 logs/
 
 # OS
 .DS_Store
 Thumbs.db
 
+# Xcode (future Vision Pro app)
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+xcuserdata/
+DerivedData/
+
+# Docker
+docker-compose.override.yml
+
+# Documentation build artifacts
+/target/doc/
+/docs/_build/
+
+# Temporary files
+tmp/
+*.tmp
+*.bak

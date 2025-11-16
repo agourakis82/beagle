@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: beagle-server
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - beagle-server:3000
+      - targets:
+          - host.docker.internal:3000
+
+  - job_name: jaeger
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - jaeger:14269
+

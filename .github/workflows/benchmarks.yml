@@ -1,0 +1,37 @@
+name: Benchmarks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Run benchmarks
+        run: |
+          cd beagle-hypergraph
+          cargo bench --bench hypergraph_benchmarks -- --save-baseline pr-${{ github.event.number }}
+
+      - name: Upload results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: beagle-hypergraph/target/criterion/
+
+
+
+
+
+
+
+

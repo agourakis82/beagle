@@ -1,0 +1,29 @@
+# Cargo manifest for the beagle-llm crate
+[package]
+name = "beagle-llm"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+reqwest.workspace = true
+gcp_auth.workspace = true
+base64.workspace = true
+
+beagle-personality = { path = "../beagle-personality" }
+
+[dev-dependencies]
+tokio-test.workspace = true
+
+[[example]]
+name = "test_anthropic"
+path = "examples/test_anthropic.rs"
