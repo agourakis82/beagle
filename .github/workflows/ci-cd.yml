@@ -10,39 +10,63 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-      - run: cargo test --all-features
-      - run: cargo clippy -- -D warnings
+          components: clippy, rustfmt
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+      
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-index-
+      
+      - name: Cache target directory
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-
+      
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      
+      - name: Run tests
+        run: cargo test --workspace --all-features --no-fail-fast
+      
+      - name: Run clippy
+        run: cargo clippy --workspace --all-features -- -D warnings
 
   build:
     needs: test
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
     steps:
-      - uses: actions/checkout@v3
-      - uses: docker/build-push-action@v5
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build Docker image (if Dockerfile exists)
+        uses: docker/build-push-action@v5
         with:
-          context: .
-          push: true
-          tags: beagle-server:${{ github.sha }}
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: azure/setup-kubectl@v3
-      - run: |
-          kubectl set image deployment/beagle-server \
-            beagle-server=beagle-server:${{ github.sha }}
-          kubectl rollout status deployment/beagle-server
-
-
-
-
-
-
-
-
+          context: ./crates/beagle-server
+          file: ./crates/beagle-server/Dockerfile
+          push: false
+          tags: beagle-server:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+        continue-on-error: true

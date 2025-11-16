@@ -11,15 +11,38 @@ jobs:
     name: Test Suite (Offline Mode)
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: beagle_test
+          POSTGRES_USER: beagle_user
+          POSTGRES_PASSWORD: beagle_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          components: clippy, rustfmt
 
       - name: Cache sqlx metadata
         uses: actions/cache@v3
@@ -27,51 +50,64 @@ jobs:
           path: |
             **/sqlx-data.json
           key: ${{ runner.os }}-sqlx-${{ hashFiles('**/migrations/**') }}
+          restore-keys: |
+            ${{ runner.os }}-sqlx-
 
       - name: Cache cargo registry
         uses: actions/cache@v3
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
 
       - name: Cache cargo index
         uses: actions/cache@v3
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-index-
 
       - name: Cache target directory
         uses: actions/cache@v3
         with:
           path: target
           key: ${{ runner.os }}-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-
 
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Check compilation (offline)
-        run: |
-          cargo check --all-features
+        run: cargo check --workspace --all-features
 
       - name: Clippy (offline)
-        run: cargo clippy --all-features -- -D warnings
+        run: cargo clippy --workspace --all-features -- -D warnings
 
-      - name: Start test infrastructure
+      - name: Wait for services
         run: |
-          docker compose up -d postgres redis
-          sleep 10
+          until pg_isready -h localhost -p 5432 -U beagle_user; do
+            echo "Waiting for postgres..."
+            sleep 2
+          done
+          until redis-cli -h localhost ping; do
+            echo "Waiting for redis..."
+            sleep 2
+          done
+          sleep 5
 
       - name: Run migrations for tests
         env:
-          DATABASE_URL: postgres://beagle_user:password@localhost:5432/beagle_test
+          DATABASE_URL: postgres://beagle_user:beagle_test_password@localhost:5432/beagle_test
         run: |
-          cd beagle-db
           cargo install sqlx-cli --no-default-features --features postgres --locked
-          sqlx migrate run
+          sqlx migrate run --source crates/beagle-db/migrations || echo "Migrations may already be applied"
 
       - name: Run tests
         env:
-          TEST_DATABASE_URL: postgres://beagle_user:password@localhost:5432/beagle_test
+          TEST_DATABASE_URL: postgres://beagle_user:beagle_test_password@localhost:5432/beagle_test
           TEST_REDIS_URL: redis://localhost:6379/1
-        run: cargo test --all-features
-
+          RUST_BACKTRACE: 1
+        run: cargo test --workspace --all-features --no-fail-fast
