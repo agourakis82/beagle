@@ -1,0 +1,12 @@
+/home/maria/beagle/crates/beagle-hermes/target/debug/deps/gemm_common-c5a3341447ee4269.d: /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/lib.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/cache.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/gemm.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/gemv.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/gevv.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/microkernel.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/pack_operands.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/simd.rs
+
+/home/maria/beagle/crates/beagle-hermes/target/debug/deps/libgemm_common-c5a3341447ee4269.rmeta: /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/lib.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/cache.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/gemm.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/gemv.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/gevv.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/microkernel.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/pack_operands.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/simd.rs
+
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/lib.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/cache.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/gemm.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/gemv.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/gevv.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/microkernel.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/pack_operands.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gemm-common-0.17.1/src/simd.rs:

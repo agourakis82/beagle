@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # PostgreSQL - Structured Data
+  # ============================================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: beagle-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - ${DATA_DIR}/postgres:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - beagle-net
+
+  # ============================================
+  # Redis - Cache & Session
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: beagle-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 8gb --maxmemory-policy allkeys-lru
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - ${DATA_DIR}/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - beagle-net
+
+  # ============================================
+  # Qdrant - Vector Database
+  # ============================================
+  qdrant:
+    build:
+      context: ./docker/qdrant
+    container_name: beagle-qdrant
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_PORT}:6333"
+      - "${QDRANT_GRPC_PORT}:6334"
+    volumes:
+      - ${DATA_DIR}/qdrant:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - beagle-net
+
+  # ============================================
+  # vLLM - Inference Engine (L4 24GB)
+  # Modelo reduzido para estabilidade (Mistral-7B-Instruct)
+  # ============================================
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: beagle-vllm
+    restart: unless-stopped
+    ports:
+      - "${VLLM_PORT}:8000"
+    volumes:
+      - ${DATA_DIR}/models:/root/.cache/huggingface
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_WORKER_MULTIPROC_METHOD: spawn
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN}
+      HF_TOKEN: ${HF_TOKEN}
+    # Configuração estável para L4 24GB usando Mistral-7B-Instruct (7B) em vez de Gemma-2-9B
+    command: >
+      --model mistralai/Mistral-7B-Instruct-v0.2
+      --gpu-memory-utilization 0.80
+      --max-model-len 2048
+      --max-num-seqs 8
+      --dtype auto
+      --tensor-parallel-size 1
+      --trust-remote-code
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - beagle-net
+
+networks:
+  beagle-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

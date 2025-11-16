@@ -1,0 +1,18 @@
+/home/maria/beagle/crates/beagle-hermes/target/debug/deps/selectors-07b0e96a0e8cc825.d: /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/lib.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/attr.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/bloom.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/builder.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/context.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/matching.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/nth_index_cache.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/parser.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/sink.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/tree.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/visitor.rs /home/maria/beagle/crates/beagle-hermes/target/debug/build/selectors-ed47a312102bf704/out/ascii_case_insensitive_html_attributes.rs
+
+/home/maria/beagle/crates/beagle-hermes/target/debug/deps/libselectors-07b0e96a0e8cc825.rmeta: /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/lib.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/attr.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/bloom.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/builder.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/context.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/matching.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/nth_index_cache.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/parser.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/sink.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/tree.rs /home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/visitor.rs /home/maria/beagle/crates/beagle-hermes/target/debug/build/selectors-ed47a312102bf704/out/ascii_case_insensitive_html_attributes.rs
+
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/lib.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/attr.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/bloom.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/builder.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/context.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/matching.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/nth_index_cache.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/parser.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/sink.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/tree.rs:
+/home/maria/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/selectors-0.25.0/visitor.rs:
+/home/maria/beagle/crates/beagle-hermes/target/debug/build/selectors-ed47a312102bf704/out/ascii_case_insensitive_html_attributes.rs:
+
+# env-dep:OUT_DIR=/home/maria/beagle/crates/beagle-hermes/target/debug/build/selectors-ed47a312102bf704/out
