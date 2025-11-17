@@ -1,123 +1,107 @@
-# BEAGLE HERMES - Editorial Assistant Core
+# HERMES Background Paper Synthesis Engine (BPSE) v2.0
 
-**Status:** ✅ PROMPTS 4.1-4.4 COMPLETOS - Editorial Assistant Funcional
-
-**Testes:** ✅ 14/14 passando
+Sistema autônomo de síntese de papers científicos com captura contínua de pensamentos e geração progressiva de manuscritos.
 
 ## Arquitetura
 
 ```
-beagle-hermes/
-├── src/
-│   ├── lib.rs
-│   ├── editor/          # Multi-level editing (grammar → style → academic → journal)
-│   ├── citations/      # Auto-generation + verification
-│   ├── voice/          # Voice preservation (analyzer ✅, trainer, scorer)
-│   └── integration/    # Word, Overleaf, Google Docs
-├── models/lora/        # Personal LoRA adapters
-└── corpus/personal/    # User's previous papers
+Voice/Text → Thought Capture → Knowledge Graph → Synthesis → Manuscript
 ```
 
-## Implementado (PROMPT 4.1)
+### Componentes Principais
 
-### ✅ Voice Analyzer (`src/voice/analyzer.rs`)
+1. **Thought Capture**: Captura e processamento de insights (voz/texto)
+2. **Knowledge Graph**: Armazenamento e relacionamento de conceitos (Neo4j)
+3. **Synthesis Engine**: Geração autônoma de seções de papers
+4. **Multi-Agent System**: Orquestração paralela de agentes especializados
+5. **Manuscript Management**: Gerenciamento de estado de papers
 
-**Funcionalidades:**
-- Análise de padrões autorais do corpus pessoal
-- Extração de métricas:
-  - Comprimento médio de sentenças
-  - Diversidade lexical
-  - Fingerprint de vocabulário
-  - Perfil de pontuação
-  - Transições acadêmicas
-- Similaridade de voz (0.0-1.0) entre textos
+## Agentes
 
-**Testes:** ✅ 2/2 passando
+### ATHENA
+- **Função**: Revisão de literatura e coleta de contexto
+- **Capacidades**:
+  - Busca semântica via RAG pipeline (beagle-hypergraph)
+  - Fallback para busca baseada em LLM
+  - Extração de key findings de papers
 
-**Exemplo de uso:**
+### HERMES
+- **Função**: Geração de drafts e escrita
+- **Capacidades**:
+  - Geração de seções com preservação de voz (LoRA)
+  - Extração automática de citações
+  - Integração com Claude Sonnet 4.5
+
+### ARGOS
+- **Função**: Validação e controle de qualidade
+- **Capacidades**:
+  - Validação de citações
+  - Análise de flow lógico
+  - Detecção de issues (transições, claims não suportados, referências)
+
+### Multi-Agent Orchestrator
+- **Função**: Coordenação paralela de agentes
+- **Paralelização**:
+  - Múltiplos clusters processados simultaneamente
+  - Múltiplas seções geradas em paralelo
+  - Validações independentes executadas concorrentemente
+
+## Uso
+
+### Captura de Pensamento
+
 ```rust
-use beagle_hermes::VoiceAnalyzer;
+use beagle_hermes::{HermesEngine, ThoughtInput, ThoughtContext};
 
-let mut analyzer = VoiceAnalyzer::new();
-analyzer.add_document("Seu paper anterior...".to_string());
-let profile = analyzer.analyze();
+let hermes = HermesEngine::new(config).await?;
 
-let similarity = analyzer.voice_similarity(&profile, "Texto candidato...");
+let input = ThoughtInput::Text {
+    content: "Insight sobre scaffold entropy...".to_string(),
+    context: ThoughtContext::Hypothesis,
+};
+
+let insight_id = hermes.capture_thought(input).await?;
 ```
 
-## Implementado (PROMPTS 4.1-4.4)
+### Síntese Multi-Agente
 
-### ✅ PROMPT 4.1: Voice Analyzer
-- **Arquivo:** `src/voice/analyzer.rs`
-- **Status:** ✅ Completo e testado
-- **Funcionalidades:**
-  - Análise de padrões autorais
-  - Métricas de voz (comprimento, diversidade, vocabulário)
-  - Similaridade de voz (0.0-1.0)
+```rust
+use beagle_hermes::agents::MultiAgentOrchestrator;
 
-### ✅ PROMPT 4.2: LoRA Fine-Tuning Pipeline
-- **Arquivos:** `src/voice/{trainer.rs, scheduler.rs}`
-- **Status:** ✅ Estrutura completa (requer candle-transformers para execução real)
-- **Funcionalidades:**
-  - LoRA config (rank, alpha, dropout, target modules)
-  - Training dataset from corpus
-  - Training loop com métricas
-  - Incremental training (nightly updates)
-  - Nightly scheduler (3 AM retraining)
+let orchestrator = MultiAgentOrchestrator::new(voice_profile).await?;
 
-### ✅ PROMPT 4.3: Multi-Level Editor
-- **Arquivos:** `src/editor/{grammar.rs, style.rs}`
-- **Status:** ✅ Grammar e Style completos
-- **Funcionalidades:**
-  - **Grammar:** Spelling, punctuation, article usage
-  - **Style:** Passive voice, weak verbs, redundancy, sentence length, transitions
-  - Integração com VoiceProfile para preservação de voz
-
-### ✅ PROMPT 4.4: Citation Manager
-- **Arquivo:** `src/citations/generator.rs`
-- **Status:** ✅ Completo e testado
-- **Funcionalidades:**
-  - Auto-generation from Semantic Scholar (mock implementado)
-  - Verificação de papers (detecta fake citations)
-  - Multi-format: Vancouver, APA, ABNT, Nature, JAMA, Cell, Harvard
-  - Batch generation
-
-### ⏳ Pendentes (Stubs)
-- `src/editor/{academic.rs, journal.rs}` - Academic rigor e journal formatting
-- `src/citations/{verifier.rs, formatter.rs}` - Verificação completa e formatação avançada
-
-## Dependências
-
-**Ativas:**
-- `unicode-segmentation` - Processamento de texto
-- `regex` - Pattern matching
-- `rayon` - Processamento paralelo
-- `scraper` - HTML parsing (Semantic Scholar)
-- `serde` / `serde_json` - Serialização
-
-**Pendentes (comentadas):**
-- `candle-core` / `candle-transformers` - ML/Fine-tuning (versões antigas causam conflitos)
-
-## Compilação
-
-```bash
-cd crates/beagle-hermes
-cargo check
-cargo test
+let result = orchestrator
+    .synthesize_section(&cluster, "Introduction".to_string(), 500)
+    .await?;
 ```
 
-## Integração com BEAGLE v2.0
+## Configuração
 
-HERMES será integrado ao pipeline BEAGLE via:
-- **beagle-llm** (quando criado) - Acesso ao modelo base
-- **beagle-memory** (quando criado) - Corpus persistente
-- **beagle-db** (quando criado) - Papers do PostgreSQL
+Variáveis de ambiente necessárias:
 
-## Roadmap
+- `ANTHROPIC_API_KEY`: API key para Claude
+- `DATABASE_URL`: URI do PostgreSQL
+- `NEO4J_URI`: URI do Neo4j
+- `NEO4J_USER`: Usuário do Neo4j
+- `NEO4J_PASSWORD`: Senha do Neo4j
+- `REDIS_URL`: URI do Redis (opcional)
 
-1. ✅ Estrutura base + Voice Analyzer
-2. ⏳ LoRA Trainer (requer resolver dependências ML)
-3. ⏳ Multi-Level Editor (grammar, style, academic, journal)
-4. ⏳ Citation Manager (generator, verifier, formatter)
-5. ⏳ Integrações (Word, Overleaf, Google Docs)
+## Status
 
+✅ **Track 1 MVP**: Completo
+- Thought capture pipeline
+- Knowledge graph integration
+- Basic synthesis engine
+- Manuscript management
+
+✅ **Track 2 Advanced**: Completo
+- MLX LoRA optimization (Python)
+- Multi-agent orchestration com paralelização
+- Validações robustas (ARGOS)
+
+## Próximos Passos
+
+- [ ] Integração completa com beagle-hypergraph RAGPipeline
+- [ ] Implementação de voice similarity real
+- [ ] Swift app MVP (iOS/macOS)
+- [ ] Vision Pro spatial editing
