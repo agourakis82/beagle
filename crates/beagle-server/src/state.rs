@@ -1,33 +1,45 @@
 //! Estado compartilhado da aplicação Axum.
 
-use std::sync::{Arc};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use anyhow::Context;
 use beagle_agents::{
+    ArchitectureEvolver,
     // Existing
-    CausalReasoner, CoordinatorAgent, DebateOrchestrator, HypergraphReasoner, QualityAgent,
-    ResearcherAgent, RetrievalAgent, ValidationAgent,
+    CausalReasoner,
+    // NEW - Adversarial
+    CompetitionArena,
+    CoordinatorAgent,
+    DebateOrchestrator,
+    HybridReasoner,
+    HypergraphReasoner,
+    InterferenceEngine,
     // NEW - Deep Research
-    MCTSEngine, SimulationEngine,
+    MCTSEngine,
+    // NEW - Quantum
+    MeasurementOperator,
+    // NEW - Neuro-Symbolic
+    NeuralExtractor,
+    // NEW - Meta-Cognitive
+    PerformanceMonitor,
+    QualityAgent,
+    ResearcherAgent,
+    RetrievalAgent,
+    SimulationEngine,
+    SpecializedAgentFactory,
     // NEW - Swarm
     SwarmOrchestrator,
     // NEW - Temporal
     TemporalReasoner,
-    // NEW - Meta-Cognitive
-    PerformanceMonitor, WeaknessAnalyzer, ArchitectureEvolver, SpecializedAgentFactory,
-    // NEW - Neuro-Symbolic
-    NeuralExtractor, HybridReasoner,
-    // NEW - Quantum
-    MeasurementOperator, InterferenceEngine,
-    // NEW - Adversarial
-    CompetitionArena,
+    ValidationAgent,
+    WeaknessAnalyzer,
 };
+use beagle_events::{BeaglePulsar, EventPublisher};
 use beagle_hypergraph::storage::CachedPostgresStorage;
 use beagle_llm::{AnthropicClient, GeminiClient, VertexAIClient};
 use beagle_memory::ContextBridge;
 use tracing::{info, warn};
-use beagle_events::{BeaglePulsar, EventPublisher};
 
 use crate::config::Config;
 
@@ -174,9 +186,17 @@ impl AppState {
         let interference_engine = Arc::new(InterferenceEngine::new());
 
         // Deep Research Engine
-        let deep_research_engine = if let (Some(ref anthropic), Some(ref debate), Some(ref reasoning), Some(ref causal)) 
-            = (&anthropic_client, &debate_orchestrator, &hypergraph_reasoner, &causal_reasoner) 
-        {
+        let deep_research_engine = if let (
+            Some(ref anthropic),
+            Some(ref debate),
+            Some(ref reasoning),
+            Some(ref causal),
+        ) = (
+            &anthropic_client,
+            &debate_orchestrator,
+            &hypergraph_reasoner,
+            &causal_reasoner,
+        ) {
             let simulator = Arc::new(SimulationEngine::new(
                 debate.clone(),
                 reasoning.clone(),
@@ -209,15 +229,16 @@ impl AppState {
         });
 
         // Meta-Cognitive
-        let (weakness_analyzer, architecture_evolver) = if let Some(ref anthropic) = anthropic_client {
-            let analyzer = Arc::new(WeaknessAnalyzer::new(anthropic.clone()));
-            let factory = SpecializedAgentFactory::new(anthropic.clone());
-            let evolver = Arc::new(Mutex::new(ArchitectureEvolver::new(factory)));
-            info!("✅ Meta-Cognitive System initialized");
-            (Some(analyzer), Some(evolver))
-        } else {
-            (None, None)
-        };
+        let (weakness_analyzer, architecture_evolver) =
+            if let Some(ref anthropic) = anthropic_client {
+                let analyzer = Arc::new(WeaknessAnalyzer::new(anthropic.clone()));
+                let factory = SpecializedAgentFactory::new(anthropic.clone());
+                let evolver = Arc::new(Mutex::new(ArchitectureEvolver::new(factory)));
+                info!("✅ Meta-Cognitive System initialized");
+                (Some(analyzer), Some(evolver))
+            } else {
+                (None, None)
+            };
 
         // Neuro-Symbolic
         let (neural_extractor, hybrid_reasoner) = if let Some(ref anthropic) = anthropic_client {
@@ -238,11 +259,16 @@ impl AppState {
 
         // Initialize Pulsar (events)
         let pulsar = BeaglePulsar::new(
-            std::env::var("PULSAR_BROKER_URL").unwrap_or_else(|_| "pulsar://localhost:6650".to_string()),
-            None
-        ).await.with_context(|| "Falha ao conectar ao Apache Pulsar")?;
+            std::env::var("PULSAR_BROKER_URL")
+                .unwrap_or_else(|_| "pulsar://localhost:6650".to_string()),
+            None,
+        )
+        .await
+        .with_context(|| "Falha ao conectar ao Apache Pulsar")?;
         let pulsar = Arc::new(pulsar);
-        let event_publisher = Arc::new(Mutex::new(EventPublisher::new(&pulsar, "beagle.events").await?));
+        let event_publisher = Arc::new(Mutex::new(
+            EventPublisher::new(&pulsar, "beagle.events").await?,
+        ));
 
         Ok(Self {
             storage,

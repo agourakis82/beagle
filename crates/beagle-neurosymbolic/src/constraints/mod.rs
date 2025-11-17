@@ -5,10 +5,10 @@
 //! - Non-linear: x² + y² < 100
 //! - Logic + arithmetic: (x > 5) → (y < 10)
 
-#[cfg(feature = "z3")]
-use z3::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+#[cfg(feature = "z3")]
+use z3::*;
 
 #[derive(Error, Debug)]
 pub enum ConstraintError {
@@ -62,9 +62,9 @@ impl ConstraintSolver {
 
             match solver.check() {
                 SatResult::Sat => {
-                    let model = solver.get_model().ok_or_else(|| {
-                        ConstraintError::Z3Error("No model returned".to_string())
-                    })?;
+                    let model = solver
+                        .get_model()
+                        .ok_or_else(|| ConstraintError::Z3Error("No model returned".to_string()))?;
                     let x_val = model
                         .eval(&x, true)
                         .ok_or_else(|| ConstraintError::Z3Error("x undefined".to_string()))?
@@ -117,5 +117,3 @@ mod tests {
         // If z3 disabled, returns Err(Z3Error); with z3, should be Ok(...)
     }
 }
-
-

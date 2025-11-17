@@ -1,0 +1,16 @@
+# ML frameworks
+torch==2.3.0
+transformers==4.35.0
+sentence-transformers==2.2.2
+whisper==1.1.10
+peft==0.7.0
+datasets==2.16.0
+
+# NLP
+spacy==3.7.2
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+
+# Utilities
+numpy==1.26.4
+pydantic==2.5.0
+accelerate==0.26.0

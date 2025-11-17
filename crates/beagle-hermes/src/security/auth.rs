@@ -6,13 +6,14 @@ use serde::{Deserialize, Serialize};
 use chrono::{Utc, Duration};
 use tracing::{info, debug, warn};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,  // User ID
     pub exp: i64,     // Expiration time
     pub iat: i64,     // Issued at
 }
 
+#[derive(Clone)]
 pub struct AuthService {
     encoding_key: EncodingKey,
     decoding_key: DecodingKey,
@@ -75,7 +76,7 @@ impl AuthService {
 
 /// Axum middleware for JWT authentication
 pub async fn auth_middleware(
-    req: axum::http::Request<axum::body::Body>,
+    mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, axum::http::StatusCode> {
     // Extract Authorization header
@@ -89,18 +90,89 @@ pub async fn auth_middleware(
     let token = AuthService::extract_token(auth_header)
         .ok_or(axum::http::StatusCode::UNAUTHORIZED)?;
 
-    // TODO: Get AuthService from request extensions
-    // For now, this is a placeholder
-    // let auth_service = req.extensions().get::<AuthService>()
-    //     .ok_or(axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Get AuthService from request extensions or create default
+    let auth_service = req
+        .extensions()
+        .get::<AuthService>()
+        .cloned()
+        .unwrap_or_else(|| {
+            let secret = std::env::var("JWT_SECRET")
+                .unwrap_or_else(|_| "default-secret-change-in-production".to_string());
+            AuthService::new(&secret)
+        });
 
     // Validate token
-    // let claims = auth_service.validate_token(token)
-    //     .map_err(|_| axum::http::StatusCode::UNAUTHORIZED)?;
+    let claims = auth_service
+        .validate_token(token)
+        .map_err(|_| axum::http::StatusCode::UNAUTHORIZED)?;
 
     // Add claims to request extensions for downstream handlers
-    // req.extensions_mut().insert(claims);
+    req.extensions_mut().insert(claims);
 
+    Ok(next.run(req).await)
+}
+
+/// Rate limiting middleware (simple in-memory implementation)
+#[derive(Clone)]
+pub struct RateLimiter {
+    requests: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, Vec<std::time::Instant>>>>,
+    max_requests: usize,
+    window_seconds: u64,
+}
+
+impl RateLimiter {
+    pub fn new(max_requests: usize, window_seconds: u64) -> Self {
+        Self {
+            requests: std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            max_requests,
+            window_seconds,
+        }
+    }
+
+    pub async fn check(&self, key: &str) -> bool {
+        let mut requests = self.requests.lock().await;
+        let now = std::time::Instant::now();
+        let window = std::time::Duration::from_secs(self.window_seconds);
+        
+        // Clean old entries
+        let entry = requests.entry(key.to_string()).or_insert_with(Vec::new);
+        entry.retain(|&time| now.duration_since(time) < window);
+        
+        // Check limit
+        if entry.len() >= self.max_requests {
+            return false;
+        }
+        
+        // Add current request
+        entry.push(now);
+        true
+    }
+}
+
+/// Rate limiting middleware function
+pub async fn rate_limit_middleware(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Result<axum::response::Response, axum::http::StatusCode> {
+    // Get rate limiter from extensions or create default
+    let limiter = req
+        .extensions()
+        .get::<RateLimiter>()
+        .cloned()
+        .unwrap_or_else(|| RateLimiter::new(100, 60)); // 100 requests per minute
+    
+    // Get client identifier (IP or user ID)
+    let client_id = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
+    
+    if !limiter.check(&client_id).await {
+        return Err(axum::http::StatusCode::TOO_MANY_REQUESTS);
+    }
+    
     Ok(next.run(req).await)
 }
 

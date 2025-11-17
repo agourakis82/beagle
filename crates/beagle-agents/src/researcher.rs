@@ -215,5 +215,3 @@ impl ResearcherAgent {
         })
     }
 }
-
-

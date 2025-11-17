@@ -1,13 +1,12 @@
 #![cfg(test)]
 #![allow(unused_imports)]
 
-use beagle_events::{
-    BeagleEvent, BeaglePulsar, EventPublisher, EventSubscriber,
-    EventHandler, EventType, Result,
-};
 use async_trait::async_trait;
-use std::sync::Arc;
+use beagle_events::{
+    BeagleEvent, BeaglePulsar, EventHandler, EventPublisher, EventSubscriber, EventType, Result,
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 struct TestHandler {
@@ -30,7 +29,9 @@ async fn test_publish_consume_smoke() {
         .expect("Failed to connect to Pulsar");
 
     let publisher = EventPublisher::new(&pulsar, "test.smoke").await.unwrap();
-    let mut subscriber = EventSubscriber::new(&pulsar, "test.smoke", "smoke-sub").await.unwrap();
+    let mut subscriber = EventSubscriber::new(&pulsar, "test.smoke", "smoke-sub")
+        .await
+        .unwrap();
 
     let event = BeagleEvent::new(EventType::HealthCheck {
         service: "test".into(),
@@ -40,7 +41,9 @@ async fn test_publish_consume_smoke() {
     publisher.publish(&event).await.unwrap();
 
     let received_count = Arc::new(AtomicUsize::new(0));
-    let handler = TestHandler { received_count: received_count.clone() };
+    let handler = TestHandler {
+        received_count: received_count.clone(),
+    };
 
     let consume = tokio::spawn(async move {
         // Give some time window to consume one message then exit
@@ -50,5 +53,3 @@ async fn test_publish_consume_smoke() {
     let _ = consume.await;
     assert!(received_count.load(Ordering::SeqCst) >= 0);
 }
-
-

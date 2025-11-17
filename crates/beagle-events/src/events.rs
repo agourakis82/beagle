@@ -237,7 +237,7 @@ pub struct EventMetadata {
     pub source_service: String,
     pub correlation_id: Option<String>,
     pub user_id: Option<String>,
-    pub trace_id: Option<String>,  // Distributed tracing
+    pub trace_id: Option<String>, // Distributed tracing
 }
 
 impl Default for EventMetadata {
@@ -334,8 +334,9 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         let deserialized: BeagleEvent = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(event.metadata.correlation_id, deserialized.metadata.correlation_id);
+        assert_eq!(
+            event.metadata.correlation_id,
+            deserialized.metadata.correlation_id
+        );
     }
 }
-
-

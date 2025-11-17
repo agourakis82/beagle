@@ -1,0 +1,3 @@
+### Comportamento de zinco e manganês de pilhas alcalinas em uma coluna de solo
+The aim of this study was to evaluate the behavior of Zn and Mn in a soil column. Two soil columns were sampled, and four opened alkaline batteries were placed at the top of one soil column. An acid-rainwater solution (HNO3 and H2SO4; pH 4) was percolated through the battery contaminated column during one year. The results showed that the leaching of alkaline batteries caused enrichment of 70 and 11 times in the Zn and Mn concentration of the topsoil, respectively. Additionally, leaching of electrolyte (KOH) from the batteries increased the soil pH in the contaminated column.
+

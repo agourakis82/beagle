@@ -1,7 +1,4 @@
-use super::{
-    player::ResearchPlayer,
-    evolution::MatchResult,
-};
+use super::{evolution::MatchResult, player::ResearchPlayer};
 use anyhow::Result;
 use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
 use std::sync::Arc;
@@ -16,7 +13,12 @@ impl CompetitionArena {
         Self { llm }
     }
 
-    pub async fn compete(&self, player1: &ResearchPlayer, player2: &ResearchPlayer, query: &str) -> Result<MatchResult> {
+    pub async fn compete(
+        &self,
+        player1: &ResearchPlayer,
+        player2: &ResearchPlayer,
+        query: &str,
+    ) -> Result<MatchResult> {
         info!("🥊 Arena match: {} vs {}", player1.name, player2.name);
 
         // Player 1 proposes hypothesis
@@ -49,7 +51,11 @@ impl CompetitionArena {
             query,
             player.strategy.approach,
             boldness,
-            if *boldness > 0.7 { "bold and novel" } else { "conservative and safe" }
+            if *boldness > 0.7 {
+                "bold and novel"
+            } else {
+                "conservative and safe"
+            }
         );
 
         let request = CompletionRequest {
@@ -99,4 +105,3 @@ impl CompetitionArena {
         }
     }
 }
-

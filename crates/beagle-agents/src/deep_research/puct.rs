@@ -60,5 +60,3 @@ impl PUCTSelector {
         q + exploration
     }
 }
-
-

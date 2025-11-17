@@ -57,18 +57,15 @@ impl NoveltyScorer {
             .filter(|p| seen.insert(p.paper_id.clone()))
             .collect();
 
-        info!("📄 Found {} unique papers, generating embeddings...", unique_papers.len());
+        info!(
+            "📄 Found {} unique papers, generating embeddings...",
+            unique_papers.len()
+        );
 
         // Generate embeddings for all papers
         let texts: Vec<String> = unique_papers
             .iter()
-            .map(|p| {
-                format!(
-                    "{}. {}",
-                    p.title,
-                    p.abstract_text.as_deref().unwrap_or("")
-                )
-            })
+            .map(|p| format!("{}. {}", p.title, p.abstract_text.as_deref().unwrap_or("")))
             .collect();
 
         let embeddings = self.embeddings.embed_batch(&texts).await?;
@@ -181,5 +178,3 @@ impl NoveltyScorer {
         info!("🗑️  Corpus cache cleared");
     }
 }
-
-

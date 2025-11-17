@@ -228,5 +228,3 @@ pub struct DeepResearchResult {
     pub tree_size: usize,
     pub iterations: usize,
 }
-
-

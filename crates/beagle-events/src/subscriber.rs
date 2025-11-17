@@ -1,9 +1,9 @@
 use crate::{BeagleEvent, BeaglePulsar, EventError, Result};
 use async_trait::async_trait;
+use futures_util::TryStreamExt;
 use pulsar::consumer::{Consumer, ConsumerOptions};
 use pulsar::{SubType, TokioExecutor};
 use tracing::{debug, error, info};
-use futures_util::TryStreamExt;
 
 /// Event handler trait
 #[async_trait]
@@ -58,7 +58,10 @@ impl EventSubscriber {
                         Ok(e) => e,
                         Err(e) => {
                             error!("Failed to deserialize event: {}", e);
-                            self.consumer.ack(&msg).await.map_err(|e| EventError::SubscribeError(e.to_string()))?;
+                            self.consumer
+                                .ack(&msg)
+                                .await
+                                .map_err(|e| EventError::SubscribeError(e.to_string()))?;
                             continue;
                         }
                     };
@@ -70,12 +73,18 @@ impl EventSubscriber {
 
                     match handler.handle(event).await {
                         Ok(_) => {
-                            self.consumer.ack(&msg).await.map_err(|e| EventError::SubscribeError(e.to_string()))?;
+                            self.consumer
+                                .ack(&msg)
+                                .await
+                                .map_err(|e| EventError::SubscribeError(e.to_string()))?;
                         }
                         Err(e) => {
                             error!("Handler failed: {}", e);
                             // TODO: Implement retry logic or DLQ
-                            self.consumer.nack(&msg).await.map_err(|e| EventError::SubscribeError(e.to_string()))?;
+                            self.consumer
+                                .nack(&msg)
+                                .await
+                                .map_err(|e| EventError::SubscribeError(e.to_string()))?;
                         }
                     }
                 }
@@ -90,5 +99,3 @@ impl EventSubscriber {
         Ok(())
     }
 }
-
-

@@ -1,9 +1,9 @@
-use crate::{BeagleEvent, BeaglePulsar, EventError, Result, metrics, resilience::RetryConfig};
+use crate::{metrics, resilience::RetryConfig, BeagleEvent, BeaglePulsar, EventError, Result};
+use backoff::{backoff::Backoff, ExponentialBackoffBuilder};
 use pulsar::producer::{Message, Producer};
 use pulsar::TokioExecutor;
 use std::time::Instant;
 use tracing::{debug, error};
-use backoff::{ExponentialBackoffBuilder, backoff::Backoff};
 
 /// Event publisher
 pub struct EventPublisher {
@@ -43,7 +43,9 @@ impl EventPublisher {
             .with_initial_interval(self.retry_config.initial_interval)
             .with_max_interval(self.retry_config.max_interval)
             .with_multiplier(self.retry_config.multiplier)
-            .with_max_elapsed_time(Some(self.retry_config.initial_interval * self.retry_config.max_retries))
+            .with_max_elapsed_time(Some(
+                self.retry_config.initial_interval * self.retry_config.max_retries,
+            ))
             .build();
         let mut attempts = 0u32;
         loop {
@@ -55,7 +57,8 @@ impl EventPublisher {
                     break;
                 }
             };
-            let send_res: Result<()> = self.producer
+            let send_res: Result<()> = self
+                .producer
                 .send_non_blocking(Message {
                     payload,
                     ..Default::default()
@@ -99,5 +102,3 @@ impl EventPublisher {
         result
     }
 }
-
-

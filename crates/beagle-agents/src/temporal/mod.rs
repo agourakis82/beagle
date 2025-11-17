@@ -9,10 +9,10 @@ use std::sync::Arc;
 /// Temporal scale for reasoning
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TemporalScale {
-    Immediate,    // seconds to minutes
-    ShortTerm,    // hours to days
-    MediumTerm,   // weeks to months
-    LongTerm,     // years to decades
+    Immediate,  // seconds to minutes
+    ShortTerm,  // hours to days
+    MediumTerm, // weeks to months
+    LongTerm,   // years to decades
 }
 
 /// A point in time with associated context
@@ -49,4 +49,3 @@ impl TemporalReasoner {
         Self { llm }
     }
 }
-

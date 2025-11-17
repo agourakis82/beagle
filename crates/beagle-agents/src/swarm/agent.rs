@@ -75,5 +75,3 @@ impl SwarmAgent {
         self.energy = (self.energy + amount).min(1.0);
     }
 }
-
-

@@ -48,4 +48,3 @@ impl ResearchPlayer {
         self.elo_rating += k * (score - expected);
     }
 }
-

@@ -8,17 +8,15 @@ pub mod generated {
 }
 
 pub mod agent;
+pub mod error;
 pub mod memory;
 pub mod model;
-pub mod error;
 
 // Re-exports
-pub use agent::{AgentServiceImpl, AgentClient};
-pub use memory::{MemoryServiceImpl, MemoryClient};
-pub use model::{ModelServiceImpl, ModelClient};
+pub use agent::{AgentClient, AgentServiceImpl};
 pub use error::{GrpcError, Result};
+pub use memory::{MemoryClient, MemoryServiceImpl};
+pub use model::{ModelClient, ModelServiceImpl};
 
 // Re-export tonic
 pub use tonic;
-
-

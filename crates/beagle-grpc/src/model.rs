@@ -25,7 +25,8 @@ impl ModelService for ModelServiceImpl {
         }))
     }
 
-    type StreamQueryStream = tokio_stream::wrappers::ReceiverStream<std::result::Result<ModelChunk, Status>>;
+    type StreamQueryStream =
+        tokio_stream::wrappers::ReceiverStream<std::result::Result<ModelChunk, Status>>;
 
     async fn stream_query(
         &self,
@@ -41,11 +42,10 @@ pub struct ModelClient {
 
 impl ModelClient {
     pub async fn connect(addr: impl Into<String>) -> Result<Self> {
-        let client = crate::generated::model_service_client::ModelServiceClient::connect(addr.into())
-            .await
-            .map_err(|e| GrpcError::InternalError(e.to_string()))?;
+        let client =
+            crate::generated::model_service_client::ModelServiceClient::connect(addr.into())
+                .await
+                .map_err(|e| GrpcError::InternalError(e.to_string()))?;
         Ok(Self { client })
     }
 }
-
-

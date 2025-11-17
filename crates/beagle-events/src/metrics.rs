@@ -1,4 +1,4 @@
-use prometheus::{Counter, Histogram, IntGauge, Registry, HistogramOpts, Opts};
+use prometheus::{Counter, Histogram, HistogramOpts, IntGauge, Opts, Registry};
 use std::sync::Arc;
 
 lazy_static::lazy_static! {
@@ -34,10 +34,18 @@ impl EventMetrics {
     pub fn new() -> Self {
         let registry = Registry::new();
 
-        registry.register(Box::new(EVENTS_PUBLISHED.clone())).unwrap();
-        registry.register(Box::new(EVENTS_CONSUMED.clone())).unwrap();
-        registry.register(Box::new(PUBLISH_DURATION.clone())).unwrap();
-        registry.register(Box::new(ACTIVE_SUBSCRIBERS.clone())).unwrap();
+        registry
+            .register(Box::new(EVENTS_PUBLISHED.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(EVENTS_CONSUMED.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(PUBLISH_DURATION.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(ACTIVE_SUBSCRIBERS.clone()))
+            .unwrap();
 
         Self { registry }
     }
@@ -68,5 +76,3 @@ impl Default for EventMetrics {
         Self::new()
     }
 }
-
-

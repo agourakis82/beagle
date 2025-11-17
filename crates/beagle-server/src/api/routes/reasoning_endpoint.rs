@@ -48,5 +48,3 @@ pub async fn reasoning(
         visualization,
     }))
 }
-
-

@@ -1,5 +1,5 @@
-use super::{Formula, Predicate, Term, Result, LogicError};
-use std::collections::{HashSet};
+use super::{Formula, LogicError, Predicate, Result, Term};
+use std::collections::HashSet;
 use tracing::{debug, info};
 
 /// Knowledge Base (Facts + Rules)
@@ -46,7 +46,10 @@ impl KnowledgeBase {
         for rule in &self.rules {
             if rule.head.name == query.name && rule.head.args.len() == query.args.len() {
                 // Check if all body predicates are derivable as exact matches
-                let all_derivable = rule.body.iter().all(|body_pred| self.facts.contains(body_pred));
+                let all_derivable = rule
+                    .body
+                    .iter()
+                    .all(|body_pred| self.facts.contains(body_pred));
                 if all_derivable {
                     return true;
                 }
@@ -107,8 +110,14 @@ pub struct Proof {
 #[derive(Debug, Clone)]
 pub enum ProofStep {
     Fact(Predicate),
-    Rule { head: Predicate, body: Vec<Predicate> },
-    Resolution { left: Box<ProofStep>, right: Box<ProofStep> },
+    Rule {
+        head: Predicate,
+        body: Vec<Predicate>,
+    },
+    Resolution {
+        left: Box<ProofStep>,
+        right: Box<ProofStep>,
+    },
 }
 
 impl Proof {
@@ -128,7 +137,11 @@ impl Proof {
                 format!("Applied rule: {} ← {:?}", head, body)
             }
             ProofStep::Resolution { left, right } => {
-                format!("Resolution: {} + {}", Self::explain_step(left), Self::explain_step(right))
+                format!(
+                    "Resolution: {} + {}",
+                    Self::explain_step(left),
+                    Self::explain_step(right)
+                )
             }
         }
     }
@@ -172,5 +185,3 @@ mod tests {
         assert!(!engine.validate(&query)); // Expected to fail without unification
     }
 }
-
-

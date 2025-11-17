@@ -1,5 +1,9 @@
-use axum::{routing::{get, post}, Router, extract::State, Json};
-use beagle_events::{BeagleEvent};
+use axum::{
+    extract::State,
+    routing::{get, post},
+    Json, Router,
+};
+use beagle_events::BeagleEvent;
 use serde::{Deserialize, Serialize};
 
 use crate::{error::ApiError, state::AppState};
@@ -36,10 +40,9 @@ async fn publish_event(
     let event = serde_json::from_value::<BeagleEvent>(payload.event)
         .map_err(|e| ApiError::BadRequest(format!("Invalid event: {}", e)))?;
 
-    let mut publisher = state.event_publisher
-        .lock()
-        .await;
-    publisher.publish(&event)
+    let mut publisher = state.event_publisher.lock().await;
+    publisher
+        .publish(&event)
         .await
         .map_err(|e| ApiError::Internal(format!("Failed to publish: {}", e)))?;
 
@@ -55,9 +58,11 @@ async fn health_check(State(_state): State<AppState>) -> Json<HealthResponse> {
     // TODO: implement real check when available
     let connected = true;
     Json(HealthResponse {
-        status: if connected { "healthy".into() } else { "degraded".into() },
+        status: if connected {
+            "healthy".into()
+        } else {
+            "degraded".into()
+        },
         pulsar_connected: connected,
     })
 }
-
-

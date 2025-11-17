@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.app-container {
+  @apply h-screen flex flex-col;
+}
+
+.app-header {
+  @apply bg-white border-b border-gray-200 px-6 py-4;
+}
+
+.app-content {
+  @apply flex-1 flex overflow-hidden;
+}
+
+.sidebar {
+  @apply w-80 bg-gray-50 border-r border-gray-200 overflow-y-auto p-4;
+}
+
+.main-content {
+  @apply flex-1 overflow-y-auto p-6;
+}
+
+.empty-state {
+  @apply flex items-center justify-center h-full;
+}
+
+.manuscript-list {
+  @apply space-y-4;
+}
+
+.draft-preview {
+  @apply space-y-6;
+}
+
+.preview-header {
+  @apply flex justify-between items-start mb-6;
+}
+
+.completion-bar {
+  @apply w-full;
+}
+
+.sections-grid {
+  @apply grid grid-cols-2 gap-6;
+}
+
+.sections-list {
+  @apply space-y-2;
+}
+
+.section-preview {
+  @apply bg-white border border-gray-200 rounded-lg p-4;
+}
+

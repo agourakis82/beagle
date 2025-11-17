@@ -44,7 +44,8 @@ impl AgentService for AgentServiceImpl {
         }))
     }
 
-    type StreamAgentOutputStream = tokio_stream::wrappers::ReceiverStream<std::result::Result<AgentOutput, Status>>;
+    type StreamAgentOutputStream =
+        tokio_stream::wrappers::ReceiverStream<std::result::Result<AgentOutput, Status>>;
 
     async fn stream_agent_output(
         &self,
@@ -61,9 +62,10 @@ pub struct AgentClient {
 
 impl AgentClient {
     pub async fn connect(addr: impl Into<String>) -> Result<Self> {
-        let client = crate::generated::agent_service_client::AgentServiceClient::connect(addr.into())
-            .await
-            .map_err(|e| GrpcError::InternalError(e.to_string()))?;
+        let client =
+            crate::generated::agent_service_client::AgentServiceClient::connect(addr.into())
+                .await
+                .map_err(|e| GrpcError::InternalError(e.to_string()))?;
         Ok(Self { client })
     }
 
@@ -80,24 +82,21 @@ impl AgentClient {
             task_type,
             parameters,
         });
-        let response = self.client
+        let response = self
+            .client
             .dispatch_task(request)
             .await
             .map_err(|e| GrpcError::InternalError(e.to_string()))?;
         Ok(response.into_inner())
     }
 
-    pub async fn get_agent_status(
-        &mut self,
-        agent_id: String,
-    ) -> Result<AgentStatus> {
+    pub async fn get_agent_status(&mut self, agent_id: String) -> Result<AgentStatus> {
         let request = tonic::Request::new(GetAgentStatusRequest { agent_id });
-        let response = self.client
+        let response = self
+            .client
             .get_agent_status(request)
             .await
             .map_err(|e| GrpcError::InternalError(e.to_string()))?;
         Ok(response.into_inner())
     }
 }
-
-

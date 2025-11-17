@@ -156,7 +156,10 @@ except Exception as e:
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
             warn!("⚠️  Python batch embedding failed: {}", error);
-            return Err(anyhow::anyhow!("Batch embedding generation failed: {}", error));
+            return Err(anyhow::anyhow!(
+                "Batch embedding generation failed: {}",
+                error
+            ));
         }
 
         let stdout = String::from_utf8(output.stdout)?;
@@ -220,11 +223,7 @@ except Exception as e:
     pub fn euclidean_distance(a: &[f32], b: &[f32]) -> f64 {
         assert_eq!(a.len(), b.len(), "Embeddings must have same dimension");
 
-        let sum_sq_diff: f32 = a
-            .iter()
-            .zip(b)
-            .map(|(x, y)| (x - y) * (x - y))
-            .sum();
+        let sum_sq_diff: f32 = a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum();
 
         sum_sq_diff.sqrt() as f64
     }
@@ -235,5 +234,3 @@ impl Default for EmbeddingEngine {
         Self::new()
     }
 }
-
-

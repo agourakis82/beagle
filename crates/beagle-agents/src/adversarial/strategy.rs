@@ -10,9 +10,9 @@ pub struct Strategy {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ResearchApproach {
-    Aggressive,  // Bold hypotheses, high risk
+    Aggressive,   // Bold hypotheses, high risk
     Conservative, // Safe hypotheses, incremental
-    Exploratory, // Random search, novelty-seeking
+    Exploratory,  // Random search, novelty-seeking
     Exploitative, // Refine known good areas
 }
 
@@ -57,4 +57,3 @@ impl Strategy {
         }
     }
 }
-

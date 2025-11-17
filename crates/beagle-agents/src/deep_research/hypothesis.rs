@@ -101,5 +101,3 @@ impl HypothesisTree {
             .map(|node| &node.hypothesis)
     }
 }
-
-

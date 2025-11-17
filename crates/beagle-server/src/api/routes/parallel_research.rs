@@ -102,5 +102,3 @@ pub async fn parallel_research(
         mode: "PARALLEL".to_string(),
     }))
 }
-
-

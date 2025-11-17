@@ -1,7 +1,6 @@
-
 //! Beagle Agents - Advanced AI Research System
 
-//! 
+//!
 
 //! Revolutionary features:
 
@@ -19,8 +18,6 @@
 
 //! - Adversarial Self-Play Evolution
 
-
-
 // Core agent infrastructure
 
 pub mod agent_trait;
@@ -33,8 +30,6 @@ pub mod researcher;
 
 pub mod specialized_agents;
 
-
-
 // Disruptive techniques (v1.0)
 
 pub mod debate;
@@ -42,8 +37,6 @@ pub mod debate;
 pub mod reasoning;
 
 pub mod causal;
-
-
 
 // Revolutionary techniques (v2.0)
 
@@ -61,8 +54,6 @@ pub mod quantum;
 
 pub mod adversarial;
 
-
-
 // ============================================
 
 // Core exports
@@ -73,17 +64,11 @@ pub use agent_trait::{Agent, AgentCapability, AgentHealth, AgentInput, AgentOutp
 
 pub use coordinator::CoordinatorAgent;
 
-pub use models::{
-
-    ResearchMetrics, ResearchResult, ResearchStep,
-
-};
+pub use models::{ResearchMetrics, ResearchResult, ResearchStep};
 
 pub use researcher::ResearcherAgent;
 
 pub use specialized_agents::{QualityAgent, RetrievalAgent, ValidationAgent};
-
-
 
 // ============================================
 
@@ -91,19 +76,7 @@ pub use specialized_agents::{QualityAgent, RetrievalAgent, ValidationAgent};
 
 // ============================================
 
-pub use debate::{
-
-    DebateOrchestrator, 
-
-    DebateTranscript, 
-
-    DebateRound, 
-
-    DebateSynthesis,
-
-};
-
-
+pub use debate::{DebateOrchestrator, DebateRound, DebateSynthesis, DebateTranscript};
 
 // ============================================
 
@@ -111,19 +84,7 @@ pub use debate::{
 
 // ============================================
 
-pub use reasoning::{
-
-    HypergraphReasoner,
-
-    ReasoningPath,
-
-    ReasoningType,
-
-    PathNode,
-
-};
-
-
+pub use reasoning::{HypergraphReasoner, PathNode, ReasoningPath, ReasoningType};
 
 // ============================================
 
@@ -132,28 +93,9 @@ pub use reasoning::{
 // ============================================
 
 pub use causal::{
-
-    CausalReasoner,
-
-    CausalGraph,
-
-    CausalNode,
-
-    CausalEdge,
-
-    NodeType,
-
-    CausalEdgeType,
-
-    InterventionResult,
-
-    CounterfactualResult,
-
-    CausalMetadata,
-
+    CausalEdge, CausalEdgeType, CausalGraph, CausalMetadata, CausalNode, CausalReasoner,
+    CounterfactualResult, InterventionResult, NodeType,
 };
-
-
 
 // ============================================
 
@@ -162,18 +104,11 @@ pub use causal::{
 // ============================================
 
 pub use deep_research::{
-
-    mcts::{MCTSEngine, DeepResearchResult},
-
     hypothesis::{Hypothesis, HypothesisNode, HypothesisTree},
-
-    simulation::{SimulationEngine, SimulationResult},
-
+    mcts::{DeepResearchResult, MCTSEngine},
     puct::PUCTSelector,
-
+    simulation::{SimulationEngine, SimulationResult},
 };
-
-
 
 // ============================================
 
@@ -181,21 +116,7 @@ pub use deep_research::{
 
 // ============================================
 
-pub use swarm::{
-
-    SwarmAgent,
-
-    Pheromone,
-
-    PheromoneField,
-
-    SwarmOrchestrator,
-
-    EmergentBehavior,
-
-};
-
-
+pub use swarm::{EmergentBehavior, Pheromone, PheromoneField, SwarmAgent, SwarmOrchestrator};
 
 // ============================================
 
@@ -203,21 +124,7 @@ pub use swarm::{
 
 // ============================================
 
-pub use temporal::{
-
-    TemporalScale,
-
-    TimePoint,
-
-    TimeRange,
-
-    TemporalReasoner,
-
-    CrossScaleCausality,
-
-};
-
-
+pub use temporal::{CrossScaleCausality, TemporalReasoner, TemporalScale, TimePoint, TimeRange};
 
 // ============================================
 
@@ -226,20 +133,9 @@ pub use temporal::{
 // ============================================
 
 pub use metacognitive::{
-
-    PerformanceMonitor,
-
+    ArchitectureEvolver, FailurePattern, PerformanceMonitor, SpecializedAgentFactory,
     WeaknessAnalyzer,
-
-    FailurePattern,
-
-    ArchitectureEvolver,
-
-    SpecializedAgentFactory,
-
 };
-
-
 
 // ============================================
 
@@ -248,22 +144,8 @@ pub use metacognitive::{
 // ============================================
 
 pub use neurosymbolic::{
-
-    NeuralExtractor,
-
-    SymbolicReasoner,
-
-    LogicRule,
-
-    Predicate,
-
-    ConstraintSolver,
-
-    HybridReasoner,
-
+    ConstraintSolver, HybridReasoner, LogicRule, NeuralExtractor, Predicate, SymbolicReasoner,
 };
-
-
 
 // ============================================
 
@@ -271,19 +153,7 @@ pub use neurosymbolic::{
 
 // ============================================
 
-pub use quantum::{
-
-    QuantumHypothesis,
-
-    SuperpositionState,
-
-    MeasurementOperator,
-
-    InterferenceEngine,
-
-};
-
-
+pub use quantum::{InterferenceEngine, MeasurementOperator, QuantumHypothesis, SuperpositionState};
 
 // ============================================
 
@@ -291,15 +161,4 @@ pub use quantum::{
 
 // ============================================
 
-pub use adversarial::{
-
-    ResearchPlayer,
-
-    CompetitionArena,
-
-    Strategy,
-
-    StrategyEvolution,
-
-};
-
+pub use adversarial::{CompetitionArena, ResearchPlayer, Strategy, StrategyEvolution};

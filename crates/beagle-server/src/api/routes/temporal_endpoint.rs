@@ -20,14 +20,16 @@ pub async fn temporal_analyze(
     Json(req): Json<TemporalRequest>,
 ) -> Result<Json<TemporalResponse>, (StatusCode, String)> {
     info!("⏰ /dev/temporal - query: {}", req.query);
-    
-    let _reasoner = state.temporal_reasoner()
-        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "Temporal reasoner not available".to_string()))?;
-    
+
+    let _reasoner = state.temporal_reasoner().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Temporal reasoner not available".to_string(),
+    ))?;
+
     // TODO: Implement analyze_across_scales method in TemporalReasoner
     // For now, return a placeholder response
     info!("✅ Temporal analysis complete (stub implementation)");
-    
+
     Ok(Json(TemporalResponse {
         analysis: serde_json::json!({
             "scales": ["immediate", "short_term", "medium_term", "long_term"],
@@ -37,4 +39,3 @@ pub async fn temporal_analyze(
         message: "Temporal analysis endpoint ready - implementation pending".to_string(),
     }))
 }
-

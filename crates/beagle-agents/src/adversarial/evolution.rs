@@ -1,8 +1,8 @@
-use super::{player::ResearchPlayer, strategy::Strategy, arena::CompetitionArena};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use super::{arena::CompetitionArena, player::ResearchPlayer, strategy::Strategy};
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use tracing::info;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchResult {
@@ -25,9 +25,7 @@ impl StrategyEvolution {
         let players = initial_strategies
             .into_iter()
             .enumerate()
-            .map(|(i, strategy)| {
-                ResearchPlayer::new(format!("Player_{}", i), strategy)
-            })
+            .map(|(i, strategy)| ResearchPlayer::new(format!("Player_{}", i), strategy))
             .collect();
 
         Self {
@@ -73,7 +71,9 @@ impl StrategyEvolution {
 
         // Sort by Elo rating
         self.players.sort_by(|a, b| {
-            b.elo_rating.partial_cmp(&a.elo_rating).unwrap_or(std::cmp::Ordering::Equal)
+            b.elo_rating
+                .partial_cmp(&a.elo_rating)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         // Keep top 50%, mutate and add new players
@@ -93,10 +93,12 @@ impl StrategyEvolution {
         self.players = new_players;
         self.generation += 1;
 
-        info!("✅ Generation {} complete. Top player: {} (Elo: {:.1})",
-              self.generation - 1,
-              self.players[0].name,
-              self.players[0].elo_rating);
+        info!(
+            "✅ Generation {} complete. Top player: {} (Elo: {:.1})",
+            self.generation - 1,
+            self.players[0].name,
+            self.players[0].elo_rating
+        );
 
         Ok(())
     }
@@ -105,4 +107,3 @@ impl StrategyEvolution {
         self.players.iter().take(n).collect()
     }
 }
-

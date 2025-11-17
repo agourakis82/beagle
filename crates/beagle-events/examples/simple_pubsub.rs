@@ -1,8 +1,7 @@
-use beagle_events::{
-    BeagleEvent, BeaglePulsar, EventPublisher, EventSubscriber,
-    EventType, EventHandler, Result,
-};
 use async_trait::async_trait;
+use beagle_events::{
+    BeagleEvent, BeaglePulsar, EventHandler, EventPublisher, EventSubscriber, EventType, Result,
+};
 
 struct SimpleHandler;
 
@@ -26,11 +25,7 @@ async fn main() -> Result<()> {
     let mut publisher = EventPublisher::new(&pulsar, "beagle.test").await?;
 
     // Create subscriber
-    let mut subscriber = EventSubscriber::new(
-        &pulsar,
-        "beagle.test",
-        "test-subscription",
-    ).await?;
+    let mut subscriber = EventSubscriber::new(&pulsar, "beagle.test", "test-subscription").await?;
 
     // Publish test event
     let event = BeagleEvent::new(EventType::ResearchStarted {
@@ -45,5 +40,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
-

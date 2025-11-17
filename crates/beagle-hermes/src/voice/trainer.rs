@@ -1,59 +1,52 @@
 //! LoRA fine-tuning pipeline for voice preservation
 //! 
-//! Architecture:
-//! 1. Load base model (Llama 3.3 70B or Gemma 9B)
-//! 2. Prepare training data from personal corpus
-//! 3. Train LoRA adapters (rank=16-32)
-//! 4. Validate voice preservation (>95% similarity)
-//! 5. Deploy to production
+//! Uses Python bridge (PyO3) to call HuggingFace transformers for LoRA training
+//! This avoids Rust dependency conflicts with candle-transformers
 
-use std::path::PathBuf;
+use crate::error::{HermesError, Result};
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use tracing::{info, warn};
 use thiserror::Error;
-use tracing::info;
 
 /// LoRA adapter configuration
-#[derive(Debug, Clone)]
-pub struct LoraConfig {
-    /// Rank of LoRA matrices (typically 8-32)
-    pub rank: usize,
-    
-    /// Alpha scaling factor
-    pub alpha: f64,
-    
-    /// Dropout probability
-    pub dropout: f64,
-    
-    /// Target modules to adapt
-    pub target_modules: Vec<String>,
-    
-    /// Learning rate
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoRAConfig {
+    pub rank: usize,           // LoRA rank (typically 4-16)
+    pub alpha: usize,          // LoRA alpha (typically rank * 2)
+    pub dropout: f64,          // Dropout rate
+    pub target_modules: Vec<String>, // e.g., ["q_proj", "v_proj"]
     pub learning_rate: f64,
-    
-    /// Number of training epochs
-    pub num_epochs: usize,
-    
-    /// Batch size
     pub batch_size: usize,
+    pub num_epochs: usize,
 }
 
-impl Default for LoraConfig {
+impl Default for LoRAConfig {
     fn default() -> Self {
         Self {
-            rank: 16,
-            alpha: 32.0,
-            dropout: 0.05,
-            target_modules: vec![
-                "q_proj".to_string(),
-                "v_proj".to_string(),
-                "k_proj".to_string(),
-                "o_proj".to_string(),
-            ],
-            learning_rate: 3e-4,
-            num_epochs: 3,
+            rank: 8,
+            alpha: 16,
+            dropout: 0.1,
+            target_modules: vec!["q_proj".to_string(), "v_proj".to_string()],
+            learning_rate: 2e-4,
             batch_size: 4,
+            num_epochs: 3,
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrainingResult {
+    pub adapter_path: String,
+    pub loss_history: Vec<f64>,
+    pub final_loss: f64,
+    pub training_time_seconds: f64,
+}
+
+/// Training metrics (alias for TrainingResult for backward compatibility)
+pub type TrainingMetrics = TrainingResult;
 
 /// Training dataset from personal corpus
 #[derive(Debug, Clone)]
@@ -63,13 +56,8 @@ pub struct TrainingDataset {
 
 #[derive(Debug, Clone)]
 pub struct TrainingExample {
-    /// Input text (prompt)
     pub input: String,
-    
-    /// Target text (completion in user's style)
     pub target: String,
-    
-    /// Metadata (paper title, year, etc.)
     pub metadata: std::collections::HashMap<String, String>,
 }
 
@@ -80,11 +68,9 @@ impl TrainingDataset {
         }
     }
 
-    /// Build dataset from personal corpus
-    pub fn from_corpus(corpus_dir: &PathBuf) -> Result<Self, TrainerError> {
+    pub fn from_corpus(corpus_dir: &PathBuf) -> std::result::Result<Self, TrainerError> {
         let mut dataset = Self::new();
         
-        // Read all papers from corpus
         for entry in std::fs::read_dir(corpus_dir)
             .map_err(|e| TrainerError::CorpusReadError(e.to_string()))?
         {
@@ -95,8 +81,6 @@ impl TrainingDataset {
                 let content = std::fs::read_to_string(&path)
                     .map_err(|e| TrainerError::CorpusReadError(e.to_string()))?;
                 
-                // Split into training examples
-                // Strategy: Extract paragraph pairs (input → output)
                 let examples = Self::create_examples_from_text(&content);
                 dataset.examples.extend(examples);
             }
@@ -110,8 +94,6 @@ impl TrainingDataset {
         let mut examples = Vec::new();
         let paragraphs: Vec<&str> = text.split("\n\n").collect();
         
-        // Create input-output pairs
-        // Strategy 1: Sentence completion
         for para in &paragraphs {
             let sentences: Vec<&str> = para.split(". ").collect();
             if sentences.len() >= 2 {
@@ -128,189 +110,126 @@ impl TrainingDataset {
             }
         }
         
-        // Strategy 2: Paragraph continuation
-        for i in 0..paragraphs.len().saturating_sub(1) {
-            if paragraphs[i].len() > 50 && paragraphs[i + 1].len() > 50 {
-                examples.push(TrainingExample {
-                    input: paragraphs[i].to_string(),
-                    target: paragraphs[i + 1].to_string(),
-                    metadata: std::collections::HashMap::new(),
-                });
-            }
-        }
-        
         examples
     }
 
-    /// Add incremental examples from daily interactions
     pub fn add_incremental_examples(&mut self, examples: Vec<TrainingExample>) {
         self.examples.extend(examples);
     }
-
-    /// Shuffle dataset
-    pub fn shuffle(&mut self) {
-        use rand::seq::SliceRandom;
-        let mut rng = rand::thread_rng();
-        self.examples.shuffle(&mut rng);
-    }
 }
 
-/// LoRA trainer
-pub struct LoraTrainer {
-    config: LoraConfig,
-    base_model_path: PathBuf,
+pub struct LoRATrainer {
+    config: LoRAConfig,
 }
 
-impl LoraTrainer {
-    pub fn new(
-        config: LoraConfig,
-        base_model_path: PathBuf,
-    ) -> Result<Self, TrainerError> {
-        info!("LoRA Trainer initialized");
-        
-        Ok(Self {
-            config,
-            base_model_path,
-        })
+impl LoRATrainer {
+    pub fn new(config: LoRAConfig) -> Self {
+        Self { config }
     }
 
-    /// Train LoRA adapters on personal corpus
+    /// Train LoRA adapter on personal corpus
     pub async fn train(
         &self,
-        dataset: &TrainingDataset,
-        output_path: &PathBuf,
-    ) -> Result<TrainingMetrics, TrainerError> {
-        info!("Starting LoRA training with {} examples", dataset.examples.len());
-        
-        // 1. Load base model
-        info!("Loading base model from {:?}", self.base_model_path);
-        // TODO: Implement actual model loading with candle-transformers
-        // let base_model = self.load_base_model()?;
-        
-        // 2. Initialize LoRA layers
-        info!("Initializing LoRA adapters (rank={})", self.config.rank);
-        // TODO: Implement LoRA layer initialization
-        
-        // 3. Training loop
-        let mut total_loss = 0.0;
-        let num_batches = (dataset.examples.len() + self.config.batch_size - 1) 
-            / self.config.batch_size;
-        
-        for epoch in 0..self.config.num_epochs {
-            info!("Epoch {}/{}", epoch + 1, self.config.num_epochs);
-            
-            let mut epoch_loss = 0.0;
-            
-            for batch_idx in 0..num_batches {
-                let start = batch_idx * self.config.batch_size;
-                let end = ((batch_idx + 1) * self.config.batch_size)
-                    .min(dataset.examples.len());
-                let batch = &dataset.examples[start..end];
-                
-                // Forward pass
-                let loss = self.train_batch(batch)?;
-                epoch_loss += loss;
-                
-                if batch_idx % 10 == 0 {
-                    info!("  Batch {}/{}, Loss: {:.4}", batch_idx, num_batches, loss);
-                }
-            }
-            
-            let avg_epoch_loss = epoch_loss / num_batches as f64;
-            total_loss += avg_epoch_loss;
-            info!("Epoch {} completed. Avg Loss: {:.4}", epoch + 1, avg_epoch_loss);
-        }
-        
-        let avg_loss = total_loss / self.config.num_epochs as f64;
-        
-        // 4. Save LoRA adapters
-        info!("Saving LoRA adapters to {:?}", output_path);
-        self.save_adapters(output_path)?;
-        
-        // 5. Validation
-        info!("Validating voice preservation...");
-        let voice_similarity = self.validate_voice_preservation(dataset)?;
-        
-        Ok(TrainingMetrics {
-            avg_loss,
-            voice_similarity,
-            num_examples: dataset.examples.len(),
-            num_epochs: self.config.num_epochs,
+        base_model: &str,
+        training_data: &[String],
+        output_path: &Path,
+    ) -> Result<TrainingResult> {
+        info!(
+            "Starting LoRA training: {} samples, {} epochs",
+            training_data.len(),
+            self.config.num_epochs
+        );
+
+        // Call Python training script via PyO3
+        let result = Python::with_gil(|py| -> std::result::Result<TrainingResult, HermesError> {
+            // Load Python training module
+            let trainer_module = PyModule::from_code(
+                py,
+                include_str!("../../python/lora_trainer.py"),
+                "lora_trainer.py",
+                "lora_trainer",
+            )
+            .map_err(|e| HermesError::PythonError(e))?;
+
+            // Prepare training data as JSON
+            let training_json = serde_json::to_string(training_data)
+                .map_err(|e| HermesError::ConfigError(format!("Failed to serialize training data: {}", e)))?;
+
+            // Call train_lora function
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("base_model", base_model)?;
+            kwargs.set_item("training_data_json", training_json)?;
+            kwargs.set_item("output_path", output_path.to_str().unwrap())?;
+            kwargs.set_item("rank", self.config.rank)?;
+            kwargs.set_item("alpha", self.config.alpha)?;
+            kwargs.set_item("dropout", self.config.dropout)?;
+            kwargs.set_item("learning_rate", self.config.learning_rate)?;
+            kwargs.set_item("batch_size", self.config.batch_size)?;
+            kwargs.set_item("num_epochs", self.config.num_epochs)?;
+
+            let result_dict = trainer_module
+                .getattr("train_lora_json")?
+                .call((), Some(kwargs))
+                .map_err(|e| HermesError::PythonError(e))?;
+
+            // Parse result
+            let adapter_path: String = result_dict.get_item("adapter_path")?.extract()?;
+            let loss_history: Vec<f64> = result_dict.get_item("loss_history")?.extract()?;
+            let final_loss: f64 = result_dict.get_item("final_loss")?.extract()?;
+            let training_time: f64 = result_dict.get_item("training_time_seconds")?.extract()?;
+
+            Ok(TrainingResult {
+                adapter_path,
+                loss_history,
+                final_loss,
+                training_time_seconds: training_time,
+            })
+        })?;
+
+        info!(
+            "LoRA training complete: adapter saved to {}, final loss: {:.4}",
+            result.adapter_path, result.final_loss
+        );
+
+        Ok(result)
+    }
+
+    /// Validate trained adapter
+    pub async fn validate(&self, adapter_path: &Path, test_data: &[String]) -> Result<f64> {
+        info!("Validating LoRA adapter: {:?}", adapter_path);
+
+        // Use Python validation script
+        Python::with_gil(|py| -> std::result::Result<f64, HermesError> {
+            let validator_module = PyModule::from_code(
+                py,
+                include_str!("../../python/lora_validator.py"),
+                "lora_validator.py",
+                "lora_validator",
+            )
+            .map_err(|e| HermesError::PythonError(e))?;
+
+            let test_json = serde_json::to_string(test_data)
+                .map_err(|e| HermesError::ConfigError(format!("Failed to serialize test data: {}", e)))?;
+
+            let kwargs = PyDict::new(py);
+            kwargs.set_item("adapter_path", adapter_path.to_str().unwrap())?;
+            kwargs.set_item("test_data_json", test_json)?;
+
+            let result = validator_module
+                .getattr("validate_lora_json")?
+                .call((), Some(kwargs))
+                .map_err(|e| HermesError::PythonError(e))?;
+
+            let similarity: f64 = result.extract()?;
+            Ok(similarity)
         })
     }
-
-    fn train_batch(&self, _batch: &[TrainingExample]) -> Result<f64, TrainerError> {
-        // TODO: Implement actual training step with candle
-        // 1. Tokenize inputs and targets
-        // 2. Forward pass through base model + LoRA
-        // 3. Compute loss (cross-entropy)
-        // 4. Backward pass (gradient computation)
-        // 5. Update LoRA parameters only
-        
-        // Placeholder: simulate training
-        Ok(0.5 + rand::random::<f64>() * 0.1)
-    }
-
-    fn save_adapters(&self, output_path: &PathBuf) -> Result<(), TrainerError> {
-        // Save LoRA weights in safetensors format
-        std::fs::create_dir_all(output_path)
-            .map_err(|e| TrainerError::SaveError(e.to_string()))?;
-        
-        // TODO: Implement actual saving with safetensors
-        info!("LoRA adapters saved successfully");
-        Ok(())
-    }
-
-    fn validate_voice_preservation(
-        &self,
-        _dataset: &TrainingDataset,
-    ) -> Result<f64, TrainerError> {
-        // Generate samples with fine-tuned model
-        // Compare with original style using VoiceAnalyzer
-        // Return similarity score (0.0-1.0)
-        
-        // TODO: Implement actual validation
-        // Target: >95% similarity
-        Ok(0.96)
-    }
-
-    /// Incremental training (nightly updates)
-    pub async fn incremental_train(
-        &self,
-        adapter_path: &PathBuf,
-        new_examples: Vec<TrainingExample>,
-    ) -> Result<TrainingMetrics, TrainerError> {
-        info!("Starting incremental training with {} new examples", new_examples.len());
-        
-        // 1. Load existing LoRA adapters
-        // 2. Continue training on new examples
-        // 3. Save updated adapters
-        
-        let mut dataset = TrainingDataset::new();
-        dataset.add_incremental_examples(new_examples);
-        
-        self.train(&dataset, adapter_path).await
-    }
-}
-
-#[derive(Debug)]
-pub struct TrainingMetrics {
-    pub avg_loss: f64,
-    pub voice_similarity: f64,
-    pub num_examples: usize,
-    pub num_epochs: usize,
 }
 
 #[derive(Debug, Error)]
 pub enum TrainerError {
     #[error("Corpus read error: {0}")]
     CorpusReadError(String),
-    
-    #[error("Device error: {0}")]
-    DeviceError(String),
-    
-    #[error("Model load error: {0}")]
-    ModelLoadError(String),
     
     #[error("Training error: {0}")]
     TrainingError(String),
@@ -336,22 +255,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_lora_trainer() {
-        let config = LoraConfig::default();
-        let model_path = PathBuf::from("/tmp/test_model");
-        
-        let trainer = LoraTrainer::new(config, model_path).unwrap();
-        
-        let mut dataset = TrainingDataset::new();
-        dataset.examples.push(TrainingExample {
-            input: "The results demonstrate".to_string(),
-            target: "significant improvements in performance.".to_string(),
-            metadata: std::collections::HashMap::new(),
-        });
-        
-        let output = PathBuf::from("/tmp/lora_test");
-        let metrics = trainer.train(&dataset, &output).await.unwrap();
-        
-        assert!(metrics.voice_similarity > 0.9);
+    #[ignore] // Requires Python dependencies and model files
+    async fn test_lora_training() {
+        let config = LoRAConfig::default();
+        let trainer = LoRATrainer::new(config);
+
+        let training_data = vec![
+            "This is a sample training text.".to_string(),
+            "Another example for fine-tuning.".to_string(),
+        ];
+
+        let output_path = std::env::temp_dir().join("test_lora_adapter");
+        let result = trainer
+            .train("microsoft/DialoGPT-small", &training_data, &output_path)
+            .await;
+
+        // This test requires actual model files and Python dependencies
+        println!("Training result: {:?}", result);
     }
 }
+

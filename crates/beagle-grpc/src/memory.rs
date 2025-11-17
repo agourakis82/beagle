@@ -52,11 +52,10 @@ pub struct MemoryClient {
 
 impl MemoryClient {
     pub async fn connect(addr: impl Into<String>) -> Result<Self> {
-        let client = crate::generated::memory_service_client::MemoryServiceClient::connect(addr.into())
-            .await
-            .map_err(|e| GrpcError::InternalError(e.to_string()))?;
+        let client =
+            crate::generated::memory_service_client::MemoryServiceClient::connect(addr.into())
+                .await
+                .map_err(|e| GrpcError::InternalError(e.to_string()))?;
         Ok(Self { client })
     }
 }
-
-

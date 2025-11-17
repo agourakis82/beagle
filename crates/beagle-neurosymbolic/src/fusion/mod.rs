@@ -6,9 +6,9 @@
 //! 3. If invalid: Neural refines (with feedback)
 //! 4. Iterate until valid or max iterations
 
-use crate::logic::{LogicEngine, Formula, KnowledgeBase};
 #[cfg(feature = "z3")]
 use crate::constraints::{ConstraintSolver, Solution};
+use crate::logic::{Formula, KnowledgeBase, LogicEngine};
 #[cfg(not(feature = "z3"))]
 pub struct Solution; // Placeholder when constraints disabled
 
@@ -182,5 +182,3 @@ struct Validation {
     constraint_solution: Option<Solution>,
     feedback: String,
 }
-
-

@@ -9,6 +9,8 @@
 //! ```
 
 pub mod agents;
+pub mod citations;
+pub mod editor;
 pub mod error;
 pub mod knowledge;
 pub mod manuscript;
@@ -18,6 +20,7 @@ pub mod scheduler;
 pub mod security;
 pub mod synthesis;
 pub mod thought_capture;
+pub mod voice;
 
 pub use error::{HermesError, Result};
 

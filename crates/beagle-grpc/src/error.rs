@@ -25,16 +25,10 @@ impl From<GrpcError> for Status {
             GrpcError::AgentNotFound(msg) | GrpcError::MemoryNotFound(msg) => {
                 Status::not_found(msg)
             }
-            GrpcError::InvalidRequest(msg) => {
-                Status::invalid_argument(msg)
-            }
-            GrpcError::ModelError(msg) | GrpcError::InternalError(msg) => {
-                Status::internal(msg)
-            }
+            GrpcError::InvalidRequest(msg) => Status::invalid_argument(msg),
+            GrpcError::ModelError(msg) | GrpcError::InternalError(msg) => Status::internal(msg),
         }
     }
 }
 
 pub type Result<T> = std::result::Result<T, GrpcError>;
-
-

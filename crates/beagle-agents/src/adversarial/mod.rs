@@ -3,13 +3,12 @@
 //! Agent vs Agent competition with learning
 //! Inspired by AlphaGo/AlphaZero but for research
 
-pub mod player;
 pub mod arena;
-pub mod strategy;
 pub mod evolution;
+pub mod player;
+pub mod strategy;
 
-pub use player::ResearchPlayer;
 pub use arena::CompetitionArena;
+pub use evolution::{MatchResult, StrategyEvolution};
+pub use player::ResearchPlayer;
 pub use strategy::Strategy;
-pub use evolution::{StrategyEvolution, MatchResult};
-

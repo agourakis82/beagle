@@ -1,7 +1,4 @@
-use super::{
-    corpus::NoveltyScorer,
-    hypothesis::Hypothesis,
-};
+use super::{corpus::NoveltyScorer, hypothesis::Hypothesis};
 use crate::{
     CausalGraph, CausalReasoner, DebateOrchestrator, DebateTranscript, HypergraphReasoner,
 };
@@ -77,10 +74,13 @@ impl SimulationEngine {
 
         // Novelty: use corpus-based scorer if available, otherwise fallback to heuristic
         let novelty = if let Some(ref scorer) = self.novelty_scorer {
-            scorer.score_novelty(&hypothesis.content).await.unwrap_or_else(|e| {
-                info!("⚠️  Novelty scoring failed: {}, using heuristic", e);
-                self.calculate_novelty_heuristic(&hypothesis.content)
-            })
+            scorer
+                .score_novelty(&hypothesis.content)
+                .await
+                .unwrap_or_else(|e| {
+                    info!("⚠️  Novelty scoring failed: {}, using heuristic", e);
+                    self.calculate_novelty_heuristic(&hypothesis.content)
+                })
         } else {
             self.calculate_novelty_heuristic(&hypothesis.content)
         };

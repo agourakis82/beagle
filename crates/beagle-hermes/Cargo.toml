@@ -49,6 +49,11 @@ thiserror.workspace = true
 # ML integration (Python bridge)
 pyo3 = { version = "0.20", features = ["auto-initialize"] }
 
+# LoRA Training (commented out due to version conflicts - use Python bridge instead)
+# candle-core = "0.4"
+# candle-transformers = "0.4"
+# safetensors = "0.4"
+
 # NLP & Text Processing
 unicode-segmentation = "1.10"
 regex = "1.10"
@@ -56,6 +61,8 @@ rayon = "1.8"
 
 # Citation Management
 scraper = "0.18"
+reqwest = { version = "0.11", features = ["json"] }
+urlencoding = "2.1"
 
 # Internal crates
 beagle-llm = { path = "../beagle-llm" }

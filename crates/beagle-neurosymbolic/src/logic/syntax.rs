@@ -67,9 +67,15 @@ pub enum Formula {
     /// Equivalence: φ ↔ ψ
     Iff(Box<Formula>, Box<Formula>),
     /// Universal: ∀x φ
-    ForAll { variable: String, body: Box<Formula> },
+    ForAll {
+        variable: String,
+        body: Box<Formula>,
+    },
     /// Existential: ∃x φ
-    Exists { variable: String, body: Box<Formula> },
+    Exists {
+        variable: String,
+        body: Box<Formula>,
+    },
 }
 
 impl fmt::Display for Formula {
@@ -108,5 +114,3 @@ impl Formula {
         Formula::Implies(Box::new(self), Box::new(other))
     }
 }
-
-

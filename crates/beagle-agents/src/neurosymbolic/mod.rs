@@ -49,7 +49,9 @@ pub struct ConstraintSolver {
 
 impl ConstraintSolver {
     pub fn new() -> Self {
-        Self { constraints: Vec::new() }
+        Self {
+            constraints: Vec::new(),
+        }
     }
 }
 
@@ -67,4 +69,3 @@ impl HybridReasoner {
         }
     }
 }
-

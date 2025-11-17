@@ -7,5 +7,3 @@ pub struct EmergentBehavior {
     pub dominant_concept: Option<String>,
     pub consensus_strength: f64,
 }
-
-

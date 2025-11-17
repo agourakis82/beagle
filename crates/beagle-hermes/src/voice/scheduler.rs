@@ -1,14 +1,14 @@
 //! Nightly retraining scheduler
 //! Runs at 3 AM local time, trains on yesterday's interactions
 
-use crate::voice::trainer::{LoraTrainer, TrainingExample};
+use crate::voice::trainer::{LoRATrainer, TrainingExample, TrainingMetrics};
 use tokio::time::{sleep, Duration};
 use chrono::{Local, Timelike};
 use std::path::PathBuf;
 use tracing::{info, error};
 
 pub struct RetrainingScheduler {
-    trainer: LoraTrainer,
+    trainer: LoRATrainer,
     corpus_path: PathBuf,
     adapter_path: PathBuf,
     schedule_hour: u32,  // Hour of day (0-23)
@@ -16,7 +16,7 @@ pub struct RetrainingScheduler {
 
 impl RetrainingScheduler {
     pub fn new(
-        trainer: LoraTrainer,
+        trainer: LoRATrainer,
         corpus_path: PathBuf,
         adapter_path: PathBuf,
     ) -> Self {
@@ -58,9 +58,9 @@ impl RetrainingScheduler {
             match self.retrain().await {
                 Ok(metrics) => {
                     info!("Retraining completed successfully");
-                    info!("  Avg Loss: {:.4}", metrics.avg_loss);
-                    info!("  Voice Similarity: {:.2}%", metrics.voice_similarity * 100.0);
-                    info!("  Examples: {}", metrics.num_examples);
+                    info!("  Final Loss: {:.4}", metrics.final_loss);
+                    info!("  Training Time: {:.2}s", metrics.training_time_seconds);
+                    info!("  Adapter: {}", metrics.adapter_path);
                 }
                 Err(e) => {
                     error!("Retraining failed: {}", e);
@@ -72,7 +72,7 @@ impl RetrainingScheduler {
         }
     }
 
-    async fn retrain(&self) -> Result<crate::voice::trainer::TrainingMetrics, Box<dyn std::error::Error>> {
+    async fn retrain(&self) -> Result<TrainingMetrics, Box<dyn std::error::Error>> {
         info!("Starting nightly retraining");
         
         // 1. Collect yesterday's interactions
@@ -80,19 +80,24 @@ impl RetrainingScheduler {
         
         if new_examples.is_empty() {
             info!("No new examples from yesterday. Skipping retraining.");
-            return Ok(crate::voice::trainer::TrainingMetrics {
-                avg_loss: 0.0,
-                voice_similarity: 1.0,
-                num_examples: 0,
-                num_epochs: 0,
+            return Ok(TrainingMetrics {
+                adapter_path: String::new(),
+                loss_history: Vec::new(),
+                final_loss: 0.0,
+                training_time_seconds: 0.0,
             });
         }
         
         info!("Collected {} new examples from yesterday", new_examples.len());
         
-        // 2. Incremental training
+        // 2. Training (using train method instead of incremental_train)
+        let training_data: Vec<String> = new_examples
+            .iter()
+            .map(|e| format!("{} {}", e.input, e.target))
+            .collect();
+        
         let metrics = self.trainer
-            .incremental_train(&self.adapter_path, new_examples)
+            .train("microsoft/DialoGPT-small", &training_data, &self.adapter_path)
             .await?;
         
         // 3. Backup old adapters
@@ -126,7 +131,7 @@ impl RetrainingScheduler {
 
     async fn notify_completion(
         &self,
-        _metrics: &crate::voice::trainer::TrainingMetrics,
+        _metrics: &TrainingMetrics,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Send notification to user (email, push notification, etc.)
         info!("Retraining notification sent");

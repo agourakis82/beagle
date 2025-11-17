@@ -35,5 +35,3 @@ pub async fn debate(
 
     Ok(Json(DebateResponse { transcript }))
 }
-
-

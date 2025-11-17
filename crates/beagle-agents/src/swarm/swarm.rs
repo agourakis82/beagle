@@ -186,5 +186,3 @@ pub struct SwarmResult {
     pub emergent_behavior: EmergentBehavior,
     pub n_agents: usize,
 }
-
-

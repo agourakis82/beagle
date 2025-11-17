@@ -12,5 +12,3 @@ pub use agent::SwarmAgent;
 pub use emergence::EmergentBehavior;
 pub use pheromone::{Pheromone, PheromoneField};
 pub use swarm::SwarmOrchestrator;
-
-

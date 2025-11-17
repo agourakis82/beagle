@@ -1,6 +1,6 @@
 use beagle_grpc::generated::agent_service_server::AgentServiceServer;
-use beagle_grpc::AgentServiceImpl;
 use beagle_grpc::tonic::transport::Server;
+use beagle_grpc::AgentServiceImpl;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -14,5 +14,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     Ok(())
 }
-
-

@@ -69,35 +69,110 @@ impl CitationGenerator {
     }
 
     async fn search_paper(&self, query: &str) -> Result<Option<Paper>, CitationError> {
-        // TODO: Implement actual Semantic Scholar API call
-        // For now, return mock data
+        // Call Semantic Scholar API
+        let api_key = std::env::var("SEMANTIC_SCHOLAR_API_KEY")
+            .unwrap_or_else(|_| "flE0Xf1Q8F4k5yoxskzQi1h26DvihxoEaEXY42oE".to_string());
         
-        if query.to_lowercase().contains("fake") {
-            return Ok(None);  // Simulate paper not found
+        let client = reqwest::Client::new();
+        let url = format!(
+            "https://api.semanticscholar.org/graph/v1/paper/search?query={}&limit=5",
+            urlencoding::encode(query)
+        );
+        
+        let response = client
+            .get(&url)
+            .header("x-api-key", &api_key)
+            .send()
+            .await
+            .map_err(|e| CitationError::ApiError(format!("API request failed: {}", e)))?;
+        
+        if !response.status().is_success() {
+            return Err(CitationError::ApiError(format!(
+                "API returned status: {}",
+                response.status()
+            )));
         }
         
+        let data: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| CitationError::ApiError(format!("Failed to parse response: {}", e)))?;
+        
+        let papers = data
+            .get("data")
+            .and_then(|d| d.as_array())
+            .ok_or_else(|| CitationError::ApiError("Invalid API response format".to_string()))?;
+        
+        if papers.is_empty() {
+            return Ok(None);
+        }
+        
+        // Get first matching paper
+        let paper = &papers[0];
+        
+        let title = paper
+            .get("title")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| CitationError::ApiError("Missing title".to_string()))?;
+        
+        let paper_id = paper
+            .get("paperId")
+            .and_then(|id| id.as_str())
+            .ok_or_else(|| CitationError::ApiError("Missing paperId".to_string()))?;
+        
+        let authors_array_opt = paper
+            .get("authors")
+            .and_then(|a| a.as_array());
+        
+        let authors: Vec<Author> = if let Some(authors_array) = authors_array_opt {
+            authors_array
+                .iter()
+                .take(10) // Limit to 10 authors
+                .filter_map(|a| {
+                    let name = a.get("name")?.as_str()?;
+                    let name_parts: Vec<&str> = name.split_whitespace().collect();
+                    if name_parts.len() >= 2 {
+                        Some(Author {
+                            first_name: name_parts[0].to_string(),
+                            last_name: name_parts.last()?.to_string(),
+                            initials: name_parts[0].chars().next().map(|c| c.to_string()),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        
+        let year = paper
+            .get("year")
+            .and_then(|y| y.as_i64())
+            .map(|y| y as u16);
+        
+        let external_ids = paper.get("externalIds");
+        let doi = external_ids
+            .and_then(|e| e.get("DOI"))
+            .and_then(|d| d.as_str())
+            .map(String::from);
+        
+        let journal = paper
+            .get("venue")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        
         Ok(Some(Paper {
-            title: "Example Paper Title".to_string(),
-            authors: vec![
-                Author {
-                    first_name: "John".to_string(),
-                    last_name: "Doe".to_string(),
-                    initials: Some("J".to_string()),
-                },
-                Author {
-                    first_name: "Jane".to_string(),
-                    last_name: "Smith".to_string(),
-                    initials: Some("J".to_string()),
-                },
-            ],
-            year: 2024,
-            journal: Some("Nature".to_string()),
-            volume: Some("625".to_string()),
-            issue: Some("7995".to_string()),
-            pages: Some("123-130".to_string()),
-            doi: Some("10.1038/s41586-024-12345-6".to_string()),
-            pmid: Some("38123456".to_string()),
-            semantic_scholar_id: Some("abc123".to_string()),
+            title: title.to_string(),
+            authors,
+            year: year.unwrap_or(0),
+            journal,
+            volume: None, // Semantic Scholar doesn't always provide this
+            issue: None,
+            pages: None,
+            doi,
+            pmid: None, // Would need to fetch separately
+            semantic_scholar_id: Some(paper_id.to_string()),
         }))
     }
 

@@ -81,10 +81,7 @@ impl ScholarAPI {
             .await?;
 
         if !response.status().is_success() {
-            warn!(
-                "⚠️  Semantic Scholar API error: {}",
-                response.status()
-            );
+            warn!("⚠️  Semantic Scholar API error: {}", response.status());
             return Ok(vec![]);
         }
 
@@ -122,7 +119,11 @@ impl ScholarAPI {
                 abstract_text: p.abstract_text,
                 year: p.year,
                 citation_count: p.citation_count,
-                authors: p.authors.into_iter().map(|a| a.name).collect::<Vec<String>>(),
+                authors: p
+                    .authors
+                    .into_iter()
+                    .map(|a| a.name)
+                    .collect::<Vec<String>>(),
             })
             .collect();
 
@@ -205,7 +206,11 @@ impl ScholarAPI {
                     abstract_text: p.abstract_text,
                     year: p.year,
                     citation_count: p.citation_count,
-                    authors: p.authors.into_iter().map(|a| a.name).collect::<Vec<String>>(),
+                    authors: p
+                        .authors
+                        .into_iter()
+                        .map(|a| a.name)
+                        .collect::<Vec<String>>(),
                 }
             })
             .collect();
@@ -282,7 +287,11 @@ impl ScholarAPI {
                 abstract_text: p.abstract_text,
                 year: p.year,
                 citation_count: p.citation_count,
-                authors: p.authors.into_iter().map(|a| a.name).collect::<Vec<String>>(),
+                authors: p
+                    .authors
+                    .into_iter()
+                    .map(|a| a.name)
+                    .collect::<Vec<String>>(),
             })
             .collect();
 
@@ -297,4 +306,3 @@ impl Default for ScholarAPI {
         Self::new()
     }
 }
-

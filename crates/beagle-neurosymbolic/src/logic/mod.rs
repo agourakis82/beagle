@@ -6,11 +6,11 @@
 //! - Connectives: ∧, ∨, ¬, →, ↔
 //! - Unification & Resolution (partial; roadmap)
 
-pub mod syntax;
 pub mod engine;
+pub mod syntax;
 
-pub use syntax::{Term, Predicate, Formula};
-pub use engine::{LogicEngine, KnowledgeBase, Rule, Proof, ProofStep};
+pub use engine::{KnowledgeBase, LogicEngine, Proof, ProofStep, Rule};
+pub use syntax::{Formula, Predicate, Term};
 
 use thiserror::Error;
 
@@ -30,5 +30,3 @@ pub enum LogicError {
 }
 
 pub type Result<T> = std::result::Result<T, LogicError>;
-
-

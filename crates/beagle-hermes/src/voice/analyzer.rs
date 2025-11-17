@@ -12,8 +12,8 @@ pub struct VoiceProfile {
     /// Lexical diversity (unique words / total words)
     pub lexical_diversity: f64,
     
-    /// Common sentence structures
-    pub sentence_patterns: Vec<SentencePattern>,
+    /// Common sentence structures (simplified to strings for now)
+    pub sentence_patterns: Vec<String>,
     
     /// Preferred vocabulary
     pub vocabulary_fingerprint: HashMap<String, f64>,
@@ -76,7 +76,7 @@ impl VoiceAnalyzer {
         VoiceProfile {
             avg_sentence_length,
             lexical_diversity,
-            sentence_patterns: vec![],  // TODO: Implement pattern extraction
+            sentence_patterns: self.extract_sentence_patterns(&all_text),
             vocabulary_fingerprint,
             punctuation_profile,
             avg_paragraph_length,
@@ -248,6 +248,47 @@ impl VoiceAnalyzer {
         } else {
             overlap / total_weight
         }
+    }
+
+    /// Extract sentence patterns (structure, length, complexity)
+    fn extract_sentence_patterns(&self, text: &str) -> Vec<String> {
+        let sentences: Vec<&str> = text
+            .split_inclusive(&['.', '!', '?', '\n'])
+            .filter(|s| s.trim().len() > 10)
+            .collect();
+        
+        let mut patterns = Vec::new();
+        
+        for sentence in sentences.iter().take(20) {
+            // Extract pattern: sentence length category
+            let word_count = sentence.split_whitespace().count();
+            let pattern = if word_count < 10 {
+                "short"
+            } else if word_count < 25 {
+                "medium"
+            } else {
+                "long"
+            };
+            
+            // Extract pattern: sentence structure
+            let has_comma = sentence.contains(',');
+            let has_semicolon = sentence.contains(';');
+            let has_colon = sentence.contains(':');
+            
+            let structure = if has_semicolon {
+                "complex"
+            } else if has_colon {
+                "explanatory"
+            } else if has_comma {
+                "compound"
+            } else {
+                "simple"
+            };
+            
+            patterns.push(format!("{}_{}", pattern, structure));
+        }
+        
+        patterns
     }
 }
 

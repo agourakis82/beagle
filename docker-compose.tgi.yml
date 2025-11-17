@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # Text Generation Inference (HuggingFace)
+  # ============================================
+  tgi:
+    image: ghcr.io/huggingface/text-generation-inference:latest
+    container_name: beagle-tgi
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ${DATA_DIR}/models:/data
+    environment:
+      MODEL_ID: google/gemma-2-9b-it
+      NUM_SHARD: 1
+      MAX_INPUT_LENGTH: 2048
+      MAX_TOTAL_TOKENS: 3072
+      MAX_BATCH_PREFILL_TOKENS: 2048
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN}
+      CUDA_VISIBLE_DEVICES: 0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    networks:
+      - beagle-net
+
+networks:
+  beagle-net:
+    external: true
+    name: beagle_beagle-net

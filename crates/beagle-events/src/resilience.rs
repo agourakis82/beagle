@@ -35,10 +35,7 @@ impl RetryConfig {
 }
 
 /// Retry with exponential backoff
-pub async fn retry_with_backoff<F, Fut, T>(
-    mut operation: F,
-    config: RetryConfig,
-) -> Result<T>
+pub async fn retry_with_backoff<F, Fut, T>(mut operation: F, config: RetryConfig) -> Result<T>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
@@ -109,5 +106,3 @@ mod tests {
         assert_eq!(attempts.load(Ordering::SeqCst), 3);
     }
 }
-
-

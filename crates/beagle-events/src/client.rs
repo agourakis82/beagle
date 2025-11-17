@@ -12,10 +12,7 @@ impl BeaglePulsar {
     /// # Arguments
     /// * `broker_url` - Pulsar broker URL (e.g., "pulsar://localhost:6650")
     /// * `auth` - Optional authentication
-    pub async fn new(
-        broker_url: impl Into<String>,
-        auth: Option<Authentication>,
-    ) -> Result<Self> {
+    pub async fn new(broker_url: impl Into<String>, auth: Option<Authentication>) -> Result<Self> {
         let mut builder = Pulsar::builder(broker_url, TokioExecutor);
 
         if let Some(authentication) = auth {
@@ -50,5 +47,3 @@ mod tests {
         assert!(true);
     }
 }
-
-

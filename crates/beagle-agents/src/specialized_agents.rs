@@ -235,5 +235,3 @@ impl Agent for QualityAgent {
         })
     }
 }
-
-
