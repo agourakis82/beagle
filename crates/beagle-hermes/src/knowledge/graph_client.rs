@@ -2,10 +2,10 @@
 
 use super::{
     concepts::ClusteredInsight,
-    models::{InsightNode, PaperNode},
+    models::{ConceptNode, InsightNode, PaperNode},
     ConceptCluster,
 };
-use crate::thought_capture::CapturedInsight;
+use crate::thought_capture::{CapturedInsight, ExtractedConcept, ConceptType};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use neo4rs::{query, Graph};
@@ -194,6 +194,176 @@ impl KnowledgeGraph {
         Ok(clusters)
     }
 
+    /// Create concept node with full metadata
+    pub async fn create_concept_node(
+        &self,
+        concept: &ConceptNode,
+    ) -> Result<String> {
+        let create_concept = query(
+            "CREATE (c:Concept {
+                id: $id,
+                name: $name,
+                domain: $domain,
+                created_at: datetime(),
+                embedding: $embedding,
+                metadata: $metadata
+            })
+            RETURN c.id as id",
+        )
+        .param("id", concept.id.to_string())
+        .param("name", concept.name.clone())
+        .param("domain", concept.domain.clone().unwrap_or_else(|| "general".to_string()))
+        .param("embedding", concept.embedding.clone())
+        .param("metadata", serde_json::to_string(&concept.metadata)?);
+
+        let mut result = self.graph.execute(create_concept).await?;
+
+        if let Some(row) = result.next().await? {
+            let id: String = row.get("id")?;
+            Ok(id)
+        } else {
+            anyhow::bail!("Failed to create concept node")
+        }
+    }
+
+    /// Create relationship between concepts with strength
+    pub async fn create_concept_relationship(
+        &self,
+        from_id: &str,
+        to_id: &str,
+        rel_type: &str,
+        strength: f64,
+    ) -> Result<()> {
+        let create_rel = query(
+            "MATCH (a:Concept {id: $from_id})
+             MATCH (b:Concept {id: $to_id})
+             MERGE (a)-[r:RELATES_TO {
+                 type: $rel_type,
+                 strength: $strength,
+                 created_at: datetime()
+             }]->(b)
+             RETURN r",
+        )
+        .param("from_id", from_id)
+        .param("to_id", to_id)
+        .param("rel_type", rel_type)
+        .param("strength", strength);
+
+        self.graph.run(create_rel).await?;
+        Ok(())
+    }
+
+    /// Find related concepts with minimum strength threshold
+    pub async fn find_related_concepts(
+        &self,
+        concept_id: &str,
+        min_strength: f64,
+        limit: usize,
+    ) -> Result<Vec<RelatedConcept>> {
+        let query_str = query(
+            "MATCH (c:Concept {id: $concept_id})-[r:RELATES_TO]-(related:Concept)
+             WHERE r.strength >= $min_strength
+             RETURN related.id as id,
+                    related.name as name,
+                    related.domain as domain,
+                    r.strength as strength,
+                    r.type as rel_type
+             ORDER BY r.strength DESC
+             LIMIT $limit",
+        )
+        .param("concept_id", concept_id)
+        .param("min_strength", min_strength)
+        .param("limit", limit as i64);
+
+        let mut result = self.graph.execute(query_str).await?;
+        let mut concepts = Vec::new();
+
+        while let Some(row) = result.next().await? {
+            concepts.push(RelatedConcept {
+                id: row.get("id")?,
+                name: row.get("name")?,
+                domain: row.get("domain").unwrap_or_default(),
+                strength: row.get("strength")?,
+                rel_type: row.get("rel_type").unwrap_or_default(),
+            });
+        }
+
+        Ok(concepts)
+    }
+
+    /// Get concept cluster with specified depth
+    pub async fn get_concept_cluster(
+        &self,
+        concept_id: &str,
+        depth: usize,
+    ) -> Result<ConceptCluster> {
+        let query_str = format!(
+            "MATCH path = (c:Concept {{id: $concept_id}})-[*1..{}]-(related:Concept)
+             RETURN DISTINCT related.id as id,
+                    related.name as name,
+                    related.domain as domain,
+                    related.embedding as embedding
+             LIMIT 50",
+            depth
+        );
+
+        let query_obj = query(&query_str)
+            .param("concept_id", concept_id);
+
+        let mut result = self.graph.execute(query_obj).await?;
+
+        let mut cluster = ConceptCluster {
+            concept_name: concept_id.to_string(),
+            insight_count: 0,
+            insights: Vec::new(),
+            last_synthesis: None,
+        };
+
+        // Get insights for this concept
+        let insights = self.get_insights_for_concept_by_id(concept_id).await?;
+        cluster.insight_count = insights.len();
+        cluster.insights = insights;
+
+        Ok(cluster)
+    }
+
+    /// Get insights for concept by ID
+    async fn get_insights_for_concept_by_id(
+        &self,
+        concept_id: &str,
+    ) -> Result<Vec<ClusteredInsight>> {
+        let query_str = query(
+            "MATCH (c:Concept {id: $concept_id})<-[:CONTAINS]-(i:Insight)
+             RETURN i.id as id,
+                    coalesce(i.text, i.content) as content,
+                    i.timestamp as timestamp
+             ORDER BY i.timestamp DESC
+             LIMIT 100",
+        )
+        .param("concept_id", concept_id);
+
+        let mut result = self.graph.execute(query_str).await?;
+        let mut insights = Vec::new();
+
+        while let Some(row) = result.next().await? {
+            let id_str: String = row.get("id")?;
+            let content: String = row.get("content")?;
+            let timestamp_str: String = row.get("timestamp")?;
+
+            if let Ok(id) = Uuid::parse_str(&id_str) {
+                if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(&timestamp_str) {
+                    insights.push(ClusteredInsight {
+                        id,
+                        content,
+                        timestamp: timestamp.with_timezone(&Utc),
+                    });
+                }
+            }
+        }
+
+        Ok(insights)
+    }
+
     /// Get insights for a specific concept
     pub async fn get_insights_for_concept(&self, concept_name: &str) -> Result<Vec<InsightNode>> {
         let query_str = query(
@@ -282,6 +452,16 @@ impl KnowledgeGraph {
 
         Ok(())
     }
+}
+
+/// Related concept with relationship metadata
+#[derive(Debug, Clone)]
+pub struct RelatedConcept {
+    pub id: String,
+    pub name: String,
+    pub domain: String,
+    pub strength: f64,
+    pub rel_type: String,
 }
 
 #[cfg(test)]
