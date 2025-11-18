@@ -1,0 +1,26 @@
+[package]
+name = "beagle-fractal"
+version = "0.1.0"
+edition = "2021"
+description = "Fractal Entropy Core – Substrato entrópico fractal auto-similar do BEAGLE SINGULARITY"
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1.40", features = ["full"] }
+tracing = "0.1"
+rayon = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+petgraph = "0.6"
+uuid = { version = "1.0", features = ["v4"] }
+
+# Crates internos
+beagle-consciousness = { path = "../beagle-consciousness" }
+beagle-quantum = { path = "../beagle-quantum" }
+beagle-llm = { path = "../beagle-llm" }
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+criterion = "0.5"
