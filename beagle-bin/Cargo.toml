@@ -1,0 +1,23 @@
+[package]
+name = "beagle-bin"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "beagle"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1.40", features = ["full", "rt-multi-thread"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+anyhow = "1.0"
+beagle-fractal = { path = "../crates/beagle-fractal" }
+beagle-quantum = { path = "../crates/beagle-quantum" }
+beagle-eternity = { path = "../crates/beagle-eternity" }
+beagle-transcend = { path = "../crates/beagle-transcend" }
+beagle-cosmo = { path = "../crates/beagle-cosmo" }
+beagle-void = { path = "../crates/beagle-void" }
+beagle-paradox = { path = "../crates/beagle-paradox" }
+beagle-smart-router = { path = "../crates/beagle-smart-router" }

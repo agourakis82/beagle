@@ -1,0 +1,16 @@
+[package]
+name = "beagle-smart-router"
+version = "0.1.0"
+edition = "2021"
+description = "Smart LLM Router - Roteia queries entre Grok3 (ilimitado), Grok4Heavy (quota) e vLLM (fallback)"
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1.40", features = ["full"] }
+tracing = "0.1"
+anyhow = "1.0"
+beagle-grok-api = { path = "../beagle-grok-api" }
+beagle-llm = { path = "../beagle-llm" }
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }

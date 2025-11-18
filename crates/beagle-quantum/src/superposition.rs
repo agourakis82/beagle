@@ -31,9 +31,10 @@ impl Hypothesis {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HypothesisSet {
     pub hypotheses: Vec<Hypothesis>,
+    #[serde(default)]
     total_prob: f64,
 }
 

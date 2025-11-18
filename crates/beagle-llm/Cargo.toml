@@ -20,6 +20,11 @@ gcp_auth.workspace = true
 base64.workspace = true
 
 beagle-personality = { path = "../beagle-personality" }
+beagle-grok-api = { path = "../beagle-grok-api", optional = true }
+
+[features]
+default = []
+grok = ["beagle-grok-api"]
 
 [dev-dependencies]
 tokio-test.workspace = true

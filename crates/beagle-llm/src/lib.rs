@@ -19,5 +19,9 @@ pub use validation::{CitationValidity, Issue, IssueType, Severity, ValidationRes
 pub use vertex::VertexAIClient;
 pub use vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
 
+// Re-export Grok client se disponível (crate separado)
+#[cfg(feature = "grok")]
+pub use beagle_grok_api::{GrokClient, GrokModel, GrokError};
+
 /// Alias canônico para resultados com `anyhow`.
 pub type Result<T> = anyhow::Result<T>;

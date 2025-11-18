@@ -25,7 +25,7 @@ members = [
     "crates/beagle-fractal",
     "crates/beagle-abyss",
     "crates/beagle-reality",
-    "crates/beagle-noetic",
+    "crates/beagle-noetic", "crates/beagle-ontic", "crates/beagle-void", "crates/beagle-paradox", "crates/beagle-cosmo", "crates/beagle-transcend", "crates/beagle-eternity", "beagle-bin", "crates/beagle-grok-api", "crates/beagle-smart-router",
 ]
 resolver = "2"
 

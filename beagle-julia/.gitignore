@@ -1,0 +1,28 @@
+# Julia
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+/Manifest.toml
+*.toml.bak
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Test results
+/test/results/
+
+# Benchmarks
+/benchmarks/results/
+
+# Temporary files
+*.tmp
+.DS_Store
+
+

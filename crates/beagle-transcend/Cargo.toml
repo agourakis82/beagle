@@ -1,0 +1,20 @@
+[package]
+name = "beagle-transcend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.40", features = ["full"] }
+tracing = "0.1"
+anyhow = "1.0"
+beagle-llm = { path = "../beagle-llm" }
+beagle-fractal = { path = "../beagle-fractal" }
+beagle-grok-api = { path = "../beagle-grok-api" }
+beagle-smart-router = { path = "../beagle-smart-router" }
+
+[[example]]
+name = "transcend"
+path = "examples/transcend.rs"
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
