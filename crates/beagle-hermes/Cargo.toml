@@ -69,6 +69,13 @@ beagle-llm = { path = "../beagle-llm" }
 beagle-memory.workspace = true
 beagle-hypergraph = { path = "../beagle-hypergraph" }
 beagle-db = { path = "../beagle-db" }
+beagle-quantum = { path = "../beagle-quantum" }
+beagle-metacog = { path = "../beagle-metacog" }
+beagle-serendipity = { path = "../beagle-serendipity" }
+beagle-worldmodel = { path = "../beagle-worldmodel" }
+beagle-consciousness = { path = "../beagle-consciousness" }
+beagle-fractal = { path = "../beagle-fractal" }
+beagle-abyss = { path = "../beagle-abyss" }
 
 [dev-dependencies]
 tokio-test.workspace = true

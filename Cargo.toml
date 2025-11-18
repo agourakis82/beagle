@@ -16,7 +16,7 @@ members = [
     "crates/beagle-events",
     "crates/beagle-grpc",
     "crates/beagle-neurosymbolic",
-    "crates/beagle-hermes", "crates/beagle-quantum", "crates/beagle-metacog", "crates/beagle-serendipity", "crates/beagle-worldmodel", "crates/beagle-consciousness", "crates/beagle-fractal", "crates/beagle-abyss",
+    "crates/beagle-hermes", "crates/beagle-quantum", "crates/beagle-metacog", "crates/beagle-serendipity", "crates/beagle-worldmodel", "crates/beagle-consciousness", "crates/beagle-fractal", "crates/beagle-abyss", "crates/beagle-reality",
 ]
 resolver = "2"
 
