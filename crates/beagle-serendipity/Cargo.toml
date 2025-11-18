@@ -15,7 +15,6 @@ anyhow = "1.0"
 
 # Crates internos
 beagle-quantum = { path = "../beagle-quantum" }
-beagle-hermes = { path = "../beagle-hermes" }
 beagle-metacog = { path = "../beagle-metacog" }
 beagle-llm = { path = "../beagle-llm" }
 

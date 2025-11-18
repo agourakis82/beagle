@@ -3,6 +3,7 @@
 use super::athena::Paper;
 use super::hermes_agent::Draft;
 use crate::Result;
+use beagle_llm::validation::{CitationValidity, Issue, IssueType, Severity, ValidationResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tracing::{debug, info};
@@ -606,40 +607,6 @@ impl QualityScorer {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidationResult {
-    pub citation_validity: CitationValidity,
-    pub flow_score: f64,
-    pub issues: Vec<Issue>,
-    pub quality_score: f64,
-    pub approved: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CitationValidity {
-    pub completeness: f64,
-    pub hallucinated: Vec<String>,
-    pub missing: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Issue {
-    pub issue_type: IssueType,
-    pub description: String,
-    pub severity: Severity,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum IssueType {
-    UnsupportedClaim,
-    MissingTransition,
-    UnclearReference,
-    GrammaticalError,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum Severity {
-    Low,
-    Medium,
-    High,
-}
+// Tipos de validação foram movidos para beagle-llm::validation para evitar dependências circulares
+// Re-exportar para compatibilidade com código existente
+pub use beagle_llm::validation::{CitationValidity, Issue, IssueType, Severity, ValidationResult};

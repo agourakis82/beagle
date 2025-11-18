@@ -4,7 +4,7 @@
 
 use beagle_metacog::MetacognitiveReflector;
 use beagle_quantum::{HypothesisSet, Hypothesis};
-use beagle_hermes::agents::ValidationResult;
+use beagle_llm::validation::{CitationValidity, ValidationResult};
 use tracing_subscriber;
 
 #[tokio::main]
@@ -48,7 +48,7 @@ Adversarial Iteration 3: Quality 94.2%
     // 4. Simular adversarial history
     let adversarial_history = vec![
         ValidationResult {
-            citation_validity: beagle_hermes::agents::CitationValidity {
+            citation_validity: CitationValidity {
                 completeness: 0.8,
                 hallucinated: vec![],
                 missing: vec![],
@@ -59,7 +59,7 @@ Adversarial Iteration 3: Quality 94.2%
             approved: false,
         },
         ValidationResult {
-            citation_validity: beagle_hermes::agents::CitationValidity {
+            citation_validity: CitationValidity {
                 completeness: 0.9,
                 hallucinated: vec![],
                 missing: vec![],
@@ -70,7 +70,7 @@ Adversarial Iteration 3: Quality 94.2%
             approved: false,
         },
         ValidationResult {
-            citation_validity: beagle_hermes::agents::CitationValidity {
+            citation_validity: CitationValidity {
                 completeness: 0.95,
                 hallucinated: vec![],
                 missing: vec![],

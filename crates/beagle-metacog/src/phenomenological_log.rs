@@ -3,7 +3,7 @@
 //! Registra cada ciclo de pensamento como uma entrada fenomenológica
 
 use beagle_quantum::HypothesisSet;
-use beagle_hermes::agents::ValidationResult;
+use beagle_llm::validation::ValidationResult;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

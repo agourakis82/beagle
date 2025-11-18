@@ -103,8 +103,8 @@ impl IntegratedPipeline {
                                    &quantum_reasoning[..quantum_reasoning.len().min(200)],
                                    evolved_draft.iterations);
         let adversarial_history: Vec<_> = evolved_draft.evolution_history.iter()
-            .map(|m| beagle_hermes::agents::ValidationResult {
-                citation_validity: beagle_hermes::agents::CitationValidity {
+            .map(|m| beagle_llm::validation::ValidationResult {
+                citation_validity: beagle_llm::validation::CitationValidity {
                     completeness: 0.9,
                     hallucinated: vec![],
                     missing: vec![],

@@ -8,7 +8,7 @@ use crate::{
     phenomenological_log::{PhenomenologicalLog, PhenomenologicalEntry},
 };
 use beagle_quantum::HypothesisSet;
-use beagle_hermes::agents::ValidationResult;
+use beagle_llm::validation::ValidationResult;
 use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

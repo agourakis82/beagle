@@ -7,6 +7,7 @@ pub mod anthropic;
 pub mod embedding;
 pub mod gemini;
 pub mod models;
+pub mod validation;
 pub mod vertex;
 pub mod vllm;
 
@@ -14,6 +15,7 @@ pub use anthropic::AnthropicClient;
 pub use embedding::{EmbeddingClient, Embedding};
 pub use gemini::GeminiClient;
 pub use models::{CompletionRequest, CompletionResponse, Message, ModelType};
+pub use validation::{CitationValidity, Issue, IssueType, Severity, ValidationResult};
 pub use vertex::VertexAIClient;
 pub use vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
 
