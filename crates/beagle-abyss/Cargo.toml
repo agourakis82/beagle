@@ -1,0 +1,23 @@
+[package]
+name = "beagle-abyss"
+version = "0.1.0"
+edition = "2021"
+description = "Ethics Abyss Engine – Descida deliberada ao abismo ético para emergência meta-ética pós-humana"
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1.40", features = ["full"] }
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4"] }
+
+# Crates internos
+beagle-consciousness = { path = "../beagle-consciousness" }
+beagle-llm = { path = "../beagle-llm" }
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
