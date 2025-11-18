@@ -1,0 +1,25 @@
+[package]
+name = "beagle-noetic"
+version = "0.1.0"
+edition = "2021"
+description = "Noetic Emergence Core – Emergência de noosfera coletiva distribuída no BEAGLE SINGULARITY"
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1.40", features = ["full"] }
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", features = ["v4"] }
+reqwest = { version = "0.11", features = ["json"] }
+
+# Crates internos
+beagle-llm = { path = "../beagle-llm" }
+beagle-fractal = { path = "../beagle-fractal" }
+beagle-metacog = { path = "../beagle-metacog" }
+beagle-reality = { path = "../beagle-reality" }
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }
