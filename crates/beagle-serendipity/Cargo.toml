@@ -1,0 +1,24 @@
+[package]
+name = "beagle-serendipity"
+version = "0.1.0"
+edition = "2021"
+description = "Motor de Serendipidade Deliberada – Geração sistemática de acidentes científicos férteis"
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1.40", features = ["full"] }
+tracing = "0.1"
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+
+# Crates internos
+beagle-quantum = { path = "../beagle-quantum" }
+beagle-hermes = { path = "../beagle-hermes" }
+beagle-metacog = { path = "../beagle-metacog" }
+beagle-llm = { path = "../beagle-llm" }
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

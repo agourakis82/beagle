@@ -199,20 +199,31 @@ impl KnowledgeGraph {
         &self,
         concept: &ConceptNode,
     ) -> Result<String> {
+        // Generate ID from name hash or use UUID
+        use uuid::Uuid;
+        let concept_id = Uuid::new_v4().to_string();
+        let domain = concept.metadata
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .unwrap_or("general")
+            .to_string();
+        
         let create_concept = query(
             "CREATE (c:Concept {
                 id: $id,
                 name: $name,
                 domain: $domain,
+                concept_type: $concept_type,
                 created_at: datetime(),
                 embedding: $embedding,
                 metadata: $metadata
             })
             RETURN c.id as id",
         )
-        .param("id", concept.id.to_string())
+        .param("id", concept_id.clone())
         .param("name", concept.name.clone())
-        .param("domain", concept.domain.clone().unwrap_or_else(|| "general".to_string()))
+        .param("domain", domain)
+        .param("concept_type", concept.concept_type.clone())
         .param("embedding", concept.embedding.clone())
         .param("metadata", serde_json::to_string(&concept.metadata)?);
 

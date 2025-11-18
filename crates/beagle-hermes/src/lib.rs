@@ -8,6 +8,7 @@
 //! Voice/Text → Thought Capture → Knowledge Graph → Synthesis → Manuscript
 //! ```
 
+pub mod adversarial;
 pub mod agents;
 pub mod citations;
 pub mod editor;

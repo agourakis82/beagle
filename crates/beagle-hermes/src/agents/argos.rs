@@ -51,6 +51,169 @@ impl ArgosAgent {
         })
     }
 
+    /// Modo ultra-crítico para adversarial self-play (threshold mais alto, detecção mais rigorosa)
+    pub async fn validate_ultra_critical(&self, draft: &Draft, papers: &[Paper]) -> Result<ValidationResult> {
+        info!("ARGOS: Ultra-critical validation (adversarial mode)");
+
+        // Usa validação normal mas com threshold mais alto e detecção mais rigorosa
+        let mut result = self.validate(draft, papers).await?;
+
+        // Modo adversarial: detecta mais issues e é mais rigoroso
+        let additional_issues = self.detect_adversarial_issues(draft)?;
+        result.issues.extend(additional_issues);
+
+        // Recalcula quality score com issues adicionais
+        result.quality_score = self.compute_quality_score(
+            result.citation_validity.completeness,
+            result.flow_score,
+            result.issues.len(),
+        );
+
+        // Aprovação mais rigorosa em modo adversarial
+        result.approved = result.quality_score >= 0.985; // 98.5% em vez de 85%
+
+        info!("ARGOS: Ultra-critical quality score: {:.1}%", result.quality_score * 100.0);
+        Ok(result)
+    }
+
+    /// Detecta issues adicionais em modo adversarial (mais rigoroso)
+    fn detect_adversarial_issues(&self, draft: &Draft) -> Result<Vec<Issue>> {
+        let mut issues = Vec::new();
+
+        // Verifica repetição de palavras/conceitos
+        let repetition_issues = self.check_repetition(&draft.content);
+        issues.extend(repetition_issues);
+
+        // Verifica variação de vocabulário
+        let vocabulary_issues = self.check_vocabulary_diversity(&draft.content);
+        issues.extend(vocabulary_issues);
+
+        // Verifica estrutura de parágrafos (tamanho, coesão)
+        let structure_issues = self.check_paragraph_structure(&draft.content);
+        issues.extend(structure_issues);
+
+        Ok(issues)
+    }
+
+    fn check_repetition(&self, content: &str) -> Vec<Issue> {
+        let mut issues = Vec::new();
+        let words: Vec<&str> = content.split_whitespace().collect();
+        let mut word_counts = std::collections::HashMap::new();
+
+        for word in &words {
+            let word_lower = word.to_lowercase();
+            if word_lower.len() > 4 {
+                // Ignora palavras muito curtas
+                *word_counts.entry(word_lower).or_insert(0) += 1;
+            }
+        }
+
+        for (word, count) in word_counts {
+            if count > 5 {
+                issues.push(Issue {
+                    issue_type: IssueType::UnsupportedClaim, // Reutiliza tipo
+                    description: format!("Repetição excessiva da palavra '{}' ({} vezes)", word, count),
+                    severity: Severity::Medium,
+                });
+            }
+        }
+
+        issues
+    }
+
+    fn check_vocabulary_diversity(&self, content: &str) -> Vec<Issue> {
+        let mut issues = Vec::new();
+        let words: Vec<&str> = content.split_whitespace().collect();
+        let unique_words: std::collections::HashSet<String> = words.iter()
+            .map(|w| w.to_lowercase())
+            .collect();
+
+        let diversity_ratio = unique_words.len() as f64 / words.len() as f64;
+        if diversity_ratio < 0.3 {
+            issues.push(Issue {
+                issue_type: IssueType::UnsupportedClaim,
+                description: format!("Baixa diversidade vocabular ({:.1}%)", diversity_ratio * 100.0),
+                severity: Severity::Low,
+            });
+        }
+
+        issues
+    }
+
+    fn check_paragraph_structure(&self, content: &str) -> Vec<Issue> {
+        let mut issues = Vec::new();
+        let paragraphs: Vec<&str> = content.split("\n\n").collect();
+
+        for (i, para) in paragraphs.iter().enumerate() {
+            let word_count = para.split_whitespace().count();
+            if word_count < 20 {
+                issues.push(Issue {
+                    issue_type: IssueType::MissingTransition,
+                    description: format!("Parágrafo {} muito curto ({} palavras)", i + 1, word_count),
+                    severity: Severity::Low,
+                });
+            } else if word_count > 200 {
+                issues.push(Issue {
+                    issue_type: IssueType::MissingTransition,
+                    description: format!("Parágrafo {} muito longo ({} palavras)", i + 1, word_count),
+                    severity: Severity::Medium,
+                });
+            }
+        }
+
+        issues
+    }
+
+    /// Gera crítica estruturada para HERMES refinar o draft
+    pub async fn generate_structured_critique(&self, issues: &[Issue]) -> Result<String> {
+        if issues.is_empty() {
+            return Ok("Nenhum problema crítico detectado.".to_string());
+        }
+
+        let mut critique = String::from("# CRÍTICA ESTRUTURADA PARA REFINAMENTO\n\n");
+
+        // Ordena por severidade
+        let mut high_severity = Vec::new();
+        let mut medium_severity = Vec::new();
+        let mut low_severity = Vec::new();
+
+        for issue in issues {
+            match issue.severity {
+                Severity::High => high_severity.push(issue),
+                Severity::Medium => medium_severity.push(issue),
+                Severity::Low => low_severity.push(issue),
+            }
+        }
+
+        if !high_severity.is_empty() {
+            critique.push_str("## 🔴 PROBLEMAS CRÍTICOS (Alta Prioridade)\n\n");
+            for issue in high_severity {
+                critique.push_str(&format!("- **{}**: {}\n", format!("{:?}", issue.issue_type), issue.description));
+            }
+            critique.push_str("\n");
+        }
+
+        if !medium_severity.is_empty() {
+            critique.push_str("## 🟡 PROBLEMAS MÉDIOS\n\n");
+            for issue in medium_severity {
+                critique.push_str(&format!("- **{}**: {}\n", format!("{:?}", issue.issue_type), issue.description));
+            }
+            critique.push_str("\n");
+        }
+
+        if !low_severity.is_empty() {
+            critique.push_str("## 🟢 MELHORIAS SUGERIDAS\n\n");
+            for issue in low_severity {
+                critique.push_str(&format!("- **{}**: {}\n", format!("{:?}", issue.issue_type), issue.description));
+            }
+        }
+
+        critique.push_str("\n## INSTRUÇÕES\n\n");
+        critique.push_str("Refine o draft corrigindo os problemas acima, mantendo a voz e estilo do autor.");
+
+        Ok(critique)
+    }
+
     fn detect_issues(&self, draft: &Draft) -> Result<Vec<Issue>> {
         let mut issues = Vec::new();
 

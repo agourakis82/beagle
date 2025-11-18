@@ -115,6 +115,66 @@ impl HermesAgent {
 
         Ok(citations)
     }
+
+    /// Refina draft com base em crítica estruturada do ARGOS
+    pub async fn refine_with_critique(&self, draft: &Draft, critique: &str) -> Result<Draft> {
+        info!("HERMES: Refinando draft com crítica do ARGOS");
+
+        let prompt = format!(
+            r#"# REFINAMENTO DE DRAFT CIENTÍFICO
+
+## DRAFT ATUAL
+
+{}
+
+## CRÍTICA DO VALIDADOR
+
+{}
+
+## TAREFA
+
+Refine o draft acima corrigindo todos os problemas identificados na crítica, mantendo:
+1. A voz e estilo do autor original
+2. Todas as citações existentes
+3. A estrutura e fluxo lógico
+4. O comprimento aproximado ({} palavras)
+
+Gere APENAS o draft refinado, sem comentários adicionais."#,
+            draft.content,
+            critique,
+            draft.word_count
+        );
+
+        let llm_request = CompletionRequest {
+            model: ModelType::ClaudeSonnet45,
+            messages: vec![Message::user(prompt)],
+            max_tokens: (draft.word_count * 2) as u32,
+            temperature: 0.6, // Temperatura mais baixa para refinamento preciso
+            system: Some(
+                "You are an expert scientific editor specializing in refining academic drafts based on structured critiques."
+                    .to_string(),
+            ),
+        };
+
+        let response = self
+            .llm_client
+            .complete(llm_request)
+            .await
+            .map_err(|e| crate::HermesError::LLMError(e))?;
+
+        let refined_content = response.content.clone();
+        let word_count = refined_content.split_whitespace().count();
+        let citations = self.extract_citations(&refined_content)?;
+
+        let refined_draft = Draft {
+            content: refined_content,
+            word_count,
+            citations,
+        };
+
+        info!("HERMES: Draft refinado com {} palavras", refined_draft.word_count);
+        Ok(refined_draft)
+    }
 }
 
 #[derive(Debug, Clone)]
