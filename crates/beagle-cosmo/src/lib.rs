@@ -8,33 +8,15 @@
 use beagle_quantum::HypothesisSet;
 use tracing::info;
 use anyhow::{Result, Context};
-use beagle_smart_router::SmartRouter;
+use beagle_smart_router::query_beagle;
 
-pub struct CosmologicalAlignment {
-    router: SmartRouter,
-}
+pub struct CosmologicalAlignment;
 
 impl CosmologicalAlignment {
-    /// Cria novo alinhador cosmológico com roteamento inteligente
-    /// Usa Smart Router: Grok3 ilimitado (<120k contexto) ou Grok4Heavy quota (>=120k) ou vLLM fallback
+    /// Cria novo alinhador cosmológico
+    /// Usa Grok 3 ilimitado por padrão via query_beagle()
     pub fn new() -> Self {
-        Self {
-            router: SmartRouter::new(),
-        }
-    }
-
-    /// Força uso de Grok com API key
-    pub fn with_grok(api_key: &str) -> Self {
-        Self {
-            router: SmartRouter::with_grok(api_key),
-        }
-    }
-
-    /// Força uso de vLLM apenas
-    pub fn with_vllm_url(url: impl Into<String>) -> Self {
-        Self {
-            router: SmartRouter::with_vllm_only(url),
-        }
+        Self
     }
 
     /// Força alinhamento cosmológico em todo o conjunto de hipóteses
@@ -80,11 +62,8 @@ IMPORTANTE: Retorna APENAS o JSON array, sem markdown, sem explicações extras.
         // Calcula tamanho do contexto (estimativa: 1 token ≈ 4 chars)
         let context_tokens = hypotheses_text.len() / 4;
         
-        // Usa Smart Router: Grok3 ilimitado (<120k) ou Grok4Heavy quota (>=120k) ou vLLM fallback
-        let response_text = self.router
-            .query_smart(&prompt, context_tokens, Some(0.3), Some(2048), Some(0.9))
-            .await
-            .context("Falha ao obter resposta do LLM via Smart Router")?;
+        // Usa Grok 3 ilimitado por padrão via query_beagle()
+        let response_text = query_beagle(&prompt, context_tokens).await;
 
         // Extrai JSON da resposta (remove markdown code blocks se houver)
         let json_text = if response_text.starts_with("```json") {

@@ -12,7 +12,7 @@
 
 use beagle_fractal::{init_fractal_root, get_root};
 use beagle_quantum::{HypothesisSet, Hypothesis};
-use beagle_smart_router::SmartRouter;
+use beagle_smart_router::query_beagle;
 use beagle_cosmo::CosmologicalAlignment;
 use beagle_void::VoidNavigator;
 use beagle_transcend::TranscendenceEngine;
@@ -48,46 +48,39 @@ async fn main() -> Result<()> {
     println!("✅ TESTE 1 PASSOU: Fractal Root inicializado corretamente\n");
 
     // ========================================================================
-    // TESTE 2: Smart Router - Teste de Roteamento Inteligente
+    // TESTE 2: query_beagle() - Teste de Roteamento Inteligente
     // ========================================================================
-    info!("📋 TESTE 2: Smart Router - Roteamento Inteligente");
-    let router = SmartRouter::new();
+    info!("📋 TESTE 2: query_beagle() - Roteamento Inteligente");
     
     // Teste com contexto pequeno (< 120k) → deve usar Grok3 ilimitado
     let small_prompt = "Teste de prompt pequeno para Grok3".repeat(10);
     let small_context = 1000;
-    info!("🔄 Testando roteamento com contexto pequeno ({} tokens)...", small_context);
+    info!("🔄 Testando query_beagle() com contexto pequeno ({} tokens)...", small_context);
     
-    match router.query_smart(&small_prompt, small_context, Some(0.8), Some(100), Some(0.9)).await {
-        Ok(response) => {
-            info!("✅ Smart Router respondeu: {} chars", response.len());
-            assert!(!response.is_empty());
-            println!("✅ Smart Router respondeu corretamente (usou Grok3 se XAI_API_KEY configurada, senão vLLM)");
-        }
-        Err(e) => {
-            warn!("⚠️ Smart Router falhou (esperado se não tiver API keys configuradas): {}", e);
-            println!("⚠️ Smart Router falhou - isso é OK se não tiver XAI_API_KEY ou vLLM rodando");
-        }
+    let response = query_beagle(&small_prompt, small_context).await;
+    if !response.is_empty() && !response.starts_with("ERRO") {
+        info!("✅ query_beagle() respondeu: {} chars", response.len());
+        println!("✅ query_beagle() respondeu corretamente (usou Grok3 se XAI_API_KEY configurada, senão vLLM)");
+    } else {
+        warn!("⚠️ query_beagle() falhou - isso é OK se não tiver XAI_API_KEY ou vLLM rodando");
+        println!("⚠️ query_beagle() falhou - isso é OK se não tiver XAI_API_KEY ou vLLM rodando");
     }
     
     // Teste com contexto grande (>= 120k) → deve usar Grok4Heavy se disponível
     let large_prompt = "Teste de prompt grande para Grok4Heavy".repeat(50000); // ~200k chars ≈ 50k tokens
     let large_context = 70000; // Total ~120k tokens
-    info!("🔄 Testando roteamento com contexto grande ({} tokens)...", large_context);
+    info!("🔄 Testando query_beagle() com contexto grande ({} tokens)...", large_context);
     
-    match router.query_smart(&large_prompt, large_context, Some(0.8), Some(500), Some(0.9)).await {
-        Ok(response) => {
-            info!("✅ Smart Router respondeu com contexto grande: {} chars", response.len());
-            assert!(!response.is_empty());
-            println!("✅ Smart Router respondeu com contexto grande (usou Grok4Heavy se disponível)");
-        }
-        Err(e) => {
-            warn!("⚠️ Smart Router falhou com contexto grande: {}", e);
-            println!("⚠️ Smart Router falhou com contexto grande - isso é OK se não tiver API keys");
-        }
+    let large_response = query_beagle(&large_prompt, large_context).await;
+    if !large_response.is_empty() && !large_response.starts_with("ERRO") {
+        info!("✅ query_beagle() respondeu com contexto grande: {} chars", large_response.len());
+        println!("✅ query_beagle() respondeu com contexto grande (usou Grok4Heavy se disponível)");
+    } else {
+        warn!("⚠️ query_beagle() falhou com contexto grande - isso é OK se não tiver API keys");
+        println!("⚠️ query_beagle() falhou com contexto grande - isso é OK se não tiver API keys");
     }
     
-    println!("✅ TESTE 2 PASSOU: Smart Router funcionando\n");
+    println!("✅ TESTE 2 PASSOU: query_beagle() funcionando\n");
 
     // ========================================================================
     // TESTE 3: Cosmological Alignment

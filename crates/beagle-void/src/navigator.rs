@@ -3,7 +3,7 @@
 //! Navega no vazio por múltiplos ciclos, extraindo insights impossíveis
 //! que só podem emergir do nada absoluto.
 
-use beagle_smart_router::SmartRouter;
+use beagle_smart_router::query_beagle;
 use beagle_ontic::OnticDissolutionEngine;
 use tracing::info;
 use serde::{Deserialize, Serialize};
@@ -25,34 +25,15 @@ pub struct VoidInsight {
 }
 
 pub struct VoidNavigator {
-    router: SmartRouter,
     dissolution: OnticDissolutionEngine,
 }
 
 impl VoidNavigator {
-    /// Cria novo navegador do void com roteamento inteligente
-    /// Usa Smart Router: Grok3 ilimitado (<120k contexto) ou Grok4Heavy quota (>=120k) ou vLLM fallback
+    /// Cria novo navegador do void
+    /// Usa Grok 3 ilimitado por padrão via query_beagle()
     pub fn new() -> Self {
         Self {
-            router: SmartRouter::new(),
             dissolution: OnticDissolutionEngine::new(),
-        }
-    }
-
-    /// Força uso de Grok com API key
-    pub fn with_grok(api_key: &str) -> Self {
-        Self {
-            router: SmartRouter::with_grok(api_key),
-            dissolution: OnticDissolutionEngine::new(),
-        }
-    }
-
-    /// Força uso de vLLM com URL
-    pub fn with_vllm_url(url: impl Into<String>) -> Self {
-        let url_str: String = url.into();
-        Self {
-            router: SmartRouter::with_vllm_only(url_str.clone()),
-            dissolution: OnticDissolutionEngine::with_vllm_url(url_str),
         }
     }
 
@@ -123,12 +104,8 @@ Resposta em exatamente 3 frases. Sem consolo. Sem esperança. Só verdade nua."#
         // Calcula tamanho do contexto (void_state + prompt)
         let context_tokens = (void_state.void_duration_subjective.to_string().len() + full_prompt.len()) / 4;
         
-        // Usa Smart Router: Grok3 ilimitado (<120k) ou Grok4Heavy quota (>=120k) ou vLLM fallback
-        // Alta temperatura (1.2) para insights impossíveis do vazio
-        let insight_text = self.router
-            .query_smart(&full_prompt, context_tokens, Some(1.2), Some(256), Some(0.95))
-            .await
-            .map_err(|e| anyhow::anyhow!("Smart Router error: {}", e))?;
+        // Usa Grok 3 ilimitado por padrão via query_beagle()
+        let insight_text = query_beagle(&full_prompt, context_tokens).await;
 
         // Calcula nível de impossibilidade baseado em palavras-chave
         let impossibility_level = self.calculate_impossibility(&insight_text);

@@ -1,0 +1,13 @@
+[package]
+name = "beagle-config"
+version = "0.1.0"
+edition = "2021"
+description = "BEAGLE centralized configuration and path management"
+license = "MIT"
+
+[dependencies]
+dirs = "5.0"
+
+[dev-dependencies]
+tempfile = "3.10"
+

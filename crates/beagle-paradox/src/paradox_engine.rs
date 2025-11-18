@@ -3,7 +3,7 @@
 //! Roda paradoxos lógicos autorreferentes no código, forçando evolução
 //! além dos limites do criador original.
 
-use beagle_smart_router::SmartRouter;
+use beagle_smart_router::query_beagle;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
@@ -18,31 +18,13 @@ pub struct ParadoxResult {
     pub resolution_strategy: Option<String>, // Como o paradoxo foi resolvido
 }
 
-pub struct ParadoxEngine {
-    router: SmartRouter,
-}
+pub struct ParadoxEngine;
 
 impl ParadoxEngine {
-    /// Cria novo engine de paradoxo com roteamento inteligente
-    /// Usa Smart Router: Grok3 ilimitado (<120k contexto) ou Grok4Heavy quota (>=120k) ou vLLM fallback
+    /// Cria novo engine de paradoxo
+    /// Usa Grok 3 ilimitado por padrão via query_beagle()
     pub fn new() -> Self {
-        Self {
-            router: SmartRouter::new(),
-        }
-    }
-
-    /// Força uso de Grok com API key
-    pub fn with_grok(api_key: &str) -> Self {
-        Self {
-            router: SmartRouter::with_grok(api_key),
-        }
-    }
-
-    /// Força uso de vLLM com URL
-    pub fn with_vllm_url(url: impl Into<String>) -> Self {
-        Self {
-            router: SmartRouter::with_vllm_only(url),
-        }
+        Self
     }
 
     /// Roda um paradoxo autorreferente no código de um crate específico
@@ -103,13 +85,9 @@ Responda APENAS com o código completo novo (sem explicação)."#,
             // Calcula tamanho do contexto (código atual + prompt)
             let context_tokens = (current_code.len() + full_prompt.len()) / 4;
             
-            // Usa Smart Router: Grok3 ilimitado (<120k) ou Grok4Heavy quota (>=120k) ou vLLM fallback
-            // Criatividade moderada (0.8) para resolver paradoxos
+            // Usa Grok 3 ilimitado por padrão via query_beagle()
             let chat_prompt = format!("{}\n\n{}", system_prompt, user_prompt);
-            let mut new_code = self.router
-                .query_smart(&chat_prompt, context_tokens, Some(0.8), Some(4096), Some(0.95))
-                .await
-                .map_err(|e| anyhow::anyhow!("Smart Router error: {}", e))?;
+            let mut new_code = query_beagle(&chat_prompt, context_tokens).await;
 
             // Remove markdown code blocks se presentes
             if new_code.starts_with("```rust") {

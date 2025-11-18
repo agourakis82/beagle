@@ -40,18 +40,26 @@ secrets/
 *.swo
 *~
 
-# Data directories (large files)
-data/postgres/
-data/models/
-data/qdrant/
-data/redis/
+# Data directories (symlinks para ~/beagle-data/)
+data/postgres
+data/qdrant
+data/redis
+data/neo4j
+data/models
+models
+lora_adapter
+logs
+drafts
+papers
 data/corpus/papers/*.pdf
+
+# Config file with data path
+.beagle-data-path
 
 # Logs
 *.log
 *.sql.gz
 *.db
-logs/
 
 # OS
 .DS_Store

@@ -1,7 +1,7 @@
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
+use beagle_smart_router::query_beagle;
 use serde_json;
 use tracing::{info, warn};
 
@@ -78,19 +78,13 @@ impl HypothesisSet {
 }
 
 #[derive(Debug)]
-pub struct SuperpositionAgent {
-    llm: VllmClient,
-}
+pub struct SuperpositionAgent;
 
 impl SuperpositionAgent {
+    /// Cria novo agente de superposição
+    /// Usa Grok 3 ilimitado por padrão via query_beagle()
     pub fn new() -> Self {
-        let llm = VllmClient::new("http://t560.local:8000/v1");
-        Self { llm }
-    }
-
-    pub fn with_url(url: impl Into<String>) -> Self {
-        let llm = VllmClient::new(url);
-        Self { llm }
+        Self
     }
 
     /// Gera múltiplas hipóteses reais via LLM com diversidade máxima
@@ -134,26 +128,13 @@ Formato exato (JSON array, nada mais):
             user_prompt
         );
 
-        let sampling = SamplingParams {
-            temperature: DIVERSITY_TEMPERATURE,
-            top_p: TOP_P,
-            max_tokens: MAX_TOKENS,
-            n: N_HYPOTHESES as u32,
-            stop: None,
-            frequency_penalty: 1.2,
-        };
-
-        let request = VllmCompletionRequest {
-            model: "meta-llama/Llama-3.3-70B-Instruct".to_string(),
-            prompt: full_prompt,
-            sampling_params: sampling,
-        };
-
-        let response = self.llm.completions(&request).await?;
+        // Usa Grok 3 ilimitado por padrão via query_beagle()
+        let context_tokens = full_prompt.len() / 4;
+        let response_text = query_beagle(&full_prompt, context_tokens).await;
 
         // Parseia o JSON array gerado pelo LLM
-        let hypotheses_texts: Vec<String> = if !response.choices.is_empty() {
-            match serde_json::from_str::<Vec<serde_json::Value>>(&response.choices[0].text) {
+        let mut hypotheses_texts: Vec<String> = {
+            match serde_json::from_str::<Vec<serde_json::Value>>(&response_text) {
                 Ok(arr) => {
                     arr.into_iter()
                         .filter_map(|v| {
@@ -166,8 +147,7 @@ Formato exato (JSON array, nada mais):
                 Err(e) => {
                     warn!("LLM não retornou JSON válido, fallback parse manual: {}", e);
                     // Fallback robusto: split por números ou marcadores
-                    response.choices[0]
-                        .text
+                    response_text
                         .split("\n\n")
                         .filter(|s| s.contains("hipótese") || s.len() > 100)
                         .take(N_HYPOTHESES)
@@ -175,15 +155,18 @@ Formato exato (JSON array, nada mais):
                         .collect()
                 }
             }
-        } else {
-            warn!("vLLM retornou choices vazio, usando fallback");
-            vec![
+        };
+
+        // Fallback se não conseguir parsear hipóteses
+        if hypotheses_texts.is_empty() {
+            warn!("Não foi possível extrair hipóteses do LLM, usando fallback");
+            hypotheses_texts = vec![
                 format!("Hipótese 1 para: {query} – abordagem clássica"),
                 format!("Hipótese 2 para: {query} – via entropia curva"),
                 format!("Hipótese 3 para: {query} – modelo quântico de campo"),
                 format!("Hipótese 4 para: {query} – interpretação geométrica"),
-            ]
-        };
+            ];
+        }
 
         // Cria HypothesisSet com amplitudes iniciais aleatórias (fase quântica simulada)
         let mut set = HypothesisSet::new();

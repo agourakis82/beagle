@@ -251,6 +251,22 @@ impl GrokClient {
     pub async fn query_with_temp(&self, prompt: &str, temperature: f32) -> Result<String, GrokError> {
         self.chat_with_params(prompt, None, Some(temperature), None, None).await
     }
+
+    /// Define modelo e retorna Self (builder pattern)
+    /// 
+    /// # Example
+    /// ```rust
+    /// let client = GrokClient::new("key").model("grok-3");
+    /// ```
+    pub fn model(mut self, model_str: &str) -> Self {
+        self.model = match model_str {
+            "grok-3" => GrokModel::Grok3,
+            "grok-4" => GrokModel::Grok4,
+            "grok-4-heavy" => GrokModel::Grok4Heavy,
+            _ => GrokModel::Grok3, // Default para grok-3
+        };
+        self
+    }
 }
 
 #[cfg(test)]

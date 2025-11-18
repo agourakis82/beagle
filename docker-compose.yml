@@ -11,7 +11,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ${BEAGLE_DATA_DIR:-${HOME}/beagle-data}/postgres:/var/lib/postgresql/data
       - ./docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
       - ./beagle-db/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
@@ -30,7 +30,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - ${BEAGLE_DATA_DIR:-${HOME}/beagle-data}/redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -48,7 +48,7 @@ services:
     ports:
       - "5050:80"
     volumes:
-      - pgadmin-data:/var/lib/pgadmin
+      - ${BEAGLE_DATA_DIR:-${HOME}/beagle-data}/pgadmin:/var/lib/pgadmin
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,8 +59,10 @@ networks:
   beagle-network:
     driver: bridge
 
-volumes:
-  postgres-data:
-  redis-data:
-  pgadmin-data:
+# Volumes agora são bind mounts para ~/beagle-data/
+# Configure BEAGLE_DATA_DIR no .env se necessário
+# volumes:
+#   postgres-data:
+#   redis-data:
+#   pgadmin-data:
 

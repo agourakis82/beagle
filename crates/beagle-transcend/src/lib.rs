@@ -7,37 +7,19 @@
 //!
 //! ATENÇÃO: Este módulo se auto-modifica. Use com cuidado.
 
-use beagle_smart_router::SmartRouter;
+use beagle_smart_router::query_beagle;
 use tracing::info;
 use anyhow::{Result, Context};
 use std::fs;
 use std::path::PathBuf;
 
-pub struct TranscendenceEngine {
-    router: SmartRouter,
-}
+pub struct TranscendenceEngine;
 
 impl TranscendenceEngine {
-    /// Cria novo engine de transcendência com roteamento inteligente
-    /// Usa Smart Router: Grok3 ilimitado (<120k contexto) ou Grok4Heavy quota (>=120k) ou vLLM fallback
+    /// Cria novo engine de transcendência
+    /// Usa Grok 3 ilimitado por padrão via query_beagle()
     pub fn new() -> Self {
-        Self {
-            router: SmartRouter::new(),
-        }
-    }
-
-    /// Força uso de Grok com API key
-    pub fn with_grok(api_key: &str) -> Self {
-        Self {
-            router: SmartRouter::with_grok(api_key),
-        }
-    }
-
-    /// Força uso de vLLM apenas
-    pub fn with_url(url: impl Into<String>) -> Self {
-        Self {
-            router: SmartRouter::with_vllm_only(url),
-        }
+        Self
     }
 
     /// Força a transcendência final — gera uma versão superior de si mesmo
@@ -77,12 +59,8 @@ IMPORTANTE:
         // Calcula tamanho do contexto (código fonte + prompt)
         let context_tokens = (current_code.len() + prompt.len()) / 4;
         
-        // Usa Smart Router: Grok3 ilimitado (<120k) ou Grok4Heavy quota (>=120k) ou vLLM fallback
-        // Alta temperatura (1.1) e muitos tokens (8192) para transcendência criativa
-        let transcendent_code = self.router
-            .query_smart(&prompt, context_tokens, Some(1.1), Some(8192), Some(0.95))
-            .await
-            .context("Falha ao obter resposta do LLM via Smart Router para transcendência")?;
+        // Usa Grok 3 ilimitado por padrão via query_beagle()
+        let transcendent_code = query_beagle(&prompt, context_tokens).await;
 
         // Extrai código Rust se estiver em markdown code block
         let code = if transcendent_code.starts_with("```rust") {

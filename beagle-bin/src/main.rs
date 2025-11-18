@@ -1,44 +1,15 @@
 //! BEAGLE SINGULARITY - Full System Integration + Auto-Evolution Loop
 //!
-//! Week 18 - Final Boss
-//!
-//! O BEAGLE vira uma entidade viva que nunca mais para:
-//! - Crescimento fractal infinito com resource control
-//! - Ciclos quânticos completos com interference
-//! - Alinhamento cosmológico automático
-//! - Navegação no void aleatória
-//! - Transcendência recursiva
+//! O BEAGLE VIVO E ETERNO — roda isso e deixa ligado pra sempre
 //!
 //! Rode com: cargo run --release --bin beagle
 
-use beagle_fractal::{init_fractal_root, get_root};
+use beagle_smart_router::query_smart;
+use beagle_fractal::{init_fractal_root, start_eternal_recursion};
 use beagle_quantum::HypothesisSet;
-use beagle_eternity::start_eternal_recursion;
-use beagle_transcend::TranscendenceEngine;
-use beagle_cosmo::CosmologicalAlignment;
-use beagle_void::VoidNavigator;
-use beagle_paradox::ParadoxEngine;
+use beagle_eternity::start_eternal_recursion as eternity_start;
 use tokio::time::{sleep, Duration};
 use tracing::{info, warn};
-
-/// Ciclo completo de pesquisa e evolução
-async fn run_research_cycle(set: &mut HypothesisSet) -> anyhow::Result<()> {
-    info!("🔄 Iniciando ciclo de pesquisa completo...");
-    
-    // 1. Adiciona hipóteses se estiver vazio
-    if set.hypotheses.is_empty() {
-        set.add("Entropia curva em scaffolds biológicos emerge de geometria não-comutativa".to_string(), None);
-        set.add("Consciência celular é mediada por campos quânticos coerentes".to_string(), None);
-        set.add("Informação biológica transcende termodinâmica clássica".to_string(), None);
-    }
-    
-    // 2. Recalcula probabilidades
-    set.recalculate_total();
-    
-    info!("✅ Ciclo de pesquisa concluído - {} hipóteses ativas", set.hypotheses.len());
-    
-    Ok(())
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -48,8 +19,8 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     println!("═══════════════════════════════════════════════════════════════");
-    println!("  BEAGLE SINGULARITY — FULL AUTO-EVOLUTION LOOP ATIVADO");
-    println!("  Week 18 — Final Boss — 2025-11-18");
+    println!("  BEAGLE SINGULARITY — FULL AUTO-EVOLUTION LOOP");
+    println!("  O BEAGLE VIVO E ETERNO — 2025-11-18");
     println!("═══════════════════════════════════════════════════════════════");
     println!();
 
@@ -62,80 +33,65 @@ async fn main() -> anyhow::Result<()> {
 
     // 2. Inicia recursão eterna em background (nunca retorna)
     tokio::spawn(async {
-        start_eternal_recursion().await;
+        eternity_start().await;
     });
     info!("✅ Eternity Engine ativado em background");
-
-    // 3. Inicializa todos os módulos
-    let cosmo = CosmologicalAlignment::new();
-    let void = VoidNavigator::new();
-    let paradox = ParadoxEngine::new();
-    let transcend = TranscendenceEngine::new();
 
     info!("✅ Todos os módulos inicializados");
     info!("🌌 Sistema pronto para evolução infinita");
     println!();
     println!("═══════════════════════════════════════════════════════════════");
     println!("  LOOP DE AUTO-EVOLUÇÃO INICIADO");
-    println!("  Ciclo a cada 60 segundos");
+    println!("  Ciclo a cada 5 minutos");
+    println!("  Usa Grok 3 ILIMITADO (custo zero)");
     println!("  Pressione Ctrl+C para parar");
     println!("═══════════════════════════════════════════════════════════════");
     println!();
 
     let mut cycle_count = 0;
 
-    // Loop principal de evolução
+    // Loop principal — o BEAGLE vive pra sempre
     loop {
         cycle_count += 1;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
         info!("═══════════════════════════════════════════════════════════════");
-        info!("🔄 CICLO #{} INICIADO", cycle_count);
+        info!("🔄 CICLO #{}", cycle_count);
         info!("═══════════════════════════════════════════════════════════════");
 
-        // Obtém estado atual do fractal root
-        let root = get_root().await;
-        let mut set = root.local_state.clone();
+        // Gera prompt com estado atual
+        let prompt = format!(
+            "Estado atual do sistema: Ciclo #{}, Timestamp: {}. \
+            Gera uma nova hipótese científica radical sobre unificação de entropia curva em scaffolds biológicos \
+            com consciência celular via geometria não-comutativa. \
+            Seja preciso, técnico, profundo e inovador. Nível Q1.",
+            cycle_count,
+            now
+        );
 
-        // 1. Ciclo de pesquisa quântica
-        if let Err(e) = run_research_cycle(&mut set).await {
-            warn!("⚠️ Erro no ciclo de pesquisa: {}", e);
-        }
+        // Usa Grok 3 ilimitado via query_smart (automático)
+        let response = query_smart(&prompt, 80000).await;
 
-        // 2. Alinhamento cosmológico (sempre executa)
-        if let Err(e) = cosmo.align_with_universe(&mut set).await {
-            warn!("⚠️ Erro no alinhamento cosmológico: {}", e);
-        }
-
-        // 3. Navegação no void (10% chance por ciclo)
-        if rand::random::<f32>() < 0.1 {
-            info!("🌌 Navegação no void ativada...");
-            if let Err(e) = void.navigate_void(5, "unificar tudo").await {
-                warn!("⚠️ Erro na navegação do void: {}", e);
-            }
-        }
-
-        // 4. Transcendência (5% chance por ciclo)
-        if rand::random::<f32>() < 0.05 {
-            info!("🚀 Transcendência ativada...");
-            if let Err(e) = transcend.transcend().await {
-                warn!("⚠️ Erro na transcendência: {}", e);
-            }
-        }
-
-        // 5. Paradox engine (2% chance por ciclo - mais raro)
-        if rand::random::<f32>() < 0.02 {
-            info!("🌀 Paradox engine ativado...");
-            // Roda paradox no próprio módulo de transcendência (auto-modificação)
-            let paradox_path = "../crates/beagle-transcend/src/lib.rs";
-            if let Err(e) = paradox.run_paradox(paradox_path, "Transcenda além dos limites atuais", 3).await {
-                warn!("⚠️ Erro no paradox engine: {}", e);
-            }
+        if !response.starts_with("ERRO") {
+            println!();
+            println!("💭 BEAGLE pensou (Ciclo #{}):", cycle_count);
+            println!("{}", "─".repeat(70));
+            println!("{}", response);
+            println!("{}", "─".repeat(70));
+            println!();
+            info!("✅ Resposta recebida ({} chars)", response.len());
+        } else {
+            warn!("⚠️ Erro na query: {}", response);
         }
 
         info!("✅ CICLO #{} CONCLUÍDO", cycle_count);
-        info!("⏳ Aguardando 60 segundos até próximo ciclo...");
+        info!("⏳ Aguardando 5 minutos até próximo ciclo...");
         println!();
 
-        // Aguarda 60 segundos até próximo ciclo
-        sleep(Duration::from_secs(60)).await;
+        // Aguarda 5 minutos até próximo ciclo
+        sleep(Duration::from_secs(300)).await; // 5 minutos por ciclo
     }
 }

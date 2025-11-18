@@ -19,6 +19,7 @@ async-trait = "0.1"
 
 # Crates internos
 beagle-llm = { path = "../beagle-llm" }
+beagle-smart-router = { path = "../beagle-smart-router" }
 
 [dev-dependencies]
 tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }
