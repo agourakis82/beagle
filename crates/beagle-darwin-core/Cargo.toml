@@ -1,0 +1,20 @@
+[package]
+name = "beagle-darwin-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+# Dependências internas do BEAGLE
+beagle-grok-api = { path = "../beagle-grok-api" }
+beagle-smart-router = { path = "../beagle-smart-router" }
+beagle-darwin = { path = "../beagle-darwin" }

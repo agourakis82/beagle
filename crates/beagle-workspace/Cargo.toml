@@ -1,0 +1,21 @@
+[package]
+name = "beagle-workspace"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+ndarray = "0.16"
+
+# Dependências internas
+beagle-darwin = { path = "../beagle-darwin" }
+beagle-darwin-core = { path = "../beagle-darwin-core" }
+beagle-hypergraph = { path = "../beagle-hypergraph" }

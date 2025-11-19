@@ -1,0 +1,19 @@
+[package]
+name = "beagle-monorepo"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dr. Demetrios Agourakis <contact@darwin-cluster.ai>"]
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "beagle-monorepo"
+path = "src/main.rs"
+
+[dependencies]
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+beagle-smart-router = { path = "../../crates/beagle-smart-router" }
+beagle-darwin = { path = "../../crates/beagle-darwin" }
+beagle-workspace = { path = "../../crates/beagle-workspace" }
+

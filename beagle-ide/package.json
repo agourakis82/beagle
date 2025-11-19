@@ -1,0 +1,21 @@
+{
+  "name": "beagle-ide",
+  "version": "0.1.0",
+  "description": "BEAGLE IDE - IDE científica completa para produção interdisciplinar",
+  "scripts": {
+    "dev": "cd src-tauri && cargo tauri dev",
+    "build": "cd src-tauri && cargo tauri build",
+    "test": "cd src-tauri && cargo test"
+  },
+  "keywords": [
+    "ide",
+    "scientific",
+    "tauri",
+    "codemirror",
+    "yjs",
+    "cluster"
+  ],
+  "author": "Demetrios Chiuratto Agourakis",
+  "license": "MIT"
+}
+

@@ -69,8 +69,101 @@ tmux attach -t download
 
 Ver: [`docs/VLLM_SERVER_SETUP.md`](../../docs/VLLM_SERVER_SETUP.md)
 
+## RDMA WinOF-2 (Tower - Windows)
+
+### Scripts Disponíveis
+
+1. **`install_winof2_rdma.ps1`** - Instalação automatizada do driver WinOF-2
+   - Baixa WinOF-2 5.50.54000 (LTS) da NVIDIA
+   - Instala driver silenciosamente
+   - Habilita RDMA para ConnectX-6 QSFP28 (100Gbps)
+   - Configura verificação pós-reboot automática
+
+2. **`clean_cluster_tower.ps1`** - Limpeza e otimização do tower
+   - Remove arquivos temporários
+   - Limpa cache Docker
+   - Configura RDMA (referência)
+
+### Uso Rápido (Tower - Windows)
+
+```powershell
+# 1. Abrir PowerShell como Administrador
+Start-Process powershell -Verb RunAs
+
+# 2. Navegar para o diretório
+cd E:\workspace\beagle-remote\scripts\infrastructure
+
+# 3. Executar instalação automatizada
+.\install_winof2_rdma.ps1
+
+# 4. Após reboot, verificar RDMA
+Get-NetAdapter | Where-Object {$_.Name -like "*mlx5*"}
+Get-NetAdapterRdma | Select-Object Name, Enabled
+```
+
+### Opções Avançadas
+
+```powershell
+# Pular download (usar arquivo existente)
+.\install_winof2_rdma.ps1 -SkipDownload
+
+# Pular reboot (instalação manual)
+.\install_winof2_rdma.ps1 -SkipReboot
+
+# URL customizada
+.\install_winof2_rdma.ps1 -DownloadUrl "https://custom-url.com/winof-2.msi"
+```
+
+### Teste de Conectividade
+
+```powershell
+# Servidor (maria - T560 Ubuntu)
+iperf3 -s -B 10.100.0.1 -p 5201
+
+# Cliente (tower - PowerShell)
+iperf3 -c 10.100.0.1 -t 10 -p 5201
+```
+
+### Scripts Adicionais
+
+3. **`verify_winof2_rdma.ps1`** - Verificação completa do WinOF-2
+   - Verifica adaptadores, drivers, RDMA status
+   - Mostra configurações de rede (IP, MTU)
+   - Resumo final com status
+
+4. **`optimize_rdma.ps1`** - Otimização de configurações RDMA
+   - Configura MTU 9000 (Jumbo Frames)
+   - Ajusta buffer sizes
+   - Habilita Flow Control
+   - Otimiza Interrupt Coalescing
+
+5. **`monitor_rdma.ps1`** - Monitoramento de performance RDMA
+   - Monitora throughput em tempo real
+   - Estatísticas de rede
+   - Métricas de adaptadores RDMA
+
+6. **`test_rdma_connectivity.ps1`** - Teste de conectividade RDMA
+   - Testa throughput com iperf3
+   - Análise automática de resultados
+   - Validação de performance
+
+### Scripts Linux/WSL
+
+- **`test_rdma_connectivity.sh`** - Teste de conectividade (WSL/Linux)
+- **`test_rdma_quick.sh`** - Teste rápido sem interação
+- **`rdma_benchmark.sh`** - Benchmark completo (múltiplos testes)
+- **`setup_rdma_mpi.sh`** - Setup MPI com suporte RDMA
+
+### Documentação Completa
+
+- **Guia de Instalação**: [`docs/RDMA_WINOF2_INSTALL.md`](../../docs/RDMA_WINOF2_INSTALL.md)
+- **Guia de Aplicações**: [`docs/RDMA_APPLICATIONS_GUIDE.md`](../../docs/RDMA_APPLICATIONS_GUIDE.md)
+- **Guia de Uso do Script**: [`README_WINOF2.md`](README_WINOF2.md)
+- **Limpeza do Tower**: [`README_CLUSTER_CLEAN.md`](README_CLUSTER_CLEAN.md)
+
 ## Outros Scripts
 
 - `darwin_infrastructure_audit.py` - Auditoria do cluster Darwin
+- `deep_cluster_audit.sh` - Auditoria profunda do cluster
 - `init-db.sql` - Inicialização do banco de dados
 

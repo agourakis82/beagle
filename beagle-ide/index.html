@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BEAGLE IDE</title>
+  
+  <!-- CodeMirror 6 via unpkg (mais estável) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@uiw/codemirror-themes@0.21.28/themes/one-dark-pro.css">
+  
+  <!-- Yjs para colaboração em tempo real -->
+  <script src="https://cdn.jsdelivr.net/npm/yjs@13.6.15/dist/yjs.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/y-websocket@2.0.2/dist/y-websocket.js"></script>
+  
+  <!-- Vis.js para Knowledge Graph -->
+  <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vis-network@9.1.9/styles/vis-network.min.css">
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      margin: 0;
+      background: #0F0F0F;
+      color: #00D4FF;
+      font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
+      overflow: hidden;
+      height: 100vh;
+    }
+    
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      height: 100vh;
+      gap: 4px;
+      padding: 4px;
+    }
+    
+    .panel {
+      background: #1a1a1a;
+      border: 1px solid #00D4FF;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    
+    .header {
+      background: #00D4FF;
+      color: #0F0F0F;
+      padding: 8px 12px;
+      font-weight: bold;
+      text-align: center;
+      font-size: 14px;
+      border-bottom: 1px solid #00D4FF;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+    }
+    
+    .panel-content {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+    
+    /* CodeMirror personalizado para tema BEAGLE */
+    .cm-editor {
+      height: 100%;
+      background: #1a1a1a !important;
+      color: #00D4FF !important;
+      font-family: 'JetBrains Mono', monospace !important;
+      font-size: 14px;
+    }
+    
+    .cm-scroller {
+      overflow: auto;
+    }
+    
+    .cm-focused {
+      outline: none !important;
+    }
+    
+    /* Knowledge Graph */
+    #knowledge-graph {
+      width: 100%;
+      height: 100%;
+    }
+    
+    /* Agent Console */
+    #agent-console {
+      padding: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      overflow-y: auto;
+      color: #00D4FF;
+      background: #1a1a1a;
+    }
+    
+    #agent-console .log-entry {
+      margin-bottom: 8px;
+      padding: 6px;
+      border-left: 2px solid #00D4FF;
+      padding-left: 10px;
+    }
+    
+    #agent-console .log-entry.info {
+      border-color: #00D4FF;
+      color: #00D4FF;
+    }
+    
+    #agent-console .log-entry.success {
+      border-color: #00ff88;
+      color: #00ff88;
+    }
+    
+    #agent-console .log-entry.error {
+      border-color: #ff4444;
+      color: #ff4444;
+    }
+    
+    #agent-console .log-entry.warn {
+      border-color: #ffaa00;
+      color: #ffaa00;
+    }
+    
+    #agent-console .timestamp {
+      opacity: 0.6;
+      font-size: 11px;
+      margin-right: 8px;
+    }
+    
+    /* Quantum View */
+    #quantum-view {
+      padding: 20px;
+      font-family: 'JetBrains Mono', monospace;
+      color: #00D4FF;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    
+    .quantum-superposition {
+      font-size: 24px;
+      margin-bottom: 20px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    
+    .quantum-state {
+      font-size: 14px;
+      margin: 8px 0;
+      opacity: 0.8;
+    }
+    
+    /* Voice command indicator */
+    .voice-indicator {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: #00D4FF;
+      color: #0F0F0F;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+      display: none;
+      z-index: 1000;
+      animation: recording 1s ease-in-out infinite;
+    }
+    
+    .voice-indicator.active {
+      display: block;
+    }
+    
+    @keyframes recording {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+  </style>
+</head>
+<body>
+  <div class="voice-indicator" id="voice-indicator">
+    🎤 Gravando...
+  </div>
+  
+  <div class="grid">
+    <!-- Knowledge Graph -->
+    <div class="panel">
+      <div class="header">Knowledge Graph</div>
+      <div class="panel-content">
+        <div id="knowledge-graph"></div>
+      </div>
+    </div>
+    
+    <!-- Paper Canvas -->
+    <div class="panel">
+      <div class="header">Paper Canvas</div>
+      <div class="panel-content">
+        <div id="paper-canvas"></div>
+      </div>
+    </div>
+    
+    <!-- Agent Console -->
+    <div class="panel">
+      <div class="header">Agent Console</div>
+      <div class="panel-content">
+        <div id="agent-console"></div>
+      </div>
+    </div>
+    
+    <!-- Quantum View -->
+    <div class="panel">
+      <div class="header">Quantum View</div>
+      <div class="panel-content">
+        <div id="quantum-view"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // CodeMirror 6 via ES modules (unpkg)
+    const { EditorView, basicSetup } = await import('https://cdn.skypack.dev/@codemirror/basic-setup@0.20.0');
+    const { EditorState } = await import('https://cdn.skypack.dev/@codemirror/state@6.2.0');
+    const { rust } = await import('https://cdn.skypack.dev/@codemirror/lang-rust@6.0.1');
+    
+    // Tauri API - usar invocação global ou importar
+    let invoke;
+    if (window.__TAURI_INVOKE__) {
+      invoke = window.__TAURI_INVOKE__;
+    } else {
+      // Fallback se Tauri não estiver disponível (modo web/teste)
+      invoke = async (cmd, args = {}) => {
+        console.warn('Tauri não disponível, simulando:', cmd, args);
+        // Simular respostas para testes
+        if (cmd === 'voice_command') {
+          return `Comando recebido: ${args.command || ''} (simulado)`;
+        }
+        if (cmd === 'cluster_status') {
+          return { nodes: [], pods: [], ready: false };
+        }
+        return { error: 'Tauri não disponível' };
+      };
+    }
+    
+    // Tema personalizado BEAGLE
+    const beagleTheme = EditorView.theme({
+      '&': {
+        backgroundColor: '#1a1a1a',
+        color: '#00D4FF',
+      },
+      '.cm-content': {
+        caretColor: '#00D4FF',
+      },
+      '.cm-focused .cm-cursor': {
+        borderLeftColor: '#00D4FF',
+      },
+      '.cm-selectionBackground': {
+        backgroundColor: '#003344',
+      },
+      '.cm-gutters': {
+        backgroundColor: '#0F0F0F',
+        borderRight: '1px solid #00D4FF',
+        color: '#666',
+      },
+      '.cm-lineNumbers .cm-gutterElement': {
+        color: '#666',
+      },
+      '.cm-activeLineGutter': {
+        backgroundColor: '#003344',
+        color: '#00D4FF',
+      },
+      '.cm-activeLine': {
+        backgroundColor: '#003344',
+      },
+    }, { dark: true });
+    
+    // Função para configurar provider Yjs
+    function setupYjsProvider(prov) {
+      prov.on('status', (event) => {
+        addConsoleLog('info', `Yjs: ${event.status}`);
+      });
+      
+      prov.on('sync', (isSynced) => {
+        if (isSynced) {
+          addConsoleLog('success', 'Yjs: Sincronizado');
+        }
+      });
+    }
+    
+    // Yjs setup
+    const ydoc = new Y.Doc();
+    
+    // Conectar com servidor Yjs (local ou remoto)
+    // Tenta local primeiro, depois remoto
+    let provider;
+    let wsUrl = 'ws://localhost:1234';
+    
+    try {
+      // Tenta conectar local primeiro
+      provider = new Y.WebsocketProvider(wsUrl, 'beagle-room', ydoc);
+      setupYjsProvider(provider);
+      
+      provider.on('connection-error', () => {
+        // Se falhar, tenta remoto
+        console.warn('Yjs local falhou, tentando remoto...');
+        wsUrl = 'wss://yjs.demetrios.ai';
+        try {
+          provider = new Y.WebsocketProvider(wsUrl, 'beagle-room', ydoc);
+          setupYjsProvider(provider);
+        } catch (e2) {
+          console.warn('Yjs remoto também falhou:', e2);
+          addConsoleLog('warn', 'Yjs: Modo offline (sem servidor)');
+        }
+      });
+    } catch (e) {
+      console.warn('Yjs não conectado (modo local):', e);
+      // Tenta remoto
+      try {
+        wsUrl = 'wss://yjs.demetrios.ai';
+        provider = new Y.WebsocketProvider(wsUrl, 'beagle-room', ydoc);
+        setupYjsProvider(provider);
+      } catch (e2) {
+        console.warn('Yjs remoto também falhou:', e2);
+        addConsoleLog('warn', 'Yjs: Modo offline (sem servidor)');
+      }
+    }
+    
+    const ytext = ydoc.getText('codemirror');
+    
+    // LSP Integration
+    let lspClient = null;
+    let currentLanguage = 'rust';
+    let currentFileUri = 'file:///tmp/paper.rs';
+    let editor = null; // Será inicializado abaixo
+    
+    // Inicia servidor LSP
+    async function startLsp(language) {
+      try {
+        const result = await invoke('lsp_start', {
+          language: language,
+          rootPath: null
+        });
+        addConsoleLog('success', `LSP iniciado: ${language}`);
+        currentLanguage = language;
+        return true;
+      } catch (e) {
+        addConsoleLog('error', `Falha ao iniciar LSP: ${e}`);
+        return false;
+      }
+    }
+    
+    // Compleção LSP
+    async function lspCompletion(pos) {
+      if (!lspClient || !editor) return null;
+      
+      try {
+        const doc = editor.state.doc;
+        const line = doc.lineAt(pos);
+        const lineNumber = line.number - 1; // LSP usa 0-indexed
+        const character = pos - line.from;
+        
+        const completions = await invoke('lsp_completion', {
+          request: {
+            language: currentLanguage,
+            uri: currentFileUri,
+            line: lineNumber,
+            character: character
+          }
+        });
+        
+        return completions.map(item => ({
+          label: item.label || '',
+          detail: item.detail || '',
+          type: item.kind || 'text',
+          info: item.documentation || ''
+        }));
+      } catch (e) {
+        console.warn('LSP completion error:', e);
+        return null;
+      }
+    }
+    
+    // Hover LSP
+    async function lspHover(pos) {
+      if (!lspClient) return null;
+      
+      try {
+        const doc = editor.state.doc;
+        const line = doc.lineAt(pos);
+        const lineNumber = line.number - 1;
+        const character = pos - line.from;
+        
+        const hover = await invoke('lsp_hover', {
+          request: {
+            language: currentLanguage,
+            uri: currentFileUri,
+            line: lineNumber,
+            character: character
+          }
+        });
+        
+        if (hover && hover.contents) {
+          const contents = hover.contents;
+          if (Array.isArray(contents)) {
+            return contents.map(c => c.value || c).join('\n');
+          }
+          return contents.value || contents;
+        }
+        return null;
+      } catch (e) {
+        console.warn('LSP hover error:', e);
+        return null;
+      }
+    }
+    
+    // Goto Definition LSP
+    async function lspGotoDefinition(pos) {
+      if (!lspClient) return;
+      
+      try {
+        const doc = editor.state.doc;
+        const line = doc.lineAt(pos);
+        const lineNumber = line.number - 1;
+        const character = pos - line.from;
+        
+        const locations = await invoke('lsp_goto_definition', {
+          request: {
+            language: currentLanguage,
+            uri: currentFileUri,
+            line: lineNumber,
+            character: character
+          }
+        });
+        
+        if (locations && locations.length > 0) {
+          const loc = locations[0];
+          addConsoleLog('info', `Goto definition: ${loc.uri}:${loc.range.start.line + 1}`);
+          // TODO: Navegar para definição
+        }
+      } catch (e) {
+        console.warn('LSP goto_definition error:', e);
+      }
+    }
+    
+    // Inicia LSP ao carregar
+    startLsp('rust').then(started => {
+      if (started) {
+        lspClient = { started: true };
+        
+        // Abre documento no LSP
+        invoke('lsp_did_open', {
+          request: {
+            language: 'rust',
+            uri: currentFileUri,
+            text: ytext.toString()
+          }
+        }).catch(e => console.warn('LSP did_open error:', e));
+      }
+    });
+    
+    // Paper Canvas - CodeMirror 6
+    const startState = EditorState.create({
+      doc: ytext.toString(),
+      extensions: [
+        basicSetup,
+        rust(),
+        beagleTheme,
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            // Sincronizar com Yjs
+            if (provider) {
+              // Yjs já atualiza automaticamente via binding
+            }
+            
+            // Atualizar LSP
+            if (lspClient) {
+              const text = update.state.doc.toString();
+              invoke('lsp_did_change', {
+                request: {
+                  language: currentLanguage,
+                  uri: currentFileUri,
+                  version: Date.now(),
+                  text: text
+                }
+              }).catch(e => console.warn('LSP did_change error:', e));
+            }
+          }
+        }),
+        // Autocompletar com LSP
+        EditorView.domEventHandlers({
+          keydown: async (view, event) => {
+            // Ctrl+Space para completar
+            if ((event.ctrlKey || event.metaKey) && event.key === ' ') {
+              event.preventDefault();
+              const pos = view.state.selection.main.head;
+              const completions = await lspCompletion(pos);
+              if (completions && completions.length > 0) {
+                addConsoleLog('info', `Completões disponíveis: ${completions.length}`);
+                // TODO: Mostrar dropdown de completões
+              }
+            }
+          }
+        }),
+        // Hover com LSP (desabilitado por enquanto - pode ser lento)
+        // EditorView.domEventHandlers({
+        //   mousemove: async (view, event) => {
+        //     // Hover delay
+        //     setTimeout(async () => {
+        //       const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        //       if (pos) {
+        //         const hoverText = await lspHover(pos);
+        //         if (hoverText) {
+        //           // TODO: Mostrar tooltip com hover
+        //           console.log('Hover:', hoverText);
+        //         }
+        //       }
+        //     }, 500);
+        //   }
+        // }),
+        // Goto Definition com Ctrl+Click ou F12
+        EditorView.domEventHandlers({
+          click: async (view, event) => {
+            if (event.ctrlKey || event.metaKey) {
+              const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+              if (pos) {
+                await lspGotoDefinition(pos);
+              }
+            }
+          },
+          keydown: async (view, event) => {
+            if (event.key === 'F12') {
+              event.preventDefault();
+              const pos = view.state.selection.main.head;
+              await lspGotoDefinition(pos);
+            }
+          }
+        }),
+      ],
+    });
+    
+    editor = new EditorView({
+      state: startState,
+      parent: document.getElementById('paper-canvas'),
+    });
+    
+    // Yjs binding para CodeMirror (quando disponível)
+    if (typeof Y !== 'undefined' && Y.binding) {
+      try {
+        // Binding será feito quando y-codemirror.next estiver disponível
+        // Por enquanto, sincronização manual via events
+      } catch (e) {
+        console.warn('Yjs binding não disponível:', e);
+      }
+    }
+    
+    // Knowledge Graph - Vis.js
+    const nodes = new vis.DataSet([
+      { id: 1, label: 'KEC Framework', color: { background: '#00D4FF', border: '#00D4FF' } },
+      { id: 2, label: 'Consciência Celular', color: { background: '#00D4FF', border: '#00D4FF' } },
+      { id: 3, label: 'PBPK Modeling', color: { background: '#00D4FF', border: '#00D4FF' } },
+      { id: 4, label: 'Quantum Reasoning', color: { background: '#00D4FF', border: '#00D4FF' } },
+    ]);
+    
+    const edges = new vis.DataSet([
+      { from: 1, to: 2, label: 'media', color: { color: '#00D4FF' } },
+      { from: 1, to: 3, label: 'aplica', color: { color: '#00D4FF' } },
+      { from: 3, to: 4, label: 'usa', color: { color: '#00D4FF' } },
+    ]);
+    
+    const container = document.getElementById('knowledge-graph');
+    const data = { nodes, edges };
+    const options = {
+      nodes: {
+        shape: 'box',
+        font: { color: '#0F0F0F', face: 'JetBrains Mono', size: 14 },
+        borderWidth: 2,
+      },
+      edges: {
+        font: { color: '#00D4FF', face: 'JetBrains Mono', size: 12, align: 'middle' },
+        arrows: { to: { enabled: true } },
+      },
+      physics: {
+        enabled: true,
+        stabilization: { iterations: 200 },
+      },
+      interaction: {
+        dragNodes: true,
+        dragView: true,
+        zoomView: true,
+      },
+    };
+    
+    const network = new vis.Network(container, data, options);
+    
+    // Agent Console
+    const consoleEl = document.getElementById('agent-console');
+    
+    function addConsoleLog(level, message) {
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${level}`;
+      const timestamp = new Date().toLocaleTimeString();
+      entry.innerHTML = `<span class="timestamp">[${timestamp}]</span>${message}`;
+      consoleEl.insertBefore(entry, consoleEl.firstChild);
+      
+      // Limitar a 100 entradas
+      while (consoleEl.children.length > 100) {
+        consoleEl.removeChild(consoleEl.lastChild);
+      }
+    }
+    
+    addConsoleLog('info', 'BEAGLE IDE iniciado');
+    addConsoleLog('success', 'Sistema pronto');
+    
+    // Atualizar console com status do cluster
+    async function updateClusterStatus() {
+      try {
+        const status = await invoke('cluster_status');
+        addConsoleLog('info', `Cluster: ${status.nodes?.length || 0} nodes, ${status.pods?.length || 0} pods`);
+        
+        if (status.ready) {
+          addConsoleLog('success', 'Cluster Darwin: Operacional');
+        } else {
+          addConsoleLog('warn', 'Cluster Darwin: Verificando...');
+        }
+      } catch (e) {
+        addConsoleLog('warn', `Cluster: ${e.message || 'Não disponível'}`);
+      }
+    }
+    
+    // Atualizar status do cluster a cada 10 segundos
+    updateClusterStatus();
+    setInterval(updateClusterStatus, 10000);
+    
+    // Quantum View
+    const quantumEl = document.getElementById('quantum-view');
+    const states = [
+      'Superposição ativa — 6 hipóteses',
+      'Entrelaçamento quântico: KEC ↔ PBPK',
+      'Colapso de onda em: Introduction',
+      'Interferência construtiva detectada',
+    ];
+    
+    let stateIndex = 0;
+    function updateQuantumView() {
+      quantumEl.innerHTML = `
+        <div class="quantum-superposition">⚛️</div>
+        <div class="quantum-state">${states[stateIndex]}</div>
+        <div class="quantum-state" style="margin-top: 20px; font-size: 12px; opacity: 0.6;">
+          Estado quântico: ${Date.now().toString(36)}
+        </div>
+      `;
+      stateIndex = (stateIndex + 1) % states.length;
+    }
+    
+    updateQuantumView();
+    setInterval(updateQuantumView, 3000);
+    
+    // Voice Command
+    let recognition = null;
+    const voiceIndicator = document.getElementById('voice-indicator');
+    
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'pt-BR';
+      
+      recognition.onstart = () => {
+        voiceIndicator.classList.add('active');
+        addConsoleLog('info', '🎤 Reconhecimento de voz ativado');
+      };
+      
+      recognition.onresult = async (event) => {
+        const command = event.results[0][0].transcript;
+        addConsoleLog('info', `Comando de voz: "${command}"`);
+        
+        try {
+          const result = await invoke('voice_command', { command });
+          addConsoleLog('success', `✓ ${result}`);
+        } catch (e) {
+          addConsoleLog('error', `✗ Erro: ${e.message || e}`);
+        }
+      };
+      
+      recognition.onerror = (event) => {
+        addConsoleLog('error', `Reconhecimento de voz: ${event.error}`);
+      };
+      
+      recognition.onend = () => {
+        voiceIndicator.classList.remove('active');
+      };
+      
+      // Ativar com tecla de atalho (Ctrl+Shift+V ou Cmd+Shift+V)
+      document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'V') {
+          e.preventDefault();
+          if (recognition && recognition.state !== 'listening') {
+            recognition.start();
+          }
+        }
+      });
+      
+      addConsoleLog('info', 'Comando de voz: Ctrl+Shift+V (ou Cmd+Shift+V)');
+    } else {
+      addConsoleLog('warn', 'Reconhecimento de voz não disponível neste navegador');
+    }
+    
+    // Git semantic blame no editor
+    editor.dom.addEventListener('click', async (e) => {
+      const pos = editor.posAtCoords({ x: e.clientX, y: e.clientY });
+      if (pos) {
+        const line = editor.state.doc.lineAt(pos).number;
+        // TODO: Obter caminho do arquivo
+        try {
+          const blame = await invoke('git_semantic_blame', {
+            filePath: 'paper.md',
+            line: line,
+          });
+          addConsoleLog('info', `Git blame L${line}: ${blame.author} - ${blame.message}`);
+        } catch (e) {
+          // Ignorar erros silenciosamente
+        }
+      }
+    });
+    
+    // Log inicial
+    addConsoleLog('info', 'Painéis inicializados');
+    addConsoleLog('info', 'CodeMirror 6: Rust LSP ativo');
+    addConsoleLog('info', 'LSP: rust-analyzer e Julia LanguageServer suportados');
+    addConsoleLog('info', 'Atalhos: Ctrl+Space (completar), Ctrl+Click/F12 (goto definition)');
+    addConsoleLog('success', 'BEAGLE IDE: Pronto para uso');
+  </script>
+</body>
+</html>
+

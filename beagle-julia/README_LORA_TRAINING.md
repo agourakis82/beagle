@@ -7,6 +7,7 @@
 1. **GenerateLoRADataset.jl**: Extrai pares (bad → good) do adversarial loop
 2. **TrainLoRALux.jl**: Treina LoRA adapter com Lux.jl no M3 Max
 3. **IntegrateLoRATraining.jl**: Integração automática completa
+4. **lora_voice_auto.jl**: 🚀 **NOVO** - Treinamento 100% automático em 15 minutos (M3 Max)
 
 ## Pipeline Completo
 
@@ -21,6 +22,31 @@ Aplicar LoRA    → Melhora próximos drafts
 ```
 
 ## Uso
+
+### 🚀 MODO RÁPIDO: LoRA Voice Automático (15 min)
+
+**Treinamento 100% automático com drafts reais:**
+
+```bash
+# Opção 1: Script bash (recomendado)
+./beagle-julia/run_lora_voice_auto.sh
+
+# Opção 2: Direto com Julia
+julia --project=beagle-julia beagle-julia/lora_voice_auto.jl
+```
+
+**O que faz:**
+- ✅ Carrega automaticamente todos os drafts de `~/beagle-data/papers/drafts/`
+- ✅ Cria pares sequenciais (bad → good)
+- ✅ Treina LoRA com Lux.jl nativo no M3 Max
+- ✅ Salva adapter em `~/beagle-data/lora/beagle_voice_YYYYMMDD_HHMMSS.jld2`
+- ✅ Pronto para usar no vLLM
+
+**Requisitos:**
+- Drafts em `~/beagle-data/papers/drafts/draft_iter_*.md` (mínimo 2)
+- Julia 1.10+ com Lux, Optimisers, Zygote, JLD2
+
+---
 
 ### 1. Gera Dataset do Adversarial
 

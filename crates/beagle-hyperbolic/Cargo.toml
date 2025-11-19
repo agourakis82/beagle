@@ -1,0 +1,20 @@
+[package]
+name = "beagle-hyperbolic"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dr. Demetrios Agourakis <contact@darwin-cluster.ai>"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+petgraph = "0.6"
+ndarray = "0.16"
+rand = "0.8"
+
+# Dependências internas
+beagle-hypergraph = { path = "../beagle-hypergraph" }
+
