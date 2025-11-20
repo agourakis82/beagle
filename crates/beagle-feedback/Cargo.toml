@@ -18,3 +18,11 @@ beagle-config = { path = "../beagle-config" }
 name = "tag-run"
 path = "src/bin/tag_run.rs"
 
+[[bin]]
+name = "analyze-feedback"
+path = "src/bin/analyze_feedback.rs"
+
+[[bin]]
+name = "export-lora-dataset"
+path = "src/bin/export_lora_dataset.rs"
+

@@ -4,7 +4,7 @@
 //!   cargo run --bin tag-run --package beagle-feedback -- <run_id> <accepted 0/1> [rating0-10] [notes...]
 
 use beagle_config::load as load_config;
-use beagle_feedback::{append_event, create_human_feedback_event};
+use beagle_feedback::{append_event, create_human_feedback_event, FeedbackLogEntry};
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {
@@ -21,7 +21,7 @@ fn main() -> anyhow::Result<()> {
 
     let run_id = &args[1];
     let accepted_str = &args[2];
-    let accepted = accepted_str == "1" || accepted_str.to_lowercase() == "true";
+    let accepted = matches!(accepted_str.to_lowercase().as_str(), "1" | "true" | "yes" | "y");
 
     let rating: Option<u8> = args.get(3).and_then(|v| v.parse().ok());
 
@@ -34,24 +34,23 @@ fn main() -> anyhow::Result<()> {
     let cfg = load_config();
     let data_dir = PathBuf::from(&cfg.storage.data_dir);
 
-    let event = create_human_feedback_event(
+    let human_event = create_human_feedback_event(
         run_id.clone(),
         accepted,
         rating,
-        notes,
+        notes.clone(),
     );
 
-    append_event(&data_dir, &event)?;
+    append_event(&data_dir, &human_event)?;
 
     println!("✅ Feedback humano registrado para run_id={}", run_id);
     println!("   Accepted: {}", accepted);
     if let Some(r) = rating {
         println!("   Rating: {}/10", r);
     }
-    if let Some(ref n) = event.notes {
+    if let Some(ref n) = notes {
         println!("   Notes: {}", n);
     }
 
     Ok(())
 }
-

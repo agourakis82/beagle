@@ -59,7 +59,8 @@ async fn main() -> anyhow::Result<()> {
     ));
     
     // Tenta recuperar question do run_report original (simplificado)
-    let question = format!("Triad review para run {}", run_id);
+    // Por enquanto, None - pode ser melhorado para ler do run_report.json
+    let question = None;
     
     let event = create_triad_event(
         run_id.clone(),

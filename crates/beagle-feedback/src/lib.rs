@@ -16,34 +16,48 @@ use std::path::{Path, PathBuf};
 
 const FEEDBACK_FILE: &str = "feedback_events.jsonl";
 
+/// Tipo de evento de feedback
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FeedbackEventType {
+    /// Depois de pipeline v0.1
+    PipelineRun,
+    /// Depois da Triad
+    TriadCompleted,
+    /// Julgamento humano explícito
+    HumanFeedback,
+}
+
 /// Evento de feedback para Continuous Learning
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FeedbackEvent {
+    pub event_type: FeedbackEventType,
     pub run_id: String,
     pub timestamp: DateTime<Utc>,
 
-    pub question: String,
+    // --- Core context ---
+    pub question: Option<String>, // pode vir do pipeline ou ser vazio em HumanFeedback
 
-    // Caminhos para artefatos
-    pub draft_md: Option<PathBuf>,     // pipeline v0.1
+    // --- Artefatos ---
+    pub draft_md: Option<PathBuf>,
     pub draft_pdf: Option<PathBuf>,
-    pub triad_final_md: Option<PathBuf>, // depois da Triad
+    pub triad_final_md: Option<PathBuf>,
     pub triad_report_json: Option<PathBuf>,
 
-    // Estado fisiológico simplificado
-    pub hrv_level: Option<String>, // "low" | "normal" | "high" | raw JSON string se quiser
+    // --- Estado fisiológico / observer ---
+    pub hrv_level: Option<String>, // "low" | "normal" | "high" | raw string
 
-    // Stats de LLM (estimado, pode vir do RunMetadata/TriadReport)
+    // --- LLM: stats agregados (por run) ---
     pub llm_provider_main: Option<String>, // "grok3", "grok4_heavy", etc.
     pub grok3_calls: Option<u32>,
     pub grok4_heavy_calls: Option<u32>,
     pub grok3_tokens_est: Option<u32>,
     pub grok4_tokens_est: Option<u32>,
 
-    // Sinal humano (preenchido depois)
-    pub accepted: Option<bool>,        // true=aceitou como bom, false=ruim
-    pub rating_0_10: Option<u8>,     // nota global
-    pub notes: Option<String>,        // comentário livre (tiradas suas)
+    // --- Julgamento humano (preenchido depois) ---
+    pub accepted: Option<bool>,   // true = "bom", false = "ruim"
+    pub rating_0_10: Option<u8>,
+    pub notes: Option<String>,
 }
 
 /// Entrada no log JSONL
@@ -118,9 +132,10 @@ pub fn create_pipeline_event(
     llm_provider_main: Option<String>,
 ) -> FeedbackEvent {
     FeedbackEvent {
+        event_type: FeedbackEventType::PipelineRun,
         run_id,
         timestamp: Utc::now(),
-        question,
+        question: Some(question),
         draft_md: Some(draft_md),
         draft_pdf: Some(draft_pdf),
         triad_final_md: None,
@@ -140,7 +155,7 @@ pub fn create_pipeline_event(
 /// Cria evento de Triad
 pub fn create_triad_event(
     run_id: String,
-    question: String,
+    question: Option<String>,
     triad_final_md: PathBuf,
     triad_report_json: PathBuf,
     llm_stats: Option<(u32, u32, u32, u32)>, // (grok3_calls, heavy_calls, grok3_tokens, heavy_tokens)
@@ -154,6 +169,7 @@ pub fn create_triad_event(
     };
 
     FeedbackEvent {
+        event_type: FeedbackEventType::TriadCompleted,
         run_id,
         timestamp: Utc::now(),
         question,
@@ -181,9 +197,10 @@ pub fn create_human_feedback_event(
     notes: Option<String>,
 ) -> FeedbackEvent {
     FeedbackEvent {
+        event_type: FeedbackEventType::HumanFeedback,
         run_id,
         timestamp: Utc::now(),
-        question: String::new(), // Não precisa para feedback humano
+        question: None,
         draft_md: None,
         draft_pdf: None,
         triad_final_md: None,
@@ -199,4 +216,3 @@ pub fn create_human_feedback_event(
         notes,
     }
 }
-
