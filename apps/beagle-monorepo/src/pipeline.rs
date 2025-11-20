@@ -73,6 +73,23 @@ pub async fn run_beagle_pipeline(
     let run_report = create_run_report(ctx, run_id, question, &context, &physio, &draft).await?;
     info!("✅ Run report salvo: {}", run_report.display());
 
+    // 6) Log feedback event para Continuous Learning
+    let data_dir = PathBuf::from(&ctx.cfg.storage.data_dir);
+    let hrv_level = extract_hrv_level(&physio);
+    let event = create_pipeline_event(
+        run_id.to_string(),
+        question.to_string(),
+        draft_md.clone(),
+        draft_pdf.clone(),
+        hrv_level,
+        Some("grok3".to_string()), // Por padrão, pipeline usa Grok 3
+    );
+    if let Err(e) = append_event(&data_dir, &event) {
+        warn!("Falha ao logar feedback event: {}", e);
+    } else {
+        info!("📊 Feedback event logado para Continuous Learning");
+    }
+
     info!("🎉 Pipeline BEAGLE v0.1 concluído!");
 
     Ok(PipelinePaths {
@@ -80,6 +97,20 @@ pub async fn run_beagle_pipeline(
         draft_pdf,
         run_report,
     })
+}
+
+/// Extrai nível de HRV do estado fisiológico (simplificado)
+fn extract_hrv_level(physio: &str) -> Option<String> {
+    let lower = physio.to_lowercase();
+    if lower.contains("hrv normal") || lower.contains("normal") {
+        Some("normal".to_string())
+    } else if lower.contains("hrv low") || lower.contains("low") {
+        Some("low".to_string())
+    } else if lower.contains("hrv high") || lower.contains("high") {
+        Some("high".to_string())
+    } else {
+        None
+    }
 }
 
 /// Darwin Enhanced Cycle (GraphRAG)

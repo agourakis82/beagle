@@ -5,6 +5,7 @@
 
 use beagle_core::BeagleContext;
 use beagle_config::load as load_config;
+use beagle_feedback::{append_event, create_triad_event};
 use beagle_triad::{run_triad, TriadInput};
 use std::path::PathBuf;
 use tracing::info;
@@ -49,14 +50,45 @@ async fn main() -> anyhow::Result<()> {
     std::fs::write(&report_json, serde_json::to_string_pretty(&report)?)?;
     std::fs::write(&final_md, &report.final_draft)?;
 
+    // Log feedback event para Continuous Learning
+    let llm_stats = Some((
+        report.llm_stats.grok3_calls as u32,
+        report.llm_stats.heavy_calls as u32,
+        report.llm_stats.grok3_tokens_est as u32,
+        report.llm_stats.heavy_tokens_est as u32,
+    ));
+    
+    // Tenta recuperar question do run_report original (simplificado)
+    let question = format!("Triad review para run {}", run_id);
+    
+    let event = create_triad_event(
+        run_id.clone(),
+        question,
+        final_md.clone(),
+        report_json.clone(),
+        llm_stats,
+    );
+    
+    if let Err(e) = append_event(&data_dir, &event) {
+        eprintln!("⚠️  Falha ao logar feedback event: {}", e);
+    } else {
+        info!("📊 Feedback event da Triad logado para Continuous Learning");
+    }
+
     println!("\n=== BEAGLE TRIAD REVIEW CONCLUÍDO ===");
     println!("Run ID: {}", run_id);
     println!("Relatório: {}", report_json.display());
     println!("Draft final: {}", final_md.display());
     println!("\nOpiniões:");
     for opinion in &report.opinions {
-        println!("  {}: Score {:.2} - {}", opinion.agent, opinion.score, opinion.summary);
+        println!("  {}: Score {:.2} - {} | Provider: {}", 
+            opinion.agent, opinion.score, opinion.summary, opinion.provider_tier);
     }
+    println!("\nLLM Stats:");
+    println!("  Grok 3: {} calls, {} tokens est.", 
+        report.llm_stats.grok3_calls, report.llm_stats.grok3_tokens_est);
+    println!("  Grok 4 Heavy: {} calls, {} tokens est.", 
+        report.llm_stats.heavy_calls, report.llm_stats.heavy_tokens_est);
 
     Ok(())
 }

@@ -1,0 +1,19 @@
+[package]
+name = "beagle-feedback"
+version = "0.1.0"
+edition = "2021"
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+dirs = "5.0"
+
+[[bin]]
+name = "tag-run"
+path = "src/bin/tag_run.rs"
+
