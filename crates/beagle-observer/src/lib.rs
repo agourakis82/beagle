@@ -297,7 +297,7 @@ impl UniversalObserver {
         Ok(())
     }
 
-    fn scrape_browser_history() -> anyhow::Result<Vec<BrowserEntry>> {
+    pub fn scrape_browser_history() -> anyhow::Result<Vec<BrowserEntry>> {
         // Chrome (Linux/macOS)
         let home = std::env::var("HOME")?;
         let chrome_paths = [

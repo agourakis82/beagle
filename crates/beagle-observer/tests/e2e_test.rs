@@ -168,9 +168,8 @@ async fn test_clipboard_detection() -> anyhow::Result<()> {
     // Testa se consegue ler clipboard
     #[cfg(target_os = "macos")]
     {
-        use std::process::Command;
         // Coloca algo no clipboard
-        Command::new("pbcopy")
+        std::process::Command::new("pbcopy")
             .arg("test clipboard e2e")
             .output()?;
         
@@ -181,7 +180,6 @@ async fn test_clipboard_detection() -> anyhow::Result<()> {
     
     #[cfg(target_os = "linux")]
     {
-        use std::process::Command;
         // Tenta ler clipboard
         if let Ok(clip) = beagle_observer::get_clipboard_linux() {
             info!("✅ Clipboard detection funcionando (Linux): {} chars", clip.len());
