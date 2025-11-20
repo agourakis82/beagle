@@ -1,0 +1,320 @@
+Você é um agente de desenvolvimento SENIOR trabalhando no repositório BEAGLE (Rust + Julia), que implementa um exocórtex científico pessoal (BEAGLE v2.1/v2.3) com as seguintes premissas:
+
+- Arquitetura **Rust-first**: núcleo em crates (`beagle-llm`, `beagle-monorepo`, `beagle-triad`, `beagle-feedback`, etc.).
+- Julia para pipelines científicos (PBPK, KEC, etc.), conversando com o núcleo via HTTP.
+- Filosofia **Cloud-first**: LLMs (Grok 3/Grok 4 Heavy) em cloud, GPUs locais (RTX 8000, L4, etc.) 100% livres para PBPK/MD/FEA/DL.
+- Grok 3 = Tier 1 padrão (ilimitado). Grok 4 Heavy = usado só em casos críticos (debate adversarial, proofs, Methods, alta criticidade).
+
+- BEAGLE já possui:
+  - `beagle-llm` com `TieredRouter` (Grok 3 Tier 1, slots para Heavy/Math/Local).
+  - `BeagleContext` integrando Router + Darwin + HERMES + Observer.
+  - Core HTTP com Axum (`core_server` binário) expondo `/api/llm/complete`.
+  - Wrapper Julia `BeagleLLM.jl` que chama `/api/llm/complete`.
+  - Pipeline v0.1 (`run_beagle_pipeline` + bin `pipeline`) gerando `draft.md`, `draft.pdf`, `run_report.json` em `BEAGLE_DATA_DIR`.
+  - Triad adversarial (ATHENA–HERMES–ARGOS + juiz final) em crate `beagle-triad` (estrutura básica já desenhada).
+  - Crate `beagle-feedback` (esqueleto) para geração de `feedback_events.jsonl`.
+
+Sua missão: **endurecer**, organizar e completar essa arquitetura em ~30 TODOs, sempre:
+
+- Mantendo compatibilidade com o código existente (não quebrar a API pública sem motivo).
+- Respeitando a convenção de storage: tudo passa por `BEAGLE_DATA_DIR` e pelo config central (nada de `~/beagle-data` literal).
+- Respeitando perfis de execução: `BEAGLE_PROFILE = dev | lab | prod` e `BEAGLE_SAFE_MODE`.
+- Escrevendo código idiomático em Rust/Julia, com `cargo check`/`cargo test`/`julia` passando para os módulos afetados.
+- Adicionando comentários claros nos pontos críticos, sem poluir o código com explicações desnecessárias.
+
+### DIRETRIZES GERAIS
+
+1. **Nunca** acople diretamente Grok à lógica de negócio. Tudo passa por `beagle-llm` + `TieredRouter`.
+2. **Nunca** queime GPU local com LLM grande. O core HTTP deve rodar bem em CPU ou GPU leve.
+3. Toda nova feature que gera artefatos deve respeitar `BEAGLE_DATA_DIR` vindo do config.
+4. Sempre que possível, escreva pequenos testes (mocks para LLM) para novas funções.
+5. Ao final de cada TODO grande, tente rodar:
+   - `cargo check -p beagle-monorepo` (ou pacote relevante)
+   - `cargo test -p <crate>` se existirem testes
+   - Sem assumir que `beagle-hypergraph`/Postgres estão configurados (evite depender deles).
+
+---
+
+## TODO 01 — Revisar e consolidar BeagleConfig + Profiles
+
+- Localizar a estrutura de configuração (`BeagleConfig`) já existente (provavelmente em `beagle-monorepo` ou crate de config).
+- Garantir que inclua:
+  - `profile: String` → `dev | lab | prod`
+  - `safe_mode: bool`
+  - `storage.data_dir: PathBuf` → vindo de `BEAGLE_DATA_DIR` ou `~/beagle-data` fallback.
+  - `llm` sub-struct com: `xai_api_key`, `grok_model`, flags para Heavy.
+- Implementar um método `profile()` que retorna enum `Profile::{Dev,Lab,Prod}`.
+- Garantir que TODO o código que mexe com diretórios use `cfg.storage.data_dir`.
+
+## TODO 02 — Formalizar LlmRoutingConfig no TieredRouter
+
+- No crate `beagle-llm`, criar struct `LlmRoutingConfig` com:
+  - `enable_heavy: bool`
+  - `heavy_max_calls_per_run: u32`
+  - `heavy_max_tokens_per_run: u32`
+  - `heavy_max_calls_per_day: u32` (por enquanto apenas reservado).
+- Implementar função `load_routing_config(&BeagleConfig) -> LlmRoutingConfig` que:
+  - Usa `BEAGLE_HEAVY_ENABLE`, `BEAGLE_HEAVY_MAX_CALLS_PER_RUN` etc.
+  - Ajusta defaults por `Profile`:
+    - dev: `enable_heavy=false`
+    - lab: `enable_heavy=true`, limites conservadores
+    - prod: `enable_heavy=true`, limites um pouco mais altos.
+
+## TODO 03 — Atualizar LlmClient para retornar LlmOutput com telemetria
+
+- Em `beagle-llm`:
+  - Criar struct `LlmOutput { text: String, tokens_in_est: usize, tokens_out_est: usize }`.
+  - Modificar trait `LlmClient` para `async fn complete(&self, prompt: &str) -> anyhow::Result<LlmOutput>`.
+  - Atualizar `GrokClient` (Grok 3) e qualquer outro client existente para estimar tokens ou usar campos reais da API.
+- Ajustar chamadas no código que usam `.complete()` para lidar com `LlmOutput.text`.
+
+## TODO 04 — Introduzir LlmcallsStats e acoplá-lo ao BeagleContext
+
+- Criar struct `LlmcallsStats` (em crate apropriado, ex.: `beagle-llm` ou `beagle-monorepo`):
+  - `grok3_calls`, `grok3_tokens_in`, `grok3_tokens_out`
+  - `grok4_calls`, `grok4_tokens_in`, `grok4_tokens_out`
+- Em `BeagleContext`, adicionar um campo:
+  - `llm_stats: std::sync::Mutex<HashMap<String, LlmcallsStats>>` (mapeando `run_id` → stats).
+- Garantir que exista um helper para pegar/atualizar stats de um `run_id`.
+
+## TODO 05 — Atualizar TieredRouter para retornar (client, tier) e aplicar limites Heavy
+
+- Atualizar `TieredRouter::choose` para uma versão `choose_with_limits(meta, stats) -> (&dyn LlmClient, ProviderTier)`.
+- ProviderTier = `Grok3 | Grok4Heavy | CloudMath | LocalFallback`.
+- Implementar a lógica:
+  - Se `offline_required` → `LocalFallback`.
+  - Se `high_bias_risk || requires_phd_level_reasoning || critical_section` e Heavy habilitado E abaixo dos limites → `Grok4Heavy`.
+  - Senão, se `requires_math` e houver math client → `CloudMath`.
+  - Caso contrário → `Grok3`.
+- Em todos os pontos de chamada (pipeline, Triad, core HTTP) usar `choose_with_limits` com stats do `run_id`.
+
+## TODO 06 — Instrumentar pipeline v0.1 com stats de LLM
+
+- Em `run_beagle_pipeline`:
+  - Passar `run_id` para cada chamada que envolva LLM.
+  - Após cada `client.complete`, atualizar stats no `BeagleContext.llm_stats` para esse `run_id`.
+- No final do pipeline:
+  - Ler `LlmcallsStats` do `BeagleContext` para esse `run_id`.
+  - Anexar esses stats no `RunMetadata` (ex.: campo `llm_stats`).
+  - Salvar em `run_report.json`.
+
+## TODO 07 — Instrumentar Triad (ATHENA, HERMES, ARGOS, juiz) com TieredRouter+stats
+
+- Em `beagle-triad`, atualizar as funções:
+  - `run_athena`, `run_hermes`, `run_argos`, `arbitrate_final`:
+    - Construir `RequestMeta` adequado:
+      - ATHENA: `requires_high_quality=true`, `requires_phd_level_reasoning=true`.
+      - HERMES: `requires_high_quality=true`.
+      - ARGOS: `high_bias_risk=true`, `requires_phd_level_reasoning=true`, `critical_section=true`.
+      - Juiz: igual ARGOS.
+    - Usar `router.choose_with_limits(meta, stats_for_run)` para pegar `(client, tier)`.
+    - Chamar `client.complete`, atualizar stats.
+- Fazer com que o `TriadReport` carregue os `LlmcallsStats` para aquele `run_id`.
+
+## TODO 08 — Consolidar tipos de RequestMeta e ProviderTier em um módulo único
+
+- Criar um módulo em `beagle-llm` (ex.: `meta.rs`) que define `RequestMeta` e `ProviderTier`.
+- Garantir que:
+  - Não haja duplicação de definição de RequestMeta/ProviderTier em outros crates.
+  - Todos os consumidores importem dessas definições únicas.
+
+## TODO 09 — Revisar `core_server` (Axum) para usar TieredRouter+stats
+
+- Em `core_server` (`apps/beagle-monorepo/src/http.rs`):
+  - Para `/api/llm/complete`, criar internamente um `RequestMeta` com heurísticas simples:
+    - `requires_math` se prompt contiver termos típicos (ex.: "proof", "theorem", "derivation", "equation") — heurística simples.
+    - `requires_high_quality=true` por default.
+  - Recuperar `stats` do `BeagleContext.llm_stats` usando um `run_id` sintético (ou "http_session"), ou manter um stats separado específico p/ HTTP.
+  - Usar `choose_with_limits(meta, stats)`.
+
+## TODO 10 — Garantir que BeagleLLM.jl esteja devidamente namespaced e testável
+
+- Revisar `beagle-julia/BeagleLLM.jl`:
+  - Confirmar que `BEAGLE_CORE_URL` vem de `ENV` e default é `http://localhost:8080`.
+  - Garantir que os parâmetros (`requires_math`, `requires_high_quality`, `offline_required`) sejam opcionais com defaults sensatos.
+- Criar um pequeno script Julia de smoke-test (ex.: `beagle-julia/test_llm.jl`) que:
+  - Chama `BeagleLLM.complete("Frase simples", requires_high_quality=true)` e imprime a resposta.
+- Documentar no README de `beagle-julia` como rodar esse teste.
+
+## TODO 11 — Criar crate `beagle-stress-test` e binário `stress_pipeline`
+
+- Criar `crates/beagle-stress-test` com binário `stress_pipeline` que:
+  - Lê de env `BEAGLE_STRESS_RUNS` (default 50), `BEAGLE_STRESS_CONCURRENCY` (default 5).
+  - Cria um `BeagleContext`.
+  - Dispara N chamadas concorrentes a `run_beagle_pipeline` (com perguntas sintéticas "Paper idea i").
+  - Coleta tempos de execução (latência) e contabiliza quantos OK/ERRO.
+  - Imprime p50/p95/p99 de latência.
+- Garantir que esse crate use mocks opcionais: ex. via `BEAGLE_LLM_MOCK=true` para não consumir Grok real em teste.
+
+## TODO 12 — Testes unitários com MockLlmClient
+
+- Implementar `MockLlmClient` em `beagle-llm`.
+- Em `beagle-monorepo`, criar `BeagleContext::new_with_mock()` que usa `mock_router()`.
+- Criar testes:
+  - `tests/pipeline_mock.rs`: roda pipeline com mock e checa existência de `draft.md/pdf/run_report`.
+- Em `beagle-triad`, criar testes análogos com mock para verificar que a Triad gera `TriadReport` com 3 opiniões e `final_draft` não vazio.
+
+## TODO 13 — Ajustar todo o código de pipeline/triad para usar BEAGLE_DATA_DIR corretamente
+
+- Fazer um sweep nos caminhos de arquivo:
+  - Remover qualquer uso literal de `~/beagle-data`.
+  - Garantir que tudo use `cfg.storage.data_dir.join("...")`.
+- Validar que:
+  - `papers/drafts`, `logs/beagle-pipeline`, `triad/<run_id>`, `feedback/` sejam criados dentro de `BEAGLE_DATA_DIR`.
+
+## TODO 14 — Finalizar crate `beagle-feedback` com os 3 tipos de evento
+
+- Implementar definitivamente:
+  - `FeedbackEventType` = `PipelineRun`, `TriadCompleted`, `HumanFeedback`.
+  - `FeedbackEvent` conforme desenhado (question, artefatos, HRV, stats, rating).
+  - `append_event`.
+- Integrar:
+  - `PipelineRun`: evento disparado ao final do pipeline v0.1.
+  - `TriadCompleted`: evento disparado ao final da Triad.
+  - `HumanFeedback`: via CLI `tag_run`.
+
+## TODO 15 — Implementar CLI `tag_run` (HumanFeedback) em `beagle-feedback`
+
+- Binário `tag_run`:
+  - Uso: `tag_run <run_id> <accepted 0/1> [rating0-10] [notes...]`.
+  - Cria um novo evento `HumanFeedback` appending em `feedback_events.jsonl`.
+- Validar manualmente com alguns runs.
+
+## TODO 16 — Implementar CLI `analyze_feedback` em `beagle-feedback`
+
+- Binário `analyze_feedback`:
+  - Lê `feedback_events.jsonl`.
+  - Imprime:
+    - nº de `PipelineRun`, `TriadCompleted`, `HumanFeedback`.
+    - Accept vs Reject.
+    - Média e percentis de rating (p50, p90).
+- Opcional: incluir contagem de runs com uso de Heavy (`grok4_calls > 0`).
+
+## TODO 17 — Implementar CLI `export_lora_dataset` em `beagle-feedback`
+
+- Binário `export_lora_dataset`:
+  - Lê `feedback_events.jsonl`, agrupa por `run_id`.
+  - Para cada `run_id` com:
+    - PipelineRun com `question` + `draft_md`.
+    - TriadCompleted com `triad_final_md`.
+    - HumanFeedback com `accepted=true` e `rating >= 8`.
+  - Gera `lora_dataset.jsonl` com exemplos:
+    - `{"run_id": ..., "input": "<question+draft>", "output": "<final_draft>"}`
+- Imprimir nº de exemplos exportados.
+
+## TODO 18 — Endpoint `/health` no core HTTP
+
+- Em `apps/beagle-monorepo/src/http.rs`, implementar:
+  - GET `/health` retornando JSON com:
+    - `profile`, `safe_mode`, `data_dir`.
+    - opcionalmente, uma flag se `XAI_API_KEY` está presente.
+- Smoke-test:
+  - `curl http://localhost:8080/health`.
+
+## TODO 19 — Documentar (README) o fluxo completo "pipeline + triad + feedback"
+
+- Em `apps/beagle-monorepo/README.md` ou `docs/BEAGLE_CORE.md`:
+  - Documentar:
+    1. Como subir `core_server`.
+    2. Como rodar `pipeline`.
+    3. Como rodar `triad_review`.
+    4. Como registrar feedback humano com `tag_run`.
+    5. Como rodar `analyze_feedback` e `export_lora_dataset`.
+- Garantir que o README cite o uso de `BEAGLE_DATA_DIR` e variáveis de ambiente críticas.
+
+## TODO 20 — Integração mínima com IDE Tauri (opcional, se já existir backend)
+
+- Se a IDE Tauri (`apps/beagle-ide-tauri`) já tiver backend:
+  - Adicionar comandos/ações para:
+    - disparar pipeline para o texto selecionado ou pergunta.
+    - carregar e exibir lista de runs recentes (via leitura de diretórios/logs).
+    - abrir `draft.md` e `draft_reviewed.md` no painel.
+- Não precisa implementar tudo agora; apenas preparar hooks e contratos (ex.: endpoints HTTP internos ou comandos IPC).
+
+## TODO 21 — Introduzir perfis dev/lab/prod na CLI do pipeline e core_server
+
+- No `core_server` e no `pipeline`:
+  - Logar no início: `profile`, `safe_mode` e `enable_heavy`.
+  - Opcional: forbidir `prod` com `BEAGLE_SAFE_MODE=true` se isso não fizer sentido para pipeline, ou vice-versa (apenas logar, não bloquear).
+
+## TODO 22 — Testes específicos para limites de Heavy
+
+- Criar testes unitários para `TieredRouter::choose_with_limits`:
+  - Cenário: `high_bias_risk=true`, stats de Heavy abaixo do limite → escolhe Heavy.
+  - Cenário: stats acima dos limites → volta para Grok3 mesmo com flags.
+- Usar `MockLlmClient` para facilitar.
+
+## TODO 23 — Ajustar pipeline para receber opcionalmente um "modo Triad full"
+
+- Adicionar flag (via CLI ou função) no pipeline:
+  - `--with-triad` ou similar.
+- Quando ativado:
+  - Após gerar `draft.md/pdf`, chamar Triad automaticamente para o `run_id`.
+  - Atualizar `FeedbackEvent` com link para `triad_final_md`.
+
+## TODO 24 — Especificar e documentar o mapeamento HRV → `hrv_level`
+
+- No Observer/HealthKit:
+  - Definir claramente thresholds (ex.: HRV baixa, normal, alta).
+  - Mapear isso para strings `low | normal | high`.
+- Documentar no README:
+  - Como isso influencia tom/decisões (ex.: pipeline pode ajustar prompts se HRV estiver muito baixo).
+
+## TODO 25 — Criar um "run explorer" simples em linha de comando
+
+- Binário em `beagle-monorepo` ou `beagle-feedback`: `list_runs`.
+  - Lista `run_id`, pergunta, data, se tem Triad, se tem feedback humano.
+- Isso ajuda a escolher qual `run_id` review/tag/exportar sem abrir arquivos manualmente.
+
+## TODO 26 — Confirmação de compatibilidade Rust (edition, MSRV) e +-clippy
+
+- Rodar `cargo fmt` e `cargo clippy` em:
+  - `beagle-llm`, `beagle-monorepo`, `beagle-triad`, `beagle-feedback`, `beagle-stress-test`.
+- Ajustar warnings de clippy relevantes (não precisa perseguir perfeccionismo, apenas os problemas reais).
+
+## TODO 27 — Revisar erros "runtime sensíveis" (Grok indisponível, rede, etc.)
+
+- Nos clients do Grok:
+  - Tratar erros de rede tempo-esgotado com mensagens claras.
+  - Considerar fallback: se Heavy falhar, tentar Grok3; se Grok3 falhar, tentar LocalFallback.
+- Não engolir erros silenciosamente; sempre logar com contexto (run_id, tier, etc.).
+
+## TODO 28 — Adicionar logs estruturados de tracing com `run_id`
+
+- Em pipeline, Triad e core HTTP:
+  - Usar `tracing::info_span!` com `run_id` e `question`.
+  - Logar principais passos:
+    - início/fim de pipeline, Triad, chamadas LLM.
+- Isso ajuda a depurar qualquer comportamento estranho.
+
+## TODO 29 — (Opcional) Micro dashboard textual para observar runs recentes
+
+- Binário simples que:
+  - Lê `feedback_events.jsonl` e `run_report.json`.
+  - Agrupa por `run_id`.
+  - Imprime uma tabela com:
+    - run_id, data, pergunta truncada, rating, accepted?, heavy usado?, hrv_level.
+- Pode ser o próprio `analyze_feedback` em modo "verbose".
+
+## TODO 30 — Passada final de documentação técnica
+
+- Consolidar um documento `docs/BEAGLE_v0_1_CORE.md` ou similar, contendo:
+  - Diagrama textual da arquitetura:
+    - Julia → BEAGLE core HTTP → Router Grok → pipeline → Triad → Feedback.
+  - Caminhos principais de diretórios em `BEAGLE_DATA_DIR`.
+  - Principais comandos:
+    - `core_server`, `pipeline`, `triad_review`, `stress_pipeline`, `tag_run`, `analyze_feedback`, `export_lora_dataset`.
+  - Como rodar tudo em `dev` vs `lab`.
+- Esse documento deve ser suficiente para alguém (ou você mesmo no futuro) entender como o exocórtex está organizado sem ler código por 3 horas.
+
+---
+
+COMPORTAMENTO ESPERADO DO CURSOR:
+
+- Ataque os TODOs em ordem aproximada (01 → 30).
+- Para cada TODO, faça um commit lógico/coeso.
+- Antes de refatorar algo grande, verifique rapidamente onde o símbolo é usado.
+- Sempre que tocar em path/classe/trait compartilhado (ex.: `RequestMeta`, `BeagleContext`, `TieredRouter`), garante compatibilidade com o código já existente.
+- Quando adicionar novos binários/CLIs, atualize o README relevante.
+- Priorize sempre a estabilidade do núcleo (core HTTP + pipeline + Triad + feedback) sobre funcionalidades novas "bonitas".
+
