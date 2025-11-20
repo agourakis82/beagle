@@ -17,6 +17,9 @@ pub mod tier;
 pub use router::BeagleRouter;
 pub use router_tiered::TieredRouter;
 pub use tier::{Tier, RequestMeta};
+pub use clients::grok::GrokClient;
+// RequestMeta agora está em tier.rs, mas mantemos HIGH_BIAS_KEYWORDS de meta.rs
+pub use meta::HIGH_BIAS_KEYWORDS;
 
 // Módulos legados (mantidos para compatibilidade)
 pub mod anthropic;
@@ -26,11 +29,6 @@ pub mod models;
 pub mod validation;
 pub mod vertex;
 pub mod vllm;
-
-pub use router::BeagleRouter;
-pub use clients::grok::GrokClient;
-// RequestMeta agora está em tier.rs
-pub use meta::HIGH_BIAS_KEYWORDS;
 
 // Re-exports legados
 pub use anthropic::AnthropicClient;
