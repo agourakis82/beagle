@@ -4,11 +4,10 @@
 //! - pipeline : pipeline v0.1 (pergunta → draft.md → summary.json)
 //! - ide      : orientação para abrir a IDE Tauri
 
-pub mod pipeline;
-
 use anyhow::{Context, Result};
 use beagle_config::{beagle_data_dir, ensure_dirs, load as load_config};
 use beagle_health::check_all;
+use beagle_monorepo::init_tracing;
 use beagle_observability::{init_observability, shutdown_observability};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
@@ -80,13 +79,7 @@ fn init_tracing() {
     // Tenta inicializar OpenTelemetry, fallback para tracing simples
     if let Err(e) = init_observability() {
         eprintln!("Aviso: Falha ao inicializar OpenTelemetry: {}. Usando tracing simples.", e);
-        use tracing_subscriber::{EnvFilter, fmt};
-        let filter = EnvFilter::from_default_env()
-            .add_directive("beagle=info".parse().unwrap());
-        fmt()
-            .with_env_filter(filter)
-            .with_target(false)
-            .init();
+        beagle_monorepo::init_tracing();
     }
 }
 
