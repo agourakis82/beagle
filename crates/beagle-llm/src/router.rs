@@ -44,9 +44,9 @@ impl BeagleRouter {
             "Router → {} | heavy: {} | math: {} | bias_risk: {} | tokens: {}",
             client.name(),
             meta.high_bias_risk,
-            meta.requires_math_proof,
+            meta.requires_math,
             meta.high_bias_risk,
-            meta.estimated_tokens
+            meta.approximate_tokens
         );
 
         client.chat(req).await
