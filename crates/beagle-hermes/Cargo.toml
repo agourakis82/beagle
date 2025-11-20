@@ -76,6 +76,7 @@ beagle-worldmodel = { path = "../beagle-worldmodel" }
 beagle-consciousness = { path = "../beagle-consciousness" }
 beagle-fractal = { path = "../beagle-fractal" }
 beagle-abyss = { path = "../beagle-abyss" }
+beagle-lora-auto = { path = "../beagle-lora-auto" }
 
 [dev-dependencies]
 tokio-test.workspace = true

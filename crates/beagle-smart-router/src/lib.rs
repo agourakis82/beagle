@@ -14,8 +14,12 @@ use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
 use once_cell::sync::Lazy;
 use tracing::{info, warn, debug, error};
 use anyhow::Result;
+use std::time::Duration;
+use tokio::time::{sleep, timeout};
 
 const GROK3_MAX_CONTEXT: usize = 120_000; // Grok 3 suporta 128k, mas usa 120k como margem de segurança
+const MAX_RETRIES: u32 = 5;
+const TIMEOUT_SECS: u64 = 120;
 
 /// Cliente Grok 3 global (ILIMITADO, 128k contexto, usado em 95% das queries)
 static GROK3_CLIENT: Lazy<Option<GrokClient>> = Lazy::new(|| {
@@ -331,6 +335,109 @@ impl Default for SmartRouter {
 /// ```
 pub async fn query_smart(prompt: &str, context_tokens: usize) -> String {
     query_beagle(prompt, context_tokens).await
+}
+
+/// Query robusta com timeout, retry exponencial e fallback em cascata
+/// 
+/// **100% à prova de bala:**
+/// - Timeout em todas as chamadas (120s)
+/// - Retry exponencial com backoff (até 5 tentativas)
+/// - Fallback em cascata (Grok3 → Grok4Heavy → vLLM → erro limpo)
+/// - Nunca trava o loop principal
+/// 
+/// # Example
+/// ```rust
+/// use beagle_smart_router::query_robust;
+/// 
+/// let response = query_robust("Pergunta aqui", 80000).await;
+/// ```
+pub async fn query_robust(prompt: &str, context_tokens: usize) -> String {
+    let mut attempt = 0;
+    
+    loop {
+        attempt += 1;
+        
+        // 1. Grok 3 ilimitado (melhor custo-benefício)
+        if context_tokens < GROK3_MAX_CONTEXT {
+            if let Some(ref grok3) = *GROK3_CLIENT {
+                match try_query_grok(grok3, prompt, "Grok3").await {
+                    Ok(resp) => return resp,
+                    Err(e) => warn!("Grok3 falhou (tentativa {}): {}", attempt, e),
+                }
+            }
+        }
+        
+        // 2. Grok 4 Heavy (só se precisar do contexto gigante)
+        if let Some(ref grok4) = *GROK4_HEAVY_CLIENT {
+            match try_query_grok(grok4, prompt, "Grok4-Heavy").await {
+                Ok(resp) => return resp,
+                Err(e) => warn!("Grok4-Heavy falhou (tentativa {}): {}", attempt, e),
+            }
+        }
+        
+        // 3. Fallback local vLLM
+        if let Some(ref vllm) = *VLLM_CLIENT {
+            match try_query_vllm(vllm, prompt).await {
+                Ok(resp) => return resp,
+                Err(e) => error!("vLLM local falhou: {}", e),
+            }
+        }
+        
+        // 4. Se tudo falhou e ainda tem tentativas
+        if attempt >= MAX_RETRIES {
+            error!("❌ Todas as tentativas falharam após {} retries", MAX_RETRIES);
+            return "Erro crítico: todos os backends falharam. Tenta de novo em 5 minutos.".to_string();
+        }
+        
+        // Backoff exponencial
+        let backoff_secs = 2u64.pow(attempt.min(10));
+        let backoff = Duration::from_secs(backoff_secs);
+        warn!("⏳ Tentando novamente em {:.1}s... (tentativa {}/{})", backoff.as_secs_f32(), attempt, MAX_RETRIES);
+        sleep(backoff).await;
+    }
+}
+
+/// Tenta query no Grok com timeout
+async fn try_query_grok(client: &GrokClient, prompt: &str, name: &str) -> Result<String, String> {
+    match timeout(Duration::from_secs(TIMEOUT_SECS), client.chat(prompt, None)).await {
+        Ok(Ok(resp)) => {
+            info!("✅ {} respondeu com sucesso ({} chars)", name, resp.len());
+            Ok(resp)
+        }
+        Ok(Err(e)) => Err(format!("{} erro: {:?}", name, e)),
+        Err(_) => Err(format!("{} timeout após {}s", name, TIMEOUT_SECS)),
+    }
+}
+
+/// Tenta query no vLLM com timeout
+async fn try_query_vllm(vllm: &VllmClient, prompt: &str) -> Result<String, String> {
+    let request = VllmCompletionRequest {
+        model: "meta-llama/Llama-3.3-70B-Instruct".to_string(),
+        prompt: prompt.to_string(),
+        sampling_params: SamplingParams {
+            temperature: 0.8,
+            top_p: 0.95,
+            max_tokens: 8192,
+            n: 1,
+            stop: None,
+            frequency_penalty: 0.0,
+        },
+    };
+    
+    match timeout(Duration::from_secs(TIMEOUT_SECS), vllm.completions(&request)).await {
+        Ok(Ok(response)) => {
+            let text = response
+                .choices
+                .first()
+                .map(|c| c.text.trim())
+                .unwrap_or_default();
+            
+            info!("✅ vLLM local respondeu ({} chars)", text.len());
+            Ok(text.to_string())
+        }
+        Ok(Err(e)) => Err(format!("vLLM erro: {:?}", e)),
+        Err(_) => Err(format!("vLLM timeout após {}s", TIMEOUT_SECS)),
+    }
 }
 
 /// Função de conveniência com parâmetros completos

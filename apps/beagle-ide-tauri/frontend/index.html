@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>BEAGLE IDE</title>
+  <script src="https://unpkg.com/codemirror@6.0.1/dist/index.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/codemirror@6.0.1/dist/codemirror.css">
+  <script src="https://unpkg.com/@codemirror/lang-rust@6.0.1/dist/index.js"></script>
+  <script src="https://unpkg.com/@codemirror/lang-julia@1.0.0/dist/index.js"></script>
+  <script src="https://unpkg.com/y-codemirror.next@0.4.0/dist/index.js"></script>
+  <script src="https://unpkg.com/yjs@13.6.15/dist/y.js"></script>
+  <script src="https://unpkg.com/y-websocket@1.5.0/dist/y-websocket.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/standalone/umd/vis-network.min.js"></script>
+  <style>
+    body { margin: 0; background: #0F0F0F; color: #00D4FF; font-family: 'JetBrains Mono', monospace; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; height: 100vh; gap: 4px; padding: 4px; }
+    .panel { background: #1a1a1a; border: 1px solid #00D4FF; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+    .header { background: #00D4FF; color: #0F0F0F; padding: 8px; font-weight: bold; text-align: center; }
+    .CodeMirror { height: 100%; background: #1a1a1a; color: #00D4FF; }
+  </style>
+</head>
+<body>
+  <div class="grid">
+    <div class="panel">
+      <div class="header">Knowledge Graph</div>
+      <div id="knowledge-graph" style="flex: 1;"></div>
+    </div>
+    <div class="panel">
+      <div class="header">Paper Canvas</div>
+      <div id="paper-canvas" style="flex: 1;"></div>
+    </div>
+    <div class="panel">
+      <div class="header">Agent Console</div>
+      <div id="agent-console" style="flex: 1; overflow-y: auto; padding: 10px; color: #00D4FF;"></div>
+    </div>
+    <div class="panel">
+      <div class="header">Quantum View</div>
+      <div id="quantum-view" style="flex: 1;"></div>
+    </div>
+  </div>
+
+  <script>
+    // Yjs real-time
+    const ydoc = new Y.Doc()
+    const provider = new WebsocketProvider('wss://yjs.beagle.local', 'beagle-room', ydoc)
+    const ytext = ydoc.getText('codemirror')
+
+    // CodeMirror no Paper Canvas
+    const editor = CodeMirror(document.getElementById('paper-canvas'), {
+      value: ytext.toString(),
+      mode: "rust",
+      theme: "monokai",
+      lineNumbers: true,
+      viewportMargin: Infinity,
+    })
+
+    const binding = new CodemirrorBinding(ytext, editor, provider.awareness)
+
+    // Knowledge Graph (vis.js real)
+    const nodes = new vis.DataSet([
+      { id: 1, label: "KEC Framework", color: "#00D4FF" },
+      { id: 2, label: "Consciência Celular", color: "#00D4FF" },
+      { id: 3, label: "Entropia Curva", color: "#00D4FF" },
+    ]);
+
+    const edges = new vis.DataSet([
+      { from: 1, to: 2, label: "media" },
+      { from: 2, to: 3, label: "manifesta" },
+    ]);
+
+    const container = document.getElementById('knowledge-graph');
+    const data = { nodes, edges };
+    new vis.Network(container, data, { physics: true });
+
+    // Agent Console (logs ao vivo do teu cluster)
+    const consoleDiv = document.getElementById('agent-console');
+    const ws = new WebSocket("ws://t560.local:9000/logs");
+    ws.onmessage = (event) => {
+        const div = document.createElement('div');
+        div.textContent = event.data;
+        consoleDiv.prepend(div);
+    };
+
+    // Quantum View (exemplo real com hipóteses)
+    document.getElementById('quantum-view').innerHTML = `
+      <h2>Superposition Ativa</h2>
+      <ul>
+        <li>Hipótese 1: Entropia curva é geométrica (conf: 0.42)</li>
+        <li>Hipótese 2: Entropia curva é quântica (conf: 0.58)</li>
+      </ul>
+    `;
+  </script>
+</body>
+</html>
+

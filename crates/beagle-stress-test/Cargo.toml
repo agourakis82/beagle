@@ -1,0 +1,26 @@
+[package]
+name = "beagle-stress-test"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dr. Demetrios Agourakis <contact@darwin-cluster.ai>"]
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "beagle-stress-test"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+
+# BEAGLE crates
+beagle-quantum = { path = "../beagle-quantum" }
+beagle-nuclear = { path = "../beagle-nuclear" }
+beagle-lora-voice = { path = "../beagle-lora-voice" }
+beagle-smart-router = { path = "../beagle-smart-router" }
+

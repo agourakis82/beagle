@@ -103,9 +103,35 @@ function restart_vllm(host::String="maria")
     try
         run(`ssh $host "cd /home/ubuntu/beagle && docker-compose restart vllm"`)
         println("✅ vLLM reiniciado")
+        
+        # Valida com Grok 3 (opcional)
+        if !isempty(get(ENV, "GROK_API_KEY", ""))
+            try
+                include("grok3_integration.jl")
+                using .Grok3Integration
+                # Valida com texto de exemplo
+                sample = "Este é um exemplo de texto gerado pelo BEAGLE."
+                score = Grok3Integration.validate_lora_quality("", sample)
+                println("🔍 Grok 3 validação: $(round(score * 100, digits=1))%")
+            catch e
+                @warn "Erro na validação Grok 3: $e"
+            end
+        end
     catch e
         @warn "Erro: $e"
     end
+end
+
+# Função principal automática (chamada quando score > best_score)
+function train_and_update!()
+    dataset = load_dataset()
+    isempty(dataset) && return nothing
+    
+    println("🎤 LoRA Voice Auto - Treinando com $(length(dataset)) pares...")
+    model, ps, st = train_lora(dataset; epochs=8, lr=2e-4)
+    adapter_file = save_adapter_vllm(model, ps, st)
+    restart_vllm("maria")
+    adapter_file
 end
 
 function main()
@@ -129,7 +155,7 @@ function main()
     adapter_file
 end
 
-export main, load_dataset, train_lora, save_adapter_vllm
+export main, load_dataset, train_lora, save_adapter_vllm, train_and_update!
 
 end
 

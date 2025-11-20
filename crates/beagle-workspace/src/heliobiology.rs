@@ -2,7 +2,7 @@
 //! Kairos Forecaster, WESAD, HRV Mood Pipeline
 
 use anyhow::{Context, Result};
-use serde_json::Value;
+// use serde_json::Value; // TODO: usar quando implementar
 use std::process::Command;
 use tracing::info;
 

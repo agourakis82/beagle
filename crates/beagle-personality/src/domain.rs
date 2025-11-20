@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Domínios de conhecimento suportados pelo Beagle
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Domain {
     // === Ciências Médicas ===
     /// Farmacocinética, PBPK modeling, análise farmacológica
@@ -56,6 +56,7 @@ pub enum Domain {
 
     // === Fallback ===
     /// Conversação geral
+    #[default]
     General,
 }
 
@@ -144,11 +145,5 @@ impl Domain {
 impl fmt::Display for Domain {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
-    }
-}
-
-impl Default for Domain {
-    fn default() -> Self {
-        Self::General
     }
 }

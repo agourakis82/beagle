@@ -46,7 +46,7 @@ impl CommunityPressure {
         // Análise simples baseada em palavras-chave
         let text_lower = format!("{} {}", research_question, methodology).to_lowercase();
 
-        let mut acceptance_prob = 0.7; // Base
+        let mut acceptance_prob: f64 = 0.7; // Base
         let mut resistance_factors = Vec::new();
         let mut support_factors = Vec::new();
 
@@ -72,7 +72,7 @@ impl CommunityPressure {
             support_factors.push("Metodologia robusta".to_string());
         }
 
-        acceptance_prob = acceptance_prob.min(1.0).max(0.0);
+        acceptance_prob = acceptance_prob.clamp(0.0f64, 1.0f64);
 
         let recommendation = if acceptance_prob > 0.8 {
             "High community acceptance expected".to_string()

@@ -16,4 +16,5 @@ tracing-subscriber.workspace = true
 beagle-smart-router = { path = "../../crates/beagle-smart-router" }
 beagle-darwin = { path = "../../crates/beagle-darwin" }
 beagle-workspace = { path = "../../crates/beagle-workspace" }
+beagle-whisper = { path = "../../crates/beagle-whisper" }
 

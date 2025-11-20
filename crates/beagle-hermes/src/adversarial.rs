@@ -6,7 +6,7 @@
 use crate::agents::{HermesAgent, ArgosAgent, ValidationResult, Draft};
 use crate::agents::athena::Paper;
 use crate::Result;
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 use std::sync::Arc;
 
 const TARGET_QUALITY: f64 = 0.985; // 98.5%
@@ -70,18 +70,17 @@ impl AdversarialSelfPlayEngine {
 
             // 4. Online LoRA training com o par (draft anterior → novo)
             if quality_score > best_quality {
-                // TODO: Integrar com MLX LoRA trainer quando disponível
-                // self.lora_trainer.train_online_step(
-                //     &format!("Draft ruim ({}%):\n{}", (best_quality*100.0) as u32, previous_draft.content),
-                //     &format!("Draft melhor ({}%):\n{}", (quality_score*100.0) as u32, draft.content),
-                // ).await?;
-                
-                info!(
-                    "📈 LoRA training step: {}% → {}% (placeholder - MLX integration pending)",
-                    best_quality * 100.0,
-                    quality_score * 100.0
-                );
                 best_quality = quality_score;
+                let bad = previous_draft.content.clone();
+                let good = draft.content.clone();
+
+                tokio::spawn(async move {
+                    if let Err(e) = beagle_lora_auto::train_and_update_voice(&bad, &good).await {
+                        error!("LoRA auto falhou: {e}");
+                    } else {
+                        info!("Voz atualizada — o BEAGLE fala mais como tu agora");
+                    }
+                });
             }
         }
 

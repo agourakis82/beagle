@@ -20,9 +20,15 @@ async fn main() -> anyhow::Result<()> {
     println!("Gerando múltiplas hipóteses simultâneas...\n");
     
     let quantum = SuperpositionAgent;
-    let mut set = quantum.generate_hypotheses(
+    let mut set = match quantum.generate_hypotheses(
         "Como explicar a curvatura da entropia em scaffolds biomateriais?"
-    ).await;
+    ).await {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("❌ Erro ao gerar hipóteses: {}", e);
+            return Err(anyhow::anyhow!("Falha ao gerar hipóteses: {}", e));
+        }
+    };
 
     println!("Hipóteses geradas ({}):", set.hypotheses.len());
     for (i, hyp) in set.hypotheses.iter().enumerate() {

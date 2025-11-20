@@ -204,3 +204,5 @@ Write-ColorOutput "Proximo passo: Execute teste de performance" "Cyan"
 Write-ColorOutput "  .\test_rdma_connectivity.ps1" "Gray"
 Write-ColorOutput "" "White"
 
+
+

@@ -15,11 +15,28 @@ pub struct RealityCheckReport {
     pub recommendations: Vec<String>,
 }
 
-pub struct PhysicalRealityEnforcer;
+pub struct PhysicalRealityEnforcer {
+    vllm_url: Option<String>,
+}
 
 impl PhysicalRealityEnforcer {
     pub fn new() -> Self {
-        Self
+        Self {
+            vllm_url: None,
+        }
+    }
+
+    pub fn with_vllm_url(url: impl Into<String>) -> Self {
+        Self {
+            vllm_url: Some(url.into()),
+        }
+    }
+
+    /// Enforce reality check (alias para check_feasibility com interface simplificada)
+    pub async fn enforce(&self, protocol_text: &str) -> anyhow::Result<RealityCheckReport> {
+        // Extrai metodologia e equipamentos do protocolo (simplificado)
+        let equipment: Vec<String> = Vec::new(); // TODO: extrair do protocol_text
+        self.check_feasibility(protocol_text, &equipment).await
     }
 
     /// Verifica viabilidade experimental
@@ -30,7 +47,7 @@ impl PhysicalRealityEnforcer {
     ) -> anyhow::Result<RealityCheckReport> {
         info!("REALITY CHECK: Verificando viabilidade experimental");
 
-        let mut feasibility_score = 0.8; // Base otimista
+        let mut feasibility_score: f64 = 0.8; // Base otimista
         let mut technical_barriers = Vec::new();
         let mut recommendations = Vec::new();
 
@@ -64,7 +81,7 @@ impl PhysicalRealityEnforcer {
             0.5
         };
 
-        feasibility_score = feasibility_score.min(1.0).max(0.0);
+        feasibility_score = feasibility_score.clamp(0.0f64, 1.0f64);
 
         let estimated_cost = if feasibility_score < 0.5 {
             "High ($500k+)".to_string()

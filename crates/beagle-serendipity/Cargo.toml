@@ -17,6 +17,9 @@ anyhow = "1.0"
 beagle-quantum = { path = "../beagle-quantum" }
 beagle-metacog = { path = "../beagle-metacog" }
 beagle-llm = { path = "../beagle-llm" }
+beagle-lora-auto = { path = "../beagle-lora-auto" }
+beagle-lora-voice-auto = { path = "../beagle-lora-voice-auto" }
+beagle-bilingual = { path = "../beagle-bilingual" }
 
 [dev-dependencies]
 tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }

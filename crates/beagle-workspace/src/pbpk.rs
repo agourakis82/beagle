@@ -46,7 +46,7 @@ impl PBPKPlatform {
         Ok(embedding)
     }
 
-    pub async fn train_pinn(&self, config: &str) -> Result<Value> {
+    pub async fn train_pinn(&self, _config: &str) -> Result<Value> {
         info!("🔬 Treinando PINN");
         
         let script = format!(

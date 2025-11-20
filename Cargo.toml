@@ -26,8 +26,10 @@ members = [
     "crates/beagle-abyss",
     "crates/beagle-reality",
     "crates/beagle-noetic", "crates/beagle-ontic", "crates/beagle-void", "crates/beagle-paradox", "crates/beagle-cosmo", "crates/beagle-transcend", "crates/beagle-eternity", "beagle-bin", "crates/beagle-grok-api", "crates/beagle-grok-full", "crates/beagle-smart-router", "crates/beagle-config",     "crates/beagle-darwin", "crates/beagle-darwin-core", "crates/beagle-workspace",
-    "crates/beagle-hyperbolic",
-    "apps/beagle-monorepo",
+    "crates/beagle-hyperbolic", "crates/beagle-lora-auto", "crates/beagle-lora-voice-auto", "crates/beagle-lora-voice", "crates/beagle-bilingual", "crates/beagle-nuclear", "crates/beagle-stress-test",
+    "crates/beagle-whisper", "crates/beagle-publish", "crates/beagle-arxiv-validate",
+    "crates/beagle-twitter", "crates/beagle-physio",
+    "apps/beagle-monorepo", "crates/beagle-neural-engine", "crates/beagle-whisper-neural",
 ]
 resolver = "2"
 
@@ -109,6 +111,7 @@ proptest = "1.5"
 # Quantum-inspired computation
 num-complex = "0.4"
 rand = "0.8"
+regex = "1.10"
 
 # ---------------------------------------------------------------------------
 # Build profile configuration tuned for development, production, and benchmarking

@@ -356,3 +356,5 @@ Se Grok 4 Heavy falhar (quota), automaticamente usa Grok 3. Não requer ação.
 
 **Última atualização:** 2025-11-19
 
+
+

@@ -1,0 +1,15 @@
+[package]
+name = "beagle-neural-engine"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+beagle-whisper = { path = "../beagle-whisper", optional = true }

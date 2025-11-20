@@ -340,3 +340,5 @@ export NCCL_SOCKET_IFNAME=eth3
 **Versão:** 1.0  
 **Status:** ✅ Ativo
 
+
+

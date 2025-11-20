@@ -4,6 +4,7 @@
 use beagle_smart_router::query_smart;
 use beagle_darwin::DarwinCore;
 use beagle_workspace::{PBPKPlatform, HeliobiologyPlatform, Kec3Engine};
+use beagle_whisper::BeagleVoiceAssistant;
 use tracing::{info, error};
 use std::time::Duration;
 
@@ -36,6 +37,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let kec = Kec3Engine::new();
     info!("✅ KEC 3.0 Engine inicializado");
     
+    // Inicializa Whisper (opcional - só se whisper.cpp estiver instalado)
+    let whisper_assistant = BeagleVoiceAssistant::new().ok();
+    if whisper_assistant.is_some() {
+        info!("✅ Whisper Voice Assistant inicializado");
+    } else {
+        info!("ℹ️  Whisper não disponível (whisper.cpp não instalado)");
+    }
+    
     println!();
     println!("🎯 BEAGLE MONOREPO — Todos os sistemas operacionais");
     println!("   - Darwin Core (GraphRAG + Self-RAG)");
@@ -45,6 +54,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   - Embeddings SOTA (Nomic, Jina, GTE-Qwen2)");
     println!("   - Vector Search Híbrido");
     println!("   - Workflows Agentic (ReAct + Reflexion)");
+    if whisper_assistant.is_some() {
+        println!("   - Whisper Voice Assistant (transcrição local)");
+    }
     println!();
     
     // Loop principal

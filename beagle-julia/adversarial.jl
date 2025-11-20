@@ -317,7 +317,16 @@ function adversarial_self_play(
             # LoRA training incremental quando score melhora
             if enable_lora_training && iteration > 1 && prev_best > 0.0
                 println("\n📈 Treinamento LoRA incremental (score $(prev_best) → $(best_quality))...")
-                train_lora_step!(prev_draft, draft, lora_output_dir)
+                try
+                    # Usa LoRA Voice Auto (módulo completo)
+                    include("lora_voice_auto.jl")
+                    using .BeagleLoRAVoice
+                    BeagleLoRAVoice.train_and_update!()
+                catch e
+                    # Fallback para método antigo
+                    println("⚠️  Erro ao usar LoRA Voice Auto, usando método antigo: $e")
+                    train_lora_step!(prev_draft, draft, lora_output_dir)
+                end
             end
         end
         

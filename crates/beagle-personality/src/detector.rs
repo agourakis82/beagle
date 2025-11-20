@@ -7,7 +7,7 @@ fn normalized_score(matches: usize, keywords_len: usize) -> f32 {
     if matches == 0 {
         return 0.0;
     }
-    let norm = keywords_len.min(8).max(1) as f32;
+    let norm = keywords_len.clamp(1, 8) as f32;
     (matches as f32).min(norm) / norm
 }
 

@@ -1,0 +1,22 @@
+[package]
+name = "beagle-bilingual"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dr. Demetrios Agourakis <contact@darwin-cluster.ai>"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+tokio.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+once_cell = "1.19"
+beagle-grok-api = { path = "../beagle-grok-api" }
+reqwest.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[example]]
+name = "bilingual_example"
+path = "examples/bilingual_example.rs"
+

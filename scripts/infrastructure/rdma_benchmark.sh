@@ -55,3 +55,5 @@ iperf3 -c "$SERVER_IP" -p "$PORT" -t 10 -w 1M -f m
 echo ""
 echo -e "${GREEN}=== Benchmark concluido ===${NC}"
 
+
+

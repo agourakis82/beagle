@@ -1,0 +1,109 @@
+/* BEAGLE IDE - Tema #0F0F0F + #00D4FF */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #0F0F0F;
+  color: #00D4FF;
+  font-family: 'SF Mono', 'Monaco', monospace;
+  overflow: hidden;
+}
+
+.beagle-ide {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  height: 100vh;
+  gap: 2px;
+  background: #0F0F0F;
+}
+
+.panel {
+  background: #1A1A1A;
+  border: 1px solid #00D4FF;
+  padding: 20px;
+  overflow: auto;
+}
+
+.panel h2 {
+  color: #00D4FF;
+  margin-bottom: 20px;
+  font-size: 18px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.knowledge-graph {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.paper-canvas {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.agent-console {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.quantum-view {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.logs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.log-entry {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  padding: 4px;
+  border-left: 2px solid #00D4FF;
+  padding-left: 8px;
+}
+
+.timestamp {
+  color: #666;
+  min-width: 80px;
+}
+
+.level {
+  color: #00D4FF;
+  min-width: 60px;
+  text-transform: uppercase;
+}
+
+.message {
+  color: #FFF;
+  flex: 1;
+}
+
+.quantum-visualization {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.superposition,
+.entanglement {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bar {
+  height: 20px;
+  background: #00D4FF;
+  transition: width 0.3s;
+}
+

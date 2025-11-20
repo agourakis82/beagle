@@ -1,0 +1,21 @@
+[package]
+name = "beagle-ide"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = ["shell-open"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+beagle-smart-router = { path = "../../../crates/beagle-smart-router" }
+beagle-darwin = { path = "../../../crates/beagle-darwin" }
+beagle-workspace = { path = "../../../crates/beagle-workspace" }
+tokio = { version = "1.40", features = ["full"] }
+tracing = "0.1"
+
+[features]
+default = ["custom-protocol"]
+

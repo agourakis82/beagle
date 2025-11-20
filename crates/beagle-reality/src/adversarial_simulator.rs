@@ -73,7 +73,7 @@ impl AdversarialSimulator {
 
         // 1. Validação de viabilidade física via PhysicalRealityEnforcer
         let reality_report = self.reality_enforcer.enforce(&protocol.protocol_text).await?;
-        let physical_viability_score = reality_report.viability_score;
+        let physical_viability_score = reality_report.feasibility_score;
 
         // 2. Geração adversarial de cenários de falha via LLM
         let system_prompt = r#"Você é um engenheiro químico sênior especializado em identificar falhas experimentais.

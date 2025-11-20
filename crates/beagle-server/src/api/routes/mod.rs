@@ -13,6 +13,7 @@ pub mod deep_research_endpoint;
 pub mod dev;
 pub mod events;
 pub mod health;
+pub mod hrv;
 pub mod hyperedges;
 pub mod metrics;
 pub mod neurosymbolic_endpoint;
@@ -67,4 +68,9 @@ pub fn chat_public_routes() -> Router<AppState> {
 /// Rotas de eventos (Pulsar).
 pub fn event_routes() -> Router<AppState> {
     Router::new().merge(events::router())
+}
+
+/// Rotas de HRV (Apple Watch).
+pub fn hrv_routes() -> Router<AppState> {
+    Router::new().merge(hrv::router())
 }

@@ -6,7 +6,7 @@
 use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
 use crate::dissolution_inducer::DissolutionState;
 use crate::void_navigator::VoidState;
-use tracing::{info, warn};
+use tracing::info;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

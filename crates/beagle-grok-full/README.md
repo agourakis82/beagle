@@ -90,3 +90,5 @@ let response = GrokFull::instance().await.grok3(&prompt).await;
 
 ✅ **PRODUÇÃO READY**
 
+
+

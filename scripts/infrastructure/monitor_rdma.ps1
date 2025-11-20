@@ -121,3 +121,5 @@ try {
 Write-ColorOutput "" "White"
 Write-ColorOutput "Monitoramento concluido" "Green"
 
+
+
