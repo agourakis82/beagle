@@ -1,5 +1,5 @@
 [package]
-name = "beagle-stress-test"
+name = "beagle-triad"
 version = "0.1.0"
 edition = "2021"
 authors.workspace = true
@@ -9,16 +9,18 @@ repository.workspace = true
 [dependencies]
 tokio = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 chrono = { workspace = true }
 
 beagle-core = { path = "../beagle-core" }
 beagle-config = { path = "../beagle-config" }
-beagle-monorepo = { path = "../../apps/beagle-monorepo" }
+beagle-llm = { path = "../beagle-llm" }
+regex = "1.10"
 
 [[bin]]
-name = "stress-test"
-path = "src/bin/stress_test.rs"
+name = "triad-review"
+path = "src/bin/triad_review.rs"
+

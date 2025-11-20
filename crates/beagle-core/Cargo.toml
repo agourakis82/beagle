@@ -24,6 +24,10 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 name = "beagle-core"
 path = "src/bin/main.rs"
 
+[[bin]]
+name = "api-server"
+path = "src/bin/api_server.rs"
+
 [features]
 default = []
 neo4j = ["neo4rs"]

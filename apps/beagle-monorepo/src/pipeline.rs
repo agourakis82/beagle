@@ -10,8 +10,7 @@ use beagle_core::BeagleContext;
 use beagle_config::load as load_config;
 use chrono::Utc;
 use std::path::PathBuf;
-use tracing::{info, instrument};
-use uuid::Uuid;
+use tracing::{info, instrument, warn};
 
 /// Caminhos dos artefatos gerados pelo pipeline
 #[derive(Debug, Clone)]
@@ -47,6 +46,13 @@ pub async fn run_beagle_pipeline(
 
     // 4) Escrita de artefatos
     info!("💾 Fase 4: Escrita de artefatos");
+    
+    // Verifica SAFE_MODE - nunca publica de fato, só gera PDF local
+    if !ctx.cfg.safe_mode {
+        warn!("⚠️  SAFE_MODE=false - pipeline não deve publicar de fato");
+    }
+    
+    // Usa sempre ctx.cfg.storage.data_dir (nunca ~ literal)
     let data_root = PathBuf::from(&ctx.cfg.storage.data_dir);
     let drafts_dir = data_root.join("papers").join("drafts");
     std::fs::create_dir_all(&drafts_dir)?;
