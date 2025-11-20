@@ -16,7 +16,13 @@ beagle-llm = { path = "../beagle-llm" }
 reqwest = { workspace = true }
 tracing = { workspace = true }
 neo4rs = { version = "0.7", optional = true }
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["sync", "net"] }
+axum = { workspace = true, features = ["macros"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[[bin]]
+name = "beagle-core"
+path = "src/bin/main.rs"
 
 [features]
 default = []

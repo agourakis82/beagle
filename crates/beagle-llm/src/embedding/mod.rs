@@ -57,7 +57,10 @@ impl EmbeddingClient {
             input: vec![text.to_string()],
         };
 
-        debug!("Gerando embedding para texto: {}...", &text[..text.len().min(50)]);
+        debug!(
+            "Gerando embedding para texto: {}...",
+            &text[..text.len().min(50)]
+        );
 
         let response = self
             .client
@@ -70,7 +73,11 @@ impl EmbeddingClient {
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("Servidor de embedding retornou erro {}: {}", status, error_text);
+            anyhow::bail!(
+                "Servidor de embedding retornou erro {}: {}",
+                status,
+                error_text
+            );
         }
 
         let embedding_response: EmbeddingResponse = response
@@ -107,7 +114,11 @@ impl EmbeddingClient {
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("Servidor de embedding retornou erro {}: {}", status, error_text);
+            anyhow::bail!(
+                "Servidor de embedding retornou erro {}: {}",
+                status,
+                error_text
+            );
         }
 
         let embedding_response: EmbeddingResponse = response
@@ -140,4 +151,3 @@ impl EmbeddingClient {
         dot_product / (norm_a * norm_b)
     }
 }
-

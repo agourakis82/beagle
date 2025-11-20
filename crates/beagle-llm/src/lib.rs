@@ -1,8 +1,18 @@
 //! Camada de integração com provedores LLM para o ecossistema Beagle.
 //!
-//! Nesta fase, expomos clientes Vertex AI especializados nos modelos
-//! Claude 3.5 (Anthropic) e Gemini 1.5 (Google).
+//! Router inteligente com:
+//! - Grok 3 default (93% dos casos, ilimitado, rápido)
+//! - Grok 4 Heavy automático para temas de alto risco de viés
+//! - Detecção automática de keywords de alto risco
 
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+
+pub mod router;
+pub mod clients;
+pub mod meta;
+
+// Módulos legados (mantidos para compatibilidade)
 pub mod anthropic;
 pub mod embedding;
 pub mod gemini;
@@ -11,17 +21,76 @@ pub mod validation;
 pub mod vertex;
 pub mod vllm;
 
+pub use router::BeagleRouter;
+pub use clients::grok::GrokClient;
+pub use meta::RequestMeta;
+
+// Re-exports legados
 pub use anthropic::AnthropicClient;
-pub use embedding::{EmbeddingClient, Embedding};
+pub use embedding::{Embedding, EmbeddingClient};
 pub use gemini::GeminiClient;
 pub use models::{CompletionRequest, CompletionResponse, Message, ModelType};
 pub use validation::{CitationValidity, Issue, IssueType, Severity, ValidationResult};
 pub use vertex::VertexAIClient;
-pub use vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
+pub use vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 
-// Re-export Grok client se disponível (crate separado)
+// Re-export Grok client se disponível (crate separado, mantido para compatibilidade)
 #[cfg(feature = "grok")]
-pub use beagle_grok_api::{GrokClient, GrokModel, GrokError};
+pub use beagle_grok_api::{GrokClient as LegacyGrokClient, GrokError, GrokModel};
 
 /// Alias canônico para resultados com `anyhow`.
 pub type Result<T> = anyhow::Result<T>;
+
+// ============================================================================
+// NOVA API - Router e Traits
+// ============================================================================
+
+/// Mensagem de chat
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+impl ChatMessage {
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: "user".to_string(),
+            content: content.into(),
+        }
+    }
+
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self {
+            role: "assistant".to_string(),
+            content: content.into(),
+        }
+    }
+
+    pub fn system(content: impl Into<String>) -> Self {
+        Self {
+            role: "system".to_string(),
+            content: content.into(),
+        }
+    }
+}
+
+/// Request para LLM
+#[derive(Debug, Clone, Serialize)]
+pub struct LlmRequest {
+    pub model: String,
+    pub messages: Vec<ChatMessage>,
+    pub temperature: Option<f32>,
+    pub max_tokens: Option<i32>,
+}
+
+/// Trait para clientes LLM
+#[async_trait]
+pub trait LlmClient: Send + Sync {
+    async fn chat(&self, req: LlmRequest) -> anyhow::Result<String>;
+    fn name(&self) -> &'static str;
+    fn prefers_heavy(&self) -> bool {
+        false
+    }
+}
+

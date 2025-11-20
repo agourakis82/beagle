@@ -7,7 +7,7 @@ use crate::traits::*;
 use async_trait::async_trait;
 use anyhow::Result;
 use beagle_config::BeagleConfig;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -15,16 +15,16 @@ use tracing::warn;
 // LLM CLIENT IMPLEMENTATIONS
 // ============================================================================
 
-/// Implementação de LlmClient usando Grok API
+/// Implementação de LlmClient usando BeagleRouter (Grok 3 + Grok 4 Heavy)
 pub struct GrokLlmClient {
-    client: Arc<beagle_grok_api::GrokClient>,
+    router: beagle_llm::BeagleRouter,
 }
 
 impl GrokLlmClient {
-    pub fn new(api_key: String) -> Result<Self> {
-        let client = beagle_grok_api::GrokClient::new(&api_key);
+    pub fn new(_api_key: String) -> Result<Self> {
+        // Router usa XAI_API_KEY diretamente do env
         Ok(Self {
-            client: Arc::new(client),
+            router: beagle_llm::BeagleRouter,
         })
     }
 }
@@ -37,7 +37,7 @@ impl LlmClient for GrokLlmClient {
         let mut delay_ms = 100;
         
         loop {
-            match self.client.query(prompt).await {
+            match self.router.complete(prompt).await {
                 Ok(result) => return Ok(result),
                 Err(e) => {
                     if retries > 0 {
@@ -55,27 +55,18 @@ impl LlmClient for GrokLlmClient {
     }
 
     async fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
-        // GrokMessage tem campos privados, então precisamos usar o método chat() diretamente
-        // Para múltiplas mensagens, combinamos em um único prompt
         if messages.is_empty() {
             return Err(anyhow::anyhow!("Nenhuma mensagem fornecida"));
         }
 
-        // Se há mensagem de sistema, usa chat() com system
-        let system_msg = messages.iter().find(|m| m.role == "system");
-        let user_msgs: Vec<String> = messages
+        // Combina mensagens em prompt único para o router
+        let prompt = messages
             .iter()
-            .filter(|m| m.role != "system")
-            .map(|m| m.content.clone())
-            .collect();
+            .map(|m| format!("{}: {}", m.role, m.content))
+            .collect::<Vec<_>>()
+            .join("\n\n");
 
-        let prompt = user_msgs.join("\n\n");
-        let system = system_msg.map(|m| m.content.as_str());
-
-        self.client
-            .chat(&prompt, system)
-            .await
-            .map_err(|e| anyhow::anyhow!("Grok API error: {}", e))
+        self.complete(&prompt).await
     }
 }
 

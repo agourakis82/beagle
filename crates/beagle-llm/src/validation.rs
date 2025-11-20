@@ -41,4 +41,3 @@ pub enum Severity {
     Medium,
     High,
 }
-
