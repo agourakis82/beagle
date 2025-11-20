@@ -8,6 +8,7 @@
 
 use beagle_core::BeagleContext;
 use beagle_config::load as load_config;
+use beagle_feedback::{append_event, create_pipeline_event};
 use chrono::Utc;
 use std::path::PathBuf;
 use tracing::{info, instrument, warn};
