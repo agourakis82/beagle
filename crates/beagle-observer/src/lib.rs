@@ -33,8 +33,8 @@ pub struct Observation {
     pub metadata: serde_json::Value,
 }
 
-#[derive(Deserialize)]
-struct BrowserEntry {
+#[derive(Deserialize, Clone, Debug)]
+pub struct BrowserEntry {
     url: String,
     title: Option<String>,
     visit_time: Option<String>,
