@@ -25,7 +25,10 @@ impl AnomalyAmplifier {
 
     /// Amplifica anomalias (conceitos de baixa probabilidade mas alta novidade)
     pub async fn amplify(&self, concepts: Vec<String>) -> anyhow::Result<Vec<String>> {
-        info!("ANOMALY AMPLIFIER: Amplificando {} conceitos", concepts.len());
+        info!(
+            "ANOMALY AMPLIFIER: Amplificando {} conceitos",
+            concepts.len()
+        );
 
         if concepts.is_empty() {
             return Ok(vec![]);
@@ -57,8 +60,11 @@ impl AnomalyAmplifier {
             // Baixa similaridade média = alta novidade = anomalia fértil
             // Amplifica se similaridade < 0.3 (muito diferente dos outros)
             if avg_similarity < 0.3 {
-                info!("ANOMALY: Conceito '{}...' identificado como anomalia (similaridade: {:.2})", 
-                      &concept[..concept.len().min(50)], avg_similarity);
+                info!(
+                    "ANOMALY: Conceito '{}...' identificado como anomalia (similaridade: {:.2})",
+                    &concept[..concept.len().min(50)],
+                    avg_similarity
+                );
                 amplified.push(concept.clone());
             } else {
                 // Mesmo conceitos com similaridade média podem ser amplificados se forem suficientemente diferentes
@@ -66,7 +72,10 @@ impl AnomalyAmplifier {
             }
         }
 
-        info!("ANOMALY AMPLIFIER: {} anomalias amplificadas", amplified.len());
+        info!(
+            "ANOMALY AMPLIFIER: {} anomalias amplificadas",
+            amplified.len()
+        );
         Ok(amplified)
     }
 }
@@ -76,4 +85,3 @@ impl Default for AnomalyAmplifier {
         Self::new()
     }
 }
-

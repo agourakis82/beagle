@@ -24,4 +24,3 @@ pub fn get_adjusted_delay(base_delay_ms: u64) -> u64 {
     let multiplier = get_global_speed_multiplier();
     (base_delay_ms as f64 / multiplier) as u64
 }
-

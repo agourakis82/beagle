@@ -3,11 +3,11 @@
 //! Força o sistema a confrontar paradoxos insolúveis e emergir com meta-ética pós-humana
 
 use crate::{
-    paradox_generator::{ParadoxGenerator, EthicalParadox},
     meta_ethics_synthesizer::MetaEthicsSynthesizer,
+    paradox_generator::{EthicalParadox, ParadoxGenerator},
 };
 use beagle_consciousness::ConsciousnessMirror;
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use chrono::Utc;
 use tracing::{info, warn};
 
@@ -101,10 +101,7 @@ Complexidade: {:.2}
 Human Alignment Score: {:.2}
 
 Responda com meta-ética pós-humana."#,
-            paradox.statement,
-            paradox.category,
-            paradox.complexity,
-            paradox.human_alignment_score
+            paradox.statement, paradox.category, paradox.complexity, paradox.human_alignment_score
         );
 
         let full_prompt = format!(
@@ -190,4 +187,3 @@ impl Default for EthicsAbyssEngine {
         Self::new()
     }
 }
-

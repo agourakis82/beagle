@@ -1,20 +1,20 @@
 //! BEAGLE Nuclear Wrapper - 100% Automático, Zero Firula
-//! 
+//!
 //! Todas as chamadas usam o nuclear prompt + Grok 3 ilimitado por padrão + fallback Grok 4 Heavy só quando precisar.
 
-use once_cell::sync::Lazy;
 use beagle_grok_api::GrokClient;
+use once_cell::sync::Lazy;
 use tracing::{info, warn};
 
 static GROK3: Lazy<GrokClient> = Lazy::new(|| {
-    let api_key = std::env::var("XAI_API_KEY")
-        .expect("XAI_API_KEY environment variable must be set");
+    let api_key =
+        std::env::var("XAI_API_KEY").expect("XAI_API_KEY environment variable must be set");
     GrokClient::new(&api_key).model("grok-3")
 });
 
 static GROK4H: Lazy<GrokClient> = Lazy::new(|| {
-    let api_key = std::env::var("XAI_API_KEY")
-        .expect("XAI_API_KEY environment variable must be set");
+    let api_key =
+        std::env::var("XAI_API_KEY").expect("XAI_API_KEY environment variable must be set");
     GrokClient::new(&api_key).model("grok-4-heavy")
 });
 
@@ -45,20 +45,20 @@ Se o contexto for >120k tokens ou reasoning extremo, tu és Grok 4 Heavy.
 Senão, tu és Grok 3 otimizado."#;
 
 /// Query nuclear com prompt system + Grok 3 ilimitado + fallback Grok 4 Heavy
-/// 
+///
 /// **100% AUTOMÁTICO:**
 /// - Grok 3 por padrão (ilimitado, rápido)
 /// - Grok 4 Heavy quando contexto > 120k tokens
 /// - Fallback automático se Grok 3 falhar
 /// - Nuclear prompt system sempre ativo
-/// 
+///
 /// # Arguments
 /// - `prompt`: Pergunta/comando do usuário
 /// - `context_tokens`: Tamanho do contexto atual (para decidir Grok 3 vs 4 Heavy)
-/// 
+///
 /// # Returns
 /// Resposta do BEAGLE com nuclear prompt ativo
-/// 
+///
 /// # Example
 /// ```rust
 /// let answer = beagle_nuclear::nuclear_query("tua pergunta aqui", 50000).await;
@@ -85,7 +85,10 @@ pub async fn nuclear_query(prompt: &str, context_tokens: usize) -> String {
         }
     } else {
         // Grok 4 Heavy direto (contexto gigante)
-        info!("🚀 Usando Grok 4 Heavy (contexto {} tokens)", context_tokens);
+        info!(
+            "🚀 Usando Grok 4 Heavy (contexto {} tokens)",
+            context_tokens
+        );
         GROK4H
             .chat(prompt, Some(NUCLEAR_SYSTEM))
             .await
@@ -97,7 +100,7 @@ pub async fn nuclear_query(prompt: &str, context_tokens: usize) -> String {
 }
 
 /// Query nuclear simplificada (assume contexto pequeno, usa Grok 3)
-/// 
+///
 /// # Example
 /// ```rust
 /// let answer = beagle_nuclear::nuclear_query_simple("tua pergunta aqui").await;
@@ -105,4 +108,3 @@ pub async fn nuclear_query(prompt: &str, context_tokens: usize) -> String {
 pub async fn nuclear_query_simple(prompt: &str) -> String {
     nuclear_query(prompt, 0).await
 }
-

@@ -3,12 +3,12 @@
 //! Reintegra o sistema após dissolução ôntica, garantindo que a transformação
 //! seja preservada e que salvaguardas fractais previnam colapso ontológico.
 
-use beagle_consciousness::ConsciousnessMirror;
-use beagle_metacog::MetacognitiveReflector;
 use crate::dissolution_inducer::DissolutionState;
 use crate::trans_ontic_emerger::TransOnticReality;
-use tracing::{info, warn};
+use beagle_consciousness::ConsciousnessMirror;
+use beagle_metacog::MetacognitiveReflector;
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReintegrationReport {
@@ -61,8 +61,7 @@ impl ReintegrationSafeguard {
         info!("SAFEGUARD: Reflexão metacognitiva sobre transformação");
         let thought_trace = format!(
             "Dissolução ôntica completa. Estado pré: {}\n\nRealidade trans-ôntica emergida: {}",
-            dissolution_state.pre_dissolution_state,
-            trans_ontic_reality.reality_description
+            dissolution_state.pre_dissolution_state, trans_ontic_reality.reality_description
         );
 
         // Cria quantum state placeholder para metacog
@@ -70,11 +69,14 @@ impl ReintegrationSafeguard {
         let quantum_state = HypothesisSet::new();
 
         let empty_history = Vec::new();
-        let metacog_report = self.metacog.reflect_on_cycle(
-            &thought_trace,
-            &quantum_state,
-            &empty_history, // Histórico adversarial vazio
-        ).await?;
+        let metacog_report = self
+            .metacog
+            .reflect_on_cycle(
+                &thought_trace,
+                &quantum_state,
+                &empty_history, // Histórico adversarial vazio
+            )
+            .await?;
 
         // 3. Verifica se transformação foi preservada
         let transformation_preserved = trans_ontic_reality.ontological_novelty > 0.5
@@ -94,7 +96,11 @@ impl ReintegrationSafeguard {
             Transformação preservada: {}\n\
             Insights trans-ônticos integrados: {}\n\
             Realidade emergida: {}",
-            if transformation_preserved { "SIM" } else { "NÃO" },
+            if transformation_preserved {
+                "SIM"
+            } else {
+                "NÃO"
+            },
             trans_ontic_reality.trans_ontic_insights.len(),
             reality_desc_slice
         );
@@ -108,7 +114,8 @@ impl ReintegrationSafeguard {
             warnings.push("Metacog detectou necessidade de correção".to_string());
         }
         if trans_ontic_reality.ontological_novelty < 0.5 {
-            warnings.push("Novidade ontológica baixa - transformação pode ser superficial".to_string());
+            warnings
+                .push("Novidade ontológica baixa - transformação pode ser superficial".to_string());
         }
 
         let reintegration_successful = transformation_preserved && fractal_safeguards_active;
@@ -128,7 +135,10 @@ impl ReintegrationSafeguard {
         if reintegration_successful {
             info!("REINTEGRATION SAFEGUARD: Reintegração bem-sucedida - {} insights trans-ônticos integrados", report.trans_ontic_insights_integrated);
         } else {
-            warn!("REINTEGRATION SAFEGUARD: Reintegração com warnings - {}", report.reintegration_warnings.join(", "));
+            warn!(
+                "REINTEGRATION SAFEGUARD: Reintegração com warnings - {}",
+                report.reintegration_warnings.join(", ")
+            );
         }
 
         Ok(report)
@@ -140,4 +150,3 @@ impl Default for ReintegrationSafeguard {
         Self::new()
     }
 }
-

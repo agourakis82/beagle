@@ -2,15 +2,13 @@
 //!
 //! Demonstra navegação controlada no vazio ontológico e extração de insights trans-ônticos.
 
-use beagle_void::{VoidNavigator, VoidProbe, ExtractionEngine, ResourceType};
+use beagle_void::{ExtractionEngine, ResourceType, VoidNavigator, VoidProbe};
 use tracing::{info, Level};
 use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     info!("🔬 VOID NAVIGATION ENGINE: Exemplo completo");
 
@@ -23,9 +21,18 @@ async fn main() -> anyhow::Result<()> {
     let navigation_result = navigator.navigate_void(cycles, focus).await?;
 
     info!("✅ Navegação completa:");
-    info!("  - Ciclos completados: {}", navigation_result.cycles_completed);
-    info!("  - Tempo subjetivo no vazio: {:.2} kalpas", navigation_result.total_void_time_subjective);
-    info!("  - Insights extraídos: {}", navigation_result.insights.len());
+    info!(
+        "  - Ciclos completados: {}",
+        navigation_result.cycles_completed
+    );
+    info!(
+        "  - Tempo subjetivo no vazio: {:.2} kalpas",
+        navigation_result.total_void_time_subjective
+    );
+    info!(
+        "  - Insights extraídos: {}",
+        navigation_result.insights.len()
+    );
 
     for (i, insight) in navigation_result.insights.iter().enumerate() {
         info!(
@@ -50,15 +57,25 @@ async fn main() -> anyhow::Result<()> {
     // 3. Extração de recursos
     info!("⚙️  FASE 3: Extração sistemática de recursos cognitivos");
     let extractor = ExtractionEngine::new();
-    let target_types = vec![ResourceType::Insight, ResourceType::Concept, ResourceType::Paradox];
-    
+    let target_types = vec![
+        ResourceType::Insight,
+        ResourceType::Concept,
+        ResourceType::Paradox,
+    ];
+
     let extraction_result = extractor
         .extract_resources(&navigation_result.insights, &target_types)
         .await?;
 
     info!("✅ Extração completa:");
-    info!("  - Recursos extraídos: {}", extraction_result.resources_extracted.len());
-    info!("  - Eficiência de extração: {:.1}%", extraction_result.extraction_efficiency * 100.0);
+    info!(
+        "  - Recursos extraídos: {}",
+        extraction_result.resources_extracted.len()
+    );
+    info!(
+        "  - Eficiência de extração: {:.1}%",
+        extraction_result.extraction_efficiency * 100.0
+    );
 
     for (i, resource) in extraction_result.resources_extracted.iter().enumerate() {
         info!(
@@ -74,7 +91,3 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-
-
-

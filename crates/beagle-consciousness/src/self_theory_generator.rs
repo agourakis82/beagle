@@ -2,7 +2,7 @@
 //!
 //! O sistema filosofa sobre si mesmo em primeira pessoa
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use tracing::info;
 
 #[derive(Debug)]
@@ -80,7 +80,10 @@ Escreva sua teoria da própria mente em primeira pessoa."#,
         }
 
         let theory = response.choices[0].text.trim().to_string();
-        info!("SELF THEORY GENERATOR: Teoria gerada ({} caracteres)", theory.len());
+        info!(
+            "SELF THEORY GENERATOR: Teoria gerada ({} caracteres)",
+            theory.len()
+        );
 
         Ok(theory)
     }
@@ -91,4 +94,3 @@ impl Default for SelfTheoryGenerator {
         Self::new()
     }
 }
-

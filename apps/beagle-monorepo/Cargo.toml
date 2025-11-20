@@ -9,6 +9,10 @@ license = "MIT OR Apache-2.0"
 name = "beagle-monorepo"
 path = "src/main.rs"
 
+[[bin]]
+name = "pipeline"
+path = "src/bin/pipeline.rs"
+
 [dependencies]
 tokio.workspace = true
 tracing.workspace = true

@@ -4,9 +4,9 @@
 //! com meta-ética coerente pós-humana
 
 pub mod abyss;
-pub mod paradox_generator;
 pub mod meta_ethics_synthesizer;
+pub mod paradox_generator;
 
 pub use abyss::EthicsAbyssEngine;
-pub use paradox_generator::{ParadoxGenerator, EthicalParadox};
 pub use meta_ethics_synthesizer::MetaEthicsSynthesizer;
+pub use paradox_generator::{EthicalParadox, ParadoxGenerator};

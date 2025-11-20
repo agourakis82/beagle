@@ -25,8 +25,10 @@ path = "src/lib.rs"
 # Crate features
 # ---------------------------------------------------------------------------
 [features]
-default = []
+default = ["database"]
+database = ["sqlx", "redis", "pgvector"] # Database dependencies
 in-memory = [] # Enable in-memory storage implementation (for testing)
+offline = [] # Disable database dependencies for offline compilation
 tokio-console = ["dep:console-subscriber"]
 
 # ---------------------------------------------------------------------------
@@ -38,13 +40,13 @@ anyhow.workspace = true # Error context propagation for domain services
 async-trait.workspace = true
 chrono.workspace = true
 futures.workspace = true
-pgvector = { version = "0.4", features = ["sqlx"] }
+pgvector = { version = "0.4", features = ["sqlx"], optional = true }
 prometheus = "0.13"
-redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"], optional = true }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sqlx.workspace = true
+sqlx = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

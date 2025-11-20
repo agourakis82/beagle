@@ -3,10 +3,10 @@
 //! Extrai recursos cognitivos (insights, conceitos, estruturas) do nada absoluto
 //! de forma sistemática e direcionada.
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
 use crate::navigator::VoidInsight;
-use tracing::info;
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractionResult {
@@ -54,13 +54,19 @@ impl ExtractionEngine {
         insights: &[VoidInsight],
         target_types: &[ResourceType],
     ) -> anyhow::Result<ExtractionResult> {
-        info!("EXTRACTION ENGINE: Extraindo recursos cognitivos de {} insights", insights.len());
+        info!(
+            "EXTRACTION ENGINE: Extraindo recursos cognitivos de {} insights",
+            insights.len()
+        );
 
         let mut resources = Vec::new();
 
         for insight in insights {
             for resource_type in target_types {
-                if let Some(resource) = self.extract_resource_from_insight(insight, *resource_type).await? {
+                if let Some(resource) = self
+                    .extract_resource_from_insight(insight, *resource_type)
+                    .await?
+                {
                     resources.push(resource);
                 }
             }
@@ -151,7 +157,3 @@ impl Default for ExtractionEngine {
         Self::new()
     }
 }
-
-
-
-

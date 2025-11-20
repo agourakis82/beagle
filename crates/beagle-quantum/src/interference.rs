@@ -62,7 +62,10 @@ impl InterferenceEngine {
 
             // Log para debug
             if strength < -0.5 {
-                warn!("Interferência destrutiva forte em hipótese: {:.2} similarity", similarity);
+                warn!(
+                    "Interferência destrutiva forte em hipótese: {:.2} similarity",
+                    similarity
+                );
             }
         }
 

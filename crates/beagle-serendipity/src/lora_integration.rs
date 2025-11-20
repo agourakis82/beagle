@@ -1,20 +1,20 @@
 //! LoRA Auto Integration - Integra treinamento automático de LoRA no loop adversarial
-//! 
+//!
 //! **100% AUTOMÁTICO:**
 //! - Treina quando score > best_score
 //! - Roda em background (não bloqueia loop)
 //! - Nunca quebra (se falhar, só loga)
 
 use beagle_lora_voice_auto::train_and_update_voice;
-use tracing::{info, error};
+use tracing::{error, info};
 
 /// Integra LoRA automático no loop de refinamento
-/// 
+///
 /// **100% AUTOMÁTICO:**
 /// - Treina quando score > best_score
 /// - Roda em background (não bloqueia loop)
 /// - Nunca quebra (se falhar, só loga)
-/// 
+///
 /// # Usage
 /// ```rust
 /// // No adversarial loop, quando score > best_score:
@@ -39,11 +39,14 @@ pub async fn integrate_lora_in_refinement_loop(
 ) -> anyhow::Result<()> {
     // Só treina se o novo draft é melhor
     if score > best_score {
-        info!("🎤 Novo draft melhor (score: {} > {}). Treinando LoRA...", score, best_score);
-        
+        info!(
+            "🎤 Novo draft melhor (score: {} > {}). Treinando LoRA...",
+            score, best_score
+        );
+
         let bad = old_draft.to_string();
         let good = new_draft.to_string();
-        
+
         // Roda em background (não bloqueia loop)
         tokio::spawn(async move {
             match train_and_update_voice(&bad, &good).await {
@@ -56,10 +59,9 @@ pub async fn integrate_lora_in_refinement_loop(
                 }
             }
         });
-        
+
         info!("✅ LoRA training iniciado em background");
     }
-    
+
     Ok(())
 }
-

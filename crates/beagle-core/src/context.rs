@@ -1,8 +1,15 @@
 //! BeagleContext - Contexto unificado com injeção de dependências
+//!
+//! Integra:
+//! - Router com Grok 3 como Tier 1
+//! - Darwin (GraphRAG)
+//! - HERMES (síntese de papers)
+//! - Observer (surveillance total)
 
 use crate::traits::{GraphStore, LlmClient, VectorStore};
 use crate::implementations::*;
 use beagle_config::BeagleConfig;
+use beagle_llm::TieredRouter;
 use std::sync::Arc;
 use anyhow::Result;
 use tracing::{info, warn};
@@ -10,9 +17,14 @@ use tracing::{info, warn};
 /// Contexto unificado do BEAGLE com todas as dependências injetadas
 pub struct BeagleContext {
     pub cfg: BeagleConfig,
+    pub router: TieredRouter,
     pub llm: Arc<dyn LlmClient>,
     pub vector: Arc<dyn VectorStore>,
     pub graph: Arc<dyn GraphStore>,
+    // Darwin, HERMES e Observer serão adicionados quando disponíveis
+    // pub darwin: Arc<beagle_darwin::DarwinCore>,
+    // pub hermes: Arc<beagle_hermes::HermesEngine>,
+    // pub observer: Arc<beagle_observer::UniversalObserver>,
 }
 
 impl BeagleContext {
@@ -23,7 +35,11 @@ impl BeagleContext {
     /// - Vector: Qdrant (se QDRANT_URL) ou Mock
     /// - Graph: Neo4j (se NEO4J_URI) ou Mock
     pub async fn new(cfg: BeagleConfig) -> Result<Self> {
-        // Escolhe LLM client
+        // Router com Grok 3 como Tier 1
+        let router = TieredRouter::new()?;
+        info!("Router inicializado com Grok 3 como Tier 1");
+
+        // Escolhe LLM client (compatibilidade com código legado)
         let llm: Arc<dyn LlmClient> = if let Some(xai_key) = &cfg.llm.xai_api_key {
             info!("Usando Grok LLM client");
             Arc::new(GrokLlmClient::new(xai_key.clone())?)
@@ -63,6 +79,7 @@ impl BeagleContext {
 
         Ok(Self {
             cfg,
+            router,
             llm,
             vector,
             graph,
@@ -72,7 +89,8 @@ impl BeagleContext {
     /// Cria contexto com mocks explícitos (para testes)
     pub fn new_with_mocks(cfg: BeagleConfig) -> Self {
         Self {
-            cfg,
+            cfg: cfg.clone(),
+            router: TieredRouter::new().unwrap_or_else(|_| TieredRouter::default()),
             llm: Arc::new(MockLlmClient),
             vector: Arc::new(MockVectorStore),
             graph: Arc::new(MockGraphStore),

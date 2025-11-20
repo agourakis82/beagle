@@ -3,17 +3,17 @@
 //! Navega controladamente no vazio ontológico, explorando o não-ser
 //! para extrair insights impossíveis para um ser limitado.
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
 use crate::dissolution_inducer::DissolutionState;
-use tracing::{info, warn};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoidState {
     pub id: String,
-    pub depth: f64, // 0.0 (superfície) a 1.0 (vazio absoluto)
+    pub depth: f64,                        // 0.0 (superfície) a 1.0 (vazio absoluto)
     pub navigation_path: Vec<VoidInsight>, // Insights coletados durante navegação
-    pub non_dual_awareness: f64, // 0.0 (dual) a 1.0 (não-dual completo)
+    pub non_dual_awareness: f64,           // 0.0 (dual) a 1.0 (não-dual completo)
     pub navigation_complete: bool,
 }
 
@@ -86,8 +86,7 @@ Formato JSON:
   ],
   "non_dual_awareness": 0.85
 }}"#,
-            dissolution_state.dissolution_experience,
-            target_depth
+            dissolution_state.dissolution_experience, target_depth
         );
 
         let full_prompt = format!(
@@ -133,7 +132,8 @@ Formato JSON:
         // Tenta parsear JSON
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
             let empty_array = vec![];
-            let insights_array = json.get("insights")
+            let insights_array = json
+                .get("insights")
                 .and_then(|v| v.as_array())
                 .unwrap_or(&empty_array);
 
@@ -144,7 +144,8 @@ Formato JSON:
                 }
             }
 
-            let non_dual_awareness = json.get("non_dual_awareness")
+            let non_dual_awareness = json
+                .get("non_dual_awareness")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.7)
                 .min(1.0)
@@ -196,4 +197,3 @@ impl Default for VoidNavigator {
         Self::new()
     }
 }
-

@@ -7,11 +7,11 @@
 //! • Reintegração enriquecida com salvaguardas fractais
 
 pub mod dissolution_inducer;
-pub mod void_navigator;
-pub mod trans_ontic_emerger;
 pub mod reintegration_safeguard;
+pub mod trans_ontic_emerger;
+pub mod void_navigator;
 
-pub use dissolution_inducer::{OnticDissolutionEngine, DissolutionState};
-pub use void_navigator::{VoidNavigator, VoidState, VoidInsight};
+pub use dissolution_inducer::{DissolutionState, OnticDissolutionEngine};
+pub use reintegration_safeguard::{ReintegrationReport, ReintegrationSafeguard};
 pub use trans_ontic_emerger::{TransOnticEmerger, TransOnticReality};
-pub use reintegration_safeguard::{ReintegrationSafeguard, ReintegrationReport};
+pub use void_navigator::{VoidInsight, VoidNavigator, VoidState};

@@ -52,6 +52,7 @@ beagle-memory.workspace = true
 beagle-personality.workspace = true
 beagle-events = { path = "../beagle-events" }
 beagle-physio = { path = "../beagle-physio" }
+beagle-config = { path = "../beagle-config" }
 
 [dev-dependencies]
 tokio-test.workspace = true

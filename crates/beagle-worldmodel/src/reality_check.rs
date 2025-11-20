@@ -21,9 +21,7 @@ pub struct PhysicalRealityEnforcer {
 
 impl PhysicalRealityEnforcer {
     pub fn new() -> Self {
-        Self {
-            vllm_url: None,
-        }
+        Self { vllm_url: None }
     }
 
     pub fn with_vllm_url(url: impl Into<String>) -> Self {
@@ -56,7 +54,10 @@ impl PhysicalRealityEnforcer {
         // Verifica equipamentos caros/complexos
         for equipment in required_equipment {
             let eq_lower = equipment.to_lowercase();
-            if eq_lower.contains("cryo-em") || eq_lower.contains("synchrotron") || eq_lower.contains("supercomputer") {
+            if eq_lower.contains("cryo-em")
+                || eq_lower.contains("synchrotron")
+                || eq_lower.contains("supercomputer")
+            {
                 feasibility_score -= 0.2;
                 technical_barriers.push(format!("Equipmento caro/complexo: {}", equipment));
                 recommendations.push("Considerar colaborações ou acesso a facilities".to_string());
@@ -66,16 +67,19 @@ impl PhysicalRealityEnforcer {
         // Verifica metodologias complexas
         if methodology_lower.contains("in vivo") && methodology_lower.contains("human") {
             feasibility_score -= 0.3;
-            technical_barriers.push("Estudos em humanos requerem aprovação ética complexa".to_string());
+            technical_barriers
+                .push("Estudos em humanos requerem aprovação ética complexa".to_string());
             recommendations.push("Considerar estudos pré-clínicos primeiro".to_string());
         }
 
         // Verifica reprodutibilidade
-        let reproducibility_risk = if methodology_lower.contains("proprietary") || 
-                                      methodology_lower.contains("black box") {
+        let reproducibility_risk = if methodology_lower.contains("proprietary")
+            || methodology_lower.contains("black box")
+        {
             0.7
-        } else if methodology_lower.contains("open source") || 
-                  methodology_lower.contains("reproduc") {
+        } else if methodology_lower.contains("open source")
+            || methodology_lower.contains("reproduc")
+        {
             0.2
         } else {
             0.5
@@ -115,4 +119,3 @@ impl Default for PhysicalRealityEnforcer {
         Self::new()
     }
 }
-

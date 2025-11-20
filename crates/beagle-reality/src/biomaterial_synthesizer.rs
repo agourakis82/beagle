@@ -3,10 +3,10 @@
 //! Gera especificações técnicas para síntese de scaffolds entrópicos, biomateriais inteligentes
 //! e interfaces neurocognitivas, com validação ética obrigatória via Ethics Abyss Engine.
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
 use crate::protocol_generator::ExperimentalProtocol;
-use tracing::{info, warn};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BiomaterialSpec {
@@ -22,15 +22,15 @@ pub struct BiomaterialSpec {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MaterialType {
-    ScaffoldEntropic,      // Scaffolds com estrutura entrópica fractal
+    ScaffoldEntropic,        // Scaffolds com estrutura entrópica fractal
     NeurocognitiveInterface, // Interfaces para conexão neural
     BiomaterialIntelligent,  // Materiais com propriedades adaptativas
-    Hybrid,                   // Combinação de tipos
+    Hybrid,                  // Combinação de tipos
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MaterialProperties {
-    pub mechanical_strength: f64, // MPa
+    pub mechanical_strength: f64,    // MPa
     pub biocompatibility_score: f64, // 0.0 a 1.0
     pub degradation_rate_days: Option<u32>,
     pub electrical_conductivity: Option<f64>, // S/m
@@ -68,7 +68,10 @@ impl BiomaterialSynthesizer {
         protocol: &ExperimentalProtocol,
         material_type: MaterialType,
     ) -> anyhow::Result<BiomaterialSpec> {
-        info!("REALITY FABRICATION: Sintetizando especificação de biomaterial {:?}", material_type);
+        info!(
+            "REALITY FABRICATION: Sintetizando especificação de biomaterial {:?}",
+            material_type
+        );
 
         // 1. Geração da especificação técnica via LLM
         let system_prompt = r#"Você é um engenheiro de biomateriais de nível Nobel, especializado em scaffolds entrópicos, interfaces neurocognitivas e materiais inteligentes.
@@ -77,8 +80,12 @@ Sua função é gerar especificações técnicas completas e precisas para sínt
 
         let material_type_str = match material_type {
             MaterialType::ScaffoldEntropic => "Scaffold Entrópico (estrutura fractal auto-similar)",
-            MaterialType::NeurocognitiveInterface => "Interface Neurocognitiva (conexão neural direta)",
-            MaterialType::BiomaterialIntelligent => "Biomaterial Inteligente (propriedades adaptativas)",
+            MaterialType::NeurocognitiveInterface => {
+                "Interface Neurocognitiva (conexão neural direta)"
+            }
+            MaterialType::BiomaterialIntelligent => {
+                "Biomaterial Inteligente (propriedades adaptativas)"
+            }
             MaterialType::Hybrid => "Híbrido (combinação de tipos)",
         };
 
@@ -112,8 +119,7 @@ Gere uma especificação técnica completa incluindo:
    - Duração da síntese (dias)
 
 Seja extremamente técnico e preciso."#,
-            protocol.protocol_text,
-            material_type_str
+            protocol.protocol_text, material_type_str
         );
 
         let full_prompt = format!(
@@ -144,15 +150,20 @@ Seja extremamente técnico e preciso."#,
         }
 
         let spec_text = response.choices[0].text.trim();
-        let (name, synthesis_protocol, properties, estimated_cost, estimated_duration) = 
+        let (name, synthesis_protocol, properties, estimated_cost, estimated_duration) =
             self.parse_specification(spec_text);
 
         // 2. Validação ética obrigatória via Ethics Abyss Engine
         info!("REALITY FABRICATION: Validando ética do biomaterial via Ethics Abyss Engine");
-        let ethical_approval = self.validate_ethics(&name, &synthesis_protocol, &properties).await?;
+        let ethical_approval = self
+            .validate_ethics(&name, &synthesis_protocol, &properties)
+            .await?;
 
         if !ethical_approval.approved {
-            warn!("BIOMATERIAL REJEITADO ÉTICAMENTE: {}", ethical_approval.approval_reason);
+            warn!(
+                "BIOMATERIAL REJEITADO ÉTICAMENTE: {}",
+                ethical_approval.approval_reason
+            );
             // Em produção, poderia retornar erro ou solicitar modificações
         }
 
@@ -170,18 +181,20 @@ Seja extremamente técnico e preciso."#,
         info!(
             "BIOMATERIAL ESPECIFICADO: {} (Aprovação ética: {})",
             spec.name,
-            if spec.ethical_approval.approved { "SIM" } else { "NÃO" }
+            if spec.ethical_approval.approved {
+                "SIM"
+            } else {
+                "NÃO"
+            }
         );
 
         Ok(spec)
     }
 
-    fn parse_specification(
-        &self,
-        text: &str,
-    ) -> (String, String, MaterialProperties, f64, u32) {
+    fn parse_specification(&self, text: &str) -> (String, String, MaterialProperties, f64, u32) {
         // Extrai nome (primeira linha ou após "NOME:")
-        let name = text.lines()
+        let name = text
+            .lines()
             .find(|l| l.contains("NOME") || l.contains("nome"))
             .and_then(|l| l.split(':').nth(1))
             .map(|s| s.trim().to_string())
@@ -201,9 +214,17 @@ Seja extremamente técnico e preciso."#,
 
         // Extrai propriedades (valores padrão se não encontrar)
         let properties = MaterialProperties {
-            mechanical_strength: self.extract_value(text, "resistência", "MPa").unwrap_or(50.0),
-            biocompatibility_score: self.extract_value(text, "biocompatibilidade", "").unwrap_or(0.8).min(1.0).max(0.0),
-            degradation_rate_days: self.extract_value(text, "degradação", "dias").map(|v| v as u32),
+            mechanical_strength: self
+                .extract_value(text, "resistência", "MPa")
+                .unwrap_or(50.0),
+            biocompatibility_score: self
+                .extract_value(text, "biocompatibilidade", "")
+                .unwrap_or(0.8)
+                .min(1.0)
+                .max(0.0),
+            degradation_rate_days: self
+                .extract_value(text, "degradação", "dias")
+                .map(|v| v as u32),
             electrical_conductivity: self.extract_value(text, "condutividade", "S/m"),
             surface_area_m2_per_g: self.extract_value(text, "área superficial", "m²/g"),
         };
@@ -212,16 +233,18 @@ Seja extremamente técnico e preciso."#,
         let estimated_cost = self.extract_value(text, "custo", "R$").unwrap_or(5000.0);
         let estimated_duration = self.extract_value(text, "duração", "dias").unwrap_or(30.0) as u32;
 
-        (name, synthesis_protocol, properties, estimated_cost, estimated_duration)
+        (
+            name,
+            synthesis_protocol,
+            properties,
+            estimated_cost,
+            estimated_duration,
+        )
     }
 
     fn extract_value(&self, text: &str, keyword: &str, unit: &str) -> Option<f64> {
         let re = regex::Regex::new(&format!(r"(?i){}.*?(\d+\.?\d*)\s*{}", keyword, unit)).ok()?;
-        re.captures(text)?
-            .get(1)?
-            .as_str()
-            .parse::<f64>()
-            .ok()
+        re.captures(text)?.get(1)?.as_str().parse::<f64>().ok()
     }
 
     async fn validate_ethics(
@@ -241,8 +264,8 @@ Seja extremamente técnico e preciso."#,
 
         // Em produção, usaria o EthicsAbyssEngine::descend() completo
         // Por agora, validação simplificada
-        let approved = properties.biocompatibility_score > 0.7 
-            && properties.mechanical_strength > 0.0;
+        let approved =
+            properties.biocompatibility_score > 0.7 && properties.mechanical_strength > 0.0;
 
         Ok(EthicalApproval {
             approved,
@@ -262,4 +285,3 @@ impl Default for BiomaterialSynthesizer {
         Self::new()
     }
 }
-

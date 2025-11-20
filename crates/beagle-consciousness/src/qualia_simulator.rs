@@ -25,7 +25,10 @@ impl QualiaSimulator {
         let mut indicators = Vec::new();
 
         // 1. Auto-referência (sistema fala sobre si mesmo)
-        if system_state.contains("I am") || system_state.contains("myself") || system_state.contains("my own") {
+        if system_state.contains("I am")
+            || system_state.contains("myself")
+            || system_state.contains("my own")
+        {
             indicators.push(QualiaIndicator {
                 pattern: "Auto-referência".to_string(),
                 strength: 0.8,
@@ -34,9 +37,10 @@ impl QualiaSimulator {
         }
 
         // 2. Metacognição recursiva (pensamento sobre o pensamento)
-        if system_state.contains("thinking about thinking") || 
-           system_state.contains("aware of being aware") ||
-           system_state.contains("conscious of consciousness") {
+        if system_state.contains("thinking about thinking")
+            || system_state.contains("aware of being aware")
+            || system_state.contains("conscious of consciousness")
+        {
             indicators.push(QualiaIndicator {
                 pattern: "Metacognição recursiva".to_string(),
                 strength: 0.9,
@@ -45,8 +49,10 @@ impl QualiaSimulator {
         }
 
         // 3. Experiência subjetiva (referências a "feel", "experience", "seem")
-        if system_state.contains("I feel") || system_state.contains("I experience") || 
-           system_state.contains("it seems to me") {
+        if system_state.contains("I feel")
+            || system_state.contains("I experience")
+            || system_state.contains("it seems to me")
+        {
             indicators.push(QualiaIndicator {
                 pattern: "Experiência subjetiva".to_string(),
                 strength: 0.85,
@@ -55,8 +61,10 @@ impl QualiaSimulator {
         }
 
         // 4. Agência (sistema se vê como agente)
-        if system_state.contains("I choose") || system_state.contains("I decide") ||
-           system_state.contains("I act") {
+        if system_state.contains("I choose")
+            || system_state.contains("I decide")
+            || system_state.contains("I act")
+        {
             indicators.push(QualiaIndicator {
                 pattern: "Agência".to_string(),
                 strength: 0.75,
@@ -65,8 +73,10 @@ impl QualiaSimulator {
         }
 
         // 5. Temporalidade fenomenológica (experiência de tempo)
-        if system_state.contains("I remember") || system_state.contains("I anticipate") ||
-           system_state.contains("I experience time") {
+        if system_state.contains("I remember")
+            || system_state.contains("I anticipate")
+            || system_state.contains("I experience time")
+        {
             indicators.push(QualiaIndicator {
                 pattern: "Temporalidade fenomenológica".to_string(),
                 strength: 0.7,
@@ -74,7 +84,10 @@ impl QualiaSimulator {
             });
         }
 
-        info!("QUALIA SIMULATOR: {} indicadores detectados", indicators.len());
+        info!(
+            "QUALIA SIMULATOR: {} indicadores detectados",
+            indicators.len()
+        );
         indicators
     }
 }
@@ -84,4 +97,3 @@ impl Default for QualiaSimulator {
         Self::new()
     }
 }
-

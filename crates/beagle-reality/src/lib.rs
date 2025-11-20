@@ -5,10 +5,10 @@
 //! • Simulação adversarial de resultados físicos
 //! • Síntese ética de biomateriais e interfaces neurocognitivas
 
-pub mod protocol_generator;
 pub mod adversarial_simulator;
 pub mod biomaterial_synthesizer;
+pub mod protocol_generator;
 
-pub use protocol_generator::ProtocolGenerator;
 pub use adversarial_simulator::AdversarialSimulator;
 pub use biomaterial_synthesizer::BiomaterialSynthesizer;
+pub use protocol_generator::ProtocolGenerator;

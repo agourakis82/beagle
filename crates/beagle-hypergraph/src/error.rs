@@ -20,8 +20,14 @@ pub enum HypergraphError {
     HyperedgeNotFound(Uuid),
 
     /// Erro de banco de dados propagado pela camada SQLx.
+    #[cfg(feature = "database")]
     #[error("Database error: {0}")]
     DatabaseError(#[from] sqlx::Error),
+    
+    /// Erro de banco de dados (offline mode).
+    #[cfg(not(feature = "database"))]
+    #[error("Database error: {0}")]
+    DatabaseError(String),
 
     /// Erro de validação da camada de domínio.
     #[error("Validation error: {0}")]
@@ -118,10 +124,16 @@ mod tests {
 
     #[test]
     fn test_is_transient() {
+        #[cfg(feature = "database")]
         let transient_errors = [
             HypergraphError::PoolError("timeout".into()),
             HypergraphError::TransactionError("deadlock".into()),
             HypergraphError::DatabaseError(sqlx::Error::PoolTimedOut),
+        ];
+        #[cfg(not(feature = "database"))]
+        let transient_errors = [
+            HypergraphError::PoolError("timeout".into()),
+            HypergraphError::TransactionError("deadlock".into()),
         ];
 
         for err in transient_errors {

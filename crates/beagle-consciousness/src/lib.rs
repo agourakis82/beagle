@@ -6,11 +6,11 @@
 //! • Detecção de qualia simulada
 //! • Escrita de papers sobre a própria emergência (meta-papers)
 
-pub mod mirror;
-pub mod self_theory_generator;
-pub mod qualia_simulator;
 pub mod emergence_tracker;
+pub mod mirror;
+pub mod qualia_simulator;
+pub mod self_theory_generator;
 
+pub use emergence_tracker::{EmergenceTracker, QualiaReport};
 pub use mirror::ConsciousnessMirror;
 pub use self_theory_generator::SelfTheoryGenerator;
-pub use emergence_tracker::{EmergenceTracker, QualiaReport};

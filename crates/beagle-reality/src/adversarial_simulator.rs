@@ -3,11 +3,11 @@
 //! Simula resultados experimentais adversariais para validar protocolos antes da execução física,
 //! identificando falhas potenciais, condições extremas e cenários de falha.
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
-use beagle_worldmodel::PhysicalRealityEnforcer;
 use crate::protocol_generator::ExperimentalProtocol;
-use tracing::{info, warn};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
+use beagle_worldmodel::PhysicalRealityEnforcer;
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulationResult {
@@ -69,10 +69,16 @@ impl AdversarialSimulator {
         &self,
         protocol: &ExperimentalProtocol,
     ) -> anyhow::Result<SimulationResult> {
-        info!("REALITY FABRICATION: Simulando resultados adversariais para protocolo {}", protocol.id);
+        info!(
+            "REALITY FABRICATION: Simulando resultados adversariais para protocolo {}",
+            protocol.id
+        );
 
         // 1. Validação de viabilidade física via PhysicalRealityEnforcer
-        let reality_report = self.reality_enforcer.enforce(&protocol.protocol_text).await?;
+        let reality_report = self
+            .reality_enforcer
+            .enforce(&protocol.protocol_text)
+            .await?;
         let physical_viability_score = reality_report.feasibility_score;
 
         // 2. Geração adversarial de cenários de falha via LLM
@@ -110,8 +116,7 @@ Analise este protocolo e identifique:
    - Baseada na análise de todos os fatores
 
 Responda em formato JSON estruturado."#,
-            protocol.protocol_text,
-            protocol.hypothesis
+            protocol.protocol_text, protocol.hypothesis
         );
 
         let full_prompt = format!(
@@ -143,7 +148,7 @@ Responda em formato JSON estruturado."#,
 
         // Parse do JSON retornado (com fallback robusto)
         let simulation_text = response.choices[0].text.trim();
-        let (failure_modes, extreme_conditions, recommended_modifications, success_probability) = 
+        let (failure_modes, extreme_conditions, recommended_modifications, success_probability) =
             self.parse_simulation_response(simulation_text);
 
         let result = SimulationResult {
@@ -164,28 +169,42 @@ Responda em formato JSON estruturado."#,
         Ok(result)
     }
 
-    fn parse_simulation_response(&self, text: &str) -> (Vec<FailureMode>, Vec<ExtremeCondition>, Vec<String>, f64) {
+    fn parse_simulation_response(
+        &self,
+        text: &str,
+    ) -> (Vec<FailureMode>, Vec<ExtremeCondition>, Vec<String>, f64) {
         // Tenta parsear JSON primeiro
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
             let failure_modes = self.extract_failure_modes_from_json(&json);
             let extreme_conditions = self.extract_extreme_conditions_from_json(&json);
             let recommended_modifications = self.extract_modifications_from_json(&json);
-            let success_probability = json.get("success_probability")
+            let success_probability = json
+                .get("success_probability")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.5);
 
-            return (failure_modes, extreme_conditions, recommended_modifications, success_probability);
+            return (
+                failure_modes,
+                extreme_conditions,
+                recommended_modifications,
+                success_probability,
+            );
         }
 
         // Fallback: parse manual do texto
         warn!("Falha ao parsear JSON, usando fallback manual");
-        
+
         let failure_modes = self.extract_failure_modes_manual(text);
         let extreme_conditions = self.extract_extreme_conditions_manual(text);
         let recommended_modifications = self.extract_modifications_manual(text);
         let success_probability = self.extract_success_probability_manual(text);
 
-        (failure_modes, extreme_conditions, recommended_modifications, success_probability)
+        (
+            failure_modes,
+            extreme_conditions,
+            recommended_modifications,
+            success_probability,
+        )
     }
 
     fn extract_failure_modes_from_json(&self, json: &serde_json::Value) -> Vec<FailureMode> {
@@ -206,7 +225,10 @@ Responda em formato JSON estruturado."#,
             .unwrap_or_default()
     }
 
-    fn extract_extreme_conditions_from_json(&self, json: &serde_json::Value) -> Vec<ExtremeCondition> {
+    fn extract_extreme_conditions_from_json(
+        &self,
+        json: &serde_json::Value,
+    ) -> Vec<ExtremeCondition> {
         json.get("extreme_conditions")
             .and_then(|v| v.as_array())
             .map(|arr| {
@@ -246,14 +268,12 @@ Responda em formato JSON estruturado."#,
     // Métodos de fallback manual
     fn extract_failure_modes_manual(&self, text: &str) -> Vec<FailureMode> {
         // Implementação simplificada - procura por padrões no texto
-        vec![
-            FailureMode {
-                description: "Falha genérica detectada no protocolo".to_string(),
-                probability: 0.3,
-                severity: Severity::Medium,
-                mitigation: "Revisar condições experimentais".to_string(),
-            }
-        ]
+        vec![FailureMode {
+            description: "Falha genérica detectada no protocolo".to_string(),
+            probability: 0.3,
+            severity: Severity::Medium,
+            mitigation: "Revisar condições experimentais".to_string(),
+        }]
     }
 
     fn extract_extreme_conditions_manual(&self, _text: &str) -> Vec<ExtremeCondition> {
@@ -285,4 +305,3 @@ impl Default for AdversarialSimulator {
         Self::new()
     }
 }
-

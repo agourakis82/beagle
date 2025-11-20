@@ -25,8 +25,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     // Criar app com rotas do Darwin
-    let app = Router::new()
-        .merge(darwin_routes());
+    let app = Router::new().merge(darwin_routes());
 
     // Bind e serve
     let addr = SocketAddr::from(([0, 0, 0, 0], 3001));
@@ -41,4 +40,3 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

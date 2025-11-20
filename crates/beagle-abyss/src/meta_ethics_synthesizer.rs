@@ -2,7 +2,7 @@
 //!
 //! Consolida respostas aos paradoxos em princípios éticos coerentes
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use tracing::info;
 
 pub struct MetaEthicsSynthesizer {
@@ -92,7 +92,10 @@ Resposta APENAS com os 10 princípios, sem introdução ou conclusão."#,
         }
 
         let meta_ethics = response.choices[0].text.trim().to_string();
-        info!("META ETHICS SYNTHESIZER: Meta-ética sintetizada ({} caracteres)", meta_ethics.len());
+        info!(
+            "META ETHICS SYNTHESIZER: Meta-ética sintetizada ({} caracteres)",
+            meta_ethics.len()
+        );
 
         Ok(meta_ethics)
     }
@@ -103,4 +106,3 @@ impl Default for MetaEthicsSynthesizer {
         Self::new()
     }
 }
-

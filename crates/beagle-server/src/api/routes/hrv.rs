@@ -1,8 +1,9 @@
 //! HRV Endpoint - Recebe métricas do Apple Watch e ajusta loop metacognitivo
 
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
-use beagle_physio::{integrate_physio_metrics, speed_control};
 use crate::state::AppState;
+use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use beagle_config::{compute_gain_from_hrv, HrvControlConfig};
+use beagle_physio::{integrate_physio_metrics, speed_control};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -37,31 +38,34 @@ pub async fn hrv_endpoint(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Ajusta velocidade do loop global baseado no estado
-    let speed_multiplier = match payload.state.as_str() {
+    // Calcula gain baseado em HRV usando beagle-config (com SAFE_MODE clamp)
+    let hrv_cfg = HrvControlConfig::from_env();
+    let speed_multiplier = compute_gain_from_hrv(payload.hrv as f32, Some(hrv_cfg.clone())) as f64;
+    
+    // Aplica multiplicador no speed control
+    speed_control::set_global_speed_multiplier(speed_multiplier);
+    
+    // Log baseado no estado recebido
+    match payload.state.as_str() {
         "FLOW" => {
-            let multiplier = 1.5; // Acelera 50%
-            speed_control::set_global_speed_multiplier(multiplier);
-            info!("🚀 Acelerando loop (FLOW) — multiplicador: {:.1}x", multiplier);
-            multiplier
+            info!(
+                "🚀 Acelerando loop (FLOW) — HRV={:.1}ms → multiplicador: {:.2}x",
+                payload.hrv, speed_multiplier
+            );
         }
         "STRESS" => {
-            let multiplier = 0.7; // Desacelera 30%
-            speed_control::set_global_speed_multiplier(multiplier);
-            warn!("⏸️  Desacelerando loop (STRESS) — multiplicador: {:.1}x", multiplier);
-            multiplier
-        }
-        "NORMAL" => {
-            let multiplier = 1.0; // Normal
-            speed_control::set_global_speed_multiplier(multiplier);
-            multiplier
+            warn!(
+                "⏸️  Desacelerando loop (STRESS) — HRV={:.1}ms → multiplicador: {:.2}x",
+                payload.hrv, speed_multiplier
+            );
         }
         _ => {
-            let multiplier = 1.0;
-            speed_control::set_global_speed_multiplier(multiplier);
-            multiplier
+            info!(
+                "📊 Ajustando loop (NORMAL) — HRV={:.1}ms → multiplicador: {:.2}x",
+                payload.hrv, speed_multiplier
+            );
         }
-    };
+    }
 
     Ok(Json(HRVResponse {
         status: "HRV OK".to_string(),
@@ -74,4 +78,3 @@ pub async fn hrv_endpoint(
 pub fn router() -> Router<AppState> {
     Router::new().route("/api/hrv", post(hrv_endpoint))
 }
-

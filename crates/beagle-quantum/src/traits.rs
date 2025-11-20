@@ -1,6 +1,6 @@
-use async_trait::async_trait;
-use crate::superposition::HypothesisSet;
 use crate::measurement::CollapseStrategy;
+use crate::superposition::HypothesisSet;
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait QuantumReasoner {
@@ -11,6 +11,9 @@ pub trait QuantumReasoner {
     async fn interfere(&self, set: &mut HypothesisSet, evidence: &str) -> anyhow::Result<()>;
 
     /// Colapsa para a melhor hipótese (ou mantém superposição se confiança baixa)
-    async fn measure(&self, set: HypothesisSet, strategy: CollapseStrategy) -> anyhow::Result<String>;
+    async fn measure(
+        &self,
+        set: HypothesisSet,
+        strategy: CollapseStrategy,
+    ) -> anyhow::Result<String>;
 }
-

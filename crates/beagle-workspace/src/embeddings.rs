@@ -43,7 +43,7 @@ impl EmbeddingManager {
 
     pub async fn encode(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         info!("📝 Encoding {} textos com {}", texts.len(), self.model);
-        
+
         match self.model {
             EmbeddingModel::Nomic => self.encode_nomic(texts).await,
             EmbeddingModel::Jina => self.encode_jina(texts).await,
@@ -66,7 +66,7 @@ impl EmbeddingManager {
 
         let resp = req.send().await.context("Falha ao chamar Nomic API")?;
         let data: serde_json::Value = resp.json().await?;
-        
+
         let embeddings: Vec<Vec<f32>> = data["embeddings"]
             .as_array()
             .context("Resposta inválida")?
@@ -97,7 +97,7 @@ impl EmbeddingManager {
 
         let resp = req.send().await.context("Falha ao chamar Jina API")?;
         let data: serde_json::Value = resp.json().await?;
-        
+
         let embeddings: Vec<Vec<f32>> = data["data"]
             .as_array()
             .context("Resposta inválida")?
@@ -118,7 +118,7 @@ impl EmbeddingManager {
     async fn encode_gte_qwen2(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         let url = std::env::var("GTE_QWEN2_URL")
             .unwrap_or_else(|_| "http://localhost:8001/v1/embeddings".to_string());
-        
+
         let body = json!({
             "model": "gte-Qwen2",
             "input": texts
@@ -131,9 +131,9 @@ impl EmbeddingManager {
             .send()
             .await
             .context("Falha ao chamar GTE-Qwen2")?;
-        
+
         let data: serde_json::Value = resp.json().await?;
-        
+
         let embeddings: Vec<Vec<f32>> = data["data"]
             .as_array()
             .context("Resposta inválida")?

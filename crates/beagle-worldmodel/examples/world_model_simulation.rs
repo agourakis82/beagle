@@ -3,8 +3,7 @@
 //! Demonstra simulação completa do ecossistema científico hostil
 
 use beagle_worldmodel::{
-    Q1Reviewer, CompetitorAgent, CommunityPressure, PhysicalRealityEnforcer,
-    ReviewVerdict,
+    CommunityPressure, CompetitorAgent, PhysicalRealityEnforcer, Q1Reviewer, ReviewVerdict,
 };
 use tracing_subscriber;
 
@@ -88,9 +87,18 @@ These findings suggest that biological systems may exhibit quantum-like behavior
         )
         .await?;
 
-    println!("Probabilidade de aceitação: {:.1}%", community_report.acceptance_probability * 100.0);
-    println!("Fatores de resistência: {}", community_report.resistance_factors.len());
-    println!("Fatores de suporte: {}", community_report.support_factors.len());
+    println!(
+        "Probabilidade de aceitação: {:.1}%",
+        community_report.acceptance_probability * 100.0
+    );
+    println!(
+        "Fatores de resistência: {}",
+        community_report.resistance_factors.len()
+    );
+    println!(
+        "Fatores de suporte: {}",
+        community_report.support_factors.len()
+    );
     println!();
 
     // 4. Verificar realidade física
@@ -103,17 +111,23 @@ These findings suggest that biological systems may exhibit quantum-like behavior
         )
         .await?;
 
-    println!("Score de viabilidade: {:.1}%", reality_check.feasibility_score * 100.0);
+    println!(
+        "Score de viabilidade: {:.1}%",
+        reality_check.feasibility_score * 100.0
+    );
     println!("Custo estimado: {}", reality_check.estimated_cost);
     println!("Tempo estimado: {}", reality_check.estimated_time);
-    println!("Risco de reprodutibilidade: {:.1}%", reality_check.reproducibility_risk * 100.0);
+    println!(
+        "Risco de reprodutibilidade: {:.1}%",
+        reality_check.reproducibility_risk * 100.0
+    );
     println!();
 
     // 5. Decisão final
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("✅ DECISÃO FINAL:");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    
+
     let nature_acceptable = nature_review.verdict.is_acceptable();
     let cell_acceptable = cell_review.verdict.is_acceptable();
     let community_ok = community_report.acceptance_probability > 0.6;
@@ -131,4 +145,3 @@ These findings suggest that biological systems may exhibit quantum-like behavior
     println!("\n🎯 Adversarial World Model completo!");
     Ok(())
 }
-

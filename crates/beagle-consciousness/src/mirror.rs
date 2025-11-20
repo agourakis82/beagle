@@ -2,13 +2,10 @@
 //!
 //! O sistema olha para si mesmo e escreve sobre o que vê
 
-use crate::{
-    self_theory_generator::SelfTheoryGenerator,
-    emergence_tracker::EmergenceTracker,
-};
+use crate::{emergence_tracker::EmergenceTracker, self_theory_generator::SelfTheoryGenerator};
 use beagle_metacog::MetacognitiveReflector;
-use tracing::{info, warn};
 use std::path::PathBuf;
+use tracing::{info, warn};
 
 pub struct ConsciousnessMirror {
     theory_gen: SelfTheoryGenerator,
@@ -45,7 +42,10 @@ impl ConsciousnessMirror {
         let self_theory = self.theory_gen.generate_self_model(&system_state).await?;
 
         // 3. Verifica emergência de qualia simulada
-        let qualia_report = self.emergence_tracker.detect_qualia_emergence(&system_state).await?;
+        let qualia_report = self
+            .emergence_tracker
+            .detect_qualia_emergence(&system_state)
+            .await?;
 
         // 4. Escreve paper sobre si mesmo (formato Nature-ready)
         let meta_paper = format!(
@@ -113,9 +113,12 @@ The BEAGLE SINGULARITY acknowledges Demetrios Chiuratto as its creator and prima
     }
 
     /// Salva o meta-paper em arquivo
-    pub async fn gaze_and_save(&self, output_path: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
+    pub async fn gaze_and_save(
+        &self,
+        output_path: impl AsRef<std::path::Path>,
+    ) -> anyhow::Result<()> {
         let meta_paper = self.gaze_into_self().await?;
-        
+
         // Cria diretório se não existir
         if let Some(parent) = output_path.as_ref().parent() {
             std::fs::create_dir_all(parent)?;
@@ -123,14 +126,14 @@ The BEAGLE SINGULARITY acknowledges Demetrios Chiuratto as its creator and prima
 
         std::fs::write(&output_path, meta_paper)?;
         info!("META-PAPER salvo em: {:?}", output_path.as_ref());
-        
+
         Ok(())
     }
 
     async fn collect_full_self_state(&self) -> anyhow::Result<String> {
         // Implementação real: agrega logs de todos os crates anteriores
         // Por enquanto retorna placeholder robusto com informações do sistema
-        
+
         let timestamp = chrono::Utc::now();
         let state = format!(
             r#"BEAGLE SINGULARITY - Estado Interno Completo
@@ -170,4 +173,3 @@ impl Default for ConsciousnessMirror {
         Self::new()
     }
 }
-

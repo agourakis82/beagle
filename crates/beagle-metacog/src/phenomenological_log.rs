@@ -2,8 +2,8 @@
 //!
 //! Registra cada ciclo de pensamento como uma entrada fenomenológica
 
-use beagle_quantum::HypothesisSet;
 use beagle_llm::validation::ValidationResult;
+use beagle_quantum::HypothesisSet;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -76,18 +76,12 @@ impl PhenomenologicalLog {
             .map(|v| v.quality_score)
             .collect();
 
-        let self_observation = self.generate_self_observation(
-            thought_trace,
-            &quantum_summary,
-            &quality_progression,
-        )?;
+        let self_observation =
+            self.generate_self_observation(thought_trace, &quantum_summary, &quality_progression)?;
 
         Ok(PhenomenologicalEntry {
             timestamp: Utc::now(),
-            thought_trace_preview: thought_trace
-                .chars()
-                .take(500)
-                .collect::<String>(),
+            thought_trace_preview: thought_trace.chars().take(500).collect::<String>(),
             quantum_state_summary: quantum_summary,
             adversarial_iterations: adversarial_history.len(),
             quality_progression,
@@ -98,18 +92,21 @@ impl PhenomenologicalLog {
     /// Persiste uma entrada no log
     pub async fn persist(&self, entry: &PhenomenologicalEntry) -> anyhow::Result<()> {
         let json = serde_json::to_string(entry)?;
-        
+
         use std::fs::OpenOptions;
         use std::io::Write;
-        
+
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.log_path)?;
-        
+
         writeln!(file, "{}", json)?;
-        
-        info!("PhenomenologicalLog: entrada persistida em {:?}", self.log_path);
+
+        info!(
+            "PhenomenologicalLog: entrada persistida em {:?}",
+            self.log_path
+        );
         Ok(())
     }
 
@@ -168,4 +165,3 @@ impl Default for PhenomenologicalLog {
         Self::new()
     }
 }
-

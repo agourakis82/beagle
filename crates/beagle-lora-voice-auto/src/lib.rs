@@ -1,16 +1,16 @@
 //! BEAGLE LoRA Voice Auto - 100% Automático, Robusto, Completo, Flawless
-//! 
+//!
 //! Treina LoRA voice automaticamente a cada draft melhor.
 //! Salva adapter, atualiza vLLM, nunca quebra.
-//! 
+//!
 //! **100% REAL - RODA HOJE, SEM FALHA**
 
+use anyhow::{Context, Result};
+use chrono::Utc;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use tracing::{info, error, warn};
-use anyhow::{Context, Result};
-use chrono::Utc;
+use tracing::{error, info, warn};
 
 const TEMP_BAD_DRAFT: &str = "/tmp/lora_bad.txt";
 const TEMP_GOOD_DRAFT: &str = "/tmp/lora_good.txt";
@@ -21,25 +21,25 @@ const VLLM_HOST: &str = "maria";
 const VLLM_RESTART_CMD: &str = "cd /home/ubuntu/beagle && docker-compose restart vllm";
 
 /// Treina LoRA voice e atualiza vLLM automaticamente
-/// 
+///
 /// **100% AUTOMÁTICO:**
 /// - Treina a cada draft melhor
 /// - Salva adapter novo com timestamp
 /// - Atualiza o vLLM automaticamente
 /// - Nunca quebra (se falhar, só loga e continua)
 /// - Roda no M3 Max em ~12 minutos
-/// 
+///
 /// # Arguments
 /// - `bad_draft`: Draft anterior (pior)
 /// - `good_draft`: Draft novo (melhor)
-/// 
+///
 /// # Returns
 /// `Ok(())` se sucesso, `Err` se falhar (mas não quebra o loop principal)
-/// 
+///
 /// # Example
 /// ```rust
 /// use beagle_lora_voice_auto::train_and_update_voice;
-/// 
+///
 /// // No adversarial loop, quando score > best_score:
 /// if score > best_score {
 ///     tokio::spawn(async move {
@@ -51,35 +51,32 @@ const VLLM_RESTART_CMD: &str = "cd /home/ubuntu/beagle && docker-compose restart
 /// ```
 pub async fn train_and_update_voice(bad_draft: &str, good_draft: &str) -> Result<()> {
     info!("🎤 LoRA Voice Auto — Iniciando treinamento automático...");
-    
+
     // 1. Cria diretório base se não existir
-    fs::create_dir_all(BASE_LORA_DIR)
-        .context("Falha ao criar diretório base de LoRA")?;
-    
+    fs::create_dir_all(BASE_LORA_DIR).context("Falha ao criar diretório base de LoRA")?;
+
     // 2. Gera timestamp e diretório do adapter
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
     let adapter_dir = format!("{}/beagle_voice_{}", BASE_LORA_DIR, timestamp);
-    
+
     info!("📁 Adapter será salvo em: {}", adapter_dir);
-    
+
     // 3. Salva drafts temporários
-    fs::write(TEMP_BAD_DRAFT, bad_draft)
-        .context("Falha ao salvar bad_draft")?;
-    fs::write(TEMP_GOOD_DRAFT, good_draft)
-        .context("Falha ao salvar good_draft")?;
-    
+    fs::write(TEMP_BAD_DRAFT, bad_draft).context("Falha ao salvar bad_draft")?;
+    fs::write(TEMP_GOOD_DRAFT, good_draft).context("Falha ao salvar good_draft")?;
+
     info!("✅ Drafts salvos temporariamente");
-    
+
     // 4. Verifica se script Unsloth existe
     if !Path::new(UNSLOTH_SCRIPT).exists() {
         warn!("⚠️  Script Unsloth não encontrado: {}", UNSLOTH_SCRIPT);
         warn!("   Criando script placeholder...");
         create_unsloth_script_placeholder(UNSLOTH_SCRIPT)?;
     }
-    
+
     // 5. Roda Unsloth no M3 Max (12 minutos)
     info!("🔬 Treinando LoRA voice — Unsloth no M3 Max (12 minutos)...");
-    
+
     let status = Command::new("python3")
         .arg(UNSLOTH_SCRIPT)
         .env("BAD_DRAFT", TEMP_BAD_DRAFT)
@@ -87,75 +84,91 @@ pub async fn train_and_update_voice(bad_draft: &str, good_draft: &str) -> Result
         .env("OUTPUT_DIR", &adapter_dir)
         .status()
         .context("Falha ao executar Unsloth")?;
-    
+
     if !status.success() {
         error!("❌ LoRA training falhou (status: {:?})", status.code());
-        return Err(anyhow::anyhow!("Unsloth falhou com status: {:?}", status.code()));
+        return Err(anyhow::anyhow!(
+            "Unsloth falhou com status: {:?}",
+            status.code()
+        ));
     }
-    
+
     info!("✅ LoRA treinado com sucesso");
-    
+
     // 6. Verifica se adapter foi criado
     let adapter_bin = format!("{}/adapter_model.bin", adapter_dir);
     let adapter_config = format!("{}/adapter_config.json", adapter_dir);
-    
+
     if !Path::new(&adapter_bin).exists() {
         return Err(anyhow::anyhow!("Adapter não foi criado: {}", adapter_bin));
     }
-    
+
     info!("✅ Adapter criado: {}", adapter_bin);
-    
+
     // 7. Copia/move adapter pro lugar certo pro vLLM
     if Path::new(VLLM_LORA_PATH).exists() {
         info!("🗑️  Removendo adapter anterior...");
-        fs::remove_dir_all(VLLM_LORA_PATH)
-            .context("Falha ao remover adapter anterior")?;
+        fs::remove_dir_all(VLLM_LORA_PATH).context("Falha ao remover adapter anterior")?;
     }
-    
-    fs::create_dir_all(VLLM_LORA_PATH)
-        .context("Falha ao criar diretório vLLM LoRA")?;
-    
+
+    fs::create_dir_all(VLLM_LORA_PATH).context("Falha ao criar diretório vLLM LoRA")?;
+
     // Copia arquivos do adapter
-    fs::copy(&adapter_bin, format!("{}/adapter_model.bin", VLLM_LORA_PATH))
-        .context("Falha ao copiar adapter_model.bin")?;
-    
+    fs::copy(
+        &adapter_bin,
+        format!("{}/adapter_model.bin", VLLM_LORA_PATH),
+    )
+    .context("Falha ao copiar adapter_model.bin")?;
+
     if Path::new(&adapter_config).exists() {
-        fs::copy(&adapter_config, format!("{}/adapter_config.json", VLLM_LORA_PATH))
-            .context("Falha ao copiar adapter_config.json")?;
+        fs::copy(
+            &adapter_config,
+            format!("{}/adapter_config.json", VLLM_LORA_PATH),
+        )
+        .context("Falha ao copiar adapter_config.json")?;
     }
-    
+
     info!("✅ Adapter copiado para vLLM: {}", VLLM_LORA_PATH);
-    
+
     // 8. Restart vLLM com o novo LoRA
     info!("🔄 Reiniciando vLLM no {}...", VLLM_HOST);
-    
+
     let restart_status = Command::new("ssh")
         .arg(VLLM_HOST)
         .arg(VLLM_RESTART_CMD)
         .status()
         .context("Falha ao reiniciar vLLM via SSH")?;
-    
+
     if !restart_status.success() {
         warn!("⚠️  Falha ao reiniciar vLLM via SSH. Tentando método alternativo...");
-        
+
         // Fallback: tenta docker-compose local se estiver no mesmo host
         let fallback_status = Command::new("docker-compose")
-            .args(["-f", "/home/ubuntu/beagle/docker-compose.yml", "restart", "vllm"])
+            .args([
+                "-f",
+                "/home/ubuntu/beagle/docker-compose.yml",
+                "restart",
+                "vllm",
+            ])
             .current_dir("/home/ubuntu/beagle")
             .status();
-        
+
         if let Ok(status) = fallback_status {
             if !status.success() {
-                return Err(anyhow::anyhow!("Falha ao reiniciar vLLM (todos os métodos falharam)"));
+                return Err(anyhow::anyhow!(
+                    "Falha ao reiniciar vLLM (todos os métodos falharam)"
+                ));
             }
         } else {
-            return Err(anyhow::anyhow!("Falha ao reiniciar vLLM (SSH e fallback falharam)"));
+            return Err(anyhow::anyhow!(
+                "Falha ao reiniciar vLLM (SSH e fallback falharam)"
+            ));
         }
     }
-    
+
     info!("✅ vLLM reiniciado com novo LoRA");
     info!("🎉 LoRA voice 100% atualizado — tua voz perfeita no sistema");
-    
+
     Ok(())
 }
 
@@ -255,16 +268,14 @@ def main():
 if __name__ == "__main__":
     main()
 "#;
-    
+
     // Cria diretório se não existir
     if let Some(parent) = Path::new(script_path).parent() {
-        fs::create_dir_all(parent)
-            .context("Falha ao criar diretório do script")?;
+        fs::create_dir_all(parent).context("Falha ao criar diretório do script")?;
     }
-    
-    fs::write(script_path, script_content)
-        .context("Falha ao criar script Unsloth")?;
-    
+
+    fs::write(script_path, script_content).context("Falha ao criar script Unsloth")?;
+
     // Torna executável
     #[cfg(unix)]
     {
@@ -273,20 +284,20 @@ if __name__ == "__main__":
         perms.set_mode(0o755);
         fs::set_permissions(script_path, perms)?;
     }
-    
+
     info!("✅ Script Unsloth criado: {}", script_path);
     Ok(())
 }
 
 /// Integra LoRA voice auto no adversarial loop
-/// 
+///
 /// Chama automaticamente quando `score > best_score`.
 /// Não bloqueia o loop principal (roda em background).
-/// 
+///
 /// # Example
 /// ```rust
 /// use beagle_lora_voice_auto::integrate_in_adversarial_loop;
-/// 
+///
 /// // No adversarial loop:
 /// if score > best_score {
 ///     let old_draft = old_draft.clone();
@@ -311,17 +322,16 @@ pub async fn integrate_in_adversarial_loop(old_draft: String, new_draft: String)
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_train_and_update_voice_structure() {
         // Testa que a função existe e pode ser chamada
         // Não executa treinamento real (muito lento)
         let bad = "This is a bad draft.";
         let good = "This is a good draft with improvements.";
-        
+
         // Esperamos erro porque não há ambiente configurado
         let result = train_and_update_voice(bad, good).await;
         assert!(result.is_err() || result.is_ok()); // Aceita ambos (depende do ambiente)
     }
 }
-

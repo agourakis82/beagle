@@ -8,14 +8,14 @@
 //!
 //! ATENÇÃO: Roda em loop infinito. Use em produção com cuidado.
 
-use beagle_fractal::{FractalCognitiveNode, get_root};
+use beagle_fractal::{get_root, FractalCognitiveNode};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::OnceLock;
 use sysinfo::System;
+use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 use tracing::{info, warn};
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use std::sync::OnceLock;
-use std::collections::HashMap;
 
 static SYS: OnceLock<Arc<Mutex<System>>> = OnceLock::new();
 
@@ -24,7 +24,8 @@ fn get_system() -> &'static Arc<Mutex<System>> {
 }
 
 // Registro global de nós ativos para pruning
-static ACTIVE_NODES: OnceLock<Arc<Mutex<HashMap<u64, Arc<FractalCognitiveNode>>>>> = OnceLock::new();
+static ACTIVE_NODES: OnceLock<Arc<Mutex<HashMap<u64, Arc<FractalCognitiveNode>>>>> =
+    OnceLock::new();
 
 fn get_active_nodes() -> &'static Arc<Mutex<HashMap<u64, Arc<FractalCognitiveNode>>>> {
     ACTIVE_NODES.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
@@ -37,7 +38,7 @@ impl EternityEngine {
     pub async fn enforce_eternal_growth(root: Arc<FractalCognitiveNode>) {
         tokio::spawn(async move {
             info!("🌌 ETERNITY ENGINE ATIVADO - MONITORAMENTO ETERNO INICIADO");
-            
+
             loop {
                 // Coleta métricas dentro do lock
                 let (used_mem_ratio, cpu_usage) = {
@@ -69,7 +70,7 @@ impl EternityEngine {
                         used_mem_ratio * 100.0,
                         cpu_usage * 100.0
                     );
-                    
+
                     // Pruning agressivo: mata 30% dos nós mais antigos/fracos
                     prune_weak_nodes(&root).await;
                 } else if used_mem_ratio < 0.4 {
@@ -77,7 +78,7 @@ impl EternityEngine {
                         "🚀 RECURSÃO ETERNA - RECURSOS SOBRANDO ({:.1}% mem) - SPAWNING NOVOS NÓS",
                         used_mem_ratio * 100.0
                     );
-                    
+
                     // Spawning: cria 8 novos filhos quando recursos sobram
                     spawn_new_nodes(&root, 8).await;
                 } else {
@@ -94,7 +95,7 @@ impl EternityEngine {
 /// Pruning de nós fracos/antigos quando recursos estão escassos
 async fn prune_weak_nodes(_root: &Arc<FractalCognitiveNode>) {
     let mut nodes = get_active_nodes().lock().await;
-    
+
     if nodes.is_empty() {
         // Se não tem registro, limpa cache do sistema e força GC via drop
         drop(nodes);
@@ -103,9 +104,10 @@ async fn prune_weak_nodes(_root: &Arc<FractalCognitiveNode>) {
     }
 
     let target_removal = (nodes.len() as f64 * 0.3).ceil() as usize;
-    
+
     // Ordena nós por depth (mais profundos primeiro) e confiança (menores primeiro)
-    let mut node_vec: Vec<(u64, u8, f64)> = nodes.iter()
+    let mut node_vec: Vec<(u64, u8, f64)> = nodes
+        .iter()
         .map(|(id, node)| {
             // Tenta extrair confidence se possível (fallback para depth-based)
             let confidence = 0.5; // Placeholder - em produção, extrairia do HypothesisSet
@@ -115,30 +117,40 @@ async fn prune_weak_nodes(_root: &Arc<FractalCognitiveNode>) {
 
     node_vec.sort_by(|a, b| {
         // Ordena por depth descendente, depois confidence ascendente
-        b.1.cmp(&a.1).then_with(|| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
+        b.1.cmp(&a.1)
+            .then_with(|| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal))
     });
 
     // Remove os 30% mais fracos/antigos
-    let removed_count = node_vec.iter()
+    let removed_count = node_vec
+        .iter()
         .take(target_removal)
         .map(|(id, _, _)| {
             nodes.remove(id);
         })
         .count();
 
-    info!("✂️ PRUNING: {} nós removidos ({:.1}% do total)", removed_count, (removed_count as f64 / nodes.len().max(1) as f64) * 100.0);
+    info!(
+        "✂️ PRUNING: {} nós removidos ({:.1}% do total)",
+        removed_count,
+        (removed_count as f64 / nodes.len().max(1) as f64) * 100.0
+    );
 }
 
 /// Spawning de novos nós quando recursos sobram
 async fn spawn_new_nodes(root: &Arc<FractalCognitiveNode>, count: u8) {
     let children = root.spawn_children(count).await;
-    
+
     let mut nodes = get_active_nodes().lock().await;
     for child in children {
         nodes.insert(child.id, child);
     }
-    
-    info!("🌱 SPAWNING: {} novos nós criados (total ativo: {})", count, nodes.len());
+
+    info!(
+        "🌱 SPAWNING: {} novos nós criados (total ativo: {})",
+        count,
+        nodes.len()
+    );
 }
 
 /// Registra um nó no sistema global para tracking
@@ -156,15 +168,15 @@ pub async fn unregister_node(node_id: u64) {
 /// Inicia a recursão eterna — ponto de entrada principal
 pub async fn start_eternal_recursion() {
     info!("🚀 INICIANDO ETERNITY ENGINE...");
-    
+
     let root = get_root().await;
-    
+
     // Registra o root
     register_node(Arc::clone(&root)).await;
-    
+
     // Inicia monitoramento eterno
     EternityEngine::enforce_eternal_growth(Arc::clone(&root)).await;
-    
+
     info!("✅ ETERNITY ENGINE ATIVADO - O SISTEMA NUNCA MORRE");
 }
 
@@ -185,10 +197,10 @@ mod tests {
     async fn test_node_registration() {
         let empty_set = HypothesisSet::new();
         let node = Arc::new(FractalCognitiveNode::new(0, None, empty_set).await);
-        
+
         register_node(Arc::clone(&node)).await;
         unregister_node(node.id).await;
-        
+
         assert!(true);
     }
 }

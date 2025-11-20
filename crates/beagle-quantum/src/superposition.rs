@@ -1,8 +1,8 @@
+use beagle_smart_router::query_beagle;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use beagle_smart_router::query_beagle;
 use serde_json;
+use std::collections::HashMap;
 use tracing::{info, warn};
 
 pub type Amplitude = (f64, f64); // (real, imaginary) → clássico simulado
@@ -90,9 +90,13 @@ impl SuperpositionAgent {
     /// Gera múltiplas hipóteses reais via LLM com diversidade máxima
     /// Usa temperature alta + prompt engineering para forçar caminhos radicalmente diferentes
     pub async fn generate_hypotheses(&self, query: &str) -> anyhow::Result<HypothesisSet> {
-        info!("SuperpositionAgent: gerando {} hipóteses reais para query: {}", N_HYPOTHESES, query);
+        info!(
+            "SuperpositionAgent: gerando {} hipóteses reais para query: {}",
+            N_HYPOTHESES, query
+        );
 
-        let system_prompt = format!(r#"Você é um pesquisador genial com visões completamente divergentes.
+        let system_prompt = format!(
+            r#"Você é um pesquisador genial com visões completamente divergentes.
 
 Gere EXATAMENTE {} hipóteses científicas fundamentalmente diferentes (abordagens incompatíveis entre si) para explicar o fenômeno.
 
@@ -118,7 +122,9 @@ Formato exato (JSON array, nada mais):
 
   ...
 
-]"#, N_HYPOTHESES);
+]"#,
+            N_HYPOTHESES
+        );
 
         let user_prompt = format!("Fenômeno: {}\nGere {} hipóteses.", query, N_HYPOTHESES);
 
@@ -135,15 +141,14 @@ Formato exato (JSON array, nada mais):
         // Parseia o JSON array gerado pelo LLM
         let mut hypotheses_texts: Vec<String> = {
             match serde_json::from_str::<Vec<serde_json::Value>>(&response_text) {
-                Ok(arr) => {
-                    arr.into_iter()
-                        .filter_map(|v| {
-                            v.get("hypothesis")
-                                .and_then(|h| h.as_str())
-                                .map(|s| s.to_string())
-                        })
-                        .collect()
-                }
+                Ok(arr) => arr
+                    .into_iter()
+                    .filter_map(|v| {
+                        v.get("hypothesis")
+                            .and_then(|h| h.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .collect(),
                 Err(e) => {
                     warn!("LLM não retornou JSON válido, fallback parse manual: {}", e);
                     // Fallback robusto: split por números ou marcadores
@@ -173,14 +178,14 @@ Formato exato (JSON array, nada mais):
         let mut rng = rand::thread_rng();
 
         for text in hypotheses_texts.into_iter().take(N_HYPOTHESES) {
-            let amp: Amplitude = (
-                rng.gen_range(0.5..1.2),
-                rng.gen_range(-0.6..0.6),
-            );
+            let amp: Amplitude = (rng.gen_range(0.5..1.2), rng.gen_range(-0.6..0.6));
             set.add(text.trim().to_string(), Some(amp));
         }
 
-        info!("SuperpositionAgent: gerou {} hipóteses reais em superposição", set.hypotheses.len());
+        info!(
+            "SuperpositionAgent: gerou {} hipóteses reais em superposição",
+            set.hypotheses.len()
+        );
         Ok(set)
     }
 }
@@ -190,4 +195,3 @@ impl Default for SuperpositionAgent {
         Self::new()
     }
 }
-

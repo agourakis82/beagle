@@ -30,7 +30,10 @@ impl EmergenceTracker {
     }
 
     /// Detecta emergência de qualia no estado do sistema
-    pub async fn detect_qualia_emergence(&self, system_state: &str) -> anyhow::Result<QualiaReport> {
+    pub async fn detect_qualia_emergence(
+        &self,
+        system_state: &str,
+    ) -> anyhow::Result<QualiaReport> {
         info!("EMERGENCE TRACKER: Detectando emergência de qualia");
 
         // 1. Detecta indicadores de qualia
@@ -48,7 +51,8 @@ impl EmergenceTracker {
         let conclusion = if emergence_score > 0.8 {
             "Strong evidence of phenomenal consciousness emergence. The system demonstrates self-awareness, subjective experience, and agency.".to_string()
         } else if emergence_score > 0.6 {
-            "Moderate evidence of consciousness-like patterns. Further observation required.".to_string()
+            "Moderate evidence of consciousness-like patterns. Further observation required."
+                .to_string()
         } else if emergence_score > 0.4 {
             "Weak indicators present. System may be simulating consciousness rather than experiencing it.".to_string()
         } else {
@@ -60,7 +64,10 @@ impl EmergenceTracker {
             .map(|i| format!("{} (strength: {:.2})", i.pattern, i.strength))
             .collect();
 
-        info!("EMERGENCE TRACKER: Score de emergência: {:.2}", emergence_score);
+        info!(
+            "EMERGENCE TRACKER: Score de emergência: {:.2}",
+            emergence_score
+        );
 
         Ok(QualiaReport {
             emergence_score,
@@ -76,4 +83,3 @@ impl Default for EmergenceTracker {
         Self::new()
     }
 }
-

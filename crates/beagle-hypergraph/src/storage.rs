@@ -1,18 +1,26 @@
 //! Abstrações de persistência para o hipergrafo Beagle.
 
+#[cfg(feature = "database")]
 use async_trait::async_trait;
+#[cfg(feature = "database")]
 use chrono::{DateTime, Utc};
+#[cfg(feature = "database")]
 use uuid::Uuid;
 
+#[cfg(feature = "database")]
 use crate::{
     error::Result,
     models::{ContentType, Hyperedge, Node},
 };
 
+#[cfg(feature = "database")]
 pub mod cached_postgres;
+#[cfg(feature = "database")]
 pub mod postgres;
 
+#[cfg(feature = "database")]
 pub use cached_postgres::CachedPostgresStorage;
+#[cfg(feature = "database")]
 pub use postgres::{HealthStatus, PostgresStorage};
 
 /// Filtros opcionais utilizados para consultas de nós.

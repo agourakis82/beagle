@@ -2,7 +2,7 @@
 //!
 //! Pontua o potencial de descoberta real de cada acidente serendipitoso
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -53,7 +53,10 @@ impl FertilityScorer {
             .filter(|acc| acc.fertility_score > 0.5)
             .collect();
 
-        info!("FERTILITY SCORER: {} acidentes férteis identificados", fertile.len());
+        info!(
+            "FERTILITY SCORER: {} acidentes férteis identificados",
+            fertile.len()
+        );
         Ok(fertile)
     }
 
@@ -106,22 +109,22 @@ Responda APENAS com JSON:
 
         // Parseia JSON da resposta
         let json_text = response.choices[0].text.trim();
-        let scores: serde_json::Value = serde_json::from_str(json_text)
-            .unwrap_or_else(|_| {
-                // Fallback se JSON inválido
-                serde_json::json!({
-                    "novelty": 0.5,
-                    "plausibility": 0.5,
-                    "potential_impact": 0.5
-                })
-            });
+        let scores: serde_json::Value = serde_json::from_str(json_text).unwrap_or_else(|_| {
+            // Fallback se JSON inválido
+            serde_json::json!({
+                "novelty": 0.5,
+                "plausibility": 0.5,
+                "potential_impact": 0.5
+            })
+        });
 
         let novelty = scores["novelty"].as_f64().unwrap_or(0.5);
         let plausibility = scores["plausibility"].as_f64().unwrap_or(0.5);
         let potential_impact = scores["potential_impact"].as_f64().unwrap_or(0.5);
 
         // Fertility score = média ponderada (novidade e impacto têm mais peso)
-        let fertility_score = (novelty * 0.4 + plausibility * 0.2 + potential_impact * 0.4).min(1.0);
+        let fertility_score =
+            (novelty * 0.4 + plausibility * 0.2 + potential_impact * 0.4).min(1.0);
 
         Ok(FertileAccident {
             content: accident.to_string(),
@@ -138,4 +141,3 @@ impl Default for FertilityScorer {
         Self::new()
     }
 }
-

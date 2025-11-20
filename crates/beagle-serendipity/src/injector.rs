@@ -3,12 +3,12 @@
 //! Injeta acidentes científicos férteis em ciclos cognitivos estabilizados
 
 use crate::{
-    cross_domain_mutator::CrossDomainMutator,
     anomaly_amplifier::AnomalyAmplifier,
-    fertility_scorer::{FertilityScorer, FertileAccident},
+    cross_domain_mutator::CrossDomainMutator,
+    fertility_scorer::{FertileAccident, FertilityScorer},
 };
-use beagle_quantum::HypothesisSet;
 use beagle_metacog::MetacognitiveReflector;
+use beagle_quantum::HypothesisSet;
 use tracing::{info, warn};
 
 #[derive(Debug)]
@@ -159,4 +159,3 @@ impl Default for SerendipityInjector {
         Self::new()
     }
 }
-

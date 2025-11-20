@@ -16,9 +16,9 @@ impl HeliobiologyPlatform {
 
     pub async fn forecast_kairos(&self, history: &[f32]) -> Result<Vec<f32>> {
         info!("🔮 Forecasting com Kairos");
-        
+
         let history_json = serde_json::to_string(history)?;
-        
+
         let script = format!(
             r#"
             using Pkg
@@ -34,7 +34,7 @@ impl HeliobiologyPlatform {
             "#,
             history_json
         );
-        
+
         let output = Command::new("julia")
             .arg("--project=beagle-julia")
             .arg("-e")
@@ -42,18 +42,18 @@ impl HeliobiologyPlatform {
             .current_dir("/mnt/e/workspace/beagle-remote")
             .output()
             .context("Falha ao executar Julia")?;
-        
+
         let stdout = String::from_utf8(output.stdout)?;
         let pred: Vec<f32> = serde_json::from_str(&stdout.trim())?;
-        
+
         Ok(pred)
     }
 
     pub async fn predict_mood_hrv(&self, rr_intervals: &[f32]) -> Result<Vec<f32>> {
         info!("😊 Predizendo humor via HRV");
-        
+
         let rr_json = serde_json::to_string(rr_intervals)?;
-        
+
         let script = format!(
             r#"
             using Pkg
@@ -69,7 +69,7 @@ impl HeliobiologyPlatform {
             "#,
             rr_json
         );
-        
+
         let output = Command::new("julia")
             .arg("--project=beagle-julia")
             .arg("-e")
@@ -77,10 +77,10 @@ impl HeliobiologyPlatform {
             .current_dir("/mnt/e/workspace/beagle-remote")
             .output()
             .context("Falha ao executar Julia")?;
-        
+
         let stdout = String::from_utf8(output.stdout)?;
         let pred: Vec<f32> = serde_json::from_str(&stdout.trim())?;
-        
+
         Ok(pred)
     }
 }
@@ -90,4 +90,3 @@ impl Default for HeliobiologyPlatform {
         Self::new()
     }
 }
-

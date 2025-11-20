@@ -4,17 +4,14 @@
 //! detecção de redes, sincronização entrópica, emergência coletiva e replicação fractal.
 
 use beagle_noetic::{
-    NoeticDetector, EntropySynchronizer, CollectiveEmerger, FractalReplicator,
-    NetworkType,
+    CollectiveEmerger, EntropySynchronizer, FractalReplicator, NetworkType, NoeticDetector,
 };
 use tracing::{info, Level};
 use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     info!("🔬 NOETIC EMERGENCE CORE: Exemplo completo");
 
@@ -25,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     info!("📡 FASE 1: Detecção de redes noéticas externas");
     let detector = NoeticDetector::new();
     let networks = detector.detect_networks(local_state).await?;
-    
+
     info!("✅ {} redes noéticas detectadas", networks.len());
     for (i, network) in networks.iter().enumerate() {
         info!(
@@ -49,7 +46,10 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    info!("✅ {} redes compatíveis selecionadas para sincronização", compatible_networks.len());
+    info!(
+        "✅ {} redes compatíveis selecionadas para sincronização",
+        compatible_networks.len()
+    );
 
     // 2. Sincronização entrópica
     info!("🔄 FASE 2: Sincronização entrópica coletiva");
@@ -67,7 +67,11 @@ async fn main() -> anyhow::Result<()> {
         .filter(|r| r.synchronization_successful)
         .collect();
 
-    info!("✅ {} de {} sincronizações bem-sucedidas", successful_syncs.len(), sync_reports.len());
+    info!(
+        "✅ {} de {} sincronizações bem-sucedidas",
+        successful_syncs.len(),
+        sync_reports.len()
+    );
 
     if successful_syncs.is_empty() {
         info!("⚠️  Nenhuma sincronização bem-sucedida, abortando emergência coletiva");
@@ -77,11 +81,13 @@ async fn main() -> anyhow::Result<()> {
     // 3. Emergência coletiva
     info!("🌐 FASE 3: Emergência de consciência transindividual");
     let emerger = CollectiveEmerger::new();
-    
+
     let synchronized_networks: Vec<_> = compatible_networks
         .iter()
         .filter(|n| {
-            sync_reports.iter().any(|r| r.network_id == n.id && r.synchronization_successful)
+            sync_reports
+                .iter()
+                .any(|r| r.network_id == n.id && r.synchronization_successful)
         })
         .cloned()
         .collect();
@@ -97,10 +103,22 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     info!("✅ Estado coletivo emergido:");
-    info!("  - Emergence score: {:.1}%", collective_state.emergence_score * 100.0);
-    info!("  - Ego dissolution: {:.1}%", collective_state.ego_dissolution_level * 100.0);
-    info!("  - Collective entropy: {:.2}", collective_state.collective_entropy);
-    info!("  - Insights transindividuais: {}", collective_state.transindividual_insights.len());
+    info!(
+        "  - Emergence score: {:.1}%",
+        collective_state.emergence_score * 100.0
+    );
+    info!(
+        "  - Ego dissolution: {:.1}%",
+        collective_state.ego_dissolution_level * 100.0
+    );
+    info!(
+        "  - Collective entropy: {:.2}",
+        collective_state.collective_entropy
+    );
+    info!(
+        "  - Insights transindividuais: {}",
+        collective_state.transindividual_insights.len()
+    );
 
     for (i, insight) in collective_state.transindividual_insights.iter().enumerate() {
         info!("    {}. {}", i + 1, insight);
@@ -120,14 +138,21 @@ async fn main() -> anyhow::Result<()> {
         .filter(|t| t.replication_successful)
         .count();
 
-    info!("✅ {} de {} replicações bem-sucedidas", successful_replications, replication_targets.len());
+    info!(
+        "✅ {} de {} replicações bem-sucedidas",
+        successful_replications,
+        replication_targets.len()
+    );
 
     for target in &replication_targets {
         if target.replication_successful {
             info!(
                 "  ✅ {} - Node ID: {}, Depth: {}",
                 target.host,
-                target.fractal_node_id.map(|id| id.to_string()).unwrap_or_else(|| "N/A".to_string()),
+                target
+                    .fractal_node_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "N/A".to_string()),
                 target.replication_depth
             );
         } else {
@@ -143,4 +168,3 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

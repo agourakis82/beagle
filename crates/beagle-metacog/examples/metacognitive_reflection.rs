@@ -2,9 +2,9 @@
 //!
 //! Demonstra reflexão metacognitiva sobre um ciclo completo de pensamento
 
-use beagle_metacog::MetacognitiveReflector;
-use beagle_quantum::{HypothesisSet, Hypothesis};
 use beagle_llm::validation::{CitationValidity, ValidationResult};
+use beagle_metacog::MetacognitiveReflector;
+use beagle_quantum::{Hypothesis, HypothesisSet};
 use tracing_subscriber;
 
 #[tokio::main]
@@ -95,7 +95,10 @@ Adversarial Iteration 3: Quality 94.2%
     println!("\n📊 ANÁLISE DE VIÉS:");
     println!("   Tipo dominante: {:?}", report.bias_report.dominant_bias);
     println!("   Severidade: {:.1}%", report.bias_report.severity * 100.0);
-    println!("   Confiança: {:.1}%", report.bias_report.confidence * 100.0);
+    println!(
+        "   Confiança: {:.1}%",
+        report.bias_report.confidence * 100.0
+    );
     if !report.bias_report.detected_patterns.is_empty() {
         println!("   Padrões detectados:");
         for pattern in &report.bias_report.detected_patterns {
@@ -104,17 +107,41 @@ Adversarial Iteration 3: Quality 94.2%
     }
 
     println!("\n🌊 ANÁLISE DE ENTROPIA:");
-    println!("   Entropia de Shannon: {:.2}", report.entropy_report.shannon_entropy);
-    println!("   Índice de ruminação: {:.2}", report.entropy_report.rumination_index);
-    println!("   Ruminação patológica: {}", if report.entropy_report.pathological_rumination { "SIM" } else { "não" });
-    println!("   Fixação detectada: {}", if report.entropy_report.fixation_detected { "SIM" } else { "não" });
+    println!(
+        "   Entropia de Shannon: {:.2}",
+        report.entropy_report.shannon_entropy
+    );
+    println!(
+        "   Índice de ruminação: {:.2}",
+        report.entropy_report.rumination_index
+    );
+    println!(
+        "   Ruminação patológica: {}",
+        if report.entropy_report.pathological_rumination {
+            "SIM"
+        } else {
+            "não"
+        }
+    );
+    println!(
+        "   Fixação detectada: {}",
+        if report.entropy_report.fixation_detected {
+            "SIM"
+        } else {
+            "não"
+        }
+    );
     println!("   Tendência: {:?}", report.entropy_report.entropy_trend);
 
     if let Some(intervention) = &report.correction {
         println!("\n🔧 INTERVENÇÃO METACOGNITIVA:");
-        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!(
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        );
         println!("{}", intervention);
-        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!(
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        );
     } else {
         println!("\n✅ Nenhuma intervenção necessária - sistema em fluxo ótimo");
     }
@@ -125,4 +152,3 @@ Adversarial Iteration 3: Quality 94.2%
     println!("\n🎯 Reflexão metacognitiva completa!");
     Ok(())
 }
-

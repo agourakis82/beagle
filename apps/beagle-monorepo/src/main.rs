@@ -4,6 +4,8 @@
 //! - pipeline : pipeline v0.1 (pergunta → draft.md → summary.json)
 //! - ide      : orientação para abrir a IDE Tauri
 
+pub mod pipeline;
+
 use anyhow::{Context, Result};
 use beagle_config::{beagle_data_dir, ensure_dirs, load as load_config};
 use beagle_health::check_all;

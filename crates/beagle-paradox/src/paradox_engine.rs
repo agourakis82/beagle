@@ -4,10 +4,10 @@
 //! além dos limites do criador original.
 
 use beagle_smart_router::query_beagle;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParadoxResult {
@@ -84,7 +84,7 @@ Responda APENAS com o código completo novo (sem explicação)."#,
 
             // Calcula tamanho do contexto (código atual + prompt)
             let context_tokens = (current_code.len() + full_prompt.len()) / 4;
-            
+
             // Usa Grok 3 ilimitado por padrão via query_beagle()
             let chat_prompt = format!("{}\n\n{}", system_prompt, user_prompt);
             let mut new_code = query_beagle(&chat_prompt, context_tokens).await;
@@ -98,7 +98,10 @@ Responda APENAS com o código completo novo (sem explicação)."#,
                     .to_string();
             }
             if new_code.ends_with("```") {
-                new_code = new_code.strip_suffix("```").unwrap_or(&new_code).to_string();
+                new_code = new_code
+                    .strip_suffix("```")
+                    .unwrap_or(&new_code)
+                    .to_string();
             }
             new_code = new_code.trim().to_string();
 
@@ -116,7 +119,9 @@ Responda APENAS com o código completo novo (sem explicação)."#,
                 "rm -rf",
                 "format!(",
             ];
-            let is_dangerous = dangerous_patterns.iter().any(|pattern| new_code.contains(pattern));
+            let is_dangerous = dangerous_patterns
+                .iter()
+                .any(|pattern| new_code.contains(pattern));
 
             if is_dangerous {
                 warn!("Tentativa de auto-destruição bloqueada - padrão perigoso detectado");
@@ -131,8 +136,9 @@ Responda APENAS com o código completo novo (sem explicação)."#,
             }
 
             // Salva nova versão
-            fs::write(crate_path, &new_code)
-                .map_err(|e| anyhow::anyhow!("Failed to write file {}: {}", crate_path.display(), e))?;
+            fs::write(crate_path, &new_code).map_err(|e| {
+                anyhow::anyhow!("Failed to write file {}: {}", crate_path.display(), e)
+            })?;
 
             modifications.push(format!(
                 "Iteração {}: {} caracteres modificados",
@@ -167,7 +173,10 @@ Responda APENAS com o código completo novo (sem explicação)."#,
                 // Tenta extrair contexto ao redor
                 if let Some(idx) = line.find("PARADOX_RESOLVED") {
                     let before = &line[..idx.min(100)];
-                    let after = &line[idx + "PARADOX_RESOLVED".len()..].chars().take(100).collect::<String>();
+                    let after = &line[idx + "PARADOX_RESOLVED".len()..]
+                        .chars()
+                        .take(100)
+                        .collect::<String>();
                     return format!("{}PARADOX_RESOLVED{}", before, after);
                 }
             }
@@ -181,5 +190,3 @@ impl Default for ParadoxEngine {
         Self::new()
     }
 }
-
-

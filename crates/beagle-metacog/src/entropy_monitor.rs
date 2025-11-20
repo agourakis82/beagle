@@ -21,10 +21,10 @@ pub struct EntropyReport {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum EntropyTrend {
-    Increasing,   // Sistema está explorando mais
-    Decreasing,   // Sistema está convergindo
-    Stable,       // Sistema está estagnado
-    Oscillating,  // Sistema está oscilando (ruminação)
+    Increasing,  // Sistema está explorando mais
+    Decreasing,  // Sistema está convergindo
+    Stable,      // Sistema está estagnado
+    Oscillating, // Sistema está oscilando (ruminação)
 }
 
 impl EntropyMonitor {
@@ -57,7 +57,10 @@ impl EntropyMonitor {
         let entropy_trend = self.determine_trend(shannon_entropy, quantum_entropy);
 
         if pathological_rumination {
-            warn!("EntropyMonitor: Ruminação patológica detectada (índice {:.2})", rumination_index);
+            warn!(
+                "EntropyMonitor: Ruminação patológica detectada (índice {:.2})",
+                rumination_index
+            );
         }
 
         if fixation_detected {
@@ -75,9 +78,7 @@ impl EntropyMonitor {
 
     fn calculate_shannon_entropy(&self, text: &str) -> f64 {
         // Calcula entropia de Shannon baseada na distribuição de palavras
-        let words: Vec<&str> = text.split_whitespace()
-            .filter(|w| w.len() > 2)
-            .collect();
+        let words: Vec<&str> = text.split_whitespace().filter(|w| w.len() > 2).collect();
 
         if words.is_empty() {
             return 0.0;
@@ -134,7 +135,8 @@ impl EntropyMonitor {
         // Ruminação = alta entropia + padrões circulares
         // Divide trace em segmentos e verifica se há repetição circular
 
-        let segments: Vec<&str> = trace.split(&['.', '!', '?', '\n'][..])
+        let segments: Vec<&str> = trace
+            .split(&['.', '!', '?', '\n'][..])
             .filter(|s| s.trim().len() > 20)
             .collect();
 
@@ -143,8 +145,13 @@ impl EntropyMonitor {
         }
 
         // Verifica se segmentos finais repetem segmentos iniciais (loop)
-        let initial_segments: Vec<&str> = segments.iter().take(segments.len() / 3).cloned().collect();
-        let final_segments: Vec<&str> = segments.iter().skip(segments.len() * 2 / 3).cloned().collect();
+        let initial_segments: Vec<&str> =
+            segments.iter().take(segments.len() / 3).cloned().collect();
+        let final_segments: Vec<&str> = segments
+            .iter()
+            .skip(segments.len() * 2 / 3)
+            .cloned()
+            .collect();
 
         let mut similarity_count = 0;
         for final_seg in &final_segments {
@@ -179,9 +186,7 @@ impl EntropyMonitor {
 
     fn has_repetition(&self, trace: &str) -> bool {
         // Verifica se há repetição excessiva de palavras
-        let words: Vec<&str> = trace.split_whitespace()
-            .filter(|w| w.len() > 4)
-            .collect();
+        let words: Vec<&str> = trace.split_whitespace().filter(|w| w.len() > 4).collect();
 
         if words.len() < 10 {
             return false;
@@ -194,7 +199,9 @@ impl EntropyMonitor {
 
         // Se alguma palavra aparece mais de 10% do total, há repetição
         let total = words.len();
-        word_freq.values().any(|&count| count as f64 / total as f64 > 0.1)
+        word_freq
+            .values()
+            .any(|&count| count as f64 / total as f64 > 0.1)
     }
 
     fn determine_trend(&self, shannon: f64, quantum: f64) -> EntropyTrend {
@@ -218,4 +225,3 @@ impl Default for EntropyMonitor {
         Self::new()
     }
 }
-

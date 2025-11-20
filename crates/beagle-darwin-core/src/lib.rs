@@ -21,12 +21,9 @@
 //!     .merge(beagle_darwin_core::darwin_routes());
 //! ```
 
-use axum::{
-    routing::post,
-    Json, Router,
-};
-use beagle_smart_router::query_smart;
+use axum::{routing::post, Json, Router};
 use beagle_darwin::DarwinCore;
+use beagle_smart_router::query_smart;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -71,9 +68,7 @@ pub async fn graph_rag_handler(Json(payload): Json<RagRequest>) -> Json<RagRespo
     info!("🔍 Darwin GraphRAG chamado: {}", payload.question);
 
     let darwin = DarwinCore::new();
-    let answer = darwin
-        .graph_rag_query(&payload.question)
-        .await;
+    let answer = darwin.graph_rag_query(&payload.question).await;
 
     Json(RagResponse {
         answer,
@@ -90,7 +85,7 @@ pub async fn self_rag_handler(Json(payload): Json<SelfRagRequest>) -> Json<RagRe
     info!("🎯 Darwin Self-RAG chamado: {}", payload.question);
 
     let darwin = DarwinCore::new();
-    
+
     // Se não forneceu resposta inicial, faz GraphRAG primeiro
     let initial = payload.initial_answer.unwrap_or_else(|| {
         // Em produção, isso seria async, mas para simplificar:
@@ -118,8 +113,11 @@ pub async fn self_rag_handler(Json(payload): Json<SelfRagRequest>) -> Json<RagRe
 
 /// Handler para Plugin System endpoint
 pub async fn plugin_handler(Json(payload): Json<PluginRequest>) -> Json<PluginResponse> {
-    info!("🔌 Darwin Plugin System: plugin={}, prompt_len={}", 
-          payload.plugin, payload.prompt.len());
+    info!(
+        "🔌 Darwin Plugin System: plugin={}, prompt_len={}",
+        payload.plugin,
+        payload.prompt.len()
+    );
 
     let darwin = DarwinCore::new();
     let result = darwin
@@ -167,7 +165,8 @@ mod tests {
 
         // Pode retornar OK ou erro se não tiver LLM configurado, mas estrutura está correta
         assert!(
-            response.status() == StatusCode::OK || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            response.status() == StatusCode::OK
+                || response.status() == StatusCode::INTERNAL_SERVER_ERROR
         );
     }
 
@@ -180,14 +179,15 @@ mod tests {
             .method("POST")
             .header("Content-Type", "application/json")
             .body(Body::from(
-                r#"{"question": "test", "initial_answer": "test answer"}"#
+                r#"{"question": "test", "initial_answer": "test answer"}"#,
             ))
             .unwrap();
 
         let response = app.oneshot(request).await.unwrap();
 
         assert!(
-            response.status() == StatusCode::OK || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            response.status() == StatusCode::OK
+                || response.status() == StatusCode::INTERNAL_SERVER_ERROR
         );
     }
 
@@ -199,15 +199,14 @@ mod tests {
             .uri("/darwin/plugin")
             .method("POST")
             .header("Content-Type", "application/json")
-            .body(Body::from(
-                r#"{"prompt": "test", "plugin": "grok3"}"#
-            ))
+            .body(Body::from(r#"{"prompt": "test", "plugin": "grok3"}"#))
             .unwrap();
 
         let response = app.oneshot(request).await.unwrap();
 
         assert!(
-            response.status() == StatusCode::OK || response.status() == StatusCode::INTERNAL_SERVER_ERROR
+            response.status() == StatusCode::OK
+                || response.status() == StatusCode::INTERNAL_SERVER_ERROR
         );
     }
 }

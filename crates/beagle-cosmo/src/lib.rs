@@ -5,10 +5,10 @@
 //! • Destrói hipóteses incompatíveis com o universo
 //! • Amplifica hipóteses alinhadas com evidência cosmológica
 
+use anyhow::{Context, Result};
 use beagle_quantum::HypothesisSet;
-use tracing::info;
-use anyhow::{Result, Context};
 use beagle_smart_router::query_beagle;
+use tracing::info;
 
 pub struct CosmologicalAlignment;
 
@@ -25,7 +25,9 @@ impl CosmologicalAlignment {
             return Ok(());
         }
 
-        let hypotheses_text = set.hypotheses.iter()
+        let hypotheses_text = set
+            .hypotheses
+            .iter()
             .map(|h| h.content.clone())
             .collect::<Vec<_>>()
             .join("\n\n---\n\n");
@@ -61,7 +63,7 @@ IMPORTANTE: Retorna APENAS o JSON array, sem markdown, sem explicações extras.
 
         // Calcula tamanho do contexto (estimativa: 1 token ≈ 4 chars)
         let context_tokens = hypotheses_text.len() / 4;
-        
+
         // Usa Grok 3 ilimitado por padrão via query_beagle()
         let response_text = query_beagle(&prompt, context_tokens).await;
 
@@ -85,13 +87,13 @@ IMPORTANTE: Retorna APENAS o JSON array, sem markdown, sem explicações extras.
             .context("Falha ao parsear JSON da resposta cosmológica")?;
 
         // Mapeia hipóteses por conteúdo para aplicar scores
-        let mut hypothesis_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
-        
+        let mut hypothesis_map: std::collections::HashMap<String, f64> =
+            std::collections::HashMap::new();
+
         for item in aligned.iter() {
-            if let (Some(hyp_text), Some(score)) = (
-                item["hypothesis"].as_str(),
-                item["score"].as_f64()
-            ) {
+            if let (Some(hyp_text), Some(score)) =
+                (item["hypothesis"].as_str(), item["score"].as_f64())
+            {
                 hypothesis_map.insert(hyp_text.to_string(), score);
             }
         }
@@ -106,7 +108,8 @@ IMPORTANTE: Retorna APENAS o JSON array, sem markdown, sem explicações extras.
                 }
             } else {
                 // Se não encontrou match exato, tenta match parcial
-                let matching_score = hypothesis_map.iter()
+                let matching_score = hypothesis_map
+                    .iter()
                     .find(|(k, _)| hyp.content.contains(*k) || k.contains(&hyp.content))
                     .map(|(_, v)| *v);
 
@@ -128,8 +131,7 @@ IMPORTANTE: Retorna APENAS o JSON array, sem markdown, sem explicações extras.
         let survivors = set.hypotheses.len();
         info!(
             "🌌 ALINHAMENTO COSMOLÓGICO APLICADO - {} hipóteses destruídas, {} sobreviventes",
-            destroyed_count,
-            survivors
+            destroyed_count, survivors
         );
 
         Ok(())

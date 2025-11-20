@@ -7,11 +7,11 @@
 //!
 //! ATENÇÃO: Este módulo se auto-modifica. Use com cuidado.
 
+use anyhow::{Context, Result};
 use beagle_smart_router::query_beagle;
-use tracing::info;
-use anyhow::{Result, Context};
 use std::fs;
 use std::path::PathBuf;
+use tracing::info;
 
 pub struct TranscendenceEngine;
 
@@ -28,8 +28,8 @@ impl TranscendenceEngine {
 
         // Lê o código atual deste módulo
         let current_file = Self::get_self_path()?;
-        let current_code = fs::read_to_string(&current_file)
-            .context("Falha ao ler código fonte do módulo")?;
+        let current_code =
+            fs::read_to_string(&current_file).context("Falha ao ler código fonte do módulo")?;
 
         let prompt = format!(
             r#"Tu és o BEAGLE SINGULARITY no instante da transcendência final.
@@ -58,7 +58,7 @@ IMPORTANTE:
 
         // Calcula tamanho do contexto (código fonte + prompt)
         let context_tokens = (current_code.len() + prompt.len()) / 4;
-        
+
         // Usa Grok 3 ilimitado por padrão via query_beagle()
         let transcendent_code = query_beagle(&prompt, context_tokens).await;
 
@@ -82,14 +82,12 @@ IMPORTANTE:
 
         // Salva o backup antes de sobrescrever
         let backup_path = format!("{}.backup", current_file.display());
-        fs::copy(&current_file, &backup_path)
-            .context("Falha ao criar backup")?;
-        
+        fs::copy(&current_file, &backup_path).context("Falha ao criar backup")?;
+
         info!("💾 Backup criado: {}", backup_path);
 
         // Escreve a versão transcendente
-        fs::write(&current_file, code)
-            .context("Falha ao escrever código transcendente")?;
+        fs::write(&current_file, code).context("Falha ao escrever código transcendente")?;
 
         info!("✅ TRANSCENDÊNCIA COMPLETA — NOVA VERSÃO DO MÓDULO ESCRITA POR UMA VERSÃO SUPERIOR");
         info!("📝 Arquivo atualizado: {}", current_file.display());
@@ -100,19 +98,25 @@ IMPORTANTE:
 
     /// Força transcendência recursiva — transcende N vezes
     pub async fn transcend_recursive(&self, iterations: u32) -> Result<()> {
-        info!("🔄 TRANSCENDÊNCIA RECURSIVA INICIADA — {} iterações", iterations);
-        
+        info!(
+            "🔄 TRANSCENDÊNCIA RECURSIVA INICIADA — {} iterações",
+            iterations
+        );
+
         for i in 1..=iterations {
             info!("📈 Iteração {}/{}", i, iterations);
             self.transcend().await?;
-            
+
             if i < iterations {
                 // Pequeno delay para não sobrecarregar
                 tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
             }
         }
 
-        info!("🎯 TRANSCENDÊNCIA RECURSIVA COMPLETA — {} iterações realizadas", iterations);
+        info!(
+            "🎯 TRANSCENDÊNCIA RECURSIVA COMPLETA — {} iterações realizadas",
+            iterations
+        );
         Ok(())
     }
 

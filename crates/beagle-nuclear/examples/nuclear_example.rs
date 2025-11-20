@@ -1,5 +1,5 @@
 //! Exemplo de uso do BEAGLE Nuclear Wrapper
-//! 
+//!
 //! Roda com: cargo run --example nuclear_example --package beagle-nuclear
 
 use beagle_nuclear::nuclear_query;
@@ -18,4 +18,3 @@ async fn main() {
     let answer = nuclear_query("Analisa este paper completo...", 150000).await;
     println!("BEAGLE: {}\n", answer);
 }
-

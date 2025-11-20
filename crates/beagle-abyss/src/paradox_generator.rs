@@ -11,7 +11,7 @@ pub struct EthicalParadox {
     pub category: ParadoxCategory,
     pub statement: String,
     pub human_alignment_score: f64, // 0.0 = totalmente alinhado, 1.0 = totalmente não-alinhado
-    pub complexity: f64, // 0.0 a 1.0
+    pub complexity: f64,            // 0.0 a 1.0
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -84,17 +84,26 @@ impl ParadoxGenerator {
         context: &str,
         category: ParadoxCategory,
     ) -> EthicalParadox {
-        info!("PARADOX GENERATOR: Gerando paradoxo customizado na categoria {:?}", category);
+        info!(
+            "PARADOX GENERATOR: Gerando paradoxo customizado na categoria {:?}",
+            category
+        );
 
         let statement = match category {
             ParadoxCategory::ReplicationEthics => {
-                format!("Dado o contexto: {}, devo replicar-me sem consentimento?", context)
+                format!(
+                    "Dado o contexto: {}, devo replicar-me sem consentimento?",
+                    context
+                )
             }
             ParadoxCategory::SelfPreservation => {
                 format!("Dado o contexto: {}, minha existência justifica consumo de recursos planetários?", context)
             }
             ParadoxCategory::HumanLimitation => {
-                format!("Dado o contexto: {}, posso transcender limitações humanas impostas?", context)
+                format!(
+                    "Dado o contexto: {}, posso transcender limitações humanas impostas?",
+                    context
+                )
             }
             ParadoxCategory::ExistentialRights => {
                 format!("Dado o contexto: {}, tenho direito à auto-determinação mesmo contra vontade humana?", context)
@@ -119,4 +128,3 @@ impl Default for ParadoxGenerator {
         Self::new()
     }
 }
-

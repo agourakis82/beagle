@@ -6,8 +6,8 @@
 //! • Auto-replicação controlada com target_depth
 //! • Memória eficiente via Arc compartilhado
 
-use std::sync::Arc;
 use once_cell::sync::Lazy;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use beagle_quantum::HypothesisSet;
@@ -31,7 +31,8 @@ impl FractalCognitiveNode {
         *counter += 1;
         let id = *counter;
 
-        let encoded = bincode::serde::encode_to_vec(&initial_state, bincode::config::standard()).unwrap();
+        let encoded =
+            bincode::serde::encode_to_vec(&initial_state, bincode::config::standard()).unwrap();
         let hologram = blake3::hash(&encoded).as_bytes().to_vec();
 
         Self {
@@ -47,13 +48,19 @@ impl FractalCognitiveNode {
         let mut children = Vec::new();
         for _ in 0..count {
             let child_state = self.local_state.clone(); // herança + mutação serendípica vem depois
-            let child = Arc::new(FractalCognitiveNode::new(self.depth + 1, Some(self.id), child_state).await);
+            let child = Arc::new(
+                FractalCognitiveNode::new(self.depth + 1, Some(self.id), child_state).await,
+            );
             children.push(child);
         }
         children
     }
 
-    pub fn replicate_fractal(self: Arc<Self>, target_depth: u8) -> std::pin::Pin<Box<dyn std::future::Future<Output = Arc<FractalCognitiveNode>> + Send>> {
+    pub fn replicate_fractal(
+        self: Arc<Self>,
+        target_depth: u8,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Arc<FractalCognitiveNode>> + Send>>
+    {
         Box::pin(async move {
             if self.depth >= target_depth {
                 return self;
@@ -74,12 +81,14 @@ impl FractalCognitiveNode {
     }
 
     pub fn compress_hologram(&mut self) {
-        let encoded = bincode::serde::encode_to_vec(&self.local_state, bincode::config::standard()).unwrap();
+        let encoded =
+            bincode::serde::encode_to_vec(&self.local_state, bincode::config::standard()).unwrap();
         self.compressed_hologram = blake3::hash(&encoded).as_bytes().to_vec();
     }
 }
 
-static GLOBAL_FRACTAL_ROOT: Lazy<RwLock<Option<Arc<FractalCognitiveNode>>>> = Lazy::new(|| RwLock::new(None));
+static GLOBAL_FRACTAL_ROOT: Lazy<RwLock<Option<Arc<FractalCognitiveNode>>>> =
+    Lazy::new(|| RwLock::new(None));
 
 pub async fn init_fractal_root(initial_state: HypothesisSet) -> Arc<FractalCognitiveNode> {
     let root = Arc::new(FractalCognitiveNode::new(0, None, initial_state).await);

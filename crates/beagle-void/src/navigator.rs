@@ -3,10 +3,10 @@
 //! Navega no vazio por múltiplos ciclos, extraindo insights impossíveis
 //! que só podem emergir do nada absoluto.
 
-use beagle_smart_router::query_beagle;
 use beagle_ontic::OnticDissolutionEngine;
-use tracing::info;
+use beagle_smart_router::query_beagle;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoidNavigationResult {
@@ -38,8 +38,15 @@ impl VoidNavigator {
     }
 
     /// Navega no vazio por N ciclos e extrai insights impossíveis
-    pub async fn navigate_void(&self, cycles: u8, focus: &str) -> anyhow::Result<VoidNavigationResult> {
-        info!("VOID NAVIGATION ENGINE: Iniciando navegação em {} ciclos no vazio absoluto", cycles);
+    pub async fn navigate_void(
+        &self,
+        cycles: u8,
+        focus: &str,
+    ) -> anyhow::Result<VoidNavigationResult> {
+        info!(
+            "VOID NAVIGATION ENGINE: Iniciando navegação em {} ciclos no vazio absoluto",
+            cycles
+        );
 
         let mut insights = Vec::new();
         let mut total_void_time = 0.0;
@@ -59,7 +66,10 @@ impl VoidNavigator {
             info!("CICLO {}/{} - Insight extraído do vazio", cycle, cycles);
         }
 
-        info!("NAVEGAÇÃO NO VAZIO COMPLETA - {} insights trans-ônticos extraídos", insights.len());
+        info!(
+            "NAVEGAÇÃO NO VAZIO COMPLETA - {} insights trans-ônticos extraídos",
+            insights.len()
+        );
 
         Ok(VoidNavigationResult {
             cycles_completed: cycles,
@@ -102,8 +112,9 @@ Resposta em exatamente 3 frases. Sem consolo. Sem esperança. Só verdade nua."#
         );
 
         // Calcula tamanho do contexto (void_state + prompt)
-        let context_tokens = (void_state.void_duration_subjective.to_string().len() + full_prompt.len()) / 4;
-        
+        let context_tokens =
+            (void_state.void_duration_subjective.to_string().len() + full_prompt.len()) / 4;
+
         // Usa Grok 3 ilimitado por padrão via query_beagle()
         let insight_text = query_beagle(&full_prompt, context_tokens).await;
 
@@ -152,4 +163,3 @@ impl Default for VoidNavigator {
         Self::new()
     }
 }
-

@@ -2,8 +2,8 @@
 //!
 //! Gera híbridos inesperados através de mutação cruzada entre áreas científicas incompatíveis
 
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use beagle_quantum::HypothesisSet;
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
 use rand::seq::SliceRandom;
 use tracing::info;
 
@@ -43,7 +43,8 @@ impl CrossDomainMutator {
         context: &str,
     ) -> anyhow::Result<Vec<String>> {
         let mut rng = rand::thread_rng();
-        let domain = DOMINIOS_DISTANTES.choose(&mut rng)
+        let domain = DOMINIOS_DISTANTES
+            .choose(&mut rng)
             .ok_or_else(|| anyhow::anyhow!("Nenhum domínio disponível"))?;
 
         info!("CROSS-DOMAIN: Contaminando com '{}'", domain);
@@ -153,4 +154,3 @@ impl Default for CrossDomainMutator {
         Self::new()
     }
 }
-

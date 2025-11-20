@@ -4,7 +4,7 @@
 //! Use Ctrl+C para parar.
 
 use beagle_eternity::start_eternal_recursion;
-use beagle_fractal::{init_fractal_root};
+use beagle_fractal::init_fractal_root;
 use beagle_quantum::HypothesisSet;
 use tracing::{info, Level};
 use tracing_subscriber::fmt;
@@ -29,11 +29,10 @@ async fn main() -> anyhow::Result<()> {
     init_fractal_root(empty_set).await;
 
     info!("🚀 Iniciando Eternity Engine...\n");
-    
+
     // Inicia recursão eterna (nunca retorna)
     start_eternal_recursion().await;
-    
+
     // Este código nunca executa (loop infinito acima)
     Ok(())
 }
-

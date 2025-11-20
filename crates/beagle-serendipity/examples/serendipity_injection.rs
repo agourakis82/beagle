@@ -2,8 +2,8 @@
 //!
 //! Demonstra injeção de acidentes científicos férteis
 
+use beagle_quantum::{Hypothesis, HypothesisSet};
 use beagle_serendipity::SerendipityInjector;
-use beagle_quantum::{HypothesisSet, Hypothesis};
 use tracing_subscriber;
 
 #[tokio::main]
@@ -32,10 +32,17 @@ async fn main() -> anyhow::Result<()> {
         Some((0.7, 0.1)),
     );
 
-    println!("📊 Estado quântico atual: {} hipóteses estabilizadas", current_set.hypotheses.len());
+    println!(
+        "📊 Estado quântico atual: {} hipóteses estabilizadas",
+        current_set.hypotheses.len()
+    );
     for (i, hyp) in current_set.hypotheses.iter().enumerate() {
-        println!("  {}. [{:.1}%] {}", i + 1, hyp.confidence * 100.0,
-                 &hyp.content[..hyp.content.len().min(60)]);
+        println!(
+            "  {}. [{:.1}%] {}",
+            i + 1,
+            hyp.confidence * 100.0,
+            &hyp.content[..hyp.content.len().min(60)]
+        );
     }
     println!();
 
@@ -57,16 +64,21 @@ async fn main() -> anyhow::Result<()> {
     if accidents.is_empty() {
         println!("⚠️  Nenhum acidente fértil gerado (pode ser rejeitado pelo metacog)");
     } else {
-        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!(
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        );
         println!("✅ ACIDENTES FÉRTEIS GERADOS: {}", accidents.len());
-        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!(
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        );
         for (i, accident) in accidents.iter().enumerate() {
             println!("\n{}. {}", i + 1, accident);
         }
-        println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        println!(
+            "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        );
     }
 
     println!("\n🎯 Serendipity Engine completo!");
     Ok(())
 }
-

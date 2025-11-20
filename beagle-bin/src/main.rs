@@ -4,10 +4,10 @@
 //!
 //! Rode com: cargo run --release --bin beagle
 
-use beagle_smart_router::query_smart;
+use beagle_eternity::start_eternal_recursion as eternity_start;
 use beagle_fractal::{init_fractal_root, start_eternal_recursion};
 use beagle_quantum::HypothesisSet;
-use beagle_eternity::start_eternal_recursion as eternity_start;
+use beagle_smart_router::query_smart;
 use tokio::time::{sleep, Duration};
 use tracing::{info, warn};
 
@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         info!("═══════════════════════════════════════════════════════════════");
         info!("🔄 CICLO #{}", cycle_count);
         info!("═══════════════════════════════════════════════════════════════");

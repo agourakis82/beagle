@@ -2,7 +2,7 @@
 //!
 //! Identifica ameaças de prioridade e competição direta
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -18,8 +18,8 @@ pub struct CompetitorReport {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum ThreatLevel {
     Low,      // Concorrente distante ou fraco
-    Medium,    // Concorrente moderado
-    High,      // Concorrente forte, mesma timeline
+    Medium,   // Concorrente moderado
+    High,     // Concorrente forte, mesma timeline
     Critical, // Concorrente pode publicar antes
 }
 
@@ -107,8 +107,9 @@ Analise a competição e forneça um relatório estratégico."#,
         let analysis_text = response.choices[0].text.trim();
 
         // Parseia o nível de ameaça
-        let threat_level = if analysis_text.to_lowercase().contains("critical") || 
-                            analysis_text.to_lowercase().contains("urgent") {
+        let threat_level = if analysis_text.to_lowercase().contains("critical")
+            || analysis_text.to_lowercase().contains("urgent")
+        {
             ThreatLevel::Critical
         } else if analysis_text.to_lowercase().contains("high") {
             ThreatLevel::High
@@ -133,4 +134,3 @@ impl Default for CompetitorAgent {
         Self::new()
     }
 }
-

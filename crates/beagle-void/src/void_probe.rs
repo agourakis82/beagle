@@ -2,9 +2,9 @@
 //!
 //! Sonda regiões específicas do vazio para extrair insights direcionados.
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
-use tracing::info;
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProbeResult {
@@ -92,7 +92,3 @@ impl Default for VoidProbe {
         Self::new()
     }
 }
-
-
-
-

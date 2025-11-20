@@ -5,13 +5,13 @@
 //! • Interference: reforço ou cancelamento de caminhos
 //! • Measurement: colapso probabilístico com logging de confiança
 
-pub mod superposition;
 pub mod interference;
-pub mod measurement;
 pub mod mcts_integration;
+pub mod measurement;
+pub mod superposition;
 pub mod traits;
 
-pub use traits::QuantumReasoner;
-pub use superposition::{Hypothesis, HypothesisSet, SuperpositionAgent};
 pub use interference::InterferenceEngine;
-pub use measurement::{MeasurementOperator, CollapseStrategy};
+pub use measurement::{CollapseStrategy, MeasurementOperator};
+pub use superposition::{Hypothesis, HypothesisSet, SuperpositionAgent};
+pub use traits::QuantumReasoner;

@@ -9,8 +9,14 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 pub mod router;
+pub mod router_tiered;
 pub mod clients;
 pub mod meta;
+pub mod tier;
+
+pub use router::BeagleRouter;
+pub use router_tiered::TieredRouter;
+pub use tier::{Tier, RequestMeta};
 
 // Módulos legados (mantidos para compatibilidade)
 pub mod anthropic;
@@ -23,7 +29,8 @@ pub mod vllm;
 
 pub use router::BeagleRouter;
 pub use clients::grok::GrokClient;
-pub use meta::RequestMeta;
+// RequestMeta agora está em tier.rs
+pub use meta::HIGH_BIAS_KEYWORDS;
 
 // Re-exports legados
 pub use anthropic::AnthropicClient;
@@ -87,8 +94,29 @@ pub struct LlmRequest {
 /// Trait para clientes LLM
 #[async_trait]
 pub trait LlmClient: Send + Sync {
+    /// Completa um prompt simples
+    async fn complete(&self, prompt: &str) -> anyhow::Result<String> {
+        let req = LlmRequest {
+            model: "default".to_string(),
+            messages: vec![ChatMessage::user(prompt)],
+            temperature: Some(0.7),
+            max_tokens: Some(2048),
+        };
+        self.chat(req).await
+    }
+
+    /// Chat com múltiplas mensagens
     async fn chat(&self, req: LlmRequest) -> anyhow::Result<String>;
+    
+    /// Nome do cliente
     fn name(&self) -> &'static str;
+    
+    /// Tier preferido
+    fn tier(&self) -> Tier {
+        Tier::CloudGrokMain
+    }
+    
+    /// Prefere Grok 4 Heavy (legado, mantido para compatibilidade)
     fn prefers_heavy(&self) -> bool {
         false
     }

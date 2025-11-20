@@ -101,6 +101,10 @@ impl LlmClient for GrokClient {
         "grok"
     }
 
+    fn tier(&self) -> crate::Tier {
+        crate::Tier::CloudGrokMain
+    }
+
     fn prefers_heavy(&self) -> bool {
         true // Grok 4 Heavy existe e é melhor em viés
     }

@@ -3,7 +3,7 @@
 //! Implementa diferentes estratégias de colapso quântico, incluindo CriticGuided
 
 use crate::superposition::HypothesisSet;
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use rand::Rng;
 use tracing::{info, warn};
 
@@ -53,7 +53,7 @@ impl MeasurementOperator {
         strategy: CollapseStrategy,
     ) -> anyhow::Result<String> {
         info!("📊 Medindo superposição com estratégia: {:?}", strategy);
-        
+
         if set.hypotheses.is_empty() {
             anyhow::bail!("HypothesisSet vazio - nada para medir");
         }
@@ -61,21 +61,23 @@ impl MeasurementOperator {
         match strategy {
             CollapseStrategy::Greedy => Ok(self.greedy_collapse(&set)),
             CollapseStrategy::Probabilistic => Ok(self.probabilistic_collapse(&set)),
-            CollapseStrategy::Delayed(threshold) => {
-                match self.delayed_collapse(&set, threshold) {
-                    Some(answer) => Ok(answer),
-                    None => {
-                        warn!("⚠️  Colapso adiado - confiança insuficiente");
-                        Ok(set.best().content.clone())
-                    }
+            CollapseStrategy::Delayed(threshold) => match self.delayed_collapse(&set, threshold) {
+                Some(answer) => Ok(answer),
+                None => {
+                    warn!("⚠️  Colapso adiado - confiança insuficiente");
+                    Ok(set.best().content.clone())
                 }
-            }
+            },
             CollapseStrategy::CriticGuided => self.critic_guided_collapse(set).await,
         }
     }
 
     /// Método de compatibilidade com API antiga
-    pub async fn measure(&self, set: HypothesisSet, strategy: CollapseStrategy) -> anyhow::Result<String> {
+    pub async fn measure(
+        &self,
+        set: HypothesisSet,
+        strategy: CollapseStrategy,
+    ) -> anyhow::Result<String> {
         self.collapse(set, strategy).await
     }
 
@@ -86,7 +88,7 @@ impl MeasurementOperator {
     fn probabilistic_collapse(&self, set: &HypothesisSet) -> String {
         let mut rng = rand::thread_rng();
         let random: f64 = rng.gen();
-        
+
         let mut cumulative = 0.0;
         for hypothesis in &set.hypotheses {
             cumulative += hypothesis.confidence;
@@ -94,14 +96,14 @@ impl MeasurementOperator {
                 return hypothesis.content.clone();
             }
         }
-        
+
         // Fallback para a melhor se nenhuma foi selecionada
         set.best().content.clone()
     }
 
     fn delayed_collapse(&self, set: &HypothesisSet, threshold: f64) -> Option<String> {
         let best = set.best();
-        
+
         if best.confidence >= threshold {
             Some(best.content.clone())
         } else {
@@ -173,7 +175,10 @@ Responda APENAS com o texto final colapsado (sem introdução, sem conclusão, s
         }
 
         let collapsed = response.choices[0].text.trim().to_string();
-        info!("✅ CriticGuided colapsou para resposta de {} caracteres", collapsed.len());
+        info!(
+            "✅ CriticGuided colapsou para resposta de {} caracteres",
+            collapsed.len()
+        );
         Ok(collapsed)
     }
 }

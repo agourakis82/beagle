@@ -7,4 +7,4 @@ pub mod paradox_engine;
 pub mod self_modifier;
 
 pub use paradox_engine::{ParadoxEngine, ParadoxResult};
-pub use self_modifier::{SelfModifier, ModificationReport};
+pub use self_modifier::{ModificationReport, SelfModifier};

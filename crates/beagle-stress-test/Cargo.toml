@@ -17,10 +17,11 @@ anyhow = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
 
 # BEAGLE crates
 beagle-quantum = { path = "../beagle-quantum" }
 beagle-nuclear = { path = "../beagle-nuclear" }
 beagle-lora-voice = { path = "../beagle-lora-voice" }
+beagle-lora-auto = { path = "../beagle-lora-auto" }
 beagle-smart-router = { path = "../beagle-smart-router" }
-

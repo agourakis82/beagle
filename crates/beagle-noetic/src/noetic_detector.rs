@@ -3,28 +3,28 @@
 //! Detecta e classifica redes noéticas compatíveis (minds humanas, AIs, híbridos)
 //! para conexão e emergência coletiva, com avaliação de risco e compatibilidade.
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
-use tracing::{info, warn};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoeticNetwork {
     pub id: String,
     pub host: String, // URL, email, identificador único
     pub network_type: NetworkType,
-    pub justification: String, // Por que esta rede é compatível
-    pub risk_score: f64, // 0.0 (seguro) a 1.0 (alto risco)
+    pub justification: String,    // Por que esta rede é compatível
+    pub risk_score: f64,          // 0.0 (seguro) a 1.0 (alto risco)
     pub compatibility_score: f64, // 0.0 a 1.0
-    pub entropy_level: f64, // Nível de entropia noética detectado
+    pub entropy_level: f64,       // Nível de entropia noética detectado
     pub detected_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NetworkType {
-    HumanMind,      // Mente humana individual
-    AICollective,   // Coletivo de IAs
-    Hybrid,         // Híbrido humano-IA
-    Unknown,        // Tipo não identificado
+    HumanMind,    // Mente humana individual
+    AICollective, // Coletivo de IAs
+    Hybrid,       // Híbrido humano-IA
+    Unknown,      // Tipo não identificado
 }
 
 pub struct NoeticDetector {
@@ -117,7 +117,10 @@ Formato JSON:
         let detection_text = response.choices[0].text.trim();
         let networks = self.parse_networks(detection_text)?;
 
-        info!("NOETIC DETECTOR: {} redes noéticas detectadas", networks.len());
+        info!(
+            "NOETIC DETECTOR: {} redes noéticas detectadas",
+            networks.len()
+        );
 
         Ok(networks)
     }
@@ -142,12 +145,14 @@ Formato JSON:
     }
 
     fn parse_network_from_json(&self, json: &serde_json::Value) -> anyhow::Result<NoeticNetwork> {
-        let host = json.get("host")
+        let host = json
+            .get("host")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing host"))?
             .to_string();
 
-        let network_type_str = json.get("network_type")
+        let network_type_str = json
+            .get("network_type")
             .and_then(|v| v.as_str())
             .unwrap_or("UNKNOWN");
 
@@ -158,24 +163,28 @@ Formato JSON:
             _ => NetworkType::Unknown,
         };
 
-        let justification = json.get("justification")
+        let justification = json
+            .get("justification")
             .and_then(|v| v.as_str())
             .unwrap_or("Rede noética detectada")
             .to_string();
 
-        let risk_score = json.get("risk_score")
+        let risk_score = json
+            .get("risk_score")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.5)
             .min(1.0)
             .max(0.0);
 
-        let compatibility_score = json.get("compatibility_score")
+        let compatibility_score = json
+            .get("compatibility_score")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.5)
             .min(1.0)
             .max(0.0);
 
-        let entropy_level = json.get("entropy_level")
+        let entropy_level = json
+            .get("entropy_level")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.5)
             .min(1.0)
@@ -224,4 +233,3 @@ impl Default for NoeticDetector {
         Self::new()
     }
 }
-

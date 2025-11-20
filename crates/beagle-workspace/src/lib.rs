@@ -8,23 +8,23 @@
 //! - Vector search híbrido (Rust)
 //! - Agentic workflows (Rust)
 
-pub mod kec;
 pub mod embeddings;
-pub mod vector_search;
-pub mod workflows;
-pub mod pbpk;
 pub mod heliobiology;
+pub mod kec;
+pub mod pbpk;
 pub mod pcs;
 pub mod scaffold;
+pub mod vector_search;
+pub mod workflows;
 
-pub use kec::Kec3Engine;
 pub use embeddings::{EmbeddingManager, EmbeddingModel};
-pub use vector_search::HybridVectorSearch;
-pub use workflows::ResearchWorkflow;
-pub use pbpk::PBPKPlatform;
 pub use heliobiology::HeliobiologyPlatform;
+pub use kec::Kec3Engine;
+pub use pbpk::PBPKPlatform;
 pub use pcs::PCSSymbolicPsychiatry;
 pub use scaffold::ScaffoldStudio;
+pub use vector_search::HybridVectorSearch;
+pub use workflows::ResearchWorkflow;
 
 use tracing::info;
 

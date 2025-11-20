@@ -5,11 +5,11 @@
 use crate::{
     bias_detector::{BiasDetector, BiasReport, BiasType},
     entropy_monitor::{EntropyMonitor, EntropyReport},
-    phenomenological_log::{PhenomenologicalLog, PhenomenologicalEntry},
+    phenomenological_log::{PhenomenologicalEntry, PhenomenologicalLog},
 };
-use beagle_quantum::HypothesisSet;
 use beagle_llm::validation::ValidationResult;
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
+use beagle_quantum::HypothesisSet;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -96,7 +96,9 @@ impl MetacognitiveReflector {
         };
 
         // 5. Persiste no log fenomenológico
-        self.pheno_log.persist(&report.phenomenological_entry).await?;
+        self.pheno_log
+            .persist(&report.phenomenological_entry)
+            .await?;
 
         if report.correction.is_some() {
             warn!("METACOG: Intervenção metacognitiva gerada");
@@ -113,9 +115,13 @@ impl MetacognitiveReflector {
         info!("METACOG: Gerando intervenção metacognitiva");
 
         let bias_description = match bias.dominant_bias {
-            BiasType::ConfirmationBias => "Viés de confirmação - busca apenas evidências que confirmam hipóteses",
+            BiasType::ConfirmationBias => {
+                "Viés de confirmação - busca apenas evidências que confirmam hipóteses"
+            }
             BiasType::AnchoringBias => "Viés de ancoragem - fixação na primeira hipótese",
-            BiasType::AvailabilityHeuristic => "Heurística de disponibilidade - foco em informações mais acessíveis",
+            BiasType::AvailabilityHeuristic => {
+                "Heurística de disponibilidade - foco em informações mais acessíveis"
+            }
             BiasType::RecencyBias => "Viés de recência - foco excessivo em informações recentes",
             BiasType::RepetitionLoop => "Loop de repetição - padrões circulares sem progresso",
             BiasType::None => "Nenhum viés dominante detectado",
@@ -190,7 +196,10 @@ Resposta APENAS com a intervenção, sem introdução ou conclusão."#,
         }
 
         let intervention = response.choices[0].text.trim().to_string();
-        info!("METACOG: Intervenção gerada ({} caracteres)", intervention.len());
+        info!(
+            "METACOG: Intervenção gerada ({} caracteres)",
+            intervention.len()
+        );
 
         Ok(intervention)
     }
@@ -201,4 +210,3 @@ impl Default for MetacognitiveReflector {
         Self::new()
     }
 }
-

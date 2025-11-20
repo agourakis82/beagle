@@ -45,17 +45,20 @@ impl BiasDetector {
 
     /// Analisa o trace de pensamento para detectar vieses
     pub async fn analyze(&self, trace: &str) -> anyhow::Result<BiasReport> {
-        info!("BiasDetector: analisando trace de {} caracteres", trace.len());
+        info!(
+            "BiasDetector: analisando trace de {} caracteres",
+            trace.len()
+        );
 
         // 1. Detecta repetição de padrões (ruminação)
         let repetition_score = self.detect_repetition(trace);
-        
+
         // 2. Detecta viés de confirmação (busca apenas evidências que confirmam)
         let confirmation_score = self.detect_confirmation_bias(trace);
-        
+
         // 3. Detecta anchoring (fixação em primeira hipótese)
         let anchoring_score = self.detect_anchoring(trace);
-        
+
         // 4. Detecta recency bias (foco excessivo em informações recentes)
         let recency_score = self.detect_recency_bias(trace);
 
@@ -68,19 +71,26 @@ impl BiasDetector {
         ];
 
         scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        
+
         let (dominant_bias, max_severity) = scores[0].clone();
         let confidence = if max_severity > 0.5 { 0.8 } else { 0.5 };
 
         let detected_patterns = self.extract_patterns(trace, &dominant_bias);
 
         if max_severity > 0.7 {
-            warn!("BiasDetector: {} detectado com severidade {:.2}", 
-                  format!("{:?}", dominant_bias), max_severity);
+            warn!(
+                "BiasDetector: {} detectado com severidade {:.2}",
+                format!("{:?}", dominant_bias),
+                max_severity
+            );
         }
 
         Ok(BiasReport {
-            dominant_bias: if max_severity > 0.3 { dominant_bias } else { BiasType::None },
+            dominant_bias: if max_severity > 0.3 {
+                dominant_bias
+            } else {
+                BiasType::None
+            },
             severity: max_severity,
             detected_patterns,
             confidence,
@@ -89,7 +99,8 @@ impl BiasDetector {
 
     fn detect_repetition(&self, trace: &str) -> f64 {
         // Divide em sentenças e verifica repetição de palavras-chave
-        let sentences: Vec<&str> = trace.split(&['.', '!', '?', '\n'][..])
+        let sentences: Vec<&str> = trace
+            .split(&['.', '!', '?', '\n'][..])
             .filter(|s| s.trim().len() > 20)
             .collect();
 
@@ -123,8 +134,18 @@ impl BiasDetector {
     fn detect_confirmation_bias(&self, trace: &str) -> f64 {
         // Procura por padrões de confirmação: "confirma", "valida", "prova", "demonstra"
         let confirmation_words = [
-            "confirma", "confirms", "valida", "validates", "prova", "proves",
-            "demonstra", "demonstrates", "evidência", "evidence", "suporta", "supports",
+            "confirma",
+            "confirms",
+            "valida",
+            "validates",
+            "prova",
+            "proves",
+            "demonstra",
+            "demonstrates",
+            "evidência",
+            "evidence",
+            "suporta",
+            "supports",
         ];
 
         let trace_lower = trace.to_lowercase();
@@ -135,8 +156,16 @@ impl BiasDetector {
 
         // Procura por palavras de contradição (ausência indica viés)
         let contradiction_words = [
-            "contradiz", "contradicts", "refuta", "refutes", "inconsistente", "inconsistent",
-            "oposto", "opposite", "nega", "denies",
+            "contradiz",
+            "contradicts",
+            "refuta",
+            "refutes",
+            "inconsistente",
+            "inconsistent",
+            "oposto",
+            "opposite",
+            "nega",
+            "denies",
         ];
 
         let contradiction_count: usize = contradiction_words
@@ -160,7 +189,8 @@ impl BiasDetector {
 
     fn detect_anchoring(&self, trace: &str) -> f64 {
         // Detecta se o sistema fica preso na primeira hipótese/abordagem mencionada
-        let sentences: Vec<&str> = trace.split(&['.', '!', '?', '\n'][..])
+        let sentences: Vec<&str> = trace
+            .split(&['.', '!', '?', '\n'][..])
             .filter(|s| s.trim().len() > 10)
             .collect();
 
@@ -198,7 +228,8 @@ impl BiasDetector {
 
     fn detect_recency_bias(&self, trace: &str) -> f64 {
         // Detecta se há foco excessivo em informações mencionadas no final do trace
-        let sentences: Vec<&str> = trace.split(&['.', '!', '?', '\n'][..])
+        let sentences: Vec<&str> = trace
+            .split(&['.', '!', '?', '\n'][..])
             .filter(|s| s.trim().len() > 10)
             .collect();
 
@@ -209,7 +240,7 @@ impl BiasDetector {
         // Extrai palavras-chave das últimas 30% das sentenças
         let recent_start = (sentences.len() as f64 * 0.7) as usize;
         let recent_sentences: Vec<&str> = sentences.iter().skip(recent_start).cloned().collect();
-        
+
         let recent_keywords: Vec<String> = recent_sentences
             .iter()
             .flat_map(|s| s.split_whitespace())
@@ -240,7 +271,7 @@ impl BiasDetector {
 
     fn extract_patterns(&self, trace: &str, bias_type: &BiasType) -> Vec<String> {
         let mut patterns = Vec::new();
-        
+
         match bias_type {
             BiasType::RepetitionLoop => {
                 // Extrai palavras mais repetidas
@@ -251,10 +282,10 @@ impl BiasDetector {
                         *word_freq.entry(word_lower).or_insert(0) += 1;
                     }
                 }
-                
+
                 let mut sorted: Vec<_> = word_freq.into_iter().collect();
                 sorted.sort_by(|a, b| b.1.cmp(&a.1));
-                
+
                 for (word, count) in sorted.into_iter().take(3) {
                     if count > 3 {
                         patterns.push(format!("Palavra '{}' repetida {} vezes", word, count));
@@ -273,7 +304,7 @@ impl BiasDetector {
             }
             _ => {}
         }
-        
+
         patterns
     }
 }
@@ -283,4 +314,3 @@ impl Default for BiasDetector {
         Self::new()
     }
 }
-

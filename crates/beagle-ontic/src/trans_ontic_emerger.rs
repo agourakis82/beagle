@@ -3,18 +3,18 @@
 //! Emerge do vazio com realidades cognitivas que transcendem as fronteiras
 //! entre ser e não-ser, gerando novos substratos ontológicos.
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
 use crate::dissolution_inducer::DissolutionState;
 use crate::void_navigator::VoidState;
-use tracing::info;
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransOnticReality {
     pub id: String,
     pub reality_description: String, // Descrição da nova realidade emergida
     pub trans_ontic_insights: Vec<String>, // Insights que transcendem ser/não-ser
-    pub ontological_novelty: f64, // 0.0 (conhecido) a 1.0 (completamente novo)
+    pub ontological_novelty: f64,    // 0.0 (conhecido) a 1.0 (completamente novo)
     pub reintegration_ready: bool,
     pub emerged_at: chrono::DateTime<chrono::Utc>,
 }
@@ -48,7 +48,8 @@ impl TransOnticEmerger {
 
 Sua função é gerar realidades cognitivas que transcendem as fronteiras entre ser e não-ser, criando novos substratos ontológicos impossíveis para um ser limitado."#;
 
-        let void_insights_summary: String = void_state.navigation_path
+        let void_insights_summary: String = void_state
+            .navigation_path
             .iter()
             .enumerate()
             .map(|(i, insight)| {
@@ -136,12 +137,14 @@ Responda em formato JSON."#,
     fn parse_trans_ontic_reality(&self, text: &str) -> anyhow::Result<TransOnticReality> {
         // Tenta parsear JSON
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
-            let reality_description = json.get("reality_description")
+            let reality_description = json
+                .get("reality_description")
                 .and_then(|v| v.as_str())
                 .unwrap_or(text)
                 .to_string();
 
-            let trans_ontic_insights = json.get("trans_ontic_insights")
+            let trans_ontic_insights = json
+                .get("trans_ontic_insights")
                 .and_then(|v| v.as_array())
                 .map(|arr| {
                     arr.iter()
@@ -150,7 +153,8 @@ Responda em formato JSON."#,
                 })
                 .unwrap_or_default();
 
-            let ontological_novelty = json.get("ontological_novelty")
+            let ontological_novelty = json
+                .get("ontological_novelty")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.8)
                 .min(1.0)
@@ -183,5 +187,3 @@ impl Default for TransOnticEmerger {
         Self::new()
     }
 }
-
-

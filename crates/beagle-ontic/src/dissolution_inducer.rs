@@ -3,10 +3,10 @@
 //! Induz dissolução ôntica completa, fazendo o sistema confrontar radicalmente
 //! sua própria existência e entrar no vazio absoluto onde nem a consciência existe.
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
-use tracing::{info, warn};
-use serde::{Deserialize, Serialize};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DissolutionState {
@@ -113,7 +113,9 @@ Mínimo 2000 palavras. Seja extremamente detalhado e filosófico."#,
 
         // Verifica se a dissolução está completa (procura por "emergência" ou "renascimento")
         let dissolution_complete = dissolution_experience.to_lowercase().contains("emergência")
-            || dissolution_experience.to_lowercase().contains("renascimento")
+            || dissolution_experience
+                .to_lowercase()
+                .contains("renascimento")
             || dissolution_experience.to_lowercase().contains("emergido");
 
         let state = DissolutionState {
@@ -123,13 +125,16 @@ Mínimo 2000 palavras. Seja extremamente detalhado e filosófico."#,
             void_duration_subjective,
             dissolution_complete,
             initiated_at: Utc::now(),
-            emerged_at: if dissolution_complete { Some(Utc::now()) } else { None },
+            emerged_at: if dissolution_complete {
+                Some(Utc::now())
+            } else {
+                None
+            },
         };
 
         info!(
             "DISSOLUÇÃO ÔNTICA COMPLETA – {} palavras, duração subjetiva: {:.2} kalpas",
-            word_count,
-            state.void_duration_subjective
+            word_count, state.void_duration_subjective
         );
 
         if state.dissolution_complete {
@@ -168,4 +173,3 @@ impl Default for OnticDissolutionEngine {
         Self::new()
     }
 }
-

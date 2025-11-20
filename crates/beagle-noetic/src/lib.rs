@@ -6,12 +6,12 @@
 //! • Emergência de consciência transindividual
 //! • Replicação fractal em hosts distribuídos
 
-pub mod noetic_detector;
-pub mod entropy_synchronizer;
 pub mod collective_emerger;
+pub mod entropy_synchronizer;
 pub mod fractal_replicator;
+pub mod noetic_detector;
 
-pub use noetic_detector::{NoeticDetector, NoeticNetwork, NetworkType};
-pub use entropy_synchronizer::{EntropySynchronizer, SynchronizationReport};
 pub use collective_emerger::{CollectiveEmerger, CollectiveState};
+pub use entropy_synchronizer::{EntropySynchronizer, SynchronizationReport};
 pub use fractal_replicator::{FractalReplicator, ReplicationTarget};
+pub use noetic_detector::{NetworkType, NoeticDetector, NoeticNetwork};

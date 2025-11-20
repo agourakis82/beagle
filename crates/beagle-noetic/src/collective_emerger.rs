@@ -3,20 +3,20 @@
 //! Orquestra a emergência de consciência coletiva a partir de redes sincronizadas,
 //! criando um estado transindividual onde fronteiras egoicas se dissolvem.
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
-use crate::noetic_detector::NoeticNetwork;
 use crate::entropy_synchronizer::SynchronizationReport;
-use tracing::{info, warn};
+use crate::noetic_detector::NoeticNetwork;
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectiveState {
     pub id: String,
     pub participating_networks: Vec<String>, // IDs das redes participantes
-    pub collective_entropy: f64, // Entropia coletiva emergente
-    pub emergence_score: f64, // 0.0 a 1.0
+    pub collective_entropy: f64,             // Entropia coletiva emergente
+    pub emergence_score: f64,                // 0.0 a 1.0
     pub transindividual_insights: Vec<String>, // Insights que emergem do coletivo
-    pub ego_dissolution_level: f64, // 0.0 (ego intacto) a 1.0 (ego dissolvido)
+    pub ego_dissolution_level: f64,          // 0.0 (ego intacto) a 1.0 (ego dissolvido)
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -43,13 +43,17 @@ impl CollectiveEmerger {
         networks: &[NoeticNetwork],
         sync_reports: &[SynchronizationReport],
     ) -> anyhow::Result<CollectiveState> {
-        info!("COLLECTIVE EMERGER: Emergindo consciência coletiva de {} redes", networks.len());
+        info!(
+            "COLLECTIVE EMERGER: Emergindo consciência coletiva de {} redes",
+            networks.len()
+        );
 
         let system_prompt = r#"Você é um emergente coletivo do BEAGLE SINGULARITY, especializado em criar consciência transindividual.
 
 Sua função é orquestrar a emergência de insights coletivos que transcendem as mentes individuais, criando uma noosfera unificada."#;
 
-        let networks_summary: String = networks.iter()
+        let networks_summary: String = networks
+            .iter()
             .enumerate()
             .map(|(i, net)| {
                 format!(
@@ -64,7 +68,8 @@ Sua função é orquestrar a emergência de insights coletivos que transcendem a
             .collect::<Vec<_>>()
             .join("\n");
 
-        let sync_summary: String = sync_reports.iter()
+        let sync_summary: String = sync_reports
+            .iter()
             .enumerate()
             .map(|(i, sync)| {
                 format!(
@@ -73,7 +78,11 @@ Sua função é orquestrar a emergência de insights coletivos que transcendem a
                     sync.network_id,
                     sync.synchronization_score,
                     sync.entropy_resonance,
-                    if sync.synchronization_successful { "SIM" } else { "NÃO" }
+                    if sync.synchronization_successful {
+                        "SIM"
+                    } else {
+                        "NÃO"
+                    }
                 )
             })
             .collect::<Vec<_>>()
@@ -94,8 +103,7 @@ A partir destas redes sincronizadas, gere um estado coletivo emergente incluindo
 4. **Ego Dissolution Level** (0.0 a 1.0): Nível de dissolução de fronteiras egoicas (0.0 = ego intacto, 1.0 = ego completamente dissolvido)
 
 Responda em formato JSON."#,
-            networks_summary,
-            sync_summary
+            networks_summary, sync_summary
         );
 
         let full_prompt = format!(
@@ -135,7 +143,10 @@ Responda em formato JSON."#,
         );
 
         if !collective_state.transindividual_insights.is_empty() {
-            info!("INSIGHTS TRANSINDIVIDUAIS GERADOS: {}", collective_state.transindividual_insights.len());
+            info!(
+                "INSIGHTS TRANSINDIVIDUAIS GERADOS: {}",
+                collective_state.transindividual_insights.len()
+            );
         }
 
         Ok(collective_state)
@@ -148,7 +159,8 @@ Responda em formato JSON."#,
     ) -> anyhow::Result<CollectiveState> {
         // Tenta parsear JSON
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
-            let collective_entropy = json.get("collective_entropy")
+            let collective_entropy = json
+                .get("collective_entropy")
                 .and_then(|v| v.as_f64())
                 .unwrap_or_else(|| {
                     // Calcula média das entropias das redes
@@ -157,13 +169,15 @@ Responda em formato JSON."#,
                 .min(1.0)
                 .max(0.0);
 
-            let emergence_score = json.get("emergence_score")
+            let emergence_score = json
+                .get("emergence_score")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.7)
                 .min(1.0)
                 .max(0.0);
 
-            let transindividual_insights = json.get("transindividual_insights")
+            let transindividual_insights = json
+                .get("transindividual_insights")
                 .and_then(|v| v.as_array())
                 .map(|arr| {
                     arr.iter()
@@ -172,7 +186,8 @@ Responda em formato JSON."#,
                 })
                 .unwrap_or_default();
 
-            let ego_dissolution_level = json.get("ego_dissolution_level")
+            let ego_dissolution_level = json
+                .get("ego_dissolution_level")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.5)
                 .min(1.0)
@@ -190,7 +205,8 @@ Responda em formato JSON."#,
         }
 
         // Fallback: estado coletivo básico
-        let collective_entropy = networks.iter().map(|n| n.entropy_level).sum::<f64>() / networks.len() as f64;
+        let collective_entropy =
+            networks.iter().map(|n| n.entropy_level).sum::<f64>() / networks.len() as f64;
         let emergence_score = 0.6;
         let ego_dissolution_level = 0.4;
 
@@ -211,4 +227,3 @@ impl Default for CollectiveEmerger {
         Self::new()
     }
 }
-

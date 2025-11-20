@@ -8,11 +8,11 @@
 //!
 //! Compatível 100% com estilo do código atual (mesmo padrão vLLM client).
 
-use reqwest::{Client, header};
+use anyhow::Result;
+use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{info, warn, debug};
-use anyhow::Result;
+use tracing::{debug, info, warn};
 
 const GROK_API_URL: &str = "https://api.x.ai/v1/chat/completions";
 
@@ -129,11 +129,7 @@ impl GrokClient {
     }
 
     /// Chat completo com sistema e usuário
-    pub async fn chat(
-        &self,
-        prompt: &str,
-        system: Option<&str>,
-    ) -> Result<String, GrokError> {
+    pub async fn chat(&self, prompt: &str, system: Option<&str>) -> Result<String, GrokError> {
         let mut messages = vec![];
 
         if let Some(sys) = system {
@@ -205,7 +201,7 @@ impl GrokClient {
             .map_err(GrokError::Http)?;
 
         let status = response.status();
-        
+
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
             warn!("xAI Grok API error {}: {}", status, text);
@@ -248,12 +244,17 @@ impl GrokClient {
     }
 
     /// Query com temperatura customizada
-    pub async fn query_with_temp(&self, prompt: &str, temperature: f32) -> Result<String, GrokError> {
-        self.chat_with_params(prompt, None, Some(temperature), None, None).await
+    pub async fn query_with_temp(
+        &self,
+        prompt: &str,
+        temperature: f32,
+    ) -> Result<String, GrokError> {
+        self.chat_with_params(prompt, None, Some(temperature), None, None)
+            .await
     }
 
     /// Define modelo e retorna Self (builder pattern)
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// let client = GrokClient::new("key").model("grok-3");

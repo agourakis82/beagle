@@ -1,6 +1,6 @@
 //! Bilingual Integration - Integra tradução bilíngue no loop adversarial
 
-use beagle_bilingual::{to_bilingual, BeagleTwitter, generate_bilingual_thread};
+use beagle_bilingual::{generate_bilingual_thread, to_bilingual, BeagleTwitter};
 use tracing::{info, warn};
 
 /// Integra publicação bilíngue quando score > 98
@@ -12,7 +12,7 @@ pub async fn integrate_bilingual_publish(
 ) -> anyhow::Result<()> {
     if score > 98.0 {
         info!("🌐 Score > 98. Publicando bilíngue automaticamente...");
-        
+
         // Gera thread bilíngue
         let thread = match generate_bilingual_thread(title_pt, abstract_pt, paper_url).await {
             Ok(t) => t,
@@ -21,7 +21,7 @@ pub async fn integrate_bilingual_publish(
                 return Ok(());
             }
         };
-        
+
         // Posta no Twitter se token configurado
         if let Ok(token) = std::env::var("TWITTER_BEARER_TOKEN") {
             match BeagleTwitter::new(&token).thread(thread).await {
@@ -39,7 +39,7 @@ pub async fn integrate_bilingual_publish(
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -48,4 +48,3 @@ pub async fn make_response_bilingual(text: &str) -> anyhow::Result<(String, Stri
     let bilingual = to_bilingual(text).await?;
     Ok((bilingual.pt, bilingual.en))
 }
-

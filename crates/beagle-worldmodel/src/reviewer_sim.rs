@@ -2,7 +2,7 @@
 //!
 //! Simula revisores brutais de journals Q1 que rejeitam 97% dos manuscritos
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -197,18 +197,29 @@ Produza uma revisão completa seguindo o formato acima."#,
             }
 
             // Detecta itens numerados ou com marcadores
-            if line.trim().starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '*') {
+            if line
+                .trim()
+                .starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '*')
+            {
                 let content = line
                     .chars()
-                    .skip_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-' || *c == '*' || *c == ' ')
+                    .skip_while(|c| {
+                        c.is_ascii_digit() || *c == '.' || *c == '-' || *c == '*' || *c == ' '
+                    })
                     .collect::<String>()
                     .trim()
                     .to_string();
 
                 if !content.is_empty() {
-                    if in_fatal_section || line_lower.contains("fatal") || line_lower.contains("critical") {
+                    if in_fatal_section
+                        || line_lower.contains("fatal")
+                        || line_lower.contains("critical")
+                    {
                         fatal_flaws.push(content);
-                    } else if in_minor_section || line_lower.contains("minor") || line_lower.contains("suggest") {
+                    } else if in_minor_section
+                        || line_lower.contains("minor")
+                        || line_lower.contains("suggest")
+                    {
                         minor_issues.push(content);
                     }
                 }
@@ -220,7 +231,10 @@ Produza uma revisão completa seguindo o formato acima."#,
             // Procura por padrões comuns de crítica (usa slice para não mover)
             for line in &lines {
                 let line_lower = line.to_lowercase();
-                if line_lower.contains("lack") || line_lower.contains("missing") || line_lower.contains("absence") {
+                if line_lower.contains("lack")
+                    || line_lower.contains("missing")
+                    || line_lower.contains("absence")
+                {
                     if line.len() > 20 {
                         fatal_flaws.push(line.trim().to_string());
                     }
@@ -241,4 +255,3 @@ impl Default for Q1Reviewer {
         Self::new("Nature")
     }
 }
-

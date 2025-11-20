@@ -3,11 +3,11 @@
 //! Gera protocolos rigorosos, reprodutíveis e éticos para testar hipóteses científicas,
 //! incluindo simulações computacionais iniciais e considerações éticas completas.
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
-use tracing::{info, warn};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use tracing::{info, warn};
 
 #[derive(Debug)]
 pub struct ProtocolGenerator {
@@ -133,15 +133,16 @@ Mínimo 2000 palavras. Seja extremamente detalhado e técnico."#,
         let word_count = protocol_text.split_whitespace().count();
 
         // Extrai informações estruturadas do protocolo
-        let ethical_approval_required = protocol_text.to_lowercase().contains("sim") 
-            && (protocol_text.to_lowercase().contains("irb") || protocol_text.to_lowercase().contains("ética"));
-        
+        let ethical_approval_required = protocol_text.to_lowercase().contains("sim")
+            && (protocol_text.to_lowercase().contains("irb")
+                || protocol_text.to_lowercase().contains("ética"));
+
         // Extrai custo estimado (procura por padrões como "R$" ou "custo")
         let estimated_cost = self.extract_cost(&protocol_text);
-        
+
         // Extrai duração estimada
         let estimated_duration_days = self.extract_duration(&protocol_text);
-        
+
         // Extrai comandos de simulação
         let simulation_commands = self.extract_simulation_commands(&protocol_text);
 
@@ -175,8 +176,14 @@ Mínimo 2000 palavras. Seja extremamente detalhado e técnico."#,
 
         fs::create_dir_all(output_dir)?;
 
-        let filename = format!("protocol_{}_{}.md", 
-            protocol.hypothesis.chars().take(30).collect::<String>().replace(" ", "_"),
+        let filename = format!(
+            "protocol_{}_{}.md",
+            protocol
+                .hypothesis
+                .chars()
+                .take(30)
+                .collect::<String>()
+                .replace(" ", "_"),
             protocol.id.chars().take(8).collect::<String>()
         );
         let filepath = output_dir.join(&filename);
@@ -200,7 +207,11 @@ Mínimo 2000 palavras. Seja extremamente detalhado e técnico."#,
             protocol.hypothesis,
             protocol.estimated_cost,
             protocol.estimated_duration_days,
-            if protocol.ethical_approval_required { "SIM" } else { "NÃO" },
+            if protocol.ethical_approval_required {
+                "SIM"
+            } else {
+                "NÃO"
+            },
             protocol.protocol_text,
             protocol.simulation_commands.join("\n\n")
         );
@@ -245,7 +256,7 @@ Mínimo 2000 palavras. Seja extremamente detalhado e técnico."#,
     fn extract_simulation_commands(&self, text: &str) -> Vec<String> {
         // Procura por blocos de código Python ou comandos RDKit/PySCF
         let mut commands = Vec::new();
-        
+
         // Procura por blocos de código entre ```python ou ```
         let code_block_re = regex::Regex::new(r"```(?:python)?\n(.*?)```").ok();
         if let Some(pattern) = code_block_re {
@@ -255,7 +266,7 @@ Mínimo 2000 palavras. Seja extremamente detalhado e técnico."#,
                 }
             }
         }
-        
+
         // Procura por comandos RDKit ou PySCF explícitos
         if text.contains("RDKit") || text.contains("rdkit") {
             let rdkit_re = regex::Regex::new(r"(from rdkit.*?)(?=\n\n|\n[A-Z])").ok();
@@ -267,12 +278,12 @@ Mínimo 2000 palavras. Seja extremamente detalhado e técnico."#,
                 }
             }
         }
-        
+
         if commands.is_empty() {
             // Fallback: retorna placeholder
             commands.push("# Comandos de simulação a serem implementados".to_string());
         }
-        
+
         commands
     }
 }
@@ -282,4 +293,3 @@ impl Default for ProtocolGenerator {
         Self::new()
     }
 }
-

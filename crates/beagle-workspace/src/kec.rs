@@ -15,9 +15,9 @@ impl Kec3Engine {
 
     pub async fn compute_all_metrics(&self, graph_data: &[f64]) -> Result<Value> {
         info!("📊 Computando métricas KEC 3.0 (Julia)");
-        
+
         let json_data = serde_json::to_string(graph_data)?;
-        
+
         let script = format!(
             r#"
             using Pkg
@@ -33,7 +33,7 @@ impl Kec3Engine {
             "#,
             json_data
         );
-        
+
         let output = Command::new("julia")
             .arg("--project=beagle-julia")
             .arg("-e")
@@ -44,7 +44,7 @@ impl Kec3Engine {
 
         let stdout = String::from_utf8(output.stdout)?;
         let metrics: Value = serde_json::from_str(&stdout.trim())?;
-        
+
         Ok(metrics)
     }
 }

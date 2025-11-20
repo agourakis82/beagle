@@ -19,10 +19,10 @@ impl ResearchWorkflow {
 
     pub async fn run(&self, question: &str) -> Result<String> {
         info!("🔬 Executando workflow de pesquisa: {}", question);
-        
+
         let initial = self.darwin.graph_rag_query(question).await;
         let refined = self.darwin.self_rag(&initial, question).await;
-        
+
         Ok(refined)
     }
 }

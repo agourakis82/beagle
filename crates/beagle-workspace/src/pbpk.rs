@@ -16,7 +16,7 @@ impl PBPKPlatform {
 
     pub async fn encode_multimodal(&self, smiles: &str) -> Result<Vec<f32>> {
         info!("🧬 Encoding multimodal: {}", smiles);
-        
+
         let script = format!(
             r#"
             using Pkg
@@ -31,7 +31,7 @@ impl PBPKPlatform {
             "#,
             smiles
         );
-        
+
         let output = Command::new("julia")
             .arg("--project=beagle-julia")
             .arg("-e")
@@ -39,16 +39,16 @@ impl PBPKPlatform {
             .current_dir("/mnt/e/workspace/beagle-remote")
             .output()
             .context("Falha ao executar Julia")?;
-        
+
         let stdout = String::from_utf8(output.stdout)?;
         let embedding: Vec<f32> = serde_json::from_str(&stdout.trim())?;
-        
+
         Ok(embedding)
     }
 
     pub async fn train_pinn(&self, _config: &str) -> Result<Value> {
         info!("🔬 Treinando PINN");
-        
+
         let script = format!(
             r#"
             using Pkg
@@ -64,7 +64,7 @@ impl PBPKPlatform {
             println(JSON3.write(history))
             "#,
         );
-        
+
         let output = Command::new("julia")
             .arg("--project=beagle-julia")
             .arg("-e")
@@ -72,10 +72,10 @@ impl PBPKPlatform {
             .current_dir("/mnt/e/workspace/beagle-remote")
             .output()
             .context("Falha ao executar Julia")?;
-        
+
         let stdout = String::from_utf8(output.stdout)?;
         let result: Value = serde_json::from_str(&stdout.trim())?;
-        
+
         Ok(result)
     }
 }
@@ -85,4 +85,3 @@ impl Default for PBPKPlatform {
         Self::new()
     }
 }
-

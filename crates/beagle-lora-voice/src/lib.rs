@@ -1,27 +1,27 @@
 //! BEAGLE LoRA Voice - 100% Automático no Loop Adversarial
-//! 
+//!
 //! Treina LoRA voice automaticamente a cada draft melhor.
 //! Usa MLX no M3 Max, atualiza vLLM, nunca quebra.
 
-use std::fs;
-use std::process::Command;
-use tracing::{info, error};
 use anyhow::Result;
 use chrono::Utc;
+use std::fs;
+use std::process::Command;
+use tracing::{error, info};
 
 /// Treina LoRA voice e atualiza vLLM automaticamente
-/// 
+///
 /// **100% AUTOMÁTICO:**
 /// - Treina a cada draft melhor
 /// - Salva adapter novo com timestamp
 /// - Atualiza o vLLM automaticamente
 /// - Nunca quebra (se falhar, só loga e continua)
 /// - Roda no M3 Max via MLX
-/// 
+///
 /// # Arguments
 /// - `bad_draft`: Draft anterior (pior)
 /// - `good_draft`: Draft novo (melhor)
-/// 
+///
 /// # Returns
 /// `Ok(())` se sucesso, `Err` se falhar (mas não quebra o loop principal)
 pub async fn train_and_update_voice(bad_draft: &str, good_draft: &str) -> Result<()> {
@@ -67,4 +67,3 @@ pub async fn train_and_update_voice(bad_draft: &str, good_draft: &str) -> Result
 
     Ok(())
 }
-

@@ -16,7 +16,7 @@ impl PCSSymbolicPsychiatry {
 
     pub async fn reason_symbolically(&self, symptoms: &str) -> Result<Value> {
         info!("🔬 Raciocínio simbólico sobre sintomas");
-        
+
         let script = format!(
             r#"
             using Pkg
@@ -32,7 +32,7 @@ impl PCSSymbolicPsychiatry {
             "#,
             symptoms
         );
-        
+
         let output = Command::new("julia")
             .arg("--project=beagle-julia")
             .arg("-e")
@@ -40,10 +40,10 @@ impl PCSSymbolicPsychiatry {
             .current_dir("/mnt/e/workspace/beagle-remote")
             .output()
             .context("Falha ao executar Julia")?;
-        
+
         let stdout = String::from_utf8(output.stdout)?;
         let result: Value = serde_json::from_str(&stdout.trim())?;
-        
+
         Ok(result)
     }
 }
@@ -53,4 +53,3 @@ impl Default for PCSSymbolicPsychiatry {
         Self::new()
     }
 }
-

@@ -17,8 +17,8 @@ async fn main() -> anyhow::Result<()> {
     println!("🤖 BEAGLE GROK API - Demo\n");
 
     // Obtém API key do ambiente ou usa placeholder
-    let api_key = std::env::var("XAI_API_KEY")
-        .unwrap_or_else(|_| "xai-YOUR_API_KEY_HERE".to_string());
+    let api_key =
+        std::env::var("XAI_API_KEY").unwrap_or_else(|_| "xai-YOUR_API_KEY_HERE".to_string());
 
     if api_key.contains("YOUR_API_KEY") {
         println!("⚠️  Configure XAI_API_KEY no ambiente ou edite o código");
@@ -44,4 +44,3 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

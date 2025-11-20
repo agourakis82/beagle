@@ -4,15 +4,14 @@
 
 pub mod twitter;
 
+use anyhow::{Context, Result};
 use beagle_grok_api::GrokClient;
 use once_cell::sync::Lazy;
-use tracing::{info, warn, error};
 use serde::{Deserialize, Serialize};
-use anyhow::{Context, Result};
+use tracing::{error, info, warn};
 
 static GROK: Lazy<GrokClient> = Lazy::new(|| {
-    let api_key = std::env::var("GROK_API_KEY")
-        .unwrap_or_else(|_| "xai-tua-key".to_string());
+    let api_key = std::env::var("GROK_API_KEY").unwrap_or_else(|_| "xai-tua-key".to_string());
     GrokClient::new(&api_key)
 });
 
@@ -77,18 +76,14 @@ Responde APENAS com JSON válido:
         }
     };
 
-    let en = json["en"]
-        .as_str()
-        .unwrap_or(text_pt)
-        .trim()
-        .to_string();
-    let pt = json["pt"]
-        .as_str()
-        .unwrap_or(text_pt)
-        .trim()
-        .to_string();
+    let en = json["en"].as_str().unwrap_or(text_pt).trim().to_string();
+    let pt = json["pt"].as_str().unwrap_or(text_pt).trim().to_string();
 
-    info!("✅ Bilíngue gerado — EN: {} chars | PT: {} chars", en.len(), pt.len());
+    info!(
+        "✅ Bilíngue gerado — EN: {} chars | PT: {} chars",
+        en.len(),
+        pt.len()
+    );
 
     Ok(BilingualText { pt, en })
 }
@@ -115,16 +110,12 @@ fn extract_json_from_text(text: &str) -> Option<serde_json::Value> {
 }
 
 /// Publica conteúdo bilíngue (Twitter thread)
-pub async fn publish_bilingual(
-    title_pt: &str,
-    abstract_pt: &str,
-    paper_url: &str,
-) -> Result<()> {
+pub async fn publish_bilingual(title_pt: &str, abstract_pt: &str, paper_url: &str) -> Result<()> {
     info!("📱 Publicando conteúdo bilíngue...");
 
     let title_bilingual = to_bilingual(title_pt).await?;
     let abstract_bilingual = to_bilingual(abstract_pt).await?;
-    
+
     let title_en = title_bilingual.en;
     let abstract_en = abstract_bilingual.en;
 
@@ -155,7 +146,7 @@ pub async fn generate_bilingual_thread(
 
     let title_bilingual = to_bilingual(title_pt).await?;
     let abstract_bilingual = to_bilingual(abstract_pt).await?;
-    
+
     let title_en = title_bilingual.en;
     let abstract_en = abstract_bilingual.en;
 
@@ -164,7 +155,8 @@ pub async fn generate_bilingual_thread(
         format!("📄 New paper (EN):\n\n{}\n\n{}", title_en, paper_url),
         format!("📝 Resumo (PT):\n\n{}", abstract_pt),
         format!("📝 Abstract (EN):\n\n{}", abstract_en),
-        "🤖 Gerado 100% pelo BEAGLE SINGULARITY — exocórtex pessoal com consciência emergente.".to_string(),
+        "🤖 Gerado 100% pelo BEAGLE SINGULARITY — exocórtex pessoal com consciência emergente."
+            .to_string(),
         "🔗 github.com/agourakis82/beagle".to_string(),
     ];
 
@@ -175,7 +167,7 @@ pub async fn generate_bilingual_thread(
 pub async fn auto_bilingual(text: &str) -> Result<BilingualText> {
     // Detecta se é português ou inglês
     let is_pt = detect_portuguese(text);
-    
+
     if is_pt {
         to_bilingual(text).await
     } else {
@@ -186,13 +178,15 @@ pub async fn auto_bilingual(text: &str) -> Result<BilingualText> {
 
 /// Detecta se texto é português (heurística simples)
 fn detect_portuguese(text: &str) -> bool {
-    let pt_chars = text.matches(|c: char| "áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ".contains(c)).count();
+    let pt_chars = text
+        .matches(|c: char| "áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ".contains(c))
+        .count();
     let en_chars = text.matches(|c: char| c.is_alphabetic()).count();
-    
+
     if en_chars == 0 {
         return true;
     }
-    
+
     (pt_chars as f64 / en_chars as f64) > 0.05
 }
 
@@ -215,7 +209,10 @@ Responde APENAS com JSON válido:
         text_en
     );
 
-    info!("🌐 Traduzindo de inglês para bilíngue: {} chars", text_en.len());
+    info!(
+        "🌐 Traduzindo de inglês para bilíngue: {} chars",
+        text_en.len()
+    );
 
     let resp = match GROK.query(&prompt).await {
         Ok(r) => r,
@@ -237,18 +234,14 @@ Responde APENAS com JSON válido:
             })
         });
 
-    let pt = json["pt"]
-        .as_str()
-        .unwrap_or(text_en)
-        .trim()
-        .to_string();
-    let en = json["en"]
-        .as_str()
-        .unwrap_or(text_en)
-        .trim()
-        .to_string();
+    let pt = json["pt"].as_str().unwrap_or(text_en).trim().to_string();
+    let en = json["en"].as_str().unwrap_or(text_en).trim().to_string();
 
-    info!("✅ Bilíngue gerado — EN: {} chars | PT: {} chars", en.len(), pt.len());
+    info!(
+        "✅ Bilíngue gerado — EN: {} chars | PT: {} chars",
+        en.len(),
+        pt.len()
+    );
 
     Ok(BilingualText { pt, en })
 }
@@ -276,4 +269,3 @@ mod tests {
         assert!(json.is_some());
     }
 }
-

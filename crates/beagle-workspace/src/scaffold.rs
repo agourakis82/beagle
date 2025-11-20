@@ -16,7 +16,7 @@ impl ScaffoldStudio {
 
     pub async fn process_microct(&self, image_path: &str) -> Result<Value> {
         info!("📸 Processando MicroCT: {}", image_path);
-        
+
         let script = format!(
             r#"
             using Pkg
@@ -31,7 +31,7 @@ impl ScaffoldStudio {
             "#,
             image_path
         );
-        
+
         let output = Command::new("julia")
             .arg("--project=beagle-julia")
             .arg("-e")
@@ -39,10 +39,10 @@ impl ScaffoldStudio {
             .current_dir("/mnt/e/workspace/beagle-remote")
             .output()
             .context("Falha ao executar Julia")?;
-        
+
         let stdout = String::from_utf8(output.stdout)?;
         let result: Value = serde_json::from_str(&stdout.trim())?;
-        
+
         Ok(result)
     }
 }
@@ -52,4 +52,3 @@ impl Default for ScaffoldStudio {
         Self::new()
     }
 }
-

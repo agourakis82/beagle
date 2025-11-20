@@ -2,10 +2,10 @@
 //!
 //! Modifica código de forma controlada, com validação e salvaguardas.
 
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModificationReport {
@@ -32,7 +32,8 @@ impl SelfModifier {
         }
 
         // Verifica se tem pelo menos uma estrutura básica Rust
-        let has_rust_structure = code.contains("pub") || code.contains("fn") || code.contains("struct");
+        let has_rust_structure =
+            code.contains("pub") || code.contains("fn") || code.contains("struct");
 
         // Verifica se não tem padrões perigosos
         let dangerous = code.contains("unsafe {") && code.contains("std::ptr::null_mut()");
@@ -45,7 +46,10 @@ impl SelfModifier {
         let file_path = file_path.as_ref();
         let backup_path = file_path.with_extension(format!(
             "{}.backup",
-            file_path.extension().and_then(|s| s.to_str()).unwrap_or("rs")
+            file_path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("rs")
         ));
 
         if file_path.exists() {
@@ -148,7 +152,3 @@ impl Default for SelfModifier {
         Self::new()
     }
 }
-
-
-
-

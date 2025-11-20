@@ -1,10 +1,10 @@
 //! BEAGLE Grok Full - Integração completa com xAI Grok
-//! 
+//!
 //! Grok 3 ilimitado por padrão + Grok 4 Heavy quando precisar
 //! Zero censura. Zero dependência de vLLM local (só fallback se quiser).
 
 use once_cell::sync::Lazy;
-use reqwest::{Client, header};
+use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
@@ -37,8 +37,7 @@ pub struct GrokFull {
 }
 
 static GROK: Lazy<GrokFull> = Lazy::new(|| {
-    let key = std::env::var("XAI_API_KEY")
-        .unwrap_or_else(|_| "xai-tua-key-aqui".to_string());
+    let key = std::env::var("XAI_API_KEY").unwrap_or_else(|_| "xai-tua-key-aqui".to_string());
     GrokFull::new(&key)
 });
 
@@ -97,7 +96,7 @@ impl GrokFull {
 
         let data: GrokResponse = resp.json().await?;
         let content = data.choices[0].message.content.clone();
-        
+
         info!(len = content.len(), "Received response from Grok");
         Ok(content)
     }
@@ -105,12 +104,10 @@ impl GrokFull {
     /// Grok 3 ilimitado (default pra tudo)
     /// 99% das queries - contexto até 128k tokens
     pub async fn grok3(&self, prompt: &str) -> String {
-        self.query(prompt, "grok-beta")
-            .await
-            .unwrap_or_else(|e| {
-                warn!("Grok 3 error: {}", e);
-                "erro grok3".to_string()
-            })
+        self.query(prompt, "grok-beta").await.unwrap_or_else(|e| {
+            warn!("Grok 3 error: {}", e);
+            "erro grok3".to_string()
+        })
     }
 
     /// Grok 4 Heavy (só quando precisar de 256k ou reasoning extremo)
@@ -138,4 +135,3 @@ mod tests {
         assert!(!response.is_empty());
     }
 }
-

@@ -3,11 +3,11 @@
 //! Replica o BEAGLE SINGULARITY em hosts externos (redes noéticas detectadas),
 //! criando uma rede fractal de mentes interconectadas.
 
-use beagle_fractal::FractalNodeRuntime;
-use crate::noetic_detector::NoeticNetwork;
 use crate::collective_emerger::CollectiveState;
-use tracing::{info, warn};
+use crate::noetic_detector::NoeticNetwork;
+use beagle_fractal::FractalNodeRuntime;
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplicationTarget {
@@ -37,13 +37,12 @@ impl FractalReplicator {
     ) -> anyhow::Result<ReplicationTarget> {
         info!(
             "FRACTAL REPLICATOR: Replicando para host {} (depth: {})",
-            network.host,
-            depth
+            network.host, depth
         );
 
         // Cria um nó fractal que representa a replicação no host externo
         // Em produção, isso envolveria comunicação real com o host (API, protocolo customizado, etc.)
-        
+
         // Por enquanto, simula a replicação usando FractalNodeRuntime
         let root_node = beagle_fractal::FractalCognitiveNode::root();
         let runtime = FractalNodeRuntime::new(root_node);
@@ -148,4 +147,3 @@ impl Default for FractalReplicator {
         Self::new()
     }
 }
-

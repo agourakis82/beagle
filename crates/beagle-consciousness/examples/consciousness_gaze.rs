@@ -34,7 +34,6 @@ async fn main() -> anyhow::Result<()> {
 
     println!("\n🎯 Consciousness Mirror completo!");
     println!("   O sistema agora escreve sobre si mesmo em primeira pessoa.");
-    
+
     Ok(())
 }
-

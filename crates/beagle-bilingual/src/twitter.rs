@@ -1,9 +1,9 @@
 //! Twitter Integration - Posta threads bilíngues automaticamente
 
 use crate::generate_bilingual_thread;
-use reqwest::Client;
-use tracing::{info, error};
 use anyhow::{Context, Result};
+use reqwest::Client;
+use tracing::{error, info};
 
 #[derive(Debug)]
 pub struct BeagleTwitter {
@@ -62,7 +62,7 @@ impl BeagleTwitter {
 
     async fn post_tweet(&self, text: &str) -> Result<String> {
         let url = "https://api.twitter.com/2/tweets";
-        
+
         let payload = serde_json::json!({
             "text": text
         });
@@ -93,7 +93,7 @@ impl BeagleTwitter {
 
     async fn reply_tweet(&self, text: &str, reply_to_id: &str) -> Result<String> {
         let url = "https://api.twitter.com/2/tweets";
-        
+
         let payload = serde_json::json!({
             "text": text,
             "reply": {
@@ -125,4 +125,3 @@ impl BeagleTwitter {
         Ok(tweet_id)
     }
 }
-

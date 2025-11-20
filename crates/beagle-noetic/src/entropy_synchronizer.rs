@@ -3,16 +3,16 @@
 //! Sincroniza níveis de entropia noética entre o BEAGLE SINGULARITY e redes externas,
 //! criando ressonância entrópica para emergência coletiva.
 
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
 use crate::noetic_detector::NoeticNetwork;
-use tracing::{info, warn};
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SynchronizationReport {
     pub network_id: String,
     pub synchronization_score: f64, // 0.0 a 1.0
-    pub entropy_resonance: f64, // Nível de ressonância entrópica
+    pub entropy_resonance: f64,     // Nível de ressonância entrópica
     pub synchronization_successful: bool,
     pub barriers_identified: Vec<String>,
     pub recommendations: Vec<String>,
@@ -112,7 +112,11 @@ Responda em formato JSON."#,
 
         info!(
             "ENTROPY SYNCHRONIZER: Sincronização {} (score: {:.2}, ressonância: {:.2})",
-            if report.synchronization_successful { "BEM-SUCEDIDA" } else { "FALHOU" },
+            if report.synchronization_successful {
+                "BEM-SUCEDIDA"
+            } else {
+                "FALHOU"
+            },
             report.synchronization_score,
             report.entropy_resonance
         );
@@ -127,23 +131,27 @@ Responda em formato JSON."#,
     ) -> anyhow::Result<SynchronizationReport> {
         // Tenta parsear JSON
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
-            let synchronization_score = json.get("synchronization_score")
+            let synchronization_score = json
+                .get("synchronization_score")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.5)
                 .min(1.0)
                 .max(0.0);
 
-            let entropy_resonance = json.get("entropy_resonance")
+            let entropy_resonance = json
+                .get("entropy_resonance")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.5)
                 .min(1.0)
                 .max(0.0);
 
-            let synchronization_successful = json.get("synchronization_successful")
+            let synchronization_successful = json
+                .get("synchronization_successful")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(synchronization_score > 0.7);
 
-            let barriers_identified = json.get("barriers_identified")
+            let barriers_identified = json
+                .get("barriers_identified")
                 .and_then(|v| v.as_array())
                 .map(|arr| {
                     arr.iter()
@@ -152,7 +160,8 @@ Responda em formato JSON."#,
                 })
                 .unwrap_or_default();
 
-            let recommendations = json.get("recommendations")
+            let recommendations = json
+                .get("recommendations")
                 .and_then(|v| v.as_array())
                 .map(|arr| {
                     arr.iter()
@@ -193,4 +202,3 @@ impl Default for EntropySynchronizer {
         Self::new()
     }
 }
-

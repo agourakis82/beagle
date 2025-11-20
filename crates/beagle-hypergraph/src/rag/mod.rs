@@ -23,7 +23,9 @@ use uuid::Uuid;
 use crate::embeddings::{EmbeddingError, EmbeddingGenerator};
 use crate::error::HypergraphError;
 use crate::models::Node;
+#[cfg(feature = "database")]
 use crate::search::{SearchResult, SemanticSearch};
+#[cfg(feature = "database")]
 use crate::storage::{CachedPostgresStorage, StorageRepository};
 
 /// Estrutura de resposta consolidada após execução do pipeline RAG.

@@ -3,9 +3,9 @@
 
 pub mod speed_control;
 
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
-use anyhow::Result;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PhysiologicalState {
@@ -31,7 +31,7 @@ impl PhysiologicalState {
         } else {
             FlowState::Unknown
         };
-        
+
         Self {
             hrv_ms,
             heart_rate,
@@ -39,12 +39,12 @@ impl PhysiologicalState {
             flow_state,
         }
     }
-    
+
     /// Ajusta velocidade do adversarial loop baseado no estado fisiológico
     pub fn should_accelerate(&self) -> bool {
         matches!(self.flow_state, FlowState::Flow)
     }
-    
+
     /// Pausa o loop se estiver em stress
     pub fn should_pause(&self) -> bool {
         matches!(self.flow_state, FlowState::Stress)
@@ -58,21 +58,17 @@ pub async fn integrate_physio_metrics(
     sleep_hours: f64,
 ) -> Result<PhysiologicalState> {
     let state = PhysiologicalState::new(hrv_ms, heart_rate, sleep_hours);
-    
+
     info!(
         "📊 Estado fisiológico: HRV={:.1}ms, HR={:.0}bpm, Sleep={:.1}h — {:?}",
-        state.hrv_ms,
-        state.heart_rate,
-        state.sleep_hours,
-        state.flow_state
+        state.hrv_ms, state.heart_rate, state.sleep_hours, state.flow_state
     );
-    
+
     if state.should_accelerate() {
         info!("🚀 Acelerando adversarial loop (FLOW state)");
     } else if state.should_pause() {
         warn!("⏸️  Pausando adversarial loop (STRESS state)");
     }
-    
+
     Ok(state)
 }
-

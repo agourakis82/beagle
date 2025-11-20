@@ -3,12 +3,14 @@
 //! Este módulo expõe estruturas de domínio, tipos de erro, backends de
 //! armazenamento e a fachada [`Hypergraph`], permitindo a composição de
 //! fluxos de negócio sobre o hipergrafo com diferentes provedores de dados.
+#[cfg(feature = "database")]
 pub mod cache;
 mod graph;
 mod metrics;
 #[cfg(feature = "tokio-console")]
 mod profiling;
 pub mod resilience;
+#[cfg(feature = "database")]
 pub mod search;
 mod serde_helpers;
 mod sync;
@@ -24,12 +26,16 @@ pub mod models;
 /// Pipelines de Retrieval-Augmented Generation sobre o hipergrafo.
 pub mod rag;
 /// Abstrações e implementações concretas de armazenamento.
+#[cfg(feature = "database")]
 pub mod storage;
 
+#[cfg(feature = "database")]
 pub use cache::{CacheStats, RedisCache};
 pub use error::{HypergraphError, Result};
 pub use models::{ContentType, Hyperedge, Node};
+#[cfg(feature = "database")]
 pub use rag::{Citation, LanguageModel, LanguageModelError, RAGError, RAGPipeline, RAGResponse};
+#[cfg(feature = "database")]
 pub use storage::{
     CachedPostgresStorage, HypergraphStorage, NodeFilters, PostgresStorage, StorageRepository,
 };
@@ -139,9 +145,10 @@ pub mod prelude {
     pub use crate::{
         error::{HypergraphError, Result},
         models::{ContentType, Hyperedge, Node},
-        storage::{HypergraphStorage, NodeFilters, PostgresStorage},
         Hypergraph,
     };
+    #[cfg(feature = "database")]
+    pub use crate::storage::{HypergraphStorage, NodeFilters, PostgresStorage};
 }
 
 #[cfg(test)]
