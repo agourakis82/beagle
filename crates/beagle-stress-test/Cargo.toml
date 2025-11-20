@@ -18,6 +18,7 @@ chrono = { workspace = true }
 beagle-core = { path = "../beagle-core" }
 beagle-config = { path = "../beagle-config" }
 beagle-monorepo = { path = "../../apps/beagle-monorepo" }
+uuid = { version = "1.0", features = ["v4"] }
 
 [[bin]]
 name = "stress-test"
