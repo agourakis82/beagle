@@ -47,11 +47,22 @@ impl GrokClient {
 
     /// Escolhe modelo baseado em request e flags
     fn choose_model(&self, req: &LlmRequest, force_heavy: bool) -> String {
+        // Se o modelo já contém "heavy" ou "4-heavy", usa Heavy
+        if req.model.contains("heavy") || req.model.contains("4-heavy") {
+            return "grok-4-heavy".to_string();
+        }
+        
+        // Se force_heavy ou max_tokens muito alto, usa Heavy
         if force_heavy || req.max_tokens.unwrap_or(0) > 16000 {
             "grok-4-heavy".to_string()
         } else {
             "grok-3".to_string()
         }
+    }
+    
+    /// Cria um novo GrokClient configurado para usar Heavy
+    pub fn new_heavy() -> Self {
+        Self::new()
     }
 }
 

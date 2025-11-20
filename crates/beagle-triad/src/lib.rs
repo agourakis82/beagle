@@ -7,7 +7,7 @@
 //! - Juiz final: arbitra versões finais
 
 use beagle_core::BeagleContext;
-use beagle_llm::RequestMeta;
+use beagle_llm::{RequestMeta, ProviderTier};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -28,6 +28,7 @@ pub struct TriadOpinion {
     pub summary: String,
     pub suggestions_md: String, // markdown
     pub score: f32,         // 0.0–1.0
+    pub provider_tier: String, // "grok-3" | "grok-4-heavy" | etc.
 }
 
 /// Relatório final da Triad
@@ -38,6 +39,16 @@ pub struct TriadReport {
     pub final_draft: String,
     pub opinions: Vec<TriadOpinion>,
     pub created_at: DateTime<Utc>,
+    pub llm_stats: LlmCallsStats,
+}
+
+/// Estatísticas de chamadas LLM
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LlmCallsStats {
+    pub grok3_calls: usize,
+    pub grok3_tokens_est: usize,
+    pub heavy_calls: usize,
+    pub heavy_tokens_est: usize,
 }
 
 /// Executa a Triad completa
@@ -51,24 +62,29 @@ pub async fn run_triad(
     let original_draft = std::fs::read_to_string(&input.draft_path)?;
     info!("📄 Draft lido: {} chars", original_draft.len());
 
+    let mut stats = LlmCallsStats::default();
+
     // 2) ATHENA (agente literatura)
     info!("🔬 Executando ATHENA...");
-    let athena = run_athena(&original_draft, &input.context_summary, ctx).await?;
-    info!("✅ ATHENA concluído - Score: {:.2}", athena.score);
+    let (athena, tier) = run_athena(&original_draft, &input.context_summary, ctx).await?;
+    update_stats(&mut stats, &tier, &original_draft);
+    info!("✅ ATHENA concluído - Score: {:.2} | Provider: {}", athena.score, tier.as_str());
 
     // 3) HERMES (revisor)
     info!("✍️  Executando HERMES...");
-    let hermes = run_hermes(&original_draft, &athena, ctx).await?;
-    info!("✅ HERMES concluído - Score: {:.2}", hermes.score);
+    let (hermes, tier) = run_hermes(&original_draft, &athena, ctx).await?;
+    update_stats(&mut stats, &tier, &original_draft);
+    info!("✅ HERMES concluído - Score: {:.2} | Provider: {}", hermes.score, tier.as_str());
 
     // 4) ARGOS (crítico)
     info!("⚔️  Executando ARGOS...");
-    let argos = run_argos(&original_draft, &hermes, &athena, ctx).await?;
-    info!("✅ ARGOS concluído - Score: {:.2}", argos.score);
+    let (argos, tier) = run_argos(&original_draft, &hermes, &athena, ctx).await?;
+    update_stats(&mut stats, &tier, &original_draft);
+    info!("✅ ARGOS concluído - Score: {:.2} | Provider: {}", argos.score, tier.as_str());
 
     // 5) Juiz final (arbitra versões)
     info!("⚖️  Executando Juiz Final...");
-    let final_draft = arbitrate_final(
+    let (final_draft, tier) = arbitrate_final(
         &original_draft,
         &hermes,
         &athena,
@@ -76,7 +92,8 @@ pub async fn run_triad(
         ctx,
     )
     .await?;
-    info!("✅ Juiz Final concluído - Draft final: {} chars", final_draft.len());
+    update_stats(&mut stats, &tier, &original_draft);
+    info!("✅ Juiz Final concluído - Draft final: {} chars | Provider: {}", final_draft.len(), tier.as_str());
 
     Ok(TriadReport {
         run_id: input.run_id.clone(),
@@ -84,6 +101,7 @@ pub async fn run_triad(
         final_draft,
         opinions: vec![athena, hermes, argos],
         created_at: Utc::now(),
+        llm_stats: stats,
     })
 }
 
@@ -92,7 +110,7 @@ pub async fn run_athena(
     draft: &str,
     context_summary: &Option<String>,
     ctx: &BeagleContext,
-) -> anyhow::Result<TriadOpinion> {
+) -> anyhow::Result<(TriadOpinion, ProviderTier)> {
     let mut prompt = String::from(
         "Você é ATHENA, agente de leitura crítica e contexto científico do sistema BEAGLE.\n\n",
     );
@@ -112,26 +130,32 @@ pub async fn run_athena(
     prompt.push_str("=== DRAFT ===\n");
     prompt.push_str(draft);
 
-    let meta = RequestMeta {
-        requires_math: false,
-        requires_high_quality: true,
-        offline_required: false,
-        requires_vision: false,
-        approximate_tokens: prompt.chars().count() / 4,
-    };
+    let meta = RequestMeta::new(
+        false, // requires_math
+        true,  // requires_high_quality
+        false, // offline_required
+        prompt.chars().count() / 4, // approximate_tokens
+        false, // high_bias_risk (ATHENA não precisa de Heavy normalmente)
+        true,  // requires_phd_level_reasoning (avalia ciência)
+        false, // critical_section
+    );
 
-    let client = ctx.router.choose(&meta);
+    let (client, tier) = ctx.router.choose(&meta);
     let text = client.complete(&prompt).await?;
 
     // Extrai score (pode pedir ao modelo explicitamente no futuro)
     let score = extract_score(&text).unwrap_or(0.8);
 
-    Ok(TriadOpinion {
-        agent: "ATHENA".into(),
-        summary: "Leitura crítica e mapeamento de literatura sugerida".into(),
-        suggestions_md: text,
-        score,
-    })
+    Ok((
+        TriadOpinion {
+            agent: "ATHENA".into(),
+            summary: "Leitura crítica e mapeamento de literatura sugerida".into(),
+            suggestions_md: text,
+            score,
+            provider_tier: tier.as_str().to_string(),
+        },
+        tier,
+    ))
 }
 
 /// HERMES: reescrita orientada
@@ -139,7 +163,7 @@ pub async fn run_hermes(
     draft: &str,
     athena: &TriadOpinion,
     ctx: &BeagleContext,
-) -> anyhow::Result<TriadOpinion> {
+) -> anyhow::Result<(TriadOpinion, ProviderTier)> {
     let mut prompt = String::from(
         "Você é HERMES, agente de síntese textual do sistema BEAGLE.\n\n",
     );
@@ -158,25 +182,31 @@ pub async fn run_hermes(
     prompt.push_str("\n\n=== DRAFT ===\n");
     prompt.push_str(draft);
 
-    let meta = RequestMeta {
-        requires_math: false,
-        requires_high_quality: true,
-        offline_required: false,
-        requires_vision: false,
-        approximate_tokens: prompt.chars().count() / 4,
-    };
+    let meta = RequestMeta::new(
+        false, // requires_math
+        true,  // requires_high_quality
+        false, // offline_required
+        prompt.chars().count() / 4, // approximate_tokens
+        false, // high_bias_risk (HERMES não precisa de Heavy)
+        false, // requires_phd_level_reasoning (reescrita, não análise crítica)
+        false, // critical_section
+    );
 
-    let client = ctx.router.choose(&meta);
+    let (client, tier) = ctx.router.choose(&meta);
     let text = client.complete(&prompt).await?;
 
     let score = extract_score(&text).unwrap_or(0.85);
 
-    Ok(TriadOpinion {
-        agent: "HERMES".into(),
-        summary: "Reescrita coerente e estilisticamente melhorada".into(),
-        suggestions_md: text.clone(), // aqui o 'suggestions_md' é o próprio rascunho reescrito
-        score,
-    })
+    Ok((
+        TriadOpinion {
+            agent: "HERMES".into(),
+            summary: "Reescrita coerente e estilisticamente melhorada".into(),
+            suggestions_md: text.clone(), // aqui o 'suggestions_md' é o próprio rascunho reescrito
+            score,
+            provider_tier: tier.as_str().to_string(),
+        },
+        tier,
+    ))
 }
 
 /// ARGOS: crítico adversarial
@@ -185,7 +215,7 @@ pub async fn run_argos(
     hermes: &TriadOpinion,
     athena: &TriadOpinion,
     ctx: &BeagleContext,
-) -> anyhow::Result<TriadOpinion> {
+) -> anyhow::Result<(TriadOpinion, ProviderTier)> {
     let mut prompt = String::from(
         "Você é ARGOS, agente crítico adversarial do sistema BEAGLE.\n\n",
     );
@@ -207,25 +237,32 @@ pub async fn run_argos(
     prompt.push_str("\n\n=== DRAFT_HERMES ===\n");
     prompt.push_str(&hermes.suggestions_md);
 
-    let meta = RequestMeta {
-        requires_math: false,
-        requires_high_quality: true,
-        offline_required: false,
-        requires_vision: false,
-        approximate_tokens: prompt.chars().count() / 4,
-    };
+    // ARGOS usa Heavy: crítica sobre claims científicos
+    let meta = RequestMeta::new(
+        false, // requires_math (ou true se for Methods de KEC/PBPK)
+        true,  // requires_high_quality
+        false, // offline_required
+        prompt.chars().count() / 4, // approximate_tokens
+        true,  // high_bias_risk (crítica sobre claims científicos)
+        true,  // requires_phd_level_reasoning
+        true,  // critical_section (revisão crítica)
+    );
 
-    let client = ctx.router.choose(&meta);
+    let (client, tier) = ctx.router.choose(&meta);
     let text = client.complete(&prompt).await?;
 
     let score = extract_score(&text).unwrap_or(0.9);
 
-    Ok(TriadOpinion {
-        agent: "ARGOS".into(),
-        summary: "Crítica adversarial e apontamento de falhas lógicas".into(),
-        suggestions_md: text,
-        score,
-    })
+    Ok((
+        TriadOpinion {
+            agent: "ARGOS".into(),
+            summary: "Crítica adversarial e apontamento de falhas lógicas".into(),
+            suggestions_md: text,
+            score,
+            provider_tier: tier.as_str().to_string(),
+        },
+        tier,
+    ))
 }
 
 /// Juiz final: arbitragem do draft
@@ -235,7 +272,7 @@ pub async fn arbitrate_final(
     athena: &TriadOpinion,
     argos: &TriadOpinion,
     ctx: &BeagleContext,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<(String, ProviderTier)> {
     let mut prompt = String::from(
         "Você é o JUIZ FINAL do sistema BEAGLE (HONEST AI TRIAD).\n\n",
     );
@@ -260,16 +297,40 @@ pub async fn arbitrate_final(
     prompt.push_str("\n\n=== DRAFT_HERMES ===\n");
     prompt.push_str(&hermes.suggestions_md);
 
-    let meta = RequestMeta {
-        requires_math: false,
-        requires_high_quality: true, // Juiz usa máxima qualidade (pode usar Grok 4 Heavy)
-        offline_required: false,
-        requires_vision: false,
-        approximate_tokens: prompt.chars().count() / 4,
-    };
+    // Juiz Final usa Heavy: decisão final sobre texto científico
+    let meta = RequestMeta::new(
+        false, // requires_math
+        true,  // requires_high_quality
+        false, // offline_required
+        prompt.chars().count() / 4, // approximate_tokens
+        true,  // high_bias_risk (decisão final sobre texto científico)
+        true,  // requires_phd_level_reasoning
+        true,  // critical_section (versão final)
+    );
 
-    let client = ctx.router.choose(&meta);
-    client.complete(&prompt).await
+    let (client, tier) = ctx.router.choose(&meta);
+    let text = client.complete(&prompt).await?;
+
+    Ok((text, tier))
+}
+
+/// Atualiza estatísticas de chamadas LLM
+fn update_stats(stats: &mut LlmCallsStats, tier: &ProviderTier, prompt: &str) {
+    let tokens_est = prompt.len() / 4;
+    
+    match tier {
+        ProviderTier::Grok3 => {
+            stats.grok3_calls += 1;
+            stats.grok3_tokens_est += tokens_est;
+        }
+        ProviderTier::Grok4Heavy => {
+            stats.heavy_calls += 1;
+            stats.heavy_tokens_est += tokens_est;
+        }
+        _ => {
+            // Outros providers (futuro)
+        }
+    }
 }
 
 /// Extrai score de resposta (simplificado)

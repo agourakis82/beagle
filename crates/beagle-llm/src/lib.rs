@@ -15,8 +15,9 @@ pub mod meta;
 pub mod tier;
 
 pub use router::BeagleRouter;
-pub use router_tiered::TieredRouter;
-pub use tier::{Tier, RequestMeta};
+pub use router_tiered::{TieredRouter, ProviderTier, LlmRoutingConfig};
+pub use meta::RequestMeta;
+pub use tier::Tier;
 pub use clients::grok::GrokClient;
 // RequestMeta agora está em tier.rs, mas mantemos HIGH_BIAS_KEYWORDS de meta.rs
 pub use meta::HIGH_BIAS_KEYWORDS;
