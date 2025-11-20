@@ -1,7 +1,7 @@
 use axum::{routing::post, Json, Router};
 use axum::http::StatusCode;
 use beagle_core::BeagleContext;
-use beagle_llm::meta::RequestMeta;
+use beagle_llm::tier::RequestMeta;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -32,6 +32,7 @@ pub struct AppState {
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/llm/complete", post(llm_complete_handler))
+        .route("/health", axum::routing::get(health_handler))
         .with_state(state)
 }
 
@@ -43,9 +44,10 @@ async fn llm_complete_handler(
 
     let meta = RequestMeta {
         offline_required: req.offline_required,
-        requires_math_proof: req.requires_math,
-        estimated_tokens: req.prompt.len() / 4,
-        high_bias_risk: req.requires_high_quality,
+        requires_math: req.requires_math,
+        requires_vision: false,
+        approximate_tokens: req.prompt.len() / 4,
+        requires_high_quality: req.requires_high_quality,
     };
 
     let client = ctx.router.choose(&meta);
@@ -65,4 +67,24 @@ async fn llm_complete_handler(
         text,
         provider: "tiered-router".to_string(),
     }))
+}
+
+#[derive(Serialize)]
+struct HealthResponse {
+    profile: String,
+    safe_mode: bool,
+    data_dir: String,
+}
+
+async fn health_handler(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Json<HealthResponse> {
+    let ctx = state.ctx.lock().await;
+    let cfg = &ctx.cfg;
+
+    Json(HealthResponse {
+        profile: cfg.profile.clone(),
+        safe_mode: cfg.safe_mode,
+        data_dir: cfg.storage.data_dir.clone(),
+    })
 }

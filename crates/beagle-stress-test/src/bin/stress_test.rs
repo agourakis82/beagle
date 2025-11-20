@@ -71,7 +71,8 @@ async fn main() -> anyhow::Result<()> {
                 Err(e) => return (i, Err(e), start.elapsed()),
             };
             
-            let res = run_beagle_pipeline(&mut ctx, &question, &run_id).await;
+            // Usa função do beagle-monorepo
+            let res = beagle_monorepo::run_beagle_pipeline(&mut ctx, &question, &run_id).await;
             
             let dur = start.elapsed();
             (i, res, dur)
