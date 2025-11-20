@@ -19,9 +19,7 @@ beagle-core = { path = "../beagle-core" }
 beagle-config = { path = "../beagle-config" }
 beagle-llm = { path = "../beagle-llm" }
 regex = "1.10"
-tracing = { workspace = true }
 
 [[bin]]
 name = "triad-review"
 path = "src/bin/triad_review.rs"
-
