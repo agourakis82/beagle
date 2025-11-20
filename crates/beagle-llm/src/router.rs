@@ -60,7 +60,7 @@ impl BeagleRouter {
         // }
 
         // 2. Matemática pesada → DeepSeek (opcional, futuro)
-        // if meta.requires_math_proof {
+        // if meta.requires_math {
         //     return Arc::new(DeepSeekClient::new());
         // }
 
