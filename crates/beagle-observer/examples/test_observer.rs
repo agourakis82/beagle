@@ -20,9 +20,8 @@ async fn main() -> anyhow::Result<()> {
 
     info!("🧪 Testando Universal Observer...");
 
-    let mut observer = UniversalObserver::new()?;
-    let mut rx = observer.get_observations_receiver()
-        .ok_or_else(|| anyhow::anyhow!("Falha ao obter receiver"))?;
+    let observer = UniversalObserver::new()?;
+    let mut rx = observer.subscribe().await;
     
     // Inicia surveillance
     observer.start_full_surveillance().await?;

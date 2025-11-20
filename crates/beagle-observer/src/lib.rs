@@ -19,6 +19,9 @@ use tracing::{info, warn, error};
 use serde::{Deserialize, Serialize};
 use axum::{routing::post, Router, Json};
 use serde_json::Value;
+use std::sync::Arc;
+mod broadcast;
+use broadcast::ObservationBroadcast;
 
 #[derive(Serialize, Clone, Debug)]
 pub struct Observation {
@@ -38,14 +41,24 @@ struct BrowserEntry {
 }
 
 pub struct UniversalObserver {
-    observations_tx: mpsc::UnboundedSender<Observation>,
-    observations_rx: Option<mpsc::UnboundedReceiver<Observation>>,
+    broadcast: Arc<ObservationBroadcast>,
+    observations_tx: Arc<mpsc::UnboundedSender<Observation>>,
     data_dir: PathBuf,
 }
 
 impl UniversalObserver {
     pub fn new() -> anyhow::Result<Self> {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let broadcast = Arc::new(ObservationBroadcast::new());
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let broadcast_clone = broadcast.clone();
+        
+        // Task que repassa todas as observações para o broadcast
+        tokio::spawn(async move {
+            while let Some(obs) = rx.recv().await {
+                broadcast_clone.broadcast(obs).await;
+            }
+        });
+        
         let cfg = beagle_config::load();
         let data_dir = PathBuf::from(&cfg.storage.data_dir);
         
@@ -54,14 +67,15 @@ impl UniversalObserver {
         std::fs::create_dir_all(&data_dir.join("observations"))?;
         
         Ok(Self {
-            observations_tx: tx,
-            observations_rx: Some(rx),
+            broadcast,
+            observations_tx: Arc::new(tx),
             data_dir,
         })
     }
 
-    pub fn get_observations_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<Observation>> {
-        self.observations_rx.take()
+    /// Retorna um receiver para observações
+    pub async fn subscribe(&self) -> mpsc::UnboundedReceiver<Observation> {
+        self.broadcast.subscribe().await
     }
 
     pub async fn start_full_surveillance(&self) -> anyhow::Result<()> {
@@ -285,15 +299,14 @@ impl UniversalObserver {
 
     fn scrape_browser_history() -> anyhow::Result<Vec<BrowserEntry>> {
         // Chrome (Linux/macOS)
+        let home = std::env::var("HOME")?;
         let chrome_paths = [
-            format!("{}/.config/google-chrome/Default/History", std::env::var("HOME")?),
-            format!("{}/Library/Application Support/Google/Chrome/Default/History", std::env::var("HOME")?),
+            format!("{}/.config/google-chrome/Default/History", home),
+            format!("{}/Library/Application Support/Google/Chrome/Default/History", home),
         ];
 
         for path in &chrome_paths {
             if Path::new(path).exists() {
-                // Chrome usa SQLite, mas para simplificar vamos tentar ler via sqlite3 CLI
-                // Em produção, usar rusqlite
                 if let Ok(output) = std::process::Command::new("sqlite3")
                     .arg(path)
                     .arg("SELECT url, title, datetime(last_visit_time/1000000-11644473600, 'unixepoch') FROM urls ORDER BY last_visit_time DESC LIMIT 10")
@@ -319,39 +332,33 @@ impl UniversalObserver {
         }
 
         // Firefox (Linux/macOS)
-        let firefox_paths = [
-            format!("{}/.mozilla/firefox/*/places.sqlite", std::env::var("HOME")?),
-            format!("{}/Library/Application Support/Firefox/Profiles/*/places.sqlite", std::env::var("HOME")?),
-        ];
-
-        for path_pattern in &firefox_paths {
-            if let Ok(output) = std::process::Command::new("sh")
-                .arg("-c")
-                .arg(format!("find {} -name places.sqlite 2>/dev/null | head -1", path_pattern))
-                .output()
-            {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !path.is_empty() && Path::new(&path).exists() {
-                    if let Ok(output) = std::process::Command::new("sqlite3")
-                        .arg(&path)
-                        .arg("SELECT url, title, datetime(last_visit_date/1000000, 'unixepoch') FROM moz_places ORDER BY last_visit_date DESC LIMIT 10")
-                        .output()
-                    {
-                        let text = String::from_utf8_lossy(&output.stdout);
-                        let mut entries = Vec::new();
-                        for line in text.lines() {
-                            let parts: Vec<&str> = line.split('|').collect();
-                            if parts.len() >= 2 {
-                                entries.push(BrowserEntry {
-                                    url: parts[0].to_string(),
-                                    title: Some(parts[1].to_string()),
-                                    visit_time: parts.get(2).map(|s| s.to_string()),
-                                });
-                            }
+        let firefox_pattern = format!("{}/.mozilla/firefox/*/places.sqlite", home);
+        if let Ok(output) = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("find {} -name places.sqlite 2>/dev/null | head -1", firefox_pattern.replace("/*/", "/")))
+            .output()
+        {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() && Path::new(&path).exists() {
+                if let Ok(output) = std::process::Command::new("sqlite3")
+                    .arg(&path)
+                    .arg("SELECT url, title, datetime(last_visit_date/1000000, 'unixepoch') FROM moz_places ORDER BY last_visit_date DESC LIMIT 10")
+                    .output()
+                {
+                    let text = String::from_utf8_lossy(&output.stdout);
+                    let mut entries = Vec::new();
+                    for line in text.lines() {
+                        let parts: Vec<&str> = line.split('|').collect();
+                        if parts.len() >= 2 {
+                            entries.push(BrowserEntry {
+                                url: parts[0].to_string(),
+                                title: Some(parts[1].to_string()),
+                                visit_time: parts.get(2).map(|s| s.to_string()),
+                            });
                         }
-                        if !entries.is_empty() {
-                            return Ok(entries);
-                        }
+                    }
+                    if !entries.is_empty() {
+                        return Ok(entries);
                     }
                 }
             }
@@ -393,18 +400,20 @@ impl UniversalObserver {
 
 // Clipboard functions
 #[cfg(target_os = "macos")]
-fn get_clipboard_macos() -> anyhow::Result<String> {
+pub fn get_clipboard_macos() -> anyhow::Result<String> {
     use std::process::Command;
     let output = Command::new("pbpaste").output()?;
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 #[cfg(target_os = "linux")]
-fn get_clipboard_linux() -> anyhow::Result<String> {
+pub fn get_clipboard_linux() -> anyhow::Result<String> {
     use std::process::Command;
     // Tenta xclip primeiro
     if let Ok(output) = Command::new("xclip").arg("-selection").arg("clipboard").arg("-o").output() {
-        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        }
     }
     // Fallback para xsel
     let output = Command::new("xsel").arg("--clipboard").arg("--output").output()?;
@@ -413,19 +422,13 @@ fn get_clipboard_linux() -> anyhow::Result<String> {
 
 #[cfg(target_os = "windows")]
 fn get_clipboard_windows() -> anyhow::Result<String> {
-    use winapi::um::winuser::{GetClipboardData, OpenClipboard, CloseClipboard, CF_UNICODETEXT};
-    use winapi::um::wincon::GetConsoleWindow;
-    unsafe {
-        if OpenClipboard(GetConsoleWindow()) != 0 {
-            let data = GetClipboardData(CF_UNICODETEXT);
-            CloseClipboard();
-            if !data.is_null() {
-                // Converter para String (simplificado)
-                return Ok("Clipboard data".to_string());
-            }
-        }
-    }
-    Ok(String::new())
+    // Windows clipboard via PowerShell
+    use std::process::Command;
+    let output = Command::new("powershell")
+        .arg("-Command")
+        .arg("Get-Clipboard")
+        .output()?;
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 // Screenshot functions
@@ -515,4 +518,3 @@ fn check_input_activity() -> bool {
     
     false
 }
-
