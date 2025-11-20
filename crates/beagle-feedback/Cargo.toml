@@ -12,6 +12,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 dirs = "5.0"
+beagle-config = { path = "../beagle-config" }
 
 [[bin]]
 name = "tag-run"
