@@ -24,10 +24,10 @@ serde_json.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 
-# Database
-sqlx.workspace = true
-neo4rs = "0.7"
-redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
+# Database (optional via features)
+sqlx = { workspace = true, optional = true }
+neo4rs = { version = "0.7", optional = true }
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager"], optional = true }
 
 # Performance
 deadpool = "0.10"
@@ -67,8 +67,10 @@ urlencoding = "2.1"
 # Internal crates
 beagle-llm = { path = "../beagle-llm" }
 beagle-memory.workspace = true
-beagle-hypergraph = { path = "../beagle-hypergraph" }
-beagle-db = { path = "../beagle-db" }
+beagle-hypergraph = { path = "../beagle-hypergraph", default-features = false }
+beagle-db = { path = "../beagle-db", optional = true }
+beagle-core = { path = "../beagle-core" }
+beagle-config = { path = "../beagle-config" }
 beagle-quantum = { path = "../beagle-quantum" }
 beagle-metacog = { path = "../beagle-metacog" }
 beagle-serendipity = { path = "../beagle-serendipity" }
@@ -77,6 +79,11 @@ beagle-consciousness = { path = "../beagle-consciousness" }
 beagle-fractal = { path = "../beagle-fractal" }
 beagle-abyss = { path = "../beagle-abyss" }
 beagle-lora-auto = { path = "../beagle-lora-auto" }
+
+[features]
+default = ["database"]
+database = ["sqlx", "redis", "neo4rs", "beagle-hypergraph/database", "beagle-db"]
+offline = [] # Disable database dependencies for offline compilation
 
 [dev-dependencies]
 tokio-test.workspace = true

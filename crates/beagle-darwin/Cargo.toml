@@ -19,3 +19,5 @@ beagle-grok-api = { path = "../beagle-grok-api" }
 beagle-smart-router = { path = "../beagle-smart-router" }
 beagle-agents = { path = "../beagle-agents" }
 beagle-llm = { path = "../beagle-llm" }
+beagle-core = { path = "../beagle-core" }
+beagle-config = { path = "../beagle-config" }

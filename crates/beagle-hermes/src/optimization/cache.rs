@@ -1,11 +1,11 @@
 //! Redis Caching Layer
 
 use anyhow::Result;
-use redis::{Client, AsyncCommands};
-use serde::{Serialize, Deserialize};
+use redis::{AsyncCommands, Client};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use tracing::{debug, info};
 use uuid::Uuid;
-use tracing::{info, debug};
 
 pub struct CacheLayer {
     client: Client,
@@ -19,11 +19,7 @@ impl CacheLayer {
     }
 
     /// Cache manuscript preview (expires after 1 hour)
-    pub async fn cache_preview(
-        &self,
-        manuscript_id: &Uuid,
-        preview: &str,
-    ) -> Result<()> {
+    pub async fn cache_preview(&self, manuscript_id: &Uuid, preview: &str) -> Result<()> {
         let mut conn = self.client.get_async_connection().await?;
 
         let key = format!("preview:{}", manuscript_id);
@@ -52,11 +48,7 @@ impl CacheLayer {
     }
 
     /// Cache LLM response (24 hour TTL)
-    pub async fn cache_llm_response(
-        &self,
-        prompt_hash: &str,
-        response: &str,
-    ) -> Result<()> {
+    pub async fn cache_llm_response(&self, prompt_hash: &str, response: &str) -> Result<()> {
         let mut conn = self.client.get_async_connection().await?;
 
         let key = format!("llm:{}", prompt_hash);
@@ -128,7 +120,7 @@ impl CacheLayer {
         // Only clear HERMES keys
         let pattern = "preview:*";
         let keys: Vec<String> = conn.keys(pattern).await?;
-        
+
         if !keys.is_empty() {
             conn.del(&keys).await?;
             info!("Cleared {} cache keys", keys.len());
@@ -165,4 +157,3 @@ mod tests {
         assert_eq!(cached_after, None);
     }
 }
-

@@ -1,5 +1,5 @@
 //! LoRA fine-tuning pipeline for voice preservation
-//! 
+//!
 //! Uses Python bridge (PyO3) to call HuggingFace transformers for LoRA training
 //! This avoids Rust dependency conflicts with candle-transformers
 
@@ -8,15 +8,15 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tracing::{info, warn};
 use thiserror::Error;
+use tracing::{info, warn};
 
 /// LoRA adapter configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoRAConfig {
-    pub rank: usize,           // LoRA rank (typically 4-16)
-    pub alpha: usize,          // LoRA alpha (typically rank * 2)
-    pub dropout: f64,          // Dropout rate
+    pub rank: usize,                 // LoRA rank (typically 4-16)
+    pub alpha: usize,                // LoRA alpha (typically rank * 2)
+    pub dropout: f64,                // Dropout rate
     pub target_modules: Vec<String>, // e.g., ["q_proj", "v_proj"]
     pub learning_rate: f64,
     pub batch_size: usize,
@@ -70,22 +70,22 @@ impl TrainingDataset {
 
     pub fn from_corpus(corpus_dir: &PathBuf) -> std::result::Result<Self, TrainerError> {
         let mut dataset = Self::new();
-        
+
         for entry in std::fs::read_dir(corpus_dir)
             .map_err(|e| TrainerError::CorpusReadError(e.to_string()))?
         {
             let entry = entry.map_err(|e| TrainerError::CorpusReadError(e.to_string()))?;
             let path = entry.path();
-            
+
             if path.extension().and_then(|s| s.to_str()) == Some("txt") {
                 let content = std::fs::read_to_string(&path)
                     .map_err(|e| TrainerError::CorpusReadError(e.to_string()))?;
-                
+
                 let examples = Self::create_examples_from_text(&content);
                 dataset.examples.extend(examples);
             }
         }
-        
+
         info!("Created dataset with {} examples", dataset.examples.len());
         Ok(dataset)
     }
@@ -93,14 +93,14 @@ impl TrainingDataset {
     fn create_examples_from_text(text: &str) -> Vec<TrainingExample> {
         let mut examples = Vec::new();
         let paragraphs: Vec<&str> = text.split("\n\n").collect();
-        
+
         for para in &paragraphs {
             let sentences: Vec<&str> = para.split(". ").collect();
             if sentences.len() >= 2 {
                 for i in 0..sentences.len() - 1 {
                     let input = format!("{}.", sentences[i]);
                     let target = format!("{}.", sentences[i + 1]);
-                    
+
                     examples.push(TrainingExample {
                         input,
                         target,
@@ -109,7 +109,7 @@ impl TrainingDataset {
                 }
             }
         }
-        
+
         examples
     }
 
@@ -152,8 +152,9 @@ impl LoRATrainer {
             .map_err(|e| HermesError::PythonError(e))?;
 
             // Prepare training data as JSON
-            let training_json = serde_json::to_string(training_data)
-                .map_err(|e| HermesError::ConfigError(format!("Failed to serialize training data: {}", e)))?;
+            let training_json = serde_json::to_string(training_data).map_err(|e| {
+                HermesError::ConfigError(format!("Failed to serialize training data: {}", e))
+            })?;
 
             // Call train_lora function
             let kwargs = PyDict::new(py);
@@ -208,8 +209,9 @@ impl LoRATrainer {
             )
             .map_err(|e| HermesError::PythonError(e))?;
 
-            let test_json = serde_json::to_string(test_data)
-                .map_err(|e| HermesError::ConfigError(format!("Failed to serialize test data: {}", e)))?;
+            let test_json = serde_json::to_string(test_data).map_err(|e| {
+                HermesError::ConfigError(format!("Failed to serialize test data: {}", e))
+            })?;
 
             let kwargs = PyDict::new(py);
             kwargs.set_item("adapter_path", adapter_path.to_str().unwrap())?;
@@ -230,13 +232,13 @@ impl LoRATrainer {
 pub enum TrainerError {
     #[error("Corpus read error: {0}")]
     CorpusReadError(String),
-    
+
     #[error("Training error: {0}")]
     TrainingError(String),
-    
+
     #[error("Save error: {0}")]
     SaveError(String),
-    
+
     #[error("Validation error: {0}")]
     ValidationError(String),
 }
@@ -249,7 +251,7 @@ mod tests {
     fn test_training_dataset_creation() {
         let text = "This is the first paragraph. It contains multiple sentences.\n\n\
                     This is the second paragraph. It also has multiple sentences.";
-        
+
         let examples = TrainingDataset::create_examples_from_text(text);
         assert!(!examples.is_empty());
     }
@@ -274,4 +276,3 @@ mod tests {
         println!("Training result: {:?}", result);
     }
 }
-

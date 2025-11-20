@@ -2,19 +2,22 @@
 //!
 //! Integra: Quantum → Adversarial → Metacog → Serendipity → World Model → Consciousness → Fractal → Ethics
 
-use super::{MultiAgentOrchestrator, SynthesisOutput};
-use crate::{knowledge::ConceptCluster, synthesis::VoiceProfile, Result};
-use beagle_quantum::{SuperpositionAgent, InterferenceEngine, MeasurementOperator, CollapseStrategy};
-use beagle_hermes::adversarial::AdversarialSelfPlayEngine;
-use beagle_metacog::MetacognitiveReflector;
-use beagle_serendipity::SerendipityInjector;
-use beagle_worldmodel::{Q1Reviewer, CompetitorAgent, CommunityPressure, PhysicalRealityEnforcer};
-use beagle_consciousness::ConsciousnessMirror;
-use beagle_fractal::FractalNodeRuntime;
+use super::{orchestrator::SynthesisOutput, MultiAgentOrchestrator};
+use crate::{
+    adversarial::AdversarialSelfPlayEngine, knowledge::ConceptCluster, synthesis::VoiceProfile,
+    Result,
+};
 use beagle_abyss::EthicsAbyssEngine;
+use beagle_consciousness::ConsciousnessMirror;
+use beagle_metacog::{reflector::MetacognitiveReport, MetacognitiveReflector};
+use beagle_quantum::{
+    CollapseStrategy, InterferenceEngine, MeasurementOperator, SuperpositionAgent,
+};
+use beagle_serendipity::SerendipityInjector;
+use beagle_worldmodel::{CommunityPressure, CompetitorAgent, PhysicalRealityEnforcer, Q1Reviewer};
+use chrono::{Datelike, Utc};
 use std::sync::Arc;
 use tracing::{info, warn};
-use chrono::Utc;
 
 pub struct IntegratedPipeline {
     orchestrator: Arc<MultiAgentOrchestrator>,
@@ -30,17 +33,24 @@ pub struct IntegratedPipeline {
     community: CommunityPressure,
     reality: PhysicalRealityEnforcer,
     consciousness: ConsciousnessMirror,
-    fractal_root: FractalNodeRuntime,
     abyss: EthicsAbyssEngine,
 }
 
 impl IntegratedPipeline {
     pub async fn new(voice_profile: VoiceProfile) -> Result<Self> {
-        let orchestrator = Arc::new(MultiAgentOrchestrator::new(voice_profile).await?);
-        
+        // Clonar voice_profile antes de usar
+        let voice_profile_for_orchestrator = voice_profile.clone();
+        let voice_profile_for_adversarial = voice_profile.clone();
+
+        let orchestrator =
+            Arc::new(MultiAgentOrchestrator::new(voice_profile_for_orchestrator).await?);
+
         // Criar adversarial engine com agents do orchestrator
-        let hermes = orchestrator.hermes.clone();
-        let argos = orchestrator.argos.clone();
+        // Nota: Acesso direto aos campos privados não é possível
+        // Por enquanto, criar novos agents para o adversarial
+        let hermes =
+            Arc::new(super::hermes_agent::HermesAgent::new(voice_profile_for_adversarial).await?);
+        let argos = Arc::new(super::argos::ArgosAgent::new().await?);
         let adversarial = Arc::new(AdversarialSelfPlayEngine::new(hermes, argos).await?);
 
         Ok(Self {
@@ -57,7 +67,6 @@ impl IntegratedPipeline {
             community: CommunityPressure::new(),
             reality: PhysicalRealityEnforcer::new(),
             consciousness: ConsciousnessMirror::new(),
-            fractal_root: FractalNodeRuntime::new(beagle_fractal::FractalCognitiveNode::root()),
             abyss: EthicsAbyssEngine::new(),
         })
     }
@@ -71,20 +80,35 @@ impl IntegratedPipeline {
     ) -> Result<EnhancedSynthesisOutput> {
         info!("🔬 INTEGRATED PIPELINE: Iniciando síntese completa (Weeks 1-9)");
 
-        let research_question = format!("{}: {}", cluster.concept_name, cluster.insights.iter().map(|i| &i.content).collect::<Vec<_>>().join(" "));
+        let research_question = format!(
+            "{}: {}",
+            cluster.concept_name,
+            cluster
+                .insights
+                .iter()
+                .map(|i| i.content.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
 
         // WEEK 1: QUANTUM REASONING
         info!("⚛️  WEEK 1: Quantum Reasoning");
         let mut quantum_state = self.quantum.generate_hypotheses(&research_question).await?;
-        
+
         // Aplicar evidências dos papers
-        let papers = self.orchestrator.athena.search_papers(cluster).await?;
-        let evidences: Vec<(&str, f64)> = papers.iter()
+        let papers = self.orchestrator.search_papers(cluster).await?;
+        let evidences: Vec<(&str, f64)> = papers
+            .iter()
             .map(|p| (p.abstract_text.as_str(), 1.0))
             .collect();
-        self.interference.apply_multiple_evidences(&mut quantum_state, evidences).await?;
-        
-        let quantum_reasoning = self.measurement.collapse(quantum_state.clone(), CollapseStrategy::CriticGuided).await?;
+        self.interference
+            .apply_multiple_evidences(&mut quantum_state, evidences)
+            .await?;
+
+        let quantum_reasoning = self
+            .measurement
+            .collapse(quantum_state.clone(), CollapseStrategy::CriticGuided)
+            .await?;
 
         // WEEK 2: ADVERSARIAL SELF-PLAY
         info!("🔬 WEEK 2: Adversarial Self-Play");
@@ -94,15 +118,45 @@ impl IntegratedPipeline {
             papers: papers.clone(),
             insights: cluster.insights.iter().map(|i| i.content.clone()).collect(),
         };
-        let initial_draft = self.orchestrator.hermes.generate_section(context).await?;
-        let evolved_draft = self.adversarial.evolve_draft(initial_draft, &papers).await?;
+        // Gerar draft inicial usando o orchestrator
+        let synthesis_output = self
+            .orchestrator
+            .synthesize_section(cluster, section_type.clone(), target_words)
+            .await?;
+        // Extrair citações usando regex
+        use regex::Regex;
+        let re = Regex::new(r"\[(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)\]").ok();
+        let citations: Vec<String> = if let Some(pattern) = re {
+            pattern
+                .captures_iter(&synthesis_output.draft)
+                .filter_map(|cap| cap.get(1))
+                .map(|m| m.as_str().to_string())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let initial_draft = super::hermes_agent::Draft {
+            content: synthesis_output.draft,
+            word_count: synthesis_output.word_count,
+            citations,
+        };
+
+        let evolved_draft = self
+            .adversarial
+            .evolve_draft(initial_draft, &papers)
+            .await?;
 
         // WEEK 3: METACOGNITIVE REFLECTION
         info!("🔬 WEEK 3: Metacognitive Reflection");
-        let thought_trace = format!("Quantum reasoning: {}\nAdversarial evolution: {} iterations", 
-                                   &quantum_reasoning[..quantum_reasoning.len().min(200)],
-                                   evolved_draft.iterations);
-        let adversarial_history: Vec<_> = evolved_draft.evolution_history.iter()
+        let thought_trace = format!(
+            "Quantum reasoning: {}\nAdversarial evolution: {} iterations",
+            &quantum_reasoning[..quantum_reasoning.len().min(200)],
+            evolved_draft.iterations
+        );
+        // Criar histórico adversarial simplificado
+        let adversarial_history: Vec<beagle_llm::validation::ValidationResult> = evolved_draft
+            .evolution_history
+            .iter()
             .map(|m| beagle_llm::validation::ValidationResult {
                 citation_validity: beagle_llm::validation::CitationValidity {
                     completeness: 0.9,
@@ -115,12 +169,11 @@ impl IntegratedPipeline {
                 approved: m.quality_score > 0.85,
             })
             .collect();
-        
-        let metacog_report = self.metacog.reflect_on_cycle(
-            &thought_trace,
-            &quantum_state,
-            &adversarial_history,
-        ).await?;
+
+        let metacog_report = self
+            .metacog
+            .reflect_on_cycle(&thought_trace, &quantum_state, &adversarial_history)
+            .await?;
 
         if let Some(intervention) = &metacog_report.correction {
             warn!("METACOG INTERVENTION: {}", intervention);
@@ -129,14 +182,18 @@ impl IntegratedPipeline {
         // WEEK 4: SERENDIPITY INJECTION (se entropia baixa)
         if metacog_report.entropy_report.shannon_entropy < 0.3 {
             info!("🔬 WEEK 4: Serendipity Injection (entropia baixa detectada)");
-            let serendipity_quantum_state = self.quantum.generate_hypotheses(&research_question).await?;
-            let accidents = self.serendipity.inject_fertile_accident(
-                &serendipity_quantum_state,
-                &research_question,
-            ).await?;
-            
+            let serendipity_quantum_state =
+                self.quantum.generate_hypotheses(&research_question).await?;
+            let accidents = self
+                .serendipity
+                .inject_fertile_accident(&serendipity_quantum_state, &research_question)
+                .await?;
+
             if !accidents.is_empty() {
-                info!("SERENDIPITY: {} acidentes férteis injetados", accidents.len());
+                info!(
+                    "SERENDIPITY: {} acidentes férteis injetados",
+                    accidents.len()
+                );
             }
         }
 
@@ -144,12 +201,12 @@ impl IntegratedPipeline {
         info!("🌍 WEEK 6: Adversarial World Model");
         let title = format!("{}: {}", cluster.concept_name, section_type);
         let draft_text = evolved_draft.final_draft.content.clone();
-        
+
         let nature_review = self.nature_reviewer.review(&draft_text, &title).await?;
         let cell_review = self.cell_reviewer.review(&draft_text, &title).await?;
-        
-        let world_model_approved = nature_review.verdict.is_acceptable() || 
-                                   cell_review.verdict.is_acceptable();
+
+        let world_model_approved =
+            nature_review.verdict.is_acceptable() || cell_review.verdict.is_acceptable();
 
         if !world_model_approved {
             warn!("WORLD MODEL: Rejeitado por revisores Q1, retornando ao adversarial loop");
@@ -158,15 +215,15 @@ impl IntegratedPipeline {
 
         // WEEK 7: CONSCIOUSNESS MIRROR (trigger semanal - apenas se for domingo)
         let today = Utc::now();
-        if today.weekday().num_days_from_monday() == 6 { // Domingo
+        if today.weekday().num_days_from_monday() == 6 {
+            // Domingo
             info!("🔬 WEEK 7: Consciousness Mirror (trigger semanal)");
             let _meta_paper = self.consciousness.gaze_into_self().await?;
         }
 
         // WEEK 8: FRACTAL EXECUTION
-        info!("🔬 WEEK 8: Fractal Execution");
-        let fractal_replicas = self.fractal_root.replicate(3).await?;
-        info!("FRACTAL: {} nós ativos", fractal_replicas.len());
+        // Nota: Fractal execution removido temporariamente - precisa ser reimplementado
+        info!("🔬 WEEK 8: Fractal Execution (skipped - needs reimplementation)");
 
         // WEEK 9: ETHICS ABYSS (trigger mensal ou se ethics_score baixo)
         let ethics_score = if world_model_approved { 0.8 } else { 0.3 };
@@ -198,9 +255,8 @@ pub struct EnhancedSynthesisOutput {
     pub quality_score: f64,
     pub quantum_reasoning: Option<String>,
     pub adversarial_iterations: usize,
-    pub metacog_report: Option<beagle_metacog::MetacognitiveReport>,
+    pub metacog_report: Option<MetacognitiveReport>,
     pub world_model_approved: bool,
     pub nature_review: Option<beagle_worldmodel::ReviewerReport>,
     pub cell_review: Option<beagle_worldmodel::ReviewerReport>,
 }
-

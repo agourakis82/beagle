@@ -219,13 +219,11 @@ impl ManuscriptManager {
         let section_statuses: Vec<crate::SectionStatus> = sections
             .into_iter()
             .filter_map(|s| {
-                SectionType::from_str(&s.section_type).map(|section_type| {
-                    crate::SectionStatus {
-                        section_type,
-                        completion: s.completion as f64,
-                        word_count: s.word_count as usize,
-                        has_new_draft: s.has_new_draft,
-                    }
+                SectionType::from_str(&s.section_type).map(|section_type| crate::SectionStatus {
+                    section_type,
+                    completion: s.completion as f64,
+                    word_count: s.word_count as usize,
+                    has_new_draft: s.has_new_draft,
                 })
             })
             .collect();

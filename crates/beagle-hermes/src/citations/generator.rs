@@ -26,13 +26,13 @@ pub struct Author {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CitationStyle {
-    Vancouver,     // Numbered [1]
-    APA,           // (Author, Year)
-    ABNT,          // (AUTHOR, Year)
-    Nature,        // Superscript¹
-    JAMA,          // Similar to Vancouver
-    Cell,          // (Author et al., Year)
-    Harvard,       // (Author Year)
+    Vancouver, // Numbered [1]
+    APA,       // (Author, Year)
+    ABNT,      // (AUTHOR, Year)
+    Nature,    // Superscript¹
+    JAMA,      // Similar to Vancouver
+    Cell,      // (Author et al., Year)
+    Harvard,   // (Author Year)
 }
 
 pub struct CitationGenerator {
@@ -54,17 +54,17 @@ impl CitationGenerator {
     ) -> Result<String, CitationError> {
         // 1. Search Semantic Scholar
         let paper = self.search_paper(query).await?;
-        
+
         // 2. Verify paper exists
         if paper.is_none() {
             return Err(CitationError::PaperNotFound(query.to_string()));
         }
-        
+
         let paper = paper.unwrap();
-        
+
         // 3. Format according to style
         let citation = self.format_citation(&paper, style);
-        
+
         Ok(citation)
     }
 
@@ -72,58 +72,56 @@ impl CitationGenerator {
         // Call Semantic Scholar API
         let api_key = std::env::var("SEMANTIC_SCHOLAR_API_KEY")
             .unwrap_or_else(|_| "flE0Xf1Q8F4k5yoxskzQi1h26DvihxoEaEXY42oE".to_string());
-        
+
         let client = reqwest::Client::new();
         let url = format!(
             "https://api.semanticscholar.org/graph/v1/paper/search?query={}&limit=5",
             urlencoding::encode(query)
         );
-        
+
         let response = client
             .get(&url)
             .header("x-api-key", &api_key)
             .send()
             .await
             .map_err(|e| CitationError::ApiError(format!("API request failed: {}", e)))?;
-        
+
         if !response.status().is_success() {
             return Err(CitationError::ApiError(format!(
                 "API returned status: {}",
                 response.status()
             )));
         }
-        
+
         let data: serde_json::Value = response
             .json()
             .await
             .map_err(|e| CitationError::ApiError(format!("Failed to parse response: {}", e)))?;
-        
+
         let papers = data
             .get("data")
             .and_then(|d| d.as_array())
             .ok_or_else(|| CitationError::ApiError("Invalid API response format".to_string()))?;
-        
+
         if papers.is_empty() {
             return Ok(None);
         }
-        
+
         // Get first matching paper
         let paper = &papers[0];
-        
+
         let title = paper
             .get("title")
             .and_then(|t| t.as_str())
             .ok_or_else(|| CitationError::ApiError("Missing title".to_string()))?;
-        
+
         let paper_id = paper
             .get("paperId")
             .and_then(|id| id.as_str())
             .ok_or_else(|| CitationError::ApiError("Missing paperId".to_string()))?;
-        
-        let authors_array_opt = paper
-            .get("authors")
-            .and_then(|a| a.as_array());
-        
+
+        let authors_array_opt = paper.get("authors").and_then(|a| a.as_array());
+
         let authors: Vec<Author> = if let Some(authors_array) = authors_array_opt {
             authors_array
                 .iter()
@@ -145,23 +143,20 @@ impl CitationGenerator {
         } else {
             Vec::new()
         };
-        
-        let year = paper
-            .get("year")
-            .and_then(|y| y.as_i64())
-            .map(|y| y as u16);
-        
+
+        let year = paper.get("year").and_then(|y| y.as_i64()).map(|y| y as u16);
+
         let external_ids = paper.get("externalIds");
         let doi = external_ids
             .and_then(|e| e.get("DOI"))
             .and_then(|d| d.as_str())
             .map(String::from);
-        
+
         let journal = paper
             .get("venue")
             .and_then(|v| v.as_str())
             .map(String::from);
-        
+
         Ok(Some(Paper {
             title: title.to_string(),
             authors,
@@ -191,7 +186,7 @@ impl CitationGenerator {
     fn format_vancouver(&self, paper: &Paper) -> String {
         // Format: Author(s). Title. Journal. Year;Volume(Issue):Pages.
         let authors = self.format_authors_vancouver(&paper.authors);
-        
+
         format!(
             "{}. {}. {}. {};{}({}):{}.",
             authors,
@@ -208,13 +203,19 @@ impl CitationGenerator {
         if authors.is_empty() {
             return "Unknown".to_string();
         }
-        
+
         let formatted: Vec<String> = authors
             .iter()
-            .take(6)  // Vancouver: max 6 authors
-            .map(|a| format!("{} {}", a.last_name, a.initials.as_ref().unwrap_or(&"".to_string())))
+            .take(6) // Vancouver: max 6 authors
+            .map(|a| {
+                format!(
+                    "{} {}",
+                    a.last_name,
+                    a.initials.as_ref().unwrap_or(&"".to_string())
+                )
+            })
             .collect();
-        
+
         if authors.len() > 6 {
             format!("{}, et al", formatted.join(", "))
         } else {
@@ -225,7 +226,7 @@ impl CitationGenerator {
     fn format_apa(&self, paper: &Paper) -> String {
         // Format: Author(s). (Year). Title. Journal, Volume(Issue), Pages.
         let authors = self.format_authors_apa(&paper.authors);
-        
+
         format!(
             "{}. ({}). {}. {}, {}({}), {}.",
             authors,
@@ -242,24 +243,26 @@ impl CitationGenerator {
         if authors.is_empty() {
             return "Unknown".to_string();
         }
-        
+
         let formatted: Vec<String> = authors
             .iter()
             .map(|a| {
-                let initial = a.initials.as_ref()
+                let initial = a
+                    .initials
+                    .as_ref()
                     .map(|i| format!(" {}.", i))
                     .unwrap_or_default();
                 format!("{},{}", a.last_name, initial)
             })
             .collect();
-        
+
         if formatted.len() == 1 {
             formatted[0].clone()
         } else if formatted.len() == 2 {
             format!("{} & {}", formatted[0], formatted[1])
         } else {
             let last = formatted.last().unwrap();
-            let rest = &formatted[..formatted.len()-1];
+            let rest = &formatted[..formatted.len() - 1];
             format!("{}, & {}", rest.join(", "), last)
         }
     }
@@ -267,7 +270,7 @@ impl CitationGenerator {
     fn format_abnt(&self, paper: &Paper) -> String {
         // Format: AUTHOR. Title. Journal, Volume, Issue, Pages, Year.
         let authors = self.format_authors_abnt(&paper.authors);
-        
+
         format!(
             "{}. {}. {}, v. {}, n. {}, p. {}, {}.",
             authors,
@@ -284,24 +287,26 @@ impl CitationGenerator {
         if authors.is_empty() {
             return "UNKNOWN".to_string();
         }
-        
+
         let formatted: Vec<String> = authors
             .iter()
             .map(|a| {
-                let initial = a.initials.as_ref()
+                let initial = a
+                    .initials
+                    .as_ref()
                     .map(|i| format!(", {}.", i))
                     .unwrap_or_default();
                 format!("{}{}", a.last_name.to_uppercase(), initial)
             })
             .collect();
-        
+
         formatted.join("; ")
     }
 
     fn format_nature(&self, paper: &Paper) -> String {
         // Nature: compact format
         let authors = self.format_authors_nature(&paper.authors);
-        
+
         format!(
             "{} {}. {}, {} ({})",
             authors,
@@ -316,11 +321,17 @@ impl CitationGenerator {
         if authors.is_empty() {
             return "Unknown".to_string();
         }
-        
+
         if authors.len() <= 2 {
             authors
                 .iter()
-                .map(|a| format!("{}, {}.", a.last_name, a.first_name.chars().next().unwrap_or('X')))
+                .map(|a| {
+                    format!(
+                        "{}, {}.",
+                        a.last_name,
+                        a.first_name.chars().next().unwrap_or('X')
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(" & ")
         } else {
@@ -343,14 +354,13 @@ impl CitationGenerator {
             return "(Unknown, 0)".to_string();
         }
         let first_author = &paper.authors[0];
-        let et_al = if paper.authors.len() > 1 { " et al." } else { "" };
-        
-        format!(
-            "({}{}, {})",
-            first_author.last_name,
-            et_al,
-            paper.year
-        )
+        let et_al = if paper.authors.len() > 1 {
+            " et al."
+        } else {
+            ""
+        };
+
+        format!("({}{}, {})", first_author.last_name, et_al, paper.year)
     }
 
     fn format_harvard(&self, paper: &Paper) -> String {
@@ -359,14 +369,13 @@ impl CitationGenerator {
             return "(Unknown 0)".to_string();
         }
         let first_author = &paper.authors[0];
-        let et_al = if paper.authors.len() > 1 { " et al." } else { "" };
-        
-        format!(
-            "({}{} {})",
-            first_author.last_name,
-            et_al,
-            paper.year
-        )
+        let et_al = if paper.authors.len() > 1 {
+            " et al."
+        } else {
+            ""
+        };
+
+        format!("({}{} {})", first_author.last_name, et_al, paper.year)
     }
 
     /// Batch generate citations
@@ -376,11 +385,11 @@ impl CitationGenerator {
         style: CitationStyle,
     ) -> Vec<Result<String, CitationError>> {
         let mut results = Vec::new();
-        
+
         for query in queries {
             results.push(self.generate(&query, style).await);
         }
-        
+
         results
     }
 }
@@ -389,10 +398,10 @@ impl CitationGenerator {
 pub enum CitationError {
     #[error("Paper not found: {0}")]
     PaperNotFound(String),
-    
+
     #[error("API error: {0}")]
     ApiError(String),
-    
+
     #[error("Invalid format")]
     InvalidFormat,
 }
@@ -404,12 +413,12 @@ mod tests {
     #[tokio::test]
     async fn test_citation_generation() {
         let generator = CitationGenerator::new();
-        
+
         let citation = generator
             .generate("Example paper about AI", CitationStyle::Vancouver)
             .await
             .unwrap();
-        
+
         assert!(citation.contains("Doe"));
         assert!(citation.contains("2024"));
     }
@@ -417,26 +426,27 @@ mod tests {
     #[tokio::test]
     async fn test_fake_paper_detection() {
         let generator = CitationGenerator::new();
-        
+
         let result = generator
             .generate("Fake paper that does not exist", CitationStyle::Vancouver)
             .await;
-        
+
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), CitationError::PaperNotFound(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            CitationError::PaperNotFound(_)
+        ));
     }
 
     #[test]
     fn test_multiple_citation_styles() {
         let paper = Paper {
             title: "Test Paper".to_string(),
-            authors: vec![
-                Author {
-                    first_name: "John".to_string(),
-                    last_name: "Doe".to_string(),
-                    initials: Some("J".to_string()),
-                },
-            ],
+            authors: vec![Author {
+                first_name: "John".to_string(),
+                last_name: "Doe".to_string(),
+                initials: Some("J".to_string()),
+            }],
             year: 2024,
             journal: Some("Nature".to_string()),
             volume: Some("625".to_string()),
@@ -446,15 +456,15 @@ mod tests {
             pmid: None,
             semantic_scholar_id: None,
         };
-        
+
         let generator = CitationGenerator::new();
-        
+
         let vancouver = generator.format_citation(&paper, CitationStyle::Vancouver);
         assert!(vancouver.contains("Doe J"));
-        
+
         let apa = generator.format_citation(&paper, CitationStyle::APA);
         assert!(apa.contains("(2024)"));
-        
+
         let nature = generator.format_citation(&paper, CitationStyle::Nature);
         assert!(nature.contains("Doe, J."));
     }

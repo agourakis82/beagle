@@ -169,14 +169,14 @@ impl SynthesisScheduler {
     /// Cleanup old drafts and orphaned data
     async fn cleanup_old_drafts(_graph_client: Arc<KnowledgeGraph>) {
         use chrono::{Duration, Utc};
-        
+
         // Delete insights older than 90 days that aren't linked to papers
         let cutoff_date = Utc::now() - Duration::days(90);
-        
+
         // This would require a Neo4j query to find and delete old insights
         // For now, just log
         info!("Cleanup: Would delete insights older than {}", cutoff_date);
-        
+
         // In production, would:
         // 1. Find insights older than cutoff_date
         // 2. Check if they're linked to any papers

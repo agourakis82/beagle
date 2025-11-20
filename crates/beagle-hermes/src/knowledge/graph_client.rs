@@ -5,7 +5,7 @@ use super::{
     models::{ConceptNode, InsightNode, PaperNode},
     ConceptCluster,
 };
-use crate::thought_capture::{CapturedInsight, ExtractedConcept, ConceptType};
+use crate::thought_capture::{CapturedInsight, ConceptType, ExtractedConcept};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use neo4rs::{query, Graph};
@@ -195,19 +195,17 @@ impl KnowledgeGraph {
     }
 
     /// Create concept node with full metadata
-    pub async fn create_concept_node(
-        &self,
-        concept: &ConceptNode,
-    ) -> Result<String> {
+    pub async fn create_concept_node(&self, concept: &ConceptNode) -> Result<String> {
         // Generate ID from name hash or use UUID
         use uuid::Uuid;
         let concept_id = Uuid::new_v4().to_string();
-        let domain = concept.metadata
+        let domain = concept
+            .metadata
             .get("domain")
             .and_then(|v| v.as_str())
             .unwrap_or("general")
             .to_string();
-        
+
         let create_concept = query(
             "CREATE (c:Concept {
                 id: $id,
@@ -318,8 +316,7 @@ impl KnowledgeGraph {
             depth
         );
 
-        let query_obj = query(&query_str)
-            .param("concept_id", concept_id);
+        let query_obj = query(&query_str).param("concept_id", concept_id);
 
         let mut result = self.graph.execute(query_obj).await?;
 

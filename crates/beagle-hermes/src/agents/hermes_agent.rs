@@ -140,9 +140,7 @@ Refine o draft acima corrigindo todos os problemas identificados na crítica, ma
 4. O comprimento aproximado ({} palavras)
 
 Gere APENAS o draft refinado, sem comentários adicionais."#,
-            draft.content,
-            critique,
-            draft.word_count
+            draft.content, critique, draft.word_count
         );
 
         let llm_request = CompletionRequest {
@@ -172,7 +170,10 @@ Gere APENAS o draft refinado, sem comentários adicionais."#,
             citations,
         };
 
-        info!("HERMES: Draft refinado com {} palavras", refined_draft.word_count);
+        info!(
+            "HERMES: Draft refinado com {} palavras",
+            refined_draft.word_count
+        );
         Ok(refined_draft)
     }
 }

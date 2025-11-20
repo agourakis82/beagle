@@ -12,9 +12,24 @@ path = "src/main.rs"
 [dependencies]
 tokio.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 beagle-smart-router = { path = "../../crates/beagle-smart-router" }
 beagle-darwin = { path = "../../crates/beagle-darwin" }
+beagle-hermes = { path = "../../crates/beagle-hermes" }
 beagle-workspace = { path = "../../crates/beagle-workspace" }
 beagle-whisper = { path = "../../crates/beagle-whisper" }
+beagle-config = { path = "../../crates/beagle-config" }
+beagle-health = { path = "../../crates/beagle-health" }
+beagle-observability = { path = "../../crates/beagle-observability" }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { version = "1.10", features = ["v4"] }
+clap = { version = "4.5", features = ["derive"] }
+reqwest = { workspace = true }
+beagle-core = { path = "../../crates/beagle-core" }
 
+[dev-dependencies]
+tempfile = "3.10"
+tokio-test = { workspace = true }

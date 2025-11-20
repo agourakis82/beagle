@@ -70,6 +70,8 @@ pub struct HermesEngine {
     knowledge_graph: knowledge::KnowledgeGraph,
     synthesis_engine: synthesis::SynthesisEngine,
     manuscript_manager: manuscript::ManuscriptManager,
+    /// Opcional: BeagleContext para reutilizar LLM/Graph/Vector stores
+    beagle_ctx: Option<std::sync::Arc<beagle_core::BeagleContext>>,
 }
 
 impl HermesEngine {
@@ -92,6 +94,37 @@ impl HermesEngine {
             knowledge_graph,
             synthesis_engine,
             manuscript_manager,
+            beagle_ctx: None,
+        })
+    }
+
+    /// Initialize HERMES engine com BeagleContext (reutiliza LLM/Graph/Vector stores)
+    pub async fn with_context(
+        config: HermesConfig,
+        ctx: std::sync::Arc<beagle_core::BeagleContext>,
+    ) -> Result<Self> {
+        let whisper_config = thought_capture::WhisperConfig::default();
+        let thought_capture_service = thought_capture::ThoughtCaptureService::new(whisper_config)?;
+        
+        // Por enquanto, mantém KnowledgeGraph original para compatibilidade
+        // O KnowledgeGraphWrapper está disponível para uso futuro quando
+        // todos os métodos de KnowledgeGraph forem migrados para usar GraphStore trait
+        let knowledge_graph = knowledge::KnowledgeGraph::new(
+            &config.neo4j_uri,
+            &config.neo4j_user,
+            &config.neo4j_password,
+        ).await?;
+        
+        let synthesis_engine = synthesis::SynthesisEngine::new(&config).await?;
+        let manuscript_manager = manuscript::ManuscriptManager::new(&config.postgres_uri).await?;
+
+        Ok(Self {
+            config,
+            thought_capture_service,
+            knowledge_graph,
+            synthesis_engine,
+            manuscript_manager,
+            beagle_ctx: Some(ctx),
         })
     }
 
@@ -99,16 +132,12 @@ impl HermesEngine {
     pub async fn start_scheduler(&mut self) -> Result<()> {
         use scheduler::SynthesisScheduler;
         use std::sync::Arc;
-        
+
         let graph_client = Arc::new(self.knowledge_graph.clone());
         let orchestrator = Arc::new(self.synthesis_engine.clone());
-        
-        let mut scheduler = SynthesisScheduler::new(
-            &self.config,
-            graph_client,
-            orchestrator,
-        )
-        .await?;
+
+        let mut scheduler =
+            SynthesisScheduler::new(&self.config, graph_client, orchestrator).await?;
         scheduler.start().await
     }
 

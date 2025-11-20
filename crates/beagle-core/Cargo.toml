@@ -1,0 +1,24 @@
+[package]
+name = "beagle-core"
+version = "0.1.0"
+edition = "2021"
+description = "BEAGLE core traits and context for dependency injection"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+beagle-config = { path = "../beagle-config" }
+beagle-grok-api = { path = "../beagle-grok-api" }
+beagle-llm = { path = "../beagle-llm" }
+reqwest = { workspace = true }
+tracing = { workspace = true }
+neo4rs = { version = "0.7", optional = true }
+tokio = { workspace = true, features = ["sync"] }
+
+[features]
+default = []
+neo4j = ["neo4rs"]
+

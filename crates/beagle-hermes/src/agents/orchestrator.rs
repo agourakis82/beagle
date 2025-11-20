@@ -40,6 +40,14 @@ impl MultiAgentOrchestrator {
         })
     }
 
+    /// Search papers using Athena agent
+    pub async fn search_papers(
+        &self,
+        cluster: &ConceptCluster,
+    ) -> Result<Vec<super::athena::Paper>> {
+        self.athena.search_papers(cluster).await
+    }
+
     /// Synthesize section using multi-agent collaboration with parallel execution
     pub async fn synthesize_section(
         &self,
@@ -171,5 +179,5 @@ pub struct SynthesisOutput {
     pub word_count: usize,
     pub papers_cited: usize,
     pub quality_score: f64,
-    pub validation: super::argos::ValidationResult,
+    pub validation: beagle_llm::validation::ValidationResult,
 }

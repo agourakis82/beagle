@@ -14,26 +14,47 @@
 //! println!("DARWIN + BEAGLE: {answer}");
 //! ```
 
+use beagle_core::BeagleContext;
+use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use beagle_smart_router::query_smart;
-use beagle_llm::vllm::{VllmClient, VllmCompletionRequest, SamplingParams};
+use std::sync::Arc;
 use tracing::{info, warn};
 
 /// Darwin Core - Sistema completo de GraphRAG + Self-RAG + Plugin System
 pub struct DarwinCore {
     pub graph_rag_enabled: bool,
     pub self_rag_enabled: bool,
+    ctx: Option<Arc<BeagleContext>>,
     vllm_client: VllmClient,
 }
 
 impl DarwinCore {
-    /// Cria nova instância do Darwin Core
+    /// Cria nova instância do Darwin Core (modo legacy, sem BeagleContext)
     pub fn new() -> Self {
-        let vllm_url = std::env::var("VLLM_URL")
-            .unwrap_or_else(|_| "http://t560.local:8000/v1".to_string());
-        
+        let vllm_url =
+            std::env::var("VLLM_URL").unwrap_or_else(|_| "http://t560.local:8000/v1".to_string());
+
         Self {
             graph_rag_enabled: true,
             self_rag_enabled: true,
+            ctx: None,
+            vllm_client: VllmClient::new(vllm_url),
+        }
+    }
+
+    /// Cria nova instância do Darwin Core com BeagleContext
+    pub fn with_context(ctx: Arc<BeagleContext>) -> Self {
+        let vllm_url = ctx
+            .cfg
+            .llm
+            .vllm_url
+            .clone()
+            .unwrap_or_else(|| "http://t560.local:8000/v1".to_string());
+
+        Self {
+            graph_rag_enabled: true,
+            self_rag_enabled: true,
+            ctx: Some(ctx),
             vllm_client: VllmClient::new(vllm_url),
         }
     }
@@ -45,8 +66,63 @@ impl DarwinCore {
     /// - Vector store (qdrant) para busca semântica
     /// - Entity extraction para contexto enriquecido
     pub async fn graph_rag_query(&self, user_question: &str) -> String {
-        let prompt = format!(
-            "Tu és o Darwin RAG++ dentro do BEAGLE.
+        // Se temos BeagleContext, usa as traits
+        if let Some(ctx) = &self.ctx {
+            info!("🔍 GraphRAG query (com BeagleContext): {}", user_question);
+            
+            // 1. Busca no vector store
+            let vectors = match ctx.vector.query(user_question, 10).await {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("Erro ao buscar no vector store: {}", e);
+                    vec![]
+                }
+            };
+
+            // 2. Busca no graph store
+            let graph_result = match ctx.graph.cypher_query(
+                "MATCH (n)-[r]->(m) WHERE n.name CONTAINS $query OR m.name CONTAINS $query RETURN n, r, m LIMIT 20",
+                serde_json::json!({"query": user_question}),
+            ).await {
+                Ok(g) => g,
+                Err(e) => {
+                    warn!("Erro ao buscar no graph store: {}", e);
+                    serde_json::json!({})
+                }
+            };
+
+            // 3. Monta contexto enriquecido
+            let context = format!(
+                "Vector results: {}\nGraph results: {}",
+                vectors.len(),
+                graph_result.get("results").and_then(|r| r.as_array()).map(|a| a.len()).unwrap_or(0)
+            );
+
+            let prompt = format!(
+                "Tu és o Darwin RAG++ dentro do BEAGLE.
+
+Pergunta do usuário: {user_question}
+
+Contexto do knowledge graph:
+{context}
+
+Responde com raciocínio estruturado + citações reais do graph.
+
+Se não souber, diz 'preciso de mais dados'."
+            );
+
+            // 4. Usa LLM do contexto
+            match ctx.llm.complete(&prompt).await {
+                Ok(answer) => answer,
+                Err(e) => {
+                    warn!("Erro ao consultar LLM: {}, usando fallback", e);
+                    query_smart(&prompt, 80000).await
+                }
+            }
+        } else {
+            // Modo legacy: usa smart router diretamente
+            let prompt = format!(
+                "Tu és o Darwin RAG++ dentro do BEAGLE.
 
 Pergunta do usuário: {user_question}
 
@@ -54,10 +130,11 @@ Usa o knowledge graph inteiro (neo4j) + vector store (qdrant) + entity extractio
 Responde com raciocínio estruturado + citações reais do graph.
 
 Se não souber, diz 'preciso de mais dados'."
-        );
+            );
 
-        info!("🔍 GraphRAG query: {}", user_question);
-        query_smart(&prompt, 80000).await
+            info!("🔍 GraphRAG query (legacy): {}", user_question);
+            query_smart(&prompt, 80000).await
+        }
     }
 
     /// Self-RAG real (o agente decide se precisa de mais busca)
@@ -78,12 +155,15 @@ Responde JSON: {{\"confidence\": 88, \"new_query\": \"ou deixa vazio se ok\"}}"
 
         info!("🎯 Self-RAG: avaliando confiança da resposta");
         let gate = query_smart(&check_prompt, 10000).await;
-        
+
         // Tenta parsear JSON da resposta
         let json: serde_json::Value = match serde_json::from_str(&gate) {
             Ok(v) => v,
             Err(e) => {
-                warn!("⚠️  Self-RAG: falha ao parsear JSON: {}. Retornando resposta original.", e);
+                warn!(
+                    "⚠️  Self-RAG: falha ao parsear JSON: {}. Retornando resposta original.",
+                    e
+                );
                 return initial_answer.to_string();
             }
         };
@@ -92,7 +172,10 @@ Responde JSON: {{\"confidence\": 88, \"new_query\": \"ou deixa vazio se ok\"}}"
             if conf < 85 {
                 if let Some(new_q) = json["new_query"].as_str() {
                     if !new_q.is_empty() {
-                        info!("🔄 Self-RAG: confiança {} < 85, buscando com nova query: {}", conf, new_q);
+                        info!(
+                            "🔄 Self-RAG: confiança {} < 85, buscando com nova query: {}",
+                            conf, new_q
+                        );
                         return self.graph_rag_query(new_q).await;
                     }
                 }
@@ -149,13 +232,11 @@ Responde JSON: {{\"confidence\": 88, \"new_query\": \"ou deixa vazio se ok\"}}"
         };
 
         match self.vllm_client.completions(&request).await {
-            Ok(response) => {
-                response
-                    .choices
-                    .first()
-                    .map(|c| c.text.trim().to_string())
-                    .unwrap_or_else(|| "Resposta vazia do vLLM".to_string())
-            }
+            Ok(response) => response
+                .choices
+                .first()
+                .map(|c| c.text.trim().to_string())
+                .unwrap_or_else(|| "Resposta vazia do vLLM".to_string()),
             Err(e) => {
                 warn!("❌ Erro ao consultar vLLM local: {}", e);
                 format!("Erro ao consultar vLLM local: {}", e)
@@ -187,15 +268,15 @@ impl Default for DarwinCore {
 /// ```
 pub async fn darwin_enhanced_cycle(question: &str) -> String {
     info!("🚀 Darwin Enhanced Cycle iniciado: {}", question);
-    
+
     let darwin = DarwinCore::new();
-    
+
     // 1. GraphRAG query inicial
     let initial = darwin.graph_rag_query(question).await;
-    
+
     // 2. Self-RAG avalia e potencialmente busca mais
     let final_answer = darwin.self_rag(&initial, question).await;
-    
+
     info!("✅ Darwin Enhanced Cycle concluído");
     final_answer
 }

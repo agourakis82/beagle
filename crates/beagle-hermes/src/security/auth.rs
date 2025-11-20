@@ -1,16 +1,16 @@
 //! JWT Authentication
 
 use anyhow::Result;
-use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
+use chrono::{Duration, Utc};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use chrono::{Utc, Duration};
-use tracing::{info, debug, warn};
+use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,  // User ID
-    pub exp: i64,     // Expiration time
-    pub iat: i64,     // Issued at
+    pub sub: String, // User ID
+    pub exp: i64,    // Expiration time
+    pub iat: i64,    // Issued at
 }
 
 #[derive(Clone)]
@@ -48,11 +48,7 @@ impl AuthService {
 
     /// Validate JWT token
     pub fn validate_token(&self, token: &str) -> Result<Claims> {
-        let token_data = decode::<Claims>(
-            token,
-            &self.decoding_key,
-            &Validation::default(),
-        )?;
+        let token_data = decode::<Claims>(token, &self.decoding_key, &Validation::default())?;
 
         // Check expiration
         let now = Utc::now().timestamp();
@@ -87,8 +83,8 @@ pub async fn auth_middleware(
         .ok_or(axum::http::StatusCode::UNAUTHORIZED)?;
 
     // Extract token
-    let token = AuthService::extract_token(auth_header)
-        .ok_or(axum::http::StatusCode::UNAUTHORIZED)?;
+    let token =
+        AuthService::extract_token(auth_header).ok_or(axum::http::StatusCode::UNAUTHORIZED)?;
 
     // Get AuthService from request extensions or create default
     let auth_service = req
@@ -115,7 +111,9 @@ pub async fn auth_middleware(
 /// Rate limiting middleware (simple in-memory implementation)
 #[derive(Clone)]
 pub struct RateLimiter {
-    requests: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, Vec<std::time::Instant>>>>,
+    requests: std::sync::Arc<
+        tokio::sync::Mutex<std::collections::HashMap<String, Vec<std::time::Instant>>>,
+    >,
     max_requests: usize,
     window_seconds: u64,
 }
@@ -123,7 +121,9 @@ pub struct RateLimiter {
 impl RateLimiter {
     pub fn new(max_requests: usize, window_seconds: u64) -> Self {
         Self {
-            requests: std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            requests: std::sync::Arc::new(
+                tokio::sync::Mutex::new(std::collections::HashMap::new()),
+            ),
             max_requests,
             window_seconds,
         }
@@ -133,16 +133,16 @@ impl RateLimiter {
         let mut requests = self.requests.lock().await;
         let now = std::time::Instant::now();
         let window = std::time::Duration::from_secs(self.window_seconds);
-        
+
         // Clean old entries
         let entry = requests.entry(key.to_string()).or_insert_with(Vec::new);
         entry.retain(|&time| now.duration_since(time) < window);
-        
+
         // Check limit
         if entry.len() >= self.max_requests {
             return false;
         }
-        
+
         // Add current request
         entry.push(now);
         true
@@ -160,7 +160,7 @@ pub async fn rate_limit_middleware(
         .get::<RateLimiter>()
         .cloned()
         .unwrap_or_else(|| RateLimiter::new(100, 60)); // 100 requests per minute
-    
+
     // Get client identifier (IP or user ID)
     let client_id = req
         .headers()
@@ -168,11 +168,11 @@ pub async fn rate_limit_middleware(
         .and_then(|h| h.to_str().ok())
         .unwrap_or("unknown")
         .to_string();
-    
+
     if !limiter.check(&client_id).await {
         return Err(axum::http::StatusCode::TOO_MANY_REQUESTS);
     }
-    
+
     Ok(next.run(req).await)
 }
 
@@ -200,4 +200,3 @@ mod tests {
         assert_eq!(token, Some("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"));
     }
 }
-

@@ -13,7 +13,8 @@ async fn test_full_pipeline_thought_capture() {
     let mut engine = HermesEngine::new(config).await.unwrap();
 
     // Capture text insight
-    let insight_text = "KEC entropy affects collagen scaffold degradation in neural tissue engineering. \
+    let insight_text =
+        "KEC entropy affects collagen scaffold degradation in neural tissue engineering. \
                         This could explain the observed behavioral changes in rat models.";
 
     let input = ThoughtInput::Text {
@@ -99,7 +100,10 @@ async fn test_citation_generation() {
         }
         Err(e) => {
             // API might fail, but structure should work
-            println!("⚠️ Citation generation failed (expected if API key not set): {}", e);
+            println!(
+                "⚠️ Citation generation failed (expected if API key not set): {}",
+                e
+            );
         }
     }
 }
@@ -122,7 +126,9 @@ async fn test_citation_formatter() {
     };
 
     // Test different formats
-    let vancouver = formatter.format(&citation, CitationStyle::Vancouver).unwrap();
+    let vancouver = formatter
+        .format(&citation, CitationStyle::Vancouver)
+        .unwrap();
     let apa = formatter.format(&citation, CitationStyle::APA).unwrap();
     let abnt = formatter.format(&citation, CitationStyle::ABNT).unwrap();
 
@@ -199,4 +205,3 @@ async fn test_voice_analyzer() {
     println!("   Avg sentence length: {:.1}", profile.avg_sentence_length);
     println!("   Patterns: {:?}", profile.sentence_patterns);
 }
-

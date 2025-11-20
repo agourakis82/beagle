@@ -4,7 +4,7 @@
 
 use beagle_hermes::{
     adversarial::AdversarialSelfPlayEngine,
-    agents::{HermesAgent, ArgosAgent, Draft},
+    agents::{ArgosAgent, Draft, HermesAgent},
     synthesis::VoiceProfile,
 };
 use std::sync::Arc;
@@ -60,12 +60,16 @@ Células precisam de um ambiente adequado para crescer. Scaffolds ajudam nisso.
     for metrics in &evolved.evolution_history {
         println!(
             "  Iteração {}: {:.1}% ({} issues)",
-            metrics.iteration, metrics.quality_score * 100.0, metrics.issues_count
+            metrics.iteration,
+            metrics.quality_score * 100.0,
+            metrics.issues_count
         );
     }
-    println!("\nDraft final ({} palavras):", evolved.final_draft.word_count);
+    println!(
+        "\nDraft final ({} palavras):",
+        evolved.final_draft.word_count
+    );
     println!("{}", evolved.final_draft.content);
 
     Ok(())
 }
-

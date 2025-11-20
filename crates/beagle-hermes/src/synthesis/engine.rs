@@ -234,9 +234,9 @@ OUTPUT (markdown format):
         // 2. Word count vs target (20%)
         // 3. Insight count (20%)
         // 4. Content quality heuristics (20%)
-        
+
         let voice_score = voice_similarity;
-        
+
         let word_score = {
             let target = request.target_words as f64;
             let ratio = (word_count as f64 / target).min(1.0);
@@ -248,7 +248,7 @@ OUTPUT (markdown format):
                 0.5 // Too far from target
             }
         };
-        
+
         let insight_score = {
             let count = request.cluster.insights.len() as f64;
             if count >= 20.0 {
@@ -261,26 +261,29 @@ OUTPUT (markdown format):
                 0.4
             }
         };
-        
+
         let quality_score = {
             // Heuristics: check for citations, proper structure
             let has_citations = content.contains('[') && content.contains(']');
             let has_paragraphs = content.matches("\n\n").count() >= 2;
             let has_sentences = content.matches('.').count() >= 3;
-            
+
             let mut score = 0.0;
-            if has_citations { score += 0.4; }
-            if has_paragraphs { score += 0.3; }
-            if has_sentences { score += 0.3; }
+            if has_citations {
+                score += 0.4;
+            }
+            if has_paragraphs {
+                score += 0.3;
+            }
+            if has_sentences {
+                score += 0.3;
+            }
             score
         };
-        
-        let confidence = 
-            voice_score * 0.4 +
-            word_score * 0.2 +
-            insight_score * 0.2 +
-            quality_score * 0.2;
-        
+
+        let confidence =
+            voice_score * 0.4 + word_score * 0.2 + insight_score * 0.2 + quality_score * 0.2;
+
         confidence.min(1.0).max(0.0)
     }
 

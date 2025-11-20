@@ -1,11 +1,11 @@
 //! gRPC Connection Pool for Multi-Agent Orchestration
 
 use anyhow::Result;
-use tonic::transport::{Channel, Endpoint};
-use std::sync::Arc;
-use deadpool::managed::{Manager, Object, Pool};
 use async_trait::async_trait;
-use tracing::{info, debug};
+use deadpool::managed::{Manager, Object, Pool};
+use std::sync::Arc;
+use tonic::transport::{Channel, Endpoint};
+use tracing::{debug, info};
 
 pub struct GrpcChannelManager {
     endpoint: Endpoint,
@@ -45,9 +45,7 @@ pub type GrpcPool = Pool<GrpcChannelManager>;
 pub fn create_grpc_pool(endpoint: Endpoint) -> Result<GrpcPool> {
     let manager = GrpcChannelManager::new(endpoint);
 
-    let pool = Pool::builder(manager)
-        .max_size(20)
-        .build()?;
+    let pool = Pool::builder(manager).max_size(20).build()?;
 
     info!("✅ gRPC connection pool created (max_size: 20)");
 
@@ -56,7 +54,8 @@ pub fn create_grpc_pool(endpoint: Endpoint) -> Result<GrpcPool> {
 
 /// Get a channel from the pool
 pub async fn get_channel(pool: &GrpcPool) -> Result<Object<GrpcChannelManager>> {
-    pool.get().await
+    pool.get()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to get channel from pool: {}", e))
 }
 
@@ -72,11 +71,10 @@ mod tests {
 
         // Get channel from pool
         let _channel = get_channel(&pool).await.unwrap();
-        
+
         // Channel should be ready when obtained from pool
         // Note: ready() method not available in this version of tonic
 
         println!("✅ gRPC pool test passed");
     }
 }
-

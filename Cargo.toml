@@ -25,7 +25,7 @@ members = [
     "crates/beagle-fractal",
     "crates/beagle-abyss",
     "crates/beagle-reality",
-    "crates/beagle-noetic", "crates/beagle-ontic", "crates/beagle-void", "crates/beagle-paradox", "crates/beagle-cosmo", "crates/beagle-transcend", "crates/beagle-eternity", "beagle-bin", "crates/beagle-grok-api", "crates/beagle-grok-full", "crates/beagle-smart-router", "crates/beagle-config",     "crates/beagle-darwin", "crates/beagle-darwin-core", "crates/beagle-workspace",
+    "crates/beagle-noetic", "crates/beagle-ontic", "crates/beagle-void", "crates/beagle-paradox", "crates/beagle-cosmo", "crates/beagle-transcend", "crates/beagle-eternity", "beagle-bin", "crates/beagle-grok-api", "crates/beagle-grok-full", "crates/beagle-smart-router", "crates/beagle-config", "crates/beagle-core", "crates/beagle-health", "crates/beagle-observability",     "crates/beagle-darwin", "crates/beagle-darwin-core", "crates/beagle-workspace",
     "crates/beagle-hyperbolic", "crates/beagle-lora-auto", "crates/beagle-lora-voice-auto", "crates/beagle-lora-voice", "crates/beagle-bilingual", "crates/beagle-nuclear", "crates/beagle-stress-test",
     "crates/beagle-whisper", "crates/beagle-publish", "crates/beagle-arxiv-validate",
     "crates/beagle-twitter", "crates/beagle-physio",

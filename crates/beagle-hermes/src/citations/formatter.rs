@@ -39,55 +39,70 @@ impl CitationFormatter {
     fn format_vancouver(&self, citation: &Citation) -> Result<String> {
         // Vancouver: Author1 A, Author2 B, Author3 C. Title. Journal. Year;Volume(Issue):Pages. doi:DOI
         let authors = self.format_authors_vancouver(&citation.authors);
-        let year = citation.year.map(|y| y.to_string()).unwrap_or_else(|| "n.d.".to_string());
-        
+        let year = citation
+            .year
+            .map(|y| y.to_string())
+            .unwrap_or_else(|| "n.d.".to_string());
+
         let mut formatted = format!("{}. {}.", authors, citation.title);
-        
+
         if let Some(doi) = &citation.doi {
             formatted.push_str(&format!(" doi:{}", doi));
         }
-        
+
         Ok(formatted)
     }
 
     fn format_apa(&self, citation: &Citation) -> Result<String> {
         // APA: Author, A. A., Author, B. B., & Author, C. C. (Year). Title. Journal, Volume(Issue), Pages. https://doi.org/DOI
         let authors = self.format_authors_apa(&citation.authors);
-        let year = citation.year.map(|y| y.to_string()).unwrap_or_else(|| "n.d.".to_string());
-        
+        let year = citation
+            .year
+            .map(|y| y.to_string())
+            .unwrap_or_else(|| "n.d.".to_string());
+
         let mut formatted = format!("{}. ({})", authors, year);
         formatted.push_str(&format!(" {}.", citation.title));
-        
+
         if let Some(doi) = &citation.doi {
             formatted.push_str(&format!(" https://doi.org/{}", doi));
         } else if let Some(url) = &citation.url {
             formatted.push_str(&format!(" {}", url));
         }
-        
+
         Ok(formatted)
     }
 
     fn format_abnt(&self, citation: &Citation) -> Result<String> {
         // ABNT: SOBRENOME, Nome. Título. Local: Editora, Ano.
         let authors = self.format_authors_abnt(&citation.authors);
-        let year = citation.year.map(|y| y.to_string()).unwrap_or_else(|| "n.d.".to_string());
-        
+        let year = citation
+            .year
+            .map(|y| y.to_string())
+            .unwrap_or_else(|| "n.d.".to_string());
+
         Ok(format!("{}. {}. {}", authors, citation.title, year))
     }
 
     fn format_nature(&self, citation: &Citation) -> Result<String> {
         // Nature: Author1, A. B., Author2, C. D. & Author3, E. F. Title. Journal Volume, Pages (Year).
         let authors = self.format_authors_nature(&citation.authors);
-        let year = citation.year.map(|y| y.to_string()).unwrap_or_else(|| "n.d.".to_string());
-        
+        let year = citation
+            .year
+            .map(|y| y.to_string())
+            .unwrap_or_else(|| "n.d.".to_string());
+
         Ok(format!("{}. {}. ({})", authors, citation.title, year))
     }
 
     fn format_chicago(&self, citation: &Citation) -> Result<String> {
         // Chicago: Author, First Name, and Second Author. "Title." Journal Volume, no. Issue (Year): Pages.
         let authors = self.format_authors_chicago(&citation.authors);
-        let year = citation.year.map(|y| y.to_string()).unwrap_or_else(|| "n.d.".to_string());
-        
+        let year = citation
+            .year
+            .map(|y| y.to_string())
+            .unwrap_or_else(|| "n.d.".to_string());
+
         Ok(format!("{}. \"{}\". ({})", authors, citation.title, year))
     }
 
@@ -95,7 +110,7 @@ impl CitationFormatter {
         if authors.is_empty() {
             return "Unknown".to_string();
         }
-        
+
         authors
             .iter()
             .map(|a| {
@@ -114,16 +129,16 @@ impl CitationFormatter {
         if authors.is_empty() {
             return "Unknown".to_string();
         }
-        
+
         if authors.len() == 1 {
             return self.format_single_author_apa(&authors[0]);
         }
-        
+
         let formatted: Vec<String> = authors
             .iter()
             .map(|a| self.format_single_author_apa(a))
             .collect();
-        
+
         if formatted.len() == 2 {
             format!("{} & {}", formatted[0], formatted[1])
         } else {
@@ -139,11 +154,19 @@ impl CitationFormatter {
             let last = parts.last().unwrap();
             let first = parts[0];
             let middle = if parts.len() > 2 {
-                parts[1..parts.len() - 1].iter().map(|p| p.chars().next().unwrap_or(' ')).collect::<String>()
+                parts[1..parts.len() - 1]
+                    .iter()
+                    .map(|p| p.chars().next().unwrap_or(' '))
+                    .collect::<String>()
             } else {
                 String::new()
             };
-            format!("{}, {}.{}", last, first.chars().next().unwrap_or(' '), middle)
+            format!(
+                "{}, {}.{}",
+                last,
+                first.chars().next().unwrap_or(' '),
+                middle
+            )
         } else {
             author.to_string()
         }
@@ -153,7 +176,7 @@ impl CitationFormatter {
         if authors.is_empty() {
             return "DESCONHECIDO".to_string();
         }
-        
+
         authors
             .iter()
             .map(|a| {
@@ -174,16 +197,16 @@ impl CitationFormatter {
         if authors.is_empty() {
             return "Unknown".to_string();
         }
-        
+
         if authors.len() == 1 {
             return self.format_single_author_nature(&authors[0]);
         }
-        
+
         let formatted: Vec<String> = authors
             .iter()
             .map(|a| self.format_single_author_nature(a))
             .collect();
-        
+
         if formatted.len() == 2 {
             format!("{} & {}", formatted[0], formatted[1])
         } else {
@@ -211,15 +234,15 @@ impl CitationFormatter {
         if authors.is_empty() {
             return "Unknown".to_string();
         }
-        
+
         if authors.len() == 1 {
             return authors[0].clone();
         }
-        
+
         if authors.len() == 2 {
             return format!("{} and {}", authors[0], authors[1]);
         }
-        
+
         let last = authors.last().unwrap().clone();
         let rest = authors[..authors.len() - 1].join(", ");
         format!("{}, and {}", rest, last)
@@ -240,10 +263,12 @@ mod tests {
             url: None,
             abstract_text: None,
         };
-        
+
         let formatter = CitationFormatter;
-        let formatted = formatter.format(&citation, CitationStyle::Vancouver).unwrap();
-        
+        let formatted = formatter
+            .format(&citation, CitationStyle::Vancouver)
+            .unwrap();
+
         assert!(formatted.contains("Test Paper"));
         assert!(formatted.contains("doi:10.1234/test"));
     }
@@ -258,10 +283,10 @@ mod tests {
             url: None,
             abstract_text: None,
         };
-        
+
         let formatter = CitationFormatter;
         let formatted = formatter.format(&citation, CitationStyle::APA).unwrap();
-        
+
         assert!(formatted.contains("(2024)"));
         assert!(formatted.contains("Test Paper"));
     }

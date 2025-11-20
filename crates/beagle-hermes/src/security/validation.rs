@@ -1,6 +1,6 @@
 //! Input Validation
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use tracing::warn;
 
 pub struct Validator;
@@ -18,12 +18,15 @@ impl Validator {
         }
 
         // No SQL injection patterns
-        let sql_keywords = ["DROP", "DELETE", "UPDATE", "INSERT", "SELECT", "UNION", "EXEC"];
+        let sql_keywords = [
+            "DROP", "DELETE", "UPDATE", "INSERT", "SELECT", "UNION", "EXEC",
+        ];
         let text_upper = text.to_uppercase();
         for keyword in sql_keywords {
-            if text_upper.contains(&format!(" {} ", keyword)) || 
-               text_upper.starts_with(&format!("{} ", keyword)) ||
-               text_upper.ends_with(&format!(" {}", keyword)) {
+            if text_upper.contains(&format!(" {} ", keyword))
+                || text_upper.starts_with(&format!("{} ", keyword))
+                || text_upper.ends_with(&format!(" {}", keyword))
+            {
                 warn!("Potential SQL injection attempt detected: {}", text);
                 // Don't fail, just log (defense in depth)
             }
@@ -66,7 +69,10 @@ impl Validator {
         }
 
         // Only alphanumeric, spaces, hyphens, underscores
-        if !name.chars().all(|c| c.is_alphanumeric() || c.is_whitespace() || c == '-' || c == '_') {
+        if !name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c.is_whitespace() || c == '-' || c == '_')
+        {
             bail!("Concept name contains invalid characters");
         }
 
@@ -81,8 +87,7 @@ impl Validator {
 
     /// Sanitize text for display (remove potentially dangerous content)
     pub fn sanitize_text(text: &str) -> String {
-        text
-            .replace("<script", "&lt;script")
+        text.replace("<script", "&lt;script")
             .replace("</script>", "&lt;/script&gt;")
             .replace("javascript:", "")
             .trim()
@@ -114,7 +119,7 @@ mod tests {
     fn test_validate_title() {
         assert!(Validator::validate_title("Valid Title").is_ok());
         assert!(Validator::validate_title("").is_err());
-        
+
         let long_title = "a".repeat(501);
         assert!(Validator::validate_title(&long_title).is_err());
     }
@@ -123,9 +128,8 @@ mod tests {
     fn test_sanitize_text() {
         let malicious = "<script>alert('xss')</script>Hello";
         let sanitized = Validator::sanitize_text(malicious);
-        
+
         assert!(!sanitized.contains("<script"));
         assert!(sanitized.contains("Hello"));
     }
 }
-

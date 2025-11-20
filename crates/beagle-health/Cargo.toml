@@ -1,0 +1,15 @@
+[package]
+name = "beagle-health"
+version = "0.1.0"
+edition = "2021"
+description = "BEAGLE healthcheck and diagnostics"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+beagle-config = { path = "../beagle-config" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+reqwest = { workspace = true, features = ["json"] }
+

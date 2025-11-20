@@ -53,7 +53,11 @@ impl ArgosAgent {
     }
 
     /// Modo ultra-crítico para adversarial self-play (threshold mais alto, detecção mais rigorosa)
-    pub async fn validate_ultra_critical(&self, draft: &Draft, papers: &[Paper]) -> Result<ValidationResult> {
+    pub async fn validate_ultra_critical(
+        &self,
+        draft: &Draft,
+        papers: &[Paper],
+    ) -> Result<ValidationResult> {
         info!("ARGOS: Ultra-critical validation (adversarial mode)");
 
         // Usa validação normal mas com threshold mais alto e detecção mais rigorosa
@@ -73,7 +77,10 @@ impl ArgosAgent {
         // Aprovação mais rigorosa em modo adversarial
         result.approved = result.quality_score >= 0.985; // 98.5% em vez de 85%
 
-        info!("ARGOS: Ultra-critical quality score: {:.1}%", result.quality_score * 100.0);
+        info!(
+            "ARGOS: Ultra-critical quality score: {:.1}%",
+            result.quality_score * 100.0
+        );
         Ok(result)
     }
 
@@ -113,7 +120,10 @@ impl ArgosAgent {
             if count > 5 {
                 issues.push(Issue {
                     issue_type: IssueType::UnsupportedClaim, // Reutiliza tipo
-                    description: format!("Repetição excessiva da palavra '{}' ({} vezes)", word, count),
+                    description: format!(
+                        "Repetição excessiva da palavra '{}' ({} vezes)",
+                        word, count
+                    ),
                     severity: Severity::Medium,
                 });
             }
@@ -125,15 +135,17 @@ impl ArgosAgent {
     fn check_vocabulary_diversity(&self, content: &str) -> Vec<Issue> {
         let mut issues = Vec::new();
         let words: Vec<&str> = content.split_whitespace().collect();
-        let unique_words: std::collections::HashSet<String> = words.iter()
-            .map(|w| w.to_lowercase())
-            .collect();
+        let unique_words: std::collections::HashSet<String> =
+            words.iter().map(|w| w.to_lowercase()).collect();
 
         let diversity_ratio = unique_words.len() as f64 / words.len() as f64;
         if diversity_ratio < 0.3 {
             issues.push(Issue {
                 issue_type: IssueType::UnsupportedClaim,
-                description: format!("Baixa diversidade vocabular ({:.1}%)", diversity_ratio * 100.0),
+                description: format!(
+                    "Baixa diversidade vocabular ({:.1}%)",
+                    diversity_ratio * 100.0
+                ),
                 severity: Severity::Low,
             });
         }
@@ -150,13 +162,21 @@ impl ArgosAgent {
             if word_count < 20 {
                 issues.push(Issue {
                     issue_type: IssueType::MissingTransition,
-                    description: format!("Parágrafo {} muito curto ({} palavras)", i + 1, word_count),
+                    description: format!(
+                        "Parágrafo {} muito curto ({} palavras)",
+                        i + 1,
+                        word_count
+                    ),
                     severity: Severity::Low,
                 });
             } else if word_count > 200 {
                 issues.push(Issue {
                     issue_type: IssueType::MissingTransition,
-                    description: format!("Parágrafo {} muito longo ({} palavras)", i + 1, word_count),
+                    description: format!(
+                        "Parágrafo {} muito longo ({} palavras)",
+                        i + 1,
+                        word_count
+                    ),
                     severity: Severity::Medium,
                 });
             }
@@ -189,7 +209,11 @@ impl ArgosAgent {
         if !high_severity.is_empty() {
             critique.push_str("## 🔴 PROBLEMAS CRÍTICOS (Alta Prioridade)\n\n");
             for issue in high_severity {
-                critique.push_str(&format!("- **{}**: {}\n", format!("{:?}", issue.issue_type), issue.description));
+                critique.push_str(&format!(
+                    "- **{}**: {}\n",
+                    format!("{:?}", issue.issue_type),
+                    issue.description
+                ));
             }
             critique.push_str("\n");
         }
@@ -197,7 +221,11 @@ impl ArgosAgent {
         if !medium_severity.is_empty() {
             critique.push_str("## 🟡 PROBLEMAS MÉDIOS\n\n");
             for issue in medium_severity {
-                critique.push_str(&format!("- **{}**: {}\n", format!("{:?}", issue.issue_type), issue.description));
+                critique.push_str(&format!(
+                    "- **{}**: {}\n",
+                    format!("{:?}", issue.issue_type),
+                    issue.description
+                ));
             }
             critique.push_str("\n");
         }
@@ -205,12 +233,18 @@ impl ArgosAgent {
         if !low_severity.is_empty() {
             critique.push_str("## 🟢 MELHORIAS SUGERIDAS\n\n");
             for issue in low_severity {
-                critique.push_str(&format!("- **{}**: {}\n", format!("{:?}", issue.issue_type), issue.description));
+                critique.push_str(&format!(
+                    "- **{}**: {}\n",
+                    format!("{:?}", issue.issue_type),
+                    issue.description
+                ));
             }
         }
 
         critique.push_str("\n## INSTRUÇÕES\n\n");
-        critique.push_str("Refine o draft corrigindo os problemas acima, mantendo a voz e estilo do autor.");
+        critique.push_str(
+            "Refine o draft corrigindo os problemas acima, mantendo a voz e estilo do autor.",
+        );
 
         Ok(critique)
     }
@@ -608,5 +642,5 @@ impl QualityScorer {
 }
 
 // Tipos de validação foram movidos para beagle-llm::validation para evitar dependências circulares
-// Re-exportar para compatibilidade com código existente
-pub use beagle_llm::validation::{CitationValidity, Issue, IssueType, Severity, ValidationResult};
+// Não re-exportar aqui pois já são importados no topo do arquivo
+// Use beagle_llm::validation::* diretamente onde necessário

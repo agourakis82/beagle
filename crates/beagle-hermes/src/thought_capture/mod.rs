@@ -11,7 +11,7 @@ pub mod processor;
 pub mod service;
 pub mod whisper_client;
 
-pub use concept_extractor::{ConceptExtractor, ExtractedConcept, ConceptType};
+pub use concept_extractor::{ConceptExtractor, ConceptType, ExtractedConcept};
 pub use processor::{ProcessedThought, ThoughtProcessor};
 pub use service::ThoughtCaptureService;
 pub use whisper_client::{WhisperClient, WhisperConfig};

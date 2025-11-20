@@ -22,7 +22,7 @@ impl RefinementEngine {
     pub async fn refine(
         &self,
         draft: &str,
-        issues: &[crate::agents::argos::Issue],
+        issues: &[beagle_llm::validation::Issue],
         original_context: &str,
     ) -> Result<String> {
         if issues.is_empty() {
@@ -39,16 +39,16 @@ impl RefinementEngine {
 
         for issue in issues {
             match issue.issue_type {
-                crate::agents::argos::IssueType::MissingTransition => {
+                beagle_llm::validation::IssueType::MissingTransition => {
                     transition_issues.push(&issue.description);
                 }
-                crate::agents::argos::IssueType::UnsupportedClaim => {
+                beagle_llm::validation::IssueType::UnsupportedClaim => {
                     claim_issues.push(&issue.description);
                 }
-                crate::agents::argos::IssueType::UnclearReference => {
+                beagle_llm::validation::IssueType::UnclearReference => {
                     reference_issues.push(&issue.description);
                 }
-                crate::agents::argos::IssueType::GrammaticalError => {
+                beagle_llm::validation::IssueType::GrammaticalError => {
                     grammar_issues.push(&issue.description);
                 }
             }
@@ -146,7 +146,7 @@ REFINED DRAFT:
         &self,
         mut draft: String,
         original_context: &str,
-        validation_fn: impl Fn(&str) -> Result<Vec<crate::agents::argos::Issue>>,
+        validation_fn: impl Fn(&str) -> Result<Vec<beagle_llm::validation::Issue>>,
     ) -> Result<String> {
         for iteration in 1..=self.max_iterations {
             debug!("Refinement iteration {}/{}", iteration, self.max_iterations);

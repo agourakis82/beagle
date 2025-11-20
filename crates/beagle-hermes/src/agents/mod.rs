@@ -3,11 +3,13 @@
 pub mod argos;
 pub mod athena;
 pub mod hermes_agent;
-pub mod orchestrator;
 pub mod integrated_pipeline;
+pub mod orchestrator;
 
-pub use argos::{ArgosAgent, ValidationResult, Issue, IssueType, Severity};
+pub use argos::ArgosAgent;
+// Tipos de validação devem ser importados diretamente de beagle_llm::validation
 pub use athena::AthenaAgent;
-pub use hermes_agent::{HermesAgent, Draft, GenerationContext};
+pub use beagle_llm::validation::{Issue, IssueType, Severity, ValidationResult};
+pub use hermes_agent::{Draft, GenerationContext, HermesAgent};
+pub use integrated_pipeline::{EnhancedSynthesisOutput, IntegratedPipeline};
 pub use orchestrator::MultiAgentOrchestrator;
-pub use integrated_pipeline::{IntegratedPipeline, EnhancedSynthesisOutput};

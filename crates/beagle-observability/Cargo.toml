@@ -1,0 +1,36 @@
+[package]
+name = "beagle-observability"
+version = "0.1.0"
+edition = "2021"
+description = "BEAGLE observability with OpenTelemetry"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json", "registry"] }
+anyhow = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+
+# OpenTelemetry (opcional, habilitado via feature)
+[features]
+default = []
+otel = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "tracing-opentelemetry"]
+
+[dependencies.opentelemetry]
+version = "0.21"
+optional = true
+
+[dependencies.opentelemetry_sdk]
+version = "0.21"
+features = ["rt-tokio", "trace"]
+optional = true
+
+[dependencies.opentelemetry-otlp]
+version = "0.14"
+features = ["trace", "tonic"]
+optional = true
+
+[dependencies.tracing-opentelemetry]
+version = "0.22"
+optional = true
+

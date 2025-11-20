@@ -37,15 +37,19 @@ async fn main() -> anyhow::Result<()> {
     // Exemplo 2: Plugin system
     println!("🔌 Testando Plugin System:");
     let darwin = DarwinCore::new();
-    
+
     let plugins = vec!["grok3", "local70b", "heavy"];
     for plugin in plugins {
         println!("  Plugin: {}", plugin);
-        let result = darwin.run_with_plugin("Explique quantum entanglement em uma frase.", plugin).await;
-        println!("  Resposta (truncada): {}...", &result[..result.len().min(100)]);
+        let result = darwin
+            .run_with_plugin("Explique quantum entanglement em uma frase.", plugin)
+            .await;
+        println!(
+            "  Resposta (truncada): {}...",
+            &result[..result.len().min(100)]
+        );
         println!();
     }
 
     Ok(())
 }
-
