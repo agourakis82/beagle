@@ -576,6 +576,8 @@ mod tests {
 /// O arquivo de configuração pode sobrepor valores de env, mas env sempre tem
 /// precedência final para segurança.
 pub fn load() -> BeagleConfig {
+    use model::AdvancedModulesConfig;
+    
     // 1) Carrega defaults a partir de env
     let mut cfg = BeagleConfig {
         profile: env::var("BEAGLE_PROFILE")
@@ -605,6 +607,12 @@ pub fn load() -> BeagleConfig {
             database_url: env::var("DATABASE_URL").ok(),
             redis_url: env::var("REDIS_URL").ok(),
         },
+        advanced: AdvancedModulesConfig {
+            serendipity_enabled: bool_env("BEAGLE_SERENDIPITY", false),
+            serendipity_in_triad: bool_env("BEAGLE_SERENDIPITY_TRIAD", false),
+            void_enabled: bool_env("BEAGLE_VOID_ENABLED", false),
+            memory_retrieval_enabled: bool_env("BEAGLE_MEMORY_RETRIEVAL", false),
+        },
     };
 
     // 2) Tenta carregar arquivo de configuração (opcional)
@@ -628,6 +636,8 @@ pub fn load() -> BeagleConfig {
 
 /// Merge de configurações: `base` é mantido, `override_cfg` sobrepõe apenas campos Some
 fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig {
+    use model::AdvancedModulesConfig;
+    
     BeagleConfig {
         profile: override_cfg.profile.clone(),
         safe_mode: override_cfg.safe_mode,
@@ -654,6 +664,12 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
         hermes: HermesConfig {
             database_url: override_cfg.hermes.database_url.or(base.hermes.database_url),
             redis_url: override_cfg.hermes.redis_url.or(base.hermes.redis_url),
+        },
+        advanced: AdvancedModulesConfig {
+            serendipity_enabled: override_cfg.advanced.serendipity_enabled || base.advanced.serendipity_enabled,
+            serendipity_in_triad: override_cfg.advanced.serendipity_in_triad || base.advanced.serendipity_in_triad,
+            void_enabled: override_cfg.advanced.void_enabled || base.advanced.void_enabled,
+            memory_retrieval_enabled: override_cfg.advanced.memory_retrieval_enabled || base.advanced.memory_retrieval_enabled,
         },
     }
 }

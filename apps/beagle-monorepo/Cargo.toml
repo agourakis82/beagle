@@ -41,7 +41,17 @@ beagle-feedback = { path = "../../crates/beagle-feedback" }
 beagle-triad = { path = "../../crates/beagle-triad" }
 beagle-llm = { path = "../../crates/beagle-llm" }
 beagle-observer = { path = "../../crates/beagle-observer" }
+beagle-serendipity = { path = "../../crates/beagle-serendipity" }
+beagle-quantum = { path = "../../crates/beagle-quantum" }
+beagle-memory = { path = "../../crates/beagle-memory" }
+# beagle-void e beagle-ontic comentados temporariamente (requerem dependências adicionais)
+# beagle-void = { path = "../../crates/beagle-void" }
+# beagle-ontic = { path = "../../crates/beagle-ontic" }
 axum = { version = "0.7", features = ["macros", "query"] }
+
+[features]
+default = []
+memory = ["beagle-core/memory"]
 
 [dev-dependencies]
 tempfile = "3.8"

@@ -23,10 +23,21 @@ pub struct BeagleContext {
     pub vector: Arc<dyn VectorStore>,
     pub graph: Arc<dyn GraphStore>,
     pub llm_stats: LlmStatsRegistry,
-    // Darwin, HERMES e Observer serão adicionados quando disponíveis
-    // pub darwin: Arc<beagle_darwin::DarwinCore>,
-    // pub hermes: Arc<beagle_hermes::HermesEngine>,
-    // pub observer: Arc<beagle_observer::UniversalObserver>,
+    // Memory engine (opcional, só disponível com feature "memory")
+    #[cfg(feature = "memory")]
+    pub memory: Option<Arc<beagle_memory::MemoryEngine>>,
+    // Darwin (GraphRAG + Self-RAG)
+    pub darwin: Option<Arc<beagle_darwin::DarwinCore>>,
+    // HERMES (síntese de papers)
+    pub hermes: Option<Arc<beagle_hermes::HermesEngine>>,
+    // Observer (surveillance total - HRV/HealthKit)
+    pub observer: Option<Arc<beagle_observer::UniversalObserver>>,
+    // Triad engine (opcional, criado sob demanda)
+    // pub triad: Option<Arc<beagle_triad::TriadEngine>>,
+    // Serendipity engine (opcional, só se habilitado)
+    // pub serendipity: Option<Arc<beagle_serendipity::SerendipityEngine>>,
+    // Void engine (opcional, só se habilitado)
+    // pub void_engine: Option<Arc<beagle_void::VoidEngine>>,
 }
 
 impl BeagleContext {
@@ -83,6 +94,88 @@ impl BeagleContext {
             Arc::new(MockGraphStore)
         };
 
+        // Initialize MemoryEngine if hypergraph storage is available
+        #[cfg(feature = "memory")]
+        let memory = {
+            use beagle_hypergraph::CachedPostgresStorage;
+            use beagle_memory::{ContextBridge, MemoryEngine};
+            
+            if let (Some(pg_url), Some(redis_url)) = (&cfg.hermes.database_url, &cfg.hermes.redis_url) {
+                match CachedPostgresStorage::new(pg_url, redis_url).await {
+                    Ok(storage) => {
+                        let bridge = Arc::new(ContextBridge::new(Arc::new(storage)));
+                        info!("MemoryEngine initialized with Postgres+Redis");
+                        Some(Arc::new(MemoryEngine::new(bridge)))
+                    }
+                    Err(e) => {
+                        warn!("Failed to initialize MemoryEngine: {}", e);
+                        None
+                    }
+                }
+            } else {
+                warn!("MemoryEngine requires DATABASE_URL and REDIS_URL");
+                None
+            }
+        };
+        #[cfg(not(feature = "memory"))]
+        let memory = None::<Arc<()>>; // Placeholder quando feature não habilitada
+
+        // Inicializa Darwin (GraphRAG + Self-RAG)
+        // Nota: Darwin pode usar BeagleContext depois, mas inicializamos sem dependência circular por enquanto
+        #[cfg(feature = "darwin")]
+        let darwin = {
+            use beagle_darwin::DarwinCore;
+            info!("Inicializando Darwin Core (GraphRAG + Self-RAG)");
+            Some(Arc::new(DarwinCore::new()))
+        };
+        #[cfg(not(feature = "darwin"))]
+        let darwin = None;
+
+        // Inicializa HERMES (síntese de papers)
+        // HERMES precisa de config separado, então inicializamos condicionalmente
+        #[cfg(feature = "hermes")]
+        let hermes = {
+            use beagle_hermes::{HermesConfig, HermesEngine};
+            if cfg.has_hermes() {
+                info!("Inicializando HERMES Engine (síntese de papers)");
+                let hermes_cfg = HermesConfig::default();
+                match HermesEngine::new(hermes_cfg).await {
+                    Ok(engine) => {
+                        info!("HERMES Engine inicializado com sucesso");
+                        Some(Arc::new(engine))
+                    }
+                    Err(e) => {
+                        warn!("Falha ao inicializar HERMES Engine: {}", e);
+                        None
+                    }
+                }
+            } else {
+                warn!("HERMES não configurado (DATABASE_URL e REDIS_URL necessários)");
+                None
+            }
+        };
+        #[cfg(not(feature = "hermes"))]
+        let hermes = None;
+
+        // Inicializa Observer (surveillance total - HRV/HealthKit)
+        #[cfg(feature = "observer")]
+        let observer = {
+            use beagle_observer::UniversalObserver;
+            info!("Inicializando Universal Observer");
+            match UniversalObserver::new() {
+                Ok(obs) => {
+                    info!("Universal Observer inicializado com sucesso");
+                    Some(Arc::new(obs))
+                }
+                Err(e) => {
+                    warn!("Falha ao inicializar Universal Observer: {}", e);
+                    None
+                }
+            }
+        };
+        #[cfg(not(feature = "observer"))]
+        let observer = None;
+
         Ok(Self {
             cfg,
             router,
@@ -90,6 +183,11 @@ impl BeagleContext {
             vector,
             graph,
             llm_stats: LlmStatsRegistry::new(),
+            #[cfg(feature = "memory")]
+            memory,
+            darwin,
+            hermes,
+            observer,
         })
     }
 
@@ -102,6 +200,8 @@ impl BeagleContext {
             vector: Arc::new(MockVectorStore),
             graph: Arc::new(MockGraphStore),
             llm_stats: LlmStatsRegistry::new(),
+            #[cfg(feature = "memory")]
+            memory: None,
         }
     }
     
@@ -109,6 +209,32 @@ impl BeagleContext {
     pub fn new_with_mock() -> anyhow::Result<Self> {
         let cfg = beagle_config::load();
         Ok(Self::new_with_mocks(cfg))
+    }
+    
+    /// Helper para ingerir sessão de chat na memória
+    #[cfg(feature = "memory")]
+    pub async fn memory_ingest_session(
+        &self,
+        session: beagle_memory::ChatSession,
+    ) -> anyhow::Result<beagle_memory::IngestStats> {
+        if let Some(ref memory) = self.memory {
+            memory.ingest_chat(session).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+    
+    /// Helper para consultar memória
+    #[cfg(feature = "memory")]
+    pub async fn memory_query(
+        &self,
+        q: beagle_memory::MemoryQuery,
+    ) -> anyhow::Result<beagle_memory::MemoryResult> {
+        if let Some(ref memory) = self.memory {
+            memory.query(q).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
     }
 }
 

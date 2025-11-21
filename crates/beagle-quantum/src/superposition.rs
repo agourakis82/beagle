@@ -45,8 +45,8 @@ impl HypothesisSet {
 
     pub fn add(&mut self, content: String, initial_amp: Option<Amplitude>) {
         let amp = initial_amp.unwrap_or({
-            let mut rng = rand::thread_rng();
-            (rng.gen_range(0.3..1.0), rng.gen_range(-0.2..0.2))
+            // Usa rand::random() que é thread-safe (Send + Sync)
+            (rand::random::<f64>() * 0.7 + 0.3, rand::random::<f64>() * 0.4 - 0.2)
         });
         let h = Hypothesis {
             content,
@@ -175,10 +175,13 @@ Formato exato (JSON array, nada mais):
 
         // Cria HypothesisSet com amplitudes iniciais aleatórias (fase quântica simulada)
         let mut set = HypothesisSet::new();
-        let mut rng = rand::thread_rng();
 
         for text in hypotheses_texts.into_iter().take(N_HYPOTHESES) {
-            let amp: Amplitude = (rng.gen_range(0.5..1.2), rng.gen_range(-0.6..0.6));
+            // Usa rand::random() que é thread-safe (Send + Sync)
+            let amp: Amplitude = (
+                rand::random::<f64>() * 0.7 + 0.5,  // 0.5..1.2
+                rand::random::<f64>() * 1.2 - 0.6   // -0.6..0.6
+            );
             set.add(text.trim().to_string(), Some(amp));
         }
 

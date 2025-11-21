@@ -4,7 +4,6 @@
 
 use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use beagle_quantum::HypothesisSet;
-use rand::seq::SliceRandom;
 use tracing::info;
 
 const DOMINIOS_DISTANTES: [&str; 8] = [
@@ -42,10 +41,9 @@ impl CrossDomainMutator {
         current_set: &HypothesisSet,
         context: &str,
     ) -> anyhow::Result<Vec<String>> {
-        let mut rng = rand::thread_rng();
-        let domain = DOMINIOS_DISTANTES
-            .choose(&mut rng)
-            .ok_or_else(|| anyhow::anyhow!("Nenhum domínio disponível"))?;
+        // Usa rand::random() que é thread-safe (Send + Sync)
+        let idx = (rand::random::<usize>() % DOMINIOS_DISTANTES.len());
+        let domain = DOMINIOS_DISTANTES[idx];
 
         info!("CROSS-DOMAIN: Contaminando com '{}'", domain);
 

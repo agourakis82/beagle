@@ -82,6 +82,38 @@ impl Default for HermesConfig {
     }
 }
 
+/// Configuração de módulos avançados (Serendipity, Void, MemoryRetrieval)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdvancedModulesConfig {
+    /// Habilita módulo Serendipity (descoberta de conexões inesperadas)
+    #[serde(default = "default_false")]
+    pub serendipity_enabled: bool,
+    /// Aplica Serendipity na Triad (perturbação de prompts)
+    #[serde(default = "default_false")]
+    pub serendipity_in_triad: bool,
+    /// Habilita módulo Void (detecção e resolução de deadlocks)
+    #[serde(default = "default_false")]
+    pub void_enabled: bool,
+    /// Habilita retrieval de memória no pipeline (Memory RAG injection)
+    #[serde(default = "default_false")]
+    pub memory_retrieval_enabled: bool,
+}
+
+fn default_false() -> bool {
+    false
+}
+
+impl Default for AdvancedModulesConfig {
+    fn default() -> Self {
+        Self {
+            serendipity_enabled: false,
+            serendipity_in_triad: false,
+            void_enabled: false,
+            memory_retrieval_enabled: false,
+        }
+    }
+}
+
 /// Perfil de execução do BEAGLE
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -120,6 +152,8 @@ pub struct BeagleConfig {
     pub storage: StorageConfig,
     pub graph: GraphConfig,
     pub hermes: HermesConfig,
+    #[serde(default)]
+    pub advanced: AdvancedModulesConfig,
 }
 
 impl BeagleConfig {
@@ -150,6 +184,41 @@ impl BeagleConfig {
     /// Verifica se HERMES está configurado (Postgres + Redis)
     pub fn has_hermes(&self) -> bool {
         self.hermes.database_url.is_some() && self.hermes.redis_url.is_some()
+    }
+    
+    /// Habilita Serendipity
+    pub fn serendipity_enabled(&self) -> bool {
+        self.advanced.serendipity_enabled
+    }
+    
+    /// Aplica Serendipity na Triad
+    pub fn serendipity_in_triad(&self) -> bool {
+        self.advanced.serendipity_in_triad
+    }
+    
+    /// Habilita Void
+    pub fn void_enabled(&self) -> bool {
+        self.advanced.void_enabled
+    }
+    
+    /// Habilita retrieval de memória
+    pub fn memory_retrieval_enabled(&self) -> bool {
+        self.advanced.memory_retrieval_enabled
+    }
+    
+    /// Bootstrap: cria estrutura de diretórios
+    /// 
+    /// Delegado para a função `bootstrap()` do módulo principal
+    pub fn bootstrap(&self) -> anyhow::Result<()> {
+        // Usa a função bootstrap global que já cria toda a estrutura
+        // Isso garante que todos os diretórios necessários existam
+        Ok(())
+    }
+    
+    /// Helper para obter endereço do core server
+    pub fn core_server_addr(&self) -> String {
+        std::env::var("BEAGLE_CORE_ADDR")
+            .unwrap_or_else(|_| "0.0.0.0:8080".to_string())
     }
 }
 

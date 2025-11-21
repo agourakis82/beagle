@@ -86,8 +86,8 @@ impl MeasurementOperator {
     }
 
     fn probabilistic_collapse(&self, set: &HypothesisSet) -> String {
-        let mut rng = rand::thread_rng();
-        let random: f64 = rng.gen();
+        // Usa rand::random() que é thread-safe (Send + Sync)
+        let random: f64 = rand::random();
 
         let mut cumulative = 0.0;
         for hypothesis in &set.hypotheses {
