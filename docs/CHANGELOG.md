@@ -1,0 +1,67 @@
+# Changelog
+
+All notable changes to the BEAGLE project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.0] - 2025-01-XX
+
+### Added
+
+#### Memory & MCP Layer
+- **beagle-memory**: MemoryEngine com interface unificada para ingest e query de conversas
+- **MCP Server**: Servidor MCP completo para ChatGPT e Claude
+- **Memory Endpoints**: `/api/memory/ingest_chat` e `/api/memory/query`
+- **RAG Injection**: Injeção automática de contexto prévio no pipeline quando `BEAGLE_MEMORY_RETRIEVAL=true`
+
+#### Serendipity Integration
+- Integração do `SerendipityEngine` no pipeline
+- Geração de acidentes férteis interdisciplinares
+- `serendipity_score` registrado no `run_report.json`
+- Ativado via `BEAGLE_SERENDIPITY_ENABLE=true` (lab/prod apenas)
+
+#### Void Deadlock Detection
+- `DeadlockState` para rastreamento de outputs repetidos
+- Detecção de similaridade (>80%) entre outputs
+- Estratégia conservadora de quebra de loop
+- Threshold configurável (3 com `BEAGLE_VOID_STRICT`, 5 padrão)
+
+#### Security & Auth
+- Bearer token authentication no MCP server
+- Rate limiting (100 req/min por cliente)
+- Sanitização de output (proteção MCP-UPD)
+- Documentação de TLS via reverse proxy
+
+### Changed
+
+- `BeagleContext` agora suporta `MemoryEngine` opcional (feature flag `memory`)
+- Pipeline integra Serendipity e Void quando habilitados
+- `run_report.json` inclui `serendipity_score`
+
+### Documentation
+
+- `BEAGLE_MCP.md`: Guia completo de instalação e configuração do MCP server
+- `BEAGLE_v0_3_RELEASE_NOTES.md`: Release notes detalhadas
+- `CHANGELOG.md`: Este arquivo
+
+## [0.2.0] - 2024-XX-XX
+
+### Added
+- Pipeline v0.1 com Darwin, Observer, HERMES
+- Triad adversarial (ATHENA, HERMES, ARGOS)
+- Feedback system para continuous learning
+- Science jobs (PBPK, Helio, Scaffold, PCS, KEC)
+
+## [0.1.0] - 2024-XX-XX
+
+### Added
+- Core HTTP server (Axum)
+- LLM routing (Grok 3 Tier 1, Heavy, Local fallback)
+- Config system com profiles (dev/lab/prod)
+- Observer para captura de contexto
+
+[0.3.0]: https://github.com/darwin-cluster/beagle/releases/tag/v0.3.0
+[0.2.0]: https://github.com/darwin-cluster/beagle/releases/tag/v0.2.0
+[0.1.0]: https://github.com/darwin-cluster/beagle/releases/tag/v0.1.0
+
