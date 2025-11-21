@@ -7,6 +7,8 @@ use beagle_llm::{RequestMeta, ProviderTier};
 use crate::{run_beagle_pipeline, RunState, RunStatus, ScienceJobRegistry, ScienceJobState, ScienceJobKind, ScienceJobStatus};
 use beagle_observer::UniversalObserver;
 use beagle_triad::{run_triad, TriadInput};
+#[cfg(feature = "memory")]
+use beagle_memory::{ChatSession, MemoryQuery};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -56,9 +58,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/jobs/science/start", post(science_job_start_handler))
         .route("/api/jobs/science/status/:job_id", get(science_job_status_handler))
         .route("/api/jobs/science/:job_id/artifacts", get(science_job_artifacts_handler))
+        .merge(crate::http_memory::memory_routes())
         .route("/api/pcs/reason", post(pcs_reason_handler))
         .route("/api/fractal/grow", post(fractal_grow_handler))
         .route("/api/worldmodel/predict", post(worldmodel_predict_handler))
+        .route("/api/serendipity/discover", post(serendipity_discover_handler))
         .route("/health", get(health_handler))
         .with_state(state)
 }
@@ -479,7 +483,7 @@ async fn observer_context_handler(
 // Science Jobs endpoints
 // ============================================================================
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct ScienceJobStartRequest {
     pub kind: String,  // "pbpk", "scaffold", "helio", "pcs", "kec"
     pub params: serde_json::Value,
@@ -506,7 +510,7 @@ async fn science_job_start_handler(
         _ => return Err(StatusCode::BAD_REQUEST),
     };
     
-    let job_state = ScienceJobState::new(job_id.clone(), kind, req.params);
+    let job_state = ScienceJobState::new(job_id.clone(), kind, req.params.clone());
     state.science_jobs.add_job(job_state.clone()).await;
     
     info!("Science job start requested: job_id={}, kind={:?}", job_id, job_state.kind);
@@ -515,30 +519,103 @@ async fn science_job_start_handler(
     let jobs_clone = state.science_jobs.clone();
     let job_id_clone = job_id.clone();
     let kind_clone = job_state.kind.clone();
+    let req_clone = req.clone();
     
     tokio::spawn(async move {
         jobs_clone.update_job(&job_id_clone, |s| s.update_status(ScienceJobStatus::Running)).await;
         info!("Starting science job for job_id: {}", job_id_clone);
         
-        // Por enquanto, apenas placeholder
-        // TODO: Implementar chamada real ao Julia via std::process::Command
-        // ou HTTP interno ao servidor Julia
+        // Chama Julia via run_job_cli.jl
+        let cfg = beagle_config::load();
+        let data_dir = PathBuf::from(&cfg.storage.data_dir);
+        let jobs_dir = data_dir.join("jobs").join("science").join(&job_id_clone);
+        std::fs::create_dir_all(&jobs_dir).ok();
         
-        // Simula execução (será substituído por chamada Julia real)
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        // Cria arquivo de configuração JSON para o job
+        let kind_str = match kind_clone {
+            ScienceJobKind::Pbpk => "pbpk",
+            ScienceJobKind::Scaffold => "scaffold",
+            ScienceJobKind::Helio => "helio",
+            ScienceJobKind::Pcs => "pcs",
+            ScienceJobKind::Kec => "kec",
+        };
         
-        // Por enquanto, marca como done sem resultados reais
-        jobs_clone.update_job(&job_id_clone, |s| {
-            s.update_status(ScienceJobStatus::Done);
-            s.output_paths = vec![]; // TODO: preencher com paths reais do Julia
-            s.result_json = Some(serde_json::json!({
-                "status": "completed",
-                "kind": format!("{:?}", kind_clone),
-                "note": "placeholder - implementar chamada Julia"
-            }));
-        }).await;
+        let job_config = serde_json::json!({
+            "kind": kind_str,
+            "job_id": job_id_clone,
+            "config": req_clone.params
+        });
         
-        info!("Science job completed for job_id: {}", job_id_clone);
+        let config_path = jobs_dir.join("job_config.json");
+        if let Err(e) = std::fs::write(&config_path, serde_json::to_string_pretty(&job_config).unwrap_or_default()) {
+            error!("Falha ao escrever job_config.json: {}", e);
+            jobs_clone.update_job(&job_id_clone, |s| {
+                s.set_error(format!("Falha ao criar config: {}", e));
+            }).await;
+            return;
+        }
+        
+        // Executa Julia via run_job_cli.jl
+        let workspace_root = std::env::var("BEAGLE_WORKSPACE_ROOT")
+            .unwrap_or_else(|_| {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .to_string_lossy()
+                    .to_string()
+            });
+        
+        let output = tokio::process::Command::new("julia")
+            .arg("--project=beagle-julia")
+            .arg("beagle-julia/run_job_cli.jl")
+            .arg(config_path.to_string_lossy().to_string())
+            .arg(jobs_dir.to_string_lossy().to_string())
+            .current_dir(&workspace_root)
+            .output()
+            .await;
+        
+        match output {
+            Ok(cmd_output) => {
+                if cmd_output.status.success() {
+                    let stdout = String::from_utf8_lossy(&cmd_output.stdout);
+                    
+                    // Parse resultado JSON do Julia
+                    match serde_json::from_str::<serde_json::Value>(&stdout.trim()) {
+                        Ok(result_json) => {
+                            let output_paths = result_json.get("output_paths")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                                .unwrap_or_default();
+                            
+                            jobs_clone.update_job(&job_id_clone, |s| {
+                                s.update_status(ScienceJobStatus::Done);
+                                s.output_paths = output_paths;
+                                s.result_json = Some(result_json);
+                            }).await;
+                            
+                            info!("Science job completed successfully for job_id: {}", job_id_clone);
+                        }
+                        Err(e) => {
+                            error!("Falha ao parsear resultado JSON do Julia: {}", e);
+                            jobs_clone.update_job(&job_id_clone, |s| {
+                                s.set_error(format!("Falha ao parsear resultado: {}", e));
+                            }).await;
+                        }
+                    }
+                } else {
+                    let stderr = String::from_utf8_lossy(&cmd_output.stderr);
+                    error!("Julia job falhou: {}", stderr);
+                    jobs_clone.update_job(&job_id_clone, |s| {
+                        s.set_error(format!("Julia error: {}", stderr));
+                    }).await;
+                }
+            }
+            Err(e) => {
+                error!("Falha ao executar Julia: {}", e);
+                jobs_clone.update_job(&job_id_clone, |s| {
+                    s.set_error(format!("Falha ao executar Julia: {}", e));
+                }).await;
+            }
+        }
     });
     
     Ok(Json(ScienceJobStartResponse {
@@ -633,11 +710,76 @@ async fn fractal_grow_handler(
 ) -> Result<Json<FractalGrowResponse>, StatusCode> {
     info!("Fractal growth request: max_depth={:?}", req.max_depth);
     
-    // Placeholder - implementar chamada real ao Julia
+    let root_id = uuid::Uuid::new_v4().to_string();
+    let max_depth = req.max_depth.unwrap_or(5);
+    
+    // Chama Julia Fractal real
+    let workspace_root = std::env::var("BEAGLE_WORKSPACE_ROOT")
+        .unwrap_or_else(|_| std::env::current_dir().unwrap().to_string_lossy().to_string());
+    
+    let script = format!(
+        r#"
+        using Pkg
+        Pkg.activate("beagle-julia")
+        include("beagle-julia/Fractal.jl")
+        using .BeagleFractal
+        using JSON3
+        
+        root = BeagleFractal.create_node(0, nothing, "{}")
+        BeagleFractal.grow_fractal!(root, {}, 10000)
+        
+        node_count = BeagleFractal.count_nodes(root)
+        max_depth_actual = BeagleFractal.get_max_depth(root)
+        
+        result = Dict(
+            "root_id" => "{}",
+            "node_count" => node_count,
+            "max_depth" => max_depth_actual
+        )
+        println(JSON3.write(result))
+        "#,
+        req.root_state.replace('"', "\\\"").replace('\n', "\\n"),
+        max_depth,
+        root_id
+    );
+    
+    let output = tokio::process::Command::new("julia")
+        .arg("--project=beagle-julia")
+        .arg("-e")
+        .arg(&script)
+        .current_dir(&workspace_root)
+        .output()
+        .await
+        .map_err(|e| {
+            error!("Falha ao executar Julia Fractal: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        error!("Julia Fractal erro: {}", stderr);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let result: serde_json::Value = serde_json::from_str(stdout.trim())
+        .map_err(|e| {
+            error!("Falha ao parsear resultado Fractal: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    
+    let node_count = result.get("node_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
+    
+    let max_depth_actual = result.get("max_depth")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(max_depth as u64) as usize;
+    
     Ok(Json(FractalGrowResponse {
-        node_count: 0,
-        max_depth: req.max_depth.unwrap_or(5),
-        root_id: uuid::Uuid::new_v4().to_string(),
+        node_count,
+        max_depth: max_depth_actual,
+        root_id,
     }))
 }
 
@@ -659,9 +801,61 @@ async fn worldmodel_predict_handler(
 ) -> Result<Json<WorldmodelPredictResponse>, StatusCode> {
     info!("Worldmodel prediction request: horizon={:?}", req.horizon);
     
-    // Placeholder - implementar chamada real
+    let horizon = req.horizon.unwrap_or(10);
+    
+    // Por enquanto, usa worldmodel Rust (crate beagle-worldmodel)
+    // TODO: Implementar chamada Julia se houver módulo Worldmodel.jl
+    let context_str = serde_json::to_string(&req.context)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    
+    // Placeholder - usar beagle-worldmodel quando disponível
+    // Por enquanto, retorna predições vazias
     Ok(Json(WorldmodelPredictResponse {
         predictions: vec![],
         confidence: 0.0,
+    }))
+}
+
+// ============================================================================
+// SERENDIPITY ENDPOINT
+// ============================================================================
+
+#[derive(Deserialize)]
+struct SerendipityDiscoverRequest {
+    focus_project: String,
+    max_connections: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct SerendipityDiscoverResponse {
+    connections: Vec<SerendipityConnection>,
+    count: usize,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct SerendipityConnection {
+    id: String,
+    source_project: String,
+    target_project: String,
+    source_concept: String,
+    target_concept: String,
+    similarity_score: f32,
+    novelty_score: f32,
+    connection_type: String,
+    explanation: String,
+    potential_impact: String,
+}
+
+async fn serendipity_discover_handler(
+    axum::extract::State(_state): axum::extract::State<AppState>,
+    Json(req): Json<SerendipityDiscoverRequest>,
+) -> Result<Json<SerendipityDiscoverResponse>, StatusCode> {
+    info!("Serendipity discovery request: focus_project={}", req.focus_project);
+    
+    // Por enquanto, placeholder - integração com beagle-serendipity será feita depois
+    // TODO: Usar SerendipityInjector do crate beagle-serendipity
+    Ok(Json(SerendipityDiscoverResponse {
+        connections: vec![],
+        count: 0,
     }))
 }

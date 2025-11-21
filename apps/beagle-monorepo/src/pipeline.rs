@@ -12,6 +12,9 @@ use beagle_config::{classify_hrv, load as load_config};
 use beagle_feedback::{append_event, create_pipeline_event};
 use beagle_llm::{RequestMeta, ProviderTier};
 use beagle_observer::UniversalObserver;
+use beagle_serendipity::SerendipityInjector;
+use beagle_quantum::{HypothesisSet, SuperpositionAgent};
+use crate::pipeline_void::{DeadlockState, handle_deadlock};
 use chrono::Utc;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -36,10 +39,107 @@ pub async fn run_beagle_pipeline(
 ) -> anyhow::Result<PipelinePaths> {
     info!("🚀 Pipeline BEAGLE v0.1 iniciado: {}", question);
 
+    // 0) Memory RAG injection (opcional)
+    let mut memory_context = String::new();
+    #[cfg(feature = "memory")]
+    {
+        if std::env::var("BEAGLE_MEMORY_RETRIEVAL")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse::<bool>()
+            .unwrap_or(false)
+        {
+            info!("🧠 Fase 0: Memory RAG injection");
+            if let Ok(mem_result) = ctx.memory_query(beagle_memory::MemoryQuery {
+                query: question.to_string(),
+                scope: Some("scientific".to_string()),
+                max_items: Some(3),
+            }).await {
+                memory_context = format!(
+                    "\n\n=== Contexto Prévio Relevante ===\n{}\n\n",
+                    mem_result.summary
+                );
+                if !mem_result.highlights.is_empty() {
+                    memory_context.push_str("=== Destaques ===\n");
+                    for (i, h) in mem_result.highlights.iter().take(3).enumerate() {
+                        memory_context.push_str(&format!("{}. [{}] {}\n", i + 1, h.source, h.snippet));
+                    }
+                    memory_context.push_str("\n");
+                }
+                info!("Memory RAG: {} highlights encontrados", mem_result.highlights.len());
+            }
+        }
+    }
+
     // 1) Darwin: contexto semântico (GraphRAG)
     info!("📊 Fase 1: Darwin GraphRAG");
-    let context = darwin_enhanced_cycle(ctx, question, run_id).await?;
+    let mut context = darwin_enhanced_cycle(ctx, question, run_id).await?;
     info!(chunks = context.len(), "Contexto Darwin gerado");
+    
+    // Prepend memory context if available
+    if !memory_context.is_empty() {
+        context = format!("{}{}", memory_context, context);
+    }
+    
+    // 1.5) Serendipity: descoberta de conexões interdisciplinares (opcional)
+    let mut serendipity_score: Option<f64> = None;
+    let mut serendipity_accidents: Vec<String> = Vec::new();
+    
+    if ctx.cfg.profile() == beagle_config::Profile::Lab || ctx.cfg.profile() == beagle_config::Profile::Prod {
+        if std::env::var("BEAGLE_SERENDIPITY_ENABLE")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse::<bool>()
+            .unwrap_or(false)
+        {
+            info!("🔮 Fase 1.5: Serendipity (descoberta de conexões)");
+            
+            // Cria HypothesisSet a partir do contexto atual
+            let mut hyp_set = HypothesisSet::new();
+            // Extrai hipóteses implícitas do contexto (simplificado)
+            let context_chunks: Vec<&str> = context.split("\n\n").collect();
+            for (i, chunk) in context_chunks.iter().take(5).enumerate() {
+                if chunk.len() > 50 {
+                    hyp_set.add(format!("Hipótese {}: {}", i + 1, chunk.chars().take(200).collect::<String>()), None);
+                }
+            }
+            
+            // Se não houver hipóteses suficientes, cria uma baseada na pergunta
+            if hyp_set.hypotheses.is_empty() {
+                hyp_set.add(format!("Hipótese principal: {}", question), None);
+            }
+            
+            // Inicializa SerendipityInjector
+            let injector = if let Some(ref vllm_url) = ctx.cfg.llm.vllm_url {
+                SerendipityInjector::with_vllm_url(vllm_url.clone())
+            } else {
+                SerendipityInjector::new()
+            };
+            
+            // Injeta acidentes férteis
+            match injector.inject_fertile_accident(&hyp_set, &format!("{} {}", question, context)).await {
+                Ok(accidents) => {
+                    if !accidents.is_empty() {
+                        serendipity_accidents = accidents.clone();
+                        serendipity_score = Some(accidents.len() as f64 * 0.2); // Score baseado em quantidade
+                        
+                        // Integra acidentes no contexto
+                        let serendipity_text = format!(
+                            "\n\n=== Conexões Serendipitosas (Interdisciplinares) ===\n{}\n\n",
+                            accidents.join("\n\n")
+                        );
+                        context.push_str(&serendipity_text);
+                        
+                        info!("✅ Serendipity: {} acidentes férteis injetados (score: {:.2})", 
+                              accidents.len(), serendipity_score.unwrap_or(0.0));
+                    } else {
+                        info!("Serendipity: nenhum acidente fértil gerado");
+                    }
+                }
+                Err(e) => {
+                    warn!("Falha ao injetar Serendipity: {}", e);
+                }
+            }
+        }
+    }
 
     // 2) Observer: estado fisiológico (HealthKit / HRV)
     info!("🏥 Fase 2: Observer (estado fisiológico)");
@@ -80,9 +180,34 @@ pub async fn run_beagle_pipeline(
     };
     info!(physio = %physio, ?hrv_level, "Estado fisiológico capturado");
 
-    // 3) HERMES: síntese de paper
+    // 3) HERMES: síntese de paper (com detecção de deadlock)
     info!("📝 Fase 3: HERMES (síntese)");
-    let draft = hermes_synthesize_paper(ctx, question, &context, &physio, run_id, hrv_level.as_deref()).await?;
+    let mut deadlock_state = DeadlockState::new(run_id.to_string());
+    let mut draft = hermes_synthesize_paper(ctx, question, &context, &physio, run_id, hrv_level.as_deref()).await?;
+    
+    // Verifica deadlock e aplica Void se necessário
+    if ctx.cfg.profile() == beagle_config::Profile::Lab || ctx.cfg.profile() == beagle_config::Profile::Prod {
+        if std::env::var("BEAGLE_VOID_ENABLE")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse::<bool>()
+            .unwrap_or(false)
+        {
+            if deadlock_state.add_output(&draft) {
+                warn!("Deadlock detectado, aplicando Void...");
+                match handle_deadlock(run_id, "Output repetido sem melhoria", question).await {
+                    Ok(void_insight) => {
+                        // Adiciona insight do Void ao draft
+                        draft = format!("{}\n\n--- VOID INSIGHT ---\n{}", draft, void_insight);
+                        info!("Void aplicado com sucesso");
+                    }
+                    Err(e) => {
+                        warn!("Falha ao aplicar Void: {}", e);
+                    }
+                }
+            }
+        }
+    }
+    
     info!(len = draft.len(), "Draft gerado");
 
     // 4) Escrita de artefatos
@@ -111,7 +236,10 @@ pub async fn run_beagle_pipeline(
     info!("✅ Draft PDF salvo: {}", draft_pdf.display());
 
     // 5) Run report (inclui science_job_ids se fornecidos)
-    let run_report = create_run_report(ctx, run_id, question, &context, &physio, &draft, hrv_level.as_deref(), science_job_ids.clone()).await?;
+    let run_report = create_run_report(
+        ctx, run_id, question, &context, &physio, &draft, 
+        hrv_level.as_deref(), science_job_ids.clone(), serendipity_score
+    ).await?;
     info!("✅ Run report salvo: {}", run_report.display());
 
     // 6) Log feedback event para Continuous Learning
@@ -321,6 +449,7 @@ async fn create_run_report(
     draft: &str,
     hrv_level: Option<&str>,
     science_job_ids: Option<Vec<String>>,
+    serendipity_score: Option<f64>,
 ) -> anyhow::Result<PathBuf> {
     // Obtém stats LLM do run
     let llm_stats = ctx.llm_stats.get(run_id).unwrap_or_default();

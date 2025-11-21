@@ -31,4 +31,13 @@ path = "src/bin/api_server.rs"
 [features]
 default = []
 neo4j = ["neo4rs"]
+memory = ["beagle-memory", "beagle-hypergraph"]
+
+[dependencies.beagle-memory]
+path = "../beagle-memory"
+optional = true
+
+[dependencies.beagle-hypergraph]
+path = "../beagle-hypergraph"
+optional = true
 

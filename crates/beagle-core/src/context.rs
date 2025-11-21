@@ -23,6 +23,9 @@ pub struct BeagleContext {
     pub vector: Arc<dyn VectorStore>,
     pub graph: Arc<dyn GraphStore>,
     pub llm_stats: LlmStatsRegistry,
+    // Memory engine (opcional, só disponível com feature "memory")
+    #[cfg(feature = "memory")]
+    pub memory: Option<Arc<beagle_memory::MemoryEngine>>,
     // Darwin, HERMES e Observer serão adicionados quando disponíveis
     // pub darwin: Arc<beagle_darwin::DarwinCore>,
     // pub hermes: Arc<beagle_hermes::HermesEngine>,
@@ -83,6 +86,32 @@ impl BeagleContext {
             Arc::new(MockGraphStore)
         };
 
+        // Initialize MemoryEngine if hypergraph storage is available
+        #[cfg(feature = "memory")]
+        let memory = {
+            use beagle_hypergraph::CachedPostgresStorage;
+            use beagle_memory::{ContextBridge, MemoryEngine};
+            
+            if let (Some(pg_url), Some(redis_url)) = (&cfg.hermes.database_url, &cfg.hermes.redis_url) {
+                match CachedPostgresStorage::new(pg_url, redis_url).await {
+                    Ok(storage) => {
+                        let bridge = Arc::new(ContextBridge::new(Arc::new(storage)));
+                        info!("MemoryEngine initialized with Postgres+Redis");
+                        Some(Arc::new(MemoryEngine::new(bridge)))
+                    }
+                    Err(e) => {
+                        warn!("Failed to initialize MemoryEngine: {}", e);
+                        None
+                    }
+                }
+            } else {
+                warn!("MemoryEngine requires DATABASE_URL and REDIS_URL");
+                None
+            }
+        };
+        #[cfg(not(feature = "memory"))]
+        let memory = None::<Arc<()>>; // Placeholder quando feature não habilitada
+
         Ok(Self {
             cfg,
             router,
@@ -90,6 +119,8 @@ impl BeagleContext {
             vector,
             graph,
             llm_stats: LlmStatsRegistry::new(),
+            #[cfg(feature = "memory")]
+            memory,
         })
     }
 
@@ -102,6 +133,8 @@ impl BeagleContext {
             vector: Arc::new(MockVectorStore),
             graph: Arc::new(MockGraphStore),
             llm_stats: LlmStatsRegistry::new(),
+            #[cfg(feature = "memory")]
+            memory: None,
         }
     }
     
@@ -109,6 +142,32 @@ impl BeagleContext {
     pub fn new_with_mock() -> anyhow::Result<Self> {
         let cfg = beagle_config::load();
         Ok(Self::new_with_mocks(cfg))
+    }
+    
+    /// Helper para ingerir sessão de chat na memória
+    #[cfg(feature = "memory")]
+    pub async fn memory_ingest_session(
+        &self,
+        session: beagle_memory::ChatSession,
+    ) -> anyhow::Result<beagle_memory::IngestStats> {
+        if let Some(ref memory) = self.memory {
+            memory.ingest_chat(session).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+    
+    /// Helper para consultar memória
+    #[cfg(feature = "memory")]
+    pub async fn memory_query(
+        &self,
+        q: beagle_memory::MemoryQuery,
+    ) -> anyhow::Result<beagle_memory::MemoryResult> {
+        if let Some(ref memory) = self.memory {
+            memory.query(q).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
     }
 }
 
