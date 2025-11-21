@@ -1,0 +1,148 @@
+//! BEAGLE Experiments - Infraestrutura para Experimentos Científicos
+//!
+//! Registra condições experimentais para:
+//! - A/B testing (Triad vs ensemble, etc.)
+//! - MAD vs ensemble
+//! - HRV-blind vs HRV-aware
+//! - Outros experimentos rigorosos sobre o próprio BEAGLE
+
+use beagle_config::beagle_data_dir;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
+use tracing::info;
+
+/// Tag experimental para um run_id
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExperimentRunTag {
+    pub experiment_id: String,
+    pub run_id: String,
+    pub condition: String,
+    pub timestamp: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+/// Anexa tag experimental ao log de experimentos
+pub fn append_experiment_tag(data_dir: &PathBuf, tag: &ExperimentRunTag) -> anyhow::Result<()> {
+    use beagle_config::experiments_dir;
+    let experiments_dir = experiments_dir();
+    std::fs::create_dir_all(&experiments_dir)?;
+    
+    let log_file = experiments_dir.join("events.jsonl");
+    
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file)?;
+    
+    let json = serde_json::to_string(tag)?;
+    writeln!(file, "{}", json)?;
+    
+    info!("📊 Tag experimental anexada: experiment_id={}, run_id={}, condition={}", 
+          tag.experiment_id, tag.run_id, tag.condition);
+    
+    Ok(())
+}
+
+/// Lê todas as tags experimentais de um arquivo
+pub fn read_experiment_tags(data_dir: &PathBuf) -> anyhow::Result<Vec<ExperimentRunTag>> {
+    use beagle_config::experiments_dir;
+    let log_file = experiments_dir().join("events.jsonl");
+    
+    if !log_file.exists() {
+        return Ok(Vec::new());
+    }
+    
+    let file = std::fs::File::open(&log_file)?;
+    let reader = BufReader::new(file);
+    
+    let mut tags = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(tag) = serde_json::from_str::<ExperimentRunTag>(&line) {
+            tags.push(tag);
+        }
+    }
+    
+    Ok(tags)
+}
+
+/// Agrupa runs por experiment_id e condition
+pub fn group_by_experiment(tags: &[ExperimentRunTag]) -> std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>> {
+    let mut groups: std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>> = 
+        std::collections::HashMap::new();
+    
+    for tag in tags {
+        groups
+            .entry(tag.experiment_id.clone())
+            .or_insert_with(std::collections::HashMap::new)
+            .entry(tag.condition.clone())
+            .or_insert_with(Vec::new)
+            .push(tag.run_id.clone());
+    }
+    
+    groups
+}
+
+/// Analisa experimentos cruzando com FeedbackEvent
+pub fn analyze_experiment(
+    experiment_id: &str,
+    data_dir: &PathBuf,
+) -> anyhow::Result<ExperimentAnalysis> {
+    // Lê tags experimentais
+    let tags = read_experiment_tags(data_dir)?;
+    let experiment_tags: Vec<_> = tags.iter()
+        .filter(|t| t.experiment_id == experiment_id)
+        .collect();
+    
+    if experiment_tags.is_empty() {
+        return Ok(ExperimentAnalysis {
+            experiment_id: experiment_id.to_string(),
+            condition_counts: std::collections::HashMap::new(),
+            run_ids_by_condition: std::collections::HashMap::new(),
+            total_runs: 0,
+        });
+    }
+    
+    // Agrupa por condition
+    let mut condition_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut run_ids_by_condition: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    
+    for tag in &experiment_tags {
+        *condition_counts.entry(tag.condition.clone()).or_insert(0) += 1;
+        run_ids_by_condition
+            .entry(tag.condition.clone())
+            .or_insert_with(Vec::new)
+            .push(tag.run_id.clone());
+    }
+    
+    Ok(ExperimentAnalysis {
+        experiment_id: experiment_id.to_string(),
+        condition_counts,
+        run_ids_by_condition,
+        total_runs: experiment_tags.len(),
+    })
+}
+
+/// Análise de um experimento
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExperimentAnalysis {
+    pub experiment_id: String,
+    pub condition_counts: std::collections::HashMap<String, usize>,
+    pub run_ids_by_condition: std::collections::HashMap<String, Vec<String>>,
+    pub total_runs: usize,
+}
+
+/// Helper para garantir que experiments_dir existe
+pub fn ensure_experiments_dir() -> anyhow::Result<PathBuf> {
+    use beagle_config::experiments_dir;
+    let dir = experiments_dir();
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+

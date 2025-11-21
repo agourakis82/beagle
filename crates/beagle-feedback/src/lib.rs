@@ -58,6 +58,10 @@ pub struct FeedbackEvent {
     pub accepted: Option<bool>,   // true = "bom", false = "ruim"
     pub rating_0_10: Option<u8>,
     pub notes: Option<String>,
+    
+    // --- Experimentos A/B ---
+    pub experiment_condition: Option<String>, // "A" | "B" | "control" | "treatment" | etc.
+    pub experiment_id: Option<String>,        // ID do experimento
 }
 
 /// Entrada no log JSONL
@@ -149,6 +153,8 @@ pub fn create_pipeline_event(
         accepted: None,
         rating_0_10: None,
         notes: None,
+        experiment_id: None,
+        experiment_condition: None,
     }
 }
 
@@ -186,6 +192,8 @@ pub fn create_triad_event(
         accepted: None,
         rating_0_10: None,
         notes: None,
+        experiment_id: None,
+        experiment_condition: None,
     }
 }
 
@@ -214,5 +222,7 @@ pub fn create_human_feedback_event(
         accepted: Some(accepted),
         rating_0_10: rating,
         notes,
+        experiment_id: None,
+        experiment_condition: None,
     }
 }

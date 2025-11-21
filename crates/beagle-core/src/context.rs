@@ -8,6 +8,7 @@
 
 use crate::traits::{GraphStore, LlmClient, VectorStore};
 use crate::implementations::*;
+use crate::stats::LlmStatsRegistry;
 use beagle_config::BeagleConfig;
 use beagle_llm::TieredRouter;
 use std::sync::Arc;
@@ -21,6 +22,7 @@ pub struct BeagleContext {
     pub llm: Arc<dyn LlmClient>,
     pub vector: Arc<dyn VectorStore>,
     pub graph: Arc<dyn GraphStore>,
+    pub llm_stats: LlmStatsRegistry,
     // Darwin, HERMES e Observer serão adicionados quando disponíveis
     // pub darwin: Arc<beagle_darwin::DarwinCore>,
     // pub hermes: Arc<beagle_hermes::HermesEngine>,
@@ -35,9 +37,13 @@ impl BeagleContext {
     /// - Vector: Qdrant (se QDRANT_URL) ou Mock
     /// - Graph: Neo4j (se NEO4J_URI) ou Mock
     pub async fn new(cfg: BeagleConfig) -> Result<Self> {
-        // Router com Grok 3 como Tier 1
-        let router = TieredRouter::new()?;
-        info!("Router inicializado com Grok 3 como Tier 1");
+        // Router com configuração baseada em perfil
+        let router = TieredRouter::from_config(&cfg)?;
+        info!(
+            "Router inicializado | profile={} | heavy_enabled={}",
+            cfg.profile,
+            router.cfg.enable_heavy
+        );
 
         // Escolhe LLM client (compatibilidade com código legado)
         let llm: Arc<dyn LlmClient> = if let Some(xai_key) = &cfg.llm.xai_api_key {
@@ -48,7 +54,7 @@ impl BeagleContext {
             Arc::new(VllmLlmClient::new(vllm_url.clone(), None))
         } else {
             warn!("Nenhum LLM configurado, usando MockLlmClient");
-            Arc::new(MockLlmClient)
+            MockLlmClient::new()
         };
 
         // Escolhe Vector Store
@@ -83,6 +89,7 @@ impl BeagleContext {
             llm,
             vector,
             graph,
+            llm_stats: LlmStatsRegistry::new(),
         })
     }
 
@@ -90,11 +97,18 @@ impl BeagleContext {
     pub fn new_with_mocks(cfg: BeagleConfig) -> Self {
         Self {
             cfg: cfg.clone(),
-            router: TieredRouter::new().unwrap_or_else(|_| TieredRouter::default()),
-            llm: Arc::new(MockLlmClient),
+            router: TieredRouter::new_with_mocks().unwrap_or_else(|_| TieredRouter::default()),
+            llm: MockLlmClient::new(),
             vector: Arc::new(MockVectorStore),
             graph: Arc::new(MockGraphStore),
+            llm_stats: LlmStatsRegistry::new(),
         }
+    }
+    
+    /// Cria contexto com mocks usando config padrão (para testes simples)
+    pub fn new_with_mock() -> anyhow::Result<Self> {
+        let cfg = beagle_config::load();
+        Ok(Self::new_with_mocks(cfg))
     }
 }
 
@@ -106,7 +120,7 @@ use crate::traits::*;
 use async_trait::async_trait;
 use serde_json::json;
 
-/// Mock LLM client para testes
+// Mock LLM client para testes (implementa trait de beagle-core)
 pub struct MockLlmClient;
 
 #[async_trait]
@@ -116,7 +130,18 @@ impl LlmClient for MockLlmClient {
     }
 
     async fn chat(&self, messages: &[ChatMessage]) -> Result<String> {
-        Ok(format!("MOCK_CHAT response for {} messages", messages.len()))
+        let content: String = messages
+            .iter()
+            .map(|m| m.content.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(format!("MOCK_CHAT response for: {}", content))
+    }
+}
+
+impl MockLlmClient {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self)
     }
 }
 

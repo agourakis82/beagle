@@ -21,6 +21,7 @@ pub mod nodes;
 pub mod parallel_research;
 pub mod reasoning_endpoint;
 pub mod research;
+pub mod science_jobs;
 pub mod search;
 pub mod swarm_endpoint;
 pub mod temporal_endpoint;
@@ -73,4 +74,9 @@ pub fn event_routes() -> Router<AppState> {
 /// Rotas de HRV (Apple Watch).
 pub fn hrv_routes() -> Router<AppState> {
     Router::new().merge(hrv::router())
+}
+
+/// Rotas de jobs científicos (PBPK, Heliobiology, Scaffolds, PCS, KEC).
+pub fn science_jobs_routes() -> Router<AppState> {
+    Router::new().merge(science_jobs::router())
 }

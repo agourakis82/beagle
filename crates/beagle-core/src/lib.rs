@@ -7,6 +7,9 @@
 pub mod traits;
 pub mod context;
 pub mod implementations;
+pub mod stats;
+
+pub use stats::LlmStatsRegistry;
 
 pub use traits::*;
 pub use context::*;

@@ -40,10 +40,21 @@ pub struct BrowserEntry {
     visit_time: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhysiologicalState {
+    pub hrv_ms: Option<f32>,
+    pub hrv_level: Option<String>, // "low" | "normal" | "high"
+    pub heart_rate_bpm: Option<f32>,
+    pub last_updated: Option<String>, // ISO 8601 timestamp
+}
+
 pub struct UniversalObserver {
     broadcast: Arc<ObservationBroadcast>,
     observations_tx: Arc<mpsc::UnboundedSender<Observation>>,
     data_dir: PathBuf,
+    physio_state: Arc<tokio::sync::RwLock<PhysiologicalState>>,
+    // Timeline de contexto por run_id
+    context_timeline: Arc<tokio::sync::RwLock<std::collections::HashMap<String, Vec<Observation>>>>,
 }
 
 impl UniversalObserver {
@@ -70,7 +81,28 @@ impl UniversalObserver {
             broadcast,
             observations_tx: Arc::new(tx),
             data_dir,
+            physio_state: Arc::new(tokio::sync::RwLock::new(PhysiologicalState {
+                hrv_ms: None,
+                hrv_level: None,
+                heart_rate_bpm: None,
+                last_updated: None,
+            })),
+            context_timeline: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
         })
+    }
+
+    /// Atualiza estado fisiológico
+    pub async fn update_hrv(&self, hrv_ms: f32, hrv_level: String, heart_rate_bpm: Option<f32>) {
+        let mut state = self.physio_state.write().await;
+        state.hrv_ms = Some(hrv_ms);
+        state.hrv_level = Some(hrv_level);
+        state.heart_rate_bpm = heart_rate_bpm;
+        state.last_updated = Some(Utc::now().to_rfc3339());
+    }
+
+    /// Obtém estado fisiológico atual
+    pub async fn current_physio_state(&self) -> PhysiologicalState {
+        self.physio_state.read().await.clone()
     }
 
     /// Retorna um receiver para observações
@@ -367,6 +399,48 @@ impl UniversalObserver {
         Ok(Vec::new())
     }
 
+    /// Obtém timeline de contexto para um run_id específico
+    pub async fn get_context_timeline(&self, run_id: &str) -> Vec<Observation> {
+        let timeline = self.context_timeline.read().await;
+        timeline.get(run_id).cloned().unwrap_or_default()
+    }
+
+    /// Adiciona observação à timeline de um run_id
+    pub async fn add_to_timeline(&self, run_id: &str, observation: Observation) {
+        let mut timeline = self.context_timeline.write().await;
+        timeline.entry(run_id.to_string())
+            .or_insert_with(Vec::new)
+            .push(observation);
+    }
+
+    /// Obtém todas as observações dentro de um intervalo de tempo para um run_id
+    pub async fn get_context_timeline_range(
+        &self,
+        run_id: &str,
+        start_time: Option<chrono::DateTime<Utc>>,
+        end_time: Option<chrono::DateTime<Utc>>,
+    ) -> Vec<Observation> {
+        let timeline = self.context_timeline.read().await;
+        let observations = timeline.get(run_id).cloned().unwrap_or_default();
+        
+        if start_time.is_none() && end_time.is_none() {
+            return observations;
+        }
+
+        observations.into_iter()
+            .filter(|obs| {
+                if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(&obs.timestamp) {
+                    let dt = timestamp.with_timezone(&chrono::Utc);
+                    let after_start = start_time.map(|st| dt >= st).unwrap_or(true);
+                    let before_end = end_time.map(|et| dt <= et).unwrap_or(true);
+                    after_start && before_end
+                } else {
+                    false
+                }
+            })
+            .collect()
+    }
+
     pub async fn physiological_state_analysis(&self, observations: &[Observation]) -> anyhow::Result<String> {
         let health_obs: Vec<&Observation> = observations
             .iter()
@@ -396,6 +470,75 @@ impl UniversalObserver {
         let router = beagle_llm::BeagleRouter;
         router.complete(&prompt).await
     }
+
+    /// Resume contexto para um run_id específico
+    pub async fn summarize_context_for_run(&self, run_id: &str) -> anyhow::Result<ContextSummary> {
+        let observations = self.get_context_timeline(run_id).await;
+        
+        // Últimas N observações (limitado a 50 mais recentes)
+        let recent_obs = observations.iter()
+            .rev()
+            .take(50)
+            .cloned()
+            .collect::<Vec<_>>();
+        
+        // Extrai tags dominantes dos metadados
+        let mut tag_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for obs in &observations {
+            if let Some(tags) = obs.metadata.get("tags").and_then(|v| v.as_array()) {
+                for tag in tags {
+                    if let Some(tag_str) = tag.as_str() {
+                        *tag_counts.entry(tag_str.to_string()).or_insert(0) += 1;
+                    }
+                }
+            }
+            
+            // Extrai tags implícitas de source
+            match obs.source.as_str() {
+                "pbpk" | "PBPK" => *tag_counts.entry("PBPK".to_string()).or_insert(0) += 1,
+                "helio" | "Heliobiology" => *tag_counts.entry("Helio".to_string()).or_insert(0) += 1,
+                "scaffold" | "Scaffold" => *tag_counts.entry("Scaffold".to_string()).or_insert(0) += 1,
+                "pcs" | "PCS" => *tag_counts.entry("PCS".to_string()).or_insert(0) += 1,
+                _ => {}
+            }
+        }
+        
+        // Top N tags (ordenadas por frequência)
+        let mut tags: Vec<(String, usize)> = tag_counts.into_iter().collect();
+        tags.sort_by(|a, b| b.1.cmp(&a.1));
+        let dominant_tags: Vec<String> = tags.into_iter()
+            .take(5)
+            .map(|(tag, _)| tag)
+            .collect();
+        
+        // Calcula entropia/fragmentação simplificada
+        // Baseado na diversidade de sources
+        let unique_sources: std::collections::HashSet<String> = observations.iter()
+            .map(|o| o.source.clone())
+            .collect();
+        let entropy_level = if observations.is_empty() {
+            None
+        } else {
+            // Normaliza para [0, 1] onde 1 = alta fragmentação
+            Some(unique_sources.len() as f32 / observations.len().max(1) as f32)
+        };
+        
+        Ok(ContextSummary {
+            run_id: run_id.to_string(),
+            recent_events: recent_obs,
+            dominant_tags,
+            entropy_level,
+        })
+    }
+}
+
+/// Resumo de contexto para um run_id
+#[derive(Debug, Clone, Serialize)]
+pub struct ContextSummary {
+    pub run_id: String,
+    pub recent_events: Vec<Observation>,
+    pub dominant_tags: Vec<String>,
+    pub entropy_level: Option<f32>,
 }
 
 // Clipboard functions

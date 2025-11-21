@@ -27,7 +27,7 @@ async fn test_pipeline_smoke() -> anyhow::Result<()> {
     let question = "Teste de fumaça: explique machine learning em 2 parágrafos";
     let run_id = Uuid::new_v4().to_string();
 
-    let paths = run_beagle_pipeline(&mut ctx, question, &run_id).await?;
+    let paths = run_beagle_pipeline(&mut ctx, question, &run_id, None, None).await?;
 
     // Verifica que arquivos foram criados
     assert!(paths.draft_md.exists(), "draft.md deve existir");

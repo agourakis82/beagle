@@ -13,6 +13,13 @@ pub struct LlmConfig {
     pub anthropic_api_key: Option<String>,
     pub openai_api_key: Option<String>,
     pub vllm_url: Option<String>,
+    /// Modelo Grok padrão (default: "grok-3")
+    #[serde(default = "default_grok_model")]
+    pub grok_model: String,
+}
+
+fn default_grok_model() -> String {
+    "grok-3".to_string()
 }
 
 impl Default for LlmConfig {
@@ -22,6 +29,7 @@ impl Default for LlmConfig {
             anthropic_api_key: None,
             openai_api_key: None,
             vllm_url: None,
+            grok_model: default_grok_model(),
         }
     }
 }
@@ -74,6 +82,35 @@ impl Default for HermesConfig {
     }
 }
 
+/// Perfil de execução do BEAGLE
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Profile {
+    /// Desenvolvimento: Heavy desabilitado, SAFE_MODE sempre true
+    Dev,
+    /// Laboratório: Heavy habilitado com limites conservadores
+    Lab,
+    /// Produção: Heavy habilitado com limites mais altos
+    Prod,
+}
+
+impl Profile {
+    /// Converte string para Profile
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "prod" => Profile::Prod,
+            "lab" => Profile::Lab,
+            _ => Profile::Dev,
+        }
+    }
+}
+
+impl Default for Profile {
+    fn default() -> Self {
+        Profile::Dev
+    }
+}
+
 /// Configuração completa do BEAGLE
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeagleConfig {
@@ -86,6 +123,10 @@ pub struct BeagleConfig {
 }
 
 impl BeagleConfig {
+    /// Retorna o perfil como enum
+    pub fn profile(&self) -> Profile {
+        Profile::from_str(&self.profile)
+    }
     /// Verifica se pelo menos um backend LLM está configurado
     pub fn has_llm_backend(&self) -> bool {
         self.llm.xai_api_key.is_some()

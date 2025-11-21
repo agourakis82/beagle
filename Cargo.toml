@@ -31,7 +31,7 @@ members = [
     "crates/beagle-twitter", "crates/beagle-physio",
     "apps/beagle-monorepo", "crates/beagle-neural-engine", "crates/beagle-whisper-neural",
     "crates/beagle-observer", "crates/beagle-stress-test", "crates/beagle-triad",
-    "crates/beagle-feedback",
+    "crates/beagle-feedback", "crates/beagle-symbolic", "crates/beagle-experiments",
 ]
 resolver = "2"
 

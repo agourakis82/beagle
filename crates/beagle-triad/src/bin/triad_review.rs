@@ -53,9 +53,9 @@ async fn main() -> anyhow::Result<()> {
     // Log feedback event para Continuous Learning
     let llm_stats = Some((
         report.llm_stats.grok3_calls as u32,
-        report.llm_stats.heavy_calls as u32,
-        report.llm_stats.grok3_tokens_est as u32,
-        report.llm_stats.heavy_tokens_est as u32,
+        report.llm_stats.grok4_calls as u32,
+        (report.llm_stats.grok3_tokens_in + report.llm_stats.grok3_tokens_out) as u32,
+        (report.llm_stats.grok4_tokens_in + report.llm_stats.grok4_tokens_out) as u32,
     ));
     
     // Tenta recuperar question do run_report original (simplificado)
@@ -86,10 +86,16 @@ async fn main() -> anyhow::Result<()> {
             opinion.agent, opinion.score, opinion.summary, opinion.provider_tier);
     }
     println!("\nLLM Stats:");
-    println!("  Grok 3: {} calls, {} tokens est.", 
-        report.llm_stats.grok3_calls, report.llm_stats.grok3_tokens_est);
-    println!("  Grok 4 Heavy: {} calls, {} tokens est.", 
-        report.llm_stats.heavy_calls, report.llm_stats.heavy_tokens_est);
+    println!("  Grok 3: {} calls, {} tokens (in: {}, out: {})", 
+        report.llm_stats.grok3_calls, 
+        report.llm_stats.grok3_tokens_in + report.llm_stats.grok3_tokens_out,
+        report.llm_stats.grok3_tokens_in,
+        report.llm_stats.grok3_tokens_out);
+    println!("  Grok 4 Heavy: {} calls, {} tokens (in: {}, out: {})", 
+        report.llm_stats.grok4_calls,
+        report.llm_stats.grok4_tokens_in + report.llm_stats.grok4_tokens_out,
+        report.llm_stats.grok4_tokens_in,
+        report.llm_stats.grok4_tokens_out);
 
     Ok(())
 }

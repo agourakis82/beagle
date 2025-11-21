@@ -1,6 +1,7 @@
 //! Clientes LLM para diferentes provedores
 
 pub mod grok;
+pub mod mock;
 // pub mod deepseek;  // Futuro
 // pub mod local_gemma;  // Futuro
 

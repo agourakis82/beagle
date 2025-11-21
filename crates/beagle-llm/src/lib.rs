@@ -13,12 +13,17 @@ pub mod router_tiered;
 pub mod clients;
 pub mod meta;
 pub mod tier;
+pub mod output;
+pub mod stats;
 
 pub use router::BeagleRouter;
 pub use router_tiered::{TieredRouter, ProviderTier, LlmRoutingConfig};
 pub use meta::RequestMeta;
 pub use tier::Tier;
+pub use output::LlmOutput;
+pub use stats::LlmCallsStats;
 pub use clients::grok::GrokClient;
+pub use clients::mock::MockLlmClient;
 // RequestMeta agora está em tier.rs, mas mantemos HIGH_BIAS_KEYWORDS de meta.rs
 pub use meta::HIGH_BIAS_KEYWORDS;
 
@@ -93,15 +98,21 @@ pub struct LlmRequest {
 /// Trait para clientes LLM
 #[async_trait]
 pub trait LlmClient: Send + Sync {
-    /// Completa um prompt simples
-    async fn complete(&self, prompt: &str) -> anyhow::Result<String> {
+    /// Completa um prompt simples (nova versão com telemetria)
+    async fn complete(&self, prompt: &str) -> anyhow::Result<LlmOutput> {
         let req = LlmRequest {
             model: "default".to_string(),
             messages: vec![ChatMessage::user(prompt)],
             temperature: Some(0.7),
             max_tokens: Some(2048),
         };
-        self.chat(req).await
+        let text = self.chat(req).await?;
+        Ok(LlmOutput::from_text(text, prompt))
+    }
+    
+    /// Completa um prompt simples (legado, retorna String)
+    async fn complete_text(&self, prompt: &str) -> anyhow::Result<String> {
+        Ok(self.complete(prompt).await?.text)
     }
 
     /// Chat com múltiplas mensagens

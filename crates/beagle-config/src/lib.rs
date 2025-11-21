@@ -12,6 +12,10 @@ pub use model::*;
 use std::path::PathBuf;
 use std::env;
 
+fn default_grok_model() -> String {
+    "grok-3".to_string()
+}
+
 /// Helper para ler variáveis de ambiente booleanas
 fn bool_env(var: &str, default: bool) -> bool {
     env::var(var)
@@ -141,6 +145,36 @@ pub fn datasets_dir() -> PathBuf {
     beagle_data_dir().join("datasets")
 }
 
+/// Path para triad (revisões adversarial)
+pub fn triad_dir() -> PathBuf {
+    beagle_data_dir().join("triad")
+}
+
+/// Path para feedback (eventos de Continuous Learning)
+pub fn feedback_dir() -> PathBuf {
+    beagle_data_dir().join("feedback")
+}
+
+/// Path para experimentos (tags experimentais)
+pub fn experiments_dir() -> PathBuf {
+    beagle_data_dir().join("experiments")
+}
+
+/// Path para jobs científicos (PBPK, Heliobiology, Scaffolds, PCS, KEC)
+pub fn jobs_dir() -> PathBuf {
+    beagle_data_dir().join("jobs")
+}
+
+/// Path para logs do pipeline
+pub fn pipeline_logs_dir() -> PathBuf {
+    logs_dir().join("beagle-pipeline")
+}
+
+/// Path para logs do observer
+pub fn observer_logs_dir() -> PathBuf {
+    logs_dir().join("observer")
+}
+
 /// Garante que todos os diretórios necessários existem
 pub fn ensure_dirs() -> std::io::Result<()> {
     let dirs = vec![
@@ -151,16 +185,63 @@ pub fn ensure_dirs() -> std::io::Result<()> {
         redis_dir(),
         neo4j_dir(),
         logs_dir(),
+        pipeline_logs_dir(),
+        observer_logs_dir(),
         papers_drafts_dir(),
         papers_final_dir(),
         embeddings_dir(),
         datasets_dir(),
+        triad_dir(),
+        feedback_dir(),
+        experiments_dir(),
+        jobs_dir(),
     ];
 
     for dir in dirs {
         std::fs::create_dir_all(&dir)?;
     }
 
+    Ok(())
+}
+
+/// Bootstrap completo: verifica BEAGLE_DATA_DIR e cria estrutura
+///
+/// Retorna erro se:
+/// - BEAGLE_DATA_DIR não existe e não pode ser criado
+/// - BEAGLE_DATA_DIR não é gravável
+///
+/// Loga informações sobre profile, safe_mode e data_dir
+pub fn bootstrap() -> anyhow::Result<()> {
+    use tracing::info;
+    
+    let data_dir = beagle_data_dir();
+    
+    // Verifica se existe
+    if !data_dir.exists() {
+        info!("Criando BEAGLE_DATA_DIR: {}", data_dir.display());
+        std::fs::create_dir_all(&data_dir)?;
+    }
+    
+    // Verifica se é gravável
+    let test_file = data_dir.join(".beagle_write_test");
+    std::fs::write(&test_file, "test")?;
+    std::fs::remove_file(&test_file)?;
+    
+    // Cria estrutura completa
+    ensure_dirs()?;
+    
+    // Loga configuração
+    let profile = std::env::var("BEAGLE_PROFILE")
+        .unwrap_or_else(|_| "dev".to_string());
+    let safe_mode = safe_mode();
+    
+    info!(
+        "BEAGLE bootstrap completo | profile={} | safe_mode={} | data_dir={}",
+        profile,
+        safe_mode,
+        data_dir.display()
+    );
+    
     Ok(())
 }
 
@@ -236,22 +317,64 @@ impl HrvControlConfig {
             .and_then(|v| v.parse().ok())
             .unwrap_or(1.2);
         
-        let min_hrv = env::var("BEAGLE_HRV_MIN_MS")
+        // Thresholds são usados em classify_hrv, não aqui
+        let _min_hrv = env::var("BEAGLE_HRV_LOW_THRESHOLD")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(20.0);
+            .or_else(|| env::var("BEAGLE_HRV_MIN_MS")
+                .ok()
+                .and_then(|v| v.parse().ok()))
+            .unwrap_or(30.0); // Threshold padrão para "low"
         
-        let max_hrv = env::var("BEAGLE_HRV_MAX_MS")
+        let _max_hrv = env::var("BEAGLE_HRV_HIGH_THRESHOLD")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(200.0);
+            .or_else(|| env::var("BEAGLE_HRV_MAX_MS")
+                .ok()
+                .and_then(|v| v.parse().ok()))
+            .unwrap_or(70.0); // Threshold padrão para "high"
         
         Self {
             min_gain,
             max_gain,
-            min_hrv_ms: min_hrv,
-            max_hrv_ms: max_hrv,
+            min_hrv_ms: env::var("BEAGLE_HRV_MIN_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(20.0),
+            max_hrv_ms: env::var("BEAGLE_HRV_MAX_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(200.0),
         }
+    }
+}
+
+/// Classifica HRV em nível (low, normal, high)
+///
+/// # Arguments
+/// - `hrv_ms`: Heart Rate Variability em milissegundos
+/// - `cfg`: Configuração de HRV (usa default se None)
+///
+/// # Returns
+/// String: "low" | "normal" | "high"
+pub fn classify_hrv(hrv_ms: f32, _cfg: Option<&HrvControlConfig>) -> String {
+    // Thresholds configuráveis via env (padrões: 30ms = low, 70ms = high)
+    let low_threshold = env::var("BEAGLE_HRV_LOW_THRESHOLD")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(30.0);
+    
+    let high_threshold = env::var("BEAGLE_HRV_HIGH_THRESHOLD")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(70.0);
+    
+    if hrv_ms < low_threshold {
+        "low".to_string()
+    } else if hrv_ms > high_threshold {
+        "high".to_string()
+    } else {
+        "normal".to_string()
     }
 }
 
@@ -466,10 +589,11 @@ pub fn load() -> BeagleConfig {
             vllm_url: env::var("VLLM_URL")
                 .or_else(|_| env::var("BEAGLE_VLLM_URL"))
                 .ok(),
+            grok_model: env::var("BEAGLE_GROK_MODEL")
+                .unwrap_or_else(|_| "grok-3".to_string()),
         },
         storage: StorageConfig {
-            data_dir: env::var("BEAGLE_DATA_DIR")
-                .unwrap_or_else(|_| default_data_dir().to_string_lossy().to_string()),
+            data_dir: beagle_data_dir().to_string_lossy().to_string(),
         },
         graph: GraphConfig {
             neo4j_uri: env::var("NEO4J_URI").ok(),
@@ -500,12 +624,7 @@ pub fn load() -> BeagleConfig {
     cfg
 }
 
-/// Diretório padrão de dados
-fn default_data_dir() -> PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join("beagle-data"))
-        .unwrap_or_else(|| PathBuf::from("beagle-data"))
-}
+// default_data_dir removido - agora usa beagle_data_dir() diretamente
 
 /// Merge de configurações: `base` é mantido, `override_cfg` sobrepõe apenas campos Some
 fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig {
@@ -517,6 +636,11 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
             anthropic_api_key: override_cfg.llm.anthropic_api_key.or(base.llm.anthropic_api_key),
             openai_api_key: override_cfg.llm.openai_api_key.or(base.llm.openai_api_key),
             vllm_url: override_cfg.llm.vllm_url.or(base.llm.vllm_url),
+            grok_model: if override_cfg.llm.grok_model != default_grok_model() {
+                override_cfg.llm.grok_model
+            } else {
+                base.llm.grok_model
+            },
         },
         storage: StorageConfig {
             data_dir: override_cfg.storage.data_dir.clone(),

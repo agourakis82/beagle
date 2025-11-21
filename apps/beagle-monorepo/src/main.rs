@@ -5,9 +5,9 @@
 //! - ide      : orientação para abrir a IDE Tauri
 
 use anyhow::{Context, Result};
-use beagle_config::{beagle_data_dir, ensure_dirs, load as load_config};
+use beagle_config::{beagle_data_dir, bootstrap, ensure_dirs, load as load_config};
 use beagle_health::check_all;
-use beagle_monorepo::init_tracing;
+// init_tracing removido - usar função local
 use beagle_observability::{init_observability, shutdown_observability};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
@@ -79,13 +79,16 @@ fn init_tracing() {
     // Tenta inicializar OpenTelemetry, fallback para tracing simples
     if let Err(e) = init_observability() {
         eprintln!("Aviso: Falha ao inicializar OpenTelemetry: {}. Usando tracing simples.", e);
-        beagle_monorepo::init_tracing();
+        // Usa tracing_subscriber diretamente
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .init();
     }
 }
 
 async fn run_doctor() -> Result<()> {
     let cfg = load_config();
-    ensure_dirs().context("Falha criando diretórios base")?;
+    bootstrap().context("Falha no bootstrap do BEAGLE_DATA_DIR")?;
 
     println!("╔══════════════════════════════════════════════╗");
     println!("║ BEAGLE Doctor                                ║");
@@ -137,7 +140,7 @@ async fn run_pipeline(question: String) -> Result<()> {
     let cfg = load_config();
     info!("Iniciando pipeline v0.1 | run_id={} | profile={} | SAFE_MODE={}", run_id, cfg.profile, cfg.safe_mode);
 
-    ensure_dirs().context("Falha preparando diretórios")?;
+    bootstrap().context("Falha no bootstrap do BEAGLE_DATA_DIR")?;
 
     // Diretórios de artefatos
     let draft_dir = cfg.storage.data_dir_path()

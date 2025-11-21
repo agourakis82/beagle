@@ -3,10 +3,10 @@
 //! Endpoint: POST /api/llm/complete
 //! Usa TieredRouter com Grok 3 como Tier 1
 
-use axum::{routing::post, Router, Json};
+use axum::{routing::{post, get}, Router, Json};
 use beagle_core::BeagleContext;
 use beagle_config::load as load_config;
-use beagle_llm::RequestMeta;
+use beagle_llm::{RequestMeta, ProviderTier};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -30,35 +30,87 @@ struct LlmResponse {
     tier: String,
 }
 
+async fn health_handler(
+    axum::extract::State(ctx): axum::extract::State<Arc<Mutex<BeagleContext>>>,
+) -> Json<serde_json::Value> {
+    let ctx = ctx.lock().await;
+    let cfg = &ctx.cfg;
+    let has_xai_key = cfg.llm.xai_api_key.is_some();
+    
+    Json(serde_json::json!({
+        "status": "ok",
+        "service": "beagle-core",
+        "profile": cfg.profile,
+        "safe_mode": cfg.safe_mode,
+        "data_dir": cfg.storage.data_dir,
+        "xai_api_key_present": has_xai_key,
+    }))
+}
+
 async fn llm_complete_handler(
     axum::extract::State(ctx): axum::extract::State<Arc<Mutex<BeagleContext>>>,
     Json(req): Json<LlmRequest>,
 ) -> Result<Json<LlmResponse>, axum::http::StatusCode> {
-    let ctx = ctx.lock().await;
+    let mut ctx = ctx.lock().await;
     
-    let meta = RequestMeta {
-        requires_math: req.requires_math,
-        requires_high_quality: req.requires_high_quality,
-        offline_required: req.offline_required,
-        requires_vision: false,
-        approximate_tokens: req.prompt.len() / 4,
-    };
-
-    let client = ctx.router.choose(&meta);
-    let tier = client.tier();
+    // Cria RequestMeta com heurísticas
+    let mut meta = RequestMeta::from_prompt(&req.prompt);
     
-    let text = client
+    // Override com flags explícitas
+    if req.requires_math {
+        meta.requires_math = true;
+    }
+    if req.requires_high_quality {
+        meta.requires_high_quality = true;
+    }
+    if req.offline_required {
+        meta.offline_required = true;
+    }
+    
+    // Usa run_id sintético para HTTP
+    let run_id = "http_session";
+    
+    // Obtém stats atuais
+    let current_stats = ctx.llm_stats.get_or_create(run_id);
+    
+    // Escolhe client com limites
+    let (client, tier) = ctx.router.choose_with_limits(&meta, &current_stats);
+    
+    // Chama LLM
+    let output = client
         .complete(&req.prompt)
         .await
         .map_err(|e| {
             tracing::error!("LLM error: {}", e);
             axum::http::StatusCode::BAD_GATEWAY
         })?;
+    
+    // Atualiza stats
+    ctx.llm_stats.update(run_id, |stats| {
+        match tier {
+            ProviderTier::Grok3 => {
+                stats.grok3_calls += 1;
+                stats.grok3_tokens_in += output.tokens_in_est as u32;
+                stats.grok3_tokens_out += output.tokens_out_est as u32;
+            }
+            ProviderTier::Grok4Heavy => {
+                stats.grok4_calls += 1;
+                stats.grok4_tokens_in += output.tokens_in_est as u32;
+                stats.grok4_tokens_out += output.tokens_out_est as u32;
+            }
+            _ => {
+                // Outros tiers contam como Grok3 por enquanto
+                stats.grok3_calls += 1;
+                stats.grok3_tokens_in += output.tokens_in_est as u32;
+                stats.grok3_tokens_out += output.tokens_out_est as u32;
+            }
+        }
+    });
 
     Ok(Json(LlmResponse {
-        text,
+        text: output.text,
         provider: client.name().to_string(),
-        tier: tier.as_str().to_string(),
+        tier: format!("{:?}", tier),
     }))
 }
 
@@ -73,15 +125,16 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/api/llm/complete", post(llm_complete_handler))
+        .route("/health", get(health_handler))
         .with_state(ctx);
 
     let addr: std::net::SocketAddr = "0.0.0.0:8080".parse().unwrap();
     info!("🚀 BEAGLE Core API rodando em http://{}", addr);
     info!("   Endpoint: POST /api/llm/complete");
+    info!("   Endpoint: GET /health");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())
 }
-

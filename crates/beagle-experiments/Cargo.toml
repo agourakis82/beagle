@@ -1,0 +1,29 @@
+[package]
+name = "beagle-experiments"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Infraestrutura para experimentos científicos do BEAGLE (A/B, MAD vs ensemble, HRV-blind vs HRV-aware)"
+
+[[bin]]
+name = "tag_experiment_run"
+path = "src/bin/tag_experiment_run.rs"
+
+[dependencies]
+# Workspace
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+clap = { version = "4.0", features = ["derive"] }
+tracing.workspace = true
+
+# Internal crates
+beagle-config = { path = "../beagle-config" }
+beagle-feedback = { path = "../beagle-feedback" }
+
+# Tracing
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+

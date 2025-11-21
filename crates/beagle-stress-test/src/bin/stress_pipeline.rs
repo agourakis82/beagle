@@ -1,8 +1,8 @@
 use std::sync::Arc;
-use tokio::time::{Duration, Instant};
+use tokio::time::Instant;
 
 use anyhow::Result;
-use beagle_monorepo::pipeline::run_beagle_pipeline;
+use beagle_monorepo::run_beagle_pipeline;
 use beagle_core::BeagleContext;
 
 #[tokio::main]
@@ -17,13 +17,22 @@ async fn main() -> Result<()> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(5);
 
+    let use_mock = std::env::var("BEAGLE_LLM_MOCK")
+        .ok()
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
     println!(
-        "Iniciando stress test: {} runs, concurrency {}",
-        total, concurrency
+        "Iniciando stress test: {} runs, concurrency {} (mock={})",
+        total, concurrency, use_mock
     );
 
-    let cfg = beagle_config::load();
-    let ctx = BeagleContext::new(cfg).await?;
+    let ctx = if use_mock {
+        BeagleContext::new_with_mock()?
+    } else {
+        let cfg = beagle_config::load();
+        BeagleContext::new(cfg).await?
+    };
     let ctx = Arc::new(tokio::sync::Mutex::new(ctx));
     let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
 
@@ -41,7 +50,7 @@ async fn main() -> Result<()> {
             let start = Instant::now();
             let res = {
                 let mut ctx_guard = ctx_cloned.lock().await;
-                run_beagle_pipeline(&mut ctx_guard, &question, &format!("run-{}", i)).await
+                run_beagle_pipeline(&mut ctx_guard, &question, &format!("run-{}", i), None, None).await
             };
             let dur = start.elapsed();
             (i, res, dur)

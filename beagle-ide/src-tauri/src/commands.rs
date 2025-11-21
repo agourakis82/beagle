@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use tauri::command;
 use tracing::{error, info};
+use reqwest::Client;
 
 use crate::lsp;
 use lsp_types::{CompletionItem, Hover, Location, Position, Url};

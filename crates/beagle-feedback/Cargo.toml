@@ -19,8 +19,20 @@ name = "tag-run"
 path = "src/bin/tag_run.rs"
 
 [[bin]]
+name = "tag-experiment"
+path = "src/bin/tag_experiment.rs"
+
+[[bin]]
 name = "analyze-feedback"
 path = "src/bin/analyze_feedback.rs"
+
+[[bin]]
+name = "analyze-llm-usage"
+path = "src/bin/analyze_llm_usage.rs"
+
+[[bin]]
+name = "analyze-hrv-effects"
+path = "src/bin/analyze_hrv_effects.rs"
 
 [[bin]]
 name = "export-lora-dataset"

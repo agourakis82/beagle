@@ -32,6 +32,12 @@ fn main() {
             commands::lsp_goto_definition,
             commands::lsp_did_open,
             commands::lsp_did_change,
+            // BEAGLE Core HTTP integration
+            commands::beagle_pipeline_start,
+            commands::beagle_pipeline_status,
+            commands::beagle_run_artifacts,
+            commands::beagle_recent_runs,
+            commands::beagle_tag_run,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();

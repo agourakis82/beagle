@@ -19,6 +19,7 @@ beagle-core = { path = "../beagle-core" }
 beagle-config = { path = "../beagle-config" }
 beagle-llm = { path = "../beagle-llm" }
 beagle-feedback = { path = "../beagle-feedback" }
+beagle-symbolic = { path = "../beagle-symbolic" }
 regex = "1.10"
 
 [[bin]]

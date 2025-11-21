@@ -84,6 +84,7 @@ impl KnowledgeGraphWrapper {
                 // Por enquanto, mantém compatibilidade
                 // TODO: migrar métodos de KnowledgeGraph para usar GraphStore quando possível
                 kg.store_insight(insight).await
+                    .map_err(|e| HermesError::Neo4jError(format!("KnowledgeGraph error: {}", e)))
             }
         }
     }

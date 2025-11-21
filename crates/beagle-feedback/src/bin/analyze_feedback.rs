@@ -25,10 +25,18 @@ fn main() -> anyhow::Result<()> {
     let mut heavy_total_calls = 0u32;
     let mut grok3_total_tokens = 0u32;
     let mut heavy_total_tokens = 0u32;
+    
+    // Para contar runs distintos e runs com Heavy
+    let mut run_ids = std::collections::HashSet::new();
+    let mut runs_with_heavy = std::collections::HashSet::new();
 
     for ev in &events {
+        run_ids.insert(ev.run_id.clone());
+        
         match ev.event_type {
-            FeedbackEventType::PipelineRun => total_pipeline += 1,
+            FeedbackEventType::PipelineRun => {
+                total_pipeline += 1;
+            }
             FeedbackEventType::TriadCompleted => {
                 total_triad += 1;
                 if let Some(c) = ev.grok3_calls {
@@ -36,6 +44,9 @@ fn main() -> anyhow::Result<()> {
                 }
                 if let Some(c) = ev.grok4_heavy_calls {
                     heavy_total_calls += c;
+                    if c > 0 {
+                        runs_with_heavy.insert(ev.run_id.clone());
+                    }
                 }
                 if let Some(t) = ev.grok3_tokens_est {
                     grok3_total_tokens += t;
@@ -66,6 +77,7 @@ fn main() -> anyhow::Result<()> {
     println!("  Pipeline runs:   {}", total_pipeline);
     println!("  Triad completas: {}", total_triad);
     println!("  Feedback humano: {}", total_human);
+    println!("  Runs distintos:  {}", run_ids.len());
     println!();
 
     if total_triad > 0 {
@@ -78,6 +90,10 @@ fn main() -> anyhow::Result<()> {
             let heavy_pct = (heavy_total_calls as f64 / (grok3_total_calls + heavy_total_calls) as f64) * 100.0;
             println!("  Heavy usage: {:.1}%", heavy_pct);
         }
+        println!("  Runs com Heavy:    {} ({:.1}%)", 
+            runs_with_heavy.len(),
+            (runs_with_heavy.len() as f64 / run_ids.len() as f64) * 100.0
+        );
         println!();
     }
 

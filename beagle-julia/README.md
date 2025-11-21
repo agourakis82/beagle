@@ -271,6 +271,29 @@ Julia foca em:
 - **LoRA training** (Lux + MLX no M3 Max)
 - **Simulações numéricas** (fractais, entropia)
 
+### Usando `BeagleLLM.jl` com `core_server`
+
+O módulo `BeagleLLM.jl` permite chamar o `core_server` do BEAGLE diretamente do Julia:
+
+```julia
+using BeagleLLM
+
+# Configuração
+ENV["BEAGLE_CORE_URL"] = "http://localhost:8080"
+
+# Chamada LLM
+response = BeagleLLM.complete(
+    "Explique o conceito de entropia curva em scaffolds biológicos",
+    requires_high_quality=true,
+    requires_math=false,
+    offline_required=false
+)
+
+println(response)
+```
+
+Veja `docs/BEAGLE_CORE_v0_1.md` para documentação completa da API HTTP.
+
 ## 📝 Licença
 
 Mesma licença do BEAGLE principal.

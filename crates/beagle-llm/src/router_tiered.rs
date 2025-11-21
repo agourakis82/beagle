@@ -11,7 +11,7 @@ use crate::{LlmClient, RequestMeta, Tier};
 use beagle_config::BeagleConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Tier de provider LLM
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,19 +43,76 @@ pub struct LlmRoutingConfig {
     /// Habilita uso de Grok 4 Heavy
     pub enable_heavy: bool,
     /// Máximo de chamadas Heavy por run (0 = ilimitado)
-    pub heavy_max_calls_per_run: usize,
+    pub heavy_max_calls_per_run: u32,
     /// Máximo de tokens Heavy por run (0 = ilimitado)
-    pub heavy_max_tokens_per_run: usize,
+    pub heavy_max_tokens_per_run: u32,
+    /// Máximo de chamadas Heavy por dia (0 = ilimitado)
+    pub heavy_max_calls_per_day: u32,
 }
 
 impl Default for LlmRoutingConfig {
     fn default() -> Self {
         Self {
             enable_heavy: true,
-            heavy_max_calls_per_run: 0, // Ilimitado por padrão
-            heavy_max_tokens_per_run: 0, // Ilimitado por padrão
+            heavy_max_calls_per_run: 10,
+            heavy_max_tokens_per_run: 200_000,
+            heavy_max_calls_per_day: 500,
         }
     }
+}
+
+impl LlmRoutingConfig {
+    /// Carrega configuração de roteamento de variáveis de ambiente
+    pub fn from_env() -> Self {
+        Self {
+            enable_heavy: env_bool("BEAGLE_HEAVY_ENABLE", true),
+            heavy_max_calls_per_run: env_u32("BEAGLE_HEAVY_MAX_CALLS_PER_RUN", 10),
+            heavy_max_tokens_per_run: env_u32("BEAGLE_HEAVY_MAX_TOKENS_PER_RUN", 200_000),
+            heavy_max_calls_per_day: env_u32("BEAGLE_HEAVY_MAX_CALLS_PER_DAY", 500),
+        }
+    }
+    
+    /// Carrega configuração baseada em perfil (dev/lab/prod)
+    pub fn from_profile(profile: &str) -> Self {
+        match profile {
+            "prod" => Self {
+                enable_heavy: true,
+                heavy_max_calls_per_run: 10,
+                heavy_max_tokens_per_run: 200_000,
+                heavy_max_calls_per_day: 500,
+            },
+            "lab" => Self {
+                enable_heavy: true,
+                heavy_max_calls_per_run: 5,
+                heavy_max_tokens_per_run: 100_000,
+                heavy_max_calls_per_day: 200,
+            },
+            _ => Self { // dev
+                enable_heavy: false,
+                heavy_max_calls_per_run: 0,
+                heavy_max_tokens_per_run: 0,
+                heavy_max_calls_per_day: 0,
+            },
+        }
+    }
+}
+
+fn env_bool(key: &str, default: bool) -> bool {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| match v.to_lowercase().as_str() {
+            "1" | "true" | "yes" | "y" => Some(true),
+            "0" | "false" | "no" | "n" => Some(false),
+            _ => None,
+        })
+        .unwrap_or(default)
+}
+
+fn env_u32(key: &str, default: u32) -> u32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 /// Router com sistema de Tiers completo
@@ -68,6 +125,18 @@ pub struct TieredRouter {
 }
 
 impl TieredRouter {
+    /// Cria um TieredRouter com mocks para testes
+    pub fn new_with_mocks() -> anyhow::Result<Self> {
+        use crate::clients::mock::MockLlmClient;
+        Ok(Self {
+            grok3: MockLlmClient::new(),
+            grok4_heavy: Some(MockLlmClient::new()),
+            math: None,
+            local: Some(MockLlmClient::new()),
+            cfg: LlmRoutingConfig::default(),
+        })
+    }
+    
     /// Cria router com Grok 3 como default
     pub fn new() -> anyhow::Result<Self> {
         let grok3: Arc<dyn LlmClient> = Arc::new(crate::clients::grok::GrokClient::new());
@@ -86,16 +155,64 @@ impl TieredRouter {
     }
     
     /// Cria router a partir de config
-    pub fn from_config(_cfg: &BeagleConfig) -> anyhow::Result<Self> {
+    pub fn from_config(cfg: &BeagleConfig) -> anyhow::Result<Self> {
         let mut router = Self::new()?;
         
-        // Lê configuração de roteamento (futuro: do BeagleConfig)
-        router.cfg.enable_heavy = std::env::var("BEAGLE_ENABLE_HEAVY")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(true);
+        // Carrega configuração baseada em perfil ou env
+        router.cfg = if let Ok(env_cfg) = std::env::var("BEAGLE_ROUTING_CONFIG") {
+            // Se houver config explícita no env, usa ela
+            serde_json::from_str(&env_cfg).unwrap_or_else(|_| LlmRoutingConfig::from_profile(&cfg.profile))
+        } else {
+            // Senão, usa perfil
+            LlmRoutingConfig::from_profile(&cfg.profile)
+        };
+        
+        // Permite override via env
+        router.cfg.enable_heavy = env_bool("BEAGLE_HEAVY_ENABLE", router.cfg.enable_heavy);
         
         Ok(router)
+    }
+    
+    /// Escolhe cliente com checagem de limites
+    pub fn choose_with_limits(
+        &self,
+        meta: &RequestMeta,
+        stats: &crate::stats::LlmCallsStats,
+    ) -> (Arc<dyn LlmClient>, ProviderTier) {
+        // Se tentaria usar Heavy, checa limites
+        if meta.high_bias_risk 
+            || meta.requires_phd_level_reasoning 
+            || meta.critical_section 
+        {
+            if self.cfg.enable_heavy {
+                // Checa limites por run
+                if stats.grok4_calls < self.cfg.heavy_max_calls_per_run
+                    && stats.grok4_total_tokens() < self.cfg.heavy_max_tokens_per_run
+                {
+                    if let Some(heavy) = &self.grok4_heavy {
+                        info!(
+                            "Router → Grok4Heavy (dentro dos limites: {}/{} calls, {}/{} tokens)",
+                            stats.grok4_calls,
+                            self.cfg.heavy_max_calls_per_run,
+                            stats.grok4_total_tokens(),
+                            self.cfg.heavy_max_tokens_per_run
+                        );
+                        return (heavy.clone(), ProviderTier::Grok4Heavy);
+                    }
+                } else {
+                    warn!(
+                        "Router → Grok3 (limites Heavy atingidos: {}/{} calls ou {}/{} tokens)",
+                        stats.grok4_calls,
+                        self.cfg.heavy_max_calls_per_run,
+                        stats.grok4_total_tokens(),
+                        self.cfg.heavy_max_tokens_per_run
+                    );
+                }
+            }
+        }
+        
+        // Fallback para lógica normal
+        self.choose(meta)
     }
 
     /// Escolhe cliente baseado em metadados
@@ -160,7 +277,7 @@ impl TieredRouter {
             };
             client.chat(req).await
         } else {
-            client.complete(prompt).await
+            client.complete(prompt).await.map(|o| o.text)
         }
     }
 }

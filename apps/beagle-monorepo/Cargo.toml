@@ -13,6 +13,10 @@ path = "src/main.rs"
 name = "pipeline"
 path = "src/bin/pipeline.rs"
 
+[[bin]]
+name = "core_server"
+path = "src/bin/core_server.rs"
+
 [dependencies]
 tokio.workspace = true
 tracing.workspace = true
@@ -34,8 +38,11 @@ clap = { version = "4.5", features = ["derive"] }
 reqwest = { workspace = true }
 beagle-core = { path = "../../crates/beagle-core" }
 beagle-feedback = { path = "../../crates/beagle-feedback" }
+beagle-triad = { path = "../../crates/beagle-triad" }
+beagle-llm = { path = "../../crates/beagle-llm" }
+beagle-observer = { path = "../../crates/beagle-observer" }
+axum = { version = "0.7", features = ["macros", "query"] }
 
 [dev-dependencies]
-tempfile = "3.10"
-serde_json = { workspace = true }
-tokio-test = { workspace = true }
+tempfile = "3.8"
+tokio-test = "0.4"
