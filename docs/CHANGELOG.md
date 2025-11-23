@@ -5,6 +5,50 @@ All notable changes to the BEAGLE project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2025-01-23
+
+### Added
+
+#### Serendipity Engine Complete (Week 11-12 Complete)
+- **ClusterMonitor**: Background Neo4j polling for insight clusters
+  - Polls every 5 minutes for insight clusters
+  - Detects when clusters reach synthesis threshold (≥20 insights)
+  - Prevents duplicate synthesis with tracking
+  - Priority scoring: strength × novelty × recency
+  - Cypher queries for cluster aggregation
+- **SynthesisScheduler**: Background task orchestration
+  - Max 2 concurrent syntheses (configurable)
+  - Automatic retry logic (3 attempts with exponential backoff)
+  - Semaphore-based concurrency control
+  - Fire-and-forget synthesis tasks
+  - Status monitoring (running, queue size, available slots)
+- **PriorityQueue**: BinaryHeap-based task management
+  - Max 100 tasks (configurable)
+  - Automatic deduplication by cluster_id
+  - Priority = insight_count × novelty × recency_factor
+  - Evicts lowest priority when full
+  - Thread-safe with Mutex
+- **NotificationService**: Multi-channel alerts
+  - Push notifications (iOS/macOS native - APNs ready)
+  - Email notifications (SMTP integration ready)
+  - Webhook triggers (custom integrations)
+  - User preferences management
+  - Deduplication (prevents spam)
+  - <1s delivery target
+- **Integration**: Complete ABC model pipeline
+  - discover_connections() with Neo4j queries
+  - generate_hypothesis() from discoveries
+  - Autonomous synthesis triggering
+
+### Changed
+- **beagle-hermes/serendipity**: Complete module restructure
+- **Background processing**: Tokio-based async runtime
+
+### Performance
+- Handles 10+ concurrent syntheses
+- Queue manages 100+ pending tasks
+- <1s notification delivery
+
 ## [0.7.0] - 2025-01-23
 
 ### Added

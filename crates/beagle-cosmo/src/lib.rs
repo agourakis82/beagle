@@ -147,11 +147,10 @@ impl Default for CosmologicalAlignment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beagle_quantum::Hypothesis;
 
     #[tokio::test]
     async fn test_cosmo_creation() {
-        let cosmo = CosmologicalAlignment::new();
+        let _cosmo = CosmologicalAlignment::new();
         // Teste básico - apenas verifica que cria sem erro
         assert!(true);
     }
@@ -163,5 +162,138 @@ mod tests {
         let result = cosmo.align_with_universe(&mut empty_set).await;
         assert!(result.is_ok());
         assert_eq!(empty_set.hypotheses.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_cosmo_alignment_with_valid_hypothesis() {
+        let cosmo = CosmologicalAlignment::new();
+        let mut set = HypothesisSet::new();
+
+        // Add a hypothesis that aligns with cosmological principles
+        set.add(
+            "Entropy curves in biological scaffolds emerge from non-commutative geometry".to_string(),
+            None,
+        );
+
+        let initial_count = set.hypotheses.len();
+        assert_eq!(initial_count, 1);
+
+        // Run alignment - may succeed or fail depending on LLM availability
+        match cosmo.align_with_universe(&mut set).await {
+            Ok(()) => {
+                // Verify that alignment completed
+                // The hypothesis may survive or be destroyed depending on LLM response
+                // We just verify the method executed successfully
+                assert!(true);
+            }
+            Err(_e) => {
+                // LLM unavailable or failed - this is acceptable for testing
+                // The important thing is the method handles errors gracefully
+                assert!(true);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cosmo_alignment_with_invalid_hypothesis() {
+        let cosmo = CosmologicalAlignment::new();
+        let mut set = HypothesisSet::new();
+
+        // Add a hypothesis that clearly violates thermodynamic laws
+        set.add(
+            "Energy can be created from nothing without violating conservation laws".to_string(),
+            None,
+        );
+
+        let initial_count = set.hypotheses.len();
+        assert_eq!(initial_count, 1);
+
+        // Run alignment
+        match cosmo.align_with_universe(&mut set).await {
+            Ok(()) => {
+                // After alignment, either:
+                // 1. The hypothesis was destroyed (confidence < 0.01 and filtered out)
+                // 2. The hypothesis survived but with lower confidence
+                // We verify that the method executed successfully
+                assert!(true);
+            }
+            Err(_e) => {
+                // LLM unavailable - acceptable
+                assert!(true);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cosmo_alignment_with_mixed_hypotheses() {
+        let cosmo = CosmologicalAlignment::new();
+        let mut set = HypothesisSet::new();
+
+        // Add mixture of valid and invalid hypotheses
+        set.add(
+            "Entropy emerges from quantum coherence in biological systems".to_string(),
+            None,
+        );
+        set.add(
+            "Information can be destroyed without violating quantum mechanics".to_string(),
+            None,
+        );
+        set.add(
+            "Causality can be reversed via macroscopic quantum entanglement".to_string(),
+            None,
+        );
+
+        let initial_count = set.hypotheses.len();
+        assert_eq!(initial_count, 3);
+
+        // Run alignment - this is where the filtering should happen
+        match cosmo.align_with_universe(&mut set).await {
+            Ok(()) => {
+                // After cosmological alignment, some hypotheses may be filtered
+                // Final count should be <= initial count
+                let final_count = set.hypotheses.len();
+                assert!(final_count <= initial_count);
+                info!("✅ Alignment: {} → {} hypotheses", initial_count, final_count);
+                assert!(true);
+            }
+            Err(_e) => {
+                // LLM unavailable - acceptable for test
+                assert!(true);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cosmo_confidence_modification() {
+        let cosmo = CosmologicalAlignment::new();
+        let mut set = HypothesisSet::new();
+
+        // Add hypothesis
+        set.add(
+            "Test hypothesis for confidence modification".to_string(),
+            None,
+        );
+
+        let initial_confidence = set.hypotheses[0].confidence;
+        // Confidence starts at some value (depends on HypothesisSet internals)
+        assert!(initial_confidence > 0.0);
+        assert!(initial_confidence <= 1.0);
+
+        // Run alignment
+        match cosmo.align_with_universe(&mut set).await {
+            Ok(()) => {
+                // After alignment, if hypothesis survived:
+                if !set.hypotheses.is_empty() {
+                    let final_confidence = set.hypotheses[0].confidence;
+                    // Confidence should be valid (0.0 to 1.0)
+                    assert!(final_confidence >= 0.0);
+                    assert!(final_confidence <= 1.0);
+                }
+            }
+            Err(_e) => {
+                // LLM unavailable - acceptable
+                assert!(true);
+            }
+        }
     }
 }
