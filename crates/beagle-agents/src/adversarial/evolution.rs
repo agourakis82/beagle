@@ -76,17 +76,36 @@ impl StrategyEvolution {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // Keep top 50%, mutate and add new players
+        // Keep top 50%, create offspring via crossover and mutation
         let survivors = self.players.len() / 2;
         let mut new_players = self.players[..survivors].to_vec();
 
-        // Create mutated versions
+        // Create offspring through crossover and mutation
         while new_players.len() < self.players.len() {
-            let parent = &new_players[rand::random::<usize>() % new_players.len()];
-            let mutated_strategy = parent.strategy.mutate();
+            let use_crossover = rand::random::<f64>() < 0.7; // 70% crossover, 30% mutation
+
+            let offspring_strategy = if use_crossover && survivors >= 2 {
+                // Crossover: select two parents
+                let parent1_idx = rand::random::<usize>() % survivors;
+                let parent2_idx = rand::random::<usize>() % survivors;
+
+                if parent1_idx != parent2_idx {
+                    new_players[parent1_idx]
+                        .strategy
+                        .crossover(&new_players[parent2_idx].strategy)
+                } else {
+                    // Same parent selected, just mutate
+                    new_players[parent1_idx].strategy.mutate()
+                }
+            } else {
+                // Mutation only
+                let parent_idx = rand::random::<usize>() % survivors;
+                new_players[parent_idx].strategy.mutate()
+            };
+
             new_players.push(ResearchPlayer::new(
-                format!("{}_gen{}", parent.name, self.generation + 1),
-                mutated_strategy,
+                format!("gen{}_p{}", self.generation + 1, new_players.len()),
+                offspring_strategy,
             ));
         }
 

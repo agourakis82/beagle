@@ -8,7 +8,7 @@ pub mod evolution;
 pub mod player;
 pub mod strategy;
 
-pub use arena::CompetitionArena;
+pub use arena::{CompetitionArena, StandingEntry, TournamentFormat, TournamentResult};
 pub use evolution::{MatchResult, StrategyEvolution};
 pub use player::ResearchPlayer;
-pub use strategy::Strategy;
+pub use strategy::{ResearchApproach, Strategy};

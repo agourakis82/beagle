@@ -1,16 +1,240 @@
 use super::{evolution::MatchResult, player::ResearchPlayer};
 use anyhow::Result;
 use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::info;
 
+/// Tournament format
+#[derive(Debug, Clone, Copy)]
+pub enum TournamentFormat {
+    RoundRobin, // All vs all
+    Swiss,      // Swiss system pairing
+    SingleElim, // Single elimination bracket
+}
+
+/// Tournament result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TournamentResult {
+    pub format: String,
+    pub rounds: usize,
+    pub matches: Vec<MatchResult>,
+    pub final_standings: Vec<StandingEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StandingEntry {
+    pub player_name: String,
+    pub wins: usize,
+    pub losses: usize,
+    pub elo_rating: f64,
+    pub rank: usize,
+}
+
 pub struct CompetitionArena {
     llm: Arc<AnthropicClient>,
+    tournament_format: TournamentFormat,
 }
 
 impl CompetitionArena {
     pub fn new(llm: Arc<AnthropicClient>) -> Self {
-        Self { llm }
+        Self {
+            llm,
+            tournament_format: TournamentFormat::Swiss,
+        }
+    }
+
+    pub fn with_format(llm: Arc<AnthropicClient>, format: TournamentFormat) -> Self {
+        Self {
+            llm,
+            tournament_format: format,
+        }
+    }
+
+    /// Run a full tournament with multiple players
+    pub async fn run_tournament(
+        &self,
+        players: &mut [ResearchPlayer],
+        query: &str,
+        rounds: usize,
+    ) -> Result<TournamentResult> {
+        info!(
+            "🏆 Starting tournament with {} players, {} rounds",
+            players.len(),
+            rounds
+        );
+
+        let mut all_matches = Vec::new();
+
+        match self.tournament_format {
+            TournamentFormat::Swiss => {
+                all_matches = self.run_swiss_tournament(players, query, rounds).await?;
+            }
+            TournamentFormat::RoundRobin => {
+                all_matches = self.run_round_robin(players, query).await?;
+            }
+            TournamentFormat::SingleElim => {
+                all_matches = self.run_single_elimination(players, query).await?;
+            }
+        }
+
+        // Generate final standings
+        let mut standings: Vec<StandingEntry> = players
+            .iter()
+            .map(|p| StandingEntry {
+                player_name: p.name.clone(),
+                wins: p.wins,
+                losses: p.losses,
+                elo_rating: p.elo_rating,
+                rank: 0,
+            })
+            .collect();
+
+        // Sort by ELO
+        standings.sort_by(|a, b| {
+            b.elo_rating
+                .partial_cmp(&a.elo_rating)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Assign ranks
+        for (i, standing) in standings.iter_mut().enumerate() {
+            standing.rank = i + 1;
+        }
+
+        Ok(TournamentResult {
+            format: format!("{:?}", self.tournament_format),
+            rounds: all_matches.len(),
+            matches: all_matches,
+            final_standings: standings,
+        })
+    }
+
+    /// Swiss system tournament - pair players with similar records
+    async fn run_swiss_tournament(
+        &self,
+        players: &mut [ResearchPlayer],
+        query: &str,
+        rounds: usize,
+    ) -> Result<Vec<MatchResult>> {
+        let mut all_matches = Vec::new();
+
+        for round in 0..rounds {
+            info!("Round {}/{}", round + 1, rounds);
+
+            // Sort by current ELO for Swiss pairing
+            players.sort_by(|a, b| {
+                b.elo_rating
+                    .partial_cmp(&a.elo_rating)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            // Pair adjacent players (similar skill levels)
+            for i in (0..players.len()).step_by(2) {
+                if i + 1 < players.len() {
+                    let result = self.compete(&players[i], &players[i + 1], query).await?;
+
+                    // Update ELO ratings
+                    let p1_elo = players[i].elo_rating;
+                    let p2_elo = players[i + 1].elo_rating;
+
+                    if result.winner == 0 {
+                        players[i].record_win(p2_elo);
+                        players[i + 1].record_loss(p1_elo);
+                    } else {
+                        players[i + 1].record_win(p1_elo);
+                        players[i].record_loss(p2_elo);
+                    }
+
+                    all_matches.push(result);
+                }
+            }
+        }
+
+        Ok(all_matches)
+    }
+
+    /// Round-robin tournament - everyone plays everyone
+    async fn run_round_robin(
+        &self,
+        players: &mut [ResearchPlayer],
+        query: &str,
+    ) -> Result<Vec<MatchResult>> {
+        let mut all_matches = Vec::new();
+
+        for i in 0..players.len() {
+            for j in (i + 1)..players.len() {
+                let result = self.compete(&players[i], &players[j], query).await?;
+
+                let p1_elo = players[i].elo_rating;
+                let p2_elo = players[j].elo_rating;
+
+                if result.winner == 0 {
+                    players[i].record_win(p2_elo);
+                    players[j].record_loss(p1_elo);
+                } else {
+                    players[j].record_win(p1_elo);
+                    players[i].record_loss(p2_elo);
+                }
+
+                all_matches.push(result);
+            }
+        }
+
+        Ok(all_matches)
+    }
+
+    /// Single elimination bracket
+    async fn run_single_elimination(
+        &self,
+        players: &mut [ResearchPlayer],
+        query: &str,
+    ) -> Result<Vec<MatchResult>> {
+        let mut all_matches = Vec::new();
+        let mut active_players: Vec<&mut ResearchPlayer> = players.iter_mut().collect();
+
+        while active_players.len() > 1 {
+            let mut next_round = Vec::new();
+
+            for i in (0..active_players.len()).step_by(2) {
+                if i + 1 < active_players.len() {
+                    // SAFETY: We're creating non-overlapping mutable references
+                    let (p1, p2) = unsafe {
+                        let ptr1 = active_players[i] as *mut ResearchPlayer;
+                        let ptr2 = active_players[i + 1] as *mut ResearchPlayer;
+                        (&*ptr1, &*ptr2)
+                    };
+
+                    let result = self.compete(p1, p2, query).await?;
+
+                    let winner_idx = if result.winner == 0 { i } else { i + 1 };
+                    let loser_idx = if result.winner == 0 { i + 1 } else { i };
+
+                    // Update records
+                    let p1_elo = active_players[i].elo_rating;
+                    let p2_elo = active_players[i + 1].elo_rating;
+
+                    if result.winner == 0 {
+                        active_players[i].record_win(p2_elo);
+                        active_players[i + 1].record_loss(p1_elo);
+                    } else {
+                        active_players[i + 1].record_win(p1_elo);
+                        active_players[i].record_loss(p2_elo);
+                    }
+
+                    all_matches.push(result);
+                    next_round.push(winner_idx);
+                }
+            }
+
+            // Advance winners
+            active_players = next_round
+                .into_iter()
+                .map(|idx| active_players[idx])
+                .collect();
+        }
+
+        Ok(all_matches)
     }
 
     pub async fn compete(
