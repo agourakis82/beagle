@@ -32,6 +32,7 @@ members = [
     "apps/beagle-monorepo", "crates/beagle-neural-engine", "crates/beagle-whisper-neural",
     "crates/beagle-observer", "crates/beagle-stress-test", "crates/beagle-triad",
     "crates/beagle-feedback", "crates/beagle-symbolic", "crates/beagle-experiments",
+    "crates/beagle-search",
 ]
 resolver = "2"
 
@@ -40,7 +41,7 @@ authors = ["Dr. Demetrios Agourakis <contact@darwin-cluster.ai>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/darwin-cluster/beagle"
-version = "0.3.0"
+version = "0.4.0"
 
 # ---------------------------------------------------------------------------
 # Shared dependency catalog for all workspace crates
@@ -132,4 +133,3 @@ strip = true
 [profile.bench]
 debug = true
 inherits = "release"
-
