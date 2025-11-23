@@ -158,7 +158,7 @@ impl HolographicStorage {
         matches!(
             word.to_lowercase().as_str(),
             "the" | "and" | "that" | "this" | "with" | "from" | "have" | "been"
-                | "have" | "will" | "can" | "are" | "but" | "for" | "not" | "all"
+                | "will" | "can" | "are" | "but" | "for" | "not" | "all"
                 | "about" | "some" | "time" | "very" | "when" | "where" | "who"
         )
     }

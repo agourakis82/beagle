@@ -16,6 +16,7 @@ once_cell = "1.19"
 anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 petgraph = "0.6"
+chrono = { version = "0.4", features = ["serde"] }
 beagle-quantum = { path = "../beagle-quantum" }
 beagle-consciousness = { path = "../beagle-consciousness" }
 beagle-llm = { path = "../beagle-llm" }

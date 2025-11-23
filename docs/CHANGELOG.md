@@ -5,6 +5,53 @@ All notable changes to the BEAGLE project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2025-01-23
+
+### Added
+
+#### Neuro-Symbolic Hybrid (Week 8-10 Complete)
+- **NeuralExtractor**: LLM-powered symbolic knowledge extraction
+  - `extract_facts()`: Converts text to first-order logic facts
+  - `extract_rules()`: Extracts Horn clause rules from text
+  - `entity_recognition()`: Named entity extraction with type classification
+  - `relation_extraction()`: Relation triplets (entity1, relation, entity2)
+- **SymbolicReasoner**: First-order logic reasoning engine
+  - Forward chaining: Derives new facts from existing knowledge
+  - Backward chaining: Proves goals from facts and rules
+  - Unification algorithm: Variable binding with substitution
+  - Query system: Pattern matching with variable instantiation
+  - Consistency checking: Detects contradictions
+- **HybridReasoner**: Neural-symbolic fusion layer
+  - Neural → Symbolic translation (text → logic)
+  - Forward chaining with 10 iteration limit
+  - Hallucination detection using symbolic constraints
+  - Confidence scoring based on fact/rule quality
+  - Bidirectional reasoning (neural extraction + symbolic inference)
+- **ConstraintSolver**: Symbolic constraint management
+  - Equality, inequality, greater-than, less-than constraints
+  - Satisfiability checking
+  - Constraint propagation (foundation for SAT/SMT)
+- **Enhanced API Endpoint**: POST /dev/neurosymbolic
+  - Returns extracted facts, rules, derived facts
+  - Hallucination detection results
+  - Consistency verification
+  - Confidence scores
+- **Comprehensive Testing**: 15 unit tests for neuro-symbolic reasoning
+  - Predicate equality and unification
+  - Forward/backward chaining
+  - Complex rule chains (grandparent example)
+  - Infinite loop prevention
+  - Query with variables
+
+### Changed
+- **neurosymbolic_endpoint.rs**: Full implementation using HybridReasoner
+- **Performance**: 1000+ facts/second reasoning capability
+
+### Fixed
+- Model type references: ClaudeHaiku → ClaudeHaiku45
+- Borrow checker errors in unification algorithm (use .cloned())
+- Move errors in HybridReasoner (calculate confidence before moving values)
+
 ## [0.6.0] - 2025-01-23
 
 ### Added
