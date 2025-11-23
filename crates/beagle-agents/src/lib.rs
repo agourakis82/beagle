@@ -52,6 +52,8 @@ pub mod neurosymbolic;
 
 pub mod quantum;
 
+pub mod quantum_mcts;
+
 pub mod adversarial;
 
 // ============================================
@@ -153,7 +155,12 @@ pub use neurosymbolic::{
 
 // ============================================
 
-pub use quantum::{InterferenceEngine, MeasurementOperator, QuantumHypothesis, SuperpositionState};
+pub use quantum::{
+    HypothesisMetadata, InterferenceEngine, InterferenceType, MeasurementOperator,
+    MeasurementResult, QuantumHypothesis, SuperpositionState,
+};
+
+pub use quantum_mcts::{QuantumMCTS, QuantumResearchResult};
 
 // ============================================
 

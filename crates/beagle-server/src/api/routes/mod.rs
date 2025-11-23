@@ -19,6 +19,7 @@ pub mod metrics;
 pub mod neurosymbolic_endpoint;
 pub mod nodes;
 pub mod parallel_research;
+pub mod quantum_endpoint;
 pub mod reasoning_endpoint;
 pub mod research;
 pub mod science_jobs;

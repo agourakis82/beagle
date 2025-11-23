@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use super::{
     causal_endpoint, debate, deep_research_endpoint, neurosymbolic_endpoint, parallel_research,
-    reasoning_endpoint, research, swarm_endpoint, temporal_endpoint,
+    quantum_endpoint, reasoning_endpoint, research, swarm_endpoint, temporal_endpoint,
 };
 use crate::state::AppState;
 use beagle_llm::{CompletionRequest, Message, ModelType};
@@ -242,6 +242,10 @@ pub fn dev_routes() -> Router<AppState> {
         .route(
             "/dev/neurosymbolic",
             post(neurosymbolic_endpoint::neurosymbolic_reason),
+        )
+        .route(
+            "/dev/quantum-reasoning",
+            post(quantum_endpoint::quantum_reasoning),
         )
 }
 
