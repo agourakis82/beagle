@@ -48,3 +48,58 @@ impl ResearchPlayer {
         self.elo_rating += k * (score - expected);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adversarial::Strategy;
+
+    #[test]
+    fn test_player_creation() {
+        let strategy = Strategy::new_aggressive();
+        let player = ResearchPlayer::new("TestPlayer".to_string(), strategy);
+
+        assert_eq!(player.name, "TestPlayer");
+        assert_eq!(player.wins, 0);
+        assert_eq!(player.losses, 0);
+        assert_eq!(player.elo_rating, 1500.0);
+    }
+
+    #[test]
+    fn test_win_rate() {
+        let strategy = Strategy::new_aggressive();
+        let mut player = ResearchPlayer::new("TestPlayer".to_string(), strategy);
+
+        assert_eq!(player.win_rate(), 0.5); // No matches yet
+
+        player.wins = 7;
+        player.losses = 3;
+        assert_eq!(player.win_rate(), 0.7);
+    }
+
+    #[test]
+    fn test_elo_update_win() {
+        let strategy = Strategy::new_aggressive();
+        let mut player = ResearchPlayer::new("TestPlayer".to_string(), strategy);
+
+        let initial_elo = player.elo_rating;
+        player.record_win(1500.0);
+
+        // ELO should increase after a win
+        assert!(player.elo_rating > initial_elo);
+        assert_eq!(player.wins, 1);
+    }
+
+    #[test]
+    fn test_elo_update_loss() {
+        let strategy = Strategy::new_aggressive();
+        let mut player = ResearchPlayer::new("TestPlayer".to_string(), strategy);
+
+        let initial_elo = player.elo_rating;
+        player.record_loss(1500.0);
+
+        // ELO should decrease after a loss
+        assert!(player.elo_rating < initial_elo);
+        assert_eq!(player.losses, 1);
+    }
+}

@@ -169,6 +169,7 @@ pub use quantum_mcts::{QuantumMCTS, QuantumResearchResult};
 // ============================================
 
 pub use adversarial::{
-    CompetitionArena, MatchResult, ResearchApproach, ResearchPlayer, StandingEntry, Strategy,
-    StrategyEvolution, TournamentFormat, TournamentResult,
+    CompetitionArena, MatchResult, MetaLearner, MetaLearningInsights, ParameterInsight,
+    PerformanceTrends, ResearchApproach, ResearchPlayer, StandingEntry, Strategy,
+    StrategyEvolution, StrategyPattern, TournamentFormat, TournamentResult,
 };

@@ -4,6 +4,7 @@ use axum::Router;
 
 use crate::state::AppState;
 
+pub mod adversarial_endpoint;
 pub mod auth;
 pub mod causal_endpoint;
 pub mod chat;

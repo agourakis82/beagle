@@ -329,3 +329,45 @@ impl CompetitionArena {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adversarial::{ResearchPlayer, Strategy};
+
+    #[test]
+    fn test_tournament_format() {
+        // Test that tournament formats are correctly defined
+        let _swiss = TournamentFormat::Swiss;
+        let _rr = TournamentFormat::RoundRobin;
+        let _elim = TournamentFormat::SingleElim;
+    }
+
+    #[test]
+    fn test_standing_entry() {
+        let standing = StandingEntry {
+            player_name: "TestPlayer".to_string(),
+            wins: 5,
+            losses: 3,
+            elo_rating: 1550.0,
+            rank: 1,
+        };
+
+        assert_eq!(standing.player_name, "TestPlayer");
+        assert_eq!(standing.wins, 5);
+        assert_eq!(standing.elo_rating, 1550.0);
+    }
+
+    #[test]
+    fn test_tournament_result_creation() {
+        let result = TournamentResult {
+            format: "Swiss".to_string(),
+            rounds: 3,
+            matches: Vec::new(),
+            final_standings: Vec::new(),
+        };
+
+        assert_eq!(result.format, "Swiss");
+        assert_eq!(result.rounds, 3);
+    }
+}

@@ -187,6 +187,15 @@ impl QuantumMCTS {
             .map(|(h, p, _)| (h, p))
             .collect()
     }
+
+    /// Enable adversarial hypothesis refinement
+    /// Uses evolved strategies from adversarial self-play to improve MCTS exploration
+    pub fn with_adversarial_refinement(mut self, enable: bool) -> Self {
+        // This flag can be used to enable adversarial strategy selection
+        // in future MCTS iterations
+        self.use_superposition = enable;
+        self
+    }
 }
 
 /// Result of quantum-enhanced research

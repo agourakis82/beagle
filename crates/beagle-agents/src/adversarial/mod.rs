@@ -5,10 +5,14 @@
 
 pub mod arena;
 pub mod evolution;
+pub mod meta_learning;
 pub mod player;
 pub mod strategy;
 
 pub use arena::{CompetitionArena, StandingEntry, TournamentFormat, TournamentResult};
 pub use evolution::{MatchResult, StrategyEvolution};
+pub use meta_learning::{
+    MetaLearner, MetaLearningInsights, ParameterInsight, PerformanceTrends, StrategyPattern,
+};
 pub use player::ResearchPlayer;
 pub use strategy::{ResearchApproach, Strategy};
