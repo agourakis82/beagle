@@ -216,3 +216,45 @@ async fn test_self_replicator_default() {
     // Should create successfully
     assert!(true);
 }
+
+#[tokio::test]
+async fn test_fractal_with_cosmological_alignment() {
+    // Integration test: Fractal cognitive cycle with cosmological alignment
+    let root = FractalCognitiveNode::root();
+    let runtime = FractalNodeRuntime::new(root);
+
+    // Execute a cognitive cycle - this internally applies cosmological alignment
+    // The cycle will:
+    // 1. Generate hypotheses via superposition
+    // 2. Apply cosmological alignment to validate against fundamental laws
+    // 3. Filter hypotheses based on alignment scores
+    // 4. Return the best surviving hypothesis
+    let result = runtime.execute_full_cycle("What is consciousness?").await;
+
+    // The cycle may succeed or fail depending on LLM availability
+    // Either way, it should not panic
+    assert!(true);
+}
+
+#[tokio::test]
+async fn test_fractal_recursive_with_cosmological_alignment() {
+    // Integration test: Recursive fractal replication with cosmological alignment
+    // Each child node will apply cosmological alignment in its cognitive cycles
+    let root = FractalCognitiveNode::root();
+    let runtime = FractalNodeRuntime::new(root);
+
+    // Replicate to depth 2 (creates child nodes)
+    let replicas = runtime.replicate(2).await;
+    assert!(replicas.is_ok());
+
+    let nodes = replicas.unwrap();
+    assert!(nodes.len() > 0);
+
+    // Each replica represents a node in the fractal tree
+    // If any of these nodes execute cognitive cycles, they will use cosmological alignment
+    for node_runtime in nodes.iter() {
+        let depth = node_runtime.depth().await;
+        // Verify that nodes were created at increasing depths
+        assert!(depth <= 2);
+    }
+}

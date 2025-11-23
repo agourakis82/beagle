@@ -20,6 +20,7 @@ chrono = { version = "0.4", features = ["serde"] }
 beagle-quantum = { path = "../beagle-quantum" }
 beagle-consciousness = { path = "../beagle-consciousness" }
 beagle-llm = { path = "../beagle-llm" }
+beagle-cosmo = { path = "../beagle-cosmo" }
 
 [features]
 default = []

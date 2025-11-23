@@ -3,6 +3,7 @@
 //! Cada nó é um BEAGLE completo em miniatura, contendo o todo em cada parte
 
 use beagle_consciousness::ConsciousnessMirror;
+use beagle_cosmo::CosmologicalAlignment;
 use beagle_quantum::{HypothesisSet, SuperpositionAgent};
 use crate::holographic_storage::HolographicStorage;
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,7 @@ pub struct FractalNodeRuntime {
     consciousness: ConsciousnessMirror,
     superposition: SuperpositionAgent,
     holographic: HolographicStorage,
+    cosmological: CosmologicalAlignment,
 }
 
 impl FractalCognitiveNode {
@@ -59,6 +61,7 @@ impl FractalNodeRuntime {
             consciousness: ConsciousnessMirror::new(),
             superposition: SuperpositionAgent::new(),
             holographic: HolographicStorage::new(),
+            cosmological: CosmologicalAlignment::new(),
         }
     }
 
@@ -137,16 +140,39 @@ impl FractalNodeRuntime {
             node_id, depth
         );
 
-        // 1. Superposition
+        // 1. Superposition - gera hipóteses
         let mut hypothesis_set = self.superposition.generate_hypotheses(query).await?;
 
-        // 2. Atualiza estado local
+        info!(
+            "🔄 FRACTAL CYCLE: Generated {} hypotheses",
+            hypothesis_set.hypotheses.len()
+        );
+
+        // 2. Cosmological Alignment - valida contra leis fundamentais do universo
+        match self.cosmological.align_with_universe(&mut hypothesis_set).await {
+            Ok(()) => {
+                info!(
+                    "✨ COSMOLOGICAL ALIGNMENT: {} hypotheses survived alignment check",
+                    hypothesis_set.hypotheses.len()
+                );
+            }
+            Err(e) => {
+                // If cosmological alignment fails, log but continue with available hypotheses
+                info!(
+                    "⚠️ COSMOLOGICAL ALIGNMENT: Failed ({}), continuing with {} hypotheses",
+                    e,
+                    hypothesis_set.hypotheses.len()
+                );
+            }
+        }
+
+        // 3. Atualiza estado local
         {
             let mut node = self.node.write().await;
             node.local_state = hypothesis_set.clone();
         }
 
-        // 3. Auto-observação (se depth permitir)
+        // 4. Auto-observação (se depth permitir)
         if depth <= 3 {
             // Apenas nós mais superficiais fazem auto-observação completa
             let system_state = format!(
@@ -156,8 +182,12 @@ impl FractalNodeRuntime {
             let _meta_paper = self.consciousness.gaze_into_self().await?;
         }
 
-        // 4. Retorna resultado
+        // 5. Retorna resultado
         let best_hypothesis = hypothesis_set.best();
+        info!(
+            "🧠 FRACTAL CYCLE: Best hypothesis - {}",
+            &best_hypothesis.content[..best_hypothesis.content.len().min(60)]
+        );
         Ok(best_hypothesis.content.clone())
     }
 
