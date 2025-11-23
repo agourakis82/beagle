@@ -11,7 +11,13 @@ pub mod evolver;
 pub mod monitor;
 pub mod specialized;
 
-pub use analyzer::{FailurePattern, WeaknessAnalyzer};
+#[cfg(test)]
+mod tests;
+
+pub use analyzer::{ClusterPriority, FailurePattern, PatternCluster, WeaknessAnalyzer};
 pub use evolver::{AgentSpecification, ArchitectureEvolver, EvolutionResult};
-pub use monitor::PerformanceMonitor;
+pub use monitor::{
+    BottleneckType, DegradationSeverity, PerformanceBottleneck, PerformanceDegradation,
+    PerformanceMonitor, PerformanceTrend, QueryPerformance, TrendDirection,
+};
 pub use specialized::SpecializedAgentFactory;

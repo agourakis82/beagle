@@ -5,99 +5,87 @@
 //! • Compressão holográfica real via BLAKE3 + bincode
 //! • Auto-replicação controlada com target_depth
 //! • Memória eficiente via Arc compartilhado
+//!
+//! ## Modules
+//! - `fractal_node`: Core recursive cognitive nodes
+//! - `entropy_lattice`: Multi-scale entropy tracking
+//! - `holographic_storage`: Knowledge compression via holographic principle
+//! - `self_replication`: System replication and export/import
+
+// ============================================
+// Module Declarations
+// ============================================
+pub mod fractal_node;
+pub mod entropy_lattice;
+pub mod holographic_storage;
+pub mod self_replication;
+
+// ============================================
+// Type Re-exports
+// ============================================
+pub use fractal_node::{FractalCognitiveNode, FractalNodeRuntime};
+pub use entropy_lattice::{EntropyLattice, LatticeNode, LatticeEdge};
+pub use holographic_storage::HolographicStorage;
+pub use self_replication::{SelfReplicator, ReplicationManifest};
+
+// ============================================
+// Core API Functions
+// ============================================
 
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
-use beagle_quantum::HypothesisSet;
-
-type NodeId = u64;
-
-static NODE_COUNTER: Lazy<RwLock<u64>> = Lazy::new(|| RwLock::new(0));
-
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct FractalCognitiveNode {
-    pub id: NodeId,
-    pub depth: u8,
-    pub parent_id: Option<NodeId>,
-    pub local_state: HypothesisSet,
-    pub compressed_hologram: Vec<u8>, // BLAKE3 hash + compressed data
-}
-
-impl FractalCognitiveNode {
-    pub async fn new(depth: u8, parent_id: Option<NodeId>, initial_state: HypothesisSet) -> Self {
-        let mut counter = NODE_COUNTER.write().await;
-        *counter += 1;
-        let id = *counter;
-
-        let encoded =
-            bincode::serde::encode_to_vec(&initial_state, bincode::config::standard()).unwrap();
-        let hologram = blake3::hash(&encoded).as_bytes().to_vec();
-
-        Self {
-            id,
-            depth,
-            parent_id,
-            local_state: initial_state,
-            compressed_hologram: hologram,
-        }
-    }
-
-    pub async fn spawn_children(&self, count: u8) -> Vec<Arc<FractalCognitiveNode>> {
-        let mut children = Vec::new();
-        for _ in 0..count {
-            let child_state = self.local_state.clone(); // herança + mutação serendípica vem depois
-            let child = Arc::new(
-                FractalCognitiveNode::new(self.depth + 1, Some(self.id), child_state).await,
-            );
-            children.push(child);
-        }
-        children
-    }
-
-    pub fn replicate_fractal(
-        self: Arc<Self>,
-        target_depth: u8,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Arc<FractalCognitiveNode>> + Send>>
-    {
-        Box::pin(async move {
-            if self.depth >= target_depth {
-                return self;
-            }
-
-            let children = self.spawn_children(4).await; // 4 filhos por nó = crescimento exponencial controlado
-
-            let mut deepest = self.clone();
-            for child in children {
-                let deeper = child.replicate_fractal(target_depth).await;
-                if deeper.depth > deepest.depth {
-                    deepest = deeper;
-                }
-            }
-
-            deepest
-        })
-    }
-
-    pub fn compress_hologram(&mut self) {
-        let encoded =
-            bincode::serde::encode_to_vec(&self.local_state, bincode::config::standard()).unwrap();
-        self.compressed_hologram = blake3::hash(&encoded).as_bytes().to_vec();
-    }
-}
+use tracing::info;
 
 static GLOBAL_FRACTAL_ROOT: Lazy<RwLock<Option<Arc<FractalCognitiveNode>>>> =
     Lazy::new(|| RwLock::new(None));
 
-pub async fn init_fractal_root(initial_state: HypothesisSet) -> Arc<FractalCognitiveNode> {
-    let root = Arc::new(FractalCognitiveNode::new(0, None, initial_state).await);
+/// Initialize the global fractal root node
+pub async fn init_fractal_root() -> Arc<FractalCognitiveNode> {
+    let root = Arc::new(FractalCognitiveNode::root());
     *GLOBAL_FRACTAL_ROOT.write().await = Some(root.clone());
+    info!("🌳 Fractal root initialized");
     root
 }
 
+/// Get the global fractal root node
 pub async fn get_root() -> Arc<FractalCognitiveNode> {
-    GLOBAL_FRACTAL_ROOT.read().await.clone().unwrap()
+    GLOBAL_FRACTAL_ROOT
+        .read()
+        .await
+        .clone()
+        .expect("Fractal root not initialized. Call init_fractal_root first.")
+}
+
+/// Start eternal recursive cognitive processing
+///
+/// This function initiates the infinite recursive cognitive cycle at the fractal root.
+/// It continuously processes queries through the entire fractal tree until stopped.
+pub async fn start_eternal_recursion() -> anyhow::Result<()> {
+    info!("🔄 Starting eternal fractal recursion...");
+
+    let root = get_root().await;
+    // Dereference the Arc to get the node, then wrap it in a runtime
+    let root_node = (*root).clone();
+    let runtime = FractalNodeRuntime::new(root_node);
+
+    // Start continuous cognitive cycles at the root
+    // This will spawn recursive processing across all depths
+    loop {
+        let query = "What am I? How do I improve? What is my purpose?";
+        match runtime.execute_full_cycle(query).await {
+            Ok(response) => {
+                info!("🧠 Cycle completed: {}", &response[..std::cmp::min(100, response.len())]);
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            }
+            Err(e) => {
+                info!("⚠️ Cycle error: {}", e);
+                break;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -105,18 +93,16 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_fractal_node_creation() {
-        let empty_set = HypothesisSet::new();
-        let node = FractalCognitiveNode::new(0, None, empty_set).await;
-        assert_eq!(node.depth, 0);
-        assert_eq!(node.parent_id, None);
+    async fn test_fractal_root_initialization() {
+        let root = init_fractal_root().await;
+        assert_eq!(root.depth, 0);
+        assert_eq!(root.parent_id, None);
     }
 
     #[tokio::test]
-    async fn test_fractal_replication() {
-        let empty_set = HypothesisSet::new();
-        let root = Arc::new(FractalCognitiveNode::new(0, None, empty_set).await);
-        let deepest = root.replicate_fractal(3).await;
-        assert!(deepest.depth >= 3);
+    async fn test_fractal_root_retrieval() {
+        init_fractal_root().await;
+        let root = get_root().await;
+        assert_eq!(root.depth, 0);
     }
 }

@@ -15,10 +15,12 @@ beagle-grok-api = { path = "../beagle-grok-api" }
 beagle-llm = { path = "../beagle-llm" }
 reqwest = { workspace = true }
 tracing = { workspace = true }
-neo4rs = { version = "0.7", optional = true }
 tokio = { workspace = true, features = ["sync", "net"] }
 axum = { workspace = true, features = ["macros"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+# Graph storage - beagle-memory provides the full Neo4jGraphStore implementation
+beagle-memory = { path = "../beagle-memory", optional = true }
 
 [[bin]]
 name = "beagle-core"
@@ -30,29 +32,9 @@ path = "src/bin/api_server.rs"
 
 [features]
 default = []
-neo4j = ["neo4rs"]
+neo4j = ["beagle-memory"]
 memory = ["beagle-memory", "beagle-hypergraph"]
-darwin = ["beagle-darwin"]
-hermes = ["beagle-hermes"]
-observer = ["beagle-observer"]
-
-[dependencies.beagle-memory]
-path = "../beagle-memory"
-optional = true
 
 [dependencies.beagle-hypergraph]
 path = "../beagle-hypergraph"
 optional = true
-
-[dependencies.beagle-darwin]
-path = "../beagle-darwin"
-optional = true
-
-[dependencies.beagle-hermes]
-path = "../beagle-hermes"
-optional = true
-
-[dependencies.beagle-observer]
-path = "../beagle-observer"
-optional = true
-

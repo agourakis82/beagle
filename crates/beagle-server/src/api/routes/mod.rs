@@ -16,6 +16,7 @@ pub mod events;
 pub mod health;
 pub mod hrv;
 pub mod hyperedges;
+pub mod metacognitive_endpoint;
 pub mod metrics;
 pub mod neurosymbolic_endpoint;
 pub mod nodes;

@@ -26,7 +26,7 @@ async fn test_pipeline_with_mock() -> anyhow::Result<()> {
     let run_id = Uuid::new_v4().to_string();
     let question = "Qual o papel da entropia curva em scaffolds biológicos?";
     
-    let paths = run_beagle_pipeline(&mut ctx, question, &run_id, None, None).await?;
+    let paths = run_beagle_pipeline(&mut ctx, question, &run_id, None, None, None).await?;
     
     // Verifica que artefatos foram criados
     assert!(paths.draft_md.exists(), "draft_md deve existir");

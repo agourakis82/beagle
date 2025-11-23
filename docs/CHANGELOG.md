@@ -5,6 +5,46 @@ All notable changes to the BEAGLE project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2025-01-23
+
+### Added
+
+#### Metacognitive Evolution (Week 5-7 Complete)
+- **PerformanceMonitor**: Complete self-monitoring system
+  - Performance degradation detection (success rate, quality, latency)
+  - Bottleneck identification (high latency, low quality, frequent failures)
+  - Trend analysis with linear regression (improving/stable/degrading)
+  - Per-domain performance statistics
+  - Severity classification (None, Minor, Moderate, Severe)
+  - 95th percentile latency tracking
+- **WeaknessAnalyzer**: LLM-powered failure pattern analysis
+  - Automatic pattern identification from failure history
+  - Pattern frequency tracking with example collection
+  - Pattern clustering for strategic insights
+  - Missing capability identification
+  - Severity scoring (logarithmic frequency + critical keyword detection)
+  - Cluster priority classification (Critical, High, Medium, Low)
+- **ArchitectureEvolver**: Autonomous system evolution
+  - Trigger evolution based on failure rate thresholds
+  - Create specialized agents for detected patterns
+- **SpecializedAgentFactory**: Dynamic agent creation
+  - LLM-generated agent specifications from failure patterns
+  - Custom system prompts and capability definitions
+- **API Endpoints**: 
+  - POST /dev/metacognitive/analyze-performance
+  - POST /dev/metacognitive/analyze-failures
+- **Unit Tests**: 12 comprehensive tests for metacognitive components
+
+### Changed
+- **monitor.rs**: Added degradation detection, bottleneck identification, trend analysis
+- **analyzer.rs**: Enhanced with pattern tracking, clustering, and severity scoring
+- **arena.rs**: Fixed single-elimination tournament borrowing issues
+
+### Fixed
+- Type mismatch in quantum_mcts.rs (n_visits u32 → usize conversion)
+- Moved value error in analyzer.rs (added .clone() for pattern_type)
+- Borrowing issues in single-elimination tournament (refactored to owned values)
+
 ## [0.5.0] - 2025-01-23
 
 ### Added

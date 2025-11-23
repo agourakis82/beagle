@@ -44,6 +44,7 @@ beagle-observer = { path = "../../crates/beagle-observer" }
 beagle-serendipity = { path = "../../crates/beagle-serendipity" }
 beagle-quantum = { path = "../../crates/beagle-quantum" }
 beagle-memory = { path = "../../crates/beagle-memory" }
+beagle-search = { path = "../../crates/beagle-search" }
 # beagle-void e beagle-ontic comentados temporariamente (requerem dependências adicionais)
 # beagle-void = { path = "../../crates/beagle-void" }
 # beagle-ontic = { path = "../../crates/beagle-ontic" }

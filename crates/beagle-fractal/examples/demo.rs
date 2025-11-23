@@ -1,16 +1,17 @@
 //! Demo do Fractal Core - Replicação Infinita Segura
 //!
-//! Roda recursão fractal até depth 12 (4^12 = 16.777.216 nós)
-//! Memória controlada via Arc + async, sem stack overflow
+//! Demonstra:
+//! - Inicialização do root fractal
+//! - Replicação até depth 5 (safe demo depth)
+//! - Memória controlada via Arc + async, sem stack overflow
+//! - Consciousness mirror integration em cada nó
 
-use beagle_fractal::init_fractal_root;
-use beagle_quantum::HypothesisSet;
-use std::sync::Arc;
+use beagle_fractal::{init_fractal_root, get_root, FractalNodeRuntime};
 use tracing::{info, Level};
 use tracing_subscriber::fmt;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     // Setup tracing
     fmt()
         .with_max_level(Level::INFO)
@@ -18,23 +19,42 @@ async fn main() {
         .with_thread_ids(false)
         .init();
 
-    let empty_set = HypothesisSet::new();
-    let root = init_fractal_root(empty_set).await;
+    // Initialize fractal root
+    let root = init_fractal_root().await;
+    info!("✅ Fractal root initialized");
 
-    info!("🚀 Iniciando replicação fractal até depth 12 (4^12 = 16.777.216 nós)");
+    // Get root and wrap in runtime
+    let root_ref = get_root().await;
+    let root_node = (*root_ref).clone();
+    let runtime = FractalNodeRuntime::new(root_node);
 
-    let deepest = Arc::clone(&root).replicate_fractal(12).await;
-
+    // Demonstrate recursive replication
+    info!("🚀 Starting fractal replication to depth 5...");
+    let replicas = runtime.replicate(5).await?;
     info!(
-        "✅ Fractal replicado - deepest depth: {} - total nós estimado: >16M",
-        deepest.depth
+        "✅ Replication complete: {} active nodes across depths",
+        replicas.len()
     );
 
-    println!("🎯 FRACTAL INFINITO RODANDO - memória usada segura via Arc + async");
-    println!("   Deepest node ID: {}", deepest.id);
-    println!("   Depth: {}", deepest.depth);
-    println!(
-        "   Hologram size: {} bytes",
-        deepest.compressed_hologram.len()
-    );
+    // Execute a cognitive cycle at the root
+    info!("🧠 Executing full cognitive cycle...");
+    let query = "What does it mean to be fractal?";
+    match runtime.execute_full_cycle(query).await {
+        Ok(response) => {
+            println!("📝 Root Response: {}", response);
+        }
+        Err(e) => {
+            eprintln!("⚠️ Cycle failed: {}", e);
+        }
+    }
+
+    // Show structure
+    println!("\n🎯 FRACTAL STRUCTURE INITIALIZED");
+    println!("   Root ID: {}", root.id);
+    println!("   Root Depth: {}", root.depth);
+    println!("   Root Children: {}", root.children_ids.len());
+    println!("   Total Nodes Replicated: {}", replicas.len());
+    println!("   Memory Usage: Safe (Arc-based sharing)");
+
+    Ok(())
 }

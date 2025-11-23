@@ -9,9 +9,9 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use super::{
-    adversarial_endpoint, causal_endpoint, debate, deep_research_endpoint, neurosymbolic_endpoint,
-    parallel_research, quantum_endpoint, reasoning_endpoint, research, swarm_endpoint,
-    temporal_endpoint,
+    adversarial_endpoint, causal_endpoint, debate, deep_research_endpoint, metacognitive_endpoint,
+    neurosymbolic_endpoint, parallel_research, quantum_endpoint, reasoning_endpoint, research,
+    swarm_endpoint, temporal_endpoint,
 };
 use crate::state::AppState;
 use beagle_llm::{CompletionRequest, Message, ModelType};
@@ -251,6 +251,15 @@ pub fn dev_routes() -> Router<AppState> {
         .route(
             "/dev/adversarial-compete",
             post(adversarial_endpoint::adversarial_compete),
+        )
+        // Metacognitive self-improvement
+        .route(
+            "/dev/metacognitive/analyze-performance",
+            post(metacognitive_endpoint::analyze_performance),
+        )
+        .route(
+            "/dev/metacognitive/analyze-failures",
+            post(metacognitive_endpoint::analyze_failures),
         )
 }
 

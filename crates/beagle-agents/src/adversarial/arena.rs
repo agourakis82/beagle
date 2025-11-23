@@ -191,47 +191,43 @@ impl CompetitionArena {
         query: &str,
     ) -> Result<Vec<MatchResult>> {
         let mut all_matches = Vec::new();
-        let mut active_players: Vec<&mut ResearchPlayer> = players.iter_mut().collect();
 
-        while active_players.len() > 1 {
+        // Work with owned copies for tournament bracket
+        let mut active: Vec<ResearchPlayer> = players.iter().cloned().collect();
+
+        while active.len() > 1 {
             let mut next_round = Vec::new();
 
-            for i in (0..active_players.len()).step_by(2) {
-                if i + 1 < active_players.len() {
-                    // SAFETY: We're creating non-overlapping mutable references
-                    let (p1, p2) = unsafe {
-                        let ptr1 = active_players[i] as *mut ResearchPlayer;
-                        let ptr2 = active_players[i + 1] as *mut ResearchPlayer;
-                        (&*ptr1, &*ptr2)
-                    };
-
-                    let result = self.compete(p1, p2, query).await?;
+            for i in (0..active.len()).step_by(2) {
+                if i + 1 < active.len() {
+                    let result = self.compete(&active[i], &active[i + 1], query).await?;
 
                     let winner_idx = if result.winner == 0 { i } else { i + 1 };
                     let loser_idx = if result.winner == 0 { i + 1 } else { i };
 
-                    // Update records
-                    let p1_elo = active_players[i].elo_rating;
-                    let p2_elo = active_players[i + 1].elo_rating;
+                    // Clone winner and update their record
+                    let mut winner = active[winner_idx].clone();
+                    let loser_elo = active[loser_idx].elo_rating;
+                    winner.record_win(loser_elo);
 
-                    if result.winner == 0 {
-                        active_players[i].record_win(p2_elo);
-                        active_players[i + 1].record_loss(p1_elo);
-                    } else {
-                        active_players[i + 1].record_win(p1_elo);
-                        active_players[i].record_loss(p2_elo);
-                    }
+                    // Update loser record too (for tracking)
+                    let mut loser = active[loser_idx].clone();
+                    let winner_elo_before = active[winner_idx].elo_rating;
+                    loser.record_loss(winner_elo_before);
 
                     all_matches.push(result);
-                    next_round.push(winner_idx);
+                    next_round.push(winner);
                 }
             }
 
-            // Advance winners
-            active_players = next_round
-                .into_iter()
-                .map(|idx| active_players[idx])
-                .collect();
+            active = next_round;
+        }
+
+        // Copy results back to original players (update all ELO ratings)
+        for (original, updated) in players.iter_mut().zip(active.iter()) {
+            if original.id == updated.id {
+                *original = updated.clone();
+            }
         }
 
         Ok(all_matches)

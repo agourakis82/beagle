@@ -6,14 +6,24 @@
 //! - HRV-blind vs HRV-aware
 //! - Outros experimentos rigorosos sobre o próprio BEAGLE
 
-use beagle_config::beagle_data_dir;
+pub mod analysis;
+pub mod exp001;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::info;
 
+pub use analysis::{ExperimentDataPoint, ExperimentMetrics, ConditionMetrics};
+pub use exp001::{
+    assert_expedition_001_llm_config, Expedition001Config, EXPEDITION_001_ID, EXPEDITION_001_DEFAULT_N,
+};
+
 /// Tag experimental para um run_id
+///
+/// Inclui snapshot de configuração no momento do run para reprodutibilidade
+/// (padrão HELM/AgentBench: logging completo de config/condição).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExperimentRunTag {
     pub experiment_id: String,
@@ -22,10 +32,18 @@ pub struct ExperimentRunTag {
     pub timestamp: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    
+    // Snapshot de config relevante no momento do run
+    pub triad_enabled: bool,
+    pub hrv_aware: bool,
+    pub serendipity_enabled: bool,
+    pub space_aware: bool,
 }
 
 /// Anexa tag experimental ao log de experimentos
-pub fn append_experiment_tag(data_dir: &PathBuf, tag: &ExperimentRunTag) -> anyhow::Result<()> {
+///
+/// Formato: {"tag": ExperimentRunTag} por linha (JSONL)
+pub fn append_experiment_tag(_data_dir: &Path, tag: &ExperimentRunTag) -> anyhow::Result<()> {
     use beagle_config::experiments_dir;
     let experiments_dir = experiments_dir();
     std::fs::create_dir_all(&experiments_dir)?;
@@ -37,7 +55,11 @@ pub fn append_experiment_tag(data_dir: &PathBuf, tag: &ExperimentRunTag) -> anyh
         .append(true)
         .open(&log_file)?;
     
-    let json = serde_json::to_string(tag)?;
+    // Formato: {"tag": ExperimentRunTag} por linha (JSONL)
+    let entry = serde_json::json!({
+        "tag": tag
+    });
+    let json = serde_json::to_string(&entry)?;
     writeln!(file, "{}", json)?;
     
     info!("📊 Tag experimental anexada: experiment_id={}, run_id={}, condition={}", 
@@ -47,7 +69,9 @@ pub fn append_experiment_tag(data_dir: &PathBuf, tag: &ExperimentRunTag) -> anyh
 }
 
 /// Lê todas as tags experimentais de um arquivo
-pub fn read_experiment_tags(data_dir: &PathBuf) -> anyhow::Result<Vec<ExperimentRunTag>> {
+///
+/// Formato esperado: {"tag": ExperimentRunTag} por linha (JSONL)
+pub fn load_experiment_tags(_data_dir: &Path) -> anyhow::Result<Vec<ExperimentRunTag>> {
     use beagle_config::experiments_dir;
     let log_file = experiments_dir().join("events.jsonl");
     
@@ -64,12 +88,35 @@ pub fn read_experiment_tags(data_dir: &PathBuf) -> anyhow::Result<Vec<Experiment
         if line.trim().is_empty() {
             continue;
         }
+        // Tenta parsear como {"tag": ExperimentRunTag}
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&line) {
+            if let Some(tag_value) = json_value.get("tag") {
+                if let Ok(tag) = serde_json::from_value::<ExperimentRunTag>(tag_value.clone()) {
+                    tags.push(tag);
+                    continue;
+                }
+            }
+        }
+        // Fallback: tenta parsear diretamente (compatibilidade com formato antigo)
         if let Ok(tag) = serde_json::from_str::<ExperimentRunTag>(&line) {
             tags.push(tag);
         }
     }
     
     Ok(tags)
+}
+
+/// Lê tags experimentais filtradas por experiment_id
+pub fn load_experiment_tags_by_id(data_dir: &Path, experiment_id: &str) -> anyhow::Result<Vec<ExperimentRunTag>> {
+    let all_tags = load_experiment_tags(data_dir)?;
+    Ok(all_tags.into_iter()
+        .filter(|t| t.experiment_id == experiment_id)
+        .collect())
+}
+
+/// Alias para compatibilidade (mantém função antiga)
+pub fn read_experiment_tags(data_dir: &PathBuf) -> anyhow::Result<Vec<ExperimentRunTag>> {
+    load_experiment_tags(data_dir)
 }
 
 /// Agrupa runs por experiment_id e condition
@@ -95,7 +142,7 @@ pub fn analyze_experiment(
     data_dir: &PathBuf,
 ) -> anyhow::Result<ExperimentAnalysis> {
     // Lê tags experimentais
-    let tags = read_experiment_tags(data_dir)?;
+    let tags = load_experiment_tags(data_dir)?;
     let experiment_tags: Vec<_> = tags.iter()
         .filter(|t| t.experiment_id == experiment_id)
         .collect();

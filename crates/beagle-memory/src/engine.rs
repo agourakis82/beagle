@@ -6,7 +6,7 @@
 //! - Integration with GraphRAG and vector stores
 
 use crate::bridge::ContextBridge;
-use crate::models::{ConversationSession, ConversationTurn};
+use crate::models::ConversationTurn;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -90,8 +90,7 @@ impl MemoryEngine {
         );
 
         // Convert ChatSession to ConversationSession + ConversationTurns
-        let session_uuid = Uuid::parse_str(&session.session_id)
-            .unwrap_or_else(|_| Uuid::new_v4());
+        let session_uuid = Uuid::parse_str(&session.session_id).unwrap_or_else(|_| Uuid::new_v4());
 
         // Create or get session
         let _conv_session = self
@@ -104,8 +103,8 @@ impl MemoryEngine {
 
         // Ingest each turn
         for (idx, turn) in session.turns.iter().enumerate() {
-            let timestamp = turn.timestamp.unwrap_or_else(|| Utc::now());
-            
+            let _timestamp = turn.timestamp.unwrap_or_else(|| Utc::now());
+
             // Convert ChatTurn to ConversationTurn
             let conv_turn = ConversationTurn::new(
                 session_uuid,
@@ -172,7 +171,8 @@ impl MemoryEngine {
             .map(|(turn, score)| {
                 // Create snippet from turn
                 let snippet = if !turn.query.is_empty() && !turn.response.is_empty() {
-                    format!("Q: {}\nA: {}", 
+                    format!(
+                        "Q: {}\nA: {}",
                         turn.query.chars().take(100).collect::<String>(),
                         turn.response.chars().take(200).collect::<String>()
                     )
@@ -259,9 +259,9 @@ impl MockMemoryEngine {
 
     pub async fn query(&self, _q: MemoryQuery) -> Result<MemoryResult> {
         // Return first mock result or empty
-        self.query_results.first().cloned().ok_or_else(|| {
-            anyhow::anyhow!("No mock results configured")
-        })
+        self.query_results
+            .first()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("No mock results configured"))
     }
 }
-

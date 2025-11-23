@@ -20,6 +20,8 @@ beagle-llm = { path = "../beagle-llm" }
 beagle-personality = { path = "../beagle-personality" }
 beagle-memory = { path = "../beagle-memory" }
 beagle-hypergraph = { path = "../beagle-hypergraph" }
+beagle-search = { path = "../beagle-search" }
+beagle-core = { path = "../beagle-core" }
 
 # Time & IDs
 chrono = { version = "0.4", features = ["serde"] }

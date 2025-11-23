@@ -21,6 +21,17 @@ use axum::{routing::post, Router, Json};
 use serde_json::Value;
 use std::sync::Arc;
 mod broadcast;
+mod events;
+mod severity;
+mod classification;
+mod alerts;
+mod context;
+
+pub use events::{PhysioEvent, EnvEvent, SpaceWeatherEvent};
+pub use severity::Severity;
+pub use alerts::AlertEvent;
+pub use context::{PhysioContext, EnvContext, SpaceWeatherContext, UserContext};
+
 use broadcast::ObservationBroadcast;
 
 #[derive(Serialize, Clone, Debug)]
@@ -55,6 +66,12 @@ pub struct UniversalObserver {
     physio_state: Arc<tokio::sync::RwLock<PhysiologicalState>>,
     // Timeline de contexto por run_id
     context_timeline: Arc<tokio::sync::RwLock<std::collections::HashMap<String, Vec<Observation>>>>,
+    // Observer 2.0: Eventos estruturados (Physio, Env, SpaceWeather)
+    physio_events: Arc<tokio::sync::RwLock<Vec<PhysioEvent>>>,
+    env_events: Arc<tokio::sync::RwLock<Vec<EnvEvent>>>,
+    space_weather_events: Arc<tokio::sync::RwLock<Vec<SpaceWeatherEvent>>>,
+    // Configuração de thresholds
+    thresholds: beagle_config::ObserverThresholds,
 }
 
 impl UniversalObserver {
@@ -77,6 +94,8 @@ impl UniversalObserver {
         std::fs::create_dir_all(&data_dir.join("screenshots"))?;
         std::fs::create_dir_all(&data_dir.join("observations"))?;
         
+        let thresholds = cfg.observer.clone();
+        
         Ok(Self {
             broadcast,
             observations_tx: Arc::new(tx),
@@ -88,6 +107,294 @@ impl UniversalObserver {
                 last_updated: None,
             })),
             context_timeline: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            physio_events: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            env_events: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            space_weather_events: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            thresholds,
+        })
+    }
+
+    /// Registra um evento fisiológico e processa alertas se necessário
+    pub async fn record_physio_event(&self, event: PhysioEvent, run_id: Option<String>) -> anyhow::Result<Severity> {
+        use crate::classification::aggregate_physio_severity;
+        use crate::alerts::{AlertEvent, log_alert};
+        
+        // Calcula severidade agregada
+        let severity = aggregate_physio_severity(&event, &self.thresholds.physio);
+        
+        // Armazena evento (mantém apenas os últimos 1000 eventos)
+        {
+            let mut events = self.physio_events.write().await;
+            events.push(event.clone());
+            if events.len() > 1000 {
+                events.remove(0);
+            }
+        }
+        
+        // Atualiza estado fisiológico simplificado (compatibilidade)
+        if let Some(hrv) = event.hrv_ms {
+            let hrv_level = beagle_config::classify_hrv(hrv, None);
+            self.update_hrv(hrv, hrv_level, event.heart_rate_bpm).await;
+        }
+        
+        // Gera alertas se necessário (Moderate ou Severe)
+        if severity >= Severity::Moderate {
+            let alerts = self.generate_physio_alerts(&event, severity, run_id.clone());
+            for alert in alerts {
+                log_alert(&self.data_dir, &alert)?;
+            }
+        }
+        
+        Ok(severity)
+    }
+
+    /// Registra um evento ambiental e processa alertas se necessário
+    pub async fn record_env_event(&self, event: EnvEvent, run_id: Option<String>) -> anyhow::Result<Severity> {
+        use crate::classification::aggregate_env_severity;
+        use crate::alerts::{AlertEvent, log_alert};
+        
+        // Calcula severidade agregada
+        let severity = aggregate_env_severity(&event, &self.thresholds.env);
+        
+        // Armazena evento (mantém apenas os últimos 1000 eventos)
+        {
+            let mut events = self.env_events.write().await;
+            events.push(event.clone());
+            if events.len() > 1000 {
+                events.remove(0);
+            }
+        }
+        
+        // Gera alertas se necessário
+        if severity >= Severity::Moderate {
+            let alerts = self.generate_env_alerts(&event, severity, run_id.clone());
+            for alert in alerts {
+                log_alert(&self.data_dir, &alert)?;
+            }
+        }
+        
+        Ok(severity)
+    }
+
+    /// Registra um evento de clima espacial e processa alertas se necessário
+    pub async fn record_space_weather_event(&self, event: SpaceWeatherEvent, run_id: Option<String>) -> anyhow::Result<Severity> {
+        use crate::classification::aggregate_space_severity;
+        use crate::alerts::{AlertEvent, log_alert};
+        
+        // Calcula severidade agregada
+        let severity = aggregate_space_severity(&event, &self.thresholds.space_weather);
+        
+        // Armazena evento (mantém apenas os últimos 1000 eventos)
+        {
+            let mut events = self.space_weather_events.write().await;
+            events.push(event.clone());
+            if events.len() > 1000 {
+                events.remove(0);
+            }
+        }
+        
+        // Gera alertas se necessário
+        if severity >= Severity::Moderate {
+            let alerts = self.generate_space_weather_alerts(&event, severity, run_id.clone());
+            for alert in alerts {
+                log_alert(&self.data_dir, &alert)?;
+            }
+        }
+        
+        Ok(severity)
+    }
+
+    /// Gera alertas fisiológicos a partir de um evento
+    fn generate_physio_alerts(&self, event: &PhysioEvent, _severity: Severity, run_id: Option<String>) -> Vec<AlertEvent> {
+        use crate::classification::*;
+        use crate::alerts::AlertEvent;
+        
+        let mut alerts = Vec::new();
+        let t = &self.thresholds.physio;
+        
+        if let Some(hrv) = event.hrv_ms {
+            let sev = classify_hrv(hrv, t);
+            if sev >= Severity::Moderate {
+                alerts.push(AlertEvent::physio("hrv_ms", sev, hrv, t.hrv_low_ms, event.session_id.clone(), run_id.clone()));
+            }
+        }
+        
+        if let Some(hr) = event.heart_rate_bpm {
+            let sev = classify_hr(hr, t);
+            if sev >= Severity::Moderate {
+                if hr >= t.hr_tachy_bpm {
+                    alerts.push(AlertEvent::physio("heart_rate_bpm", sev, hr, t.hr_tachy_bpm, event.session_id.clone(), run_id.clone()));
+                } else if hr <= t.hr_brady_bpm {
+                    alerts.push(AlertEvent::physio("heart_rate_bpm", sev, hr, t.hr_brady_bpm, event.session_id.clone(), run_id.clone()));
+                }
+            }
+        }
+        
+        if let Some(spo2) = event.spo2_percent {
+            let sev = classify_spo2(spo2, t);
+            if sev >= Severity::Moderate {
+                alerts.push(AlertEvent::physio("spo2_percent", sev, spo2, t.spo2_warning, event.session_id.clone(), run_id.clone()));
+            }
+        }
+        
+        alerts
+    }
+
+    /// Gera alertas ambientais a partir de um evento
+    fn generate_env_alerts(&self, event: &EnvEvent, severity: Severity, run_id: Option<String>) -> Vec<AlertEvent> {
+        use crate::classification::*;
+        use crate::alerts::AlertEvent;
+        
+        let mut alerts = Vec::new();
+        let t = &self.thresholds.env;
+        
+        if let Some(altitude) = event.altitude_m {
+            let sev = classify_altitude(altitude, t);
+            if sev >= Severity::Moderate {
+                alerts.push(AlertEvent::env("altitude_m", sev, altitude, t.altitude_high_m, event.session_id.clone(), run_id.clone()));
+            }
+        }
+        
+        if let Some(pressure) = event.baro_pressure_hpa {
+            let sev = classify_baro_pressure(pressure, t);
+            if sev >= Severity::Moderate {
+                if pressure <= t.baro_low_hpa {
+                    alerts.push(AlertEvent::env("baro_pressure_hpa", sev, pressure, t.baro_low_hpa, event.session_id.clone(), run_id.clone()));
+                } else if pressure >= t.baro_high_hpa {
+                    alerts.push(AlertEvent::env("baro_pressure_hpa", sev, pressure, t.baro_high_hpa, event.session_id.clone(), run_id.clone()));
+                }
+            }
+        }
+        
+        if let Some(temp) = event.ambient_temp_c {
+            let sev = classify_ambient_temp(temp, t);
+            if sev >= Severity::Moderate {
+                if temp <= t.temp_cold_c {
+                    alerts.push(AlertEvent::env("ambient_temp_c", sev, temp, t.temp_cold_c, event.session_id.clone(), run_id.clone()));
+                } else if temp >= t.temp_heat_c {
+                    alerts.push(AlertEvent::env("ambient_temp_c", sev, temp, t.temp_heat_c, event.session_id.clone(), run_id.clone()));
+                }
+            }
+        }
+        
+        if let Some(uv) = event.uv_index {
+            let sev = classify_uv_index(uv, t);
+            if sev >= Severity::Moderate {
+                alerts.push(AlertEvent::env("uv_index", sev, uv, t.uv_high, event.session_id.clone(), run_id.clone()));
+            }
+        }
+        
+        alerts
+    }
+
+    /// Gera alertas de clima espacial a partir de um evento
+    fn generate_space_weather_alerts(&self, event: &SpaceWeatherEvent, severity: Severity, run_id: Option<String>) -> Vec<AlertEvent> {
+        use crate::classification::*;
+        use crate::alerts::AlertEvent;
+        
+        let mut alerts = Vec::new();
+        let t = &self.thresholds.space_weather;
+        
+        if let Some(kp) = event.kp_index {
+            let sev = classify_kp_index(kp, t);
+            if sev >= Severity::Moderate {
+                alerts.push(AlertEvent::space_weather("kp_index", sev, kp, t.kp_storm, event.session_id.clone(), run_id.clone()));
+            }
+        }
+        
+        if let Some(proton_flux) = event.proton_flux_pfu {
+            let sev = classify_proton_flux(proton_flux, t);
+            if sev >= Severity::Moderate {
+                alerts.push(AlertEvent::space_weather("proton_flux_pfu", sev, proton_flux, t.proton_flux_high_pfu, event.session_id.clone(), run_id.clone()));
+            }
+        }
+        
+        if let Some(solar_wind) = event.solar_wind_speed_km_s {
+            let sev = classify_solar_wind_speed(solar_wind, t);
+            if sev >= Severity::Moderate {
+                alerts.push(AlertEvent::space_weather("solar_wind_speed_km_s", sev, solar_wind, t.solar_wind_speed_high_km_s, event.session_id.clone(), run_id.clone()));
+            }
+        }
+        
+        alerts
+    }
+
+    /// Obtém contexto completo do usuário agregando todos os eventos recentes
+    pub async fn current_user_context(&self) -> anyhow::Result<UserContext> {
+        use crate::classification::*;
+        use crate::context::*;
+        use beagle_config::classify_hrv;
+        
+        // Obtém último evento fisiológico
+        let physio_ctx = {
+            let events = self.physio_events.read().await;
+            if let Some(last) = events.last() {
+                let severity = aggregate_physio_severity(last, &self.thresholds.physio);
+                let hrv_level = last.hrv_ms.map(|hrv| classify_hrv(hrv, None));
+                let stress_index = PhysioContext::compute_stress_index(last.hrv_ms, last.heart_rate_bpm);
+                
+                PhysioContext {
+                    last_update: Some(last.timestamp),
+                    hrv_level,
+                    severity,
+                    heart_rate_bpm: last.heart_rate_bpm,
+                    spo2_percent: last.spo2_percent,
+                    stress_index,
+                }
+            } else {
+                PhysioContext::default()
+            }
+        };
+        
+        // Obtém último evento ambiental
+        let env_ctx = {
+            let events = self.env_events.read().await;
+            if let Some(last) = events.last() {
+                let severity = aggregate_env_severity(last, &self.thresholds.env);
+                let location = match (last.latitude_deg, last.longitude_deg, last.altitude_m) {
+                    (Some(lat), Some(lon), Some(alt)) => Some((lat, lon, alt)),
+                    _ => None,
+                };
+                
+                let mut ctx = EnvContext {
+                    last_update: Some(last.timestamp),
+                    severity,
+                    location,
+                    ambient_temp_c: last.ambient_temp_c,
+                    humidity_percent: last.humidity_percent,
+                    uv_index: last.uv_index,
+                    summary: None,
+                };
+                ctx.summary = ctx.compute_summary();
+                
+                ctx
+            } else {
+                EnvContext::default()
+            }
+        };
+        
+        // Obtém último evento de clima espacial
+        let space_ctx = {
+            let events = self.space_weather_events.read().await;
+            if let Some(last) = events.last() {
+                let severity = aggregate_space_severity(last, &self.thresholds.space_weather);
+                let heliobio_risk_level = SpaceWeatherContext::compute_heliobio_risk(last.kp_index);
+                
+                SpaceWeatherContext {
+                    last_update: Some(last.timestamp),
+                    severity,
+                    kp_index: last.kp_index,
+                    heliobio_risk_level,
+                }
+            } else {
+                SpaceWeatherContext::default()
+            }
+        };
+        
+        Ok(UserContext {
+            physio: physio_ctx,
+            env: env_ctx,
+            space: space_ctx,
         })
     }
 

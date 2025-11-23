@@ -195,6 +195,7 @@ pub fn ensure_dirs() -> std::io::Result<()> {
         feedback_dir(),
         experiments_dir(),
         jobs_dir(),
+        beagle_data_dir().join("alerts"), // Diretório para alerts
     ];
 
     for dir in dirs {
@@ -213,35 +214,35 @@ pub fn ensure_dirs() -> std::io::Result<()> {
 /// Loga informações sobre profile, safe_mode e data_dir
 pub fn bootstrap() -> anyhow::Result<()> {
     use tracing::info;
-    
+
     let data_dir = beagle_data_dir();
-    
+
     // Verifica se existe
     if !data_dir.exists() {
         info!("Criando BEAGLE_DATA_DIR: {}", data_dir.display());
         std::fs::create_dir_all(&data_dir)?;
     }
-    
+
     // Verifica se é gravável
     let test_file = data_dir.join(".beagle_write_test");
     std::fs::write(&test_file, "test")?;
     std::fs::remove_file(&test_file)?;
-    
+
     // Cria estrutura completa
     ensure_dirs()?;
-    
+
     // Loga configuração
     let profile = std::env::var("BEAGLE_PROFILE")
         .unwrap_or_else(|_| "dev".to_string());
     let safe_mode = safe_mode();
-    
+
     info!(
         "BEAGLE bootstrap completo | profile={} | safe_mode={} | data_dir={}",
         profile,
         safe_mode,
         data_dir.display()
     );
-    
+
     Ok(())
 }
 
@@ -311,12 +312,12 @@ impl HrvControlConfig {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(0.8);
-        
+
         let max_gain = env::var("BEAGLE_HRV_MAX_GAIN")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(1.2);
-        
+
         // Thresholds são usados em classify_hrv, não aqui
         let _min_hrv = env::var("BEAGLE_HRV_LOW_THRESHOLD")
             .ok()
@@ -325,7 +326,7 @@ impl HrvControlConfig {
                 .ok()
                 .and_then(|v| v.parse().ok()))
             .unwrap_or(30.0); // Threshold padrão para "low"
-        
+
         let _max_hrv = env::var("BEAGLE_HRV_HIGH_THRESHOLD")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -333,7 +334,7 @@ impl HrvControlConfig {
                 .ok()
                 .and_then(|v| v.parse().ok()))
             .unwrap_or(70.0); // Threshold padrão para "high"
-        
+
         Self {
             min_gain,
             max_gain,
@@ -363,12 +364,12 @@ pub fn classify_hrv(hrv_ms: f32, _cfg: Option<&HrvControlConfig>) -> String {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(30.0);
-    
+
     let high_threshold = env::var("BEAGLE_HRV_HIGH_THRESHOLD")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(70.0);
-    
+
     if hrv_ms < low_threshold {
         "low".to_string()
     } else if hrv_ms > high_threshold {
@@ -388,14 +389,14 @@ pub fn classify_hrv(hrv_ms: f32, _cfg: Option<&HrvControlConfig>) -> String {
 /// Ganho de velocidade (0.8 a 1.2 por padrão, clampado em SAFE_MODE)
 pub fn compute_gain_from_hrv(hrv_ms: f32, cfg: Option<HrvControlConfig>) -> f32 {
     let cfg = cfg.unwrap_or_default();
-    
+
     // Normaliza HRV para range [0, 1]
     let normalized = ((hrv_ms - cfg.min_hrv_ms) / (cfg.max_hrv_ms - cfg.min_hrv_ms))
         .clamp(0.0, 1.0);
-    
+
     // Calcula gain linear: min_gain + (max_gain - min_gain) * normalized
     let mut gain = cfg.min_gain + (cfg.max_gain - cfg.min_gain) * normalized;
-    
+
     // Em SAFE_MODE, sempre aplica clamp agressivo
     if safe_mode() {
         gain = gain.clamp(cfg.min_gain, cfg.max_gain);
@@ -407,7 +408,7 @@ pub fn compute_gain_from_hrv(hrv_ms: f32, cfg: Option<HrvControlConfig>) -> f32 
             cfg.max_gain
         );
     }
-    
+
     gain
 }
 
@@ -441,16 +442,16 @@ impl PublishPolicy {
         let mode_str = env::var("BEAGLE_PUBLISH_MODE")
             .unwrap_or_else(|_| "dry".to_string())
             .to_lowercase();
-        
+
         let mode = match mode_str.as_str() {
             "auto" => PublishMode::FullAuto,
             "manual" => PublishMode::ManualConfirm,
             _ => PublishMode::DryRun,
         };
-        
+
         Self { mode }
     }
-    
+
     /// Verifica se publicação real é permitida
     ///
     /// Retorna `true` apenas se:
@@ -459,7 +460,7 @@ impl PublishPolicy {
     pub fn can_publish_real(&self) -> bool {
         !safe_mode() && self.mode == PublishMode::FullAuto
     }
-    
+
     /// Verifica se modo manual está ativo
     pub fn requires_manual_confirm(&self) -> bool {
         self.mode == PublishMode::ManualConfirm
@@ -509,54 +510,54 @@ mod tests {
         assert_eq!(beagle_data_dir(), tmp.path());
         env::remove_var("BEAGLE_DATA_DIR");
     }
-    
+
     #[test]
     fn test_vllm_url() {
         env::remove_var("BEAGLE_VLLM_URL");
         assert!(vllm_url().contains("8000"));
-        
+
         env::set_var("BEAGLE_VLLM_URL", "http://custom:9000");
         assert_eq!(vllm_url(), "http://custom:9000");
         env::remove_var("BEAGLE_VLLM_URL");
     }
-    
+
     #[test]
     fn test_hrv_gain_computation() {
         let cfg = HrvControlConfig::default();
-        
+
         // HRV baixo → gain baixo
         let gain_low = compute_gain_from_hrv(30.0, Some(cfg.clone()));
         assert!(gain_low < 1.0);
-        
+
         // HRV alto → gain alto
         let gain_high = compute_gain_from_hrv(150.0, Some(cfg.clone()));
         assert!(gain_high > 1.0);
-        
+
         // SAFE_MODE sempre clampa
         env::set_var("BEAGLE_SAFE_MODE", "true");
         let gain = compute_gain_from_hrv(300.0, Some(cfg.clone())); // HRV muito alto
         assert!(gain <= cfg.max_gain);
         env::remove_var("BEAGLE_SAFE_MODE");
     }
-    
+
     #[test]
     fn test_publish_policy() {
         env::set_var("BEAGLE_PUBLISH_MODE", "dry");
         let policy = PublishPolicy::from_env();
         assert_eq!(policy.mode, PublishMode::DryRun);
         assert!(!policy.can_publish_real());
-        
+
         env::set_var("BEAGLE_PUBLISH_MODE", "manual");
         let policy = PublishPolicy::from_env();
         assert_eq!(policy.mode, PublishMode::ManualConfirm);
         assert!(policy.requires_manual_confirm());
-        
+
         env::set_var("BEAGLE_PUBLISH_MODE", "auto");
         env::set_var("BEAGLE_SAFE_MODE", "false");
         let policy = PublishPolicy::from_env();
         assert_eq!(policy.mode, PublishMode::FullAuto);
         assert!(policy.can_publish_real());
-        
+
         env::remove_var("BEAGLE_PUBLISH_MODE");
         env::remove_var("BEAGLE_SAFE_MODE");
     }
@@ -577,13 +578,32 @@ mod tests {
 /// precedência final para segurança.
 pub fn load() -> BeagleConfig {
     use model::AdvancedModulesConfig;
-    
+
     // 1) Carrega defaults a partir de env
+    let profile = env::var("BEAGLE_PROFILE")
+        .unwrap_or_else(|_| "dev".to_string())
+        .to_lowercase();
+
+    let api_token = env::var("BEAGLE_API_TOKEN").ok();
+
+    // Valida token em prod profile
+    if profile == "prod" && api_token.is_none() {
+        tracing::error!("BEAGLE_API_TOKEN é obrigatório no profile 'prod'");
+        panic!("BEAGLE_API_TOKEN must be set when BEAGLE_PROFILE=prod");
+    }
+
+    // Log warning em dev/lab se token não estiver configurado
+    if profile != "prod" && api_token.is_none() {
+        tracing::warn!(
+            "BEAGLE_API_TOKEN não configurado no profile '{}' - endpoints HTTP não terão autenticação",
+            profile
+        );
+    }
+
     let mut cfg = BeagleConfig {
-        profile: env::var("BEAGLE_PROFILE")
-            .unwrap_or_else(|_| "dev".to_string())
-            .to_lowercase(),
+        profile,
         safe_mode: bool_env("BEAGLE_SAFE_MODE", true),
+        api_token,
         llm: LlmConfig {
             xai_api_key: env::var("XAI_API_KEY").ok(),
             anthropic_api_key: env::var("ANTHROPIC_API_KEY").ok(),
@@ -613,13 +633,14 @@ pub fn load() -> BeagleConfig {
             void_enabled: bool_env("BEAGLE_VOID_ENABLED", false),
             memory_retrieval_enabled: bool_env("BEAGLE_MEMORY_RETRIEVAL", false),
         },
+        observer: model::ObserverThresholds::default(),
     };
 
     // 2) Tenta carregar arquivo de configuração (opcional)
     let config_file = PathBuf::from(&cfg.storage.data_dir)
         .join("config")
         .join("beagle.toml");
-    
+
     if config_file.exists() {
         if let Ok(text) = std::fs::read_to_string(&config_file) {
             if let Ok(file_cfg) = toml::from_str::<BeagleConfig>(&text) {
@@ -634,13 +655,14 @@ pub fn load() -> BeagleConfig {
 
 // default_data_dir removido - agora usa beagle_data_dir() diretamente
 
-/// Merge de configurações: `base` é mantido, `override_cfg` sobrepõe apenas campos Some
+///// Merge de configurações: `base` é mantido, `override_cfg` sobrepõe apenas campos Some
 fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig {
     use model::AdvancedModulesConfig;
-    
+
     BeagleConfig {
         profile: override_cfg.profile.clone(),
         safe_mode: override_cfg.safe_mode,
+        api_token: override_cfg.api_token.or(base.api_token),
         llm: LlmConfig {
             xai_api_key: override_cfg.llm.xai_api_key.or(base.llm.xai_api_key),
             anthropic_api_key: override_cfg.llm.anthropic_api_key.or(base.llm.anthropic_api_key),
@@ -671,5 +693,6 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
             void_enabled: override_cfg.advanced.void_enabled || base.advanced.void_enabled,
             memory_retrieval_enabled: override_cfg.advanced.memory_retrieval_enabled || base.advanced.memory_retrieval_enabled,
         },
+        observer: override_cfg.observer.clone(),
     }
 }

@@ -1,0 +1,41 @@
+[package]
+name = "beagle-search"
+version = "0.1.0"
+edition = "2021"
+description = "Scientific paper search clients for BEAGLE (PubMed, arXiv, etc.)"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# HTTP client
+reqwest = { workspace = true, features = ["json"] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = "2.0"
+
+# Logging
+tracing = { workspace = true }
+
+# XML parsing for PubMed
+quick-xml = { version = "0.36", features = ["serialize"] }
+
+# Date/time handling
+chrono = { workspace = true, features = ["serde"] }
+
+# Rate limiting
+governor = "0.7"
+futures = "0.3"
+
+# Regex for XML parsing
+regex = "1.10"
+
+[dev-dependencies]
+tokio-test = "0.4"

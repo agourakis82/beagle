@@ -14,11 +14,22 @@
 //! println!("DARWIN + BEAGLE: {answer}");
 //! ```
 
-use beagle_core::BeagleContext;
+use beagle_core::{BeagleContext, KnowledgeSnippet};
 use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use beagle_smart_router::query_smart;
 use std::sync::Arc;
 use tracing::{info, warn};
+
+/// Contexto retornado pelo enhanced_cycle
+#[derive(Debug, Clone)]
+pub struct DarwinContext {
+    /// Texto combinado para feed no HERMES
+    pub combined_text: String,
+    /// Snippets estruturados (opcional, para metadata)
+    pub snippets: Vec<KnowledgeSnippet>,
+    /// Score de confiança Self-RAG (0-100)
+    pub confidence: Option<u64>,
+}
 
 /// Darwin Core - Sistema completo de GraphRAG + Self-RAG + Plugin System
 pub struct DarwinCore {
@@ -69,7 +80,7 @@ impl DarwinCore {
         // Se temos BeagleContext, usa as traits
         if let Some(ctx) = &self.ctx {
             info!("🔍 GraphRAG query (com BeagleContext): {}", user_question);
-            
+
             // 1. Busca no vector store
             let vectors = match ctx.vector.query(user_question, 10).await {
                 Ok(v) => v,
@@ -95,7 +106,11 @@ impl DarwinCore {
             let context = format!(
                 "Vector results: {}\nGraph results: {}",
                 vectors.len(),
-                graph_result.get("results").and_then(|r| r.as_array()).map(|a| a.len()).unwrap_or(0)
+                graph_result
+                    .get("results")
+                    .and_then(|r| r.as_array())
+                    .map(|a| a.len())
+                    .unwrap_or(0)
             );
 
             let prompt = format!(
@@ -214,6 +229,63 @@ Responde JSON: {{\"confidence\": 88, \"new_query\": \"ou deixa vazio se ok\"}}"
                 query_smart(prompt, 100000).await
             }
         }
+    }
+
+    /// Enhanced cycle completo: GraphRAG + Self-RAG
+    ///
+    /// Pipeline:
+    /// 1. GraphRAG query inicial (usa hypergraph + neo4j + qdrant)
+    /// 2. Self-RAG avalia confiança
+    /// 3. Se necessário, busca adicional com nova query
+    /// 4. Retorna DarwinContext estruturado
+    ///
+    /// Este é o método primário que o pipeline deve chamar.
+    pub async fn enhanced_cycle(&self, question: &str) -> anyhow::Result<DarwinContext> {
+        info!("🚀 Darwin Enhanced Cycle iniciado: {}", question);
+
+        // 1. GraphRAG query inicial
+        let initial = self.graph_rag_query(question).await;
+
+        // 2. Self-RAG avalia e potencialmente busca mais
+        let final_answer = self.self_rag(&initial, question).await;
+
+        // 3. Coleta snippets estruturados (se temos BeagleContext)
+        let mut snippets = Vec::new();
+        if let Some(ctx) = &self.ctx {
+            // Busca snippets no vector store
+            if let Ok(hits) = ctx.vector.query(question, 5).await {
+                for hit in hits {
+                    snippets.push(beagle_core::implementations::vector_hit_to_snippet(&hit));
+                }
+            }
+
+            // Busca snippets no graph store
+            if let Ok(graph_result) = ctx.graph.cypher_query(
+                "MATCH (n)-[r]->(m) WHERE n.name CONTAINS $query OR m.name CONTAINS $query RETURN n, r, m LIMIT 5",
+                serde_json::json!({"query": question}),
+            ).await {
+                if let Some(results) = graph_result.get("results").and_then(|r| r.as_array()) {
+                    for result in results {
+                        if let Some(data) = result.get("data").and_then(|d| d.as_array()) {
+                            for row in data {
+                                snippets.push(beagle_core::implementations::neo4j_result_to_snippet(row, None));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        info!(
+            "✅ Darwin Enhanced Cycle concluído ({} snippets)",
+            snippets.len()
+        );
+
+        Ok(DarwinContext {
+            combined_text: final_answer,
+            snippets,
+            confidence: None, // TODO: extrair do Self-RAG
+        })
     }
 
     /// Query vLLM local (helper interno)

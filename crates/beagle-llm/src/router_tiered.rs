@@ -7,7 +7,7 @@
 //!   * métodos críticos (Methods, Results)
 //!   * proofs matemáticas/KEC/PBPK
 
-use crate::{LlmClient, RequestMeta, Tier};
+use crate::{LlmClient, RequestMeta};
 use beagle_config::BeagleConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -16,9 +16,17 @@ use tracing::{info, warn};
 /// Tier de provider LLM
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderTier {
-    /// Grok 3 - default, ~94% dos casos
+    /// Claude CLI - Tier -2: Local Claude Code CLI (no API key needed!)
+    ClaudeCli,
+    /// GitHub Copilot - Tier -1: Uses existing subscription (Claude/GPT-4o/o1)
+    Copilot,
+    /// Cursor AI - Tier -1: Uses existing subscription (Claude/GPT-4)
+    Cursor,
+    /// Claude Direct - Tier 0: Direct Anthropic API (Claude MAX subscription)
+    ClaudeDirect,
+    /// Grok 3 - Tier 1: Default, ~94% dos casos (unlimited)
     Grok3,
-    /// Grok 4 Heavy - vacina anti-viés, métodos críticos
+    /// Grok 4 Heavy - Tier 2: Anti-bias vaccine, critical methods
     Grok4Heavy,
     /// Cloud Math - futuro (DeepSeek etc.)
     CloudMath,
@@ -29,6 +37,10 @@ pub enum ProviderTier {
 impl ProviderTier {
     pub fn as_str(&self) -> &'static str {
         match self {
+            ProviderTier::ClaudeCli => "claude-cli",
+            ProviderTier::Copilot => "copilot",
+            ProviderTier::Cursor => "cursor",
+            ProviderTier::ClaudeDirect => "claude-direct",
             ProviderTier::Grok3 => "grok-3",
             ProviderTier::Grok4Heavy => "grok-4-heavy",
             ProviderTier::CloudMath => "cloud-math",
@@ -71,7 +83,7 @@ impl LlmRoutingConfig {
             heavy_max_calls_per_day: env_u32("BEAGLE_HEAVY_MAX_CALLS_PER_DAY", 500),
         }
     }
-    
+
     /// Carrega configuração baseada em perfil (dev/lab/prod)
     pub fn from_profile(profile: &str) -> Self {
         match profile {
@@ -87,7 +99,8 @@ impl LlmRoutingConfig {
                 heavy_max_tokens_per_run: 100_000,
                 heavy_max_calls_per_day: 200,
             },
-            _ => Self { // dev
+            _ => Self {
+                // dev
                 enable_heavy: false,
                 heavy_max_calls_per_run: 0,
                 heavy_max_tokens_per_run: 0,
@@ -117,6 +130,10 @@ fn env_u32(key: &str, default: u32) -> u32 {
 
 /// Router com sistema de Tiers completo
 pub struct TieredRouter {
+    pub claude_cli: Option<Arc<dyn LlmClient>>,
+    pub copilot: Option<Arc<dyn LlmClient>>,
+    pub cursor: Option<Arc<dyn LlmClient>>,
+    pub claude: Option<Arc<dyn LlmClient>>,
     pub grok3: Arc<dyn LlmClient>,
     pub grok4_heavy: Option<Arc<dyn LlmClient>>,
     pub math: Option<Arc<dyn LlmClient>>,
@@ -129,6 +146,10 @@ impl TieredRouter {
     pub fn new_with_mocks() -> anyhow::Result<Self> {
         use crate::clients::mock::MockLlmClient;
         Ok(Self {
+            claude_cli: None,
+            copilot: None,
+            cursor: None,
+            claude: None,
             grok3: MockLlmClient::new(),
             grok4_heavy: Some(MockLlmClient::new()),
             math: None,
@@ -136,43 +157,124 @@ impl TieredRouter {
             cfg: LlmRoutingConfig::default(),
         })
     }
-    
+
     /// Cria router com Grok 3 como default
     pub fn new() -> anyhow::Result<Self> {
+        // Claude CLI client (auto-detect if `claude` command available)
+        let claude_cli: Option<Arc<dyn LlmClient>> =
+            match crate::clients::claude_cli::ClaudeCliClient::new() {
+                Ok(client) => {
+                    info!("Claude CLI detected (no API key needed!)");
+                    Some(Arc::new(client))
+                }
+                Err(e) => {
+                    info!("Claude CLI not available: {}", e);
+                    None
+                }
+            };
+
+        // GitHub Copilot client (se GITHUB_TOKEN disponível)
+        let copilot: Option<Arc<dyn LlmClient>> =
+            if std::env::var("GITHUB_TOKEN").is_ok() || std::env::var("GH_TOKEN").is_ok() {
+                match crate::clients::copilot::CopilotClient::from_env() {
+                    Ok(client) => {
+                        info!("GitHub Copilot habilitado (usa subscrição existente)");
+                        Some(Arc::new(client))
+                    }
+                    Err(e) => {
+                        warn!(
+                            "GitHub Copilot configurado mas falhou ao inicializar: {}",
+                            e
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+        // Cursor AI client (se CURSOR_API_KEY disponível)
+        let cursor: Option<Arc<dyn LlmClient>> =
+            if std::env::var("CURSOR_API_KEY").is_ok() || std::env::var("CURSOR_TOKEN").is_ok() {
+                match crate::clients::cursor::CursorClient::from_env() {
+                    Ok(client) => {
+                        info!("Cursor AI habilitado (usa subscrição existente)");
+                        Some(Arc::new(client))
+                    }
+                    Err(e) => {
+                        warn!("Cursor AI configurado mas falhou ao inicializar: {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+        // Claude Direct (se ANTHROPIC_API_KEY disponível - Claude MAX subscription)
+        let claude: Option<Arc<dyn LlmClient>> = if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+            match crate::clients::claude::ClaudeClient::from_env() {
+                Ok(client) => {
+                    info!("Claude Direct habilitado (usa subscrição Claude MAX)");
+                    Some(Arc::new(client))
+                }
+                Err(e) => {
+                    warn!("Claude Direct configurado mas falhou ao inicializar: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let grok3: Arc<dyn LlmClient> = Arc::new(crate::clients::grok::GrokClient::new());
-        
+
         // Grok 4 Heavy usa o mesmo client, mas com modelo diferente
         // Por enquanto, usamos o mesmo client (GrokClient escolhe modelo dinamicamente)
         let grok4_heavy: Option<Arc<dyn LlmClient>> = Some(grok3.clone());
-        
+
+        // DeepSeek Math client (se API key disponível)
+        let math: Option<Arc<dyn LlmClient>> = if std::env::var("DEEPSEEK_API_KEY").is_ok() {
+            Some(Arc::new(
+                crate::clients::deepseek::DeepSeekClient::new_math(),
+            ))
+        } else {
+            warn!("DEEPSEEK_API_KEY não configurada, CloudMath desabilitado");
+            None
+        };
+
         Ok(Self {
+            claude_cli,
+            copilot,
+            cursor,
+            claude,
             grok3,
             grok4_heavy,
-            math: None, // Futuro: DeepSeek Math
+            math,
             local: None, // Futuro: Gemma 9B local
             cfg: LlmRoutingConfig::default(),
         })
     }
-    
+
     /// Cria router a partir de config
     pub fn from_config(cfg: &BeagleConfig) -> anyhow::Result<Self> {
         let mut router = Self::new()?;
-        
+
         // Carrega configuração baseada em perfil ou env
         router.cfg = if let Ok(env_cfg) = std::env::var("BEAGLE_ROUTING_CONFIG") {
             // Se houver config explícita no env, usa ela
-            serde_json::from_str(&env_cfg).unwrap_or_else(|_| LlmRoutingConfig::from_profile(&cfg.profile))
+            serde_json::from_str(&env_cfg)
+                .unwrap_or_else(|_| LlmRoutingConfig::from_profile(&cfg.profile))
         } else {
             // Senão, usa perfil
             LlmRoutingConfig::from_profile(&cfg.profile)
         };
-        
+
         // Permite override via env
         router.cfg.enable_heavy = env_bool("BEAGLE_HEAVY_ENABLE", router.cfg.enable_heavy);
-        
+
         Ok(router)
     }
-    
+
     /// Escolhe cliente com checagem de limites
     pub fn choose_with_limits(
         &self,
@@ -180,10 +282,7 @@ impl TieredRouter {
         stats: &crate::stats::LlmCallsStats,
     ) -> (Arc<dyn LlmClient>, ProviderTier) {
         // Se tentaria usar Heavy, checa limites
-        if meta.high_bias_risk 
-            || meta.requires_phd_level_reasoning 
-            || meta.critical_section 
-        {
+        if meta.high_bias_risk || meta.requires_phd_level_reasoning || meta.critical_section {
             if self.cfg.enable_heavy {
                 // Checa limites por run
                 if stats.grok4_calls < self.cfg.heavy_max_calls_per_run
@@ -210,7 +309,7 @@ impl TieredRouter {
                 }
             }
         }
-        
+
         // Fallback para lógica normal
         self.choose(meta)
     }
@@ -226,12 +325,51 @@ impl TieredRouter {
             }
         }
 
-        // 2) Heavy – só se habilitado e disponível
+        // 2) Premium quality tasks → Use existing subscriptions
+        // Priority: Claude CLI > Claude Direct > Copilot > Cursor
+        if meta.requires_phd_level_reasoning || meta.critical_section {
+            // First choice: Claude CLI (if installed - no API key needed!)
+            if let Some(claude_cli) = &self.claude_cli {
+                info!(
+                    "Router → Claude CLI (premium: phd_reasoning={}, critical={})",
+                    meta.requires_phd_level_reasoning, meta.critical_section
+                );
+                return (claude_cli.clone(), ProviderTier::ClaudeCli);
+            }
+
+            // Second choice: Claude Direct (if Claude MAX subscription available)
+            // Best for: Research analysis, paper understanding, critical reasoning
+            if let Some(claude) = &self.claude {
+                info!(
+                    "Router → Claude Direct (premium: phd_reasoning={}, critical={})",
+                    meta.requires_phd_level_reasoning, meta.critical_section
+                );
+                return (claude.clone(), ProviderTier::ClaudeDirect);
+            }
+
+            // Second choice: Copilot (has o1-preview for complex reasoning)
+            if let Some(copilot) = &self.copilot {
+                info!(
+                    "Router → Copilot (premium quality: phd_reasoning={}, critical={})",
+                    meta.requires_phd_level_reasoning, meta.critical_section
+                );
+                return (copilot.clone(), ProviderTier::Copilot);
+            }
+
+            // Third choice: Cursor
+            if let Some(cursor) = &self.cursor {
+                info!(
+                    "Router → Cursor (premium quality: phd_reasoning={}, critical={})",
+                    meta.requires_phd_level_reasoning, meta.critical_section
+                );
+                return (cursor.clone(), ProviderTier::Cursor);
+            }
+        }
+
+        // 3) Heavy – só se habilitado e disponível (anti-bias)
         if self.cfg.enable_heavy {
             if let Some(heavy) = &self.grok4_heavy {
-                if meta.high_bias_risk 
-                    || meta.requires_phd_level_reasoning 
-                    || meta.critical_section 
+                if meta.high_bias_risk || meta.requires_phd_level_reasoning || meta.critical_section
                 {
                     info!(
                         "Router → Grok4Heavy (bias_risk={}, phd_reasoning={}, critical={})",
@@ -246,7 +384,7 @@ impl TieredRouter {
             }
         }
 
-        // 3) Math specialist (futuro)
+        // 4) Math specialist (futuro)
         if meta.requires_math {
             if let Some(math) = &self.math {
                 info!("Router → CloudMath (math required)");
@@ -254,7 +392,7 @@ impl TieredRouter {
             }
         }
 
-        // 4) Default absoluto: Grok 3
+        // 5) Default absoluto: Grok 3 (unlimited, fast)
         info!("Router → Grok3 (default)");
         (self.grok3.clone(), ProviderTier::Grok3)
     }
@@ -263,12 +401,12 @@ impl TieredRouter {
     pub async fn complete(&self, prompt: &str) -> anyhow::Result<String> {
         let meta = RequestMeta::from_prompt(prompt);
         let (client, tier) = self.choose(&meta);
-        
+
         // Se Heavy foi escolhido, passa flag para o client
         if tier == ProviderTier::Grok4Heavy {
             // GrokClient detecta automaticamente via choose_model
             // Por enquanto, passamos via LlmRequest
-            use crate::{LlmRequest, ChatMessage};
+            use crate::{ChatMessage, LlmRequest};
             let req = LlmRequest {
                 model: "grok-4-heavy".to_string(),
                 messages: vec![ChatMessage::user(prompt)],

@@ -1,7 +1,7 @@
 //! Traits centrais do BEAGLE para abstração de serviços externos
 
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 use serde_json::Value;
 
 /// Mensagem de chat para LLMs
@@ -52,6 +52,23 @@ pub struct VectorHit {
     pub metadata: Value,
 }
 
+/// Knowledge snippet unificado de diferentes fontes (Qdrant, Neo4j, Memory)
+///
+/// Usado por DarwinCore para agregar contexto de múltiplas fontes
+#[derive(Debug, Clone)]
+pub struct KnowledgeSnippet {
+    /// Fonte do snippet: "qdrant", "neo4j", "memory", etc.
+    pub source: String,
+    /// Título opcional do documento/nó
+    pub title: Option<String>,
+    /// Texto do snippet
+    pub text: String,
+    /// Score de relevância (0.0-1.0), se disponível
+    pub score: Option<f32>,
+    /// Metadata adicional (JSON)
+    pub meta: Value,
+}
+
 /// Trait para vector stores (Qdrant, Pinecone, etc.)
 #[async_trait]
 pub trait VectorStore: Send + Sync {
@@ -79,4 +96,3 @@ pub trait GraphStore: Send + Sync {
     /// Resultado da query como JSON
     async fn cypher_query(&self, query: &str, params: Value) -> Result<Value>;
 }
-

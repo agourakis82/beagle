@@ -26,6 +26,7 @@ async fn test_pipeline_with_serendipity() -> anyhow::Result<()> {
         &run_id,
         None,
         None,
+        None,
     ).await?;
     
     // Verifica que serendipity_score está no report

@@ -1,12 +1,19 @@
 //! Self Replicator – Auto-replicação cognitiva
 //!
-//! Permite que o sistema se replique em outros pesquisadores ou clusters
+//! Permite que o sistema se replique em outros pesquisadores ou clusters.
+//! Implementa:
+//! - Manifest generation (What needs to be replicated)
+//! - Serialization (How to export the system)
+//! - Dependencies (What's required to run)
+//! - Verification (Checksum validation)
 
 use crate::fractal_node::FractalNodeRuntime;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use tracing::info;
 
+/// Manifest describing a replicable fractal system state
+///
+/// Contains all metadata needed to recreate a fractal tree in another environment
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplicationManifest {
     pub root_node_id: uuid::Uuid,
@@ -16,6 +23,15 @@ pub struct ReplicationManifest {
     pub original_size: usize,
     pub compression_ratio: f64,
     pub dependencies: Vec<String>,
+    /// Checksum for integrity verification
+    #[serde(default)]
+    pub checksum: String,
+    /// Timestamp of replication
+    #[serde(default)]
+    pub timestamp: String,
+    /// Version of replication format
+    #[serde(default = "Self::default_version")]
+    pub version: String,
 }
 
 pub struct SelfReplicator;

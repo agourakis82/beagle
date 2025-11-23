@@ -6,13 +6,13 @@
 //! - HERMES (síntese de papers)
 //! - Observer (surveillance total)
 
-use crate::traits::{GraphStore, LlmClient, VectorStore};
 use crate::implementations::*;
 use crate::stats::LlmStatsRegistry;
+use crate::traits::{GraphStore, LlmClient, VectorStore};
+use anyhow::Result;
 use beagle_config::BeagleConfig;
 use beagle_llm::TieredRouter;
 use std::sync::Arc;
-use anyhow::Result;
 use tracing::{info, warn};
 
 /// Contexto unificado do BEAGLE com todas as dependências injetadas
@@ -26,18 +26,11 @@ pub struct BeagleContext {
     // Memory engine (opcional, só disponível com feature "memory")
     #[cfg(feature = "memory")]
     pub memory: Option<Arc<beagle_memory::MemoryEngine>>,
-    // Darwin (GraphRAG + Self-RAG)
-    pub darwin: Option<Arc<beagle_darwin::DarwinCore>>,
-    // HERMES (síntese de papers)
-    pub hermes: Option<Arc<beagle_hermes::HermesEngine>>,
-    // Observer (surveillance total - HRV/HealthKit)
-    pub observer: Option<Arc<beagle_observer::UniversalObserver>>,
-    // Triad engine (opcional, criado sob demanda)
-    // pub triad: Option<Arc<beagle_triad::TriadEngine>>,
-    // Serendipity engine (opcional, só se habilitado)
-    // pub serendipity: Option<Arc<beagle_serendipity::SerendipityEngine>>,
-    // Void engine (opcional, só se habilitado)
-    // pub void_engine: Option<Arc<beagle_void::VoidEngine>>,
+    // Darwin, HERMES e Observer são inicializados no beagle-monorepo
+    // para evitar dependências circulares. Eles podem ser passados
+    // como parâmetros quando necessário ou armazenados externamente.
+    // DarwinCore agora usa BeagleContext via with_context(), não precisa
+    // estar dentro do contexto.
 }
 
 impl BeagleContext {
@@ -52,8 +45,7 @@ impl BeagleContext {
         let router = TieredRouter::from_config(&cfg)?;
         info!(
             "Router inicializado | profile={} | heavy_enabled={}",
-            cfg.profile,
-            router.cfg.enable_heavy
+            cfg.profile, router.cfg.enable_heavy
         );
 
         // Escolhe LLM client (compatibilidade com código legado)
@@ -68,30 +60,46 @@ impl BeagleContext {
             MockLlmClient::new()
         };
 
-        // Escolhe Vector Store
+        // Escolhe Vector Store (com degraded mode robusto)
         let vector: Arc<dyn VectorStore> = if let Some(qdrant_url) = &cfg.graph.qdrant_url {
-            info!("Usando Qdrant vector store: {}", qdrant_url);
-            Arc::new(QdrantVectorStore::from_config(&cfg)?)
+            match QdrantVectorStore::from_config(&cfg) {
+                Ok(store) => {
+                    info!("✓ Qdrant vector store inicializado: {}", qdrant_url);
+                    Arc::new(store)
+                }
+                Err(e) => {
+                    warn!("⚠ Falha ao conectar Qdrant ({}), usando NoOpVectorStore", e);
+                    Arc::new(NoOpVectorStore)
+                }
+            }
         } else {
-            warn!("Qdrant não configurado, usando MockVectorStore");
-            Arc::new(MockVectorStore)
+            warn!("⚠ Qdrant não configurado, usando NoOpVectorStore (degraded mode)");
+            Arc::new(NoOpVectorStore)
         };
 
-        // Escolhe Graph Store
+        // Escolhe Graph Store (com degraded mode robusto)
         let graph: Arc<dyn GraphStore> = if cfg.has_neo4j() {
-            info!("Usando Neo4j graph store");
             #[cfg(feature = "neo4j")]
             {
-                Arc::new(Neo4jGraphStore::from_config(&cfg).await?)
+                match Neo4jGraphStore::from_config(&cfg).await {
+                    Ok(store) => {
+                        info!("✓ Neo4j graph store inicializado");
+                        Arc::new(store)
+                    }
+                    Err(e) => {
+                        warn!("⚠ Falha ao conectar Neo4j ({}), usando NoOpGraphStore", e);
+                        Arc::new(NoOpGraphStore)
+                    }
+                }
             }
             #[cfg(not(feature = "neo4j"))]
             {
-                warn!("Neo4j feature não habilitada, usando MockGraphStore");
-                Arc::new(MockGraphStore)
+                warn!("⚠ Neo4j feature não habilitada, usando NoOpGraphStore (degraded mode)");
+                Arc::new(NoOpGraphStore)
             }
         } else {
-            warn!("Neo4j não configurado, usando MockGraphStore");
-            Arc::new(MockGraphStore)
+            warn!("⚠ Neo4j não configurado, usando NoOpGraphStore (degraded mode)");
+            Arc::new(NoOpGraphStore)
         };
 
         // Initialize MemoryEngine if hypergraph storage is available
@@ -99,8 +107,10 @@ impl BeagleContext {
         let memory = {
             use beagle_hypergraph::CachedPostgresStorage;
             use beagle_memory::{ContextBridge, MemoryEngine};
-            
-            if let (Some(pg_url), Some(redis_url)) = (&cfg.hermes.database_url, &cfg.hermes.redis_url) {
+
+            if let (Some(pg_url), Some(redis_url)) =
+                (&cfg.hermes.database_url, &cfg.hermes.redis_url)
+            {
                 match CachedPostgresStorage::new(pg_url, redis_url).await {
                     Ok(storage) => {
                         let bridge = Arc::new(ContextBridge::new(Arc::new(storage)));
@@ -118,63 +128,10 @@ impl BeagleContext {
             }
         };
         #[cfg(not(feature = "memory"))]
-        let memory = None::<Arc<()>>; // Placeholder quando feature não habilitada
+        let _memory = None::<Arc<()>>; // Placeholder quando feature não habilitada
 
-        // Inicializa Darwin (GraphRAG + Self-RAG)
-        // Nota: Darwin pode usar BeagleContext depois, mas inicializamos sem dependência circular por enquanto
-        #[cfg(feature = "darwin")]
-        let darwin = {
-            use beagle_darwin::DarwinCore;
-            info!("Inicializando Darwin Core (GraphRAG + Self-RAG)");
-            Some(Arc::new(DarwinCore::new()))
-        };
-        #[cfg(not(feature = "darwin"))]
-        let darwin = None;
-
-        // Inicializa HERMES (síntese de papers)
-        // HERMES precisa de config separado, então inicializamos condicionalmente
-        #[cfg(feature = "hermes")]
-        let hermes = {
-            use beagle_hermes::{HermesConfig, HermesEngine};
-            if cfg.has_hermes() {
-                info!("Inicializando HERMES Engine (síntese de papers)");
-                let hermes_cfg = HermesConfig::default();
-                match HermesEngine::new(hermes_cfg).await {
-                    Ok(engine) => {
-                        info!("HERMES Engine inicializado com sucesso");
-                        Some(Arc::new(engine))
-                    }
-                    Err(e) => {
-                        warn!("Falha ao inicializar HERMES Engine: {}", e);
-                        None
-                    }
-                }
-            } else {
-                warn!("HERMES não configurado (DATABASE_URL e REDIS_URL necessários)");
-                None
-            }
-        };
-        #[cfg(not(feature = "hermes"))]
-        let hermes = None;
-
-        // Inicializa Observer (surveillance total - HRV/HealthKit)
-        #[cfg(feature = "observer")]
-        let observer = {
-            use beagle_observer::UniversalObserver;
-            info!("Inicializando Universal Observer");
-            match UniversalObserver::new() {
-                Ok(obs) => {
-                    info!("Universal Observer inicializado com sucesso");
-                    Some(Arc::new(obs))
-                }
-                Err(e) => {
-                    warn!("Falha ao inicializar Universal Observer: {}", e);
-                    None
-                }
-            }
-        };
-        #[cfg(not(feature = "observer"))]
-        let observer = None;
+        // Darwin é inicializado no beagle-monorepo com with_context()
+        // para evitar dependência circular
 
         Ok(Self {
             cfg,
@@ -185,9 +142,6 @@ impl BeagleContext {
             llm_stats: LlmStatsRegistry::new(),
             #[cfg(feature = "memory")]
             memory,
-            darwin,
-            hermes,
-            observer,
         })
     }
 
@@ -204,13 +158,13 @@ impl BeagleContext {
             memory: None,
         }
     }
-    
+
     /// Cria contexto com mocks usando config padrão (para testes simples)
     pub fn new_with_mock() -> anyhow::Result<Self> {
         let cfg = beagle_config::load();
         Ok(Self::new_with_mocks(cfg))
     }
-    
+
     /// Helper para ingerir sessão de chat na memória
     #[cfg(feature = "memory")]
     pub async fn memory_ingest_session(
@@ -223,7 +177,7 @@ impl BeagleContext {
             anyhow::bail!("MemoryEngine not initialized")
         }
     }
-    
+
     /// Helper para consultar memória
     #[cfg(feature = "memory")]
     pub async fn memory_query(
@@ -235,6 +189,233 @@ impl BeagleContext {
         } else {
             anyhow::bail!("MemoryEngine not initialized")
         }
+    }
+
+    /// GraphRAG: Retrieve knowledge snippets from graph store
+    ///
+    /// Executes a Cypher query and converts results to knowledge snippets.
+    /// This is the foundation for GraphRAG - combining graph knowledge with LLM generation.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Find related concepts for a query
+    /// let snippets = ctx.graph_retrieve(
+    ///     "MATCH (c:Concept)-[:RELATED_TO]->(related:Concept)
+    ///      WHERE c.name CONTAINS $term
+    ///      RETURN related.name as title, related.description as text
+    ///      LIMIT 10",
+    ///     serde_json::json!({"term": "quantum mechanics"})
+    /// ).await?;
+    /// ```
+    pub async fn graph_retrieve(
+        &self,
+        cypher: &str,
+        params: serde_json::Value,
+    ) -> Result<Vec<KnowledgeSnippet>> {
+        let result = self.graph.cypher_query(cypher, params).await?;
+
+        let mut snippets = Vec::new();
+
+        // Extract snippets from Neo4j result format
+        if let Some(results) = result.get("results").and_then(|r| r.as_array()) {
+            for result_set in results {
+                if let Some(data) = result_set.get("data").and_then(|d| d.as_array()) {
+                    for row in data {
+                        let snippet = crate::implementations::neo4j_result_to_snippet(row, None);
+                        snippets.push(snippet);
+                    }
+                }
+            }
+        }
+
+        Ok(snippets)
+    }
+
+    /// GraphRAG: Hybrid retrieval combining vector and graph search
+    ///
+    /// First performs semantic vector search, then enriches results with graph context.
+    /// This is the complete GraphRAG pattern: semantic search + graph structure.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let snippets = ctx.graph_hybrid_retrieve(
+    ///     "explain quantum entanglement",
+    ///     5, // top_k vector results
+    ///     2  // graph depth for each result
+    /// ).await?;
+    /// ```
+    pub async fn graph_hybrid_retrieve(
+        &self,
+        query: &str,
+        top_k: usize,
+        graph_depth: usize,
+    ) -> Result<Vec<KnowledgeSnippet>> {
+        use serde_json::json;
+
+        let mut all_snippets = Vec::new();
+
+        // 1. Semantic vector search
+        let vector_hits = self.vector.query(query, top_k).await?;
+
+        // Convert vector hits to snippets
+        for hit in &vector_hits {
+            all_snippets.push(crate::implementations::vector_hit_to_snippet(hit));
+        }
+
+        // 2. Graph expansion - for each vector result, find connected knowledge
+        for hit in &vector_hits {
+            // Extract entity ID from metadata if available
+            if let Some(entity_id) = hit.metadata.get("entity_id").and_then(|v| v.as_str()) {
+                // Query graph for neighborhood (depth-limited traversal)
+                let cypher = format!(
+                    "MATCH path = (n {{id: $id}})-[*1..{}]-(related) \
+                     RETURN related.name as title, related.description as text, \
+                     length(path) as distance \
+                     ORDER BY distance \
+                     LIMIT 20",
+                    graph_depth
+                );
+
+                if let Ok(graph_snippets) =
+                    self.graph_retrieve(&cypher, json!({"id": entity_id})).await
+                {
+                    all_snippets.extend(graph_snippets);
+                }
+            }
+        }
+
+        Ok(all_snippets)
+    }
+
+    /// GraphRAG: Create knowledge graph nodes from research results
+    ///
+    /// This allows agents (like ResearcherAgent) to store discoveries in the graph
+    /// for future retrieval and reasoning.
+    ///
+    /// # Example
+    /// ```ignore
+    /// ctx.graph_store_knowledge(
+    ///     vec!["Concept".to_string(), "Physics".to_string()],
+    ///     serde_json::json!({
+    ///         "name": "Quantum Entanglement",
+    ///         "description": "A physical phenomenon...",
+    ///         "source": "paper_id_123"
+    ///     })
+    /// ).await?;
+    /// ```
+    pub async fn graph_store_knowledge(
+        &self,
+        labels: Vec<String>,
+        properties: serde_json::Value,
+    ) -> Result<String> {
+        use serde_json::json;
+
+        // Build CREATE query with parameters
+        let labels_str = labels.join(":");
+        let mut prop_names = Vec::new();
+        let mut params = json!({});
+
+        if let Some(obj) = properties.as_object() {
+            for (key, value) in obj {
+                prop_names.push(format!("{}: ${}", key, key));
+                params[key] = value.clone();
+            }
+        }
+
+        let props_str = if prop_names.is_empty() {
+            String::new()
+        } else {
+            format!(" {{{}}}", prop_names.join(", "))
+        };
+
+        let cypher = format!(
+            "CREATE (n:{}{}) RETURN elementId(n) as id",
+            labels_str, props_str
+        );
+
+        let result = self.graph.cypher_query(&cypher, params).await?;
+
+        // Extract node ID from result
+        if let Some(results) = result.get("results").and_then(|r| r.as_array()) {
+            for result_set in results {
+                if let Some(data) = result_set.get("data").and_then(|d| d.as_array()) {
+                    if let Some(row) = data.first() {
+                        if let Some(id) = row.get("id").and_then(|v| v.as_str()) {
+                            return Ok(id.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        warn!("Failed to extract node ID from graph result");
+        Ok("unknown".to_string())
+    }
+
+    /// GraphRAG: Create relationships between knowledge entities
+    ///
+    /// Links concepts together to build a rich knowledge graph.
+    ///
+    /// # Example
+    /// ```ignore
+    /// ctx.graph_link_knowledge(
+    ///     "node_123",
+    ///     "node_456",
+    ///     "RELATES_TO",
+    ///     serde_json::json!({"strength": 0.9})
+    /// ).await?;
+    /// ```
+    pub async fn graph_link_knowledge(
+        &self,
+        from_id: &str,
+        to_id: &str,
+        rel_type: &str,
+        properties: serde_json::Value,
+    ) -> Result<String> {
+        use serde_json::json;
+
+        let mut prop_names = Vec::new();
+        let mut params = json!({
+            "from_id": from_id,
+            "to_id": to_id
+        });
+
+        if let Some(obj) = properties.as_object() {
+            for (key, value) in obj {
+                prop_names.push(format!("{}: ${}", key, key));
+                params[key] = value.clone();
+            }
+        }
+
+        let props_str = if prop_names.is_empty() {
+            String::new()
+        } else {
+            format!(" {{{}}}", prop_names.join(", "))
+        };
+
+        let cypher = format!(
+            "MATCH (a), (b) WHERE elementId(a) = $from_id AND elementId(b) = $to_id \
+             CREATE (a)-[r:{}{}]->(b) RETURN elementId(r) as id",
+            rel_type, props_str
+        );
+
+        let result = self.graph.cypher_query(&cypher, params).await?;
+
+        // Extract relationship ID from result
+        if let Some(results) = result.get("results").and_then(|r| r.as_array()) {
+            for result_set in results {
+                if let Some(data) = result_set.get("data").and_then(|d| d.as_array()) {
+                    if let Some(row) = data.first() {
+                        if let Some(id) = row.get("id").and_then(|v| v.as_str()) {
+                            return Ok(id.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        warn!("Failed to extract relationship ID from graph result");
+        Ok("unknown".to_string())
     }
 }
 
@@ -294,7 +475,11 @@ pub struct MockGraphStore;
 
 #[async_trait]
 impl GraphStore for MockGraphStore {
-    async fn cypher_query(&self, query: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+    async fn cypher_query(
+        &self,
+        query: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value> {
         Ok(json!({
             "results": [{
                 "data": [{
@@ -312,4 +497,3 @@ impl GraphStore for MockGraphStore {
         }))
     }
 }
-

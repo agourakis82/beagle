@@ -106,7 +106,7 @@ impl QuantumMCTS {
             let metadata = HypothesisMetadata {
                 source: "mcts".to_string(),
                 confidence: hyp.q_value,
-                evidence_count: hyp.n_visits,
+                evidence_count: hyp.n_visits as usize,
                 created_at: i as f64,
             };
 

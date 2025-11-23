@@ -4,12 +4,66 @@
 //! para as interfaces definidas em `traits.rs`.
 
 use crate::traits::*;
-use async_trait::async_trait;
 use anyhow::Result;
+use async_trait::async_trait;
 use beagle_config::BeagleConfig;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use tracing::warn;
+
+// ============================================================================
+// KNOWLEDGE SNIPPET HELPERS
+// ============================================================================
+
+/// Converte VectorHit para KnowledgeSnippet
+pub fn vector_hit_to_snippet(hit: &VectorHit) -> KnowledgeSnippet {
+    let text = hit
+        .metadata
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let title = hit
+        .metadata
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    KnowledgeSnippet {
+        source: "qdrant".to_string(),
+        title,
+        text,
+        score: Some(hit.score),
+        meta: hit.metadata.clone(),
+    }
+}
+
+/// Converte resultado Neo4j (node/relation) para KnowledgeSnippet
+pub fn neo4j_result_to_snippet(result: &serde_json::Value, score: Option<f32>) -> KnowledgeSnippet {
+    // Extrai texto de diferentes campos possíveis
+    let text = result
+        .get("description")
+        .or_else(|| result.get("text"))
+        .or_else(|| result.get("name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let title = result
+        .get("name")
+        .or_else(|| result.get("title"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    KnowledgeSnippet {
+        source: "neo4j".to_string(),
+        title,
+        text,
+        score,
+        meta: result.clone(),
+    }
+}
 
 // ============================================================================
 // LLM CLIENT IMPLEMENTATIONS
@@ -35,7 +89,7 @@ impl LlmClient for GrokLlmClient {
         // Retry logic com backoff exponencial
         let mut retries = 3;
         let mut delay_ms = 100;
-        
+
         loop {
             match self.router.complete(prompt).await {
                 Ok(result) => return Ok(result),
@@ -104,7 +158,7 @@ impl LlmClient for VllmLlmClient {
         // Retry logic
         let mut retries = 3;
         let mut delay_ms = 100;
-        
+
         loop {
             match self.client.completions(&request).await {
                 Ok(response) => {
@@ -151,18 +205,26 @@ pub struct QdrantVectorStore {
     client: reqwest::Client,
     embedding_client: beagle_llm::embedding::EmbeddingClient,
     // Cache simples de embeddings (texto -> embedding)
-    embedding_cache: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, Vec<f64>>>>,
+    embedding_cache:
+        std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, Vec<f64>>>>,
 }
 
 impl QdrantVectorStore {
-    pub fn new(qdrant_url: String, collection: Option<String>, embedding_url: Option<String>) -> Self {
-        let embedding_url = embedding_url.unwrap_or_else(|| "http://t560.local:8001/v1".to_string());
+    pub fn new(
+        qdrant_url: String,
+        collection: Option<String>,
+        embedding_url: Option<String>,
+    ) -> Self {
+        let embedding_url =
+            embedding_url.unwrap_or_else(|| "http://t560.local:8001/v1".to_string());
         Self {
             base_url: qdrant_url.trim_end_matches('/').to_string(),
             collection: collection.unwrap_or_else(|| "beagle".to_string()),
             client: reqwest::Client::new(),
             embedding_client: beagle_llm::embedding::EmbeddingClient::new(embedding_url),
-            embedding_cache: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            embedding_cache: std::sync::Arc::new(tokio::sync::RwLock::new(
+                std::collections::HashMap::new(),
+            )),
         }
     }
 
@@ -214,8 +276,11 @@ impl VectorStore for QdrantVectorStore {
         let query_vector: Vec<f32> = query_embedding.iter().map(|&x| x as f32).collect();
 
         // 3. Faz busca no Qdrant
-        let search_url = format!("{}/collections/{}/points/search", self.base_url, self.collection);
-        
+        let search_url = format!(
+            "{}/collections/{}/points/search",
+            self.base_url, self.collection
+        );
+
         let search_request = json!({
             "vector": query_vector,
             "limit": top_k,
@@ -248,22 +313,22 @@ impl VectorStore for QdrantVectorStore {
         }
 
         let search_response: serde_json::Value = response.json().await?;
-        
+
         // 4. Processa resultados
         let mut hits = Vec::new();
         if let Some(results) = search_response.get("result").and_then(|r| r.as_array()) {
             for result in results {
-                let id = result.get("id")
+                let id = result
+                    .get("id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                let score = result.get("score")
+                let score = result
+                    .get("score")
                     .and_then(|v| v.as_f64())
                     .map(|s| s as f32)
                     .unwrap_or(0.0);
-                let payload = result.get("payload")
-                    .cloned()
-                    .unwrap_or_else(|| json!({}));
+                let payload = result.get("payload").cloned().unwrap_or_else(|| json!({}));
 
                 hits.push(VectorHit {
                     id,
@@ -282,25 +347,66 @@ impl VectorStore for QdrantVectorStore {
 }
 
 // ============================================================================
+// NO-OP STORES (DEGRADED MODE)
+// ============================================================================
+
+/// Vector store que não faz nada (para degraded mode)
+pub struct NoOpVectorStore;
+
+#[async_trait]
+impl VectorStore for NoOpVectorStore {
+    async fn query(&self, text: &str, _top_k: usize) -> Result<Vec<VectorHit>> {
+        warn!(
+            "NoOpVectorStore: vector store indisponível, retornando vazio para query: {}",
+            text
+        );
+        Ok(Vec::new())
+    }
+}
+
+/// Graph store que não faz nada (para degraded mode)
+pub struct NoOpGraphStore;
+
+#[async_trait]
+impl GraphStore for NoOpGraphStore {
+    async fn cypher_query(
+        &self,
+        query: &str,
+        _params: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        warn!(
+            "NoOpGraphStore: graph store indisponível, retornando vazio para query: {}",
+            query
+        );
+        Ok(json!({
+            "results": [],
+            "note": "Graph store unavailable - using no-op implementation"
+        }))
+    }
+}
+
+// ============================================================================
 // GRAPH STORE IMPLEMENTATIONS
 // ============================================================================
 
-/// Implementação de GraphStore usando Neo4j com neo4rs
+/// Implementação de GraphStore usando beagle-memory's Neo4jGraphStore
+///
+/// Este wrapper adapta a interface rica do beagle-memory::GraphStore
+/// para a interface simplificada cypher_query do beagle-core::traits::GraphStore
 #[cfg(feature = "neo4j")]
 pub struct Neo4jGraphStore {
-    graph: std::sync::Arc<neo4rs::Graph>,
+    inner: std::sync::Arc<beagle_memory::Neo4jGraphStore>,
 }
 
 #[cfg(feature = "neo4j")]
-
 impl Neo4jGraphStore {
     pub async fn new(uri: String, user: String, password: String) -> Result<Self> {
-        let graph = neo4rs::Graph::new(&uri, &user, &password)
+        let inner = beagle_memory::Neo4jGraphStore::new(&uri, &user, &password)
             .await
             .map_err(|e| anyhow::anyhow!("Failed to connect to Neo4j: {}", e))?;
 
         Ok(Self {
-            graph: std::sync::Arc::new(graph),
+            inner: std::sync::Arc::new(inner),
         })
     }
 
@@ -326,88 +432,57 @@ impl Neo4jGraphStore {
 
         Self::new(uri, user, password).await
     }
+
+    /// Acesso direto ao store interno para operações avançadas
+    pub fn inner(&self) -> &beagle_memory::Neo4jGraphStore {
+        &self.inner
+    }
 }
 
 #[cfg(feature = "neo4j")]
 #[async_trait]
 impl GraphStore for Neo4jGraphStore {
     async fn cypher_query(&self, query: &str, params: Value) -> Result<Value> {
-        use neo4rs::query;
+        use beagle_memory::GraphStore as MemGraphStore;
         use serde_json::json;
 
-        // Converte params JSON para formato neo4rs (simplificado)
-        let mut neo4j_params = std::collections::HashMap::new();
-        if let Some(obj) = params.as_object() {
-            for (k, v) in obj {
-                let bolt_value = match v {
-                    Value::String(s) => neo4rs::types::BoltType::String(s.clone()),
-                    Value::Number(n) => {
-                        if let Some(i) = n.as_i64() {
-                            neo4rs::types::BoltType::Integer(i)
-                        } else if let Some(f) = n.as_f64() {
-                            neo4rs::types::BoltType::Float(f)
-                        } else {
-                            neo4rs::types::BoltType::String(n.to_string())
-                        }
-                    }
-                    Value::Bool(b) => neo4rs::types::BoltType::Boolean(*b),
-                    Value::Null => neo4rs::types::BoltType::Null,
-                    _ => neo4rs::types::BoltType::String(v.to_string()),
-                };
-                neo4j_params.insert(k.clone(), bolt_value);
-            }
-        }
+        // Converte params JSON para HashMap<String, Value>
+        let params_map = if let Some(obj) = params.as_object() {
+            obj.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<std::collections::HashMap<String, Value>>()
+        } else {
+            std::collections::HashMap::new()
+        };
 
-        // Executa query com retry
+        // Usa o método query do beagle-memory::GraphStore
+        let result = self
+            .inner
+            .query(query, params_map)
+            .await
+            .map_err(|e| anyhow::anyhow!("Neo4j query failed: {}", e))?;
+
+        // Converte GraphQueryResult para formato legacy
         let mut result_rows = Vec::new();
-        let mut retries = 3;
-        
-        loop {
-            match self.graph.execute(query(query).params(neo4j_params.clone())).await {
-                Ok(mut result) => {
-                    while let Ok(Some(row)) = result.next().await {
-                        // Converte row para JSON (simplificado)
-                        let mut row_data = json!({});
-                        let row_values = row.values();
-                        // neo4rs row.values() retorna um iterador de (String, BoltType)
-                        for (key, value) in row_values {
-                            let json_value = match value {
-                                neo4rs::types::BoltType::String(s) => json!(s),
-                                neo4rs::types::BoltType::Integer(i) => json!(i),
-                                neo4rs::types::BoltType::Float(f) => json!(f),
-                                neo4rs::types::BoltType::Boolean(b) => json!(b),
-                                neo4rs::types::BoltType::Null => json!(null),
-                                _ => json!(format!("{:?}", value)),
-                            };
-                            row_data[key] = json_value;
-                        }
-                        result_rows.push(row_data);
-                    }
-                    break;
-                }
-                Err(e) => {
-                    if retries > 0 {
-                        retries -= 1;
-                        warn!("Neo4j query error, retrying ({} left): {}", retries, e);
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        continue;
-                    } else {
-                        warn!("Neo4j query failed after retries: {}", e);
-                        // Retorna estrutura vazia em caso de erro
-                        return Ok(json!({
-                            "results": [],
-                            "error": format!("{}", e)
-                        }));
-                    }
-                }
-            }
+        for node in result.nodes {
+            result_rows.push(json!({
+                "id": node.id,
+                "labels": node.labels,
+                "properties": node.properties,
+            }));
         }
 
         Ok(json!({
             "results": [{
                 "data": result_rows
-            }]
+            }],
+            "relationships": result.relationships.iter().map(|rel| json!({
+                "id": rel.id,
+                "from": rel.from_id,
+                "to": rel.to_id,
+                "type": rel.rel_type,
+                "properties": rel.properties,
+            })).collect::<Vec<_>>(),
         }))
     }
 }
-
