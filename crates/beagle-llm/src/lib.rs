@@ -8,22 +8,29 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-pub mod router;
-pub mod router_tiered;
 pub mod clients;
 pub mod meta;
-pub mod tier;
 pub mod output;
+pub mod router;
+pub mod router_tiered;
+pub mod self_update;
 pub mod stats;
+pub mod tier;
 
-pub use router::BeagleRouter;
-pub use router_tiered::{TieredRouter, ProviderTier, LlmRoutingConfig};
-pub use meta::RequestMeta;
-pub use tier::Tier;
-pub use output::LlmOutput;
-pub use stats::LlmCallsStats;
+pub use clients::claude::{ClaudeClient, ClaudeModel};
+pub use clients::claude_cli::ClaudeCliClient;
+pub use clients::copilot::{CopilotClient, CopilotModel};
+pub use clients::cursor::{CursorClient, CursorModel};
+pub use clients::deepseek::DeepSeekClient;
 pub use clients::grok::GrokClient;
 pub use clients::mock::MockLlmClient;
+pub use self_update::SelfUpdateContext;
+pub use meta::RequestMeta;
+pub use output::LlmOutput;
+pub use router::BeagleRouter;
+pub use router_tiered::{LlmRoutingConfig, ProviderTier, TieredRouter};
+pub use stats::LlmCallsStats;
+pub use tier::Tier;
 // RequestMeta agora está em tier.rs, mas mantemos HIGH_BIAS_KEYWORDS de meta.rs
 pub use meta::HIGH_BIAS_KEYWORDS;
 
@@ -109,7 +116,7 @@ pub trait LlmClient: Send + Sync {
         let text = self.chat(req).await?;
         Ok(LlmOutput::from_text(text, prompt))
     }
-    
+
     /// Completa um prompt simples (legado, retorna String)
     async fn complete_text(&self, prompt: &str) -> anyhow::Result<String> {
         Ok(self.complete(prompt).await?.text)
@@ -117,18 +124,17 @@ pub trait LlmClient: Send + Sync {
 
     /// Chat com múltiplas mensagens
     async fn chat(&self, req: LlmRequest) -> anyhow::Result<String>;
-    
+
     /// Nome do cliente
     fn name(&self) -> &'static str;
-    
+
     /// Tier preferido
     fn tier(&self) -> Tier {
         Tier::CloudGrokMain
     }
-    
+
     /// Prefere Grok 4 Heavy (legado, mantido para compatibilidade)
     fn prefers_heavy(&self) -> bool {
         false
     }
 }
-
