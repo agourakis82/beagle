@@ -4,7 +4,6 @@
 //! Uses interference and measurement for hypothesis selection
 
 use num_complex::Complex;
-use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 
 /// Quantum hypothesis with amplitude and phase

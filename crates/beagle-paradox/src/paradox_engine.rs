@@ -6,8 +6,8 @@
 use beagle_smart_router::query_beagle;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
-use tracing::{info, warn};
+use std::path::Path;
+use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParadoxResult {
@@ -107,7 +107,7 @@ Responda APENAS com o código completo novo (sem explicação)."#,
 
             // Segurança: nunca apaga o crate inteiro
             if new_code.trim().is_empty() {
-                warn!("Tentativa de código vazio bloqueada - mantendo código anterior");
+                info!("⚠️ Tentativa de código vazio bloqueada - mantendo código anterior");
                 break;
             }
 
@@ -124,7 +124,7 @@ Responda APENAS com o código completo novo (sem explicação)."#,
                 .any(|pattern| new_code.contains(pattern));
 
             if is_dangerous {
-                warn!("Tentativa de auto-destruição bloqueada - padrão perigoso detectado");
+                info!("⚠️ Tentativa de auto-destruição bloqueada - padrão perigoso detectado");
                 break;
             }
 

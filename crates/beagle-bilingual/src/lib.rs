@@ -4,7 +4,7 @@
 
 pub mod twitter;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use beagle_grok_api::GrokClient;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};

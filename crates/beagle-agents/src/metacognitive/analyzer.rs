@@ -1,8 +1,7 @@
-use super::monitor::{PerformanceMonitor, QueryPerformance};
+use super::monitor::PerformanceMonitor;
 use anyhow::Result;
 use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
 

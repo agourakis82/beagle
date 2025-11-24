@@ -5,7 +5,7 @@
 
 use crate::deep_research::{DeepResearchResult, Hypothesis, MCTSEngine};
 use crate::quantum::{
-    HypothesisMetadata, InterferenceEngine, MeasurementOperator, MeasurementResult,
+    HypothesisMetadata, InterferenceEngine, MeasurementOperator,
     SuperpositionState,
 };
 use anyhow::Result;

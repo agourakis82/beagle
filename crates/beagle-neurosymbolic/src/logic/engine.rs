@@ -1,4 +1,4 @@
-use super::{Formula, LogicError, Predicate, Result, Term};
+use super::{Formula, LogicError, Predicate, Result};
 use std::collections::HashSet;
 use tracing::{debug, info};
 

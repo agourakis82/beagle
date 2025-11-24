@@ -3,7 +3,8 @@
 
 use async_trait::async_trait;
 use beagle_events::{
-    BeagleEvent, BeaglePulsar, EventHandler, EventPublisher, EventSubscriber, EventType, Result,
+    BeagleEvent, BeaglePulsar, EventHandler, EventPublisher, EventSubscriber, EventType,
+    HealthStatus, Result, SystemEvent,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -33,10 +34,10 @@ async fn test_publish_consume_smoke() {
         .await
         .unwrap();
 
-    let event = BeagleEvent::new(EventType::HealthCheck {
+    let event = BeagleEvent::new(EventType::System(SystemEvent::HealthCheck {
         service: "test".into(),
-        status: "ok".into(),
-    });
+        status: HealthStatus::Healthy,
+    }));
 
     publisher.publish(&event).await.unwrap();
 

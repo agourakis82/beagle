@@ -22,3 +22,4 @@ beagle-smart-router = { path = "../beagle-smart-router" }
 
 [dev-dependencies]
 tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }
+tempfile = "3.8"

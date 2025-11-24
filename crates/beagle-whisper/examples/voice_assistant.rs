@@ -8,7 +8,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     println!("🎤 BEAGLE Voice Assistant");
-    println!("=" ^ 60);
+    println!("{}", "=".repeat(60));
     println!();
     println!("Iniciando assistente pessoal...");
     println!("Fale perto do microfone. Ctrl+C para parar.");

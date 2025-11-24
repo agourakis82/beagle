@@ -24,7 +24,7 @@ async fn test_dissolution_inducer_creation() {
 
 #[tokio::test]
 async fn test_dissolution_inducer_with_custom_url() {
-    let engine = OnticDissolutionEngine::with_vllm_url("http://custom.local:8000/v1");
+    let _engine = OnticDissolutionEngine::with_vllm_url("http://custom.local:8000/v1");
     // Successfully created with custom URL
     assert!(true);
 }
@@ -54,14 +54,14 @@ async fn test_dissolution_state_structure() {
 
 #[tokio::test]
 async fn test_void_navigator_creation() {
-    let navigator = VoidNavigator::new();
+    let _navigator = VoidNavigator::new();
     // Successfully created without panic
     assert!(true);
 }
 
 #[tokio::test]
 async fn test_void_navigator_with_custom_url() {
-    let navigator = VoidNavigator::with_vllm_url("http://custom.local:8000/v1");
+    let _navigator = VoidNavigator::with_vllm_url("http://custom.local:8000/v1");
     // Successfully created with custom URL
     assert!(true);
 }
@@ -128,14 +128,14 @@ async fn test_void_insight_impossibility_bounds() {
 
 #[tokio::test]
 async fn test_trans_ontic_emerger_creation() {
-    let emerger = TransOnticEmerger::new();
+    let _emerger = TransOnticEmerger::new();
     // Successfully created without panic
     assert!(true);
 }
 
 #[tokio::test]
 async fn test_trans_ontic_emerger_with_custom_url() {
-    let emerger = TransOnticEmerger::with_vllm_url("http://custom.local:8000/v1");
+    let _emerger = TransOnticEmerger::with_vllm_url("http://custom.local:8000/v1");
     // Successfully created with custom URL
     assert!(true);
 }
@@ -204,14 +204,14 @@ async fn test_trans_ontic_insights_requirement() {
 
 #[tokio::test]
 async fn test_reintegration_safeguard_creation() {
-    let safeguard = ReintegrationSafeguard::new();
+    let _safeguard = ReintegrationSafeguard::new();
     // Successfully created without panic
     assert!(true);
 }
 
 #[tokio::test]
 async fn test_reintegration_safeguard_with_custom_url() {
-    let safeguard = ReintegrationSafeguard::with_vllm_url("http://custom.local:8000/v1");
+    let _safeguard = ReintegrationSafeguard::with_vllm_url("http://custom.local:8000/v1");
     // Successfully created with custom URL
     assert!(true);
 }
@@ -355,7 +355,7 @@ async fn test_cycle_transformation_preservation() {
     let initial_state = "Initial state";
 
     // Simulate dissolution with novelty
-    let dissolution = DissolutionState {
+    let _dissolution = DissolutionState {
         id: "d1".to_string(),
         pre_dissolution_state: initial_state.to_string(),
         dissolution_experience: "Deep dissolution".to_string(),

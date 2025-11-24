@@ -17,3 +17,5 @@ reqwest.workspace = true
 beagle-grok-api = { path = "../beagle-grok-api" }
 beagle-smart-router = { path = "../beagle-smart-router" }
 
+[dev-dependencies]
+tracing-subscriber.workspace = true

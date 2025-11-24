@@ -178,7 +178,7 @@ impl MetaLearner {
 
     /// Analyze which strategies counter others effectively
     fn analyze_counter_strategies(&self) -> Vec<CounterStrategyAdvice> {
-        let mut matchup_matrix: HashMap<(String, String), (usize, usize)> = HashMap::new(); // ((defender, opponent), (wins, total))
+        let matchup_matrix: HashMap<(String, String), (usize, usize)> = HashMap::new(); // ((defender, opponent), (wins, total))
 
         for history_match in &self.match_history {
             // Would need access to player strategies at match time

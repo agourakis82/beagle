@@ -4,11 +4,9 @@
 
 use crate::ExperimentRunTag;
 use beagle_feedback::FeedbackEvent;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use tracing::{info, warn};
 
 /// Ponto de dados experimentais agregado
 ///

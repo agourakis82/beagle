@@ -1,5 +1,4 @@
-use prometheus::{Counter, Histogram, HistogramOpts, IntGauge, Opts, Registry};
-use std::sync::Arc;
+use prometheus::{Counter, Histogram, HistogramOpts, IntGauge, Registry};
 
 lazy_static::lazy_static! {
     static ref EVENTS_PUBLISHED: Counter = Counter::new(
