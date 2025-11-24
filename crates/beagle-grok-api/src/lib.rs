@@ -31,18 +31,24 @@ pub enum GrokError {
 pub enum GrokModel {
     /// Grok-3 (rápido, 128k contexto, ILIMITADO no plano Heavy, qualidade Claude Sonnet 4.5)
     Grok3,
-    /// Grok-4 (modelo padrão)
+    /// Grok-3-mini (mais rápido e barato)
+    Grok3Mini,
+    /// Grok-4 (modelo avançado)
     Grok4,
-    /// Grok-4-Heavy (monstro 256k, quota alta mas não ilimitada)
-    Grok4Heavy,
+    /// Grok-4 com reasoning rápido
+    Grok4FastReasoning,
+    /// Grok-4.1 com reasoning rápido (mais recente)
+    Grok41FastReasoning,
 }
 
 impl GrokModel {
     pub fn as_str(&self) -> &'static str {
         match self {
             GrokModel::Grok3 => "grok-3",
-            GrokModel::Grok4 => "grok-4",
-            GrokModel::Grok4Heavy => "grok-4-heavy",
+            GrokModel::Grok3Mini => "grok-3-mini",
+            GrokModel::Grok4 => "grok-4-0709",
+            GrokModel::Grok4FastReasoning => "grok-4-fast-reasoning",
+            GrokModel::Grok41FastReasoning => "grok-4-1-fast-reasoning",
         }
     }
 }
@@ -98,9 +104,9 @@ pub struct GrokClient {
 }
 
 impl GrokClient {
-    /// Cria novo cliente Grok com API key
+    /// Cria novo cliente Grok com API key (usa Grok 4 por padrão)
     pub fn new(api_key: &str) -> Self {
-        Self::with_model(api_key, GrokModel::Grok4Heavy)
+        Self::with_model(api_key, GrokModel::Grok4)
     }
 
     /// Cria cliente com modelo específico
@@ -262,9 +268,13 @@ impl GrokClient {
     pub fn model(mut self, model_str: &str) -> Self {
         self.model = match model_str {
             "grok-3" => GrokModel::Grok3,
-            "grok-4" => GrokModel::Grok4,
-            "grok-4-heavy" => GrokModel::Grok4Heavy,
-            _ => GrokModel::Grok3, // Default para grok-3
+            "grok-3-mini" => GrokModel::Grok3Mini,
+            "grok-4" | "grok-4-0709" => GrokModel::Grok4,
+            "grok-4-fast-reasoning" => GrokModel::Grok4FastReasoning,
+            "grok-4-1-fast-reasoning" => GrokModel::Grok41FastReasoning,
+            // Legacy support
+            "grok-4-heavy" => GrokModel::Grok4, // Map old name to Grok4
+            _ => GrokModel::Grok3,              // Default para grok-3
         };
         self
     }

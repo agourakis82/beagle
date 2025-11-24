@@ -24,15 +24,17 @@ const TIMEOUT_SECS: u64 = 120;
 /// Cliente Grok 3 global (ILIMITADO, 128k contexto, usado em 95% das queries)
 static GROK3_CLIENT: Lazy<Option<GrokClient>> = Lazy::new(|| {
     std::env::var("XAI_API_KEY")
+        .or_else(|_| std::env::var("GROK_API_KEY"))
         .ok()
         .map(|key| GrokClient::with_model(&key, GrokModel::Grok3))
 });
 
-/// Cliente Grok 4 Heavy global (QUOTA, 256k contexto, só quando precisar de contexto gigante)
-static GROK4_HEAVY_CLIENT: Lazy<Option<GrokClient>> = Lazy::new(|| {
+/// Cliente Grok 4 global (contexto grande, para queries complexas)
+static GROK4_CLIENT: Lazy<Option<GrokClient>> = Lazy::new(|| {
     std::env::var("XAI_API_KEY")
+        .or_else(|_| std::env::var("GROK_API_KEY"))
         .ok()
-        .map(|key| GrokClient::with_model(&key, GrokModel::Grok4Heavy))
+        .map(|key| GrokClient::with_model(&key, GrokModel::Grok4))
 });
 
 /// Cliente vLLM global (fallback de emergência)
@@ -101,7 +103,7 @@ pub async fn query_beagle(prompt: &str, context_tokens: usize) -> String {
     }
 
     // 2. Tenta Grok 4 Heavy se contexto >= 120k ou Grok 3 falhou
-    if let Some(ref grok4) = *GROK4_HEAVY_CLIENT {
+    if let Some(ref grok4) = *GROK4_CLIENT {
         debug!(
             "🚀 query_beagle: usando Grok-4-Heavy (QUOTA, contexto: {} tokens)",
             total_context
@@ -178,10 +180,11 @@ pub struct SmartRouter {
 impl SmartRouter {
     /// Cria novo roteador inteligente
     ///
-    /// Se XAI_API_KEY estiver configurada, usa Grok (Grok3 ilimitado + Grok4Heavy quota).
+    /// Se XAI_API_KEY ou GROK_API_KEY estiver configurada, usa Grok (Grok3 ilimitado + Grok4Heavy quota).
     /// vLLM é sempre configurado como fallback de emergência.
     pub fn new() -> Self {
         let grok_client = std::env::var("XAI_API_KEY")
+            .or_else(|_| std::env::var("GROK_API_KEY"))
             .ok()
             .map(|key| GrokClient::with_model(&key, GrokModel::Grok3));
 
@@ -191,7 +194,7 @@ impl SmartRouter {
         let vllm_client = Some(VllmClient::new(&vllm_url));
 
         if grok_client.is_some() {
-            info!("🚀 Smart Router: Grok habilitado (Grok3 ilimitado + Grok4Heavy quota) + vLLM fallback");
+            info!("🚀 Smart Router: Grok habilitado (Grok3 ilimitado + Grok4 advanced) + vLLM fallback");
         } else {
             warn!("⚠️ Smart Router: XAI_API_KEY não configurada, usando apenas vLLM");
         }
@@ -210,7 +213,7 @@ impl SmartRouter {
             std::env::var("VLLM_URL").unwrap_or_else(|_| "http://t560.local:8000/v1".to_string());
         let vllm_client = Some(VllmClient::new(&vllm_url));
 
-        info!("🚀 Smart Router: Grok forçado (Grok3 ilimitado + Grok4Heavy quota) + vLLM fallback");
+        info!("🚀 Smart Router: Grok forçado (Grok3 ilimitado + Grok4 advanced) + vLLM fallback");
 
         Self {
             grok_client,
@@ -261,7 +264,7 @@ impl SmartRouter {
             let model = if total_context < GROK3_MAX_CONTEXT {
                 GrokModel::Grok3 // ILIMITADO, rápido
             } else {
-                GrokModel::Grok4Heavy // Quota, mas contexto gigante
+                GrokModel::Grok41FastReasoning // Melhor performance com contexto grande
             };
 
             debug!(
@@ -368,7 +371,7 @@ pub async fn query_smart(prompt: &str, context_tokens: usize) -> String {
 /// **100% à prova de bala:**
 /// - Timeout em todas as chamadas (120s)
 /// - Retry exponencial com backoff (até 5 tentativas)
-/// - Fallback em cascata (Grok3 → Grok4Heavy → vLLM → erro limpo)
+/// - Fallback em cascata (Grok3 → Grok41FastReasoning → vLLM → erro limpo)
 /// - Nunca trava o loop principal
 ///
 /// # Example
@@ -394,7 +397,7 @@ pub async fn query_robust(prompt: &str, context_tokens: usize) -> String {
         }
 
         // 2. Grok 4 Heavy (só se precisar do contexto gigante)
-        if let Some(ref grok4) = *GROK4_HEAVY_CLIENT {
+        if let Some(ref grok4) = *GROK4_CLIENT {
             match try_query_grok(grok4, prompt, "Grok4-Heavy").await {
                 Ok(resp) => return resp,
                 Err(e) => warn!("Grok4-Heavy falhou (tentativa {}): {}", attempt, e),

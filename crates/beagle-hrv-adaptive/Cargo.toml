@@ -1,0 +1,36 @@
+[package]
+name = "beagle-hrv-adaptive"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "HRV-adaptive ensemble reasoning with embedding-weighted consensus"
+
+[dependencies]
+tokio = { workspace = true }
+async-trait.workspace = true
+futures.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+chrono = { workspace = true }
+uuid = { workspace = true }
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }
+
+# For embedding similarity
+ndarray = "0.15"
+
+# Internal crate dependencies
+beagle-bio = { path = "../beagle-bio" }
+beagle-llm = { path = "../beagle-llm" }
+
+[dev-dependencies]
+tokio-test.workspace = true
+
+[[test]]
+name = "integration_tests"
+path = "tests/integration_tests.rs"

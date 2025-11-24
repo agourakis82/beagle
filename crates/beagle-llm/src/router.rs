@@ -6,7 +6,7 @@
 //! - Matemática pesada → DeepSeek (futuro)
 //! - Offline → Gemma local (futuro)
 
-use crate::{clients::grok::GrokClient, meta::RequestMeta, LlmClient, LlmRequest, ChatMessage};
+use crate::{clients::grok::GrokClient, meta::RequestMeta, ChatMessage, LlmClient, LlmRequest};
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 use tracing::info;
@@ -28,7 +28,7 @@ impl BeagleRouter {
 
         let req = LlmRequest {
             model: if meta.high_bias_risk {
-                "grok-4-heavy".to_string()
+                "grok-4-0709".to_string()
             } else {
                 "grok-3".to_string()
             },
@@ -70,4 +70,3 @@ impl BeagleRouter {
         GROK_CLIENT.clone()
     }
 }
-

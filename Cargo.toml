@@ -6,6 +6,8 @@
 [workspace]
 members = [
     "crates/beagle-agents",
+    "crates/beagle-bio",
+    "crates/beagle-hrv-adaptive",
     "crates/beagle-db",
     "crates/beagle-hypergraph",
     "crates/beagle-llm",

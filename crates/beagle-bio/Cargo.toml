@@ -1,0 +1,38 @@
+[package]
+name = "beagle-bio"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Real HRV (Heart Rate Variability) reading from Apple Watch and physiological signal processing"
+
+[dependencies]
+tokio = { workspace = true }
+async-trait.workspace = true
+futures.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+chrono = { workspace = true }
+uuid = { workspace = true }
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }
+
+# Health data (when available on platform)
+# healthkit = { version = "0.1", optional = true }
+
+[dev-dependencies]
+tokio-test.workspace = true
+
+[features]
+default = ["mock"]
+mock = []
+# healthkit-live feature would require actual healthkit dependency
+# which is only available on Apple platforms
+
+[[test]]
+name = "integration_tests"
+path = "tests/integration_tests.rs"
