@@ -63,6 +63,40 @@ use crate::api::routes::{auth, chat, health, hyperedges, nodes, search};
         (name = "nodes", description = "Gestão de nós do hipergrafo"),
         (name = "hyperedges", description = "Gestão de hiperedges"),
         (name = "search", description = "Busca semântica e navegação"),
+        (name = "dev", description = "🚀 Revolutionary AI Features (Weeks 1-14)"),
+        (name = "quantum", description = "Quantum-Inspired Reasoning (Week 1-2)"),
+        (name = "adversarial", description = "Adversarial Self-Play (Week 3-4)"),
+        (name = "metacognitive", description = "Metacognitive Evolution (Week 5-7)"),
+        (name = "neurosymbolic", description = "Neuro-Symbolic Hybrid (Week 8-10)"),
+        (name = "temporal", description = "Temporal Multi-Scale Reasoning (Week 13)"),
     )
 )]
 pub struct ApiDoc;
+
+/// Revolutionary Features API Documentation (v2.0)
+///
+/// BEAGLE v2.0 exposes cutting-edge AI capabilities through /dev endpoints:
+///
+/// ## Quantum-Inspired Reasoning (Week 1-2)
+/// - `/dev/quantum-reasoning` - Superposition states, interference patterns, measurement collapse
+///
+/// ## Adversarial Self-Play (Week 3-4)
+/// - `/dev/adversarial-compete` - Tournament-based competition, ELO ratings, strategy evolution
+///
+/// ## Metacognitive Evolution (Week 5-7)
+/// - `/dev/metacognitive/analyze-performance` - Performance bottleneck analysis
+/// - `/dev/metacognitive/analyze-failures` - Failure pattern detection
+///
+/// ## Neuro-Symbolic Hybrid (Week 8-10)
+/// - `/dev/neurosymbolic` - First-order logic, hallucination detection, symbolic reasoning
+///
+/// ## Temporal Multi-Scale (Week 13)
+/// - `/dev/temporal` - Multi-scale causality (µs → years), pattern mining, anomaly detection
+///
+/// ## Advanced Research
+/// - `/dev/deep-research` - MCTS-based deep exploration
+/// - `/dev/swarm` - Swarm intelligence coordination
+/// - `/dev/reasoning` - General hybrid reasoning
+/// - `/dev/debate` - Multi-agent debate orchestration
+///
+/// All endpoints require Anthropic API key configuration.
