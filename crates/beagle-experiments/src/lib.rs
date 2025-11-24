@@ -15,9 +15,10 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use tracing::info;
 
-pub use analysis::{ExperimentDataPoint, ExperimentMetrics, ConditionMetrics};
+pub use analysis::{ConditionMetrics, ExperimentDataPoint, ExperimentMetrics};
 pub use exp001::{
-    assert_expedition_001_llm_config, Expedition001Config, EXPEDITION_001_ID, EXPEDITION_001_DEFAULT_N,
+    assert_expedition_001_llm_config, Expedition001Config, EXPEDITION_001_DEFAULT_N,
+    EXPEDITION_001_ID,
 };
 
 /// Tag experimental para um run_id
@@ -32,7 +33,7 @@ pub struct ExperimentRunTag {
     pub timestamp: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
-    
+
     // Snapshot de config relevante no momento do run
     pub triad_enabled: bool,
     pub hrv_aware: bool,
@@ -47,24 +48,26 @@ pub fn append_experiment_tag(_data_dir: &Path, tag: &ExperimentRunTag) -> anyhow
     use beagle_config::experiments_dir;
     let experiments_dir = experiments_dir();
     std::fs::create_dir_all(&experiments_dir)?;
-    
+
     let log_file = experiments_dir.join("events.jsonl");
-    
+
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&log_file)?;
-    
+
     // Formato: {"tag": ExperimentRunTag} por linha (JSONL)
     let entry = serde_json::json!({
         "tag": tag
     });
     let json = serde_json::to_string(&entry)?;
     writeln!(file, "{}", json)?;
-    
-    info!("📊 Tag experimental anexada: experiment_id={}, run_id={}, condition={}", 
-          tag.experiment_id, tag.run_id, tag.condition);
-    
+
+    info!(
+        "📊 Tag experimental anexada: experiment_id={}, run_id={}, condition={}",
+        tag.experiment_id, tag.run_id, tag.condition
+    );
+
     Ok(())
 }
 
@@ -74,14 +77,14 @@ pub fn append_experiment_tag(_data_dir: &Path, tag: &ExperimentRunTag) -> anyhow
 pub fn load_experiment_tags(_data_dir: &Path) -> anyhow::Result<Vec<ExperimentRunTag>> {
     use beagle_config::experiments_dir;
     let log_file = experiments_dir().join("events.jsonl");
-    
+
     if !log_file.exists() {
         return Ok(Vec::new());
     }
-    
+
     let file = std::fs::File::open(&log_file)?;
     let reader = BufReader::new(file);
-    
+
     let mut tags = Vec::new();
     for line in reader.lines() {
         let line = line?;
@@ -102,14 +105,18 @@ pub fn load_experiment_tags(_data_dir: &Path) -> anyhow::Result<Vec<ExperimentRu
             tags.push(tag);
         }
     }
-    
+
     Ok(tags)
 }
 
 /// Lê tags experimentais filtradas por experiment_id
-pub fn load_experiment_tags_by_id(data_dir: &Path, experiment_id: &str) -> anyhow::Result<Vec<ExperimentRunTag>> {
+pub fn load_experiment_tags_by_id(
+    data_dir: &Path,
+    experiment_id: &str,
+) -> anyhow::Result<Vec<ExperimentRunTag>> {
     let all_tags = load_experiment_tags(data_dir)?;
-    Ok(all_tags.into_iter()
+    Ok(all_tags
+        .into_iter()
         .filter(|t| t.experiment_id == experiment_id)
         .collect())
 }
@@ -120,10 +127,14 @@ pub fn read_experiment_tags(data_dir: &PathBuf) -> anyhow::Result<Vec<Experiment
 }
 
 /// Agrupa runs por experiment_id e condition
-pub fn group_by_experiment(tags: &[ExperimentRunTag]) -> std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>> {
-    let mut groups: std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>> = 
-        std::collections::HashMap::new();
-    
+pub fn group_by_experiment(
+    tags: &[ExperimentRunTag],
+) -> std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>> {
+    let mut groups: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, Vec<String>>,
+    > = std::collections::HashMap::new();
+
     for tag in tags {
         groups
             .entry(tag.experiment_id.clone())
@@ -132,7 +143,7 @@ pub fn group_by_experiment(tags: &[ExperimentRunTag]) -> std::collections::HashM
             .or_insert_with(Vec::new)
             .push(tag.run_id.clone());
     }
-    
+
     groups
 }
 
@@ -143,10 +154,11 @@ pub fn analyze_experiment(
 ) -> anyhow::Result<ExperimentAnalysis> {
     // Lê tags experimentais
     let tags = load_experiment_tags(data_dir)?;
-    let experiment_tags: Vec<_> = tags.iter()
+    let experiment_tags: Vec<_> = tags
+        .iter()
         .filter(|t| t.experiment_id == experiment_id)
         .collect();
-    
+
     if experiment_tags.is_empty() {
         return Ok(ExperimentAnalysis {
             experiment_id: experiment_id.to_string(),
@@ -155,11 +167,13 @@ pub fn analyze_experiment(
             total_runs: 0,
         });
     }
-    
+
     // Agrupa por condition
-    let mut condition_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    let mut run_ids_by_condition: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-    
+    let mut condition_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    let mut run_ids_by_condition: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+
     for tag in &experiment_tags {
         *condition_counts.entry(tag.condition.clone()).or_insert(0) += 1;
         run_ids_by_condition
@@ -167,7 +181,7 @@ pub fn analyze_experiment(
             .or_insert_with(Vec::new)
             .push(tag.run_id.clone());
     }
-    
+
     Ok(ExperimentAnalysis {
         experiment_id: experiment_id.to_string(),
         condition_counts,
@@ -192,4 +206,3 @@ pub fn ensure_experiments_dir() -> anyhow::Result<PathBuf> {
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
-

@@ -18,7 +18,7 @@ impl LlmOutput {
             tokens_out_est,
         }
     }
-    
+
     /// Cria output com estimativa simples baseada em caracteres
     pub fn from_text(text: String, prompt: &str) -> Self {
         Self {
@@ -27,10 +27,9 @@ impl LlmOutput {
             tokens_out_est: text.chars().count() / 4,
         }
     }
-    
+
     /// Total de tokens estimados
     pub fn total_tokens(&self) -> usize {
         self.tokens_in_est + self.tokens_out_est
     }
 }
-

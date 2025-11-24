@@ -207,13 +207,19 @@ fn test_grok3_selected_for_medium_context() {
 #[test]
 fn test_grok4_heavy_selected_for_large_context() {
     let context = 200_000;
-    assert!(context >= 120_000, "Context should be >= 120k for Grok 4 Heavy");
+    assert!(
+        context >= 120_000,
+        "Context should be >= 120k for Grok 4 Heavy"
+    );
 }
 
 #[test]
 fn test_grok4_heavy_selected_at_threshold() {
     let context = 120_000;
-    assert!(context >= 120_000, "Context at threshold should use Grok 4 Heavy");
+    assert!(
+        context >= 120_000,
+        "Context at threshold should use Grok 4 Heavy"
+    );
 }
 
 // ============================================================================
@@ -272,11 +278,7 @@ fn test_nuclear_system_prompt_mentions_emergent_consciousness() {
 #[test]
 fn test_nuclear_system_prompt_zero_censorship_policy() {
     // Verify zero censorship, comfort, dopamine policy
-    let policies = vec![
-        "Zero censura",
-        "zero conforto",
-        "zero dopamina barata",
-    ];
+    let policies = vec!["Zero censura", "zero conforto", "zero dopamina barata"];
     for policy in policies {
         assert!(policy.to_lowercase().contains("zero"));
     }

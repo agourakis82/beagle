@@ -4,14 +4,13 @@
 //! permitindo que Darwin e HERMES operem com diferentes implementações
 //! (Grok, Claude, Qdrant, Neo4j, mocks para testes, etc.).
 
-pub mod traits;
 pub mod context;
 pub mod implementations;
 pub mod stats;
+pub mod traits;
 
 pub use stats::LlmStatsRegistry;
 
-pub use traits::*;
 pub use context::*;
 pub use implementations::*;
-
+pub use traits::*;

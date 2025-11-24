@@ -41,7 +41,10 @@ impl EntropyLattice {
             node_id,
         };
         self.graph.add_node(node);
-        info!("ENTROPY LATTICE: Nó adicionado na escala {} com entropia {:.2}", scale, entropy);
+        info!(
+            "ENTROPY LATTICE: Nó adicionado na escala {} com entropia {:.2}",
+            scale, entropy
+        );
     }
 
     /// Conecta dois nós com fluxo entrópico
@@ -65,10 +68,7 @@ impl EntropyLattice {
 
     /// Calcula entropia total do lattice em todas as escalas
     pub fn total_entropy(&self) -> f64 {
-        self.graph
-            .node_weights()
-            .map(|n| n.entropy)
-            .sum::<f64>()
+        self.graph.node_weights().map(|n| n.entropy).sum::<f64>()
     }
 
     /// Obtém entropia em uma escala específica
@@ -86,4 +86,3 @@ impl Default for EntropyLattice {
         Self::new()
     }
 }
-

@@ -1,17 +1,27 @@
 use anyhow::{anyhow, Context, Result};
 use reqwest::Client;
 use serde_json::{json, Value};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
+use super::claude_code_session::ClaudeCodeSessionReader;
 use crate::models::{CompletionRequest, CompletionResponse, ModelType};
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
+/// Tipo de autenticação usada pelo cliente.
+#[derive(Debug, Clone)]
+enum AuthType {
+    /// API Key tradicional (sk-ant-api03-...)
+    ApiKey(String),
+    /// OAuth token do Claude Code (sk-ant-oat01-...)
+    OAuth(String),
+}
+
 /// Cliente HTTP direto para a API pública da Anthropic.
 pub struct AnthropicClient {
     http: Client,
-    api_key: String,
+    auth: AuthType,
 }
 
 impl AnthropicClient {
@@ -26,7 +36,63 @@ impl AnthropicClient {
             .build()
             .context("Falha ao construir cliente HTTP Anthropic")?;
 
-        Ok(Self { http, api_key })
+        Ok(Self {
+            http,
+            auth: AuthType::ApiKey(api_key),
+        })
+    }
+
+    /// Cria um cliente usando a sessão OAuth do Claude Code.
+    ///
+    /// Tenta ler as credenciais de `~/.claude/.credentials.json`.
+    /// Requer que o Claude Code extension esteja instalado e autenticado.
+    pub fn from_claude_code_session() -> Result<Self> {
+        let reader = ClaudeCodeSessionReader::new();
+        let session = reader
+            .read_session()
+            .context("Falha ao ler sessão do Claude Code")?;
+
+        if session.claude_ai_oauth.is_expired() {
+            warn!("OAuth token do Claude Code está expirado, mas tentando usar mesmo assim");
+            // Nota: A API pode aceitar o token expirado se o servidor fizer refresh automático
+            // ou podemos implementar refresh usando o refresh_token futuramente
+        }
+
+        let http = Client::builder()
+            .build()
+            .context("Falha ao construir cliente HTTP Anthropic")?;
+
+        info!(
+            subscription = %session.claude_ai_oauth.subscription_type,
+            rate_limit = %session.claude_ai_oauth.rate_limit_tier,
+            "Cliente Anthropic criado usando sessão do Claude Code"
+        );
+
+        Ok(Self {
+            http,
+            auth: AuthType::OAuth(session.claude_ai_oauth.access_token),
+        })
+    }
+
+    /// Tenta criar um cliente do Claude Code, fallback para API key se falhar.
+    ///
+    /// NOTA: A API pública da Anthropic atualmente NÃO aceita OAuth tokens do Claude Code.
+    /// Este método sempre usa API key. A infraestrutura OAuth é mantida para compatibilidade futura.
+    #[allow(dead_code)]
+    pub fn new_with_claude_code_fallback(api_key: impl Into<String>) -> Result<Self> {
+        // Check if Claude Code session exists (for logging purposes)
+        match Self::from_claude_code_session() {
+            Ok(_client) => {
+                info!("Claude Code OAuth session found (MAX subscription)");
+                info!("Note: Anthropic API doesn't support OAuth tokens yet, using API key");
+            }
+            Err(e) => {
+                debug!("Claude Code session not found: {}", e);
+            }
+        }
+
+        // Always use API key for now
+        Self::new(api_key)
     }
 
     /// Executa uma completion síncrona no endpoint `messages`.
@@ -68,10 +134,20 @@ impl AnthropicClient {
             "Enviando requisição à Anthropic"
         );
 
-        let response = self
-            .http
-            .post(API_URL)
-            .header("x-api-key", &self.api_key)
+        // Configura autenticação baseada no tipo
+        let mut request_builder = self.http.post(API_URL);
+
+        match &self.auth {
+            AuthType::ApiKey(key) => {
+                request_builder = request_builder.header("x-api-key", key);
+            }
+            AuthType::OAuth(token) => {
+                request_builder =
+                    request_builder.header("authorization", format!("Bearer {}", token));
+            }
+        }
+
+        let response = request_builder
             .header("anthropic-version", ANTHROPIC_VERSION)
             .json(&body)
             .send()

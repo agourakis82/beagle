@@ -226,4 +226,3 @@ impl Default for SelfReplicator {
         Self::new()
     }
 }
-

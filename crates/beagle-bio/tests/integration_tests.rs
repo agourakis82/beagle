@@ -572,11 +572,19 @@ fn test_calculate_reasoning_weight_stressed_minimal() {
 #[test]
 fn test_calculate_reasoning_weight_bounds() {
     for complexity in [0.0, 0.25, 0.5, 0.75, 1.0].iter() {
-        for state in [CognitiveState::PeakFlow, CognitiveState::Nominal, CognitiveState::Stressed]
-            .iter()
+        for state in [
+            CognitiveState::PeakFlow,
+            CognitiveState::Nominal,
+            CognitiveState::Stressed,
+        ]
+        .iter()
         {
             let weight = calculate_reasoning_weight(*state, *complexity);
-            assert!(weight >= 0.0 && weight <= 1.0, "Weight {} out of bounds", weight);
+            assert!(
+                weight >= 0.0 && weight <= 1.0,
+                "Weight {} out of bounds",
+                weight
+            );
         }
     }
 }
@@ -837,7 +845,10 @@ fn test_hrv_threshold_consistency() {
         quality_score: 0.95,
         source: "test".to_string(),
     };
-    assert_eq!(near_stressed.infer_cognitive_state(), CognitiveState::Nominal);
+    assert_eq!(
+        near_stressed.infer_cognitive_state(),
+        CognitiveState::Nominal
+    );
 
     // SDNN just below nominal threshold
     let near_nominal = HRVData {
@@ -850,5 +861,8 @@ fn test_hrv_threshold_consistency() {
         quality_score: 0.95,
         source: "test".to_string(),
     };
-    assert_eq!(near_nominal.infer_cognitive_state(), CognitiveState::Nominal);
+    assert_eq!(
+        near_nominal.infer_cognitive_state(),
+        CognitiveState::Nominal
+    );
 }

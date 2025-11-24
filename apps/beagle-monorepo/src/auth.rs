@@ -3,6 +3,7 @@
 //! Implementa autenticação via Bearer token para proteger endpoints sensíveis.
 
 use axum::{
+    body::Body,
     extract::State,
     http::{Request, StatusCode},
     middleware::Next,
@@ -30,10 +31,10 @@ struct AuthErrorResponse {
 /// Se `api_token` não estiver configurado (None):
 /// - Em dev/lab: permite acesso mas loga WARNING
 /// - Em prod: nunca deve acontecer (validado no load)
-pub async fn api_token_auth<B>(
+pub async fn api_token_auth(
     State(state): State<AppState>,
-    mut req: Request<B>,
-    next: Next<B>,
+    mut req: Request<Body>,
+    next: Next,
 ) -> Result<Response, StatusCode> {
     let ctx = state.ctx.lock().await;
 
@@ -84,9 +85,7 @@ pub async fn api_token_auth<B>(
 }
 
 /// Handler de erro customizado para retornar JSON em vez de texto plano
-pub async fn auth_error_handler(
-    status: StatusCode,
-) -> impl IntoResponse {
+pub async fn auth_error_handler(status: StatusCode) -> impl IntoResponse {
     if status == StatusCode::UNAUTHORIZED {
         (
             StatusCode::UNAUTHORIZED,
@@ -109,6 +108,7 @@ pub async fn auth_error_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{JobRegistry, ScienceJobRegistry};
     use axum::{
         body::Body,
         http::{Request, StatusCode},
@@ -119,7 +119,6 @@ mod tests {
     use beagle_config::BeagleConfig;
     use beagle_core::BeagleContext;
     use beagle_observer::UniversalObserver;
-    use crate::{JobRegistry, ScienceJobRegistry};
     use tower::ServiceExt; // for `oneshot`
 
     async fn dummy_handler() -> &'static str {
@@ -133,7 +132,9 @@ mod tests {
             api_token,
             llm: Default::default(),
             storage: beagle_config::model::StorageConfig {
-                data_dir: beagle_config::beagle_data_dir().to_string_lossy().to_string(),
+                data_dir: beagle_config::beagle_data_dir()
+                    .to_string_lossy()
+                    .to_string(),
             },
             graph: Default::default(),
             hermes: Default::default(),
@@ -161,7 +162,10 @@ mod tests {
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
-            .route_layer(middleware::from_fn_with_state(state.clone(), api_token_auth))
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                api_token_auth,
+            ))
             .with_state(state);
 
         let req = Request::builder()
@@ -180,7 +184,10 @@ mod tests {
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
-            .route_layer(middleware::from_fn_with_state(state.clone(), api_token_auth))
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                api_token_auth,
+            ))
             .with_state(state);
 
         let req = Request::builder()
@@ -199,13 +206,13 @@ mod tests {
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
-            .route_layer(middleware::from_fn_with_state(state.clone(), api_token_auth))
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                api_token_auth,
+            ))
             .with_state(state);
 
-        let req = Request::builder()
-            .uri("/test")
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
 
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -217,13 +224,13 @@ mod tests {
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
-            .route_layer(middleware::from_fn_with_state(state.clone(), api_token_auth))
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                api_token_auth,
+            ))
             .with_state(state);
 
-        let req = Request::builder()
-            .uri("/test")
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri("/test").body(Body::empty()).unwrap();
 
         let response = app.oneshot(req).await.unwrap();
         // Sem token configurado em dev, permite acesso

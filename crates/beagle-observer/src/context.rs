@@ -1,8 +1,8 @@
 //! Observer 2.0 - Contexto agregado do usuário
 
+use crate::severity::Severity;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::severity::Severity;
 
 /// Contexto fisiológico agregado
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -129,7 +129,10 @@ impl EnvContext {
         let mut parts = Vec::new();
 
         if let Some((lat, lon, alt)) = self.location {
-            parts.push(format!("Localização: {:.4}°N, {:.4}°E, {:.0}m", lat, lon, alt));
+            parts.push(format!(
+                "Localização: {:.4}°N, {:.4}°E, {:.0}m",
+                lat, lon, alt
+            ));
         }
 
         if let Some(temp) = self.ambient_temp_c {
@@ -151,4 +154,3 @@ impl EnvContext {
         }
     }
 }
-

@@ -1,9 +1,10 @@
 use axum::{extract::State, http::StatusCode, Json};
-use beagle_agents::neurosymbolic::{Fact, LogicRule, NeuralExtractor, Predicate, HybridReasoner};
+use beagle_agents::neurosymbolic::{Fact, HybridReasoner, LogicRule, NeuralExtractor, Predicate};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::info;
 
+use crate::error::ApiError;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -52,17 +53,28 @@ pub async fn neurosymbolic_reason(
     State(state): State<AppState>,
     Json(req): Json<NeuroSymbolicRequest>,
 ) -> Result<Json<NeuroSymbolicResponse>, (StatusCode, String)> {
-    info!("🔬 /dev/neurosymbolic - Analyzing text ({} chars)", req.text.len());
+    info!(
+        "🔬 /dev/neurosymbolic - Analyzing text ({} chars)",
+        req.text.len()
+    );
 
     // Create hybrid reasoner
-    let neural_extractor = Arc::new(NeuralExtractor::new(state.anthropic.clone()));
+    let llm = state.anthropic_client().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Anthropic client not configured. Set ANTHROPIC_API_KEY.".to_string(),
+        )
+    })?;
+    let neural_extractor = Arc::new(NeuralExtractor::new(llm));
     let mut hybrid = HybridReasoner::new(neural_extractor);
 
     // Run hybrid reasoning
-    let result = hybrid
-        .reason(&req.text)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Reasoning failed: {}", e)))?;
+    let result = hybrid.reason(&req.text).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Reasoning failed: {}", e),
+        )
+    })?;
 
     // Detect hallucinations
     let hallucinations = hybrid.detect_hallucinations(&result.extracted_facts);
@@ -119,7 +131,14 @@ fn term_to_string(term: &beagle_agents::neurosymbolic::Term) -> String {
         Term::Constant(c) => c.clone(),
         Term::Variable(v) => format!("?{}", v),
         Term::Function(f, args) => {
-            format!("{}({})", f, args.iter().map(term_to_string).collect::<Vec<_>>().join(", "))
+            format!(
+                "{}({})",
+                f,
+                args.iter()
+                    .map(term_to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         }
     }
 }

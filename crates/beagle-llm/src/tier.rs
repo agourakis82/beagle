@@ -47,23 +47,22 @@ impl RequestMeta {
     /// Analisa prompt e extrai metadados
     pub fn from_prompt(prompt: &str) -> Self {
         let lower = prompt.to_lowercase();
-        
-        let requires_math = lower.contains("proof") 
-            || lower.contains("derive") 
+
+        let requires_math = lower.contains("proof")
+            || lower.contains("derive")
             || lower.contains("theorem")
             || lower.contains("mathematical")
             || lower.contains("equation")
             || lower.contains("calculate")
             || lower.contains("solve");
-        
-        let requires_vision = lower.contains("image") 
-            || lower.contains("picture")
-            || lower.contains("visual");
-        
+
+        let requires_vision =
+            lower.contains("image") || lower.contains("picture") || lower.contains("visual");
+
         let approximate_tokens = prompt.len() / 4;
-        
+
         // Alta qualidade para prompts longos ou complexos
-        let requires_high_quality = approximate_tokens > 4000 
+        let requires_high_quality = approximate_tokens > 4000
             || lower.contains("review")
             || lower.contains("analyze")
             || lower.contains("synthesize");
@@ -77,4 +76,3 @@ impl RequestMeta {
         }
     }
 }
-

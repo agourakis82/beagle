@@ -199,8 +199,23 @@ mod tests {
             Ok(node)
         }
 
-        async fn get_node(&self, _id: Uuid) -> HyperResult<Node> {
-            unimplemented!("não utilizado em testes");
+        async fn get_node(&self, id: Uuid) -> HyperResult<Node> {
+            // Search in created nodes
+            let created = self.created.lock().await;
+            if let Some(node) = created.iter().find(|n| n.id == id) {
+                return Ok(node.clone());
+            }
+
+            // Search in updated nodes
+            let updated = self.updated.lock().await;
+            if let Some(node) = updated.iter().find(|n| n.id == id) {
+                return Ok(node.clone());
+            }
+
+            Err(beagle_hypergraph::HyperError::NotFound(format!(
+                "Node {} not found",
+                id
+            )))
         }
 
         async fn update_node(&self, node: Node) -> HyperResult<Node> {
@@ -213,12 +228,45 @@ mod tests {
             Ok(())
         }
 
-        async fn list_nodes(&self, _filters: Option<NodeFilters>) -> HyperResult<Vec<Node>> {
-            unimplemented!("não utilizado em testes");
+        async fn list_nodes(&self, filters: Option<NodeFilters>) -> HyperResult<Vec<Node>> {
+            let mut nodes = Vec::new();
+
+            // Collect all created nodes
+            nodes.extend(self.created.lock().await.iter().cloned());
+
+            // Collect all updated nodes (deduplicate by ID)
+            for node in self.updated.lock().await.iter() {
+                if !nodes.iter().any(|n| n.id == node.id) {
+                    nodes.push(node.clone());
+                }
+            }
+
+            // Remove deleted nodes
+            let deleted = self.deleted.lock().await;
+            nodes.retain(|n| !deleted.contains(&n.id));
+
+            // Apply filters if provided
+            if let Some(f) = filters {
+                if let Some(node_type) = f.node_type {
+                    nodes.retain(|n| n.node_type == node_type);
+                }
+                if let Some(labels) = f.labels {
+                    nodes.retain(|n| labels.iter().all(|label| n.labels.contains(label)));
+                }
+            }
+
+            Ok(nodes)
         }
 
-        async fn batch_get_nodes(&self, _ids: Vec<Uuid>) -> HyperResult<Vec<Node>> {
-            unimplemented!("não utilizado em testes");
+        async fn batch_get_nodes(&self, ids: Vec<Uuid>) -> HyperResult<Vec<Node>> {
+            let mut result = Vec::new();
+            for id in ids {
+                match self.get_node(id).await {
+                    Ok(node) => result.push(node),
+                    Err(_) => continue, // Skip nodes that don't exist
+                }
+            }
+            Ok(result)
         }
 
         async fn create_hyperedge(&self, edge: Hyperedge) -> HyperResult<Hyperedge> {
@@ -226,45 +274,124 @@ mod tests {
             Ok(edge)
         }
 
-        async fn get_hyperedge(&self, _id: Uuid) -> HyperResult<Hyperedge> {
-            unimplemented!("não utilizado em testes");
+        async fn get_hyperedge(&self, id: Uuid) -> HyperResult<Hyperedge> {
+            let hyperedges = self.hyperedges.lock().await;
+            hyperedges
+                .iter()
+                .find(|e| e.id == id)
+                .cloned()
+                .ok_or_else(|| {
+                    beagle_hypergraph::HyperError::NotFound(format!("Hyperedge {} not found", id))
+                })
         }
 
-        async fn update_hyperedge(&self, _edge: Hyperedge) -> HyperResult<Hyperedge> {
-            unimplemented!("não utilizado em testes");
+        async fn update_hyperedge(&self, edge: Hyperedge) -> HyperResult<Hyperedge> {
+            let mut hyperedges = self.hyperedges.lock().await;
+            if let Some(existing) = hyperedges.iter_mut().find(|e| e.id == edge.id) {
+                *existing = edge.clone();
+                Ok(edge)
+            } else {
+                Err(beagle_hypergraph::HyperError::NotFound(format!(
+                    "Hyperedge {} not found",
+                    edge.id
+                )))
+            }
         }
 
-        async fn delete_hyperedge(&self, _id: Uuid) -> HyperResult<()> {
-            unimplemented!("não utilizado em testes");
+        async fn delete_hyperedge(&self, id: Uuid) -> HyperResult<()> {
+            let mut hyperedges = self.hyperedges.lock().await;
+            if let Some(pos) = hyperedges.iter().position(|e| e.id == id) {
+                hyperedges.remove(pos);
+                Ok(())
+            } else {
+                Err(beagle_hypergraph::HyperError::NotFound(format!(
+                    "Hyperedge {} not found",
+                    id
+                )))
+            }
         }
 
-        async fn list_hyperedges(&self, _node_id: Option<Uuid>) -> HyperResult<Vec<Hyperedge>> {
-            unimplemented!("não utilizado em testes");
+        async fn list_hyperedges(&self, node_id: Option<Uuid>) -> HyperResult<Vec<Hyperedge>> {
+            let hyperedges = self.hyperedges.lock().await;
+            match node_id {
+                Some(id) => Ok(hyperedges
+                    .iter()
+                    .filter(|e| e.nodes.contains(&id))
+                    .cloned()
+                    .collect()),
+                None => Ok(hyperedges.clone()),
+            }
         }
 
         async fn query_neighborhood(
             &self,
-            _start_node: Uuid,
-            _depth: i32,
+            start_node: Uuid,
+            depth: i32,
         ) -> HyperResult<Vec<(Node, i32)>> {
-            unimplemented!("não utilizado em testes");
+            let mut result = Vec::new();
+            let mut visited = std::collections::HashSet::new();
+            let mut queue = std::collections::VecDeque::new();
+
+            // Start with the initial node
+            if let Ok(node) = self.get_node(start_node).await {
+                queue.push_back((node, 0));
+                visited.insert(start_node);
+            }
+
+            while let Some((node, current_depth)) = queue.pop_front() {
+                result.push((node.clone(), current_depth));
+
+                if current_depth < depth {
+                    // Find all edges connected to this node
+                    let edges = self.get_edges_for_node(node.id).await?;
+
+                    for edge in edges {
+                        for &connected_id in &edge.nodes {
+                            if connected_id != node.id && !visited.contains(&connected_id) {
+                                if let Ok(connected_node) = self.get_node(connected_id).await {
+                                    visited.insert(connected_id);
+                                    queue.push_back((connected_node, current_depth + 1));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(result)
         }
 
-        async fn get_connected_nodes(&self, _edge_id: Uuid) -> HyperResult<Vec<Node>> {
-            unimplemented!("não utilizado em testes");
+        async fn get_connected_nodes(&self, edge_id: Uuid) -> HyperResult<Vec<Node>> {
+            let edge = self.get_hyperedge(edge_id).await?;
+            let mut nodes = Vec::new();
+
+            for node_id in edge.nodes {
+                if let Ok(node) = self.get_node(node_id).await {
+                    nodes.push(node);
+                }
+            }
+
+            Ok(nodes)
         }
 
-        async fn get_edges_for_node(&self, _node_id: Uuid) -> HyperResult<Vec<Hyperedge>> {
-            unimplemented!("não utilizado em testes");
+        async fn get_edges_for_node(&self, node_id: Uuid) -> HyperResult<Vec<Hyperedge>> {
+            self.list_hyperedges(Some(node_id)).await
         }
 
         async fn semantic_search(
             &self,
             _query_embedding: Vec<f32>,
-            _limit: usize,
+            limit: usize,
             _threshold: f32,
         ) -> HyperResult<Vec<(Node, f32)>> {
-            unimplemented!("não utilizado em testes");
+            // For test mock, just return all nodes with dummy scores
+            let nodes = self.list_nodes(None).await?;
+            let result = nodes
+                .into_iter()
+                .take(limit)
+                .map(|n| (n, 0.9)) // Dummy similarity score
+                .collect();
+            Ok(result)
         }
 
         async fn health_check(&self) -> HyperResult<HealthStatus> {

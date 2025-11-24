@@ -2,7 +2,7 @@
 
 use utoipa::OpenApi;
 
-use crate::api::routes::{auth, chat, health, hyperedges, nodes, search};
+use crate::api::routes::{auth, chat, chat_adaptive, health, hyperedges, nodes, search};
 
 /// Documento OpenAPI 3.1 do Beagle Server.
 #[derive(OpenApi)]
@@ -21,6 +21,7 @@ use crate::api::routes::{auth, chat, health, hyperedges, nodes, search};
         health::readiness_check,
         health::liveness_check,
         chat::chat_completion,
+        chat_adaptive::adaptive_chat,
         auth::login,
         auth::me,
         nodes::create_node,
@@ -43,6 +44,8 @@ use crate::api::routes::{auth, chat, health, hyperedges, nodes, search};
             auth::MeResponse,
             chat::ChatRequest,
             chat::ChatResponse,
+            chat_adaptive::AdaptiveChatRequest,
+            chat_adaptive::AdaptiveChatResponse,
             nodes::CreateNodeRequest,
             nodes::UpdateNodeRequest,
             nodes::NodeResponse,
@@ -73,30 +76,30 @@ use crate::api::routes::{auth, chat, health, hyperedges, nodes, search};
 )]
 pub struct ApiDoc;
 
-/// Revolutionary Features API Documentation (v2.0)
-///
-/// BEAGLE v2.0 exposes cutting-edge AI capabilities through /dev endpoints:
-///
-/// ## Quantum-Inspired Reasoning (Week 1-2)
-/// - `/dev/quantum-reasoning` - Superposition states, interference patterns, measurement collapse
-///
-/// ## Adversarial Self-Play (Week 3-4)
-/// - `/dev/adversarial-compete` - Tournament-based competition, ELO ratings, strategy evolution
-///
-/// ## Metacognitive Evolution (Week 5-7)
-/// - `/dev/metacognitive/analyze-performance` - Performance bottleneck analysis
-/// - `/dev/metacognitive/analyze-failures` - Failure pattern detection
-///
-/// ## Neuro-Symbolic Hybrid (Week 8-10)
-/// - `/dev/neurosymbolic` - First-order logic, hallucination detection, symbolic reasoning
-///
-/// ## Temporal Multi-Scale (Week 13)
-/// - `/dev/temporal` - Multi-scale causality (µs → years), pattern mining, anomaly detection
-///
-/// ## Advanced Research
-/// - `/dev/deep-research` - MCTS-based deep exploration
-/// - `/dev/swarm` - Swarm intelligence coordination
-/// - `/dev/reasoning` - General hybrid reasoning
-/// - `/dev/debate` - Multi-agent debate orchestration
-///
-/// All endpoints require Anthropic API key configuration.
+// Revolutionary Features API Documentation (v2.0)
+//
+// BEAGLE v2.0 exposes cutting-edge AI capabilities through /dev endpoints:
+//
+// ## Quantum-Inspired Reasoning (Week 1-2)
+// - `/dev/quantum-reasoning` - Superposition states, interference patterns, measurement collapse
+//
+// ## Adversarial Self-Play (Week 3-4)
+// - `/dev/adversarial-compete` - Tournament-based competition, ELO ratings, strategy evolution
+//
+// ## Metacognitive Evolution (Week 5-7)
+// - `/dev/metacognitive/analyze-performance` - Performance bottleneck analysis
+// - `/dev/metacognitive/analyze-failures` - Failure pattern detection
+//
+// ## Neuro-Symbolic Hybrid (Week 8-10)
+// - `/dev/neurosymbolic` - First-order logic, hallucination detection, symbolic reasoning
+//
+// ## Temporal Multi-Scale (Week 13)
+// - `/dev/temporal` - Multi-scale causality (µs → years), pattern mining, anomaly detection
+//
+// ## Advanced Research
+// - `/dev/deep-research` - MCTS-based deep exploration
+// - `/dev/swarm` - Swarm intelligence coordination
+// - `/dev/reasoning` - General hybrid reasoning
+// - `/dev/debate` - Multi-agent debate orchestration
+//
+// All endpoints require Anthropic API key configuration.

@@ -97,10 +97,7 @@ fn main() -> anyhow::Result<()> {
             None => continue,
         };
 
-        let input = format!(
-            "Pergunta:\n{}\n\nDraft inicial:\n{}\n",
-            question, draft_md
-        );
+        let input = format!("Pergunta:\n{}\n\nDraft inicial:\n{}\n", question, draft_md);
         let output = final_md;
 
         let json = serde_json::json!({
@@ -121,4 +118,3 @@ fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

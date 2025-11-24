@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use crate::error::ApiError;
 use crate::state::AppState;
 
 // ============================================================================
@@ -208,7 +209,10 @@ pub async fn analyze_failures(
         monitor.record(perf);
     }
 
-    let analyzer = WeaknessAnalyzer::new(state.anthropic.clone());
+    let llm = state
+        .anthropic_client()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let analyzer = WeaknessAnalyzer::new(llm);
 
     // Analyze failures
     let patterns = analyzer.analyze_failures(&monitor).await.map_err(|e| {

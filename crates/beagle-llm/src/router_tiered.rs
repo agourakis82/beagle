@@ -129,6 +129,7 @@ fn env_u32(key: &str, default: u32) -> u32 {
 }
 
 /// Router com sistema de Tiers completo
+#[derive(Clone)]
 pub struct TieredRouter {
     pub claude_cli: Option<Arc<dyn LlmClient>>,
     pub copilot: Option<Arc<dyn LlmClient>>,

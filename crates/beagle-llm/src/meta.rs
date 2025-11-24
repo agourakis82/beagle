@@ -5,7 +5,7 @@
 //! - Grok 4 Heavy (vacina anti-viés, métodos críticos, proofs)
 
 /// Keywords que indicam temas de alto risco de viés
-/// 
+///
 /// Quando detectados, o router automaticamente usa Grok 4 Heavy
 /// como "vacina anti-viés" para garantir respostas mais balanceadas.
 pub static HIGH_BIAS_KEYWORDS: [&str; 12] = [
@@ -36,7 +36,7 @@ pub struct RequestMeta {
     pub approximate_tokens: usize,
     /// Requer qualidade máxima (usa Grok 4 Heavy se disponível)
     pub requires_high_quality: bool,
-    
+
     // Novos campos para Grok 4 Heavy
     /// Alto risco de viés/alucinação → usa Grok 4 Heavy
     pub high_bias_risk: bool,
@@ -50,33 +50,32 @@ impl RequestMeta {
     /// Analisa prompt e extrai metadados para roteamento
     pub fn from_prompt(prompt: &str) -> Self {
         let lower = prompt.to_lowercase();
-        
+
         // Detecção de keywords de alto risco de viés
         let high_bias_risk = HIGH_BIAS_KEYWORDS.iter().any(|&k| lower.contains(k));
-        
+
         // Detecção de necessidade de prova matemática
-        let requires_math = lower.contains("proof") 
-            || lower.contains("derive") 
+        let requires_math = lower.contains("proof")
+            || lower.contains("derive")
             || lower.contains("theorem")
             || lower.contains("mathematical")
             || lower.contains("equation")
             || lower.contains("calculate")
             || lower.contains("solve");
-        
+
         // Detecção de visão
-        let requires_vision = lower.contains("image") 
-            || lower.contains("picture")
-            || lower.contains("visual");
-        
+        let requires_vision =
+            lower.contains("image") || lower.contains("picture") || lower.contains("visual");
+
         // Estimativa simples: ~4 chars por token
         let approximate_tokens = prompt.len() / 4;
-        
+
         // Alta qualidade para prompts longos ou complexos
-        let requires_high_quality = approximate_tokens > 4000 
+        let requires_high_quality = approximate_tokens > 4000
             || lower.contains("review")
             || lower.contains("analyze")
             || lower.contains("synthesize");
-        
+
         // Detecção de raciocínio nível PhD
         let requires_phd_level_reasoning = lower.contains("method")
             || lower.contains("methodology")
@@ -85,7 +84,7 @@ impl RequestMeta {
             || lower.contains("pharmacokinetic")
             || lower.contains("pharmacodynamic")
             || requires_math;
-        
+
         // Detecção de seção crítica
         let critical_section = lower.contains("methods")
             || lower.contains("results")
@@ -103,7 +102,7 @@ impl RequestMeta {
             critical_section,
         }
     }
-    
+
     /// Cria RequestMeta com flags explícitas (para uso programático)
     pub fn new(
         requires_math: bool,

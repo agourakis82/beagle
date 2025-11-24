@@ -74,7 +74,8 @@ impl MetaLearner {
 
     /// Analyze all historical data and extract insights
     pub fn analyze(&self) -> MetaLearningInsights {
-        info!("🧠 Meta-learning: Analyzing {} matches across {} generations",
+        info!(
+            "🧠 Meta-learning: Analyzing {} matches across {} generations",
             self.match_history.len(),
             self.player_history.len()
         );
@@ -99,7 +100,9 @@ impl MetaLearner {
         for generation in &self.player_history {
             for player in generation {
                 let approach_name = format!("{:?}", player.strategy.approach);
-                let entry = strategy_stats.entry(approach_name.clone()).or_insert((0, 0, 0.0));
+                let entry = strategy_stats
+                    .entry(approach_name.clone())
+                    .or_insert((0, 0, 0.0));
 
                 entry.0 += player.wins;
                 entry.1 += player.wins + player.losses;
@@ -120,7 +123,11 @@ impl MetaLearner {
             })
             .collect();
 
-        patterns.sort_by(|a, b| b.win_rate.partial_cmp(&a.win_rate).unwrap_or(std::cmp::Ordering::Equal));
+        patterns.sort_by(|a, b| {
+            b.win_rate
+                .partial_cmp(&a.win_rate)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         patterns.into_iter().take(5).collect()
     }
 
@@ -135,9 +142,15 @@ impl MetaLearner {
 
                 for (param_name, &value) in &player.strategy.parameters {
                     if is_winner {
-                        param_wins.entry(param_name.clone()).or_default().push(value);
+                        param_wins
+                            .entry(param_name.clone())
+                            .or_default()
+                            .push(value);
                     } else {
-                        param_losses.entry(param_name.clone()).or_default().push(value);
+                        param_losses
+                            .entry(param_name.clone())
+                            .or_default()
+                            .push(value);
                     }
                 }
             }
@@ -160,17 +173,21 @@ impl MetaLearner {
 
             // Simple correlation: avg(winners) vs avg(losers)
             let win_avg: f64 = win_values.iter().sum::<f64>() / win_values.len() as f64;
-            let loss_avg: f64 = param_losses.get(&param_name)
+            let loss_avg: f64 = param_losses
+                .get(&param_name)
                 .map(|v| v.iter().sum::<f64>() / v.len() as f64)
                 .unwrap_or(0.5);
 
             let correlation = (win_avg - loss_avg).abs();
 
-            insights.insert(param_name.clone(), ParameterInsight {
-                parameter_name: param_name,
-                optimal_range,
-                correlation_with_wins: correlation,
-            });
+            insights.insert(
+                param_name.clone(),
+                ParameterInsight {
+                    parameter_name: param_name,
+                    optimal_range,
+                    correlation_with_wins: correlation,
+                },
+            );
         }
 
         insights
@@ -214,7 +231,8 @@ impl MetaLearner {
                 continue;
             }
 
-            let avg_elo: f64 = generation.iter().map(|p| p.elo_rating).sum::<f64>() / generation.len() as f64;
+            let avg_elo: f64 =
+                generation.iter().map(|p| p.elo_rating).sum::<f64>() / generation.len() as f64;
             avg_elo_by_generation.push(avg_elo);
         }
 
@@ -223,10 +241,13 @@ impl MetaLearner {
             if latest.len() < 2 {
                 0.0
             } else {
-                let mean: f64 = latest.iter().map(|p| p.elo_rating).sum::<f64>() / latest.len() as f64;
-                let variance: f64 = latest.iter()
+                let mean: f64 =
+                    latest.iter().map(|p| p.elo_rating).sum::<f64>() / latest.len() as f64;
+                let variance: f64 = latest
+                    .iter()
                     .map(|p| (p.elo_rating - mean).powi(2))
-                    .sum::<f64>() / latest.len() as f64;
+                    .sum::<f64>()
+                    / latest.len() as f64;
                 variance.sqrt() / mean
             }
         } else {
@@ -236,7 +257,8 @@ impl MetaLearner {
         // Detect convergence: ELO plateauing
         let convergence_detected = if avg_elo_by_generation.len() >= 3 {
             let last_three = &avg_elo_by_generation[avg_elo_by_generation.len() - 3..];
-            let max_diff = last_three.windows(2)
+            let max_diff = last_three
+                .windows(2)
                 .map(|w| (w[1] - w[0]).abs())
                 .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                 .unwrap_or(0.0);
@@ -258,7 +280,8 @@ impl MetaLearner {
         info!("🎯 Suggesting improved strategy based on meta-learning");
 
         // Start with the best performing approach
-        let best_approach = insights.top_strategy_patterns
+        let best_approach = insights
+            .top_strategy_patterns
             .first()
             .map(|p| p.approach_name.as_str())
             .unwrap_or("Exploratory");

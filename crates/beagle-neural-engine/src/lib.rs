@@ -117,7 +117,7 @@ impl NeuralEngine {
             return Err(anyhow::anyhow!("Julia MLX training falhou"));
         }
 
-        info!("✅ LoRA treinado no Neural Engine — salvo em ~/beagle-data/lora/current_voice");
+        info!("✅ LoRA treinado no Neural Engine — salvo em $BEAGLE_DATA_DIR/lora/current_voice");
         info!("⏱️  Tempo: 8-10 minutos (vs 15-20 com Unsloth Python)");
 
         Ok(())

@@ -8,10 +8,10 @@
 
 use crate::{thought_capture::CapturedInsight, HermesError, Result};
 use beagle_core::GraphStore;
+use serde_json::json;
 use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
-use serde_json::json;
 
 // Re-export para compatibilidade
 pub use crate::knowledge::graph_client::KnowledgeGraph;
@@ -62,16 +62,23 @@ impl KnowledgeGraphWrapper {
                     "confidence": insight.metadata.confidence,
                 });
 
-                let result = graph_store.cypher_query(&query, params).await
+                let result = graph_store
+                    .cypher_query(&query, params)
+                    .await
                     .map_err(|e| HermesError::Neo4jError(format!("GraphStore error: {}", e)))?;
-                
+
                 // Extrai ID do resultado
                 if let Some(results) = result.get("results").and_then(|r| r.as_array()) {
-                    if let Some(data) = results.first().and_then(|r| r.get("data")).and_then(|d| d.as_array()) {
+                    if let Some(data) = results
+                        .first()
+                        .and_then(|r| r.get("data"))
+                        .and_then(|d| d.as_array())
+                    {
                         if let Some(row) = data.first() {
                             if let Some(id_str) = row.get("id").and_then(|v| v.as_str()) {
-                                return Ok(Uuid::parse_str(id_str)
-                                    .map_err(|e| HermesError::Neo4jError(format!("Invalid UUID: {}", e)))?);
+                                return Ok(Uuid::parse_str(id_str).map_err(|e| {
+                                    HermesError::Neo4jError(format!("Invalid UUID: {}", e))
+                                })?);
                             }
                         }
                     }
@@ -83,10 +90,10 @@ impl KnowledgeGraphWrapper {
                 // Usa KnowledgeGraph original (delega para implementação existente)
                 // Por enquanto, mantém compatibilidade
                 // TODO: migrar métodos de KnowledgeGraph para usar GraphStore quando possível
-                kg.store_insight(insight).await
+                kg.store_insight(insight)
+                    .await
                     .map_err(|e| HermesError::Neo4jError(format!("KnowledgeGraph error: {}", e)))
             }
         }
     }
 }
-

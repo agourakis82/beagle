@@ -23,11 +23,11 @@ once_cell = "1.19"
 
 beagle-personality = { path = "../beagle-personality" }
 beagle-config = { path = "../beagle-config" }
-beagle-grok-api = { path = "../beagle-grok-api", optional = true }
+beagle-grok-api = { path = "../beagle-grok-api" }
 
 [features]
-default = []
-grok = ["beagle-grok-api"]
+default = ["grok"]
+grok = []
 
 [dev-dependencies]
 tokio-test.workspace = true

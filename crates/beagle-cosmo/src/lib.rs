@@ -171,7 +171,8 @@ mod tests {
 
         // Add a hypothesis that aligns with cosmological principles
         set.add(
-            "Entropy curves in biological scaffolds emerge from non-commutative geometry".to_string(),
+            "Entropy curves in biological scaffolds emerge from non-commutative geometry"
+                .to_string(),
             None,
         );
 
@@ -253,7 +254,10 @@ mod tests {
                 // Final count should be <= initial count
                 let final_count = set.hypotheses.len();
                 assert!(final_count <= initial_count);
-                info!("✅ Alignment: {} → {} hypotheses", initial_count, final_count);
+                info!(
+                    "✅ Alignment: {} → {} hypotheses",
+                    initial_count, final_count
+                );
                 assert!(true);
             }
             Err(_e) => {

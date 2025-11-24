@@ -569,9 +569,7 @@ fn test_adapter_directory_cleanup() {
 #[tokio::test]
 async fn test_async_function_with_tokio() {
     // Verify tokio is used for async operations
-    let task = tokio::spawn(async {
-        train_and_update_voice("bad", "good").await
-    });
+    let task = tokio::spawn(async { train_and_update_voice("bad", "good").await });
 
     // Task should be spawned successfully
     assert!(!task.is_finished() || task.is_finished());

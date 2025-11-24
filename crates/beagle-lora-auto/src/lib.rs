@@ -18,27 +18,27 @@ pub struct LoraConfig {
 
 impl LoraConfig {
     /// Cria configuração a partir de variáveis de ambiente.
-    /// 
+    ///
     /// **Variáveis obrigatórias:**
     /// - `BEAGLE_ROOT`: Diretório raiz do BEAGLE
     /// - `BEAGLE_LORA_SCRIPT`: Caminho para script de treinamento
     /// - `VLLM_HOST`: Hostname para restart do vLLM (opcional se `VLLM_RESTART_SKIP=true`)
-    /// 
+    ///
     /// **Variáveis opcionais:**
     /// - `BEAGLE_LORA_MODEL`: Nome do modelo (default: unsloth/Llama-3.2-8B-Instruct-bnb-4bit)
     /// - `VLLM_RESTART_SKIP`: Se `true`, não tenta restart do vLLM
     pub fn from_env() -> Result<Self, String> {
         let beagle_root = env::var("BEAGLE_ROOT")
             .map_err(|_| "BEAGLE_ROOT não definido. Defina a variável de ambiente BEAGLE_ROOT com o diretório raiz do BEAGLE.")?;
-        
+
         let script_path = env::var("BEAGLE_LORA_SCRIPT")
             .unwrap_or_else(|_| format!("{}/scripts/train_lora_unsloth.py", beagle_root));
-        
+
         let vllm_host = env::var("VLLM_HOST").ok();
-        
+
         let model_name = env::var("BEAGLE_LORA_MODEL")
             .unwrap_or_else(|_| "unsloth/Llama-3.2-8B-Instruct-bnb-4bit".to_string());
-        
+
         Ok(Self {
             beagle_root,
             script_path,
@@ -65,8 +65,7 @@ impl Default for LoraConfig {
 
 /// Executa o script Python de LoRA e reinicia o vLLM.
 pub fn train_lora(bad_draft: &str, good_draft: &str, output_dir: &str) -> Result<String, String> {
-    let config = LoraConfig::from_env()
-        .map_err(|e| format!("Configuração inválida: {}", e))?;
+    let config = LoraConfig::from_env().map_err(|e| format!("Configuração inválida: {}", e))?;
 
     if let Some(parent) = Path::new(output_dir).parent() {
         if let Err(err) = fs::create_dir_all(parent) {
@@ -117,10 +116,11 @@ pub fn train_lora(bad_draft: &str, good_draft: &str, output_dir: &str) -> Result
         if config.vllm_host.is_empty() {
             return Err("VLLM_HOST não definido e VLLM_RESTART_SKIP não está true. Defina VLLM_HOST ou VLLM_RESTART_SKIP=true.".to_string());
         }
-        
-        let vllm_restart_cmd = env::var("VLLM_RESTART_CMD")
-            .unwrap_or_else(|_| format!("cd {} && docker-compose restart vllm", config.beagle_root));
-        
+
+        let vllm_restart_cmd = env::var("VLLM_RESTART_CMD").unwrap_or_else(|_| {
+            format!("cd {} && docker-compose restart vllm", config.beagle_root)
+        });
+
         let ssh_status = Command::new("ssh")
             .arg(&config.vllm_host)
             .arg(&vllm_restart_cmd)

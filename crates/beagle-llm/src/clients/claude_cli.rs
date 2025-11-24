@@ -14,6 +14,7 @@
 //! 2. Login: `claude auth login`
 //! 3. BEAGLE will automatically use it!
 
+use crate::models::{CompletionRequest, CompletionResponse, Message};
 use crate::{ChatMessage, LlmClient, LlmRequest, Tier};
 use async_trait::async_trait;
 use std::process::Stdio;
@@ -106,6 +107,50 @@ impl ClaudeCliClient {
          2. Login: claude auth login\n\
          3. BEAGLE will automatically detect it!"
             .to_string()
+    }
+
+    /// Check if CLI is available (static method for orchestrator)
+    pub fn check_available() -> bool {
+        Self::find_claude_cli().is_ok()
+    }
+
+    /// Complete a request (adapter for orchestrator CompletionRequest API)
+    pub async fn complete(&self, request: CompletionRequest) -> anyhow::Result<CompletionResponse> {
+        // Convert CompletionRequest to LlmRequest
+        let llm_messages: Vec<ChatMessage> = request
+            .messages
+            .iter()
+            .map(|msg| ChatMessage {
+                role: msg.role.clone(),
+                content: msg.content.clone(),
+            })
+            .collect();
+
+        // Add system message if provided
+        let mut all_messages = Vec::new();
+        if let Some(system) = &request.system {
+            all_messages.push(ChatMessage::system(system.clone()));
+        }
+        all_messages.extend(llm_messages);
+
+        let llm_request = LlmRequest {
+            model: "claude-sonnet-4.5".to_string(),
+            messages: all_messages,
+            temperature: Some(request.temperature),
+            max_tokens: Some(request.max_tokens as i32),
+        };
+
+        // Call the chat method
+        let content = self.chat(llm_request).await?;
+
+        // Convert to CompletionResponse
+        Ok(CompletionResponse {
+            content,
+            model: self.model.clone(),
+            usage: serde_json::json!({
+                "note": "CLI usage not tracked"
+            }),
+        })
     }
 }
 

@@ -24,29 +24,29 @@ pub struct ConditionMetrics {
     pub condition: String,
     pub n_runs: usize,
     pub n_with_feedback: usize,
-    
+
     // Rating humano
     pub rating_mean: Option<f64>,
     pub rating_std: Option<f64>,
     pub rating_p50: Option<f64>,
     pub rating_p90: Option<f64>,
-    
+
     // Aceitação
     pub accepted_count: usize,
     pub accepted_ratio: Option<f64>,
-    
+
     // Distribuição de severidades fisiológicas
     pub physio_severity_counts: HashMap<String, usize>,
-    
+
     // Distribuição de severidades ambientais
     pub env_severity_counts: HashMap<String, usize>,
-    
+
     // Distribuição de severidades de clima espacial
     pub space_severity_counts: HashMap<String, usize>,
-    
+
     // Stress index
     pub stress_index_mean: Option<f64>,
-    
+
     // LLM stats
     pub avg_tokens: Option<f64>,
     pub avg_grok3_calls: Option<f64>,
@@ -67,20 +67,23 @@ pub fn load_feedback_events(data_dir: &Path) -> anyhow::Result<Vec<FeedbackEvent
 }
 
 /// Carrega run reports de um diretório
-pub fn load_run_reports(data_dir: &Path, run_ids: &[String]) -> anyhow::Result<HashMap<String, serde_json::Value>> {
+pub fn load_run_reports(
+    data_dir: &Path,
+    run_ids: &[String],
+) -> anyhow::Result<HashMap<String, serde_json::Value>> {
     use glob::glob;
-    
+
     let mut reports = HashMap::new();
     let report_dir = data_dir.join("logs").join("beagle-pipeline");
-    
+
     if !report_dir.exists() {
         return Ok(reports);
     }
-    
+
     // Procura arquivos *_{run_id}.json
     for run_id in run_ids {
         let pattern = report_dir.join(format!("*_{}.json", run_id));
-        
+
         if let Ok(paths) = glob(pattern.to_str().unwrap_or_default()) {
             for entry in paths.flatten() {
                 if let Ok(content) = std::fs::read_to_string(&entry) {
@@ -92,7 +95,7 @@ pub fn load_run_reports(data_dir: &Path, run_ids: &[String]) -> anyhow::Result<H
             }
         }
     }
-    
+
     Ok(reports)
 }
 
@@ -107,13 +110,13 @@ pub fn join_experiment_data(
         .into_iter()
         .map(|f| (f.run_id.clone(), f))
         .collect();
-    
+
     // Cria data points
     tags.into_iter()
         .map(|tag| {
             let feedback = feedback_by_run_id.get(&tag.run_id).cloned();
             let run_report = reports.get(&tag.run_id).cloned();
-            
+
             ExperimentDataPoint {
                 tag,
                 feedback,
@@ -124,13 +127,12 @@ pub fn join_experiment_data(
 }
 
 /// Calcula métricas agregadas por condição
-pub fn calculate_metrics(
-    data_points: &[ExperimentDataPoint],
-) -> ExperimentMetrics {
-    let experiment_id = data_points.first()
+pub fn calculate_metrics(data_points: &[ExperimentDataPoint]) -> ExperimentMetrics {
+    let experiment_id = data_points
+        .first()
         .map(|dp| dp.tag.experiment_id.clone())
         .unwrap_or_else(|| "unknown".to_string());
-    
+
     // Agrupa por condition
     let mut by_condition: HashMap<String, Vec<&ExperimentDataPoint>> = HashMap::new();
     for dp in data_points {
@@ -139,15 +141,15 @@ pub fn calculate_metrics(
             .or_insert_with(Vec::new)
             .push(dp);
     }
-    
+
     // Calcula métricas por condição
     let mut condition_metrics: HashMap<String, ConditionMetrics> = HashMap::new();
-    
+
     for (condition, points) in &by_condition {
         let metrics = calculate_condition_metrics(condition, points);
         condition_metrics.insert(condition.clone(), metrics);
     }
-    
+
     ExperimentMetrics {
         experiment_id,
         conditions: condition_metrics,
@@ -161,7 +163,7 @@ fn calculate_condition_metrics(
     points: &[&ExperimentDataPoint],
 ) -> ConditionMetrics {
     let n_runs = points.len();
-    
+
     // Filtra pontos com feedback
     let points_with_feedback: Vec<_> = points
         .iter()
@@ -169,69 +171,81 @@ fn calculate_condition_metrics(
         .copied()
         .collect();
     let n_with_feedback = points_with_feedback.len();
-    
+
     // Calcula ratings
     let ratings: Vec<u8> = points_with_feedback
         .iter()
         .filter_map(|dp| dp.feedback.as_ref()?.rating_0_10)
         .collect();
-    
+
     let (rating_mean, rating_std, rating_p50, rating_p90) = if !ratings.is_empty() {
         let mean = ratings.iter().sum::<u8>() as f64 / ratings.len() as f64;
-        let variance = ratings.iter()
+        let variance = ratings
+            .iter()
             .map(|&r| {
                 let diff = r as f64 - mean;
                 diff * diff
             })
-            .sum::<f64>() / ratings.len() as f64;
+            .sum::<f64>()
+            / ratings.len() as f64;
         let std = variance.sqrt();
-        
+
         let mut sorted = ratings.clone();
         sorted.sort();
         let p50 = sorted[sorted.len() / 2] as f64;
         let p90_idx = (sorted.len() as f64 * 0.9) as usize;
-        let p90 = sorted.get(p90_idx.min(sorted.len() - 1))
+        let p90 = sorted
+            .get(p90_idx.min(sorted.len() - 1))
             .copied()
             .unwrap_or(0) as f64;
-        
+
         (Some(mean), Some(std), Some(p50), Some(p90))
     } else {
         (None, None, None, None)
     };
-    
+
     // Calcula aceitação
     let accepted_count = points_with_feedback
         .iter()
-        .filter(|dp| dp.feedback.as_ref().and_then(|f| f.accepted).unwrap_or(false))
+        .filter(|dp| {
+            dp.feedback
+                .as_ref()
+                .and_then(|f| f.accepted)
+                .unwrap_or(false)
+        })
         .count();
     let accepted_ratio = if n_with_feedback > 0 {
         Some(accepted_count as f64 / n_with_feedback as f64)
     } else {
         None
     };
-    
+
     // Distribuição de severidades
     let mut physio_severity_counts: HashMap<String, usize> = HashMap::new();
     let mut env_severity_counts: HashMap<String, usize> = HashMap::new();
     let mut space_severity_counts: HashMap<String, usize> = HashMap::new();
-    
+
     for point in points {
         if let Some(ref report) = point.run_report {
             // Extrai severidades do Observer
             if let Some(observer) = report.get("observer") {
                 if let Some(physio_sev) = observer.get("physio_severity").and_then(|v| v.as_str()) {
-                    *physio_severity_counts.entry(physio_sev.to_string()).or_insert(0) += 1;
+                    *physio_severity_counts
+                        .entry(physio_sev.to_string())
+                        .or_insert(0) += 1;
                 }
                 if let Some(env_sev) = observer.get("env_severity").and_then(|v| v.as_str()) {
                     *env_severity_counts.entry(env_sev.to_string()).or_insert(0) += 1;
                 }
                 if let Some(space_sev) = observer.get("space_severity").and_then(|v| v.as_str()) {
-                    *space_severity_counts.entry(space_sev.to_string()).or_insert(0) += 1;
+                    *space_severity_counts
+                        .entry(space_sev.to_string())
+                        .or_insert(0) += 1;
                 }
             }
         }
     }
-    
+
     // Stress index mean
     let stress_indices: Vec<f32> = points
         .iter()
@@ -249,13 +263,13 @@ fn calculate_condition_metrics(
     } else {
         None
     };
-    
+
     // LLM stats
     let mut total_tokens = 0u64;
     let mut total_grok3_calls = 0u32;
     let mut total_grok4_calls = 0u32;
     let mut n_with_llm_stats = 0;
-    
+
     for point in points {
         if let Some(ref report) = point.run_report {
             if let Some(llm_stats) = report.get("llm_stats") {
@@ -272,7 +286,7 @@ fn calculate_condition_metrics(
             }
         }
     }
-    
+
     let avg_tokens = if n_with_llm_stats > 0 {
         Some(total_tokens as f64 / n_with_llm_stats as f64)
     } else {
@@ -288,7 +302,7 @@ fn calculate_condition_metrics(
     } else {
         None
     };
-    
+
     ConditionMetrics {
         condition: condition.to_string(),
         n_runs,
@@ -313,11 +327,11 @@ fn calculate_condition_metrics(
 pub fn export_summary_csv(data_points: &[ExperimentDataPoint]) -> anyhow::Result<String> {
     use csv::WriterBuilder;
     use std::io::Cursor;
-    
+
     let mut wtr = WriterBuilder::new()
         .has_headers(true)
         .from_writer(Cursor::new(Vec::new()));
-    
+
     // Cabeçalhos
     wtr.write_record(&[
         "experiment_id",
@@ -337,65 +351,89 @@ pub fn export_summary_csv(data_points: &[ExperimentDataPoint]) -> anyhow::Result
         "grok3_calls",
         "grok4_calls",
     ])?;
-    
+
     // Linhas
     for point in data_points {
-        let rating = point.feedback.as_ref()
+        let rating = point
+            .feedback
+            .as_ref()
             .and_then(|f| f.rating_0_10)
             .map(|r| r.to_string())
             .unwrap_or_else(|| "".to_string());
-        
-        let accepted = point.feedback.as_ref()
+
+        let accepted = point
+            .feedback
+            .as_ref()
             .and_then(|f| f.accepted)
-            .map(|a| if a { "true".to_string() } else { "false".to_string() })
+            .map(|a| {
+                if a {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                }
+            })
             .unwrap_or_else(|| "".to_string());
-        
-        let physio_sev = point.run_report.as_ref()
+
+        let physio_sev = point
+            .run_report
+            .as_ref()
             .and_then(|r| r.get("observer"))
             .and_then(|o| o.get("physio_severity"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        
-        let env_sev = point.run_report.as_ref()
+
+        let env_sev = point
+            .run_report
+            .as_ref()
             .and_then(|r| r.get("observer"))
             .and_then(|o| o.get("env_severity"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        
-        let space_sev = point.run_report.as_ref()
+
+        let space_sev = point
+            .run_report
+            .as_ref()
             .and_then(|r| r.get("observer"))
             .and_then(|o| o.get("space_severity"))
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        
-        let stress_index = point.run_report.as_ref()
+
+        let stress_index = point
+            .run_report
+            .as_ref()
             .and_then(|r| r.get("observer"))
             .and_then(|o| o.get("stress_index"))
             .and_then(|v| v.as_f64())
             .map(|v| format!("{:.3}", v))
             .unwrap_or_default();
-        
-        let total_tokens = point.run_report.as_ref()
+
+        let total_tokens = point
+            .run_report
+            .as_ref()
             .and_then(|r| r.get("llm_stats"))
             .and_then(|s| s.get("total_tokens"))
             .and_then(|v| v.as_u64())
             .map(|v| v.to_string())
             .unwrap_or_else(|| "".to_string());
-        
-        let grok3_calls = point.run_report.as_ref()
+
+        let grok3_calls = point
+            .run_report
+            .as_ref()
             .and_then(|r| r.get("llm_stats"))
             .and_then(|s| s.get("grok3_calls"))
             .and_then(|v| v.as_u64())
             .map(|v| v.to_string())
             .unwrap_or_else(|| "".to_string());
-        
-        let grok4_calls = point.run_report.as_ref()
+
+        let grok4_calls = point
+            .run_report
+            .as_ref()
             .and_then(|r| r.get("llm_stats"))
             .and_then(|s| s.get("grok4_calls"))
             .and_then(|v| v.as_u64())
             .map(|v| v.to_string())
             .unwrap_or_else(|| "".to_string());
-        
+
         wtr.write_record(&[
             &point.tag.experiment_id,
             &point.tag.run_id,
@@ -415,9 +453,11 @@ pub fn export_summary_csv(data_points: &[ExperimentDataPoint]) -> anyhow::Result
             &grok4_calls,
         ])?;
     }
-    
+
     wtr.flush()?;
-    let cursor = wtr.into_inner().map_err(|e| anyhow::anyhow!("CSV writer error: {}", e))?;
+    let cursor = wtr
+        .into_inner()
+        .map_err(|e| anyhow::anyhow!("CSV writer error: {}", e))?;
     let bytes = cursor.into_inner();
     Ok(String::from_utf8(bytes)?)
 }
@@ -426,4 +466,3 @@ pub fn export_summary_csv(data_points: &[ExperimentDataPoint]) -> anyhow::Result
 pub fn export_summary_json(metrics: &ExperimentMetrics) -> anyhow::Result<String> {
     Ok(serde_json::to_string_pretty(metrics)?)
 }
-

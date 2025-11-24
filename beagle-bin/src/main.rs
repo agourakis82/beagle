@@ -26,9 +26,8 @@ async fn main() -> anyhow::Result<()> {
 
     info!("🚀 Inicializando BEAGLE SINGULARITY...");
 
-    // 1. Inicializa fractal root com estado quântico
-    let initial_set = HypothesisSet::new();
-    init_fractal_root(initial_set).await;
+    // 1. Inicializa fractal root
+    init_fractal_root().await;
     info!("✅ Fractal root inicializado");
 
     // 2. Inicia recursão eterna em background (nunca retorna)

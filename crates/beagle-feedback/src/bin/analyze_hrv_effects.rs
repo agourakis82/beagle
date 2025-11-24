@@ -83,10 +83,10 @@ fn main() -> anyhow::Result<()> {
 
     println!("=== BEAGLE HRV EFFECTS ANALYSIS ===");
     println!();
-    
+
     println!("Feedback por HRV Level:");
     println!();
-    
+
     if stats.low_total > 0 {
         let accept_rate = (stats.low_accepted as f64 / stats.low_total as f64) * 100.0;
         let avg_rating = if !stats.low_ratings.is_empty() {
@@ -105,17 +105,21 @@ fn main() -> anyhow::Result<()> {
         }
         println!();
     }
-    
+
     if stats.normal_total > 0 {
         let accept_rate = (stats.normal_accepted as f64 / stats.normal_total as f64) * 100.0;
         let avg_rating = if !stats.normal_ratings.is_empty() {
-            stats.normal_ratings.iter().map(|&r| r as f64).sum::<f64>() / stats.normal_ratings.len() as f64
+            stats.normal_ratings.iter().map(|&r| r as f64).sum::<f64>()
+                / stats.normal_ratings.len() as f64
         } else {
             0.0
         };
         println!("HRV NORMAL:");
         println!("  Total feedback: {}", stats.normal_total);
-        println!("  Accepted: {} ({:.1}%)", stats.normal_accepted, accept_rate);
+        println!(
+            "  Accepted: {} ({:.1}%)",
+            stats.normal_accepted, accept_rate
+        );
         println!("  Rating médio: {:.2}/10", avg_rating);
         if !stats.normal_ratings.is_empty() {
             stats.normal_ratings.sort();
@@ -124,11 +128,12 @@ fn main() -> anyhow::Result<()> {
         }
         println!();
     }
-    
+
     if stats.high_total > 0 {
         let accept_rate = (stats.high_accepted as f64 / stats.high_total as f64) * 100.0;
         let avg_rating = if !stats.high_ratings.is_empty() {
-            stats.high_ratings.iter().map(|&r| r as f64).sum::<f64>() / stats.high_ratings.len() as f64
+            stats.high_ratings.iter().map(|&r| r as f64).sum::<f64>()
+                / stats.high_ratings.len() as f64
         } else {
             0.0
         };
@@ -143,7 +148,7 @@ fn main() -> anyhow::Result<()> {
         }
         println!();
     }
-    
+
     if stats.low_total == 0 && stats.normal_total == 0 && stats.high_total == 0 {
         println!("Nenhum feedback com HRV level disponível.");
     }
@@ -153,7 +158,9 @@ fn main() -> anyhow::Result<()> {
     for ev in &events {
         if let Some(hrv_level) = &ev.hrv_level {
             if let Some(heavy_calls) = ev.grok4_heavy_calls {
-                let entry = heavy_usage_by_hrv.entry(hrv_level.clone()).or_insert((0, 0));
+                let entry = heavy_usage_by_hrv
+                    .entry(hrv_level.clone())
+                    .or_insert((0, 0));
                 entry.0 += heavy_calls;
                 entry.1 += 1;
             }
@@ -162,8 +169,15 @@ fn main() -> anyhow::Result<()> {
 
     println!("Uso médio de Heavy por HRV Level:");
     for (hrv_level, (total_calls, count)) in &heavy_usage_by_hrv {
-        let avg = if *count > 0 { *total_calls as f64 / *count as f64 } else { 0.0 };
-        println!("  {}: {:.2} calls/run (total: {} calls em {} runs)", hrv_level, avg, total_calls, count);
+        let avg = if *count > 0 {
+            *total_calls as f64 / *count as f64
+        } else {
+            0.0
+        };
+        println!(
+            "  {}: {:.2} calls/run (total: {} calls em {} runs)",
+            hrv_level, avg, total_calls, count
+        );
     }
     println!();
 
@@ -224,13 +238,12 @@ fn main() -> anyhow::Result<()> {
             })
         } else { serde_json::Value::Null },
     });
-    
+
     let output_file = data_dir.join("feedback").join("hrv_effects_stats.json");
     std::fs::create_dir_all(output_file.parent().unwrap())?;
     std::fs::write(&output_file, serde_json::to_string_pretty(&output)?)?;
-    
+
     println!("✅ Estatísticas exportadas para: {}", output_file.display());
 
     Ok(())
 }
-

@@ -42,11 +42,10 @@ struct ApiResponse {
 
 impl DeepSeekClient {
     pub fn new() -> Self {
-        let api_key = env::var("DEEPSEEK_API_KEY")
-            .unwrap_or_else(|_| {
-                warn!("DEEPSEEK_API_KEY não configurada, usando valor vazio (falhará em runtime)");
-                String::new()
-            });
+        let api_key = env::var("DEEPSEEK_API_KEY").unwrap_or_else(|_| {
+            warn!("DEEPSEEK_API_KEY não configurada, usando valor vazio (falhará em runtime)");
+            String::new()
+        });
 
         Self {
             client: Client::new(),
@@ -54,7 +53,7 @@ impl DeepSeekClient {
             model: "deepseek-chat".to_string(),
         }
     }
-    
+
     /// Cria cliente para Deep Seek Math
     pub fn new_math() -> Self {
         let mut client = Self::new();
@@ -116,4 +115,3 @@ impl LlmClient for DeepSeekClient {
         false // Deep Seek é para math, não "heavy" no sentido Grok
     }
 }
-

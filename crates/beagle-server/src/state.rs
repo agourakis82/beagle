@@ -37,7 +37,7 @@ use beagle_agents::{
 };
 use beagle_events::{BeaglePulsar, EventPublisher};
 use beagle_hypergraph::storage::CachedPostgresStorage;
-use beagle_llm::{AnthropicClient, GeminiClient, VertexAIClient};
+use beagle_llm::{AnthropicClient, GeminiClient, LLMOrchestrator, VertexAIClient};
 use beagle_memory::ContextBridge;
 use tracing::{info, warn};
 
@@ -54,6 +54,7 @@ pub struct AppState {
     vertex_client: Option<Arc<VertexAIClient>>,
     gemini_client: Option<Arc<GeminiClient>>,
     anthropic_client: Option<Arc<AnthropicClient>>,
+    orchestrator: Arc<LLMOrchestrator>,
     context_bridge: Arc<ContextBridge>,
     researcher_agent: Option<Arc<ResearcherAgent>>,
     coordinator_agent: Option<Arc<CoordinatorAgent>>,
@@ -130,6 +131,13 @@ impl AppState {
 
         let storage = Arc::new(storage);
         let context_bridge = Arc::new(ContextBridge::new(storage.clone()));
+
+        // Initialize LLM Orchestrator for multi-provider routing
+        let orchestrator = Arc::new(LLMOrchestrator::auto_configure());
+        info!(
+            "✅ LLM Orchestrator initialized with {} providers",
+            orchestrator.available_providers().len()
+        );
 
         // Initialize Researcher Agent (sequencial) if Anthropic available
         let researcher_agent = anthropic_client.as_ref().map(|anthropic| {
@@ -279,6 +287,7 @@ impl AppState {
             vertex_client,
             gemini_client,
             anthropic_client,
+            orchestrator,
             context_bridge,
             researcher_agent,
             coordinator_agent,
@@ -333,6 +342,16 @@ impl AppState {
 
     pub fn anthropic_client(&self) -> Option<Arc<AnthropicClient>> {
         self.anthropic_client.clone()
+    }
+
+    /// Alias for anthropic_client() - for compatibility with old endpoint code
+    pub fn claude_client(&self) -> Option<Arc<AnthropicClient>> {
+        self.anthropic_client.clone()
+    }
+
+    /// Get the LLM orchestrator for multi-provider routing
+    pub fn orchestrator(&self) -> Arc<LLMOrchestrator> {
+        self.orchestrator.clone()
     }
 
     pub fn context_bridge(&self) -> Arc<ContextBridge> {

@@ -1,15 +1,15 @@
 //! Observer 2.0 - Sistema de alerts
 
+use crate::severity::Severity;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::severity::Severity;
 
 /// Evento de alerta gerado quando uma métrica excede thresholds
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AlertEvent {
     pub timestamp: DateTime<Utc>,
-    pub category: String,       // "physio" | "env" | "space"
-    pub metric: String,         // "spo2" | "hrv" | "kp" | "altitude" etc.
+    pub category: String, // "physio" | "env" | "space"
+    pub metric: String,   // "spo2" | "hrv" | "kp" | "altitude" etc.
     pub severity: Severity,
     pub value: f32,
     pub threshold: f32,
@@ -29,9 +29,18 @@ impl AlertEvent {
         run_id: Option<String>,
     ) -> Self {
         let message = match severity {
-            Severity::Severe => format!("ALERTA CRÍTICO: {} = {:.2} (threshold: {:.2})", metric, value, threshold),
-            Severity::Moderate => format!("ALERTA: {} = {:.2} (threshold: {:.2})", metric, value, threshold),
-            Severity::Mild => format!("Aviso: {} = {:.2} (threshold: {:.2})", metric, value, threshold),
+            Severity::Severe => format!(
+                "ALERTA CRÍTICO: {} = {:.2} (threshold: {:.2})",
+                metric, value, threshold
+            ),
+            Severity::Moderate => format!(
+                "ALERTA: {} = {:.2} (threshold: {:.2})",
+                metric, value, threshold
+            ),
+            Severity::Mild => format!(
+                "Aviso: {} = {:.2} (threshold: {:.2})",
+                metric, value, threshold
+            ),
             Severity::Normal => format!("{} = {:.2} (normal)", metric, value),
         };
 
@@ -58,9 +67,18 @@ impl AlertEvent {
         run_id: Option<String>,
     ) -> Self {
         let message = match severity {
-            Severity::Severe => format!("ALERTA AMBIENTAL CRÍTICO: {} = {:.2} (threshold: {:.2})", metric, value, threshold),
-            Severity::Moderate => format!("ALERTA AMBIENTAL: {} = {:.2} (threshold: {:.2})", metric, value, threshold),
-            Severity::Mild => format!("Aviso ambiental: {} = {:.2} (threshold: {:.2})", metric, value, threshold),
+            Severity::Severe => format!(
+                "ALERTA AMBIENTAL CRÍTICO: {} = {:.2} (threshold: {:.2})",
+                metric, value, threshold
+            ),
+            Severity::Moderate => format!(
+                "ALERTA AMBIENTAL: {} = {:.2} (threshold: {:.2})",
+                metric, value, threshold
+            ),
+            Severity::Mild => format!(
+                "Aviso ambiental: {} = {:.2} (threshold: {:.2})",
+                metric, value, threshold
+            ),
             Severity::Normal => format!("{} = {:.2} (normal)", metric, value),
         };
 
@@ -87,9 +105,18 @@ impl AlertEvent {
         run_id: Option<String>,
     ) -> Self {
         let message = match severity {
-            Severity::Severe => format!("ALERTA CLIMA ESPACIAL CRÍTICO: {} = {:.2} (threshold: {:.2})", metric, value, threshold),
-            Severity::Moderate => format!("ALERTA CLIMA ESPACIAL: {} = {:.2} (threshold: {:.2})", metric, value, threshold),
-            Severity::Mild => format!("Aviso clima espacial: {} = {:.2} (threshold: {:.2})", metric, value, threshold),
+            Severity::Severe => format!(
+                "ALERTA CLIMA ESPACIAL CRÍTICO: {} = {:.2} (threshold: {:.2})",
+                metric, value, threshold
+            ),
+            Severity::Moderate => format!(
+                "ALERTA CLIMA ESPACIAL: {} = {:.2} (threshold: {:.2})",
+                metric, value, threshold
+            ),
+            Severity::Mild => format!(
+                "Aviso clima espacial: {} = {:.2} (threshold: {:.2})",
+                metric, value, threshold
+            ),
             Severity::Normal => format!("{} = {:.2} (normal)", metric, value),
         };
 
@@ -109,8 +136,8 @@ impl AlertEvent {
 
 /// Escreve um alerta em arquivo JSONL
 pub fn log_alert(data_dir: &std::path::Path, alert: &AlertEvent) -> anyhow::Result<()> {
-    use std::io::Write;
     use std::fs::OpenOptions;
+    use std::io::Write;
 
     let alerts_dir = data_dir.join("alerts");
     std::fs::create_dir_all(&alerts_dir)?;
@@ -125,14 +152,14 @@ pub fn log_alert(data_dir: &std::path::Path, alert: &AlertEvent) -> anyhow::Resu
     let file_path = alerts_dir.join(filename);
 
     let json_line = serde_json::to_string(alert)?;
-    
+
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&file_path)?;
 
     writeln!(file, "{}", json_line)?;
-    
+
     Ok(())
 }
 
@@ -143,4 +170,3 @@ pub fn log_alerts(data_dir: &std::path::Path, alerts: &[AlertEvent]) -> anyhow::
     }
     Ok(())
 }
-

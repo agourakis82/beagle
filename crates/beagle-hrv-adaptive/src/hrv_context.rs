@@ -117,10 +117,10 @@ impl HRVContext {
         let temp_mult = self.ensemble_engine.get_adaptive_temperature(1.0).await;
 
         let (quality_threshold, max_refinements) = match intensity {
-            i if i > 0.8 => (0.85, 5),    // VeryHigh/High HRV
-            i if i > 0.6 => (0.80, 4),    // Nominal HRV
-            i if i > 0.3 => (0.70, 3),    // Low HRV
-            _ => (0.60, 2),                // VeryLow HRV
+            i if i > 0.8 => (0.85, 5), // VeryHigh/High HRV
+            i if i > 0.6 => (0.80, 4), // Nominal HRV
+            i if i > 0.3 => (0.70, 3), // Low HRV
+            _ => (0.60, 2),            // VeryLow HRV
         };
 
         AdaptiveParameters {
@@ -168,7 +168,11 @@ impl HRVContext {
 
     /// Get aggregated metrics
     pub fn get_metrics(&self) -> HRVMetrics {
-        self.metrics.lock().ok().map(|m| m.clone()).unwrap_or_default()
+        self.metrics
+            .lock()
+            .ok()
+            .map(|m| m.clone())
+            .unwrap_or_default()
     }
 
     /// Run ensemble reasoning if HRV supports it
@@ -182,10 +186,12 @@ impl HRVContext {
             self.ensemble_engine
                 .consensus_reasoning(prompt, paths)
                 .await
-                .map_err(|e| Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                )) as Box<dyn std::error::Error>)
+                .map_err(|e| {
+                    Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
+                    )) as Box<dyn std::error::Error>
+                })
         } else {
             debug!("HRVContext: Skipping ensemble reasoning (low HRV)");
             Err("HRV state does not support ensemble reasoning".into())

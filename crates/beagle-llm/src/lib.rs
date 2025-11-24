@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod clients;
 pub mod meta;
+pub mod orchestrator;
 pub mod output;
 pub mod router;
 pub mod router_tiered;
@@ -24,11 +25,14 @@ pub use clients::cursor::{CursorClient, CursorModel};
 pub use clients::deepseek::DeepSeekClient;
 pub use clients::grok::GrokClient;
 pub use clients::mock::MockLlmClient;
-pub use self_update::SelfUpdateContext;
 pub use meta::RequestMeta;
+pub use orchestrator::{
+    EnsembleResult, LLMOrchestrator, Provider, ProviderResponse, ProviderStrategy,
+};
 pub use output::LlmOutput;
 pub use router::BeagleRouter;
 pub use router_tiered::{LlmRoutingConfig, ProviderTier, TieredRouter};
+pub use self_update::SelfUpdateContext;
 pub use stats::LlmCallsStats;
 pub use tier::Tier;
 // RequestMeta agora está em tier.rs, mas mantemos HIGH_BIAS_KEYWORDS de meta.rs

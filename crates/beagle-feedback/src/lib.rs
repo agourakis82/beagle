@@ -55,10 +55,10 @@ pub struct FeedbackEvent {
     pub grok4_tokens_est: Option<u32>,
 
     // --- Julgamento humano (preenchido depois) ---
-    pub accepted: Option<bool>,   // true = "bom", false = "ruim"
+    pub accepted: Option<bool>, // true = "bom", false = "ruim"
     pub rating_0_10: Option<u8>,
     pub notes: Option<String>,
-    
+
     // --- Experimentos A/B ---
     pub experiment_condition: Option<String>, // "A" | "B" | "control" | "treatment" | etc.
     pub experiment_id: Option<String>,        // ID do experimento
@@ -81,10 +81,7 @@ pub fn append_event(data_dir: &Path, event: &FeedbackEvent) -> anyhow::Result<()
     std::fs::create_dir_all(&feedback_dir)?;
 
     let path = feedback_file_path(data_dir);
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
 
     let entry = FeedbackLogEntry {
         event: event.clone(),
@@ -167,7 +164,7 @@ pub fn create_triad_event(
     llm_stats: Option<(u32, u32, u32, u32)>, // (grok3_calls, heavy_calls, grok3_tokens, heavy_tokens)
 ) -> FeedbackEvent {
     let (grok3_calls, heavy_calls, grok3_tokens, heavy_tokens) = llm_stats.unwrap_or((0, 0, 0, 0));
-    
+
     let llm_provider_main = if heavy_calls > grok3_calls {
         Some("grok4_heavy".to_string())
     } else {

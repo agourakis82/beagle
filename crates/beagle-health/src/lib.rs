@@ -70,7 +70,9 @@ pub async fn check_all(cfg: &BeagleConfig) -> HealthReport {
         checks.push(CheckResult {
             name: "neo4j".to_string(),
             status: "warn".to_string(),
-            details: Some("Neo4j não configurado (NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)".to_string()),
+            details: Some(
+                "Neo4j não configurado (NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)".to_string(),
+            ),
         });
     }
 
@@ -172,27 +174,21 @@ async fn check_qdrant(cfg: &BeagleConfig) -> CheckResult {
         // Tenta fazer ping ao Qdrant
         let health_url = format!("{}/healthz", url.trim_end_matches('/'));
         match reqwest::get(&health_url).await {
-            Ok(resp) if resp.status().is_success() => {
-                CheckResult {
-                    name: "qdrant".to_string(),
-                    status: "ok".to_string(),
-                    details: Some(format!("{} - conectado", url)),
-                }
-            }
-            Ok(resp) => {
-                CheckResult {
-                    name: "qdrant".to_string(),
-                    status: "error".to_string(),
-                    details: Some(format!("{} - status: {}", url, resp.status())),
-                }
-            }
-            Err(e) => {
-                CheckResult {
-                    name: "qdrant".to_string(),
-                    status: "error".to_string(),
-                    details: Some(format!("{} - erro: {}", url, e)),
-                }
-            }
+            Ok(resp) if resp.status().is_success() => CheckResult {
+                name: "qdrant".to_string(),
+                status: "ok".to_string(),
+                details: Some(format!("{} - conectado", url)),
+            },
+            Ok(resp) => CheckResult {
+                name: "qdrant".to_string(),
+                status: "error".to_string(),
+                details: Some(format!("{} - status: {}", url, resp.status())),
+            },
+            Err(e) => CheckResult {
+                name: "qdrant".to_string(),
+                status: "error".to_string(),
+                details: Some(format!("{} - erro: {}", url, e)),
+            },
         }
     } else {
         CheckResult {
@@ -209,7 +205,11 @@ async fn check_postgres(cfg: &BeagleConfig) -> CheckResult {
     CheckResult {
         name: "postgres".to_string(),
         status: "ok".to_string(),
-        details: cfg.hermes.database_url.as_ref().map(|_| "Configurado".to_string()),
+        details: cfg
+            .hermes
+            .database_url
+            .as_ref()
+            .map(|_| "Configurado".to_string()),
     }
 }
 
@@ -219,7 +219,10 @@ async fn check_redis(cfg: &BeagleConfig) -> CheckResult {
     CheckResult {
         name: "redis".to_string(),
         status: "ok".to_string(),
-        details: cfg.hermes.redis_url.as_ref().map(|_| "Configurado".to_string()),
+        details: cfg
+            .hermes
+            .redis_url
+            .as_ref()
+            .map(|_| "Configurado".to_string()),
     }
 }
-

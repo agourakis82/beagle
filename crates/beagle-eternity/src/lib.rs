@@ -24,10 +24,10 @@ fn get_system() -> &'static Arc<Mutex<System>> {
 }
 
 // Registro global de nós ativos para pruning
-static ACTIVE_NODES: OnceLock<Arc<Mutex<HashMap<u64, Arc<FractalCognitiveNode>>>>> =
+static ACTIVE_NODES: OnceLock<Arc<Mutex<HashMap<uuid::Uuid, Arc<FractalCognitiveNode>>>>> =
     OnceLock::new();
 
-fn get_active_nodes() -> &'static Arc<Mutex<HashMap<u64, Arc<FractalCognitiveNode>>>> {
+fn get_active_nodes() -> &'static Arc<Mutex<HashMap<uuid::Uuid, Arc<FractalCognitiveNode>>>> {
     ACTIVE_NODES.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
 }
 
@@ -106,7 +106,7 @@ async fn prune_weak_nodes(_root: &Arc<FractalCognitiveNode>) {
     let target_removal = (nodes.len() as f64 * 0.3).ceil() as usize;
 
     // Ordena nós por depth (mais profundos primeiro) e confiança (menores primeiro)
-    let mut node_vec: Vec<(u64, u8, f64)> = nodes
+    let mut node_vec: Vec<(uuid::Uuid, u8, f64)> = nodes
         .iter()
         .map(|(id, node)| {
             // Tenta extrair confidence se possível (fallback para depth-based)
@@ -139,11 +139,18 @@ async fn prune_weak_nodes(_root: &Arc<FractalCognitiveNode>) {
 
 /// Spawning de novos nós quando recursos sobram
 async fn spawn_new_nodes(root: &Arc<FractalCognitiveNode>, count: u8) {
-    let children = root.spawn_children(count).await;
+    use beagle_fractal::FractalCognitiveNode;
 
     let mut nodes = get_active_nodes().lock().await;
-    for child in children {
-        nodes.insert(child.id, child);
+
+    // Spawn multiple children directly as FractalCognitiveNode
+    for _ in 0..count {
+        // Create a new child node with incremented depth
+        let child_depth = root.depth + 1;
+        let child_node = FractalCognitiveNode::new(child_depth, Some(root.id));
+        let child_id = child_node.id;
+
+        nodes.insert(child_id, Arc::new(child_node));
     }
 
     info!(
@@ -160,7 +167,7 @@ pub async fn register_node(node: Arc<FractalCognitiveNode>) {
 }
 
 /// Remove um nó do registro global
-pub async fn unregister_node(node_id: u64) {
+pub async fn unregister_node(node_id: uuid::Uuid) {
     let mut nodes = get_active_nodes().lock().await;
     nodes.remove(&node_id);
 }

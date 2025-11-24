@@ -8,6 +8,7 @@ pub mod adversarial_endpoint;
 pub mod auth;
 pub mod causal_endpoint;
 pub mod chat;
+pub mod chat_adaptive;
 pub mod chat_public;
 pub mod debate;
 pub mod deep_research_endpoint;
@@ -67,6 +68,11 @@ pub fn chat_routes() -> Router<AppState> {
 /// Rotas de chat públicas (sem autenticação).
 pub fn chat_public_routes() -> Router<AppState> {
     Router::new().merge(chat_public::router())
+}
+
+/// Rotas de chat adaptativo com multi-provider orchestration.
+pub fn chat_adaptive_routes() -> Router<AppState> {
+    Router::new().merge(chat_adaptive::router())
 }
 
 /// Rotas de eventos (Pulsar).

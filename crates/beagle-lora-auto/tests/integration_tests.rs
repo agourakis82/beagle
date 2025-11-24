@@ -18,10 +18,7 @@ use std::env;
 #[test]
 fn test_lora_config_default() {
     let config = LoraConfig::default();
-    assert_eq!(
-        config.model_name,
-        "unsloth/Llama-3.2-8B-Instruct-bnb-4bit"
-    );
+    assert_eq!(config.model_name, "unsloth/Llama-3.2-8B-Instruct-bnb-4bit");
 }
 
 #[test]

@@ -187,7 +187,7 @@ pub async fn adversarial_compete(
         );
 
         Ok(Json(AdversarialCompeteResponse {
-            tournament_result,
+            tournament_result: tournament_result.clone(),
             champion: champion_info,
             meta_insights: None,
             metadata: CompetitionMetadata {

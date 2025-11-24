@@ -14,8 +14,8 @@ use std::sync::Arc;
 use tokio::process::Command;
 use tokio::sync::Mutex;
 use tracing::{error, info};
-use uuid::Uuid;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use beagle_config::jobs_dir;
 
@@ -110,8 +110,14 @@ type ScienceJobRegistry = Arc<Mutex<HashMap<String, ScienceJobState>>>;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/jobs/science/start", post(start_science_job))
-        .route("/api/jobs/science/status/:job_id", get(get_science_job_status))
-        .route("/api/jobs/science/:job_id/artifacts", get(get_science_job_artifacts))
+        .route(
+            "/api/jobs/science/status/:job_id",
+            get(get_science_job_status),
+        )
+        .route(
+            "/api/jobs/science/:job_id/artifacts",
+            get(get_science_job_artifacts),
+        )
 }
 
 /// Inicia um job científico
@@ -140,9 +146,8 @@ pub async fn start_science_job(
     // Cria diretório do job
     let jobs_base = jobs_dir();
     let job_dir = jobs_base.join(&job_id);
-    std::fs::create_dir_all(&job_dir).map_err(|e| {
-        ApiError::Internal(format!("Falha ao criar diretório do job: {}", e))
-    })?;
+    std::fs::create_dir_all(&job_dir)
+        .map_err(|e| ApiError::Internal(format!("Falha ao criar diretório do job: {}", e)))?;
 
     // Escreve config JSON
     let config_path = job_dir.join("job_config.json");
@@ -196,14 +201,14 @@ async fn execute_science_job(job_id: String, kind: String, job_dir: PathBuf) {
 
     // Encontra script Julia do orchestrator
     // Assumindo que beagle-julia está no mesmo repo ou configurado via env
-    let julia_project = std::env::var("BEAGLE_JULIA_PROJECT")
-        .unwrap_or_else(|_| "beagle-julia".to_string());
-    
+    let julia_project =
+        std::env::var("BEAGLE_JULIA_PROJECT").unwrap_or_else(|_| "beagle-julia".to_string());
+
     let script_path = format!("{}/run_job_cli.jl", julia_project);
 
     // Comando Julia
     let config_path = job_dir.join("job_config.json");
-    
+
     let output = Command::new("julia")
         .arg("--project=.")
         .arg(&script_path)
@@ -225,20 +230,26 @@ async fn execute_science_job(job_id: String, kind: String, job_dir: PathBuf) {
                         error!("Falha ao salvar resultado do job {}: {}", job_id, e);
                     }
                 }
-                
+
                 info!("✅ Job científico concluído: {} (id: {})", kind, job_id);
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                error!("❌ Job científico falhou: {} (id: {})\n{}", kind, job_id, stderr);
-                
+                error!(
+                    "❌ Job científico falhou: {} (id: {})\n{}",
+                    kind, job_id, stderr
+                );
+
                 // Salva erro
                 let error_path = job_dir.join("error.txt");
                 let _ = std::fs::write(&error_path, stderr.as_ref());
             }
         }
         Err(e) => {
-            error!("❌ Falha ao executar job científico {} (id: {}): {}", kind, job_id, e);
-            
+            error!(
+                "❌ Falha ao executar job científico {} (id: {}): {}",
+                kind, job_id, e
+            );
+
             // Salva erro
             let error_path = job_dir.join("error.txt");
             let _ = std::fs::write(&error_path, format!("Erro ao executar: {}", e));
@@ -277,10 +288,7 @@ pub async fn get_science_job_status(
     )
     .map_err(|e| ApiError::Internal(format!("Falha ao ler config: {}", e)))?;
 
-    let kind = config["kind"]
-        .as_str()
-        .unwrap_or("unknown")
-        .to_string();
+    let kind = config["kind"].as_str().unwrap_or("unknown").to_string();
 
     // Determina status baseado em arquivos existentes
     let result_path = job_dir.join("result.json");
@@ -358,15 +366,12 @@ pub async fn get_science_job_artifacts(
     )
     .map_err(|e| ApiError::Internal(format!("Falha ao ler config: {}", e)))?;
 
-    let kind = config["kind"]
-        .as_str()
-        .unwrap_or("unknown")
-        .to_string();
+    let kind = config["kind"].as_str().unwrap_or("unknown").to_string();
 
     // Lista arquivos de output
     let mut output_paths = Vec::new();
     let result_path = job_dir.join("result.json");
-    
+
     if result_path.exists() {
         // Se houver result.json, tenta ler output_paths dele
         if let Ok(result_json) = std::fs::read_to_string(&result_path) {
@@ -380,7 +385,7 @@ pub async fn get_science_job_artifacts(
                 }
             }
         }
-        
+
         // Sempre inclui result.json
         output_paths.push(format!("jobs/{}/result.json", job_id));
     }
@@ -415,4 +420,3 @@ pub async fn get_science_job_artifacts(
         output_paths,
     }))
 }
-

@@ -15,18 +15,18 @@
 // ============================================
 // Module Declarations
 // ============================================
-pub mod fractal_node;
 pub mod entropy_lattice;
+pub mod fractal_node;
 pub mod holographic_storage;
 pub mod self_replication;
 
 // ============================================
 // Type Re-exports
 // ============================================
+pub use entropy_lattice::{EntropyLattice, LatticeEdge, LatticeNode};
 pub use fractal_node::{FractalCognitiveNode, FractalNodeRuntime};
-pub use entropy_lattice::{EntropyLattice, LatticeNode, LatticeEdge};
 pub use holographic_storage::HolographicStorage;
-pub use self_replication::{SelfReplicator, ReplicationManifest};
+pub use self_replication::{ReplicationManifest, SelfReplicator};
 
 // ============================================
 // Core API Functions
@@ -75,7 +75,10 @@ pub async fn start_eternal_recursion() -> anyhow::Result<()> {
         let query = "What am I? How do I improve? What is my purpose?";
         match runtime.execute_full_cycle(query).await {
             Ok(response) => {
-                info!("🧠 Cycle completed: {}", &response[..std::cmp::min(100, response.len())]);
+                info!(
+                    "🧠 Cycle completed: {}",
+                    &response[..std::cmp::min(100, response.len())]
+                );
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
             Err(e) => {

@@ -46,7 +46,10 @@ impl HypothesisSet {
     pub fn add(&mut self, content: String, initial_amp: Option<Amplitude>) {
         let amp = initial_amp.unwrap_or({
             // Usa rand::random() que é thread-safe (Send + Sync)
-            (rand::random::<f64>() * 0.7 + 0.3, rand::random::<f64>() * 0.4 - 0.2)
+            (
+                rand::random::<f64>() * 0.7 + 0.3,
+                rand::random::<f64>() * 0.4 - 0.2,
+            )
         });
         let h = Hypothesis {
             content,
@@ -179,8 +182,8 @@ Formato exato (JSON array, nada mais):
         for text in hypotheses_texts.into_iter().take(N_HYPOTHESES) {
             // Usa rand::random() que é thread-safe (Send + Sync)
             let amp: Amplitude = (
-                rand::random::<f64>() * 0.7 + 0.5,  // 0.5..1.2
-                rand::random::<f64>() * 1.2 - 0.6   // -0.6..0.6
+                rand::random::<f64>() * 0.7 + 0.5, // 0.5..1.2
+                rand::random::<f64>() * 1.2 - 0.6, // -0.6..0.6
             );
             set.add(text.trim().to_string(), Some(amp));
         }

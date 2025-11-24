@@ -43,7 +43,10 @@ fn main() -> Result<()> {
 
     // Valida rating
     if args.rating > 10 {
-        anyhow::bail!("Rating deve estar entre 0 e 10, mas recebeu: {}", args.rating);
+        anyhow::bail!(
+            "Rating deve estar entre 0 e 10, mas recebeu: {}",
+            args.rating
+        );
     }
 
     let cfg = load_config();
@@ -72,4 +75,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-

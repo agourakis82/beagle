@@ -7,7 +7,7 @@
 //! - Safety guard effectiveness
 //! - Change identification and tracking
 
-use beagle_paradox::{ParadoxEngine, ParadoxResult, SelfModifier, ModificationReport};
+use beagle_paradox::{ModificationReport, ParadoxEngine, ParadoxResult, SelfModifier};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -386,10 +386,15 @@ fn test_apply_modification_tracks_changes() {
     fs::write(&file_path, "pub fn test() {}").unwrap();
 
     let modifier = SelfModifier::new();
-    let result = modifier.apply_modification(&file_path, "pub fn test_new() {}").unwrap();
+    let result = modifier
+        .apply_modification(&file_path, "pub fn test_new() {}")
+        .unwrap();
 
     assert!(!result.changes_made.is_empty());
-    assert!(result.changes_made.iter().any(|c| c.contains("Tamanho") || c.contains("caracteres")));
+    assert!(result
+        .changes_made
+        .iter()
+        .any(|c| c.contains("Tamanho") || c.contains("caracteres")));
 }
 
 #[test]
@@ -581,7 +586,9 @@ fn test_changes_report_not_empty() {
     fs::write(&file_path, "pub fn old() {}").unwrap();
 
     let modifier = SelfModifier::new();
-    let report = modifier.apply_modification(&file_path, "pub fn new() {}").unwrap();
+    let report = modifier
+        .apply_modification(&file_path, "pub fn new() {}")
+        .unwrap();
 
     assert!(!report.changes_made.is_empty());
 }
@@ -595,7 +602,9 @@ fn test_modification_report_file_path_set() {
     fs::write(&file_path, "pub fn test() {}").unwrap();
 
     let modifier = SelfModifier::new();
-    let report = modifier.apply_modification(&file_path, "pub fn modified() {}").unwrap();
+    let report = modifier
+        .apply_modification(&file_path, "pub fn modified() {}")
+        .unwrap();
 
     assert_eq!(report.file_path, file_path);
 }

@@ -44,4 +44,3 @@ pub fn calculate_stats(mut latencies: Vec<Duration>) -> LatencyStats {
         errors: 0,
     }
 }
-

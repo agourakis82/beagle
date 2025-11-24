@@ -48,52 +48,63 @@ impl SymbolicSummary {
 pub async fn summarize_symbolic_state(run_id: &str) -> anyhow::Result<SymbolicSummary> {
     // Por enquanto, retorna estrutura básica
     // TODO: integrar com módulos reais quando necessário
-    
+
     // Mock/placeholder - em produção, consultaria:
     // - beagle-metacog para bias_indicators e entropy_level
     // - beagle-serendipity para serendipity_events
     // - beagle-fractal para notable_analogies
     // - beagle-worldmodel para hypothetical_states
     // - PCS (Julia) para topics
-    
+
     let mut summary = SymbolicSummary::empty(run_id.to_string());
-    
+
     // Por enquanto, retorna estrutura vazia
     // Isso pode ser preenchido via integração futura com os módulos específicos
-    
+
     Ok(summary)
 }
 
 /// Gera contexto simbólico formatado para inclusão em prompts
 pub fn format_symbolic_context(summary: &SymbolicSummary) -> String {
     let mut lines = Vec::new();
-    
+
     lines.push("=== SIMBOLIC CONTEXT (EXCERPT) ===".to_string());
-    
+
     if !summary.topics.is_empty() {
         lines.push(format!("Topics: {}", summary.topics.join(", ")));
     }
-    
+
     if !summary.hypothetical_states.is_empty() {
-        lines.push(format!("Hypothetical States: {}", summary.hypothetical_states.join(", ")));
+        lines.push(format!(
+            "Hypothetical States: {}",
+            summary.hypothetical_states.join(", ")
+        ));
     }
-    
+
     if let Some(entropy) = summary.entropy_level {
         lines.push(format!("Entropy Level: {:.2}", entropy));
     }
-    
+
     if !summary.notable_analogies.is_empty() {
-        lines.push(format!("Notable Analogies: {}", summary.notable_analogies.join(", ")));
+        lines.push(format!(
+            "Notable Analogies: {}",
+            summary.notable_analogies.join(", ")
+        ));
     }
-    
+
     if !summary.bias_indicators.is_empty() {
-        lines.push(format!("Bias Indicators: {}", summary.bias_indicators.join(", ")));
+        lines.push(format!(
+            "Bias Indicators: {}",
+            summary.bias_indicators.join(", ")
+        ));
     }
-    
+
     if !summary.serendipity_events.is_empty() {
-        lines.push(format!("Serendipity Events: {}", summary.serendipity_events.join(", ")));
+        lines.push(format!(
+            "Serendipity Events: {}",
+            summary.serendipity_events.join(", ")
+        ));
     }
-    
+
     lines.join("\n")
 }
-

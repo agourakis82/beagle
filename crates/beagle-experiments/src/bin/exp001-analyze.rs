@@ -54,7 +54,10 @@ async fn main() -> Result<()> {
     // Carrega tags experimentais
     let tags = load_experiment_tags_by_id(&data_dir, &args.experiment_id)?;
     if tags.is_empty() {
-        eprintln!("❌ Nenhuma tag encontrada para experiment_id: {}", args.experiment_id);
+        eprintln!(
+            "❌ Nenhuma tag encontrada para experiment_id: {}",
+            args.experiment_id
+        );
         std::process::exit(1);
     }
 
@@ -95,7 +98,10 @@ async fn main() -> Result<()> {
             OutputFormat::Md => {
                 let md_path = output_dir.join(format!("{}_report.md", prefix));
                 export_markdown(&metrics, &cfg, &md_path)?;
-                println!("✅ Relatório Markdown exportado para: {}", md_path.display());
+                println!(
+                    "✅ Relatório Markdown exportado para: {}",
+                    md_path.display()
+                );
             }
         }
     }
@@ -113,9 +119,16 @@ fn print_summary(metrics: &beagle_experiments::analysis::ExperimentMetrics) {
 
     for (condition, cond_metrics) in &metrics.conditions {
         println!("Condition {}:", condition);
-        println!("  runs: {} (feedback: {})", cond_metrics.n_runs, cond_metrics.n_with_feedback);
+        println!(
+            "  runs: {} (feedback: {})",
+            cond_metrics.n_runs, cond_metrics.n_with_feedback
+        );
         if let Some(mean) = cond_metrics.rating_mean {
-            println!("  rating mean: {:.2} (std: {:.2})", mean, cond_metrics.rating_std.unwrap_or(0.0));
+            println!(
+                "  rating mean: {:.2} (std: {:.2})",
+                mean,
+                cond_metrics.rating_std.unwrap_or(0.0)
+            );
         }
         if let Some(ratio) = cond_metrics.accepted_ratio {
             println!("  accepted: {:.1}%", ratio * 100.0);
@@ -133,7 +146,10 @@ fn print_summary(metrics: &beagle_experiments::analysis::ExperimentMetrics) {
             println!("  Δ rating mean: {:.2}", triad_mean - single_mean);
         }
         if let (Some(triad_ratio), Some(single_ratio)) = (tm.accepted_ratio, sm.accepted_ratio) {
-            println!("  Δ accepted ratio: {:.2}", (triad_ratio - single_ratio) * 100.0);
+            println!(
+                "  Δ accepted ratio: {:.2}",
+                (triad_ratio - single_ratio) * 100.0
+            );
         }
     }
 
@@ -148,7 +164,10 @@ fn export_csv(
     use std::io::Write;
 
     let mut file = File::create(path)?;
-    writeln!(file, "experiment_id,condition,n_runs,n_with_feedback,rating_mean,rating_std,accepted_ratio")?;
+    writeln!(
+        file,
+        "experiment_id,condition,n_runs,n_with_feedback,rating_mean,rating_std,accepted_ratio"
+    )?;
 
     for (condition, cond_metrics) in &metrics.conditions {
         writeln!(
@@ -194,7 +213,11 @@ fn export_markdown(
     writeln!(file, "# Beagle Expedition 001 – Relatório de Análise")?;
     writeln!(file)?;
     writeln!(file, "**Experiment ID**: `{}`", metrics.experiment_id)?;
-    writeln!(file, "**Data de Análise**: {}", Utc::now().format("%Y-%m-%d %H:%M:%S UTC"))?;
+    writeln!(
+        file,
+        "**Data de Análise**: {}",
+        Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+    )?;
     writeln!(file)?;
 
     writeln!(file, "## Configuração LLM/Triad (Congelada)")?;
@@ -202,8 +225,16 @@ fn export_markdown(
     writeln!(file, "- **profile**: {}", cfg.profile)?;
     writeln!(file, "- **safe_mode**: {}", cfg.safe_mode)?;
     writeln!(file, "- **grok_model**: {}", cfg.llm.grok_model)?;
-    writeln!(file, "- **serendipity_enabled**: {}", cfg.serendipity_enabled())?;
-    writeln!(file, "- **serendipity_in_triad**: {}", cfg.serendipity_in_triad())?;
+    writeln!(
+        file,
+        "- **serendipity_enabled**: {}",
+        cfg.serendipity_enabled()
+    )?;
+    writeln!(
+        file,
+        "- **serendipity_in_triad**: {}",
+        cfg.serendipity_in_triad()
+    )?;
     writeln!(file)?;
 
     writeln!(file, "## Resultados")?;
@@ -261,4 +292,3 @@ fn export_markdown(
 
     Ok(())
 }
-

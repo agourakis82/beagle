@@ -66,7 +66,9 @@ fn cosine_similarity(a: &Array1<f64>, b: &Array1<f64>) -> f64 {
 /// Generate mock embedding for a text (deterministic for testing)
 /// In production, would use actual embedding model
 fn generate_embedding(text: &str, dimension: usize) -> Array1<f64> {
-    let hash = text.bytes().fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+    let hash = text
+        .bytes()
+        .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
     let mut embedding = Array1::zeros(dimension);
 
     for i in 0..dimension {
@@ -96,7 +98,7 @@ impl EnsembleReasoningEngine {
     pub fn new(hrv_monitor: Arc<HRVMonitor>) -> Self {
         Self {
             hrv_monitor,
-            embedding_dim: 384,  // Standard embedding dimension
+            embedding_dim: 384, // Standard embedding dimension
             max_paths: 5,
         }
     }
@@ -224,7 +226,10 @@ pub struct AdaptiveRouter {
 }
 
 impl AdaptiveRouter {
-    pub fn new(hrv_monitor: Arc<HRVMonitor>, ensemble_engine: Arc<EnsembleReasoningEngine>) -> Self {
+    pub fn new(
+        hrv_monitor: Arc<HRVMonitor>,
+        ensemble_engine: Arc<EnsembleReasoningEngine>,
+    ) -> Self {
         Self {
             hrv_monitor,
             ensemble_engine,
@@ -308,7 +313,10 @@ mod tests {
     fn test_embedding_determinism() {
         let emb1 = generate_embedding("hello", 384);
         let emb2 = generate_embedding("hello", 384);
-        assert!(emb1.iter().zip(emb2.iter()).all(|(a, b)| (a - b).abs() < 1e-10));
+        assert!(emb1
+            .iter()
+            .zip(emb2.iter())
+            .all(|(a, b)| (a - b).abs() < 1e-10));
     }
 
     #[tokio::test]

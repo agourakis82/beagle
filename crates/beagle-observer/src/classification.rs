@@ -1,8 +1,8 @@
 //! Observer 2.0 - Classificação de severidade
 
-use crate::events::{PhysioEvent, EnvEvent, SpaceWeatherEvent};
+use crate::events::{EnvEvent, PhysioEvent, SpaceWeatherEvent};
 use crate::severity::Severity;
-use beagle_config::{PhysioThresholds, EnvThresholds, SpaceWeatherThresholds};
+use beagle_config::{EnvThresholds, PhysioThresholds, SpaceWeatherThresholds};
 
 /// Classifica HRV em nível de severidade
 pub fn classify_hrv(hrv_ms: f32, t: &PhysioThresholds) -> Severity {
@@ -43,7 +43,9 @@ pub fn classify_hr(hr_bpm: f32, t: &PhysioThresholds) -> Severity {
 pub fn classify_resp_rate(resp_rate_bpm: f32, t: &PhysioThresholds) -> Severity {
     if resp_rate_bpm <= t.resp_rate_low_bpm || resp_rate_bpm >= t.resp_rate_high_bpm {
         Severity::Moderate
-    } else if resp_rate_bpm <= t.resp_rate_low_bpm * 1.2 || resp_rate_bpm >= t.resp_rate_high_bpm * 0.9 {
+    } else if resp_rate_bpm <= t.resp_rate_low_bpm * 1.2
+        || resp_rate_bpm >= t.resp_rate_high_bpm * 0.9
+    {
         Severity::Mild
     } else {
         Severity::Normal
@@ -199,4 +201,3 @@ pub fn aggregate_space_severity(ev: &SpaceWeatherEvent, th: &SpaceWeatherThresho
 
     sev
 }
-

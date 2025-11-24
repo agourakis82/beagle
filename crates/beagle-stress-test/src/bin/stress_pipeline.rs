@@ -2,8 +2,8 @@ use std::sync::Arc;
 use tokio::time::Instant;
 
 use anyhow::Result;
-use beagle_monorepo::run_beagle_pipeline;
 use beagle_core::BeagleContext;
+use beagle_monorepo::run_beagle_pipeline;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -50,7 +50,15 @@ async fn main() -> Result<()> {
             let start = Instant::now();
             let res = {
                 let mut ctx_guard = ctx_cloned.lock().await;
-                run_beagle_pipeline(&mut ctx_guard, &question, &format!("run-{}", i), None, None).await
+                run_beagle_pipeline(
+                    &mut ctx_guard,
+                    &question,
+                    &format!("run-{}", i),
+                    None,
+                    None,
+                    None,
+                )
+                .await
             };
             let dur = start.elapsed();
             (i, res, dur)
@@ -81,8 +89,10 @@ async fn main() -> Result<()> {
     if !latencies.is_empty() {
         latencies.sort();
         let p50 = latencies[latencies.len() / 2];
-        let p95 = latencies[(latencies.len() as f32 * 0.95) as usize.min(latencies.len() - 1)];
-        let p99 = latencies[(latencies.len() as f32 * 0.99) as usize.min(latencies.len() - 1)];
+        let p95_idx = ((latencies.len() as f32 * 0.95) as usize).min(latencies.len() - 1);
+        let p99_idx = ((latencies.len() as f32 * 0.99) as usize).min(latencies.len() - 1);
+        let p95 = latencies[p95_idx];
+        let p99 = latencies[p99_idx];
         println!("p50: {:?}", p50);
         println!("p95: {:?}", p95);
         println!("p99: {:?}", p99);

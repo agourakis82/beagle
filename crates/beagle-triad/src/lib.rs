@@ -7,7 +7,7 @@
 //! - Juiz final: arbitra versões finais
 
 use beagle_core::BeagleContext;
-use beagle_llm::{RequestMeta, ProviderTier, stats::LlmCallsStats as LlmCallsStatsLLM};
+use beagle_llm::{stats::LlmCallsStats as LlmCallsStatsLLM, ProviderTier, RequestMeta};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -17,12 +17,12 @@ use tracing::{info, warn};
 /// Extrai conceitos-chave, relações lógicas e estrutura semântica
 pub async fn generate_symbolic_summary(draft: &str, ctx: &BeagleContext) -> anyhow::Result<String> {
     info!("Gerando resumo simbólico do draft");
-    
+
     // Por enquanto, usa heurísticas simples para extrair conceitos
     // TODO: Integrar com PCS real via Julia quando disponível
     let concepts = extract_key_concepts(draft);
     let logical_structure = analyze_logical_structure(draft);
-    
+
     let summary = format!(
         "## Resumo Simbólico (PCS)\n\n\
         **Conceitos-chave**: {}\n\n\
@@ -32,27 +32,39 @@ pub async fn generate_symbolic_summary(draft: &str, ctx: &BeagleContext) -> anyh
         concepts.join(", "),
         logical_structure
     );
-    
+
     Ok(summary)
 }
 
 fn extract_key_concepts(text: &str) -> Vec<String> {
     // Heurística simples: palavras em maiúsculas, termos técnicos comuns
     let keywords = [
-        "entropia", "curvatura", "scaffold", "biomaterial", "PBPK", "KEC",
-        "psiquiatria", "computacional", "neurociência", "filosofia", "consciência",
-        "geometria", "não-comutativa", "fractal", "holográfico"
+        "entropia",
+        "curvatura",
+        "scaffold",
+        "biomaterial",
+        "PBPK",
+        "KEC",
+        "psiquiatria",
+        "computacional",
+        "neurociência",
+        "filosofia",
+        "consciência",
+        "geometria",
+        "não-comutativa",
+        "fractal",
+        "holográfico",
     ];
-    
+
     let mut found = Vec::new();
     let text_lower = text.to_lowercase();
-    
+
     for keyword in &keywords {
         if text_lower.contains(keyword) {
             found.push(keyword.to_string());
         }
     }
-    
+
     found
 }
 
@@ -61,7 +73,7 @@ fn analyze_logical_structure(text: &str) -> String {
     let sections = text.matches("##").count();
     let references = text.matches("@").count() + text.matches("\\cite").count();
     let equations = text.matches("$$").count() / 2; // pares
-    
+
     format!(
         "{} seções principais, {} referências, {} equações",
         sections, references, equations
@@ -79,11 +91,11 @@ pub struct TriadInput {
 /// Opinião de um agente da Triad
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TriadOpinion {
-    pub agent: String,      // "ATHENA" | "HERMES" | "ARGOS"
+    pub agent: String, // "ATHENA" | "HERMES" | "ARGOS"
     pub summary: String,
     pub suggestions_md: String, // markdown
-    pub score: f32,         // 0.0–1.0
-    pub provider_tier: String, // "grok-3" | "grok-4-heavy" | etc.
+    pub score: f32,             // 0.0–1.0
+    pub provider_tier: String,  // "grok-3" | "grok-4-heavy" | etc.
 }
 
 /// Relatório final da Triad
@@ -107,10 +119,7 @@ pub struct LlmCallsStats {
 }
 
 /// Executa a Triad completa
-pub async fn run_triad(
-    input: &TriadInput,
-    ctx: &BeagleContext,
-) -> anyhow::Result<TriadReport> {
+pub async fn run_triad(input: &TriadInput, ctx: &BeagleContext) -> anyhow::Result<TriadReport> {
     info!("🔍 Iniciando Triad para run_id: {}", input.run_id);
 
     // 1) Ler draft
@@ -119,18 +128,31 @@ pub async fn run_triad(
 
     // 2) ATHENA (agente literatura)
     info!("🔬 Executando ATHENA...");
-    let (athena, tier) = run_athena(&original_draft, &input.context_summary, ctx, &input.run_id).await?;
-    info!("✅ ATHENA concluído - Score: {:.2} | Provider: {}", athena.score, tier.as_str());
+    let (athena, tier) =
+        run_athena(&original_draft, &input.context_summary, ctx, &input.run_id).await?;
+    info!(
+        "✅ ATHENA concluído - Score: {:.2} | Provider: {}",
+        athena.score,
+        tier.as_str()
+    );
 
     // 3) HERMES (revisor)
     info!("✍️  Executando HERMES...");
     let (hermes, tier) = run_hermes(&original_draft, &athena, ctx, &input.run_id).await?;
-    info!("✅ HERMES concluído - Score: {:.2} | Provider: {}", hermes.score, tier.as_str());
+    info!(
+        "✅ HERMES concluído - Score: {:.2} | Provider: {}",
+        hermes.score,
+        tier.as_str()
+    );
 
     // 4) ARGOS (crítico)
     info!("⚔️  Executando ARGOS...");
     let (argos, tier) = run_argos(&original_draft, &hermes, &athena, ctx, &input.run_id).await?;
-    info!("✅ ARGOS concluído - Score: {:.2} | Provider: {}", argos.score, tier.as_str());
+    info!(
+        "✅ ARGOS concluído - Score: {:.2} | Provider: {}",
+        argos.score,
+        tier.as_str()
+    );
 
     // 5) Juiz final (arbitra versões)
     info!("⚖️  Executando Juiz Final...");
@@ -143,7 +165,11 @@ pub async fn run_triad(
         &input.run_id,
     )
     .await?;
-    info!("✅ Juiz Final concluído - Draft final: {} chars | Provider: {}", final_draft.len(), tier.as_str());
+    info!(
+        "✅ Juiz Final concluído - Draft final: {} chars | Provider: {}",
+        final_draft.len(),
+        tier.as_str()
+    );
 
     // Obtém stats finais do contexto
     let llm_stats = ctx.llm_stats.get(&input.run_id).unwrap_or_default();
@@ -175,13 +201,13 @@ async fn call_llm_with_stats_triad(
 ) -> anyhow::Result<(String, ProviderTier)> {
     // Obtém stats atuais do run
     let current_stats = ctx.llm_stats.get_or_create(run_id);
-    
+
     // Escolhe client com limites
     let (client, tier) = ctx.router.choose_with_limits(&meta, &current_stats);
-    
+
     // Chama LLM
     let output = client.complete(prompt).await?;
-    
+
     // Atualiza stats
     ctx.llm_stats.update(run_id, |stats| {
         match tier {
@@ -203,12 +229,12 @@ async fn call_llm_with_stats_triad(
             }
         }
     });
-    
+
     Ok((output.text, tier))
 }
 
 /// ATHENA: leitura crítica + literatura
-/// 
+///
 /// Prompts customizados para o contexto científico interdisciplinar do BEAGLE:
 /// - Psiquiatria computacional, entropia/curvatura, PBPK, biomateriais, neurociência
 /// - Filosofia da mente, geometria não-comutativa, consciência celular
@@ -257,13 +283,13 @@ pub async fn run_athena(
     prompt.push_str(draft);
 
     let meta = RequestMeta::new(
-        false, // requires_math
-        true,  // requires_high_quality
-        false, // offline_required
+        false,                      // requires_math
+        true,                       // requires_high_quality
+        false,                      // offline_required
         prompt.chars().count() / 4, // approximate_tokens
-        false, // high_bias_risk (ATHENA não precisa de Heavy normalmente)
-        true,  // requires_phd_level_reasoning (avalia ciência)
-        false, // critical_section
+        false,                      // high_bias_risk (ATHENA não precisa de Heavy normalmente)
+        true,                       // requires_phd_level_reasoning (avalia ciência)
+        false,                      // critical_section
     );
 
     let (text, tier) = call_llm_with_stats_triad(ctx, run_id, &prompt, meta).await?;
@@ -284,7 +310,7 @@ pub async fn run_athena(
 }
 
 /// HERMES: reescrita orientada
-/// 
+///
 /// Preserva voz autoral interdisciplinar (engenharia química, medicina, psiquiatria, biomateriais, filosofia da mente).
 /// Alta densidade conceitual sem simplificação infantil.
 pub async fn run_hermes(
@@ -319,13 +345,13 @@ pub async fn run_hermes(
     prompt.push_str(draft);
 
     let meta = RequestMeta::new(
-        false, // requires_math
-        true,  // requires_high_quality
-        false, // offline_required
+        false,                      // requires_math
+        true,                       // requires_high_quality
+        false,                      // offline_required
         prompt.chars().count() / 4, // approximate_tokens
-        false, // high_bias_risk (HERMES não precisa de Heavy)
-        false, // requires_phd_level_reasoning (reescrita, não análise crítica)
-        false, // critical_section
+        false,                      // high_bias_risk (HERMES não precisa de Heavy)
+        false,                      // requires_phd_level_reasoning (reescrita, não análise crítica)
+        false,                      // critical_section
     );
 
     let (text, tier) = call_llm_with_stats_triad(ctx, run_id, &prompt, meta).await?;
@@ -345,7 +371,7 @@ pub async fn run_hermes(
 }
 
 /// ARGOS: crítico adversarial
-/// 
+///
 /// Age como revisor Q1 duro (Nature Human Behaviour, Kybernetes, Frontiers), focado em:
 /// - Claims sem suporte empírico adequado
 /// - Confusão entre metáfora e mecanismo
@@ -385,13 +411,13 @@ pub async fn run_argos(
 
     // ARGOS usa Heavy: crítica sobre claims científicos
     let meta = RequestMeta::new(
-        false, // requires_math (ou true se for Methods de KEC/PBPK)
-        true,  // requires_high_quality
-        false, // offline_required
+        false,                      // requires_math (ou true se for Methods de KEC/PBPK)
+        true,                       // requires_high_quality
+        false,                      // offline_required
         prompt.chars().count() / 4, // approximate_tokens
-        true,  // high_bias_risk (crítica sobre claims científicos)
-        true,  // requires_phd_level_reasoning
-        true,  // critical_section (revisão crítica)
+        true,                       // high_bias_risk (crítica sobre claims científicos)
+        true,                       // requires_phd_level_reasoning
+        true,                       // critical_section (revisão crítica)
     );
 
     let (text, tier) = call_llm_with_stats_triad(ctx, run_id, &prompt, meta).await?;
@@ -411,7 +437,7 @@ pub async fn run_argos(
 }
 
 /// Juiz final: arbitragem do draft
-/// 
+///
 /// Combina o melhor dos três agentes (ATHENA/HERMES/ARGOS) mantendo rigor científico e estilo interdisciplinar.
 /// Foca em resolver problemas críticos apontados por ARGOS enquanto preserva a voz autoral.
 pub async fn arbitrate_final(
@@ -423,12 +449,13 @@ pub async fn arbitrate_final(
     run_id: &str,
 ) -> anyhow::Result<(String, ProviderTier)> {
     // Gera resumo simbólico (PCS) do draft original
-    let symbolic_summary = generate_symbolic_summary(original_draft, ctx).await
+    let symbolic_summary = generate_symbolic_summary(original_draft, ctx)
+        .await
         .unwrap_or_else(|e| {
             warn!("Falha ao gerar resumo simbólico: {}", e);
             "Resumo simbólico não disponível".to_string()
         });
-    
+
     let mut prompt = String::from(
         "Você é o JUIZ FINAL do sistema BEAGLE (HONEST AI TRIAD).\n\n\
         IMPORTANTE: Mantenha a voz autoral interdisciplinar (engenharia química, medicina, psiquiatria, biomateriais, filosofia da mente).\n\
@@ -452,9 +479,9 @@ pub async fn arbitrate_final(
     prompt.push_str(&athena.suggestions_md);
     prompt.push_str("\n\n=== FEEDBACK_ARGOS ===\n");
     prompt.push_str(&argos.suggestions_md);
-    
+
     // Contexto simbólico já foi adicionado no início do prompt
-    
+
     prompt.push_str("\n\n=== DRAFT_ORIGINAL ===\n");
     prompt.push_str(original_draft);
     prompt.push_str("\n\n=== DRAFT_HERMES ===\n");
@@ -462,13 +489,13 @@ pub async fn arbitrate_final(
 
     // Juiz Final usa Heavy: decisão final sobre texto científico
     let meta = RequestMeta::new(
-        false, // requires_math
-        true,  // requires_high_quality
-        false, // offline_required
+        false,                      // requires_math
+        true,                       // requires_high_quality
+        false,                      // offline_required
         prompt.chars().count() / 4, // approximate_tokens
-        true,  // high_bias_risk (decisão final sobre texto científico)
-        true,  // requires_phd_level_reasoning
-        true,  // critical_section (versão final)
+        true,                       // high_bias_risk (decisão final sobre texto científico)
+        true,                       // requires_phd_level_reasoning
+        true,                       // critical_section (versão final)
     );
 
     call_llm_with_stats_triad(ctx, run_id, &prompt, meta).await

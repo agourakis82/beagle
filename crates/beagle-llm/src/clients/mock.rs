@@ -1,6 +1,6 @@
 //! Mock LLM Client para testes
 
-use crate::{LlmClient, LlmOutput, LlmRequest, ChatMessage};
+use crate::{ChatMessage, LlmClient, LlmOutput, LlmRequest};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -22,7 +22,8 @@ impl LlmClient for MockLlmClient {
     }
 
     async fn chat(&self, req: LlmRequest) -> anyhow::Result<String> {
-        let content: String = req.messages
+        let content: String = req
+            .messages
             .iter()
             .map(|m| m.content.clone())
             .collect::<Vec<_>>()
@@ -42,4 +43,3 @@ impl LlmClient for MockLlmClient {
         false
     }
 }
-

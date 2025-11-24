@@ -1,8 +1,8 @@
 //! BEAGLE Auto-Publish - Publicação automática no arXiv
 //! Gera PDF bonito, metadata perfeito, DOI real — 100% automático
 
-pub mod run_log;
 mod policy;
+pub mod run_log;
 
 use crate::policy::{PublishMode, PublishPolicy};
 use crate::run_log::{init_run, save_run_metadata};
@@ -181,10 +181,7 @@ fn validate_pdf(pdf_path: &PathBuf) -> Result<()> {
     let size_mb = metadata.len() as f64 / 1_000_000.0;
 
     if size_mb > 10.0 {
-        return Err(anyhow!(
-            "PDF muito grande: {:.2}MB (limite: 10MB)",
-            size_mb
-        ));
+        return Err(anyhow!("PDF muito grande: {:.2}MB (limite: 10MB)", size_mb));
     }
 
     info!("✅ PDF validado: {:.2}MB", size_mb);
@@ -268,11 +265,7 @@ async fn upload_to_arxiv(
         info!("✅ PAPER PUBLICADO NO ARXIV — DOI: {}", doi);
         Ok(doi)
     } else {
-        Err(anyhow!(
-            "arXiv rejeitou (status {}): {}",
-            status,
-            text
-        ))
+        Err(anyhow!("arXiv rejeitou (status {}): {}", status, text))
     }
 }
 

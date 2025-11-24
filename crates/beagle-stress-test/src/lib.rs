@@ -2,5 +2,4 @@
 
 pub mod stats;
 
-pub use stats::LatencyStats;
-
+pub use stats::{calculate_stats, LatencyStats};

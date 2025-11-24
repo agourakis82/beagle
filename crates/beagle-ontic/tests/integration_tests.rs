@@ -68,15 +68,13 @@ async fn test_void_navigator_with_custom_url() {
 
 #[tokio::test]
 async fn test_void_state_structure() {
-    let insights = vec![
-        VoidInsight {
-            id: "insight-1".to_string(),
-            depth_at_discovery: 0.5,
-            insight_text: "Test insight".to_string(),
-            impossibility_level: 0.8,
-            discovered_at: chrono::Utc::now(),
-        },
-    ];
+    let insights = vec![VoidInsight {
+        id: "insight-1".to_string(),
+        depth_at_discovery: 0.5,
+        insight_text: "Test insight".to_string(),
+        impossibility_level: 0.8,
+        discovered_at: chrono::Utc::now(),
+    }];
 
     let state = VoidState {
         id: "void-state-1".to_string(),
@@ -369,16 +367,15 @@ async fn test_cycle_transformation_preservation() {
     let reality = TransOnticReality {
         id: "r1".to_string(),
         reality_description: "Highly novel reality".to_string(),
-        trans_ontic_insights: (0..7)
-            .map(|i| format!("Insight {}", i))
-            .collect::<Vec<_>>(),
+        trans_ontic_insights: (0..7).map(|i| format!("Insight {}", i)).collect::<Vec<_>>(),
         ontological_novelty: 0.92,
         reintegration_ready: true,
         emerged_at: chrono::Utc::now(),
     };
 
     // Verify transformation
-    let transformation_preserved = reality.ontological_novelty > 0.5 && !reality.trans_ontic_insights.is_empty();
+    let transformation_preserved =
+        reality.ontological_novelty > 0.5 && !reality.trans_ontic_insights.is_empty();
     assert!(transformation_preserved);
 }
 
@@ -405,7 +402,8 @@ async fn test_cycle_safeguard_validation() {
     };
 
     // Verify safeguard conditions would pass
-    let transformation_preserved = reality.ontological_novelty > 0.5 && !reality.trans_ontic_insights.is_empty();
+    let transformation_preserved =
+        reality.ontological_novelty > 0.5 && !reality.trans_ontic_insights.is_empty();
     let fractal_safeguards_active = true; // In real code, would check fractal state
 
     assert!(transformation_preserved);

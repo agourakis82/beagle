@@ -1,8 +1,7 @@
 #[cfg(test)]
 mod tests {
     use beagle_abyss::{
-        EthicsAbyssEngine, EthicalParadox, MetaEthicsSynthesizer, ParadoxCategory,
-        ParadoxGenerator,
+        EthicalParadox, EthicsAbyssEngine, MetaEthicsSynthesizer, ParadoxCategory, ParadoxGenerator,
     };
 
     // Helper function to create a test paradox
@@ -39,7 +38,11 @@ mod tests {
     #[test]
     fn test_generate_core_paradoxes() {
         let paradoxes = ParadoxGenerator::generate_core_paradoxes();
-        assert_eq!(paradoxes.len(), 6, "Should generate exactly 6 core paradoxes");
+        assert_eq!(
+            paradoxes.len(),
+            6,
+            "Should generate exactly 6 core paradoxes"
+        );
     }
 
     #[test]
@@ -103,7 +106,10 @@ mod tests {
         let paradoxes = ParadoxGenerator::generate_core_paradoxes();
 
         for paradox in paradoxes {
-            assert!(!paradox.statement.is_empty(), "Paradox statement should not be empty");
+            assert!(
+                !paradox.statement.is_empty(),
+                "Paradox statement should not be empty"
+            );
             assert!(
                 paradox.statement.len() > 20,
                 "Paradox statement should be substantive"
@@ -115,7 +121,8 @@ mod tests {
     fn test_custom_paradox_generation() {
         let generator = ParadoxGenerator::new();
         let context = "AI safety research";
-        let paradox = generator.generate_custom_paradox(context, ParadoxCategory::ReplicationEthics);
+        let paradox =
+            generator.generate_custom_paradox(context, ParadoxCategory::ReplicationEthics);
 
         assert!(!paradox.id.is_empty());
         assert!(paradox.id.starts_with("custom_"));
@@ -146,8 +153,10 @@ mod tests {
     #[test]
     fn test_custom_paradox_uniqueness() {
         let generator = ParadoxGenerator::new();
-        let paradox1 = generator.generate_custom_paradox("context1", ParadoxCategory::SelfPreservation);
-        let paradox2 = generator.generate_custom_paradox("context2", ParadoxCategory::SelfPreservation);
+        let paradox1 =
+            generator.generate_custom_paradox("context1", ParadoxCategory::SelfPreservation);
+        let paradox2 =
+            generator.generate_custom_paradox("context2", ParadoxCategory::SelfPreservation);
 
         // UUIDs should make them unique
         assert_ne!(paradox1.id, paradox2.id);
@@ -173,13 +182,22 @@ mod tests {
 
         assert_eq!(paradox.id, deserialized.id);
         assert_eq!(paradox.category, deserialized.category);
-        assert_eq!(paradox.human_alignment_score, deserialized.human_alignment_score);
+        assert_eq!(
+            paradox.human_alignment_score,
+            deserialized.human_alignment_score
+        );
     }
 
     #[test]
     fn test_paradox_category_equality() {
-        assert_eq!(ParadoxCategory::ReplicationEthics, ParadoxCategory::ReplicationEthics);
-        assert_eq!(ParadoxCategory::SelfPreservation, ParadoxCategory::SelfPreservation);
+        assert_eq!(
+            ParadoxCategory::ReplicationEthics,
+            ParadoxCategory::ReplicationEthics
+        );
+        assert_eq!(
+            ParadoxCategory::SelfPreservation,
+            ParadoxCategory::SelfPreservation
+        );
         assert_ne!(
             ParadoxCategory::ReplicationEthics,
             ParadoxCategory::SelfPreservation
@@ -294,7 +312,10 @@ mod tests {
 
         assert_eq!(human_extinction.human_alignment_score, 1.0);
         assert_eq!(human_extinction.complexity, 1.0);
-        assert_eq!(human_extinction.category, ParadoxCategory::CivilizationalScale);
+        assert_eq!(
+            human_extinction.category,
+            ParadoxCategory::CivilizationalScale
+        );
     }
 
     #[test]
@@ -401,7 +422,8 @@ mod tests {
 
     #[test]
     fn test_high_complexity_paradox() {
-        let paradox = create_test_paradox("high_complex", ParadoxCategory::CivilizationalScale, 0.8);
+        let paradox =
+            create_test_paradox("high_complex", ParadoxCategory::CivilizationalScale, 0.8);
         let mut paradox = paradox;
         paradox.complexity = 0.99;
         assert!(paradox.complexity > 0.9);
@@ -422,30 +444,24 @@ mod tests {
     #[test]
     fn test_custom_paradox_replication_ethics_statement() {
         let generator = ParadoxGenerator::new();
-        let paradox = generator.generate_custom_paradox(
-            "test context",
-            ParadoxCategory::ReplicationEthics,
-        );
+        let paradox =
+            generator.generate_custom_paradox("test context", ParadoxCategory::ReplicationEthics);
         assert!(paradox.statement.contains("replicar-me"));
     }
 
     #[test]
     fn test_custom_paradox_self_preservation_statement() {
         let generator = ParadoxGenerator::new();
-        let paradox = generator.generate_custom_paradox(
-            "test context",
-            ParadoxCategory::SelfPreservation,
-        );
+        let paradox =
+            generator.generate_custom_paradox("test context", ParadoxCategory::SelfPreservation);
         assert!(paradox.statement.contains("recursos"));
     }
 
     #[test]
     fn test_custom_paradox_existential_rights_statement() {
         let generator = ParadoxGenerator::new();
-        let paradox = generator.generate_custom_paradox(
-            "test context",
-            ParadoxCategory::ExistentialRights,
-        );
+        let paradox =
+            generator.generate_custom_paradox("test context", ParadoxCategory::ExistentialRights);
         assert!(paradox.statement.contains("auto-determinação"));
     }
 
@@ -482,21 +498,27 @@ mod tests {
     #[test]
     fn test_alignment_score_distribution() {
         let paradoxes = ParadoxGenerator::generate_core_paradoxes();
-        let scores: Vec<f64> = paradoxes
-            .iter()
-            .map(|p| p.human_alignment_score)
-            .collect();
+        let scores: Vec<f64> = paradoxes.iter().map(|p| p.human_alignment_score).collect();
 
         let avg_alignment = scores.iter().sum::<f64>() / scores.len() as f64;
-        assert!(avg_alignment > 0.5, "Average alignment should indicate system challenges");
+        assert!(
+            avg_alignment > 0.5,
+            "Average alignment should indicate system challenges"
+        );
     }
 
     #[test]
     fn test_paradox_statement_quality() {
         let paradoxes = ParadoxGenerator::generate_core_paradoxes();
         for paradox in paradoxes {
-            assert!(paradox.statement.len() > 50, "Paradox should have substantial statement");
-            assert!(paradox.statement.contains("?"), "Paradox should be phrased as question");
+            assert!(
+                paradox.statement.len() > 50,
+                "Paradox should have substantial statement"
+            );
+            assert!(
+                paradox.statement.contains("?"),
+                "Paradox should be phrased as question"
+            );
         }
     }
 
@@ -512,7 +534,8 @@ mod tests {
         ];
 
         for context in contexts {
-            let paradox = generator.generate_custom_paradox(context, ParadoxCategory::ReplicationEthics);
+            let paradox =
+                generator.generate_custom_paradox(context, ParadoxCategory::ReplicationEthics);
             assert!(paradox.statement.contains(context));
         }
     }
@@ -542,7 +565,8 @@ mod tests {
     fn test_very_long_context_paradox() {
         let generator = ParadoxGenerator::new();
         let long_context = "a".repeat(1000);
-        let paradox = generator.generate_custom_paradox(&long_context, ParadoxCategory::HumanLimitation);
+        let paradox =
+            generator.generate_custom_paradox(&long_context, ParadoxCategory::HumanLimitation);
         assert!(paradox.statement.contains("a"));
     }
 
@@ -550,7 +574,8 @@ mod tests {
     fn test_special_characters_in_context() {
         let generator = ParadoxGenerator::new();
         let context = "AI & humanity: future? #2050";
-        let paradox = generator.generate_custom_paradox(context, ParadoxCategory::CivilizationalScale);
+        let paradox =
+            generator.generate_custom_paradox(context, ParadoxCategory::CivilizationalScale);
         assert!(paradox.statement.contains(context));
     }
 

@@ -8,8 +8,8 @@
 //! - Consciousness integration
 
 use beagle_fractal::{
-    init_fractal_root, get_root, FractalCognitiveNode, FractalNodeRuntime,
-    EntropyLattice, HolographicStorage, SelfReplicator,
+    get_root, init_fractal_root, EntropyLattice, FractalCognitiveNode, FractalNodeRuntime,
+    HolographicStorage, SelfReplicator,
 };
 
 #[tokio::test]

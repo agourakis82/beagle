@@ -4,7 +4,7 @@
 //! e traces para sistemas externos (Jaeger, Prometheus, etc.)
 
 use anyhow::Result;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry, fmt};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 
 #[cfg(feature = "otel")]
 use opentelemetry::global;
@@ -20,8 +20,7 @@ use tracing_opentelemetry::OpenTelemetryLayer;
 /// - Exportação JSON estruturada (se RUST_LOG_JSON=1)
 /// - OpenTelemetry (se feature "otel" habilitada e OTLP_ENDPOINT configurado)
 pub fn init_observability() -> Result<()> {
-    let filter = EnvFilter::from_default_env()
-        .add_directive("beagle=info".parse().unwrap());
+    let filter = EnvFilter::from_default_env().add_directive("beagle=info".parse().unwrap());
 
     // Se RUST_LOG_JSON=1, usa formato JSON estruturado
     let use_json = std::env::var("RUST_LOG_JSON")
@@ -37,19 +36,21 @@ pub fn init_observability() -> Result<()> {
         ]);
 
         let otlp_endpoint = std::env::var("OTLP_ENDPOINT").ok();
-        
+
         let tracer_provider = if let Some(endpoint) = otlp_endpoint {
             let exporter = opentelemetry_otlp::new_exporter()
                 .tonic()
                 .with_endpoint(endpoint);
-            
+
             TracerProvider::builder()
                 .with_batch_exporter(exporter, runtime::Tokio)
                 .with_resource(resource)
                 .build()
         } else {
             TracerProvider::builder()
-                .with_simple_exporter(opentelemetry_sdk::export::trace::stdout::StdoutExporter::default())
+                .with_simple_exporter(
+                    opentelemetry_sdk::export::trace::stdout::StdoutExporter::default(),
+                )
                 .with_resource(resource)
                 .build()
         };
@@ -71,8 +72,11 @@ pub fn init_observability() -> Result<()> {
                 .init();
         }
 
-        tracing::info!("Observabilidade inicializada (OTLP: {}, JSON: {})", 
-            otlp_endpoint.is_some(), use_json);
+        tracing::info!(
+            "Observabilidade inicializada (OTLP: {}, JSON: {})",
+            otlp_endpoint.is_some(),
+            use_json
+        );
     }
 
     #[cfg(not(feature = "otel"))]
@@ -104,4 +108,3 @@ pub fn shutdown_observability() {
         global::shutdown_tracer_provider();
     }
 }
-

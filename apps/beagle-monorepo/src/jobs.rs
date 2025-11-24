@@ -250,4 +250,3 @@ impl Default for ScienceJobRegistry {
         Self::new()
     }
 }
-

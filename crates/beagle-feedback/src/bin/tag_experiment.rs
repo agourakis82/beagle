@@ -1,13 +1,13 @@
 //! CLI para etiquetar run_id com condição experimental (A/B testing)
 
 use beagle_config::load as load_config;
-use beagle_feedback::{append_event, create_human_feedback_event, FeedbackEvent};
+use beagle_feedback::{append_event, FeedbackEvent};
 use chrono::Utc;
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    
+
     if args.len() < 4 {
         eprintln!("Uso: tag-experiment <run_id> <experiment_id> <condition> [notes...]");
         eprintln!();
@@ -32,7 +32,7 @@ fn main() -> anyhow::Result<()> {
 
     // Carrega eventos existentes para encontrar o run_id
     let events = beagle_feedback::load_all_events(&data_dir)?;
-    
+
     // Encontra o último evento do run_id
     let mut found_event: Option<FeedbackEvent> = None;
     for event in events.iter().rev() {
@@ -47,9 +47,13 @@ fn main() -> anyhow::Result<()> {
         event.experiment_id = Some(experiment_id.clone());
         event.experiment_condition = Some(condition.clone());
         if let Some(ref n) = notes {
-            event.notes = Some(format!("{} | Experiment: {}", event.notes.as_deref().unwrap_or(""), n));
+            event.notes = Some(format!(
+                "{} | Experiment: {}",
+                event.notes.as_deref().unwrap_or(""),
+                n
+            ));
         }
-        
+
         // Cria novo evento HumanFeedback com a condição experimental
         let human_event = beagle_feedback::create_human_feedback_event(
             run_id.clone(),
@@ -57,12 +61,12 @@ fn main() -> anyhow::Result<()> {
             event.rating_0_10,
             event.notes.clone(),
         );
-        
+
         // Adiciona campos experimentais
         let mut final_event = human_event;
         final_event.experiment_id = Some(experiment_id.clone());
         final_event.experiment_condition = Some(condition.clone());
-        
+
         append_event(&data_dir, &final_event)?;
 
         println!("✅ Condição experimental registrada para run_id={}", run_id);
@@ -73,7 +77,7 @@ fn main() -> anyhow::Result<()> {
         }
     } else {
         // Se não encontrou evento, cria um novo apenas com condição experimental
-        let mut event = FeedbackEvent {
+        let event = FeedbackEvent {
             event_type: beagle_feedback::FeedbackEventType::HumanFeedback,
             run_id: run_id.clone(),
             timestamp: Utc::now(),
@@ -94,14 +98,16 @@ fn main() -> anyhow::Result<()> {
             experiment_id: Some(experiment_id.clone()),
             experiment_condition: Some(condition.clone()),
         };
-        
+
         append_event(&data_dir, &event)?;
-        
-        println!("✅ Condição experimental registrada (novo evento) para run_id={}", run_id);
+
+        println!(
+            "✅ Condição experimental registrada (novo evento) para run_id={}",
+            run_id
+        );
         println!("   Experiment ID: {}", experiment_id);
         println!("   Condition: {}", condition);
     }
 
     Ok(())
 }
-

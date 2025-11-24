@@ -78,7 +78,10 @@ async fn main() -> Result<()> {
 fn init_tracing() {
     // Tenta inicializar OpenTelemetry, fallback para tracing simples
     if let Err(e) = init_observability() {
-        eprintln!("Aviso: Falha ao inicializar OpenTelemetry: {}. Usando tracing simples.", e);
+        eprintln!(
+            "Aviso: Falha ao inicializar OpenTelemetry: {}. Usando tracing simples.",
+            e
+        );
         // Usa tracing_subscriber diretamente
         tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -136,14 +139,19 @@ async fn run_doctor() -> Result<()> {
 async fn run_pipeline(question: String) -> Result<()> {
     let run_id = Uuid::new_v4().to_string();
     tracing::Span::current().record("run_id", &run_id.as_str());
-    
+
     let cfg = load_config();
-    info!("Iniciando pipeline v0.1 | run_id={} | profile={} | SAFE_MODE={}", run_id, cfg.profile, cfg.safe_mode);
+    info!(
+        "Iniciando pipeline v0.1 | run_id={} | profile={} | SAFE_MODE={}",
+        run_id, cfg.profile, cfg.safe_mode
+    );
 
     bootstrap().context("Falha no bootstrap do BEAGLE_DATA_DIR")?;
 
     // Diretórios de artefatos
-    let draft_dir = cfg.storage.data_dir_path()
+    let draft_dir = cfg
+        .storage
+        .data_dir_path()
         .join("papers")
         .join("drafts")
         .join(&run_id);
@@ -189,9 +197,15 @@ async fn run_pipeline(question: String) -> Result<()> {
     fs::create_dir_all(logs_dir())?;
     fs::write(&summary_path, serde_json::to_string_pretty(&summary)?)?;
 
-    info!("Pipeline concluído (scaffold). Summary em {:?}", summary_path);
+    info!(
+        "Pipeline concluído (scaffold). Summary em {:?}",
+        summary_path
+    );
     println!("Run ID: {}", run_id);
-    println!("Draft : {:?}", summary.draft_path.as_deref().unwrap_or("n/a"));
+    println!(
+        "Draft : {:?}",
+        summary.draft_path.as_deref().unwrap_or("n/a")
+    );
     println!("Summary: {:?}", summary_path);
     Ok(())
 }

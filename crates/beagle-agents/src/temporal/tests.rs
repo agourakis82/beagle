@@ -23,14 +23,29 @@ mod tests {
 
     #[test]
     fn test_temporal_scale_from_duration() {
-        assert_eq!(TemporalScale::from_duration(500), TemporalScale::Millisecond);
+        assert_eq!(
+            TemporalScale::from_duration(500),
+            TemporalScale::Millisecond
+        );
         assert_eq!(TemporalScale::from_duration(5_000), TemporalScale::Second);
         assert_eq!(TemporalScale::from_duration(120_000), TemporalScale::Minute);
         assert_eq!(TemporalScale::from_duration(7_200_000), TemporalScale::Hour);
-        assert_eq!(TemporalScale::from_duration(172_800_000), TemporalScale::Day);
-        assert_eq!(TemporalScale::from_duration(1_209_600_000), TemporalScale::Week);
-        assert_eq!(TemporalScale::from_duration(5_184_000_000), TemporalScale::Month);
-        assert_eq!(TemporalScale::from_duration(63_072_000_000), TemporalScale::Year);
+        assert_eq!(
+            TemporalScale::from_duration(172_800_000),
+            TemporalScale::Day
+        );
+        assert_eq!(
+            TemporalScale::from_duration(1_209_600_000),
+            TemporalScale::Week
+        );
+        assert_eq!(
+            TemporalScale::from_duration(5_184_000_000),
+            TemporalScale::Month
+        );
+        assert_eq!(
+            TemporalScale::from_duration(63_072_000_000),
+            TemporalScale::Year
+        );
     }
 
     #[test]
@@ -46,11 +61,7 @@ mod tests {
 
     #[test]
     fn test_timepoint_creation() {
-        let tp = TimePoint::new(
-            Utc::now(),
-            TemporalScale::Second,
-            "test_event".to_string(),
-        );
+        let tp = TimePoint::new(Utc::now(), TemporalScale::Second, "test_event".to_string());
 
         assert_eq!(tp.scale, TemporalScale::Second);
         assert_eq!(tp.event, "test_event");
@@ -58,11 +69,7 @@ mod tests {
 
     #[test]
     fn test_timepoint_with_metadata() {
-        let mut tp = TimePoint::new(
-            Utc::now(),
-            TemporalScale::Hour,
-            "event".to_string(),
-        );
+        let mut tp = TimePoint::new(Utc::now(), TemporalScale::Hour, "event".to_string());
 
         tp.add_metadata("key1".to_string(), "value1".to_string());
         tp.add_metadata("key2".to_string(), "value2".to_string());
@@ -170,12 +177,24 @@ mod tests {
 
         let range1 = TimeRange::new(
             TimePoint::new(now, TemporalScale::Hour, "r1_start".to_string()),
-            TimePoint::new(now + Duration::hours(3), TemporalScale::Hour, "r1_end".to_string()),
+            TimePoint::new(
+                now + Duration::hours(3),
+                TemporalScale::Hour,
+                "r1_end".to_string(),
+            ),
         );
 
         let range2 = TimeRange::new(
-            TimePoint::new(now + Duration::hours(2), TemporalScale::Hour, "r2_start".to_string()),
-            TimePoint::new(now + Duration::hours(5), TemporalScale::Hour, "r2_end".to_string()),
+            TimePoint::new(
+                now + Duration::hours(2),
+                TemporalScale::Hour,
+                "r2_start".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::hours(5),
+                TemporalScale::Hour,
+                "r2_end".to_string(),
+            ),
         );
 
         assert!(range1.overlaps(&range2));
@@ -188,12 +207,24 @@ mod tests {
 
         let range1 = TimeRange::new(
             TimePoint::new(now, TemporalScale::Hour, "r1_start".to_string()),
-            TimePoint::new(now + Duration::hours(2), TemporalScale::Hour, "r1_end".to_string()),
+            TimePoint::new(
+                now + Duration::hours(2),
+                TemporalScale::Hour,
+                "r1_end".to_string(),
+            ),
         );
 
         let range2 = TimeRange::new(
-            TimePoint::new(now + Duration::hours(3), TemporalScale::Hour, "r2_start".to_string()),
-            TimePoint::new(now + Duration::hours(5), TemporalScale::Hour, "r2_end".to_string()),
+            TimePoint::new(
+                now + Duration::hours(3),
+                TemporalScale::Hour,
+                "r2_start".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::hours(5),
+                TemporalScale::Hour,
+                "r2_end".to_string(),
+            ),
         );
 
         assert!(!range1.overlaps(&range2));
@@ -206,12 +237,24 @@ mod tests {
 
         let range1 = TimeRange::new(
             TimePoint::new(now, TemporalScale::Hour, "r1_start".to_string()),
-            TimePoint::new(now + Duration::hours(2), TemporalScale::Hour, "r1_end".to_string()),
+            TimePoint::new(
+                now + Duration::hours(2),
+                TemporalScale::Hour,
+                "r1_end".to_string(),
+            ),
         );
 
         let range2 = TimeRange::new(
-            TimePoint::new(now + Duration::hours(2), TemporalScale::Hour, "r2_start".to_string()),
-            TimePoint::new(now + Duration::hours(4), TemporalScale::Hour, "r2_end".to_string()),
+            TimePoint::new(
+                now + Duration::hours(2),
+                TemporalScale::Hour,
+                "r2_start".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::hours(4),
+                TemporalScale::Hour,
+                "r2_end".to_string(),
+            ),
         );
 
         // Ranges touching at exact boundary should not overlap
@@ -223,7 +266,11 @@ mod tests {
         let now = Utc::now();
         let range = TimeRange::new(
             TimePoint::new(now, TemporalScale::Second, "start".to_string()),
-            TimePoint::new(now + Duration::seconds(45), TemporalScale::Second, "end".to_string()),
+            TimePoint::new(
+                now + Duration::seconds(45),
+                TemporalScale::Second,
+                "end".to_string(),
+            ),
         );
 
         assert_eq!(range.normalize_scale(), TemporalScale::Second);
@@ -234,7 +281,11 @@ mod tests {
         let now = Utc::now();
         let range = TimeRange::new(
             TimePoint::new(now, TemporalScale::Day, "start".to_string()),
-            TimePoint::new(now + Duration::days(5), TemporalScale::Day, "end".to_string()),
+            TimePoint::new(
+                now + Duration::days(5),
+                TemporalScale::Day,
+                "end".to_string(),
+            ),
         );
 
         assert_eq!(range.normalize_scale(), TemporalScale::Day);
@@ -245,7 +296,11 @@ mod tests {
         let now = Utc::now();
         let range = TimeRange::new(
             TimePoint::new(now, TemporalScale::Month, "start".to_string()),
-            TimePoint::new(now + Duration::days(90), TemporalScale::Month, "end".to_string()),
+            TimePoint::new(
+                now + Duration::days(90),
+                TemporalScale::Month,
+                "end".to_string(),
+            ),
         );
 
         assert_eq!(range.normalize_scale(), TemporalScale::Month);
@@ -330,11 +385,31 @@ mod tests {
         let now = Utc::now();
         let events = vec![
             TimePoint::new(now, TemporalScale::Second, "A".to_string()),
-            TimePoint::new(now + Duration::seconds(1), TemporalScale::Second, "B".to_string()),
-            TimePoint::new(now + Duration::seconds(2), TemporalScale::Second, "A".to_string()),
-            TimePoint::new(now + Duration::seconds(3), TemporalScale::Second, "B".to_string()),
-            TimePoint::new(now + Duration::seconds(4), TemporalScale::Second, "A".to_string()),
-            TimePoint::new(now + Duration::seconds(5), TemporalScale::Second, "B".to_string()),
+            TimePoint::new(
+                now + Duration::seconds(1),
+                TemporalScale::Second,
+                "B".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(2),
+                TemporalScale::Second,
+                "A".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(3),
+                TemporalScale::Second,
+                "B".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(4),
+                TemporalScale::Second,
+                "A".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(5),
+                TemporalScale::Second,
+                "B".to_string(),
+            ),
         ];
 
         let patterns = miner.mine_frequent_sequences(&events);
@@ -359,7 +434,11 @@ mod tests {
         let now = Utc::now();
         let events = vec![
             TimePoint::new(now, TemporalScale::Second, "A".to_string()),
-            TimePoint::new(now + Duration::seconds(1), TemporalScale::Second, "B".to_string()),
+            TimePoint::new(
+                now + Duration::seconds(1),
+                TemporalScale::Second,
+                "B".to_string(),
+            ),
         ];
 
         let patterns = miner.mine_frequent_sequences(&events);
@@ -396,9 +475,9 @@ mod tests {
         // Should detect the 100-second gap as anomaly (>3 sigma from mean of 10s)
         assert!(!patterns.is_empty());
 
-        let anomaly = patterns.iter().find(|p| {
-            p.pattern_type == TemporalPatternType::Anomaly
-        });
+        let anomaly = patterns
+            .iter()
+            .find(|p| p.pattern_type == TemporalPatternType::Anomaly);
 
         assert!(anomaly.is_some());
     }
@@ -432,11 +511,31 @@ mod tests {
         let now = Utc::now();
         let events = vec![
             TimePoint::new(now, TemporalScale::Second, "A".to_string()),
-            TimePoint::new(now + Duration::seconds(1), TemporalScale::Second, "B".to_string()),
-            TimePoint::new(now + Duration::seconds(2), TemporalScale::Second, "A".to_string()),
-            TimePoint::new(now + Duration::seconds(3), TemporalScale::Second, "B".to_string()),
-            TimePoint::new(now + Duration::seconds(4), TemporalScale::Second, "A".to_string()),
-            TimePoint::new(now + Duration::seconds(5), TemporalScale::Second, "C".to_string()), // A→C
+            TimePoint::new(
+                now + Duration::seconds(1),
+                TemporalScale::Second,
+                "B".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(2),
+                TemporalScale::Second,
+                "A".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(3),
+                TemporalScale::Second,
+                "B".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(4),
+                TemporalScale::Second,
+                "A".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(5),
+                TemporalScale::Second,
+                "C".to_string(),
+            ), // A→C
         ];
 
         let patterns = miner.find_predictive_patterns(&events);
@@ -446,9 +545,7 @@ mod tests {
         // So P(B|A) = 2/3 ≈ 0.67, which is below min_confidence
 
         // Let's check if any patterns were found
-        let ab_pattern = patterns.iter().find(|p| {
-            p.description.contains("A → B")
-        });
+        let ab_pattern = patterns.iter().find(|p| p.description.contains("A → B"));
 
         // Should not find it because 0.67 < 0.7
         assert!(ab_pattern.is_none() || patterns.is_empty());
@@ -461,13 +558,41 @@ mod tests {
         let now = Utc::now();
         let events = vec![
             TimePoint::new(now, TemporalScale::Second, "A".to_string()),
-            TimePoint::new(now + Duration::seconds(1), TemporalScale::Second, "B".to_string()),
-            TimePoint::new(now + Duration::seconds(2), TemporalScale::Second, "A".to_string()),
-            TimePoint::new(now + Duration::seconds(3), TemporalScale::Second, "B".to_string()),
-            TimePoint::new(now + Duration::seconds(4), TemporalScale::Second, "A".to_string()),
-            TimePoint::new(now + Duration::seconds(5), TemporalScale::Second, "B".to_string()),
-            TimePoint::new(now + Duration::seconds(6), TemporalScale::Second, "A".to_string()),
-            TimePoint::new(now + Duration::seconds(7), TemporalScale::Second, "B".to_string()),
+            TimePoint::new(
+                now + Duration::seconds(1),
+                TemporalScale::Second,
+                "B".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(2),
+                TemporalScale::Second,
+                "A".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(3),
+                TemporalScale::Second,
+                "B".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(4),
+                TemporalScale::Second,
+                "A".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(5),
+                TemporalScale::Second,
+                "B".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(6),
+                TemporalScale::Second,
+                "A".to_string(),
+            ),
+            TimePoint::new(
+                now + Duration::seconds(7),
+                TemporalScale::Second,
+                "B".to_string(),
+            ),
         ];
 
         let patterns = miner.find_predictive_patterns(&events);
@@ -475,9 +600,7 @@ mod tests {
         // P(B|A) = 4/4 = 1.0, which is > 0.75
         assert!(!patterns.is_empty());
 
-        let ab_pattern = patterns.iter().find(|p| {
-            p.description.contains("A → B")
-        });
+        let ab_pattern = patterns.iter().find(|p| p.description.contains("A → B"));
 
         assert!(ab_pattern.is_some());
         let pattern = ab_pattern.unwrap();

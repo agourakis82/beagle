@@ -22,7 +22,7 @@ pub struct BeagleContext {
     pub llm: Arc<dyn LlmClient>,
     pub vector: Arc<dyn VectorStore>,
     pub graph: Arc<dyn GraphStore>,
-    pub llm_stats: LlmStatsRegistry,
+    pub llm_stats: Arc<LlmStatsRegistry>,
     // Memory engine (opcional, só disponível com feature "memory")
     #[cfg(feature = "memory")]
     pub memory: Option<Arc<beagle_memory::MemoryEngine>>,
@@ -139,7 +139,7 @@ impl BeagleContext {
             llm,
             vector,
             graph,
-            llm_stats: LlmStatsRegistry::new(),
+            llm_stats: Arc::new(LlmStatsRegistry::new()),
             #[cfg(feature = "memory")]
             memory,
         })
@@ -153,7 +153,7 @@ impl BeagleContext {
             llm: MockLlmClient::new(),
             vector: Arc::new(MockVectorStore),
             graph: Arc::new(MockGraphStore),
-            llm_stats: LlmStatsRegistry::new(),
+            llm_stats: Arc::new(LlmStatsRegistry::new()),
             #[cfg(feature = "memory")]
             memory: None,
         }

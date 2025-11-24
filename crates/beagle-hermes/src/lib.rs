@@ -105,7 +105,7 @@ impl HermesEngine {
     ) -> Result<Self> {
         let whisper_config = thought_capture::WhisperConfig::default();
         let thought_capture_service = thought_capture::ThoughtCaptureService::new(whisper_config)?;
-        
+
         // Por enquanto, mantém KnowledgeGraph original para compatibilidade
         // O KnowledgeGraphWrapper está disponível para uso futuro quando
         // todos os métodos de KnowledgeGraph forem migrados para usar GraphStore trait
@@ -113,8 +113,9 @@ impl HermesEngine {
             &config.neo4j_uri,
             &config.neo4j_user,
             &config.neo4j_password,
-        ).await?;
-        
+        )
+        .await?;
+
         let synthesis_engine = synthesis::SynthesisEngine::new(&config).await?;
         let manuscript_manager = manuscript::ManuscriptManager::new(&config.postgres_uri).await?;
 

@@ -22,17 +22,17 @@ async fn main() -> anyhow::Result<()> {
 
     let observer = UniversalObserver::new()?;
     let mut rx = observer.subscribe().await;
-    
+
     // Inicia surveillance
     observer.start_full_surveillance().await?;
-    
+
     info!("✅ Observer iniciado. Coletando observações por 10 segundos...");
-    
+
     // Coleta observações por 10 segundos
     let mut observations = Vec::new();
     let timeout = tokio::time::sleep(Duration::from_secs(10));
     tokio::pin!(timeout);
-    
+
     loop {
         tokio::select! {
             _ = &mut timeout => {
@@ -45,21 +45,23 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
-    
+
     // Análise fisiológica se houver dados de HealthKit
     let health_obs: Vec<Observation> = observations
         .iter()
         .filter(|o| o.source == "healthkit")
         .cloned()
         .collect();
-    
+
     if !health_obs.is_empty() {
-        info!("🏥 Analisando {} observações de HealthKit...", health_obs.len());
+        info!(
+            "🏥 Analisando {} observações de HealthKit...",
+            health_obs.len()
+        );
         let analysis = observer.physiological_state_analysis(&health_obs).await?;
         info!("📋 Análise fisiológica:\n{}", analysis);
     }
-    
+
     info!("✅ Teste concluído!");
     Ok(())
 }
-

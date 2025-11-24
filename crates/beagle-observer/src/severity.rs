@@ -36,4 +36,3 @@ impl Default for Severity {
         Severity::Normal
     }
 }
-

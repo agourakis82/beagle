@@ -2,10 +2,10 @@
 //!
 //! Cada nó é um BEAGLE completo em miniatura, contendo o todo em cada parte
 
+use crate::holographic_storage::HolographicStorage;
 use beagle_consciousness::ConsciousnessMirror;
 use beagle_cosmo::CosmologicalAlignment;
 use beagle_quantum::{HypothesisSet, SuperpositionAgent};
-use crate::holographic_storage::HolographicStorage;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -95,7 +95,8 @@ impl FractalNodeRuntime {
         let child_runtime = FractalNodeRuntime::new(child_node);
         info!(
             "FRACTAL NODE: Child {} spawned at depth {}",
-            child_runtime.node.read().await.id, child_depth
+            child_runtime.node.read().await.id,
+            child_depth
         );
 
         Ok(child_runtime)
@@ -149,7 +150,11 @@ impl FractalNodeRuntime {
         );
 
         // 2. Cosmological Alignment - valida contra leis fundamentais do universo
-        match self.cosmological.align_with_universe(&mut hypothesis_set).await {
+        match self
+            .cosmological
+            .align_with_universe(&mut hypothesis_set)
+            .await
+        {
             Ok(()) => {
                 info!(
                     "✨ COSMOLOGICAL ALIGNMENT: {} hypotheses survived alignment check",
@@ -177,7 +182,9 @@ impl FractalNodeRuntime {
             // Apenas nós mais superficiais fazem auto-observação completa
             let system_state = format!(
                 "Fractal node {} at depth {} with {} children",
-                node_id, depth, self.node.read().await.children_ids.len()
+                node_id,
+                depth,
+                self.node.read().await.children_ids.len()
             );
             let _meta_paper = self.consciousness.gaze_into_self().await?;
         }
@@ -206,4 +213,3 @@ impl FractalNodeRuntime {
         self.node.read().await.children_ids.len()
     }
 }
-

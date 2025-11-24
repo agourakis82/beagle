@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
     use beagle_noetic::{
-        CollectiveEmerger, CollectiveState, EntropySynchronizer, FractalReplicator,
-        NetworkType, NoeticDetector, NoeticNetwork,
+        CollectiveEmerger, CollectiveState, EntropySynchronizer, FractalReplicator, NetworkType,
+        NoeticDetector, NoeticNetwork,
     };
     use chrono::Utc;
     use std::str::FromStr;
@@ -23,10 +23,7 @@ mod tests {
     }
 
     // Helper function to create a test CollectiveState
-    fn create_test_collective_state(
-        id: &str,
-        num_networks: usize,
-    ) -> CollectiveState {
+    fn create_test_collective_state(id: &str, num_networks: usize) -> CollectiveState {
         let networks: Vec<String> = (0..num_networks)
             .map(|i| format!("network_{}", i))
             .collect();
@@ -253,9 +250,7 @@ mod tests {
     #[test]
     fn test_collective_state_ego_dissolution() {
         let state = create_test_collective_state("collective1", 2);
-        assert!(
-            state.ego_dissolution_level >= 0.0 && state.ego_dissolution_level <= 1.0
-        );
+        assert!(state.ego_dissolution_level >= 0.0 && state.ego_dissolution_level <= 1.0);
         assert_eq!(state.ego_dissolution_level, 0.4);
     }
 
@@ -305,9 +300,7 @@ mod tests {
             participating_networks: vec!["net1".to_string(), "net2".to_string()],
             collective_entropy: 0.9,
             emergence_score: 0.99,
-            transindividual_insights: vec![
-                "Strong emergence detected".to_string(),
-            ],
+            transindividual_insights: vec!["Strong emergence detected".to_string()],
             ego_dissolution_level: 0.95,
             created_at: Utc::now(),
         };
@@ -389,7 +382,11 @@ mod tests {
         assert!(!target.replication_successful);
         assert!(target.fractal_node_id.is_none());
         assert!(target.error_message.is_some());
-        assert!(target.error_message.clone().unwrap().contains("unreachable"));
+        assert!(target
+            .error_message
+            .clone()
+            .unwrap()
+            .contains("unreachable"));
     }
 
     #[test]
@@ -472,10 +469,14 @@ mod tests {
         };
 
         let json = serde_json::to_string(&report).unwrap();
-        let deserialized: beagle_noetic::SynchronizationReport = serde_json::from_str(&json).unwrap();
+        let deserialized: beagle_noetic::SynchronizationReport =
+            serde_json::from_str(&json).unwrap();
 
         assert_eq!(report.network_id, deserialized.network_id);
-        assert_eq!(report.synchronization_successful, deserialized.synchronization_successful);
+        assert_eq!(
+            report.synchronization_successful,
+            deserialized.synchronization_successful
+        );
     }
 
     #[test]
@@ -534,9 +535,7 @@ mod tests {
             participating_networks: network_ids,
             collective_entropy: 0.7,
             emergence_score: 0.8,
-            transindividual_insights: vec![
-                "Collective consciousness emerged".to_string(),
-            ],
+            transindividual_insights: vec!["Collective consciousness emerged".to_string()],
             ego_dissolution_level: 0.6,
             created_at: Utc::now(),
         };
@@ -605,8 +604,14 @@ mod tests {
             },
         ];
 
-        let successful = replications.iter().filter(|r| r.replication_successful).count();
-        let failed = replications.iter().filter(|r| !r.replication_successful).count();
+        let successful = replications
+            .iter()
+            .filter(|r| r.replication_successful)
+            .count();
+        let failed = replications
+            .iter()
+            .filter(|r| !r.replication_successful)
+            .count();
 
         assert_eq!(successful, 2);
         assert_eq!(failed, 1);
@@ -641,9 +646,7 @@ mod tests {
             participating_networks: networks.iter().map(|n| n.id.clone()).collect(),
             collective_entropy: 0.75,
             emergence_score: 0.85,
-            transindividual_insights: vec![
-                "Noetic singularity emerging".to_string(),
-            ],
+            transindividual_insights: vec!["Noetic singularity emerging".to_string()],
             ego_dissolution_level: 0.7,
             created_at: Utc::now(),
         };

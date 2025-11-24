@@ -69,18 +69,18 @@ impl CognitiveState {
     /// Returns the number of reasoning paths to generate (weighted ensemble size)
     pub fn num_reasoning_paths(&self) -> usize {
         match self {
-            CognitiveState::PeakFlow => 5,      // Full ensemble
-            CognitiveState::Nominal => 3,       // Reduced ensemble
-            CognitiveState::Stressed => 1,      // Single path only
+            CognitiveState::PeakFlow => 5, // Full ensemble
+            CognitiveState::Nominal => 3,  // Reduced ensemble
+            CognitiveState::Stressed => 1, // Single path only
         }
     }
 
     /// Returns the temperature multiplier for LLM sampling (creativity factor)
     pub fn temperature_multiplier(&self) -> f64 {
         match self {
-            CognitiveState::PeakFlow => 1.0,    // Normal temperature
-            CognitiveState::Nominal => 0.8,     // Reduced creativity
-            CognitiveState::Stressed => 0.5,    // Minimal creativity
+            CognitiveState::PeakFlow => 1.0, // Normal temperature
+            CognitiveState::Nominal => 0.8,  // Reduced creativity
+            CognitiveState::Stressed => 0.5, // Minimal creativity
         }
     }
 
@@ -175,7 +175,10 @@ impl HRVStreamState {
     /// Add new HRV measurement and update state
     pub fn add_measurement(&mut self, data: HRVData) {
         if !data.is_reliable() {
-            debug!("Unreliable HRV measurement ignored (quality: {})", data.quality_score);
+            debug!(
+                "Unreliable HRV measurement ignored (quality: {})",
+                data.quality_score
+            );
             return;
         }
 
@@ -197,10 +200,7 @@ impl HRVStreamState {
 
             info!(
                 "HRV updated: SDNN={:.1}ms, HR={}, State={:?}, Trend={:.1}",
-                latest.sdnn,
-                latest.heart_rate,
-                self.current_state,
-                self.trend
+                latest.sdnn, latest.heart_rate, self.current_state, self.trend
             );
         }
     }

@@ -233,7 +233,7 @@ impl EnvThresholds {
 /// **Nota**: Estes valores são heurísticos e baseados em escalas NOAA/NASA.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpaceWeatherThresholds {
-    pub kp_storm: f32, // NOAA G1 (moderada)
+    pub kp_storm: f32,        // NOAA G1 (moderada)
     pub kp_severe_storm: f32, // NOAA G3-G4 (severa a extrema)
     pub proton_flux_high_pfu: f32,
     pub xray_flux_high: f32,
@@ -243,7 +243,7 @@ pub struct SpaceWeatherThresholds {
 impl Default for SpaceWeatherThresholds {
     fn default() -> Self {
         Self {
-            kp_storm: 5.0, // NOAA G1 (moderada)
+            kp_storm: 5.0,        // NOAA G1 (moderada)
             kp_severe_storm: 7.0, // NOAA G3-G4 (severa a extrema)
             proton_flux_high_pfu: 10.0,
             xray_flux_high: 1e-4,
@@ -404,7 +404,6 @@ impl BeagleConfig {
 
     /// Helper para obter endereço do core server
     pub fn core_server_addr(&self) -> String {
-        std::env::var("BEAGLE_CORE_ADDR")
-            .unwrap_or_else(|_| "0.0.0.0:8080".to_string())
+        std::env::var("BEAGLE_CORE_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".to_string())
     }
 }

@@ -3,8 +3,8 @@
 //! Permite múltiplos subscribers receberem as mesmas observações
 
 use super::Observation;
-use tokio::sync::mpsc;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 
 pub struct ObservationBroadcast {
@@ -27,9 +27,7 @@ impl ObservationBroadcast {
 
     pub async fn broadcast(&self, obs: Observation) {
         let mut subs = self.subscribers.lock().await;
-        subs.retain(|sub| {
-            sub.send(obs.clone()).is_ok()
-        });
+        subs.retain(|sub| sub.send(obs.clone()).is_ok());
     }
 }
 
@@ -40,4 +38,3 @@ impl Clone for ObservationBroadcast {
         }
     }
 }
-

@@ -1,10 +1,10 @@
 //! Integration tests for HRV-Adaptive Ensemble Reasoning System
 //! Tests the complete workflow from cognitive state detection through consensus reasoning
 
+use beagle_bio::{CognitiveState, HRVMonitor};
 use beagle_hrv_adaptive::{
-    AdaptiveRouter, EnsembleReasoningEngine, EnsembleConsensus, ReasoningPath,
+    AdaptiveRouter, EnsembleConsensus, EnsembleReasoningEngine, ReasoningPath,
 };
-use beagle_bio::{HRVMonitor, CognitiveState};
 use chrono::Utc;
 use std::sync::Arc;
 
@@ -75,7 +75,8 @@ fn create_divergent_paths() -> Vec<ReasoningPath> {
         ReasoningPath {
             id: "div_1".to_string(),
             content: "Machine learning represents a paradigm shift in computational intelligence, \
-                     enabling systems to learn from data without explicit programming.".to_string(),
+                     enabling systems to learn from data without explicit programming."
+                .to_string(),
             temperature_used: 0.8,
             max_tokens_used: 256,
             generated_at: Utc::now(),
@@ -83,8 +84,10 @@ fn create_divergent_paths() -> Vec<ReasoningPath> {
         },
         ReasoningPath {
             id: "div_2".to_string(),
-            content: "Artificial intelligence can be broadly categorized as narrow AI (task-specific) \
-                     or general AI (human-level), with current systems being purely narrow AI.".to_string(),
+            content:
+                "Artificial intelligence can be broadly categorized as narrow AI (task-specific) \
+                     or general AI (human-level), with current systems being purely narrow AI."
+                    .to_string(),
             temperature_used: 0.8,
             max_tokens_used: 256,
             generated_at: Utc::now(),
@@ -92,8 +95,10 @@ fn create_divergent_paths() -> Vec<ReasoningPath> {
         },
         ReasoningPath {
             id: "div_3".to_string(),
-            content: "Deep learning uses neural networks with multiple layers to extract hierarchical \
-                     features from raw input, achieving state-of-the-art performance on many tasks.".to_string(),
+            content:
+                "Deep learning uses neural networks with multiple layers to extract hierarchical \
+                     features from raw input, achieving state-of-the-art performance on many tasks."
+                    .to_string(),
             temperature_used: 0.8,
             max_tokens_used: 256,
             generated_at: Utc::now(),
@@ -115,13 +120,19 @@ async fn test_consensus_with_five_paths() {
         .consensus_reasoning("What is quantum entanglement?", paths)
         .await;
 
-    assert!(result.is_ok(), "Consensus reasoning should succeed with 5 paths");
+    assert!(
+        result.is_ok(),
+        "Consensus reasoning should succeed with 5 paths"
+    );
 
     let consensus = result.unwrap();
 
     // Verify consensus structure
     assert_eq!(consensus.all_paths.len(), 5, "Should contain all 5 paths");
-    assert!(!consensus.best_path.id.is_empty(), "Should have selected a best path");
+    assert!(
+        !consensus.best_path.id.is_empty(),
+        "Should have selected a best path"
+    );
     assert_eq!(
         consensus.confidence_scores.len(),
         5,
@@ -182,7 +193,10 @@ async fn test_consensus_with_three_paths() {
     assert_eq!(consensus.confidence_scores.len(), 3);
 
     // Verify consensus score is meaningful
-    assert!(consensus.consensus_score > 0.0, "Consensus should have positive score");
+    assert!(
+        consensus.consensus_score > 0.0,
+        "Consensus should have positive score"
+    );
 }
 
 #[tokio::test]
@@ -214,9 +228,7 @@ async fn test_empty_paths_error() {
     let engine = create_test_engine();
     let paths = vec![];
 
-    let result = engine
-        .consensus_reasoning("Test prompt", paths)
-        .await;
+    let result = engine.consensus_reasoning("Test prompt", paths).await;
 
     assert!(result.is_err(), "Empty paths should return error");
 }
@@ -263,10 +275,7 @@ async fn test_consensus_cognitive_state_integration() {
     let intensity = state.reasoning_intensity();
 
     let paths = create_test_paths();
-    let consensus = engine
-        .consensus_reasoning("prompt", paths)
-        .await
-        .unwrap();
+    let consensus = engine.consensus_reasoning("prompt", paths).await.unwrap();
 
     // Verify cognitive state was captured
     assert!(!consensus.cognitive_state.is_empty());
@@ -325,8 +334,11 @@ async fn test_adaptive_temperature_scaling() {
     let scaled_temp = engine.get_adaptive_temperature(base_temp).await;
 
     // Scaled temperature should be reasonable
-    assert!(scaled_temp >= 0.4 && scaled_temp <= 1.2,
-            "Scaled temp should be 0.4-1.2 for base 1.0, got {}", scaled_temp);
+    assert!(
+        scaled_temp >= 0.4 && scaled_temp <= 1.2,
+        "Scaled temp should be 0.4-1.2 for base 1.0, got {}",
+        scaled_temp
+    );
 }
 
 #[tokio::test]
@@ -350,7 +362,10 @@ async fn test_complete_reasoning_workflow() {
     // Setup
     let monitor = Arc::new(HRVMonitor::with_mock());
     let engine = Arc::new(EnsembleReasoningEngine::new(Arc::clone(&monitor)));
-    let router = Arc::new(AdaptiveRouter::new(Arc::clone(&monitor), Arc::clone(&engine)));
+    let router = Arc::new(AdaptiveRouter::new(
+        Arc::clone(&monitor),
+        Arc::clone(&engine),
+    ));
 
     // Step 1: Get routing strategy
     let strategy = router.get_routing_strategy().await;
@@ -458,27 +473,22 @@ async fn test_content_length_robustness() {
         },
     ];
 
-    let result = engine
-        .consensus_reasoning("prompt", short_paths)
-        .await;
+    let result = engine.consensus_reasoning("prompt", short_paths).await;
     assert!(result.is_ok());
 
     // Test with very long content
-    let long_content = "This is a very long reasoning path that contains extensive analysis. ".repeat(50);
-    let long_paths = vec![
-        ReasoningPath {
-            id: "long_1".to_string(),
-            content: long_content.clone(),
-            temperature_used: 0.7,
-            max_tokens_used: 2048,
-            generated_at: Utc::now(),
-            confidence: Some(0.8),
-        },
-    ];
+    let long_content =
+        "This is a very long reasoning path that contains extensive analysis. ".repeat(50);
+    let long_paths = vec![ReasoningPath {
+        id: "long_1".to_string(),
+        content: long_content.clone(),
+        temperature_used: 0.7,
+        max_tokens_used: 2048,
+        generated_at: Utc::now(),
+        confidence: Some(0.8),
+    }];
 
-    let result = engine
-        .consensus_reasoning("prompt", long_paths)
-        .await;
+    let result = engine.consensus_reasoning("prompt", long_paths).await;
     assert!(result.is_ok());
 }
 
@@ -503,9 +513,7 @@ async fn test_consensus_with_many_paths() {
         });
     }
 
-    let result = engine
-        .consensus_reasoning("prompt", paths)
-        .await;
+    let result = engine.consensus_reasoning("prompt", paths).await;
 
     assert!(result.is_ok());
     let consensus = result.unwrap();
@@ -539,9 +547,7 @@ async fn test_consensus_with_missing_confidence() {
         },
     ];
 
-    let result = engine
-        .consensus_reasoning("prompt", paths)
-        .await;
+    let result = engine.consensus_reasoning("prompt", paths).await;
 
     assert!(result.is_ok(), "Should handle missing confidence scores");
 }
@@ -568,15 +574,16 @@ async fn test_consensus_with_identical_paths() {
         },
     ];
 
-    let result = engine
-        .consensus_reasoning("prompt", paths)
-        .await;
+    let result = engine.consensus_reasoning("prompt", paths).await;
 
     assert!(result.is_ok());
     let consensus = result.unwrap();
 
     // Both should have high similarity scores
     for score in consensus.confidence_scores.values() {
-        assert!(*score > 0.4, "Identical paths should have high consensus score");
+        assert!(
+            *score > 0.4,
+            "Identical paths should have high consensus score"
+        );
     }
 }

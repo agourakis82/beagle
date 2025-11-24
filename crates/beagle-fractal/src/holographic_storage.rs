@@ -2,8 +2,8 @@
 //!
 //! Aplica o princípio holográfico: conhecimento do todo é codificado na borda
 
-use beagle_quantum::HypothesisSet;
 use beagle_llm::embedding::EmbeddingClient;
+use beagle_quantum::HypothesisSet;
 use tracing::info;
 
 #[derive(Debug)]
@@ -68,10 +68,7 @@ impl HolographicStorage {
         compressed = Self::apply_semantic_compression(&compressed);
 
         // Stage 4: Add metadata for later reconstruction
-        let metadata = format!(
-            "v1:concepts={}:entropy=high",
-            concepts.len()
-        );
+        let metadata = format!("v1:concepts={}:entropy=high", concepts.len());
         compressed = format!("{}\n[META]{}", compressed, metadata);
 
         info!(
@@ -157,9 +154,28 @@ impl HolographicStorage {
     fn is_common_word(word: &str) -> bool {
         matches!(
             word.to_lowercase().as_str(),
-            "the" | "and" | "that" | "this" | "with" | "from" | "have" | "been"
-                | "will" | "can" | "are" | "but" | "for" | "not" | "all"
-                | "about" | "some" | "time" | "very" | "when" | "where" | "who"
+            "the"
+                | "and"
+                | "that"
+                | "this"
+                | "with"
+                | "from"
+                | "have"
+                | "been"
+                | "will"
+                | "can"
+                | "are"
+                | "but"
+                | "for"
+                | "not"
+                | "all"
+                | "about"
+                | "some"
+                | "time"
+                | "very"
+                | "when"
+                | "where"
+                | "who"
         )
     }
 }
@@ -169,4 +185,3 @@ impl Default for HolographicStorage {
         Self::new()
     }
 }
-

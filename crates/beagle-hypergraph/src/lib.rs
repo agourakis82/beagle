@@ -142,13 +142,13 @@ impl<S: HypergraphStorage + Clone> Clone for Hypergraph<S> {
 
 /// Conjunto de importações usuais para ergonomia em aplicações consumidoras.
 pub mod prelude {
+    #[cfg(feature = "database")]
+    pub use crate::storage::{HypergraphStorage, NodeFilters, PostgresStorage};
     pub use crate::{
         error::{HypergraphError, Result},
         models::{ContentType, Hyperedge, Node},
         Hypergraph,
     };
-    #[cfg(feature = "database")]
-    pub use crate::storage::{HypergraphStorage, NodeFilters, PostgresStorage};
 }
 
 #[cfg(test)]

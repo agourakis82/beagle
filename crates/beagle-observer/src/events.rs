@@ -15,7 +15,7 @@ pub struct PhysioEvent {
     // Métricas cardiorrespiratórias
     pub hrv_ms: Option<f32>, // HRV (SDNN) em ms
     pub heart_rate_bpm: Option<f32>,
-    pub spo2_percent: Option<f32>, // SatO₂ estimada (%)
+    pub spo2_percent: Option<f32>,  // SatO₂ estimada (%)
     pub resp_rate_bpm: Option<f32>, // frequência respiratória, se disponível
 
     // Temperatura (se disponíveis)
@@ -58,7 +58,7 @@ pub struct SpaceWeatherEvent {
     pub session_id: Option<String>,
 
     // Índices geomagnéticos
-    pub kp_index: Option<f32>, // Kp 0–9 (NOAA)
+    pub kp_index: Option<f32>,  // Kp 0–9 (NOAA)
     pub dst_index: Option<f32>, // se usar
 
     // Vento solar
@@ -130,4 +130,3 @@ impl Default for SpaceWeatherEvent {
         }
     }
 }
-

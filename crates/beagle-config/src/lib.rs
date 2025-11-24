@@ -9,8 +9,8 @@
 mod model;
 pub use model::*;
 
-use std::path::PathBuf;
 use std::env;
+use std::path::PathBuf;
 
 fn default_grok_model() -> String {
     "grok-3".to_string()
@@ -232,8 +232,7 @@ pub fn bootstrap() -> anyhow::Result<()> {
     ensure_dirs()?;
 
     // Loga configuração
-    let profile = std::env::var("BEAGLE_PROFILE")
-        .unwrap_or_else(|_| "dev".to_string());
+    let profile = std::env::var("BEAGLE_PROFILE").unwrap_or_else(|_| "dev".to_string());
     let safe_mode = safe_mode();
 
     info!(
@@ -252,14 +251,12 @@ pub fn bootstrap() -> anyhow::Result<()> {
 
 /// URL do servidor vLLM (default: http://t560.local:8000)
 pub fn vllm_url() -> String {
-    env::var("BEAGLE_VLLM_URL")
-        .unwrap_or_else(|_| "http://t560.local:8000".to_string())
+    env::var("BEAGLE_VLLM_URL").unwrap_or_else(|_| "http://t560.local:8000".to_string())
 }
 
 /// URL do servidor Grok API (xAI)
 pub fn grok_api_url() -> String {
-    env::var("BEAGLE_GROK_API_URL")
-        .unwrap_or_else(|_| "https://api.x.ai/v1".to_string())
+    env::var("BEAGLE_GROK_API_URL").unwrap_or_else(|_| "https://api.x.ai/v1".to_string())
 }
 
 /// Token da API arXiv (opcional)
@@ -322,17 +319,21 @@ impl HrvControlConfig {
         let _min_hrv = env::var("BEAGLE_HRV_LOW_THRESHOLD")
             .ok()
             .and_then(|v| v.parse().ok())
-            .or_else(|| env::var("BEAGLE_HRV_MIN_MS")
-                .ok()
-                .and_then(|v| v.parse().ok()))
+            .or_else(|| {
+                env::var("BEAGLE_HRV_MIN_MS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+            })
             .unwrap_or(30.0); // Threshold padrão para "low"
 
         let _max_hrv = env::var("BEAGLE_HRV_HIGH_THRESHOLD")
             .ok()
             .and_then(|v| v.parse().ok())
-            .or_else(|| env::var("BEAGLE_HRV_MAX_MS")
-                .ok()
-                .and_then(|v| v.parse().ok()))
+            .or_else(|| {
+                env::var("BEAGLE_HRV_MAX_MS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+            })
             .unwrap_or(70.0); // Threshold padrão para "high"
 
         Self {
@@ -391,8 +392,8 @@ pub fn compute_gain_from_hrv(hrv_ms: f32, cfg: Option<HrvControlConfig>) -> f32 
     let cfg = cfg.unwrap_or_default();
 
     // Normaliza HRV para range [0, 1]
-    let normalized = ((hrv_ms - cfg.min_hrv_ms) / (cfg.max_hrv_ms - cfg.min_hrv_ms))
-        .clamp(0.0, 1.0);
+    let normalized =
+        ((hrv_ms - cfg.min_hrv_ms) / (cfg.max_hrv_ms - cfg.min_hrv_ms)).clamp(0.0, 1.0);
 
     // Calcula gain linear: min_gain + (max_gain - min_gain) * normalized
     let mut gain = cfg.min_gain + (cfg.max_gain - cfg.min_gain) * normalized;
@@ -611,8 +612,7 @@ pub fn load() -> BeagleConfig {
             vllm_url: env::var("VLLM_URL")
                 .or_else(|_| env::var("BEAGLE_VLLM_URL"))
                 .ok(),
-            grok_model: env::var("BEAGLE_GROK_MODEL")
-                .unwrap_or_else(|_| "grok-3".to_string()),
+            grok_model: env::var("BEAGLE_GROK_MODEL").unwrap_or_else(|_| "grok-3".to_string()),
         },
         storage: StorageConfig {
             data_dir: beagle_data_dir().to_string_lossy().to_string(),
@@ -665,7 +665,10 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
         api_token: override_cfg.api_token.or(base.api_token),
         llm: LlmConfig {
             xai_api_key: override_cfg.llm.xai_api_key.or(base.llm.xai_api_key),
-            anthropic_api_key: override_cfg.llm.anthropic_api_key.or(base.llm.anthropic_api_key),
+            anthropic_api_key: override_cfg
+                .llm
+                .anthropic_api_key
+                .or(base.llm.anthropic_api_key),
             openai_api_key: override_cfg.llm.openai_api_key.or(base.llm.openai_api_key),
             vllm_url: override_cfg.llm.vllm_url.or(base.llm.vllm_url),
             grok_model: if override_cfg.llm.grok_model != default_grok_model() {
@@ -680,18 +683,27 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
         graph: GraphConfig {
             neo4j_uri: override_cfg.graph.neo4j_uri.or(base.graph.neo4j_uri),
             neo4j_user: override_cfg.graph.neo4j_user.or(base.graph.neo4j_user),
-            neo4j_password: override_cfg.graph.neo4j_password.or(base.graph.neo4j_password),
+            neo4j_password: override_cfg
+                .graph
+                .neo4j_password
+                .or(base.graph.neo4j_password),
             qdrant_url: override_cfg.graph.qdrant_url.or(base.graph.qdrant_url),
         },
         hermes: HermesConfig {
-            database_url: override_cfg.hermes.database_url.or(base.hermes.database_url),
+            database_url: override_cfg
+                .hermes
+                .database_url
+                .or(base.hermes.database_url),
             redis_url: override_cfg.hermes.redis_url.or(base.hermes.redis_url),
         },
         advanced: AdvancedModulesConfig {
-            serendipity_enabled: override_cfg.advanced.serendipity_enabled || base.advanced.serendipity_enabled,
-            serendipity_in_triad: override_cfg.advanced.serendipity_in_triad || base.advanced.serendipity_in_triad,
+            serendipity_enabled: override_cfg.advanced.serendipity_enabled
+                || base.advanced.serendipity_enabled,
+            serendipity_in_triad: override_cfg.advanced.serendipity_in_triad
+                || base.advanced.serendipity_in_triad,
             void_enabled: override_cfg.advanced.void_enabled || base.advanced.void_enabled,
-            memory_retrieval_enabled: override_cfg.advanced.memory_retrieval_enabled || base.advanced.memory_retrieval_enabled,
+            memory_retrieval_enabled: override_cfg.advanced.memory_retrieval_enabled
+                || base.advanced.memory_retrieval_enabled,
         },
         observer: override_cfg.observer.clone(),
     }

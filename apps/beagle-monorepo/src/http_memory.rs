@@ -1,11 +1,11 @@
 //! Memory endpoints for BEAGLE HTTP API
 
-use axum::{extract::State, routing::post, Json, Router};
+use crate::http::AppState;
 use axum::http::StatusCode;
+use axum::{extract::State, routing::post, Json, Router};
 use beagle_memory::{ChatSession, MemoryQuery};
 use serde::{Deserialize, Serialize};
 use tracing::{error, warn};
-use crate::http::AppState;
 
 #[derive(Deserialize)]
 pub struct MemoryIngestChatRequest {
@@ -40,7 +40,7 @@ pub async fn memory_ingest_chat_handler(
     Json(req): Json<MemoryIngestChatRequest>,
 ) -> Result<Json<MemoryIngestChatResponse>, StatusCode> {
     let ctx = state.ctx.lock().await;
-    
+
     let session = ChatSession {
         source: req.source,
         session_id: req.session_id.clone(),
@@ -48,25 +48,23 @@ pub async fn memory_ingest_chat_handler(
         tags: req.tags,
         metadata: req.metadata,
     };
-    
+
     #[cfg(feature = "memory")]
     {
         match ctx.memory_ingest_session(session).await {
-            Ok(stats) => {
-                Ok(Json(MemoryIngestChatResponse {
-                    status: "ok".to_string(),
-                    session_id: stats.session_id,
-                    num_turns: stats.num_turns,
-                    num_chunks: stats.num_chunks,
-                }))
-            }
+            Ok(stats) => Ok(Json(MemoryIngestChatResponse {
+                status: "ok".to_string(),
+                session_id: stats.session_id,
+                num_turns: stats.num_turns,
+                num_chunks: stats.num_chunks,
+            })),
             Err(e) => {
                 error!("Failed to ingest chat: {}", e);
                 Err(StatusCode::INTERNAL_SERVER_ERROR)
             }
         }
     }
-    
+
     #[cfg(not(feature = "memory"))]
     {
         warn!("Memory feature not enabled");
@@ -79,13 +77,13 @@ pub async fn memory_query_handler(
     Json(req): Json<MemoryQueryRequest>,
 ) -> Result<Json<beagle_memory::MemoryResult>, StatusCode> {
     let ctx = state.ctx.lock().await;
-    
+
     let query = MemoryQuery {
         query: req.query,
         scope: req.scope,
         max_items: req.max_items,
     };
-    
+
     #[cfg(feature = "memory")]
     {
         match ctx.memory_query(query).await {
@@ -96,7 +94,7 @@ pub async fn memory_query_handler(
             }
         }
     }
-    
+
     #[cfg(not(feature = "memory"))]
     {
         warn!("Memory feature not enabled");
@@ -109,4 +107,3 @@ pub fn memory_routes() -> Router<AppState> {
         .route("/api/memory/ingest_chat", post(memory_ingest_chat_handler))
         .route("/api/memory/query", post(memory_query_handler))
 }
-

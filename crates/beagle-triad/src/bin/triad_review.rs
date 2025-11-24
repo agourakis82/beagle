@@ -3,8 +3,8 @@
 //! Uso:
 //!   cargo run --bin triad-review --package beagle-triad -- <run_id>
 
-use beagle_core::BeagleContext;
 use beagle_config::load as load_config;
+use beagle_core::BeagleContext;
 use beagle_feedback::{append_event, create_triad_event};
 use beagle_triad::{run_triad, TriadInput};
 use std::path::PathBuf;
@@ -57,11 +57,11 @@ async fn main() -> anyhow::Result<()> {
         (report.llm_stats.grok3_tokens_in + report.llm_stats.grok3_tokens_out) as u32,
         (report.llm_stats.grok4_tokens_in + report.llm_stats.grok4_tokens_out) as u32,
     ));
-    
+
     // Tenta recuperar question do run_report original (simplificado)
     // Por enquanto, None - pode ser melhorado para ler do run_report.json
     let question = None;
-    
+
     let event = create_triad_event(
         run_id.clone(),
         question,
@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
         report_json.clone(),
         llm_stats,
     );
-    
+
     if let Err(e) = append_event(&data_dir, &event) {
         eprintln!("⚠️  Falha ao logar feedback event: {}", e);
     } else {
@@ -82,20 +82,26 @@ async fn main() -> anyhow::Result<()> {
     println!("Draft final: {}", final_md.display());
     println!("\nOpiniões:");
     for opinion in &report.opinions {
-        println!("  {}: Score {:.2} - {} | Provider: {}", 
-            opinion.agent, opinion.score, opinion.summary, opinion.provider_tier);
+        println!(
+            "  {}: Score {:.2} - {} | Provider: {}",
+            opinion.agent, opinion.score, opinion.summary, opinion.provider_tier
+        );
     }
     println!("\nLLM Stats:");
-    println!("  Grok 3: {} calls, {} tokens (in: {}, out: {})", 
-        report.llm_stats.grok3_calls, 
+    println!(
+        "  Grok 3: {} calls, {} tokens (in: {}, out: {})",
+        report.llm_stats.grok3_calls,
         report.llm_stats.grok3_tokens_in + report.llm_stats.grok3_tokens_out,
         report.llm_stats.grok3_tokens_in,
-        report.llm_stats.grok3_tokens_out);
-    println!("  Grok 4 Heavy: {} calls, {} tokens (in: {}, out: {})", 
+        report.llm_stats.grok3_tokens_out
+    );
+    println!(
+        "  Grok 4 Heavy: {} calls, {} tokens (in: {}, out: {})",
         report.llm_stats.grok4_calls,
         report.llm_stats.grok4_tokens_in + report.llm_stats.grok4_tokens_out,
         report.llm_stats.grok4_tokens_in,
-        report.llm_stats.grok4_tokens_out);
+        report.llm_stats.grok4_tokens_out
+    );
 
     Ok(())
 }
@@ -113,7 +119,10 @@ fn find_draft(drafts_dir: &PathBuf, run_id: &str) -> anyhow::Result<PathBuf> {
             }
         }
     }
-    Err(anyhow::anyhow!("Draft .md para run_id={} não encontrado", run_id))
+    Err(anyhow::anyhow!(
+        "Draft .md para run_id={} não encontrado",
+        run_id
+    ))
 }
 
 fn find_context_summary(logs_dir: &PathBuf, run_id: &str) -> anyhow::Result<String> {
@@ -132,5 +141,8 @@ fn find_context_summary(logs_dir: &PathBuf, run_id: &str) -> anyhow::Result<Stri
             }
         }
     }
-    Err(anyhow::anyhow!("Log JSON para run_id={} não encontrado", run_id))
+    Err(anyhow::anyhow!(
+        "Log JSON para run_id={} não encontrado",
+        run_id
+    ))
 }

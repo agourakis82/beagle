@@ -23,7 +23,7 @@ pub enum HypergraphError {
     #[cfg(feature = "database")]
     #[error("Database error: {0}")]
     DatabaseError(#[from] sqlx::Error),
-    
+
     /// Erro de banco de dados (offline mode).
     #[cfg(not(feature = "database"))]
     #[error("Database error: {0}")]

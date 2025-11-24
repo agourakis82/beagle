@@ -41,10 +41,10 @@ pub async fn hrv_endpoint(
     // Calcula gain baseado em HRV usando beagle-config (com SAFE_MODE clamp)
     let hrv_cfg = HrvControlConfig::from_env();
     let speed_multiplier = compute_gain_from_hrv(payload.hrv as f32, Some(hrv_cfg.clone())) as f64;
-    
+
     // Aplica multiplicador no speed control
     speed_control::set_global_speed_multiplier(speed_multiplier);
-    
+
     // Log baseado no estado recebido
     match payload.state.as_str() {
         "FLOW" => {

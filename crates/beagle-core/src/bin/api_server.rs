@@ -3,10 +3,13 @@
 //! Endpoint: POST /api/llm/complete
 //! Usa TieredRouter com Grok 3 como Tier 1
 
-use axum::{routing::{post, get}, Router, Json};
-use beagle_core::BeagleContext;
+use axum::{
+    routing::{get, post},
+    Json, Router,
+};
 use beagle_config::load as load_config;
-use beagle_llm::{RequestMeta, ProviderTier};
+use beagle_core::BeagleContext;
+use beagle_llm::{ProviderTier, RequestMeta};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -36,7 +39,7 @@ async fn health_handler(
     let ctx = ctx.lock().await;
     let cfg = &ctx.cfg;
     let has_xai_key = cfg.llm.xai_api_key.is_some();
-    
+
     Json(serde_json::json!({
         "status": "ok",
         "service": "beagle-core",
@@ -52,10 +55,10 @@ async fn llm_complete_handler(
     Json(req): Json<LlmRequest>,
 ) -> Result<Json<LlmResponse>, axum::http::StatusCode> {
     let mut ctx = ctx.lock().await;
-    
+
     // Cria RequestMeta com heurísticas
     let mut meta = RequestMeta::from_prompt(&req.prompt);
-    
+
     // Override com flags explícitas
     if req.requires_math {
         meta.requires_math = true;
@@ -66,25 +69,22 @@ async fn llm_complete_handler(
     if req.offline_required {
         meta.offline_required = true;
     }
-    
+
     // Usa run_id sintético para HTTP
     let run_id = "http_session";
-    
+
     // Obtém stats atuais
     let current_stats = ctx.llm_stats.get_or_create(run_id);
-    
+
     // Escolhe client com limites
     let (client, tier) = ctx.router.choose_with_limits(&meta, &current_stats);
-    
+
     // Chama LLM
-    let output = client
-        .complete(&req.prompt)
-        .await
-        .map_err(|e| {
-            tracing::error!("LLM error: {}", e);
-            axum::http::StatusCode::BAD_GATEWAY
-        })?;
-    
+    let output = client.complete(&req.prompt).await.map_err(|e| {
+        tracing::error!("LLM error: {}", e);
+        axum::http::StatusCode::BAD_GATEWAY
+    })?;
+
     // Atualiza stats
     ctx.llm_stats.update(run_id, |stats| {
         match tier {

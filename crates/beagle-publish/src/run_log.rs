@@ -61,7 +61,11 @@ pub fn init_run(
 pub fn save_run_metadata(meta: &RunMetadata) -> anyhow::Result<PathBuf> {
     let dir = logs_dir();
     fs::create_dir_all(&dir)?;
-    let filename = format!("{}_{}.json", meta.timestamp_utc.replace(':', "-"), meta.run_id);
+    let filename = format!(
+        "{}_{}.json",
+        meta.timestamp_utc.replace(':', "-"),
+        meta.run_id
+    );
     let path = dir.join(filename);
     let json = serde_json::to_string_pretty(meta)?;
     fs::write(&path, json)?;

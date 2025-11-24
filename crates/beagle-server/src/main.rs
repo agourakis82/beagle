@@ -53,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::routes::auth_routes())
         .merge(api::routes::chat_routes())
         .merge(api::routes::chat_public_routes())
+        .merge(api::routes::chat_adaptive_routes())
         .merge(api::routes::event_routes())
         .merge(api::routes::hrv_routes())
         .merge(api::routes::science_jobs_routes())

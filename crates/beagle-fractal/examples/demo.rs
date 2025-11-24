@@ -6,7 +6,7 @@
 //! - Memória controlada via Arc + async, sem stack overflow
 //! - Consciousness mirror integration em cada nó
 
-use beagle_fractal::{init_fractal_root, get_root, FractalNodeRuntime};
+use beagle_fractal::{get_root, init_fractal_root, FractalNodeRuntime};
 use tracing::{info, Level};
 use tracing_subscriber::fmt;
 

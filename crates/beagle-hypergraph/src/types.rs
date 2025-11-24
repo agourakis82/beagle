@@ -49,7 +49,7 @@ impl Embedding {
     pub fn to_pgvector(&self) -> Vector {
         Vector::from(self.0.clone())
     }
-    
+
     /// Retorna o vetor de embedding (offline mode).
     #[cfg(not(feature = "database"))]
     pub fn to_vec(&self) -> Vec<f32> {
@@ -61,7 +61,7 @@ impl Embedding {
     pub fn from_pgvector(vector: Vector) -> Self {
         Self(vector.to_vec())
     }
-    
+
     /// Cria embedding a partir de vetor (offline mode).
     #[cfg(not(feature = "database"))]
     pub fn from_vec(vec: Vec<f32>) -> Self {

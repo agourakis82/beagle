@@ -14,7 +14,7 @@ pub const EXPEDITION_001_ID: &str = "beagle_exp_001_triad_vs_single";
 pub const EXPEDITION_001_DEFAULT_N: usize = 20;
 
 /// Template padrão de pergunta para Expedition 001
-pub const EXPEDITION_001_DEFAULT_QUESTION_TEMPLATE: &str = 
+pub const EXPEDITION_001_DEFAULT_QUESTION_TEMPLATE: &str =
     "Entropy curvature as substrate for cellular consciousness: design a short abstract focusing on PBPK and fractal information.";
 
 /// Configuração da Expedition 001
@@ -40,7 +40,7 @@ impl Expedition001Config {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Cria config com valores customizados
     pub fn with_custom(
         experiment_id: Option<String>,
@@ -50,10 +50,11 @@ impl Expedition001Config {
         Self {
             experiment_id: experiment_id.unwrap_or_else(|| EXPEDITION_001_ID.to_string()),
             n_total: n_total.unwrap_or(EXPEDITION_001_DEFAULT_N),
-            question_template: question_template.unwrap_or_else(|| EXPEDITION_001_DEFAULT_QUESTION_TEMPLATE.to_string()),
+            question_template: question_template
+                .unwrap_or_else(|| EXPEDITION_001_DEFAULT_QUESTION_TEMPLATE.to_string()),
         }
     }
-    
+
     /// Retorna número de runs por condição (dividido igualmente)
     pub fn n_per_condition(&self) -> (usize, usize) {
         let n_triad = self.n_total / 2;
@@ -94,7 +95,6 @@ pub fn single_condition_flags() -> (bool, bool, bool, bool) {
 ///
 /// Retorna erro se alguma configuração divergir do protocolo.
 pub fn assert_expedition_001_llm_config(cfg: &beagle_config::BeagleConfig) -> anyhow::Result<()> {
-    
     // Verifica provider principal (deve ser Grok 3)
     let provider_main = &cfg.llm.grok_model;
     if !provider_main.starts_with("grok-3") && !provider_main.starts_with("grok-2") {
@@ -103,7 +103,7 @@ pub fn assert_expedition_001_llm_config(cfg: &beagle_config::BeagleConfig) -> an
             provider_main
         );
     }
-    
+
     // Verifica DeepSeek (deve estar desligado para Expedition 001)
     // Note: DeepSeek é instanciado automaticamente no TieredRouter se DEEPSEEK_API_KEY estiver presente,
     // mas não deve ser usado durante Expedition 001. Verificamos se há flag explícita para desligar.
@@ -118,33 +118,32 @@ pub fn assert_expedition_001_llm_config(cfg: &beagle_config::BeagleConfig) -> an
                 _ => Some(false),
             })
             .unwrap_or(false);
-        
+
         if deepseek_enabled {
             anyhow::bail!(
                 "Expedition 001 requer DeepSeek DESLIGADO (BEAGLE_DEEPSEEK_ENABLE=false ou env var ausente), mas está habilitado"
             );
         }
-        
+
         // Se a key existe mas não está explicitamente habilitada, apenas loga aviso
         // (não bloqueia, mas alerta para auditoria)
         tracing::warn!(
             "DEEPSEEK_API_KEY detectada durante Expedition 001. Certifique-se de que DeepSeek não seja usado via routing config."
         );
     }
-    
+
     // Verifica Serendipity (deve estar desligado para Expedition 001 v1)
     if cfg.serendipity_enabled() {
         anyhow::bail!(
             "Expedition 001 v1 requer Serendipity DESLIGADO (BEAGLE_SERENDIPITY=false), mas está habilitado"
         );
     }
-    
+
     if cfg.serendipity_in_triad() {
         anyhow::bail!(
             "Expedition 001 v1 requer Serendipity-in-Triad DESLIGADO (BEAGLE_SERENDIPITY_TRIAD=false), mas está habilitado"
         );
     }
-    
+
     Ok(())
 }
-

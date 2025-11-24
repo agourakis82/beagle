@@ -16,12 +16,15 @@ async fn pipeline_demo_produz_draft_e_summary() -> Result<()> {
     let mut cfg = BeagleConfig {
         profile: "dev".to_string(),
         safe_mode: true,
+        api_token: None,
         llm: Default::default(),
         storage: StorageConfig {
             data_dir: temp_dir.path().to_string_lossy().to_string(),
         },
         graph: Default::default(),
         hermes: Default::default(),
+        advanced: Default::default(),
+        observer: Default::default(),
     };
 
     // 2. Cria contexto com mocks
@@ -33,10 +36,10 @@ async fn pipeline_demo_produz_draft_e_summary() -> Result<()> {
     // (Por enquanto, apenas verifica que o contexto funciona)
     let _answer = ctx.llm.complete(question).await?;
     let _vectors = ctx.vector.query(question, 5).await?;
-    let _graph_result = ctx.graph.cypher_query(
-        "MATCH (n) RETURN n LIMIT 10",
-        serde_json::json!({}),
-    ).await?;
+    let _graph_result = ctx
+        .graph
+        .cypher_query("MATCH (n) RETURN n LIMIT 10", serde_json::json!({}))
+        .await?;
 
     // 4. Verifica que os diretórios base existem
     let data_dir = PathBuf::from(&ctx.cfg.storage.data_dir);
@@ -51,10 +54,7 @@ async fn pipeline_demo_produz_draft_e_summary() -> Result<()> {
     let draft_md = draft_dir.join("draft.md");
     let content = format!(
         "# BEAGLE Draft\n\nRun ID: {}\nProfile: {}\nSAFE_MODE: {}\n\n## Question\n{}\n",
-        run_id,
-        ctx.cfg.profile,
-        ctx.cfg.safe_mode,
-        question
+        run_id, ctx.cfg.profile, ctx.cfg.safe_mode, question
     );
     std::fs::write(&draft_md, content)?;
     assert!(draft_md.exists(), "Draft.md deve ser criado");
@@ -62,7 +62,10 @@ async fn pipeline_demo_produz_draft_e_summary() -> Result<()> {
     // 7. Verifica conteúdo do draft
     let content_read = std::fs::read_to_string(&draft_md)?;
     assert!(content_read.contains(run_id), "Draft deve conter run_id");
-    assert!(content_read.contains(question), "Draft deve conter question");
+    assert!(
+        content_read.contains(question),
+        "Draft deve conter question"
+    );
 
     Ok(())
 }
@@ -73,19 +76,25 @@ async fn beagle_context_com_mocks_funciona() -> Result<()> {
     let cfg = BeagleConfig {
         profile: "dev".to_string(),
         safe_mode: true,
+        api_token: None,
         llm: Default::default(),
         storage: StorageConfig {
             data_dir: temp_dir.path().to_string_lossy().to_string(),
         },
         graph: Default::default(),
         hermes: Default::default(),
+        advanced: Default::default(),
+        observer: Default::default(),
     };
 
     let ctx = BeagleContext::new_with_mocks(cfg);
 
     // Testa LLM mock
     let llm_response = ctx.llm.complete("test prompt").await?;
-    assert!(llm_response.contains("MOCK_ANSWER"), "LLM mock deve responder");
+    assert!(
+        llm_response.contains("MOCK_ANSWER"),
+        "LLM mock deve responder"
+    );
 
     // Testa Vector Store mock
     let vectors = ctx.vector.query("test query", 3).await?;
@@ -93,12 +102,14 @@ async fn beagle_context_com_mocks_funciona() -> Result<()> {
     assert!(vectors[0].score > 0.0, "Scores devem ser positivos");
 
     // Testa Graph Store mock
-    let graph_result = ctx.graph.cypher_query(
-        "MATCH (n) RETURN n",
-        serde_json::json!({}),
-    ).await?;
-    assert!(graph_result.get("results").is_some(), "Graph store deve retornar resultados");
+    let graph_result = ctx
+        .graph
+        .cypher_query("MATCH (n) RETURN n", serde_json::json!({}))
+        .await?;
+    assert!(
+        graph_result.get("results").is_some(),
+        "Graph store deve retornar resultados"
+    );
 
     Ok(())
 }
-

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use beagle_config::{bootstrap, load as load_config};
 use beagle_core::BeagleContext;
-use beagle_monorepo::{http::{build_router, AppState}};
+use beagle_monorepo::http::{build_router, AppState};
 use beagle_observer::UniversalObserver;
 use tokio::sync::Mutex;
 use tracing::info;
@@ -21,15 +21,12 @@ async fn main() -> anyhow::Result<()> {
     let cfg = load_config();
     info!(
         "BEAGLE core server | profile={} | safe_mode={} | data_dir={}",
-        cfg.profile,
-        cfg.safe_mode,
-        cfg.storage.data_dir
+        cfg.profile, cfg.safe_mode, cfg.storage.data_dir
     );
-    
+
     let ctx = BeagleContext::new(cfg).await?;
-    let observer = UniversalObserver::new()
-        .context("Falha ao criar UniversalObserver")?;
-    
+    let observer = UniversalObserver::new().context("Falha ao criar UniversalObserver")?;
+
     let state = AppState {
         ctx: Arc::new(Mutex::new(ctx)),
         jobs: Arc::new(beagle_monorepo::JobRegistry::new()),
@@ -44,9 +41,9 @@ async fn main() -> anyhow::Result<()> {
         .parse()
         .expect("endereço inválido em BEAGLE_CORE_ADDR");
 
-            info!("Iniciando BEAGLE core server em http://{addr}");
-            let listener = tokio::net::TcpListener::bind(&addr).await?;
-            axum::serve(listener, router).await?;
+    info!("Iniciando BEAGLE core server em http://{addr}");
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    axum::serve(listener, router).await?;
 
     Ok(())
 }
