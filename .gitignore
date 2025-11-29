@@ -78,15 +78,10 @@ docker-compose.override.yml
 /target/doc/
 /docs/_build/
 
-# Auto-generated audit reports (but keep audit/ directory structure)
-audit/reports/AGENTS.md
-audit/reports/BEAGLE_ARCHITECTURE.md
-audit/reports/COMPILATION_FIXES_REPORT.md
-audit/reports/COMPILATION_STATUS.md
-audit/reports/INTEGRATION_SUMMARY.md
-audit/reports/REPOSITORY_AUDIT_*.md
-audit/reports/UNFINISHED_FEATURES_REPORT.md
-audit/reports/WEBSOCKET_FIXES_REPORT.md
+# Virtual environments
+venv_*/
+.venv_*/
+__pycache__/
 
 # Temporary files
 tmp/

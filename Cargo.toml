@@ -5,6 +5,7 @@
 
 [workspace]
 members = [
+    "crates/beagle-common",
     "crates/beagle-agents",
     "crates/beagle-bio",
     "crates/beagle-hrv-adaptive",
@@ -35,6 +36,11 @@ members = [
     "crates/beagle-observer", "crates/beagle-stress-test", "crates/beagle-triad",
     "crates/beagle-feedback", "crates/beagle-symbolic", "crates/beagle-experiments",
     "crates/beagle-search",
+    "crates/beagle-exocortex",
+    "crates/beagle-tracing",
+    "crates/beagle-latex",
+    "crates/beagle-checkpoint",
+    "crates/beagle-signatures",
 ]
 resolver = "2"
 
