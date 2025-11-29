@@ -1,0 +1,62 @@
+% arXiv Preprint Style - Preamble
+% Clean, readable format for preprints
+
+% Standard article class with reasonable margins
+\usepackage[a4paper, margin=2.5cm]{geometry}
+
+% Computer Modern (LaTeX default, widely used on arXiv)
+\usepackage{fontspec}
+\setmainfont{Latin Modern Roman}
+
+% Standard spacing
+\usepackage{setspace}
+\onehalfspacing
+
+% Full math support
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{mathtools}
+
+% Graphics
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{caption}
+
+% Tables
+\usepackage{booktabs}
+\usepackage{array}
+
+% Hyperlinks (colored for readability)
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    citecolor=blue,
+    urlcolor=blue,
+}
+
+% Standard theorem environments
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+% Simple headers
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+
+% Line numbers for drafts (optional)
+% \usepackage{lineno}
+% \linenumbers

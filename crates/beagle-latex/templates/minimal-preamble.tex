@@ -1,0 +1,33 @@
+% Minimal Clean Style - Preamble
+% Simple, readable, fast compilation
+
+% Standard geometry
+\usepackage[a4paper, margin=2.5cm]{geometry}
+
+% Basic fonts
+\usepackage{fontspec}
+\setmainfont{Latin Modern Roman}
+
+% Essential packages only
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+
+% Simple hyperlinks
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    urlcolor=blue,
+}
+
+% Minimal header
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+
+% Standard spacing
+\usepackage{setspace}
+\onehalfspacing

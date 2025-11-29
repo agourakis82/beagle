@@ -1,0 +1,51 @@
+% Nature Journal Style - Preamble
+% Single column, compact format
+% Based on Nature journal requirements
+
+% Compact margins
+\usepackage[a4paper, margin=2cm]{geometry}
+
+% Nature uses Times font
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+
+% Tight line spacing
+\usepackage{setspace}
+\singlespacing
+
+% Nature style sections (no numbers by default)
+\usepackage{titlesec}
+\titleformat{\section}
+    {\normalfont\Large\bfseries}
+    {}{0pt}{}
+\titleformat{\subsection}
+    {\normalfont\large\bfseries}
+    {}{0pt}{}
+
+% Compact lists
+\usepackage{enumitem}
+\setlist{noitemsep, topsep=0pt, partopsep=0pt}
+
+% References as superscripts
+\usepackage[super,sort&compress]{natbib}
+
+% Figures and tables
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+% Minimal header/footer
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Hyperlinks (Nature prefers minimal decoration)
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=false,
+    linkbordercolor=white,
+    citebordercolor=white,
+    urlbordercolor=white,
+}
