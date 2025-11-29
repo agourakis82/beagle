@@ -1,0 +1,714 @@
+openapi: 3.0.3
+info:
+  title: BEAGLE System API
+  description: |
+    Complete API specification for the BEAGLE intelligent system.
+
+    This API provides access to all integrated modules including:
+    - Memory System with RAG (Retrieval-Augmented Generation)
+    - Quantum Circuit Simulation
+    - Neural Transformer Text Generation
+    - Symbolic Reasoning Engine
+    - Full-Text Search with BM25
+    - System Observability and Metrics
+
+    All endpoints support JSON requests and responses.
+  version: 0.10.0
+  contact:
+    name: BEAGLE Development Team
+    email: support@beagle-system.io
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Development server
+  - url: https://api.beagle-system.io
+    description: Production server
+
+tags:
+  - name: Memory/RAG
+    description: Document storage and retrieval with RAG
+  - name: Quantum
+    description: Quantum circuit simulation
+  - name: Neural
+    description: Neural text generation with transformers
+  - name: Symbolic
+    description: Symbolic reasoning and logic
+  - name: Search
+    description: Full-text search engine
+  - name: Metrics
+    description: System monitoring and observability
+  - name: Health
+    description: System health and status
+
+paths:
+  # ===== MEMORY/RAG ENDPOINTS =====
+  /api/memory/documents:
+    post:
+      tags: [Memory/RAG]
+      summary: Add document to RAG system
+      description: Index a new document for retrieval-augmented generation
+      operationId: addDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentInput'
+            examples:
+              scientific:
+                summary: Scientific paper
+                value:
+                  content: "Quantum computing leverages superposition and entanglement..."
+                  metadata:
+                    category: "quantum"
+                    year: 2024
+      responses:
+        '200':
+          description: Document added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  message:
+                    type: string
+                  processing_time_ms:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/memory/query:
+    get:
+      tags: [Memory/RAG]
+      summary: Query RAG system
+      description: Retrieve relevant documents using semantic and keyword search
+      operationId: queryRAG
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: Search query text
+          schema:
+            type: string
+          example: "How does quantum computing work?"
+        - name: k
+          in: query
+          description: Number of documents to retrieve
+          schema:
+            type: integer
+            default: 5
+            minimum: 1
+            maximum: 100
+        - name: use_semantic
+          in: query
+          description: Enable semantic search
+          schema:
+            type: boolean
+            default: true
+        - name: use_keyword
+          in: query
+          description: Enable keyword search
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: Query results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RAGResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ===== QUANTUM SIMULATION ENDPOINTS =====
+  /api/quantum/simulate:
+    post:
+      tags: [Quantum]
+      summary: Run quantum circuit simulation
+      description: |
+        Simulate a quantum circuit with specified gates and measurements.
+
+        Supported gates:
+        - H: Hadamard gate
+        - X: Pauli-X (NOT) gate
+        - Y: Pauli-Y gate
+        - Z: Pauli-Z gate
+        - CNOT: Controlled-NOT (requires control qubit)
+      operationId: simulateQuantum
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuantumCircuit'
+            examples:
+              bell_state:
+                summary: Bell state preparation
+                value:
+                  num_qubits: 2
+                  operations:
+                    - gate: "H"
+                      qubit: 0
+                    - gate: "X"
+                      qubit: 1
+                      control: 0
+      responses:
+        '200':
+          description: Simulation results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuantumResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ===== NEURAL ENGINE ENDPOINTS =====
+  /api/neural/generate:
+    post:
+      tags: [Neural]
+      summary: Generate text with transformer
+      description: Use neural transformer model to generate text continuation
+      operationId: generateText
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NeuralInput'
+            examples:
+              story:
+                summary: Story continuation
+                value:
+                  text: "Once upon a time in a quantum universe"
+                  max_tokens: 50
+                  temperature: 0.8
+      responses:
+        '200':
+          description: Generated text
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NeuralOutput'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ===== SYMBOLIC REASONING ENDPOINTS =====
+  /api/symbolic/reason:
+    post:
+      tags: [Symbolic]
+      summary: Perform symbolic reasoning
+      description: |
+        Execute first-order logic reasoning with facts and rules.
+
+        The engine uses forward chaining and unification to prove queries.
+      operationId: symbolicReasoning
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReasoningInput'
+            examples:
+              socrates:
+                summary: Classical syllogism
+                value:
+                  facts:
+                    - predicate: "human"
+                      terms: ["Socrates"]
+                    - predicate: "philosopher"
+                      terms: ["Socrates"]
+                  rules:
+                    - conditions:
+                        - predicate: "human"
+                          terms: ["X"]
+                      conclusion:
+                        predicate: "mortal"
+                        terms: ["X"]
+                  query:
+                    predicate: "mortal"
+                    terms: ["Socrates"]
+      responses:
+        '200':
+          description: Reasoning result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReasoningResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ===== SEARCH ENGINE ENDPOINTS =====
+  /api/search/index:
+    post:
+      tags: [Search]
+      summary: Index a document
+      description: Add document to search index with BM25 scoring
+      operationId: indexDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentInput'
+      responses:
+        '200':
+          description: Document indexed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  message:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/search:
+    get:
+      tags: [Search]
+      summary: Search documents
+      description: Full-text search with BM25 ranking and faceting
+      operationId: searchDocuments
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: Search query
+          schema:
+            type: string
+          example: "quantum computing"
+        - name: limit
+          in: query
+          description: Maximum results to return
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+            maximum: 100
+        - name: filters
+          in: query
+          description: JSON filters for faceted search
+          schema:
+            type: string
+          example: '{"category": "science"}'
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ===== METRICS/OBSERVER ENDPOINTS =====
+  /api/metrics:
+    post:
+      tags: [Metrics]
+      summary: Record a metric
+      description: Submit a metric data point to the observer system
+      operationId: recordMetric
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MetricInput'
+            examples:
+              counter:
+                summary: Counter metric
+                value:
+                  name: "api.requests"
+                  value: 1
+                  metric_type: "counter"
+                  labels:
+                    endpoint: "/api/search"
+              gauge:
+                summary: Gauge metric
+                value:
+                  name: "system.cpu"
+                  value: 45.2
+                  metric_type: "gauge"
+      responses:
+        '200':
+          description: Metric recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/metrics/summary:
+    get:
+      tags: [Metrics]
+      summary: Get metrics summary
+      description: Retrieve aggregated metrics and detected anomalies
+      operationId: getMetricsSummary
+      responses:
+        '200':
+          description: Metrics summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Get system health
+      description: Check overall system health and component status
+      operationId: getHealth
+      responses:
+        '200':
+          description: System is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: System is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+components:
+  schemas:
+    # Common schemas
+    DocumentInput:
+      type: object
+      required:
+        - content
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Optional document ID
+        content:
+          type: string
+          description: Document text content
+          minLength: 1
+        metadata:
+          type: object
+          description: Optional metadata
+          additionalProperties: true
+
+    # RAG schemas
+    RAGResponse:
+      type: object
+      properties:
+        documents:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              content:
+                type: string
+              score:
+                type: number
+                format: float
+              metadata:
+                type: object
+        total:
+          type: integer
+        query_time_ms:
+          type: integer
+
+    # Quantum schemas
+    QuantumCircuit:
+      type: object
+      required:
+        - num_qubits
+        - operations
+      properties:
+        num_qubits:
+          type: integer
+          minimum: 1
+          maximum: 20
+        operations:
+          type: array
+          items:
+            type: object
+            required:
+              - gate
+              - qubit
+            properties:
+              gate:
+                type: string
+                enum: ["H", "X", "Y", "Z"]
+              qubit:
+                type: integer
+                minimum: 0
+              control:
+                type: integer
+                minimum: 0
+                description: Control qubit for CNOT
+
+    QuantumResult:
+      type: object
+      properties:
+        measurements:
+          type: array
+          items:
+            type: integer
+            enum: [0, 1]
+        probabilities:
+          type: array
+          items:
+            type: number
+        execution_time_ms:
+          type: integer
+
+    # Neural schemas
+    NeuralInput:
+      type: object
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          minLength: 1
+        max_tokens:
+          type: integer
+          default: 50
+          minimum: 1
+          maximum: 2048
+        temperature:
+          type: number
+          default: 0.9
+          minimum: 0.1
+          maximum: 2.0
+
+    NeuralOutput:
+      type: object
+      properties:
+        generated_text:
+          type: string
+        tokens:
+          type: integer
+        processing_time_ms:
+          type: integer
+
+    # Symbolic reasoning schemas
+    ReasoningInput:
+      type: object
+      required:
+        - facts
+        - rules
+        - query
+      properties:
+        facts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Fact'
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/Rule'
+        query:
+          $ref: '#/components/schemas/Fact'
+
+    Fact:
+      type: object
+      required:
+        - predicate
+        - terms
+      properties:
+        predicate:
+          type: string
+        terms:
+          type: array
+          items:
+            type: string
+
+    Rule:
+      type: object
+      required:
+        - conditions
+        - conclusion
+      properties:
+        conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Fact'
+        conclusion:
+          $ref: '#/components/schemas/Fact'
+
+    ReasoningResult:
+      type: object
+      properties:
+        proven:
+          type: boolean
+        proof_steps:
+          type: array
+          items:
+            type: string
+        inference_time_ms:
+          type: integer
+
+    # Search schemas
+    SearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              content:
+                type: string
+              score:
+                type: number
+              snippet:
+                type: string
+              metadata:
+                type: object
+        total:
+          type: integer
+        facets:
+          type: object
+        search_time_ms:
+          type: integer
+
+    # Metrics schemas
+    MetricInput:
+      type: object
+      required:
+        - name
+        - value
+        - metric_type
+      properties:
+        name:
+          type: string
+        value:
+          type: number
+        metric_type:
+          type: string
+          enum: ["counter", "gauge", "histogram"]
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+
+    MetricsResponse:
+      type: object
+      properties:
+        total_metrics:
+          type: integer
+        top_metrics:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              value:
+                type: number
+              timestamp:
+                type: string
+                format: date-time
+        anomalies:
+          type: array
+          items:
+            type: object
+            properties:
+              metric_name:
+                type: string
+              score:
+                type: number
+              description:
+                type: string
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: ["healthy", "degraded", "unhealthy"]
+        components:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+              message:
+                type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    # Error schemas
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - status
+      properties:
+        error:
+          type: string
+        status:
+          type: integer
+        details:
+          type: object
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Invalid input format"
+            status: 400
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Document not found"
+            status: 404
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Internal processing error"
+            status: 500
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - bearerAuth: []
