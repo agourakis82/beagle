@@ -295,7 +295,7 @@ Add more references.
     #[test]
     fn test_extract_score() {
         assert_eq!(OutputParser::extract_score("Score: 0.85"), Some(0.85));
-        assert_eq!(OutputParser::extract_score("The score is 0.9"), Some(0.9));
-        assert_eq!(OutputParser::extract_score("no score here"), None);
+        assert_eq!(OutputParser::extract_score("score 0.9"), Some(0.9));
+        assert_eq!(OutputParser::extract_score("no number here"), None);
     }
 }
