@@ -368,7 +368,7 @@ impl Default for PipelineCheckpointer {
 }
 
 /// Helper trait for checkpointing in pipeline execution
-pub trait CheckpointablePipeline {
+pub trait CheckpointablePipeline: Sync {
     /// Get the checkpointer
     fn checkpointer(&self) -> &PipelineCheckpointer;
 
