@@ -256,8 +256,10 @@ mod tests {
             q_value: 0.8,
             n_visits: 100,
             prior: 1.0,
+            evidence: vec![],
             novelty: 0.7,
-            depth: 1,
+            plausibility: 0.9,
+            testability: 0.8,
         };
 
         // Test probability calculation without full MCTS
