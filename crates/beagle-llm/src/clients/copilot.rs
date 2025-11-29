@@ -165,7 +165,7 @@ mod tests {
             max_tokens: Some(100),
         };
 
-        let response = client.complete(request).await.unwrap();
+        let response = client.chat(request).await.unwrap();
         println!("Response: {}", response);
         assert!(!response.is_empty());
     }

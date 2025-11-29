@@ -152,6 +152,7 @@ impl LlmClient for ClaudeClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ChatMessage;
 
     #[tokio::test]
     #[ignore] // Only run with --ignored (requires ANTHROPIC_API_KEY)

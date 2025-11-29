@@ -153,7 +153,7 @@ impl CodexCliClient {
     /// Parse Codex CLI output to extract response
     ///
     /// Codex CLI returns format like:
-    /// ```
+    /// ```text
     /// Reading prompt from stdin...
     /// OpenAI Codex v0.46.0 (research preview)
     /// --------
