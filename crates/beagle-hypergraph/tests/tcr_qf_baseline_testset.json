@@ -1,0 +1,67 @@
+{
+  "name": "TCR-QF Baseline Test Set",
+  "description": "Annotated queries for measuring GraphRAG baseline performance",
+  "version": "1.0",
+  "created_at": "2025-11-24",
+  "queries": [
+    {
+      "id": "q001",
+      "query": "What are the mechanisms of HRV biofeedback in cardiovascular health?",
+      "domain": "medicine",
+      "difficulty": "medium",
+      "relevant_nodes": [],
+      "relevance_scores": {},
+      "notes": "Placeholder - needs node IDs from actual graph"
+    },
+    {
+      "id": "q002",
+      "query": "How does circadian rhythm affect metabolic processes?",
+      "domain": "biology",
+      "difficulty": "medium",
+      "relevant_nodes": [],
+      "relevance_scores": {},
+      "notes": "Placeholder - needs node IDs from actual graph"
+    },
+    {
+      "id": "q003",
+      "query": "What is the relationship between stress and immune function?",
+      "domain": "medicine",
+      "difficulty": "easy",
+      "relevant_nodes": [],
+      "relevance_scores": {},
+      "notes": "Placeholder - needs node IDs from actual graph"
+    },
+    {
+      "id": "q004",
+      "query": "Explain the role of mitochondria in cellular energy production",
+      "domain": "biology",
+      "difficulty": "easy",
+      "relevant_nodes": [],
+      "relevance_scores": {},
+      "notes": "Placeholder - needs node IDs from actual graph"
+    },
+    {
+      "id": "q005",
+      "query": "How do GABA receptors modulate neural activity in anxiety disorders?",
+      "domain": "neuroscience",
+      "difficulty": "hard",
+      "relevant_nodes": [],
+      "relevance_scores": {},
+      "notes": "Placeholder - needs node IDs from actual graph"
+    }
+  ],
+  "annotation_guide": {
+    "relevance_scale": {
+      "0.0": "Not relevant",
+      "0.25": "Tangentially related",
+      "0.5": "Somewhat relevant",
+      "0.75": "Relevant",
+      "1.0": "Highly relevant / Direct answer"
+    },
+    "difficulty_scale": {
+      "easy": "Common knowledge, well-documented",
+      "medium": "Requires domain expertise",
+      "hard": "Cutting-edge research, complex relationships"
+    }
+  }
+}
