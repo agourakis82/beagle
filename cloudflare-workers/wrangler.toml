@@ -1,0 +1,62 @@
+# Wrangler configuration for Cloudflare Workers
+# Manages edge computing and caching for agourakis.com
+
+name = "beagle-edge"
+type = "javascript"
+account_id = "${CLOUDFLARE_ACCOUNT_ID}"
+workers_dev = true
+route = "https://agourakis.com/*"
+zone_id = "${CLOUDFLARE_ZONE_ID}"
+
+# Main script
+main = "src/cdn-edge.js"
+
+# Environment configuration
+env = "production"
+
+# Triggers for scheduled jobs
+triggers = {
+  crons = [
+    "0 */6 * * *"  # Every 6 hours - cache invalidation
+  ]
+}
+
+# KV Namespace bindings
+kv_namespaces = [
+  { binding = "CACHE_STORE", id = "beagle-edge-cache" },
+  { binding = "RATE_LIMIT_STORE", id = "beagle-rate-limits" },
+  { binding = "CONFIG_STORE", id = "beagle-config" }
+]
+
+# Durable Objects (for stateful edge computing)
+durable_objects = {
+  bindings = [
+    { name = "ANALYTICS", class_name = "AnalyticsCollector" },
+    { name = "SESSION_STORE", class_name = "SessionManager" }
+  ]
+}
+
+# Environment variables
+vars = {
+  ENVIRONMENT = "production",
+  LOG_LEVEL = "info",
+  RATE_LIMIT_ENABLED = true,
+  CACHE_ENABLED = true,
+  GEO_ROUTING_ENABLED = true,
+  ANALYTICS_ENABLED = true
+}
+
+# Build configuration
+[build]
+command = "npm install && npm run build"
+cwd = "./"
+watch_paths = ["src/**/*.js"]
+
+# Observability
+[observability]
+enabled = true
+
+# Logpush (send logs to external service)
+[env.production.logpush]
+datasets = ["http_requests"]
+destination = "https://logs.agourakis.com/api/logs"

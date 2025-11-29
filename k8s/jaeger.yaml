@@ -1,0 +1,488 @@
+# Jaeger Deployment for Distributed Tracing with Q1 SOTA Standards
+#
+# References:
+# - Jaeger Architecture Documentation (CNCF)
+# - Uber Engineering: Evolving Distributed Tracing at Uber
+# - Google Dapper: Large-Scale Distributed Systems Tracing
+
+---
+# Namespace for Jaeger
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jaeger
+  labels:
+    name: jaeger
+
+---
+# Jaeger Operator for automated management
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger-operator
+  namespace: jaeger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: jaeger-operator
+  template:
+    metadata:
+      labels:
+        name: jaeger-operator
+    spec:
+      serviceAccountName: jaeger-operator
+      containers:
+      - name: jaeger-operator
+        image: jaegertracing/jaeger-operator:1.53.0
+        args:
+        - start
+        env:
+        - name: WATCH_NAMESPACE
+          value: ""  # Watch all namespaces
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: OPERATOR_NAME
+          value: jaeger-operator
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+
+---
+# Jaeger Instance (Production Configuration)
+apiVersion: jaegertracing.io/v1
+kind: Jaeger
+metadata:
+  name: jaeger-production
+  namespace: jaeger
+spec:
+  strategy: production
+
+  # Collector configuration
+  collector:
+    replicas: 3
+    maxReplicas: 10
+    autoscale: true
+    resources:
+      limits:
+        cpu: 2
+        memory: 4Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    options:
+      collector:
+        num-workers: 100
+        queue-size: 10000
+        grpc-server:
+          max-recv-msg-size: 67108864  # 64MB
+          max-connection-idle: 60s
+        http-server:
+          idle-timeout: 60s
+      log-level: info
+    serviceType: LoadBalancer
+
+  # Query service configuration
+  query:
+    replicas: 2
+    resources:
+      limits:
+        cpu: 1
+        memory: 2Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+    options:
+      query:
+        base-path: /jaeger
+        static-files: /go/jaeger-ui/
+        ui-config: /etc/config/ui.json
+        max-clock-skew-adjustment: 30s
+      log-level: info
+    serviceType: ClusterIP
+
+  # Storage configuration (Elasticsearch)
+  storage:
+    type: elasticsearch
+    options:
+      es:
+        server-urls: http://elasticsearch:9200
+        index-prefix: jaeger
+        tags-as-fields:
+          all: true
+        num-shards: 5
+        num-replicas: 1
+        version: 7
+        max-span-age: 168h  # 7 days
+        bulk:
+          size: 5000
+          flush-interval: 1s
+          workers: 10
+    esIndexCleaner:
+      enabled: true
+      numberOfDays: 7
+      schedule: "0 0 * * *"  # Daily at midnight
+    esRollover:
+      enabled: true
+      conditions: |
+        {
+          "max_age": "1d",
+          "max_docs": 50000000,
+          "max_size": "50gb"
+        }
+
+  # Ingester for Kafka (optional, for high-volume scenarios)
+  ingester:
+    replicas: 2
+    autoscale: true
+    maxReplicas: 5
+    options:
+      ingester:
+        kafka:
+          brokers: kafka-bootstrap:9092
+          topic: jaeger-spans
+          consumer:
+            group-id: jaeger-ingester
+          encoding: protobuf
+      processor:
+        jaeger-binary:
+          server-queue-size: 10000
+          server-max-packet-size: 67108864
+          workers: 50
+      log-level: info
+    resources:
+      limits:
+        cpu: 1
+        memory: 2Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+
+  # Agent configuration (DaemonSet)
+  agent:
+    strategy: DaemonSet
+    image: jaegertracing/jaeger-agent:1.53.0
+    options:
+      agent:
+        tags: "deployment.environment=production"
+      reporter:
+        grpc:
+          host-port: jaeger-collector:14250
+          retry:
+            max: 5
+        queue-size: 10000
+        batch-size: 1000
+        flush-interval: 1s
+      processor:
+        jaeger-compact:
+          server-queue-size: 5000
+          server-max-packet-size: 65536
+          workers: 25
+      log-level: info
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    hostNetwork: true
+    dnsPolicy: ClusterFirstWithHostNet
+
+---
+# HorizontalPodAutoscaler for Collector
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: jaeger-collector-hpa
+  namespace: jaeger
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: jaeger-production-collector
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# Service Monitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: jaeger-metrics
+  namespace: jaeger
+spec:
+  selector:
+    matchLabels:
+      app: jaeger
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+
+---
+# ConfigMap for UI Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-ui-config
+  namespace: jaeger
+data:
+  ui.json: |
+    {
+      "dependencies": {
+        "menuEnabled": true,
+        "dagMaxNumServices": 200
+      },
+      "archiveEnabled": true,
+      "tracking": {
+        "gaID": "",
+        "trackErrs": false
+      },
+      "menu": [
+        {
+          "label": "BEAGLE Docs",
+          "items": [
+            {
+              "label": "Tracing Guide",
+              "url": "https://docs.beagle.ai/tracing"
+            },
+            {
+              "label": "Performance Tuning",
+              "url": "https://docs.beagle.ai/performance"
+            }
+          ]
+        }
+      ],
+      "search": {
+        "maxLookback": {
+          "label": "7 Days",
+          "value": "7d"
+        },
+        "maxLimit": 1500
+      },
+      "tracking": {
+        "gaID": null,
+        "trackErrs": false
+      }
+    }
+
+---
+# Elasticsearch for Storage
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: jaeger
+spec:
+  serviceName: elasticsearch
+  replicas: 3
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      containers:
+      - name: elasticsearch
+        image: docker.elastic.co/elasticsearch/elasticsearch:7.17.15
+        ports:
+        - containerPort: 9200
+          name: http
+        - containerPort: 9300
+          name: transport
+        env:
+        - name: cluster.name
+          value: jaeger-cluster
+        - name: node.name
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: discovery.seed_hosts
+          value: elasticsearch-0.elasticsearch,elasticsearch-1.elasticsearch,elasticsearch-2.elasticsearch
+        - name: cluster.initial_master_nodes
+          value: elasticsearch-0,elasticsearch-1,elasticsearch-2
+        - name: ES_JAVA_OPTS
+          value: "-Xms2g -Xmx2g"
+        - name: xpack.security.enabled
+          value: "false"
+        - name: xpack.monitoring.enabled
+          value: "true"
+        - name: xpack.ml.enabled
+          value: "false"
+        resources:
+          limits:
+            cpu: 2
+            memory: 4Gi
+          requests:
+            cpu: 1
+            memory: 2Gi
+        volumeMounts:
+        - name: data
+          mountPath: /usr/share/elasticsearch/data
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 100Gi
+
+---
+# Service for Elasticsearch
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: jaeger
+spec:
+  clusterIP: None
+  selector:
+    app: elasticsearch
+  ports:
+  - port: 9200
+    name: http
+  - port: 9300
+    name: transport
+
+---
+# Service for Jaeger Query
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-query
+  namespace: jaeger
+spec:
+  selector:
+    app.kubernetes.io/component: query
+    app.kubernetes.io/instance: jaeger-production
+  ports:
+  - port: 16686
+    targetPort: 16686
+    name: http-query
+  - port: 16687
+    targetPort: 16687
+    name: grpc-query
+
+---
+# Service for Jaeger Collector
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-collector
+  namespace: jaeger
+spec:
+  selector:
+    app.kubernetes.io/component: collector
+    app.kubernetes.io/instance: jaeger-production
+  ports:
+  - port: 14250
+    targetPort: 14250
+    name: grpc
+  - port: 14268
+    targetPort: 14268
+    name: http
+  - port: 14269
+    targetPort: 14269
+    name: metrics
+
+---
+# Ingress for Jaeger UI
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jaeger-ui
+  namespace: jaeger
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: tracing.beagle.ai
+    http:
+      paths:
+      - path: /jaeger(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: jaeger-query
+            port:
+              number: 16686
+
+---
+# ServiceAccount for Jaeger Operator
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jaeger-operator
+  namespace: jaeger
+
+---
+# ClusterRole for Jaeger Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: jaeger-operator
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints", "persistentvolumeclaims", "events", "configmaps", "secrets", "serviceaccounts"]
+  verbs: ["*"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+  verbs: ["*"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["*"]
+- apiGroups: ["autoscaling"]
+  resources: ["horizontalpodautoscalers"]
+  verbs: ["*"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["*"]
+- apiGroups: ["jaegertracing.io"]
+  resources: ["*"]
+  verbs: ["*"]
+
+---
+# ClusterRoleBinding for Jaeger Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jaeger-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jaeger-operator
+subjects:
+- kind: ServiceAccount
+  name: jaeger-operator
+  namespace: jaeger

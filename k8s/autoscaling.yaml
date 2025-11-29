@@ -1,0 +1,486 @@
+# Kubernetes Autoscaling Configuration with Q1 SOTA Standards
+#
+# References:
+# - Kubernetes Horizontal Pod Autoscaler Documentation
+# - Vertical Pod Autoscaler: Right-sizing Your Pods (Google Cloud)
+# - Cluster Autoscaler: Scaling Nodes (CNCF)
+# - Burns, B., et al. (2016). Borg, Omega, and Kubernetes. ACM Queue.
+# - Verma, A., et al. (2015). Large-scale cluster management at Google with Borg.
+
+---
+# HPA v2 with Custom Metrics
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: beagle-server-hpa
+  namespace: beagle
+  labels:
+    app: beagle-server
+    component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: beagle-server
+  minReplicas: 3
+  maxReplicas: 100
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Prevent flapping
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Min  # Conservative scale-down
+    scaleUp:
+      stabilizationWindowSeconds: 30  # Fast scale-up for load spikes
+      policies:
+      - type: Percent
+        value: 100  # Double pods if needed
+        periodSeconds: 60
+      - type: Pods
+        value: 5
+        periodSeconds: 60
+      selectPolicy: Max  # Aggressive scale-up
+  metrics:
+  # CPU utilization (basic metric)
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  # Memory utilization
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  # Custom metric: Request rate
+  - type: Pods
+    pods:
+      metric:
+        name: http_requests_per_second
+      target:
+        type: AverageValue
+        averageValue: "1000"
+  # Custom metric: WebSocket connections
+  - type: Pods
+    pods:
+      metric:
+        name: websocket_active_connections
+      target:
+        type: AverageValue
+        averageValue: "500"
+  # Custom metric: LLM queue depth
+  - type: Pods
+    pods:
+      metric:
+        name: llm_queue_depth
+      target:
+        type: AverageValue
+        averageValue: "100"
+  # External metric: Redis queue length
+  - type: External
+    external:
+      metric:
+        name: redis_queue_length
+        selector:
+          matchLabels:
+            queue: beagle-jobs
+      target:
+        type: Value
+        value: "1000"
+
+---
+# HPA for WebSocket Service
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: beagle-websocket-hpa
+  namespace: beagle
+  labels:
+    app: beagle-websocket
+    component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: beagle-websocket
+  minReplicas: 2
+  maxReplicas: 50
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+  - type: Pods
+    pods:
+      metric:
+        name: websocket_active_connections
+      target:
+        type: AverageValue
+        averageValue: "1000"
+  - type: Pods
+    pods:
+      metric:
+        name: websocket_message_latency_p99
+      target:
+        type: AverageValue
+        averageValue: "100"  # 100ms P99 latency
+
+---
+# HPA for Background Workers
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: beagle-worker-hpa
+  namespace: beagle
+  labels:
+    app: beagle-worker
+    component: autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: beagle-worker
+  minReplicas: 1
+  maxReplicas: 20
+  metrics:
+  - type: External
+    external:
+      metric:
+        name: pulsar_backlog
+        selector:
+          matchLabels:
+            topic: beagle-jobs
+      target:
+        type: AverageValue
+        averageValue: "50"
+
+---
+# Vertical Pod Autoscaler for Right-Sizing
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: beagle-server-vpa
+  namespace: beagle
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: beagle-server
+  updatePolicy:
+    updateMode: "Auto"  # Can be "Off", "Initial", or "Auto"
+  resourcePolicy:
+    containerPolicies:
+    - containerName: beagle-server
+      minAllowed:
+        cpu: 500m
+        memory: 512Mi
+      maxAllowed:
+        cpu: 8000m
+        memory: 16Gi
+      controlledResources: ["cpu", "memory"]
+
+---
+# VPA for WebSocket Service
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: beagle-websocket-vpa
+  namespace: beagle
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: beagle-websocket
+  updatePolicy:
+    updateMode: "Initial"  # Only set requests on pod creation
+  resourcePolicy:
+    containerPolicies:
+    - containerName: beagle-websocket
+      minAllowed:
+        cpu: 200m
+        memory: 256Mi
+      maxAllowed:
+        cpu: 2000m
+        memory: 4Gi
+
+---
+# Pod Disruption Budget for High Availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: beagle-server-pdb
+  namespace: beagle
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: beagle-server
+
+---
+# PDB for WebSocket Service
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: beagle-websocket-pdb
+  namespace: beagle
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: beagle-websocket
+
+---
+# Priority Classes for Critical Services
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: beagle-critical
+value: 1000
+globalDefault: false
+description: "Critical BEAGLE services"
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: beagle-high
+value: 900
+globalDefault: false
+description: "High priority BEAGLE services"
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: beagle-medium
+value: 500
+globalDefault: true
+description: "Default priority for BEAGLE services"
+
+---
+# KEDA ScaledObject for Advanced Autoscaling
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: beagle-server-keda
+  namespace: beagle
+spec:
+  scaleTargetRef:
+    name: beagle-server
+  minReplicaCount: 3
+  maxReplicaCount: 100
+  pollingInterval: 30
+  cooldownPeriod: 300
+  triggers:
+  # Scale based on Prometheus metrics
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus:9090
+      metricName: http_requests_per_second
+      query: sum(rate(http_requests_total[1m]))
+      threshold: "100"
+  # Scale based on Redis queue length
+  - type: redis
+    metadata:
+      address: redis:6379
+      listName: beagle:jobs:pending
+      listLength: "50"
+  # Scale based on PostgreSQL connections
+  - type: postgresql
+    metadata:
+      connectionFromEnv: DATABASE_URL
+      query: "SELECT COUNT(*) FROM pg_stat_activity WHERE state = 'active'"
+      targetQueryValue: "50"
+  # Scale based on CPU
+  - type: cpu
+    metricType: Utilization
+    metadata:
+      value: "70"
+  # Scale based on memory
+  - type: memory
+    metricType: Utilization
+    metadata:
+      value: "80"
+
+---
+# KEDA ScaledObject for WebSocket
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: beagle-websocket-keda
+  namespace: beagle
+spec:
+  scaleTargetRef:
+    name: beagle-websocket
+  minReplicaCount: 2
+  maxReplicaCount: 50
+  triggers:
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus:9090
+      metricName: websocket_connections
+      query: sum(websocket_active_connections)
+      threshold: "500"
+  - type: prometheus
+    metadata:
+      serverAddress: http://prometheus:9090
+      metricName: websocket_latency
+      query: histogram_quantile(0.99, websocket_message_latency_seconds_bucket)
+      threshold: "0.1"  # 100ms
+
+---
+# ScaledJob for Batch Processing
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: beagle-batch-processor
+  namespace: beagle
+spec:
+  jobTargetRef:
+    template:
+      spec:
+        containers:
+        - name: batch-processor
+          image: beagle/batch-processor:latest
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+        restartPolicy: OnFailure
+  minReplicaCount: 0
+  maxReplicaCount: 10
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 5
+  triggers:
+  - type: cron
+    metadata:
+      timezone: UTC
+      start: "0 * * * *"  # Every hour
+      end: "5 * * * *"    # Stop after 5 minutes
+      desiredReplicas: "3"
+
+---
+# Cluster Autoscaler Configuration (Deployment)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cluster-autoscaler
+  template:
+    metadata:
+      labels:
+        app: cluster-autoscaler
+    spec:
+      serviceAccountName: cluster-autoscaler
+      containers:
+      - image: k8s.gcr.io/autoscaling/cluster-autoscaler:v1.28.0
+        name: cluster-autoscaler
+        resources:
+          limits:
+            cpu: 100m
+            memory: 300Mi
+          requests:
+            cpu: 100m
+            memory: 300Mi
+        command:
+        - ./cluster-autoscaler
+        - --v=4
+        - --stderrthreshold=info
+        - --cloud-provider=aws  # Or gcp, azure, etc.
+        - --skip-nodes-with-local-storage=false
+        - --expander=least-waste
+        - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/beagle
+        - --balance-similar-node-groups
+        - --skip-nodes-with-system-pods=false
+        - --scale-down-enabled=true
+        - --scale-down-delay-after-add=10m
+        - --scale-down-unneeded-time=10m
+        - --scale-down-utilization-threshold=0.5
+        - --max-node-provision-time=15m
+        - --max-nodes-total=100
+        env:
+        - name: AWS_REGION
+          value: us-west-2
+
+---
+# ServiceAccount for Cluster Autoscaler
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+
+---
+# ClusterRole for Cluster Autoscaler
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cluster-autoscaler
+rules:
+- apiGroups: [""]
+  resources: ["events", "endpoints"]
+  verbs: ["create", "patch"]
+- apiGroups: [""]
+  resources: ["pods/eviction"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["pods/status"]
+  verbs: ["update"]
+- apiGroups: [""]
+  resources: ["endpoints"]
+  resourceNames: ["cluster-autoscaler"]
+  verbs: ["get", "update"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["watch", "list", "get", "update"]
+- apiGroups: [""]
+  resources: ["namespaces", "pods", "services", "replicationcontrollers", "persistentvolumeclaims", "persistentvolumes"]
+  verbs: ["watch", "list", "get"]
+- apiGroups: ["apps"]
+  resources: ["daemonsets", "replicasets", "statefulsets"]
+  verbs: ["watch", "list", "get"]
+- apiGroups: ["policy"]
+  resources: ["poddisruptionbudgets"]
+  verbs: ["watch", "list"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["storage.k8s.io"]
+  resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities"]
+  verbs: ["watch", "list", "get"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["watch", "list", "get"]
+
+---
+# ClusterRoleBinding for Cluster Autoscaler
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-autoscaler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-autoscaler
+subjects:
+- kind: ServiceAccount
+  name: cluster-autoscaler
+  namespace: kube-system

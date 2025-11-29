@@ -1,0 +1,247 @@
+# Goldilocks - Automatic Resource Recommendation with Q1 SOTA Standards
+#
+# References:
+# - Goldilocks: Right-sizing Kubernetes Resources (Fairwinds)
+# - Kubernetes Resource Management Best Practices
+# - Google Autopilot: Optimized Kubernetes
+
+---
+# Goldilocks Controller Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goldilocks-controller
+  namespace: goldilocks
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: goldilocks-controller
+  template:
+    metadata:
+      labels:
+        app: goldilocks-controller
+    spec:
+      serviceAccountName: goldilocks-controller
+      containers:
+      - name: goldilocks
+        image: quay.io/fairwinds/goldilocks:v4.0.0
+        command:
+        - /goldilocks
+        - controller
+        - --v=2
+        args:
+        - --exclude-namespaces=kube-system,kube-public,kube-node-lease
+        - --on-by-default=true
+        resources:
+          requests:
+            cpu: 25m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        env:
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+
+---
+# Goldilocks Dashboard Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goldilocks-dashboard
+  namespace: goldilocks
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: goldilocks-dashboard
+  template:
+    metadata:
+      labels:
+        app: goldilocks-dashboard
+    spec:
+      serviceAccountName: goldilocks-dashboard
+      containers:
+      - name: goldilocks-dashboard
+        image: quay.io/fairwinds/goldilocks:v4.0.0
+        command:
+        - /goldilocks
+        - dashboard
+        - --v=2
+        args:
+        - --port=8080
+        - --base-path=/goldilocks
+        ports:
+        - containerPort: 8080
+          name: http
+        resources:
+          requests:
+            cpu: 25m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /goldilocks/health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /goldilocks/health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+---
+# Service for Dashboard
+apiVersion: v1
+kind: Service
+metadata:
+  name: goldilocks-dashboard
+  namespace: goldilocks
+spec:
+  selector:
+    app: goldilocks-dashboard
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
+
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: goldilocks
+  labels:
+    goldilocks.fairwinds.com/enabled: "true"
+
+---
+# ServiceAccount for Controller
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: goldilocks-controller
+  namespace: goldilocks
+
+---
+# ServiceAccount for Dashboard
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: goldilocks-dashboard
+  namespace: goldilocks
+
+---
+# ClusterRole for Controller
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: goldilocks-controller
+rules:
+- apiGroups:
+  - "apps"
+  resources:
+  - "deployments"
+  - "daemonsets"
+  - "statefulsets"
+  verbs:
+  - "get"
+  - "list"
+  - "watch"
+- apiGroups:
+  - ""
+  resources:
+  - "namespaces"
+  - "pods"
+  verbs:
+  - "get"
+  - "list"
+  - "watch"
+- apiGroups:
+  - "autoscaling.k8s.io"
+  resources:
+  - "verticalpodautoscalers"
+  verbs:
+  - "get"
+  - "list"
+  - "create"
+  - "delete"
+  - "update"
+
+---
+# ClusterRoleBinding for Controller
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: goldilocks-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: goldilocks-controller
+subjects:
+- kind: ServiceAccount
+  name: goldilocks-controller
+  namespace: goldilocks
+
+---
+# ClusterRole for Dashboard
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: goldilocks-dashboard
+rules:
+- apiGroups:
+  - "autoscaling.k8s.io"
+  resources:
+  - "verticalpodautoscalers"
+  verbs:
+  - "get"
+  - "list"
+- apiGroups:
+  - "apps"
+  resources:
+  - "deployments"
+  - "daemonsets"
+  - "statefulsets"
+  verbs:
+  - "get"
+  - "list"
+- apiGroups:
+  - ""
+  resources:
+  - "pods"
+  - "namespaces"
+  verbs:
+  - "get"
+  - "list"
+
+---
+# ClusterRoleBinding for Dashboard
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: goldilocks-dashboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: goldilocks-dashboard
+subjects:
+- kind: ServiceAccount
+  name: goldilocks-dashboard
+  namespace: goldilocks
+
+---
+# Enable Goldilocks for BEAGLE namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: beagle
+  labels:
+    goldilocks.fairwinds.com/enabled: "true"
+    goldilocks.fairwinds.com/vpa-update-mode: "off"  # Recommendation only
