@@ -1,0 +1,58 @@
+[package]
+name = "beagle-exocortex"
+version = "0.1.0"
+edition = "2021"
+description = "Personal Exocortex - Unified cognitive orchestration layer for BEAGLE"
+authors = ["BEAGLE Team"]
+license = "MIT"
+
+[dependencies]
+# Core async runtime
+tokio = { version = "1.40", features = ["full"] }
+async-trait = "0.1"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging and tracing
+tracing = "0.1"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUIDs
+uuid = { version = "1.10", features = ["v4", "serde"] }
+
+# Concurrent data structures
+dashmap = "6.1"
+parking_lot = "0.12"
+
+# BEAGLE internal crates
+beagle-core = { path = "../beagle-core" }
+beagle-llm = { path = "../beagle-llm" }
+beagle-memory = { path = "../beagle-memory", optional = true }
+beagle-personality = { path = "../beagle-personality", optional = true }
+beagle-transcend = { path = "../beagle-transcend", optional = true }
+beagle-worldmodel = { path = "../beagle-worldmodel", optional = true }
+beagle-observer = { path = "../beagle-observer", optional = true }
+beagle-agents = { path = "../beagle-agents", optional = true }
+beagle-hypergraph = { path = "../beagle-hypergraph", optional = true }
+beagle-feedback = { path = "../beagle-feedback", optional = true }
+
+[features]
+default = ["memory", "personality", "consciousness", "worldmodel", "observer", "agents"]
+memory = ["beagle-memory"]
+personality = ["beagle-personality"]
+consciousness = ["beagle-transcend"]
+worldmodel = ["beagle-worldmodel"]
+observer = ["beagle-observer"]
+agents = ["beagle-agents"]
+full = ["memory", "personality", "consciousness", "worldmodel", "observer", "agents", "beagle-hypergraph", "beagle-feedback"]
+
+[dev-dependencies]
+tokio-test = "0.4"

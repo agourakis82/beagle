@@ -6,6 +6,7 @@
 use crate::agents::athena::Paper;
 use crate::agents::{ArgosAgent, Draft, HermesAgent, ValidationResult};
 use crate::Result;
+use beagle_config::beagle_data_dir;
 use chrono::Utc;
 use lazy_static::lazy_static;
 use std::sync::{Arc, Mutex};
@@ -95,12 +96,12 @@ impl AdversarialSelfPlayEngine {
                 best_training_quality_pct = quality_pct;
 
                 tokio::spawn(async move {
-                    let output_dir = format!(
-                        "/tmp/beagle_lora/hermes_{}",
-                        Utc::now().format("%Y%m%d_%H%M%S")
-                    );
+                    let output_dir = beagle_data_dir()
+                        .join("lora")
+                        .join(format!("hermes_{}", Utc::now().format("%Y%m%d_%H%M%S")));
+                    let output_dir_str = output_dir.to_string_lossy().to_string();
                     match tokio::task::spawn_blocking(move || {
-                        beagle_lora_auto::train_lora(&bad, &good, &output_dir)
+                        beagle_lora_auto::train_lora(&bad, &good, &output_dir_str)
                     })
                     .await
                     {

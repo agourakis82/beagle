@@ -29,19 +29,21 @@ impl AlertEvent {
         run_id: Option<String>,
     ) -> Self {
         let message = match severity {
-            Severity::Severe => format!(
+            Severity::Critical | Severity::Severe => format!(
                 "ALERTA CRÍTICO: {} = {:.2} (threshold: {:.2})",
                 metric, value, threshold
             ),
-            Severity::Moderate => format!(
+            Severity::Warning | Severity::High | Severity::Moderate => format!(
                 "ALERTA: {} = {:.2} (threshold: {:.2})",
                 metric, value, threshold
             ),
-            Severity::Mild => format!(
+            Severity::Medium | Severity::Mild => format!(
                 "Aviso: {} = {:.2} (threshold: {:.2})",
                 metric, value, threshold
             ),
-            Severity::Normal => format!("{} = {:.2} (normal)", metric, value),
+            Severity::Low | Severity::Normal | Severity::Info => {
+                format!("{} = {:.2} (normal)", metric, value)
+            }
         };
 
         Self {
@@ -67,19 +69,21 @@ impl AlertEvent {
         run_id: Option<String>,
     ) -> Self {
         let message = match severity {
-            Severity::Severe => format!(
+            Severity::Critical | Severity::Severe => format!(
                 "ALERTA AMBIENTAL CRÍTICO: {} = {:.2} (threshold: {:.2})",
                 metric, value, threshold
             ),
-            Severity::Moderate => format!(
+            Severity::Warning | Severity::High | Severity::Moderate => format!(
                 "ALERTA AMBIENTAL: {} = {:.2} (threshold: {:.2})",
                 metric, value, threshold
             ),
-            Severity::Mild => format!(
+            Severity::Medium | Severity::Mild => format!(
                 "Aviso ambiental: {} = {:.2} (threshold: {:.2})",
                 metric, value, threshold
             ),
-            Severity::Normal => format!("{} = {:.2} (normal)", metric, value),
+            Severity::Low | Severity::Normal | Severity::Info => {
+                format!("{} = {:.2} (normal)", metric, value)
+            }
         };
 
         Self {
@@ -105,19 +109,21 @@ impl AlertEvent {
         run_id: Option<String>,
     ) -> Self {
         let message = match severity {
-            Severity::Severe => format!(
+            Severity::Critical | Severity::Severe => format!(
                 "ALERTA CLIMA ESPACIAL CRÍTICO: {} = {:.2} (threshold: {:.2})",
                 metric, value, threshold
             ),
-            Severity::Moderate => format!(
+            Severity::Warning | Severity::High | Severity::Moderate => format!(
                 "ALERTA CLIMA ESPACIAL: {} = {:.2} (threshold: {:.2})",
                 metric, value, threshold
             ),
-            Severity::Mild => format!(
+            Severity::Medium | Severity::Mild => format!(
                 "Aviso clima espacial: {} = {:.2} (threshold: {:.2})",
                 metric, value, threshold
             ),
-            Severity::Normal => format!("{} = {:.2} (normal)", metric, value),
+            Severity::Low | Severity::Normal | Severity::Info => {
+                format!("{} = {:.2} (normal)", metric, value)
+            }
         };
 
         Self {

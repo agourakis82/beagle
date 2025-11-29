@@ -8,4 +8,4 @@ tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
-
+beagle-config = { path = "../beagle-config" }

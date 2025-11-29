@@ -12,10 +12,22 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
+uuid = { version = "1.5", features = ["v4"] }
+
+# TTS support (opcional - com feature flag)
+tts = { version = "0.26", optional = true }
+futures = "0.3"
 
 # Dependências internas
 beagle-grok-api = { path = "../beagle-grok-api" }
 beagle-smart-router = { path = "../beagle-smart-router" }
+
+[features]
+default = []
+# Feature para TTS nativo (requer dependências do sistema)
+native-tts = ["tts"]
+# Feature para TTS via espeak (mais portável)
+espeak-tts = []
 
 [dev-dependencies]
 tracing-subscriber.workspace = true

@@ -26,11 +26,13 @@ pub enum ProviderTier {
     ClaudeDirect,
     /// Grok 3 - Tier 1: Default, ~94% dos casos (unlimited)
     Grok3,
-    /// Grok 4 Heavy - Tier 2: Anti-bias vaccine, critical methods
+    /// Grok 4 Heavy - Tier 2a: Anti-bias vaccine, critical methods
     Grok4Heavy,
-    /// Cloud Math - futuro (DeepSeek etc.)
+    /// DeepSeek Math - Tier 2b: Mathematical reasoning, proofs, symbolic math
+    DeepSeekMath,
+    /// Cloud Math - legacy alias for DeepSeekMath
     CloudMath,
-    /// Local Fallback - Gemma/DeepSeek local
+    /// Local Fallback - Gemma 9B local
     LocalFallback,
 }
 
@@ -43,9 +45,36 @@ impl ProviderTier {
             ProviderTier::ClaudeDirect => "claude-direct",
             ProviderTier::Grok3 => "grok-3",
             ProviderTier::Grok4Heavy => "grok-4-heavy",
-            ProviderTier::CloudMath => "cloud-math",
+            ProviderTier::DeepSeekMath => "deepseek-math",
+            ProviderTier::CloudMath => "deepseek-math", // legacy alias
             ProviderTier::LocalFallback => "local-fallback",
         }
+    }
+
+    /// Cost per million tokens (approximate)
+    pub fn cost_per_million_tokens(&self) -> f64 {
+        match self {
+            ProviderTier::ClaudeCli => 0.0,     // Free (no API)
+            ProviderTier::Copilot => 0.0,       // Subscription
+            ProviderTier::Cursor => 0.0,        // Subscription
+            ProviderTier::ClaudeDirect => 15.0, // ~$15/M tokens
+            ProviderTier::Grok3 => 5.0,         // ~$5/M tokens
+            ProviderTier::Grok4Heavy => 25.0,   // ~$25/M tokens
+            ProviderTier::DeepSeekMath => 14.0, // ~$14/M tokens
+            ProviderTier::CloudMath => 14.0,    // alias
+            ProviderTier::LocalFallback => 0.0, // Local compute only
+        }
+    }
+
+    /// Whether this tier supports mathematical reasoning
+    pub fn supports_math(&self) -> bool {
+        matches!(
+            self,
+            ProviderTier::DeepSeekMath
+                | ProviderTier::CloudMath
+                | ProviderTier::ClaudeCli
+                | ProviderTier::ClaudeDirect
+        )
     }
 }
 
@@ -60,6 +89,15 @@ pub struct LlmRoutingConfig {
     pub heavy_max_tokens_per_run: u32,
     /// Máximo de chamadas Heavy por dia (0 = ilimitado)
     pub heavy_max_calls_per_day: u32,
+
+    /// Habilita uso de DeepSeek Math (Tier 2b)
+    pub enable_deepseek_math: bool,
+    /// Máximo de chamadas DeepSeek por run (0 = ilimitado)
+    pub deepseek_max_calls_per_run: u32,
+    /// Máximo de tokens DeepSeek por run (0 = ilimitado)
+    pub deepseek_max_tokens_per_run: u32,
+    /// Máximo de chamadas DeepSeek por dia (0 = ilimitado)
+    pub deepseek_max_calls_per_day: u32,
 }
 
 impl Default for LlmRoutingConfig {
@@ -69,6 +107,11 @@ impl Default for LlmRoutingConfig {
             heavy_max_calls_per_run: 10,
             heavy_max_tokens_per_run: 200_000,
             heavy_max_calls_per_day: 500,
+            // DeepSeek Math defaults
+            enable_deepseek_math: true,
+            deepseek_max_calls_per_run: 5,
+            deepseek_max_tokens_per_run: 100_000,
+            deepseek_max_calls_per_day: 200,
         }
     }
 }
@@ -81,6 +124,11 @@ impl LlmRoutingConfig {
             heavy_max_calls_per_run: env_u32("BEAGLE_HEAVY_MAX_CALLS_PER_RUN", 10),
             heavy_max_tokens_per_run: env_u32("BEAGLE_HEAVY_MAX_TOKENS_PER_RUN", 200_000),
             heavy_max_calls_per_day: env_u32("BEAGLE_HEAVY_MAX_CALLS_PER_DAY", 500),
+            // DeepSeek Math from env
+            enable_deepseek_math: env_bool("BEAGLE_DEEPSEEK_ENABLE", true),
+            deepseek_max_calls_per_run: env_u32("BEAGLE_DEEPSEEK_MAX_CALLS_PER_RUN", 5),
+            deepseek_max_tokens_per_run: env_u32("BEAGLE_DEEPSEEK_MAX_TOKENS_PER_RUN", 100_000),
+            deepseek_max_calls_per_day: env_u32("BEAGLE_DEEPSEEK_MAX_CALLS_PER_DAY", 200),
         }
     }
 
@@ -92,19 +140,34 @@ impl LlmRoutingConfig {
                 heavy_max_calls_per_run: 10,
                 heavy_max_tokens_per_run: 200_000,
                 heavy_max_calls_per_day: 500,
+                // DeepSeek Math - production limits
+                enable_deepseek_math: true,
+                deepseek_max_calls_per_run: 10,
+                deepseek_max_tokens_per_run: 200_000,
+                deepseek_max_calls_per_day: 500,
             },
             "lab" => Self {
                 enable_heavy: true,
                 heavy_max_calls_per_run: 5,
                 heavy_max_tokens_per_run: 100_000,
                 heavy_max_calls_per_day: 200,
+                // DeepSeek Math - lab limits
+                enable_deepseek_math: true,
+                deepseek_max_calls_per_run: 5,
+                deepseek_max_tokens_per_run: 100_000,
+                deepseek_max_calls_per_day: 200,
             },
             _ => Self {
-                // dev
+                // dev - conservative limits
                 enable_heavy: false,
                 heavy_max_calls_per_run: 0,
                 heavy_max_tokens_per_run: 0,
                 heavy_max_calls_per_day: 0,
+                // DeepSeek Math - dev disabled by default
+                enable_deepseek_math: false,
+                deepseek_max_calls_per_run: 0,
+                deepseek_max_tokens_per_run: 0,
+                deepseek_max_calls_per_day: 0,
             },
         }
     }
@@ -243,6 +306,22 @@ impl TieredRouter {
             None
         };
 
+        // Local Gemma client (Tier 3 - offline fallback)
+        let local: Option<Arc<dyn LlmClient>> = if env_bool("BEAGLE_LOCAL_ENABLE", false) {
+            match crate::clients::local_gemma::LocalGemmaClient::from_env() {
+                Ok(client) => {
+                    info!("LocalGemma habilitado (offline fallback)");
+                    Some(Arc::new(client))
+                }
+                Err(e) => {
+                    warn!("LocalGemma configurado mas falhou ao inicializar: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             claude_cli,
             copilot,
@@ -251,7 +330,7 @@ impl TieredRouter {
             grok3,
             grok4_heavy,
             math,
-            local: None, // Futuro: Gemma 9B local
+            local,
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -282,7 +361,33 @@ impl TieredRouter {
         meta: &RequestMeta,
         stats: &crate::stats::LlmCallsStats,
     ) -> (Arc<dyn LlmClient>, ProviderTier) {
-        // Se tentaria usar Heavy, checa limites
+        // 1) Math specialist - DeepSeek Math (Tier 2b) - check BEFORE Heavy
+        if meta.requires_math && self.cfg.enable_deepseek_math {
+            if stats.deepseek_calls < self.cfg.deepseek_max_calls_per_run
+                && stats.deepseek_total_tokens() < self.cfg.deepseek_max_tokens_per_run
+            {
+                if let Some(math) = &self.math {
+                    info!(
+                        "Router → DeepSeekMath (dentro dos limites: {}/{} calls, {}/{} tokens)",
+                        stats.deepseek_calls,
+                        self.cfg.deepseek_max_calls_per_run,
+                        stats.deepseek_total_tokens(),
+                        self.cfg.deepseek_max_tokens_per_run
+                    );
+                    return (math.clone(), ProviderTier::DeepSeekMath);
+                }
+            } else {
+                warn!(
+                    "Router → fallback (limites DeepSeek atingidos: {}/{} calls ou {}/{} tokens)",
+                    stats.deepseek_calls,
+                    self.cfg.deepseek_max_calls_per_run,
+                    stats.deepseek_total_tokens(),
+                    self.cfg.deepseek_max_tokens_per_run
+                );
+            }
+        }
+
+        // 2) Heavy (Tier 2a) - anti-bias, critical sections
         if meta.high_bias_risk || meta.requires_phd_level_reasoning || meta.critical_section {
             if self.cfg.enable_heavy {
                 // Checa limites por run
@@ -311,7 +416,7 @@ impl TieredRouter {
             }
         }
 
-        // Fallback para lógica normal
+        // 3) Fallback para lógica normal
         self.choose(meta)
     }
 

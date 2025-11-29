@@ -601,6 +601,9 @@ pub fn load() -> BeagleConfig {
         );
     }
 
+    // Parse profile enum for routing config
+    let profile_enum = model::Profile::from_str(&profile);
+
     let mut cfg = BeagleConfig {
         profile,
         safe_mode: bool_env("BEAGLE_SAFE_MODE", true),
@@ -613,6 +616,7 @@ pub fn load() -> BeagleConfig {
                 .or_else(|_| env::var("BEAGLE_VLLM_URL"))
                 .ok(),
             grok_model: env::var("BEAGLE_GROK_MODEL").unwrap_or_else(|_| "grok-3".to_string()),
+            routing: model::LlmRoutingConfig::from_env(profile_enum),
         },
         storage: StorageConfig {
             data_dir: beagle_data_dir().to_string_lossy().to_string(),
@@ -676,6 +680,7 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
             } else {
                 base.llm.grok_model
             },
+            routing: override_cfg.llm.routing.clone(),
         },
         storage: StorageConfig {
             data_dir: override_cfg.storage.data_dir.clone(),

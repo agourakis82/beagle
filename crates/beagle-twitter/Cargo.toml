@@ -6,11 +6,49 @@ authors = ["Dr. Demetrios Agourakis <contact@darwin-cluster.ai>"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-tokio.workspace = true
+tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 anyhow.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["json", "multipart", "stream"] }
 beagle-bilingual = { path = "../beagle-bilingual" }
 
+# OAuth and crypto
+base64 = "0.22"
+hmac = "0.12"
+sha1 = "0.10"
+sha2 = "0.10"
+rand = "0.8"
+percent-encoding = "2.3"
+urlencoding = "2.1"
+
+# Streaming
+futures-util = "0.3"
+tokio-stream = "0.1"
+
+# Text processing
+regex = "1.10"
+
+# Optional dependencies
+testcontainers = { version = "0.15", optional = true }
+criterion = { version = "0.5", optional = true }
+proptest = { version = "1.4", optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tracing-subscriber = "0.3"
+
+[features]
+default = []
+testing = ["testcontainers", "proptest"]
+bench = ["criterion"]
+
+[[example]]
+name = "basic_usage"
+
+[[example]]
+name = "streaming"
+
+[[example]]
+name = "analytics"

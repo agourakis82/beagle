@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full", "sync"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
@@ -18,9 +18,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 axum = { version = "0.7", features = ["macros", "json"] }
 reqwest = { version = "0.12", features = ["json"] }
+prometheus = { version = "0.13", features = ["process"] }
+nalgebra = "0.33"
+rand = "0.8"
+async-trait = "0.1"
+thiserror = "2.0"
 
 beagle-config = { path = "../beagle-config" }
 beagle-llm = { path = "../beagle-llm" }
+beagle-core = { path = "../beagle-core" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
@@ -39,4 +45,3 @@ path = "src/bin/observer.rs"
 [[example]]
 name = "test_observer"
 path = "examples/test_observer.rs"
-

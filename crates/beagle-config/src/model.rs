@@ -16,6 +16,110 @@ pub struct LlmConfig {
     /// Modelo Grok padrão (default: "grok-3")
     #[serde(default = "default_grok_model")]
     pub grok_model: String,
+    /// Configuração de roteamento e limites
+    #[serde(default)]
+    pub routing: LlmRoutingConfig,
+}
+
+/// Configuração de roteamento de LLM e limites de uso
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmRoutingConfig {
+    /// Habilita uso de Grok 4 Heavy (Tier 2)
+    #[serde(default)]
+    pub enable_heavy: bool,
+
+    /// Máximo de chamadas Heavy por run
+    #[serde(default = "default_heavy_max_calls_per_run")]
+    pub heavy_max_calls_per_run: u32,
+
+    /// Máximo de tokens Heavy por run
+    #[serde(default = "default_heavy_max_tokens_per_run")]
+    pub heavy_max_tokens_per_run: u32,
+
+    /// Máximo de chamadas Heavy por dia (reservado para implementação futura)
+    #[serde(default = "default_heavy_max_calls_per_day")]
+    pub heavy_max_calls_per_day: u32,
+}
+
+fn default_heavy_max_calls_per_run() -> u32 {
+    5
+}
+
+fn default_heavy_max_tokens_per_run() -> u32 {
+    50_000
+}
+
+fn default_heavy_max_calls_per_day() -> u32 {
+    100
+}
+
+impl Default for LlmRoutingConfig {
+    fn default() -> Self {
+        Self {
+            enable_heavy: false,
+            heavy_max_calls_per_run: default_heavy_max_calls_per_run(),
+            heavy_max_tokens_per_run: default_heavy_max_tokens_per_run(),
+            heavy_max_calls_per_day: default_heavy_max_calls_per_day(),
+        }
+    }
+}
+
+impl LlmRoutingConfig {
+    /// Carrega configuração de roteamento baseada no profile
+    pub fn from_profile(profile: Profile) -> Self {
+        match profile {
+            Profile::Dev => Self {
+                enable_heavy: false,
+                heavy_max_calls_per_run: 0,
+                heavy_max_tokens_per_run: 0,
+                heavy_max_calls_per_day: 0,
+            },
+            Profile::Lab => Self {
+                enable_heavy: true,
+                heavy_max_calls_per_run: 5,
+                heavy_max_tokens_per_run: 50_000,
+                heavy_max_calls_per_day: 50,
+            },
+            Profile::Prod => Self {
+                enable_heavy: true,
+                heavy_max_calls_per_run: 10,
+                heavy_max_tokens_per_run: 100_000,
+                heavy_max_calls_per_day: 200,
+            },
+        }
+    }
+
+    /// Carrega da configuração aplicando overrides de env vars
+    pub fn from_env(profile: Profile) -> Self {
+        use std::env;
+
+        let mut config = Self::from_profile(profile);
+
+        // Override com env vars se presentes
+        if let Ok(val) = env::var("BEAGLE_HEAVY_ENABLE") {
+            config.enable_heavy = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
+        }
+
+        if let Ok(val) = env::var("BEAGLE_HEAVY_MAX_CALLS_PER_RUN") {
+            if let Ok(num) = val.parse() {
+                config.heavy_max_calls_per_run = num;
+            }
+        }
+
+        if let Ok(val) = env::var("BEAGLE_HEAVY_MAX_TOKENS_PER_RUN") {
+            if let Ok(num) = val.parse() {
+                config.heavy_max_tokens_per_run = num;
+            }
+        }
+
+        if let Ok(val) = env::var("BEAGLE_HEAVY_MAX_CALLS_PER_DAY") {
+            if let Ok(num) = val.parse() {
+                config.heavy_max_calls_per_day = num;
+            }
+        }
+
+        config
+    }
 }
 
 fn default_grok_model() -> String {
@@ -30,6 +134,7 @@ impl Default for LlmConfig {
             openai_api_key: None,
             vllm_url: None,
             grok_model: default_grok_model(),
+            routing: LlmRoutingConfig::default(),
         }
     }
 }

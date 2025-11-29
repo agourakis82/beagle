@@ -55,6 +55,7 @@ pub mod quantum;
 pub mod quantum_mcts;
 
 pub mod adversarial;
+pub mod darwin_cycle;
 
 // ============================================
 
@@ -172,4 +173,15 @@ pub use adversarial::{
     CompetitionArena, MatchResult, MetaLearner, MetaLearningInsights, ParameterInsight,
     PerformanceTrends, ResearchApproach, ResearchPlayer, StandingEntry, Strategy,
     StrategyEvolution, StrategyPattern, TournamentFormat, TournamentResult,
+};
+
+// ============================================
+
+// Darwin Evolutionary Cycle exports
+
+// ============================================
+
+pub use darwin_cycle::{
+    DarwinConfig, DarwinCycle, DomainGene, EvolutionStatistics, Genome, Individual, MutationType,
+    ReasoningPattern, StructureGene, StyleGene,
 };

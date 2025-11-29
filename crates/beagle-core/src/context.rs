@@ -26,6 +26,9 @@ pub struct BeagleContext {
     // Memory engine (opcional, só disponível com feature "memory")
     #[cfg(feature = "memory")]
     pub memory: Option<Arc<beagle_memory::MemoryEngine>>,
+    // World model (opcional, só disponível com feature "worldmodel")
+    #[cfg(feature = "worldmodel")]
+    pub worldmodel: Option<Arc<beagle_worldmodel::WorldModel>>,
     // Darwin, HERMES e Observer são inicializados no beagle-monorepo
     // para evitar dependências circulares. Eles podem ser passados
     // como parâmetros quando necessário ou armazenados externamente.
@@ -130,6 +133,23 @@ impl BeagleContext {
         #[cfg(not(feature = "memory"))]
         let _memory = None::<Arc<()>>; // Placeholder quando feature não habilitada
 
+        // Initialize WorldModel if feature enabled
+        #[cfg(feature = "worldmodel")]
+        let worldmodel = {
+            match beagle_worldmodel::WorldModel::new().await {
+                Ok(model) => {
+                    info!("WorldModel initialized successfully");
+                    Some(Arc::new(model))
+                }
+                Err(e) => {
+                    warn!("Failed to initialize WorldModel: {}", e);
+                    None
+                }
+            }
+        };
+        #[cfg(not(feature = "worldmodel"))]
+        let _worldmodel = None::<Arc<()>>; // Placeholder quando feature não habilitada
+
         // Darwin é inicializado no beagle-monorepo com with_context()
         // para evitar dependência circular
 
@@ -142,6 +162,8 @@ impl BeagleContext {
             llm_stats: Arc::new(LlmStatsRegistry::new()),
             #[cfg(feature = "memory")]
             memory,
+            #[cfg(feature = "worldmodel")]
+            worldmodel,
         })
     }
 
@@ -156,6 +178,8 @@ impl BeagleContext {
             llm_stats: Arc::new(LlmStatsRegistry::new()),
             #[cfg(feature = "memory")]
             memory: None,
+            #[cfg(feature = "worldmodel")]
+            worldmodel: None,
         }
     }
 
@@ -352,6 +376,72 @@ impl BeagleContext {
         Ok("unknown".to_string())
     }
 
+    /// WorldModel: Update world state from observations
+    #[cfg(feature = "worldmodel")]
+    pub async fn worldmodel_update(
+        &self,
+        observations: Vec<beagle_worldmodel::perception::Observation>,
+    ) -> anyhow::Result<()> {
+        if let Some(ref worldmodel) = self.worldmodel {
+            worldmodel.update(observations).await?;
+            Ok(())
+        } else {
+            anyhow::bail!("WorldModel not initialized")
+        }
+    }
+
+    /// WorldModel: Predict future states
+    #[cfg(feature = "worldmodel")]
+    pub async fn worldmodel_predict(
+        &self,
+        horizon: usize,
+    ) -> anyhow::Result<Vec<beagle_worldmodel::predictive::Prediction>> {
+        if let Some(ref worldmodel) = self.worldmodel {
+            Ok(worldmodel.predict(horizon).await?)
+        } else {
+            anyhow::bail!("WorldModel not initialized")
+        }
+    }
+
+    /// WorldModel: Perform causal query
+    #[cfg(feature = "worldmodel")]
+    pub async fn worldmodel_causal_query(
+        &self,
+        query: beagle_worldmodel::causal::CausalQuery,
+    ) -> anyhow::Result<f64> {
+        if let Some(ref worldmodel) = self.worldmodel {
+            Ok(worldmodel.causal_query(query).await?)
+        } else {
+            anyhow::bail!("WorldModel not initialized")
+        }
+    }
+
+    /// WorldModel: Counterfactual reasoning
+    #[cfg(feature = "worldmodel")]
+    pub async fn worldmodel_counterfactual(
+        &self,
+        intervention: beagle_worldmodel::counterfactual::Intervention,
+    ) -> anyhow::Result<beagle_worldmodel::state::WorldState> {
+        if let Some(ref worldmodel) = self.worldmodel {
+            Ok(worldmodel.counterfactual(intervention).await?)
+        } else {
+            anyhow::bail!("WorldModel not initialized")
+        }
+    }
+
+    /// WorldModel: Query with natural language
+    #[cfg(feature = "worldmodel")]
+    pub async fn worldmodel_query(
+        &self,
+        query: &str,
+    ) -> anyhow::Result<beagle_worldmodel::QueryResult> {
+        if let Some(ref worldmodel) = self.worldmodel {
+            Ok(worldmodel.query(query).await?)
+        } else {
+            anyhow::bail!("WorldModel not initialized")
+        }
+    }
+
     /// GraphRAG: Create relationships between knowledge entities
     ///
     /// Links concepts together to build a rich knowledge graph.
@@ -416,6 +506,21 @@ impl BeagleContext {
 
         warn!("Failed to extract relationship ID from graph result");
         Ok("unknown".to_string())
+    }
+
+    /// Get router reference (convenience method for agents)
+    pub fn router(&self) -> &TieredRouter {
+        &self.router
+    }
+
+    /// Get current LLM stats for default run (convenience method)
+    pub async fn get_current_stats(&self) -> beagle_llm::stats::LlmCallsStats {
+        self.llm_stats.get_or_create("default")
+    }
+
+    /// Get LLM stats for a specific run_id
+    pub fn get_stats_for_run(&self, run_id: &str) -> beagle_llm::stats::LlmCallsStats {
+        self.llm_stats.get_or_create(run_id)
     }
 }
 

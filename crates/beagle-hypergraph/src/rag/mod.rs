@@ -9,6 +9,18 @@
 //! 5. Construção de prompt estruturado respeitando janela de contexto.
 //! 6. Geração da resposta pelo modelo de linguagem.
 //! 7. Extração de citações a partir do grafo contextual utilizado.
+//!
+//! ## Triple Context Restoration (TCR-QF)
+//!
+//! Enhanced GraphRAG with 29% improvement target through:
+//! - Graph topology embeddings (Node2Vec)
+//! - Temporal burst detection
+//! - Late fusion architecture
+//! - PageRank centrality
+
+pub mod ab_testing;
+pub mod eval;
+pub mod tcr_qf;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -18,6 +30,9 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use thiserror::Error;
 use tracing::{instrument, warn};
+
+pub use eval::{GroundTruth, QueryResult, RetrievalEvaluator, RetrievalMetrics};
+pub use tcr_qf::{FusionWeights, TcrQfConfig, TripleContextScores};
 use uuid::Uuid;
 
 use crate::embeddings::{EmbeddingError, EmbeddingGenerator};
@@ -92,18 +107,36 @@ struct ContextNode {
     anchor_similarity: f32,
     anchors: HashSet<Uuid>,
     score: f32,
+
+    // TCR-QF: Triple Context Restoration with Quantum Fusion
+    topology_embedding: Option<Vec<f32>>,
+    tcr_qf_scores: Option<TripleContextScores>,
 }
 
 impl ContextNode {
     fn new(node: Node, distance: i32, similarity: f32, anchor: Uuid) -> Self {
         let mut anchors = HashSet::with_capacity(1);
         anchors.insert(anchor);
+
+        // Extract topology embedding from metadata if available
+        let topology_embedding = node
+            .metadata
+            .get("topology_embedding")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_f64().map(|f| f as f32))
+                    .collect::<Vec<f32>>()
+            });
+
         Self {
             node,
             min_distance: distance,
             anchor_similarity: similarity,
             anchors,
             score: 0.0,
+            topology_embedding,
+            tcr_qf_scores: None,
         }
     }
 
@@ -132,6 +165,9 @@ pub struct RAGPipeline {
     embeddings: Arc<dyn EmbeddingGenerator>,
     max_context_tokens: usize,
     graph_hops: usize,
+
+    // TCR-QF: Triple Context Restoration with Quantum Fusion
+    tcr_qf_config: Option<TcrQfConfig>,
 }
 
 impl RAGPipeline {
@@ -164,7 +200,20 @@ impl RAGPipeline {
             embeddings,
             max_context_tokens: effective_budget,
             graph_hops: graph_hops.max(1),
+            tcr_qf_config: None, // Disabled by default
         }
+    }
+
+    /// Enable TCR-QF (Triple Context Restoration with Quantum Fusion)
+    pub fn with_tcr_qf(mut self, config: TcrQfConfig) -> Self {
+        self.tcr_qf_config = Some(config);
+        self
+    }
+
+    /// Enable TCR-QF with default configuration
+    pub fn enable_tcr_qf(mut self) -> Self {
+        self.tcr_qf_config = Some(TcrQfConfig::default());
+        self
     }
 
     /// Executa o pipeline RAG completo para uma consulta do usuário.
@@ -253,7 +302,7 @@ impl RAGPipeline {
 
     async fn rank_context(
         &self,
-        mut nodes: Vec<ContextNode>,
+        nodes: Vec<ContextNode>,
         query_embedding: &[f32],
     ) -> Result<Vec<ContextNode>, RAGError> {
         if nodes.is_empty() {
@@ -267,6 +316,26 @@ impl RAGPipeline {
         }
         let anchor_count = unique_anchors.len().max(1);
 
+        // Check if TCR-QF is enabled
+        if let Some(tcr_qf_config) = &self.tcr_qf_config {
+            self.rank_context_tcr_qf(nodes, query_embedding, now, anchor_count, tcr_qf_config)
+                .await
+        } else {
+            // Classic ranking (baseline)
+            self.rank_context_classic(nodes, query_embedding, now, anchor_count)
+                .await
+        }
+    }
+
+    /// Classic ranking (baseline without TCR-QF)
+    async fn rank_context_classic(
+        &self,
+        nodes: Vec<ContextNode>,
+        query_embedding: &[f32],
+        now: DateTime<Utc>,
+        anchor_count: usize,
+    ) -> Result<Vec<ContextNode>, RAGError> {
+        let mut nodes = nodes;
         for context_node in nodes.iter_mut() {
             let semantic_sim = match &context_node.node.embedding {
                 Some(embedding) => cosine_similarity(embedding, query_embedding),
@@ -283,6 +352,131 @@ impl RAGPipeline {
                 0.45 * semantic_sim + 0.3 * recency + 0.15 * centrality + 0.1 * proximity;
         }
 
+        nodes.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        Ok(nodes)
+    }
+
+    /// TCR-QF enhanced ranking with triple context restoration
+    async fn rank_context_tcr_qf(
+        &self,
+        mut nodes: Vec<ContextNode>,
+        query_embedding: &[f32],
+        now: DateTime<Utc>,
+        anchor_count: usize,
+        config: &TcrQfConfig,
+    ) -> Result<Vec<ContextNode>, RAGError> {
+        use tcr_qf::{
+            GraphStructure, PageRankCalculator, PeriodicRelevanceScorer, TemporalBurstDetector,
+        };
+
+        // Collect all timestamps for temporal analysis
+        let all_timestamps: Vec<DateTime<Utc>> = nodes.iter().map(|n| n.node.created_at).collect();
+
+        // Initialize TCR-QF components
+        let burst_detector = if config.temporal_burst_enabled {
+            Some(TemporalBurstDetector::new(
+                config.burst_window_days,
+                config.burst_z_threshold,
+            ))
+        } else {
+            None
+        };
+
+        let periodic_scorer = if config.periodic_relevance_enabled {
+            Some(PeriodicRelevanceScorer::new())
+        } else {
+            None
+        };
+
+        // Compute PageRank if enabled
+        let pagerank_scores = if config.fusion_enabled {
+            // Build graph structure from nodes
+            let mut graph = GraphStructure::default();
+            for node in &nodes {
+                graph.nodes.insert(
+                    node.node.id,
+                    tcr_qf::NodeInfo {
+                        id: node.node.id,
+                        created_at: node.node.created_at,
+                    },
+                );
+            }
+
+            // TODO: Add edges from hypergraph storage
+            // For now, use empty edge set (PageRank will be uniform)
+
+            let calculator = PageRankCalculator::default();
+            calculator.compute(&graph)
+        } else {
+            std::collections::HashMap::new()
+        };
+
+        // Compute scores for each node
+        let nodes_len = nodes.len();
+        let default_pagerank = 1.0 / nodes_len as f32;
+
+        for context_node in nodes.iter_mut() {
+            let mut scores = TripleContextScores::default();
+
+            // 1. Semantic similarity (text embeddings)
+            scores.semantic = match &context_node.node.embedding {
+                Some(embedding) => cosine_similarity(embedding, query_embedding),
+                None => context_node.anchor_similarity,
+            };
+
+            // 2. Topology similarity (graph structure embeddings)
+            if config.graph_embeddings_enabled {
+                if let Some(ref _topo_emb) = context_node.topology_embedding {
+                    // TODO: Need query topology embedding
+                    // For now, use 0.0 (will be implemented with Node2Vec)
+                    scores.topology = 0.0;
+                } else {
+                    scores.topology = 0.0;
+                }
+            }
+
+            // 3. Temporal burst detection
+            if let Some(ref detector) = burst_detector {
+                scores.temporal_burst =
+                    detector.detect_burst(&context_node.node.created_at, &all_timestamps);
+            }
+
+            // 4. Periodic relevance
+            if let Some(ref scorer) = periodic_scorer {
+                scores.temporal_periodic =
+                    scorer.compute_score(&context_node.node.created_at, &all_timestamps, &now);
+            }
+
+            // 5. Recency score
+            let age_days = time_delta_in_days(context_node.node.created_at, now);
+            scores.recency = 1.0 / (1.0 + age_days);
+
+            // 6. Centrality (anchor connectivity)
+            scores.centrality = (context_node.anchors.len() as f32) / (anchor_count as f32);
+
+            // 7. Proximity (graph distance)
+            scores.proximity = 1.0 / (1.0 + context_node.min_distance as f32);
+
+            // 8. PageRank (global importance)
+            scores.pagerank = pagerank_scores
+                .get(&context_node.node.id)
+                .copied()
+                .unwrap_or(default_pagerank);
+
+            // Quantum Fusion: Compute fused score
+            scores.compute_fused(&config.fusion_weights);
+
+            // Store scores and set final score
+            context_node.score = scores.fused;
+            context_node.tcr_qf_scores = Some(scores);
+        }
+
+        // Sort by fused score
         nodes.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)

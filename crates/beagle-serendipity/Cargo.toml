@@ -9,11 +9,17 @@ license = "MIT"
 tokio = { version = "1.40", features = ["full"] }
 tracing = "0.1"
 rand = "0.8"
+rand_distr = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+nalgebra = { version = "0.33", features = ["serde-serialize"] }
+uuid = { version = "1.0", features = ["v4"] }
 
 # Crates internos
+beagle-core = { path = "../beagle-core" }
 beagle-quantum = { path = "../beagle-quantum" }
 beagle-metacog = { path = "../beagle-metacog" }
 beagle-llm = { path = "../beagle-llm" }

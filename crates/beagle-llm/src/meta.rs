@@ -125,3 +125,18 @@ impl RequestMeta {
         }
     }
 }
+
+impl Default for RequestMeta {
+    fn default() -> Self {
+        Self {
+            offline_required: false,
+            requires_math: false,
+            requires_vision: false,
+            approximate_tokens: 0,
+            requires_high_quality: false,
+            high_bias_risk: false,
+            requires_phd_level_reasoning: false,
+            critical_section: false,
+        }
+    }
+}

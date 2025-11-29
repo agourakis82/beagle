@@ -14,6 +14,7 @@ pub mod orchestrator;
 pub mod output;
 pub mod router;
 pub mod router_tiered;
+pub mod routing_types;
 pub mod self_update;
 pub mod stats;
 pub mod tier;

@@ -3,9 +3,16 @@
 //! Zero Python, zero nuvem, 100% local
 
 use anyhow::{Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tracing::{error, info, warn};
+
+/// Get temporary directory for whisper streams
+fn whisper_temp_dir() -> PathBuf {
+    std::env::var("BEAGLE_DATA_DIR")
+        .map(|d| PathBuf::from(d).join("tmp"))
+        .unwrap_or_else(|_| PathBuf::from("/tmp"))
+}
 
 /// Whisper Neural Engine usando CoreML no M3 Max
 ///
@@ -175,7 +182,10 @@ impl WhisperNeuralEngine {
     /// Texto transcrito parcial ou completo
     pub async fn transcribe_stream(&self, audio_stream: &[u8]) -> Result<String> {
         // Salva stream temporário
-        let temp_path = "/tmp/beagle_whisper_stream.wav";
+        let temp_path = whisper_temp_dir().join("beagle_whisper_stream.wav");
+        let temp_path = temp_path
+            .to_str()
+            .unwrap_or("/tmp/beagle_whisper_stream.wav");
         std::fs::write(temp_path, audio_stream).context("Falha ao salvar stream temporário")?;
 
         // Transcreve

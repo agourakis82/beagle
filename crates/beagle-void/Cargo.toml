@@ -7,20 +7,11 @@ license = "MIT"
 
 [dependencies]
 tokio = { version = "1.40", features = ["full"] }
-tracing = "0.1"
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
-uuid = { version = "1.0", features = ["v4"] }
-chrono = { version = "0.4", features = ["serde"] }
-
-# Crates internos
-beagle-ontic = { path = "../beagle-ontic" }
-beagle-quantum = { path = "../beagle-quantum" }
-beagle-llm = { path = "../beagle-llm" }
-beagle-grok-api = { path = "../beagle-grok-api" }
-beagle-smart-router = { path = "../beagle-smart-router" }
+thiserror = "2.0"
 
 [dev-dependencies]
 tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }

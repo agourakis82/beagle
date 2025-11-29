@@ -34,7 +34,12 @@ path = "src/bin/api_server.rs"
 default = []
 neo4j = ["beagle-memory"]
 memory = ["beagle-memory", "beagle-hypergraph"]
+worldmodel = ["beagle-worldmodel"]
 
 [dependencies.beagle-hypergraph]
 path = "../beagle-hypergraph"
+optional = true
+
+[dependencies.beagle-worldmodel]
+path = "../beagle-worldmodel"
 optional = true

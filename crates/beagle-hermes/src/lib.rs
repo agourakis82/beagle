@@ -17,6 +17,7 @@ pub mod knowledge;
 pub mod manuscript;
 pub mod observability;
 pub mod optimization;
+pub mod paper_synthesis;
 pub mod scheduler;
 pub mod security;
 pub mod synthesis;
