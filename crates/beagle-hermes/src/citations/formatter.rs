@@ -2,18 +2,51 @@
 
 use crate::error::Result;
 
+/// Type of citation/publication
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum CitationType {
+    #[default]
+    Article,
+    Book,
+    Chapter,
+    Conference,
+    Thesis,
+    Report,
+    Website,
+    Preprint,
+}
+
 // Citation struct used by formatter (simplified from generator's Paper)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Citation {
+    pub id: String,
     pub title: String,
     pub authors: Vec<String>,
     pub year: Option<u32>,
+    pub venue: Option<String>,
     pub doi: Option<String>,
     pub url: Option<String>,
     pub abstract_text: Option<String>,
+    pub citation_type: CitationType,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+impl Default for Citation {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            title: String::new(),
+            authors: Vec::new(),
+            year: None,
+            venue: None,
+            doi: None,
+            url: None,
+            abstract_text: None,
+            citation_type: CitationType::Article,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CitationStyle {
     Vancouver,
     APA,

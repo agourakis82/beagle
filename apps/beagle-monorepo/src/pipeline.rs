@@ -9,7 +9,9 @@
 use crate::pipeline_void::{handle_deadlock, DeadlockState};
 use beagle_config::{classify_hrv, load as load_config};
 use beagle_core::BeagleContext;
+use beagle_exocortex::{ExocortexConfig, ExocortexInput, InputModality, PersonalExocortex};
 use beagle_feedback::{append_event, create_pipeline_event};
+use beagle_hermes::paper_synthesis::{PaperSynthesisConfig, PaperSynthesisEngine};
 use beagle_llm::stats::LlmCallsStats;
 use beagle_llm::{ProviderTier, RequestMeta};
 use beagle_observer::UniversalObserver;
@@ -168,7 +170,7 @@ pub async fn run_beagle_pipeline(
 
         // Inicializa SerendipityInjector
         let injector = if let Some(ref vllm_url) = ctx.cfg.llm.vllm_url {
-            SerendipityInjector::with_vllm_url(vllm_url.clone())
+            SerendipityInjector::with_vllm_url(vllm_url)
         } else {
             SerendipityInjector::new()
         };
@@ -180,13 +182,16 @@ pub async fn run_beagle_pipeline(
         {
             Ok(accidents) => {
                 if !accidents.is_empty() {
-                    serendipity_accidents = accidents.clone();
+                    // Convert to strings for storage
+                    let accidents_str: Vec<String> =
+                        accidents.iter().map(|a| a.to_string()).collect();
+                    serendipity_accidents = accidents_str.clone();
                     serendipity_score = Some(accidents.len() as f64 * 0.2); // Score baseado em quantidade
 
                     // Integra acidentes no contexto
                     let serendipity_text = format!(
                         "\n\n=== Conexões Serendipitosas (Interdisciplinares) ===\n{}\n\n",
-                        accidents.join("\n\n")
+                        accidents_str.join("\n\n")
                     );
                     context.push_str(&serendipity_text);
 
@@ -219,9 +224,7 @@ pub async fn run_beagle_pipeline(
     let (physio, hrv_level, user_ctx) = if let Some(ref obs) = observer {
         // Obtém UserContext completo (fisiológico, ambiental, clima espacial)
         let user_ctx = if hrv_aware {
-            obs.current_user_context()
-                .await
-                .unwrap_or_else(|_| beagle_observer::UserContext::default())
+            obs.current_user_context().await
         } else {
             // Condição experimental: hrv_blind - usa contexto neutro
             beagle_observer::UserContext::default()
@@ -261,8 +264,10 @@ pub async fn run_beagle_pipeline(
                 "env_summary": user_ctx.env.summary,
                 "kp_index": user_ctx.space.kp_index,
             }),
+            observation_type: Some(beagle_observer::ObservationType::Physiological),
+            tags: Some(vec!["pipeline".to_string(), "context".to_string()]),
         };
-        obs.add_to_timeline(run_id, context_obs).await;
+        obs.add_to_timeline(context_obs).await;
 
         (physio_str, hrv_level, Some(user_ctx))
     } else {
@@ -270,6 +275,124 @@ pub async fn run_beagle_pipeline(
         (observer_physiological_insight(ctx).await?, None, None)
     };
     info!(physio = %physio, ?hrv_level, "Contexto do usuário capturado (Observer 2.0)");
+
+    // 2.5) Exocortex: Unified Cognitive Orchestration (optional)
+    // Enable with EXOCORTEX_ENABLED=true for full cognitive integration
+    let use_exocortex = std::env::var("EXOCORTEX_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
+    if use_exocortex {
+        info!("🧠 Fase 2.5: Exocortex (orquestração cognitiva unificada)");
+
+        // Create BeagleContext Arc for exocortex
+        let exo_ctx_arc = Arc::new(beagle_core::BeagleContext {
+            cfg: ctx.cfg.clone(),
+            router: ctx.router.clone(),
+            llm: ctx.llm.clone(),
+            vector: ctx.vector.clone(),
+            graph: ctx.graph.clone(),
+            llm_stats: ctx.llm_stats.clone(),
+            #[cfg(feature = "memory")]
+            memory: ctx.memory.clone(),
+        });
+
+        // Configure exocortex based on current context
+        let mut exo_config = ExocortexConfig::default();
+        exo_config.features.enable_observer = observer.is_some();
+        exo_config.features.enable_consciousness = true;
+        exo_config.features.enable_proactive = false; // Disabled for pipeline mode
+
+        match PersonalExocortex::with_context(exo_config, exo_ctx_arc).await {
+            Ok(exocortex) => {
+                // Update physiological context if available
+                if let Some(ref user_ctx) = user_ctx {
+                    let stress = user_ctx.physio.stress_index.unwrap_or(0.3);
+                    let energy = 1.0 - stress; // Simple inverse for now
+                    let focus = match user_ctx.physio.hrv_level.as_deref() {
+                        Some("high") => 0.8,
+                        Some("normal") => 0.5,
+                        Some("low") => 0.3,
+                        _ => 0.5,
+                    };
+                    exocortex
+                        .update_physio_context(stress as f32, energy as f32, focus as f32)
+                        .await;
+                }
+
+                // Build exocortex input with full context
+                let exo_input = ExocortexInput {
+                    query: format!(
+                        "{}\n\n=== Darwin Context ===\n{}\n\n=== Physiological State ===\n{}",
+                        question, context, physio
+                    ),
+                    intent: Some("scientific_synthesis".to_string()),
+                    modality: InputModality::Text,
+                    context: Some(context.clone()),
+                    urgency: if hrv_level.as_deref() == Some("low") {
+                        0.3
+                    } else {
+                        0.6
+                    },
+                };
+
+                // Process through exocortex
+                match exocortex.process(exo_input).await {
+                    Ok(output) => {
+                        info!(
+                            confidence = output.confidence,
+                            agents = ?output.agents_used,
+                            phi = output.consciousness_state.phi,
+                            processing_ms = output.metadata.processing_time_ms,
+                            "Exocortex processing complete"
+                        );
+
+                        // Add exocortex insights to context for HERMES
+                        context = format!(
+                            "{}\n\n=== Exocortex Insights ===\n{}\n\nConsciousness Φ: {:.3}\nConfidence: {:.2}\nAgents: {}\n",
+                            context,
+                            output.response,
+                            output.consciousness_state.phi,
+                            output.confidence,
+                            output.agents_used.join(", ")
+                        );
+
+                        // Add proactive suggestions if any
+                        if !output.proactive_suggestions.is_empty() {
+                            context.push_str("\n=== Proactive Insights ===\n");
+                            for suggestion in &output.proactive_suggestions {
+                                context.push_str(&format!(
+                                    "- {} (relevance: {:.2})\n",
+                                    suggestion.suggestion, suggestion.relevance
+                                ));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Exocortex processing failed: {}, continuing with standard pipeline",
+                            e
+                        );
+                    }
+                }
+
+                // Record session stats
+                let stats = exocortex.session_stats().await;
+                info!(
+                    episodic_memories = stats.episodic_memories,
+                    semantic_memories = stats.semantic_memories,
+                    working_memory_usage = stats.working_memory_usage,
+                    "Exocortex session stats"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to initialize exocortex: {}, continuing with standard pipeline",
+                    e
+                );
+            }
+        }
+    }
 
     // 3) HERMES: síntese de paper (com detecção de deadlock)
     info!("📝 Fase 3: HERMES (síntese)");
@@ -449,8 +572,196 @@ async fn observer_physiological_insight(ctx: &BeagleContext) -> anyhow::Result<S
     Ok("Estado fisiológico: HRV normal, HR 72bpm, SpO2 98%".to_string())
 }
 
-/// HERMES: síntese de paper
+/// HERMES: síntese de paper usando PaperSynthesisEngine real
+///
+/// Pipeline completo:
+/// 1. Se HERMES_FULL_SYNTHESIS=true, usa PaperSynthesisEngine completo com:
+///    - Literature search (PubMed, arXiv)
+///    - Multi-provider synthesis
+///    - Citation management
+///    - Q1 journal standards
+/// 2. Caso contrário, usa fallback LLM-based (mais rápido, menos completo)
 async fn hermes_synthesize_paper(
+    ctx: &BeagleContext,
+    question: &str,
+    context: &str,
+    physio: &str,
+    run_id: &str,
+    hrv_level: Option<&str>,
+) -> anyhow::Result<String> {
+    // Check if full HERMES synthesis is enabled
+    let use_full_hermes = std::env::var("HERMES_FULL_SYNTHESIS")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
+    if use_full_hermes {
+        info!("📝 HERMES: Using full PaperSynthesisEngine");
+        return hermes_full_synthesis(ctx, question, context, hrv_level).await;
+    }
+
+    // Fallback: LLM-based synthesis (faster, less comprehensive)
+    info!("📝 HERMES: Using LLM-based synthesis (set HERMES_FULL_SYNTHESIS=true for full engine)");
+    hermes_llm_synthesis(ctx, question, context, physio, run_id, hrv_level).await
+}
+
+/// Full HERMES synthesis using PaperSynthesisEngine
+async fn hermes_full_synthesis(
+    ctx: &BeagleContext,
+    question: &str,
+    context: &str,
+    hrv_level: Option<&str>,
+) -> anyhow::Result<String> {
+    // Configure synthesis based on HRV state
+    let mut config = PaperSynthesisConfig::default();
+
+    // Adjust complexity based on cognitive state
+    match hrv_level {
+        Some("low") => {
+            // Reduced complexity for low HRV (cognitive fatigue)
+            config.max_length = 5000;
+            config.multi_provider_synthesis = false;
+            config.min_citations_per_section = 3;
+        }
+        Some("high") => {
+            // Full complexity for high HRV (flow state)
+            config.max_length = 10000;
+            config.multi_provider_synthesis = true;
+            config.min_citations_per_section = 7;
+            config.enforce_q1_standards = true;
+        }
+        _ => {
+            // Default settings
+        }
+    }
+
+    // Create knowledge graph wrapper for HERMES
+    // Note: In production, this would connect to the real Neo4j instance
+    let kg = Arc::new(
+        beagle_hermes::knowledge::KnowledgeGraph::new(
+            &ctx.cfg
+                .graph
+                .neo4j_uri
+                .clone()
+                .unwrap_or_else(|| "neo4j://localhost:7687".to_string()),
+            &ctx.cfg
+                .graph
+                .neo4j_user
+                .clone()
+                .unwrap_or_else(|| "neo4j".to_string()),
+            &ctx.cfg
+                .graph
+                .neo4j_password
+                .clone()
+                .unwrap_or_else(|| "password".to_string()),
+        )
+        .await?,
+    );
+
+    // Create synthesis engine with BeagleContext
+    let ctx_arc = Arc::new(beagle_core::BeagleContext {
+        cfg: ctx.cfg.clone(),
+        router: ctx.router.clone(),
+        llm: ctx.llm.clone(),
+        vector: ctx.vector.clone(),
+        graph: ctx.graph.clone(),
+        llm_stats: ctx.llm_stats.clone(),
+        #[cfg(feature = "memory")]
+        memory: ctx.memory.clone(),
+    });
+
+    let engine = PaperSynthesisEngine::new(config, ctx_arc, kg);
+
+    // Extract insights from Darwin context
+    let insights: Vec<String> = context
+        .split("\n\n")
+        .filter(|s| s.len() > 50)
+        .map(|s| s.to_string())
+        .collect();
+
+    // Synthesize paper
+    let manuscript = engine.synthesize_paper(question, insights).await?;
+
+    // Convert manuscript to Markdown
+    let mut markdown = String::new();
+
+    // Title
+    markdown.push_str(&format!("# {}\n\n", manuscript.title));
+
+    // Authors and affiliations
+    if !manuscript.authors.is_empty() {
+        markdown.push_str(&format!(
+            "**Authors:** {}\n\n",
+            manuscript.authors.join(", ")
+        ));
+    }
+    if !manuscript.affiliations.is_empty() {
+        markdown.push_str(&format!(
+            "**Affiliations:** {}\n\n",
+            manuscript.affiliations.join("; ")
+        ));
+    }
+
+    // Keywords
+    if !manuscript.keywords.is_empty() {
+        markdown.push_str(&format!(
+            "**Keywords:** {}\n\n",
+            manuscript.keywords.join(", ")
+        ));
+    }
+
+    // Abstract
+    markdown.push_str("## Abstract\n\n");
+    markdown.push_str(&manuscript.abstract_text);
+    markdown.push_str("\n\n");
+
+    // Sections
+    for section in &manuscript.sections {
+        markdown.push_str(&format!(
+            "## {}\n\n",
+            capitalize_section(section.section_type.as_str())
+        ));
+        markdown.push_str(&section.content);
+        markdown.push_str("\n\n");
+    }
+
+    // Bibliography
+    if !manuscript.bibliography.is_empty() {
+        markdown.push_str("## References\n\n");
+        markdown.push_str(&manuscript.bibliography);
+        markdown.push_str("\n\n");
+    }
+
+    // Synthesis metadata
+    markdown.push_str("---\n\n");
+    markdown.push_str(&format!(
+        "*Generated by HERMES PaperSynthesisEngine | {} words | {} citations | {:.1}s synthesis time | Quality: coherence={:.2}, novelty={:.2}*\n",
+        manuscript.total_word_count,
+        manuscript.citations.len(),
+        manuscript.synthesis_metadata.synthesis_duration_sec as f64,
+        manuscript.synthesis_metadata.quality_metrics.coherence_score,
+        manuscript.synthesis_metadata.quality_metrics.novelty_score,
+    ));
+
+    info!(
+        "✅ HERMES full synthesis complete: {} words, {} citations",
+        manuscript.total_word_count,
+        manuscript.citations.len()
+    );
+
+    Ok(markdown)
+}
+
+/// Capitalize section name
+fn capitalize_section(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+    }
+}
+
+/// LLM-based HERMES synthesis (fallback, faster)
+async fn hermes_llm_synthesis(
     ctx: &BeagleContext,
     question: &str,
     context: &str,
@@ -506,12 +817,87 @@ async fn hermes_synthesize_paper(
     call_llm_with_stats(ctx, run_id, &prompt, meta).await
 }
 
-/// Renderiza Markdown para PDF
+/// Renderiza Markdown para PDF usando LaTeX + Pandoc
 async fn render_to_pdf(markdown: &str, pdf_path: &PathBuf) -> anyhow::Result<()> {
-    // Placeholder - em produção, usar pandoc ou biblioteca Rust
-    // Por enquanto, apenas copia markdown como placeholder
-    std::fs::write(pdf_path, format!("PDF placeholder\n\n{}", markdown))?;
+    use beagle_latex::{CitationStyle, LatexEngine, PdfConfig, PdfGenerator, PdfMetadata};
+
+    tracing::info!("Generating PDF with comprehensive LaTeX system");
+
+    // Create temporary markdown file
+    let temp_dir = tempfile::tempdir()?;
+    let markdown_path = temp_dir.path().join("draft.md");
+    std::fs::write(&markdown_path, markdown)?;
+
+    // Extract metadata from markdown (simple extraction)
+    let (title, abstract_text) = extract_metadata_from_markdown(markdown);
+
+    // Configure PDF generation
+    let config = PdfConfig {
+        engine: LatexEngine::XeLaTeX,
+        template: std::env::var("BEAGLE_PDF_TEMPLATE")
+            .unwrap_or_else(|_| "beagle-scientific".to_string()),
+        citation_style: CitationStyle::Nature,
+        include_bibliography: false, // No bibliography for now
+        custom_preamble: None,
+        metadata: PdfMetadata {
+            title: title.unwrap_or_else(|| "BEAGLE Generated Paper".to_string()),
+            authors: vec![],
+            abstract_text,
+            keywords: vec!["BEAGLE".to_string(), "AI-generated".to_string()],
+            date: Some(chrono::Local::now().date_naive()),
+            institution: Some("BEAGLE AI System".to_string()),
+            email: None,
+        },
+        compilation_passes: 2,
+        shell_escape: false,
+        pandoc_options: vec![],
+    };
+
+    // Generate PDF
+    let generator = PdfGenerator::new(config)?;
+    let result = generator
+        .generate_pdf(&markdown_path, pdf_path, None)
+        .await?;
+
+    tracing::info!(
+        "PDF generated successfully: {} bytes in {:.2}s using {} template",
+        result.file_size_bytes,
+        result.generation_time_secs,
+        result.template_used
+    );
+
     Ok(())
+}
+
+/// Extract basic metadata from markdown content
+fn extract_metadata_from_markdown(markdown: &str) -> (Option<String>, Option<String>) {
+    let lines: Vec<&str> = markdown.lines().collect();
+
+    let mut title = None;
+    let mut abstract_text = None;
+
+    // Look for first # heading as title
+    for line in &lines {
+        if line.starts_with("# ") {
+            title = Some(line.trim_start_matches("# ").to_string());
+            break;
+        }
+    }
+
+    // Look for abstract section
+    let markdown_lower = markdown.to_lowercase();
+    if let Some(abstract_start) = markdown_lower.find("## abstract") {
+        if let Some(next_section) = markdown_lower[abstract_start + 11..].find("##") {
+            let abstract_end = abstract_start + 11 + next_section;
+            abstract_text = Some(
+                markdown[abstract_start + 11..abstract_end]
+                    .trim()
+                    .to_string(),
+            );
+        }
+    }
+
+    (title, abstract_text)
 }
 
 /// Cria run report JSON

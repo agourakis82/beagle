@@ -5,6 +5,7 @@ pub mod http;
 pub mod http_memory;
 pub mod jobs;
 pub mod pipeline;
+pub mod pipeline_checkpoint;
 pub mod pipeline_void;
 // config removido - usar beagle_config diretamente
 
@@ -14,5 +15,6 @@ pub use jobs::{
     ScienceJobStatus,
 };
 pub use pipeline::{run_beagle_pipeline, ExperimentFlags, PipelinePaths};
+pub use pipeline_checkpoint::{PipelineCheckpointer, PipelinePhase, PipelineState};
 
 // init_tracing removido - usar tracing_subscriber diretamente ou função local

@@ -6,8 +6,8 @@ authors = ["Dr. Demetrios Agourakis <contact@darwin-cluster.ai>"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+beagle-config = { path = "../beagle-config" }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
-

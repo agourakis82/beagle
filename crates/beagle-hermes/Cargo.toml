@@ -58,6 +58,7 @@ pyo3 = { version = "0.20", features = ["auto-initialize"] }
 unicode-segmentation = "1.10"
 regex = "1.10"
 rayon = "1.8"
+rand = "0.8"
 
 # Citation Management
 scraper = "0.18"
@@ -90,4 +91,3 @@ tokio-test.workspace = true
 criterion.workspace = true
 mockall = "0.12"
 proptest.workspace = true
-

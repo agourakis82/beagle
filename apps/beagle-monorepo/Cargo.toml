@@ -45,10 +45,14 @@ beagle-serendipity = { path = "../../crates/beagle-serendipity" }
 beagle-quantum = { path = "../../crates/beagle-quantum" }
 beagle-memory = { path = "../../crates/beagle-memory" }
 beagle-search = { path = "../../crates/beagle-search" }
+beagle-latex = { path = "../../crates/beagle-latex" }
+beagle-exocortex = { path = "../../crates/beagle-exocortex" }
+beagle-checkpoint = { path = "../../crates/beagle-checkpoint" }
 # beagle-void e beagle-ontic comentados temporariamente (requerem dependências adicionais)
 # beagle-void = { path = "../../crates/beagle-void" }
 # beagle-ontic = { path = "../../crates/beagle-ontic" }
 axum = { version = "0.7", features = ["macros", "query"] }
+tempfile = "3.8"
 
 [features]
 default = []
