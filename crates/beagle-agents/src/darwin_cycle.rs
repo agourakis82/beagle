@@ -951,7 +951,7 @@ mod tests {
     #[tokio::test]
     async fn test_darwin_cycle_initialization() {
         let config = DarwinConfig::default();
-        let context = Arc::new(BeagleContext::new_with_mock());
+        let context = Arc::new(BeagleContext::new_with_mock().unwrap());
         let cycle = DarwinCycle::new(config, context);
 
         let seed = "Optimize the algorithm for better performance";
@@ -967,7 +967,7 @@ mod tests {
     #[tokio::test]
     async fn test_semantic_distance() {
         let config = DarwinConfig::default();
-        let context = Arc::new(BeagleContext::new_with_mock());
+        let context = Arc::new(BeagleContext::new_with_mock().unwrap());
         let cycle = DarwinCycle::new(config, context);
 
         let emb1 = vec![0.1, 0.2, 0.3];
@@ -985,7 +985,7 @@ mod tests {
     async fn test_mutation_rate_adaptation() {
         let mut config = DarwinConfig::default();
         config.adaptive_mutation = true;
-        let context = Arc::new(BeagleContext::new_with_mock());
+        let context = Arc::new(BeagleContext::new_with_mock().unwrap());
         let mut cycle = DarwinCycle::new(config, context);
 
         // Simulate stagnation
