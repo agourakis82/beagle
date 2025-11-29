@@ -1,0 +1,43 @@
+[package]
+name = "beagle-signatures"
+version = "0.1.0"
+edition = "2021"
+description = "DSPy-inspired typed prompt signatures and optimizers for BEAGLE"
+license = "MIT"
+authors = ["BEAGLE Team"]
+keywords = ["dspy", "prompt", "signature", "llm", "optimization"]
+categories = ["asynchronous", "text-processing"]
+
+[features]
+default = []
+optimizer = []
+triad = ["dep:beagle-llm"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.40", features = ["sync"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Time and IDs
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.10", features = ["v4", "serde"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Tracing
+tracing = "0.1"
+
+# Regex for parsing
+regex = "1.10"
+
+# Optional: BEAGLE LLM integration
+beagle-llm = { path = "../beagle-llm", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["full", "test-util"] }
