@@ -15,7 +15,9 @@ async fn main() -> anyhow::Result<()> {
     println!();
 
     let assistant = BeagleVoiceAssistant::new()?;
-    assistant.start_assistant_loop().await?;
+
+    // Usa smart router (TieredRouter) para escolher Grok 3 ou 4 Heavy
+    assistant.start_with_smart_router().await?;
 
     Ok(())
 }

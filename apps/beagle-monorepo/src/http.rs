@@ -589,15 +589,21 @@ async fn observer_physio_handler(
         timestamp,
         source: req.source,
         session_id: req.session_id.clone(),
-        hrv_ms: req.hrv_ms,
-        heart_rate_bpm: req.heart_rate_bpm,
-        spo2_percent: req.spo2_percent,
-        resp_rate_bpm: req.resp_rate_bpm,
-        skin_temp_c: req.skin_temp_c,
-        body_temp_c: req.body_temp_c,
+        hrv_ms: req.hrv_ms.map(|v| v as f64),
+        heart_rate_bpm: req.heart_rate_bpm.map(|v| v as f64),
+        spo2_percent: req.spo2_percent.map(|v| v as f64),
+        resp_rate_bpm: req.resp_rate_bpm.map(|v| v as f64),
+        skin_temp_c: req.skin_temp_c.map(|v| v as f64),
+        body_temp_c: req.body_temp_c.map(|v| v as f64),
         steps: req.steps,
-        energy_burned_kcal: req.energy_burned_kcal,
-        vo2max_ml_kg_min: req.vo2max_ml_kg_min,
+        energy_burned_kcal: req.energy_burned_kcal.map(|v| v as f64),
+        vo2max_ml_kg_min: req.vo2max_ml_kg_min.map(|v| v as f64),
+        // Legacy fields
+        event_type: None,
+        hrv_level: None,
+        stress_index: None,
+        coherence_score: None,
+        metadata: std::collections::HashMap::new(),
     };
 
     // Registra evento e obtém severidade
@@ -668,16 +674,22 @@ async fn observer_env_handler(
         timestamp,
         source: req.source,
         session_id: req.session_id.clone(),
-        latitude_deg: req.latitude_deg,
-        longitude_deg: req.longitude_deg,
-        altitude_m: req.altitude_m,
-        baro_pressure_hpa: req.baro_pressure_hpa,
-        ambient_temp_c: req.ambient_temp_c,
-        humidity_percent: req.humidity_percent,
-        wind_speed_m_s: req.wind_speed_m_s,
-        wind_dir_deg: req.wind_dir_deg,
-        uv_index: req.uv_index,
-        noise_db: req.noise_db,
+        latitude_deg: req.latitude_deg.map(|v| v as f64),
+        longitude_deg: req.longitude_deg.map(|v| v as f64),
+        altitude_m: req.altitude_m.map(|v| v as f64),
+        baro_pressure_hpa: req.baro_pressure_hpa.map(|v| v as f64),
+        ambient_temp_c: req.ambient_temp_c.map(|v| v as f64),
+        humidity_percent: req.humidity_percent.map(|v| v as f64),
+        wind_speed_m_s: req.wind_speed_m_s.map(|v| v as f64),
+        wind_dir_deg: req.wind_dir_deg.map(|v| v as f64),
+        uv_index: req.uv_index.map(|v| v as f64),
+        noise_db: req.noise_db.map(|v| v as f64),
+        // Legacy fields
+        event_type: None,
+        location: None,
+        value: None,
+        unit: None,
+        metadata: std::collections::HashMap::new(),
     };
 
     let severity = state
@@ -745,14 +757,19 @@ async fn observer_space_weather_handler(
         timestamp,
         source: req.source,
         session_id: req.session_id.clone(),
-        kp_index: req.kp_index,
-        dst_index: req.dst_index,
-        solar_wind_speed_km_s: req.solar_wind_speed_km_s,
-        solar_wind_density_n_cm3: req.solar_wind_density_n_cm3,
-        proton_flux_pfu: req.proton_flux_pfu,
-        electron_flux: req.electron_flux,
-        xray_flux: req.xray_flux,
-        radio_flux_sfu: req.radio_flux_sfu,
+        kp_index: req.kp_index.map(|v| v as f64),
+        solar_flux: None,
+        dst_index: req.dst_index.map(|v| v as f64),
+        solar_wind_speed_km_s: req.solar_wind_speed_km_s.map(|v| v as f64),
+        solar_wind_density_n_cm3: req.solar_wind_density_n_cm3.map(|v| v as f64),
+        proton_flux_pfu: req.proton_flux_pfu.map(|v| v as f64),
+        electron_flux: req.electron_flux.map(|v| v as f64),
+        xray_flux: req.xray_flux.map(|v| v as f64),
+        radio_flux_sfu: req.radio_flux_sfu.map(|v| v as f64),
+        geomagnetic_storm: req.kp_index.map(|kp| kp >= 5.0).unwrap_or(false),
+        // Legacy fields
+        event_type: None,
+        metadata: std::collections::HashMap::new(),
     };
 
     let severity = state
@@ -772,26 +789,18 @@ async fn observer_space_weather_handler(
 
 async fn observer_context_current_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
-) -> Result<Json<beagle_observer::UserContext>, StatusCode> {
-    let ctx = state.observer.current_user_context().await.map_err(|e| {
-        tracing::error!("Falha ao obter contexto do usuário: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    Ok(Json(ctx))
+) -> Json<beagle_observer::UserContext> {
+    let ctx = state.observer.current_user_context().await;
+    Json(ctx)
 }
 
 async fn observer_context_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
-    axum::extract::Path(run_id): axum::extract::Path<String>,
-) -> Result<Json<beagle_observer::UserContext>, StatusCode> {
+    axum::extract::Path(_run_id): axum::extract::Path<String>,
+) -> Json<beagle_observer::UserContext> {
     // Por enquanto, retorna contexto atual (pode ser expandido para filtrar por run_id no futuro)
-    let ctx = state.observer.current_user_context().await.map_err(|e| {
-        tracing::error!("Falha ao obter contexto para run_id {}: {}", run_id, e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    Ok(Json(ctx))
+    let ctx = state.observer.current_user_context().await;
+    Json(ctx)
 }
 
 // ============================================================================

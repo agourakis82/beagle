@@ -1,9 +1,8 @@
 //! Testes da Triad com MockLlmClient
 
-use beagle_config::BeagleConfig;
+use beagle_config::load as load_config;
 use beagle_core::BeagleContext;
 use beagle_triad::{run_triad, TriadInput};
-use std::path::PathBuf;
 use tempfile::TempDir;
 
 #[tokio::test]
@@ -20,7 +19,7 @@ async fn test_triad_generates_report() -> anyhow::Result<()> {
         "# Test Draft\n\nThis is a test draft for Triad review.",
     )?;
 
-    let mut cfg = BeagleConfig::default();
+    let mut cfg = load_config();
     cfg.storage.data_dir = data_dir.to_string_lossy().to_string();
 
     let ctx = BeagleContext::new_with_mocks(cfg);
