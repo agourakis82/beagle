@@ -78,7 +78,8 @@ impl RedisCache {
 
         let mut conn = self.connection.clone();
         let ttl_secs: u64 = self.ttl.as_secs();
-        conn.set_ex::<_, _, ()>(&key, json, ttl_secs)
+        let _: () = conn
+            .set_ex(&key, json, ttl_secs)
             .await
             .map_err(|e| HypergraphError::CacheError(format!("Redis SET error: {e}")))?;
 
@@ -148,8 +149,8 @@ impl RedisCache {
         warn!("Flushing entire cache");
         let mut conn = self.connection.clone();
 
-        redis::cmd("FLUSHDB")
-            .query_async::<_, ()>(&mut conn)
+        let _: () = redis::cmd("FLUSHDB")
+            .query_async(&mut conn)
             .await
             .map_err(|e| HypergraphError::CacheError(format!("Redis FLUSHDB error: {e}")))?;
 

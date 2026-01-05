@@ -20,11 +20,11 @@ impl CacheLayer {
 
     /// Cache manuscript preview (expires after 1 hour)
     pub async fn cache_preview(&self, manuscript_id: &Uuid, preview: &str) -> Result<()> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("preview:{}", manuscript_id);
 
-        conn.set_ex(&key, preview, 3600).await?; // 1 hour TTL
+        let _: () = conn.set_ex(&key, preview, 3600).await?; // 1 hour TTL
 
         debug!("Cached preview for manuscript: {}", manuscript_id);
         Ok(())
@@ -32,7 +32,7 @@ impl CacheLayer {
 
     /// Get cached preview
     pub async fn get_preview(&self, manuscript_id: &Uuid) -> Result<Option<String>> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("preview:{}", manuscript_id);
 
@@ -49,11 +49,11 @@ impl CacheLayer {
 
     /// Cache LLM response (24 hour TTL)
     pub async fn cache_llm_response(&self, prompt_hash: &str, response: &str) -> Result<()> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("llm:{}", prompt_hash);
 
-        conn.set_ex(&key, response, 86400).await?; // 24 hours
+        let _: () = conn.set_ex(&key, response, 86400).await?; // 24 hours
 
         debug!("Cached LLM response for prompt hash: {}", prompt_hash);
         Ok(())
@@ -61,7 +61,7 @@ impl CacheLayer {
 
     /// Get cached LLM response
     pub async fn get_llm_response(&self, prompt_hash: &str) -> Result<Option<String>> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("llm:{}", prompt_hash);
 
@@ -80,11 +80,11 @@ impl CacheLayer {
         threshold: usize,
         clusters: &str, // JSON serialized
     ) -> Result<()> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("clusters:threshold:{}", threshold);
 
-        conn.set_ex(&key, clusters, 21600).await?; // 6 hours
+        let _: () = conn.set_ex(&key, clusters, 21600).await?; // 6 hours
 
         debug!("Cached cluster results for threshold: {}", threshold);
         Ok(())
@@ -92,7 +92,7 @@ impl CacheLayer {
 
     /// Get cached cluster results
     pub async fn get_cluster_results(&self, threshold: usize) -> Result<Option<String>> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("clusters:threshold:{}", threshold);
 
@@ -103,11 +103,11 @@ impl CacheLayer {
 
     /// Invalidate cache for a manuscript
     pub async fn invalidate_preview(&self, manuscript_id: &Uuid) -> Result<()> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("preview:{}", manuscript_id);
 
-        conn.del(&key).await?;
+        let _: () = conn.del(&key).await?;
 
         debug!("Invalidated cache for manuscript: {}", manuscript_id);
         Ok(())
@@ -115,14 +115,14 @@ impl CacheLayer {
 
     /// Clear all cache (use with caution)
     pub async fn clear_all(&self) -> Result<()> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         // Only clear HERMES keys
         let pattern = "preview:*";
         let keys: Vec<String> = conn.keys(pattern).await?;
 
         if !keys.is_empty() {
-            conn.del(&keys).await?;
+            let _: () = conn.del(&keys).await?;
             info!("Cleared {} cache keys", keys.len());
         }
 
