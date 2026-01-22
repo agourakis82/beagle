@@ -1,0 +1,23 @@
+[Unit]
+Description=Cloudflare Tunnel for BEAGLE MCP
+After=network-online.target beagle-mcp.service
+Wants=network-online.target
+Requires=beagle-mcp.service
+
+[Service]
+Type=simple
+User=root
+
+# Quick tunnel (ephemeral trycloudflare.com URL):
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:3000 --metrics 127.0.0.1:3100
+
+# Named tunnel (persistent; requires `cloudflared tunnel login` and config):
+# ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate run beagle-mcp
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

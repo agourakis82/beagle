@@ -135,3 +135,18 @@ sudo bash scripts/systemd/install-beagle-services.sh --user <user> --workspace /
 Prereqs:
 - Core binary installed (recommended): `cargo install --path apps/beagle-monorepo --bin core_server --locked --root /usr/local`
 - MCP built: `cd beagle-mcp-server && npm install && npm run build`
+
+## Expose MCP publicly (Cloudflare Tunnel)
+
+To use BEAGLE MCP from **claude.ai** (remote MCP connector), you can expose the local MCP HTTP port via Cloudflare Tunnel.
+
+Quick start (ephemeral URL):
+
+```bash
+sudo cp scripts/systemd/cloudflared-beagle.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now cloudflared-beagle.service
+sudo journalctl -u cloudflared-beagle.service --no-pager -n 200 | rg -o 'https://[a-z0-9-]+\\.trycloudflare\\.com' | tail -n 1
+```
+
+Runbook: `docs/MCP_EXTERNAL_ACCESS.md`

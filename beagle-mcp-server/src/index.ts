@@ -12,6 +12,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import {
     CallToolRequestSchema,
     ListToolsRequestSchema,
@@ -48,147 +49,154 @@ const beagleClient = new BeagleClient(
 );
 
 // Create MCP server
-const server = new Server(
-    {
-        name: "beagle-mcp-server",
-        version: "0.1.0",
-    },
-    {
-        capabilities: {
-            tools: {},
-        },
-    },
-);
-
 // Register tools
 const tools = defineTools(beagleClient);
 
-// Detect client type and configure accordingly
-const clientInfo = getClientInfo();
-if (clientInfo.type === "claude") {
-    configureForClaudeDesktop(server);
-} else if (clientInfo.type === "chatgpt") {
-    configureForOpenAiApps(server);
-}
+function createMcpServerInstance(): Server {
+    const server = new Server(
+        {
+            name: "beagle-mcp-server",
+            version: "0.1.0",
+        },
+        {
+            capabilities: {
+                tools: {},
+            },
+        },
+    );
 
-server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
-    // Try to get client info from request (if available)
-    const requestMeta = (request as any).meta as
-        | Record<string, unknown>
-        | undefined;
-    const headerUserAgent = (extra as any)?.requestInfo?.headers?.["user-agent"];
-    const headerMeta =
-        typeof headerUserAgent === "string" && headerUserAgent.trim()
-            ? { userAgent: headerUserAgent }
-            : undefined;
-    const requestClientInfo = getClientInfo(requestMeta ?? headerMeta);
+    // Detect client type and configure accordingly (best-effort; per-request adjustments are handled elsewhere).
+    const clientInfo = getClientInfo();
+    if (clientInfo.type === "claude") {
+        configureForClaudeDesktop(server);
+    } else if (clientInfo.type === "chatgpt") {
+        configureForOpenAiApps(server);
+    }
 
-    // Add OpenAI-specific metadata if using ChatGPT
-    const toolsList = tools.map((t) => {
-        const toolDef = {
-            name: t.name,
-            description: t.description,
-            inputSchema: t.inputSchema as Record<string, unknown>,
-        };
+    server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+        // Try to get client info from request (if available)
+        const requestMeta = (request as any).meta as
+            | Record<string, unknown>
+            | undefined;
+        const headerUserAgent = (extra as any)?.requestInfo?.headers?.["user-agent"];
+        const headerMeta =
+            typeof headerUserAgent === "string" && headerUserAgent.trim()
+                ? { userAgent: headerUserAgent }
+                : undefined;
+        const requestClientInfo = getClientInfo(requestMeta ?? headerMeta);
 
-        if (requestClientInfo.type === "chatgpt") {
-            return addOpenAiMetadata(toolDef);
-        }
+        // Add OpenAI-specific metadata if using ChatGPT
+        const toolsList = tools.map((t) => {
+            const toolDef = {
+                name: t.name,
+                description: t.description,
+                inputSchema: t.inputSchema as Record<string, unknown>,
+            };
 
-        return toolDef;
+            if (requestClientInfo.type === "chatgpt") {
+                return addOpenAiMetadata(toolDef);
+            }
+
+            return toolDef;
+        });
+
+        return { tools: toolsList };
     });
 
-    return { tools: toolsList };
-});
+    // Handle tool calls
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+        const { name, arguments: args } = request.params;
 
-// Handle tool calls
-server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-    const { name, arguments: args } = request.params;
-
-    // Auth validation (if enabled)
-    const authHeaderFromMeta = (request as any).meta?.authorization as
-        | string
-        | undefined;
-    const headerAuth = (extra as any)?.requestInfo?.headers?.authorization as
-        | string
-        | string[]
-        | undefined;
-    const authHeader =
-        authHeaderFromMeta ??
-        (Array.isArray(headerAuth) ? headerAuth[0] : headerAuth);
-    const token = extractToken(authHeader);
-    const authResult = validateAuth(token);
-    if (!authResult.valid) {
-        throw new McpError(
-            ErrorCode.InvalidRequest,
-            authResult.error || "Authentication required",
-        );
-    }
-
-    // Rate limiting (by client identifier, if available)
-    const headerClientId =
-        (extra as any)?.requestInfo?.headers?.["x-forwarded-for"] ||
-        (extra as any)?.requestInfo?.headers?.["x-real-ip"];
-    const clientId =
-        (request as any).meta?.clientId ||
-        (typeof headerClientId === "string" ? headerClientId : "unknown");
-    const rateLimitResult = checkRateLimit(clientId);
-    if (!rateLimitResult.allowed) {
-        throw new McpError(
-            ErrorCode.InvalidRequest,
-            "Rate limit exceeded. Please try again later.",
-        );
-    }
-
-    logger.info(`Tool called: ${name}`, {
-        args: args ? Object.keys(args) : [],
-        clientId,
-        remaining: rateLimitResult.remaining,
-    });
-
-    const tool = tools.find((t) => t.name === name);
-    if (!tool) {
-        throw new McpError(
-            ErrorCode.MethodNotFound,
-            `Tool '${name}' not found`,
-        );
-    }
-
-    try {
-        // Execute tool (validation happens inside tool handler via Zod)
-        const result = await tool.handler(args);
-
-        return {
-            content: [
-                {
-                    type: "text",
-                    text:
-                        typeof result === "string"
-                            ? result
-                            : JSON.stringify(result, null, 2),
-                },
-            ],
-        };
-    } catch (error) {
-        logger.error(`Tool execution error: ${name}`, { error });
-
-        if (error instanceof z.ZodError) {
+        // Auth validation (if enabled)
+        const authHeaderFromMeta = (request as any).meta?.authorization as
+            | string
+            | undefined;
+        const headerAuth = (extra as any)?.requestInfo?.headers?.authorization as
+            | string
+            | string[]
+            | undefined;
+        const authHeader =
+            authHeaderFromMeta ??
+            (Array.isArray(headerAuth) ? headerAuth[0] : headerAuth);
+        const token = extractToken(authHeader);
+        const authResult = validateAuth(token);
+        if (!authResult.valid) {
             throw new McpError(
-                ErrorCode.InvalidParams,
-                `Invalid parameters: ${error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
+                ErrorCode.InvalidRequest,
+                authResult.error || "Authentication required",
             );
         }
 
-        if (error instanceof McpError) {
-            throw error;
+        // Rate limiting (by client identifier, if available)
+        const headerClientId =
+            (extra as any)?.requestInfo?.headers?.["x-forwarded-for"] ||
+            (extra as any)?.requestInfo?.headers?.["x-real-ip"];
+        const clientId =
+            (request as any).meta?.clientId ||
+            (typeof headerClientId === "string" ? headerClientId : "unknown");
+        const rateLimitResult = checkRateLimit(clientId);
+        if (!rateLimitResult.allowed) {
+            throw new McpError(
+                ErrorCode.InvalidRequest,
+                "Rate limit exceeded. Please try again later.",
+            );
         }
 
-        throw new McpError(
-            ErrorCode.InternalError,
-            `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-    }
-});
+        logger.info(`Tool called: ${name}`, {
+            args: args ? Object.keys(args) : [],
+            clientId,
+            remaining: rateLimitResult.remaining,
+        });
+
+        const tool = tools.find((t) => t.name === name);
+        if (!tool) {
+            throw new McpError(
+                ErrorCode.MethodNotFound,
+                `Tool '${name}' not found`,
+            );
+        }
+
+        try {
+            // Execute tool (validation happens inside tool handler via Zod)
+            const result = await tool.handler(args);
+
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text:
+                            typeof result === "string"
+                                ? result
+                                : JSON.stringify(result, null, 2),
+                    },
+                ],
+            };
+        } catch (error) {
+            logger.error(`Tool execution error: ${name}`, { error });
+
+            if (error instanceof z.ZodError) {
+                throw new McpError(
+                    ErrorCode.InvalidParams,
+                    `Invalid parameters: ${error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join(", ")}`,
+                );
+            }
+
+            if (error instanceof McpError) {
+                throw error;
+            }
+
+            throw new McpError(
+                ErrorCode.InternalError,
+                `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+        }
+    });
+
+    return server;
+}
+
+// Primary server instance (stdio mode OR Streamable HTTP /mcp).
+const server = createMcpServerInstance();
 
 // Start server
 async function main() {
@@ -207,6 +215,8 @@ async function main() {
         const host = process.env.MCP_HTTP_HOST || "0.0.0.0";
         const port = Number(process.env.MCP_HTTP_PORT || "3000");
         const path = process.env.MCP_HTTP_PATH || "/mcp";
+        const ssePath = process.env.MCP_SSE_PATH || "/sse";
+        const sseMessagePath = process.env.MCP_SSE_MESSAGE_PATH || "/message";
         const githubWebhookProxyEnabled =
             process.env.MCP_GITHUB_WEBHOOK_PROXY_ENABLED === "true";
         const githubWebhookPath =
@@ -235,6 +245,13 @@ async function main() {
 
         await server.connect(transport);
 
+        // Legacy SSE support (deprecated in MCP SDK, but still required by some clients).
+        // IMPORTANT: Each SSE connection gets its own Server instance to avoid transport conflicts.
+        const sseSessions = new Map<
+            string,
+            { transport: SSEServerTransport; server: Server }
+        >();
+
         async function readRequestBody(
             req: IncomingMessage,
             maxBytes: number,
@@ -254,6 +271,121 @@ async function main() {
                 req.on("end", () => resolve(Buffer.concat(chunks)));
                 req.on("error", reject);
             });
+        }
+
+        function writeJson(
+            res: ServerResponse,
+            status: number,
+            body: Record<string, unknown>,
+            headers: Record<string, string> = {},
+        ) {
+            res.writeHead(status, { "Content-Type": "application/json", ...headers });
+            res.end(JSON.stringify(body));
+        }
+
+        function isMethod(req: IncomingMessage, method: string): boolean {
+            return (req.method || "").toUpperCase() === method.toUpperCase();
+        }
+
+        function requireMcpAuth(req: IncomingMessage, res: ServerResponse): boolean {
+            const headerAuth = req.headers.authorization;
+            const authHeader = Array.isArray(headerAuth) ? headerAuth[0] : headerAuth;
+            const token = extractToken(typeof authHeader === "string" ? authHeader : undefined);
+            const result = validateAuth(token);
+            if (result.valid) {
+                return true;
+            }
+
+            const msg = result.error || "Authentication required";
+            if (msg.toLowerCase().includes("not configured")) {
+                writeJson(res, 500, { error: "auth_not_configured" });
+                return false;
+            }
+            if (msg.toLowerCase().includes("invalid")) {
+                writeJson(res, 403, { error: "invalid_token" });
+                return false;
+            }
+            writeJson(
+                res,
+                401,
+                { error: "missing_token" },
+                { "WWW-Authenticate": "Bearer" },
+            );
+            return false;
+        }
+
+        async function handleLegacySse(req: IncomingMessage, res: ServerResponse): Promise<void> {
+            if (!isMethod(req, "GET")) {
+                writeJson(res, 405, { error: "method_not_allowed" });
+                return;
+            }
+
+            const sessionServer = createMcpServerInstance();
+            const sessionTransport = new SSEServerTransport(sseMessagePath, res, {
+                allowedHosts: allowedHosts.length ? allowedHosts : undefined,
+                allowedOrigins: allowedOrigins.length ? allowedOrigins : undefined,
+                enableDnsRebindingProtection,
+            });
+
+            sseSessions.set(sessionTransport.sessionId, {
+                transport: sessionTransport,
+                server: sessionServer,
+            });
+
+            res.on("close", () => {
+                const session = sseSessions.get(sessionTransport.sessionId);
+                sseSessions.delete(sessionTransport.sessionId);
+                if (session) {
+                    session.server.close().catch(() => {});
+                }
+            });
+
+            await sessionServer.connect(sessionTransport);
+
+            // Some proxies buffer small SSE payloads. Send a one-time padding comment to force flush.
+            // This is safe per SSE spec (comment lines start with ":" and are ignored by clients).
+            try {
+                // 64KiB padding tends to defeat buffering in common reverse proxies/CDNs.
+                res.write(`: ${" ".repeat(64 * 1024)}\n\n`);
+            } catch {
+                // ignore
+            }
+        }
+
+        async function handleLegacySseMessage(
+            req: IncomingMessage,
+            res: ServerResponse,
+            url: URL,
+        ): Promise<void> {
+            if (!isMethod(req, "POST")) {
+                writeJson(res, 405, { error: "method_not_allowed" });
+                return;
+            }
+
+            const sessionId = url.searchParams.get("sessionId") || "";
+            if (!sessionId.trim()) {
+                writeJson(res, 400, { error: "missing_session_id" });
+                return;
+            }
+
+            const session = sseSessions.get(sessionId);
+            if (!session) {
+                writeJson(res, 400, { error: "unknown_session_id" });
+                return;
+            }
+
+            const bodyBuf = await readRequestBody(req, 5_000_000);
+            let parsed: unknown = undefined;
+            if (bodyBuf.length) {
+                try {
+                    parsed = JSON.parse(bodyBuf.toString("utf-8"));
+                } catch {
+                    writeJson(res, 400, { error: "invalid_json" });
+                    return;
+                }
+            }
+
+            await session.transport.handlePostMessage(req as any, res, parsed);
         }
 
         async function handleGitHubWebhookProxy(
@@ -313,13 +445,34 @@ async function main() {
             try {
                 const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
                 if (url.pathname === "/health") {
-                    res.writeHead(200, { "Content-Type": "application/json" });
-                    res.end(JSON.stringify({ status: "ok" }));
+                    writeJson(res, 200, {
+                        status: "ok",
+                        service: "beagle-mcp",
+                        version: "0.27.2",
+                        timestamp: new Date().toISOString(),
+                    });
                     return;
                 }
 
                 if (url.pathname === githubWebhookPath) {
                     await handleGitHubWebhookProxy(req, res);
+                    return;
+                }
+
+                // Enforce auth (if enabled) for MCP protocol endpoints.
+                if (url.pathname === path || url.pathname === ssePath || url.pathname === sseMessagePath) {
+                    if (!requireMcpAuth(req, res)) {
+                        return;
+                    }
+                }
+
+                if (url.pathname === ssePath) {
+                    await handleLegacySse(req, res);
+                    return;
+                }
+
+                if (url.pathname === sseMessagePath) {
+                    await handleLegacySseMessage(req, res, url);
                     return;
                 }
 
@@ -350,6 +503,8 @@ async function main() {
                 port,
                 path,
                 enableJsonResponse,
+                ssePath,
+                sseMessagePath,
                 githubWebhookProxyEnabled,
                 githubWebhookPath,
             });
