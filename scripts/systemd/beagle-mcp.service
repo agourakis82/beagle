@@ -8,7 +8,8 @@ Type=simple
 User=demetrios
 Group=demetrios
 EnvironmentFile=-/etc/beagle-mcp.env
-ExecStart=/usr/bin/env bash -lc 'set -euo pipefail; root="${BEAGLE_WORKSPACE_ROOT:-%h/beagle}"; cd "${root}/beagle-mcp-server"; if [[ ! -f dist/index.js ]]; then echo "Missing dist/index.js (run: cd beagle-mcp-server && npm install && npm run build)"; exit 1; fi; exec node dist/index.js'
+WorkingDirectory=%h/beagle/beagle-mcp-server
+ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
 RestartSec=2
 StandardOutput=journal
@@ -16,4 +17,3 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-

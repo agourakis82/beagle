@@ -7,7 +7,8 @@ Type=simple
 User=demetrios
 Group=demetrios
 EnvironmentFile=-/etc/beagle-core.env
-ExecStart=/usr/bin/env bash -lc 'set -euo pipefail; root="${BEAGLE_WORKSPACE_ROOT:-%h/beagle}"; cd "${root}"; if [[ -n "${BEAGLE_CORE_BIN:-}" && -x "${BEAGLE_CORE_BIN}" ]]; then exec "${BEAGLE_CORE_BIN}"; fi; if [[ -x "/usr/local/bin/core_server" ]]; then exec "/usr/local/bin/core_server"; fi; if [[ -x "${root}/target/release/core_server" ]]; then exec "${root}/target/release/core_server"; fi; exec core_server'
+WorkingDirectory=%h/beagle
+ExecStart=/usr/local/bin/core_server
 Restart=on-failure
 RestartSec=2
 StandardOutput=journal
@@ -15,4 +16,3 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-
