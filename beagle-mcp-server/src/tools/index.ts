@@ -16,6 +16,10 @@ import { BeagleClient } from "../beagle-client.js";
 import { llmTools } from "./llm.js";
 import { pipelineTools } from "./pipeline.js";
 import { scienceJobTools } from "./science-jobs.js";
+import { darwinTools } from "./darwin.js";
+import { exocortexTools } from "./exocortex.js";
+import { observerTools } from "./observer.js";
+import { voiceTools } from "./voice.js";
 import { memoryTools } from "./memory.js";
 import { feedbackTools } from "./feedback.js";
 import { experimentalTools } from "./experimental.js";
@@ -37,6 +41,10 @@ export function defineTools(client: BeagleClient): McpTool[] {
 
         // Extended tools
         ...scienceJobTools(client),
+        ...darwinTools(client),
+        ...exocortexTools(client),
+        ...observerTools(client),
+        ...voiceTools(client),
         ...experimentalTools(client),
     ];
 }

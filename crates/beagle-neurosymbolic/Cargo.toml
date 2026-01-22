@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Dr. Demetrios Chiuratto <demetrios@agourakis.med.br>"]
 license = "MIT OR Apache-2.0"
 description = "Neuro-Symbolic hybrid reasoning engine (Neural + Logic + Constraints) for BEAGLE"
-repository = "https://github.com/darwin-cluster/beagle"
+repository = "https://github.com/agourakis82/beagle"
 
 [lib]
 name = "beagle_neurosymbolic"
@@ -43,5 +43,4 @@ z3 = { version = "0.12", optional = true }
 
 [dev-dependencies]
 tokio-test = { workspace = true }
-
 

@@ -30,7 +30,15 @@ async fn test_pipeline_with_mock() -> anyhow::Result<()> {
 
     // Verifica que artefatos foram criados
     assert!(paths.draft_md.exists(), "draft_md deve existir");
-    assert!(paths.draft_pdf.exists(), "draft_pdf deve existir");
+    // PDF é best-effort por padrão (depende de pandoc/LaTeX no sistema).
+    // Para exigir PDF em CI, rode com: BEAGLE_PDF_REQUIRED=true
+    if std::env::var("BEAGLE_PDF_REQUIRED")
+        .ok()
+        .map(|v| matches!(v.to_lowercase().trim(), "1" | "true" | "t" | "yes" | "y"))
+        .unwrap_or(false)
+    {
+        assert!(paths.draft_pdf.exists(), "draft_pdf deve existir (BEAGLE_PDF_REQUIRED=true)");
+    }
     assert!(paths.run_report.exists(), "run_report deve existir");
 
     // Verifica conteúdo básico

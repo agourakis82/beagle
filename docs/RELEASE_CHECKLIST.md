@@ -21,7 +21,7 @@
 
 Se o GitHub CLI não estiver disponível, criar release manualmente:
 
-1. Acesse: https://github.com/darwin-cluster/beagle/releases/new
+1. Acesse: https://github.com/agourakis82/beagle/releases/new
 2. Tag: `v0.3.0`
 3. Title: `BEAGLE v0.3.0 - Memory & MCP Layer`
 4. Description: Copiar conteúdo de `docs/BEAGLE_v0_3_RELEASE_NOTES.md`
@@ -37,7 +37,7 @@ Se o GitHub CLI não estiver disponível, criar release manualmente:
 
 ## 🔍 Verificação Pós-Release
 
-- [ ] Release visível em https://github.com/darwin-cluster/beagle/releases
+- [ ] Release visível em https://github.com/agourakis82/beagle/releases
 - [ ] Tag `v0.3.0` aparece no repositório
 - [ ] Documentação acessível e atualizada
 - [ ] Links de release funcionando
@@ -52,4 +52,3 @@ Se o GitHub CLI não estiver disponível, criar release manualmente:
 ---
 
 **Status**: ✅ **Release Completo**
-

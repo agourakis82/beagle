@@ -7,6 +7,8 @@ pub mod copilot;
 pub mod cursor;
 pub mod deepseek;
 pub mod grok;
+pub mod minimax;
+pub mod zai;
 pub mod local_gemma;
 pub mod mock;
 
@@ -17,4 +19,6 @@ pub use copilot::{CopilotClient, CopilotModel};
 pub use cursor::{CursorClient, CursorModel};
 pub use deepseek::DeepSeekClient;
 pub use grok::GrokClient;
+pub use minimax::MiniMaxClient;
+pub use zai::ZaiClient;
 pub use local_gemma::{LocalGemmaClient, GemmaModel};

@@ -17,6 +17,7 @@ use beagle_llm::RequestMeta;
 
 #[cfg(feature = "personality")]
 use beagle_personality::{ConversationContext, PersonalityConfig, PersonalitySystem};
+use serde::{Deserialize, Serialize};
 
 use crate::agents::{AgentCapability, AgentMesh, AgentMeshConfig, AgentTeam};
 use crate::brain::{AwarenessLevel, BrainConnector, BrainConnectorConfig, ConsciousnessState};
@@ -35,7 +36,7 @@ use crate::memory::{
 // ============================================================================
 
 /// Input to the exocortex
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExocortexInput {
     /// The user's query or request
     pub query: String,
@@ -49,7 +50,8 @@ pub struct ExocortexInput {
     pub urgency: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum InputModality {
     #[default]
     Text,
@@ -58,7 +60,7 @@ pub enum InputModality {
 }
 
 /// Output from the exocortex
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExocortexOutput {
     /// The generated response
     pub response: String,
@@ -72,11 +74,48 @@ pub struct ExocortexOutput {
     pub adaptations_applied: Vec<String>,
     /// Proactive suggestions (if any)
     pub proactive_suggestions: Vec<ProactiveSuggestion>,
+    /// Retrieved sources used for grounding/citations (if any)
+    pub retrieved_sources: Vec<RetrievedSource>,
+    /// Subset of retrieved_sources explicitly cited by the model
+    pub citations: Vec<RetrievedSource>,
     /// Metadata
     pub metadata: OutputMetadata,
 }
 
-#[derive(Debug, Clone)]
+/// A retrieved source from the external knowledge base (e.g., Qdrant).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievedSource {
+    /// Stable citation key exposed to the model (e.g., "S1").
+    pub key: String,
+    /// Collection name when available (e.g., "darwin-papers").
+    pub collection: String,
+    /// Raw vector hit id (may be numeric for Darwin corpora).
+    pub id: String,
+    /// Unified, human-readable reference for this source (repo/file@commit, DOI, URL, etc).
+    pub reference: String,
+    /// Relevance score from vector search.
+    pub score: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doi: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_idx: Option<i64>,
+    /// Short text snippet for display/debugging (truncated).
+    pub snippet: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputMetadata {
     /// Processing time in milliseconds
     pub processing_time_ms: u64,
@@ -87,7 +126,7 @@ pub struct OutputMetadata {
 }
 
 /// A proactive suggestion from the exocortex
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProactiveSuggestion {
     /// What the system suggests
     pub suggestion: String,
@@ -99,7 +138,8 @@ pub struct ProactiveSuggestion {
     pub category: SuggestionCategory,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SuggestionCategory {
     Task,
     Learning,
@@ -165,12 +205,44 @@ impl PersonalExocortex {
         beagle_ctx: Option<Arc<BeagleContext>>,
     ) -> ExocortexResult<Self> {
         // Initialize all subsystems using nested config
+        let persistence_mode = match config.identity.persistence.trim().to_lowercase().as_str() {
+            "memory" | "mem" => PersistenceMode::Memory,
+            "file" | "fs" => PersistenceMode::File,
+            "postgres" | "postgresql" | "pg" => PersistenceMode::Postgres,
+            other => {
+                tracing::warn!(
+                    "Unknown exocortex identity.persistence='{}'; defaulting to memory",
+                    other
+                );
+                PersistenceMode::Memory
+            }
+        };
+
+        fn expand_tilde(path: &str) -> std::path::PathBuf {
+            if let Some(rest) = path.strip_prefix("~/") {
+                if let Some(home) = std::env::var_os("HOME") {
+                    return std::path::PathBuf::from(home).join(rest);
+                }
+            }
+            std::path::PathBuf::from(path)
+        }
+
+        let persistence_path = config
+            .identity
+            .persistence_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(expand_tilde);
+
         let identity = IdentitySystem::new(IdentitySystemConfig {
-            persistence_mode: PersistenceMode::Memory,
+            persistence_mode,
+            persistence_path,
+            database_url: config.identity.database_url.clone(),
             track_expertise: config.identity.track_expertise,
             track_preferences: config.identity.learn_preferences,
             session_history_limit: config.identity.max_session_history,
-        });
+        })?;
 
         let brain = BrainConnector::new(BrainConnectorConfig {
             enable_iit: config.brain.enable_iit,
@@ -294,6 +366,9 @@ impl PersonalExocortex {
         // 7. Get user profile for personalization
         let profile = self.identity.read().await.get_current_profile();
 
+        // 8. Retrieve external knowledge sources (Qdrant) when available.
+        let retrieved_sources = self.retrieve_sources(&input.query, 8).await;
+
         // 8. Generate response (placeholder - would connect to actual LLM pipeline)
         let response = self
             .generate_response(
@@ -303,6 +378,7 @@ impl PersonalExocortex {
                 &adaptations,
                 &team,
                 profile.as_ref(),
+                &retrieved_sources,
             )
             .await?;
 
@@ -328,6 +404,14 @@ impl PersonalExocortex {
         let adaptations_applied: Vec<String> =
             adaptations.iter().map(|a| a.description.clone()).collect();
 
+        // 12. Extract citations (best-effort, based on [S#] markers)
+        let citation_keys = extract_citation_keys(&response);
+        let citations: Vec<RetrievedSource> = retrieved_sources
+            .iter()
+            .filter(|s| citation_keys.iter().any(|k| k == &s.key))
+            .cloned()
+            .collect();
+
         // 12. Build output
         let processing_time_ms = start.elapsed().as_millis() as u64;
         let memory_stats = self.memory.read().await.stats().await;
@@ -339,6 +423,8 @@ impl PersonalExocortex {
             consciousness_state,
             adaptations_applied,
             proactive_suggestions,
+            retrieved_sources,
+            citations,
             metadata: OutputMetadata {
                 processing_time_ms,
                 memories_retrieved: relevant_episodes.len(),
@@ -414,6 +500,7 @@ impl PersonalExocortex {
         adaptations: &[ContextAdaptations],
         team: &AgentTeam,
         profile: Option<&UserProfile>,
+        retrieved_sources: &[RetrievedSource],
     ) -> ExocortexResult<String> {
         // Build context from memories
         let memory_context = if memories.is_empty() {
@@ -487,6 +574,8 @@ impl PersonalExocortex {
             )
         };
 
+        let retrieved_context = format_retrieved_sources(retrieved_sources);
+
         // Build the full prompt
         let prompt = format!(
             "You are the BEAGLE Personal Exocortex, a unified cognitive assistant.\n\
@@ -494,10 +583,12 @@ impl PersonalExocortex {
             {personalization}\
             {adaptation_instructions}\
             {team_context}\
-            {situation_context}\n\
+            {situation_context}\
+            {retrieved_context}\n\
             User Query: {}\n\n\
             Provide a helpful, personalized response that takes into account the user's \
-            context, expertise level, and current cognitive state.",
+            context, expertise level, and current cognitive state.\n\
+            When using Retrieved Sources, cite them inline using the provided keys like `[S1]` or `[S2]`.",
             input.query
         );
 
@@ -785,6 +876,168 @@ impl PersonalExocortex {
             current_phi: consciousness.phi,
             current_awareness: consciousness.awareness_level,
         }
+    }
+}
+
+fn format_retrieved_sources(sources: &[RetrievedSource]) -> String {
+    if sources.is_empty() {
+        return String::new();
+    }
+
+    let mut blocks = Vec::new();
+    for source in sources.iter().take(8) {
+        let display = source
+            .title
+            .as_deref()
+            .unwrap_or_else(|| source.doc_id.as_deref().unwrap_or(&source.reference));
+        blocks.push(format!(
+            "[{}] ({}) {} | score={:.3} | ref={}\n{}\n",
+            source.key, source.collection, display, source.score, source.reference, source.snippet
+        ));
+    }
+
+    format!(
+        "\n=== Retrieved Sources (Qdrant) ===\n\
+         {}\
+         Instructions: If you use a source, cite it with its key in square brackets (e.g., [S1]).\n",
+        blocks.join("\n")
+    )
+}
+
+fn extract_citation_keys(text: &str) -> Vec<String> {
+    use std::collections::BTreeSet;
+
+    let mut keys = BTreeSet::new();
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'[' {
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j] != b']' && (j - i) <= 32 {
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b']' {
+                if let Ok(inside) = std::str::from_utf8(&bytes[i + 1..j]) {
+                    for token in inside.split(|c: char| !c.is_ascii_alphanumeric()) {
+                        let token = token.trim();
+                        if token.len() < 2 {
+                            continue;
+                        }
+                        let mut chars = token.chars();
+                        let first = chars.next().unwrap_or_default();
+                        if first != 'S' && first != 's' {
+                            continue;
+                        }
+                        if chars.all(|c| c.is_ascii_digit()) {
+                            keys.insert(format!("S{}", &token[1..]));
+                        }
+                    }
+                }
+                i = j + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    keys.into_iter().collect()
+}
+
+impl PersonalExocortex {
+    async fn retrieve_sources(&self, query: &str, top_k: usize) -> Vec<RetrievedSource> {
+        let Some(ref ctx) = self.beagle_ctx else {
+            return Vec::new();
+        };
+
+        let hits = match ctx.vector.query(query, top_k).await {
+            Ok(h) => h,
+            Err(e) => {
+                tracing::warn!("Vector retrieval failed (continuing without RAG): {}", e);
+                return Vec::new();
+            }
+        };
+
+        let mut sources = Vec::new();
+        for (idx, hit) in hits.into_iter().enumerate() {
+            let meta = &hit.metadata;
+            let collection = meta
+                .get("collection")
+                .and_then(|v| v.as_str())
+                .or_else(|| hit.id.split_once(':').map(|(c, _)| c))
+                .unwrap_or("qdrant")
+                .to_string();
+
+            let doc_id = meta
+                .get("doc_id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let title = meta
+                .get("title")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let repo = meta
+                .get("repo")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let file = meta
+                .get("file")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let commit = meta
+                .get("commit")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let doi = meta
+                .get("doi")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let url = meta
+                .get("url")
+                .and_then(|v| v.as_str())
+                .or_else(|| meta.get("source").and_then(|v| v.as_str()))
+                .map(|s| s.to_string());
+            let chunk_idx = meta
+                .get("chunk_idx")
+                .and_then(|v| v.as_i64())
+                .or_else(|| meta.get("chunk_index").and_then(|v| v.as_i64()));
+
+            let reference = match (repo.as_deref(), file.as_deref(), commit.as_deref()) {
+                (Some(r), Some(f), Some(c)) => format!("{r}/{f}@{c}"),
+                (Some(r), Some(f), None) => format!("{r}/{f}"),
+                _ => doi
+                    .as_deref()
+                    .map(|d| format!("doi:{d}"))
+                    .or_else(|| url.clone())
+                    .or_else(|| doc_id.clone())
+                    .unwrap_or_else(|| hit.id.clone()),
+            };
+
+            let text = meta
+                .get("text")
+                .and_then(|v| v.as_str())
+                .or_else(|| meta.get("content").and_then(|v| v.as_str()))
+                .or_else(|| meta.get("snippet").and_then(|v| v.as_str()))
+                .unwrap_or("");
+            let snippet: String = text.chars().take(900).collect();
+
+            sources.push(RetrievedSource {
+                key: format!("S{}", idx + 1),
+                collection,
+                id: hit.id,
+                reference,
+                score: hit.score,
+                doc_id,
+                title,
+                repo,
+                file,
+                commit,
+                doi,
+                url,
+                chunk_idx,
+                snippet,
+            });
+        }
+
+        sources
     }
 }
 

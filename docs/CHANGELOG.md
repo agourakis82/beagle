@@ -5,6 +5,34 @@ All notable changes to the BEAGLE project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-01-22
+
+### Added
+
+#### DARWIN ResearchOps (Continuous RAG Update)
+- **Git-based incremental indexing** with delete semantics (`darwin-incremental-indexer`)
+- **Knowledge base manager** for `darwin-papers`, `darwin-docs`, `darwin-books` (`darwin-knowledge-manager`)
+- **Research harvesting** (PubMed/arXiv/OpenAlex/Crossref/EuropePMC) into `darwin-papers` (`darwin-research-harvester`)
+- **Web harvesting** (URL/RSS/sitemap/crawl) into `darwin-docs` (`darwin-web-harvester`)
+- **Brief generation** + **eval harness** (`darwin-brief`, `darwin-eval`)
+- Optional **ingestion ledger** (Postgres) to skip unchanged documents
+
+#### Automation + Integrations
+- **systemd services/timers** for periodic updates (`scripts/systemd/`)
+- **GitHub push webhook**: `POST /webhooks/github/push` triggers incremental indexing
+- **MCP tooling** for Darwin + Exocortex + Observer + Voice
+
+#### Providers
+- **MiniMax** provider + routing policy `minimax-grok-deepseek`
+- **Z.ai (GLM-4.7)** provider + routing policy `zai-grok-deepseek`
+
+### Changed
+- Observer runtime construction avoids nested Tokio runtime panic
+- systemd env files created with restrictive permissions (0600) by installer scripts
+
+### Documentation
+- Dev-Canon Runbook, Exocortex Roadmap 2026, and SOTA web sources registry
+
 ## [0.8.0] - 2025-01-23
 
 ### Added
@@ -237,9 +265,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config system com profiles (dev/lab/prod)
 - Observer para captura de contexto
 
-[0.5.0]: https://github.com/darwin-cluster/beagle/releases/tag/v0.5.0
-[0.4.0]: https://github.com/darwin-cluster/beagle/releases/tag/v0.4.0
-[0.3.0]: https://github.com/darwin-cluster/beagle/releases/tag/v0.3.0
-[0.2.0]: https://github.com/darwin-cluster/beagle/releases/tag/v0.2.0
-[0.1.0]: https://github.com/darwin-cluster/beagle/releases/tag/v0.1.0
-
+[0.27.0]: https://github.com/agourakis82/beagle/releases/tag/v0.27.0
+[0.5.0]: https://github.com/agourakis82/beagle/releases/tag/v0.5.0
+[0.4.0]: https://github.com/agourakis82/beagle/releases/tag/v0.4.0
+[0.3.0]: https://github.com/agourakis82/beagle/releases/tag/v0.3.0
+[0.2.0]: https://github.com/agourakis82/beagle/releases/tag/v0.2.0
+[0.1.0]: https://github.com/agourakis82/beagle/releases/tag/v0.1.0

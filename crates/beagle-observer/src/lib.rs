@@ -81,6 +81,30 @@ pub struct PhysioEvent {
     pub metadata: HashMap<String, String>,
 }
 
+impl Default for PhysioEvent {
+    fn default() -> Self {
+        Self {
+            timestamp: chrono::Utc::now(),
+            source: String::new(),
+            session_id: None,
+            hrv_ms: None,
+            heart_rate_bpm: None,
+            spo2_percent: None,
+            resp_rate_bpm: None,
+            skin_temp_c: None,
+            body_temp_c: None,
+            steps: None,
+            energy_burned_kcal: None,
+            vo2max_ml_kg_min: None,
+            event_type: None,
+            hrv_level: None,
+            stress_index: None,
+            coherence_score: None,
+            metadata: HashMap::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PhysioEventType {
     HrvReading,
@@ -114,6 +138,31 @@ pub struct EnvEvent {
     pub metadata: HashMap<String, String>,
 }
 
+impl Default for EnvEvent {
+    fn default() -> Self {
+        Self {
+            timestamp: chrono::Utc::now(),
+            source: String::new(),
+            session_id: None,
+            latitude_deg: None,
+            longitude_deg: None,
+            altitude_m: None,
+            baro_pressure_hpa: None,
+            ambient_temp_c: None,
+            humidity_percent: None,
+            wind_speed_m_s: None,
+            wind_dir_deg: None,
+            uv_index: None,
+            noise_db: None,
+            event_type: None,
+            location: None,
+            value: None,
+            unit: None,
+            metadata: HashMap::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EnvEventType {
     TemperatureChange,
@@ -142,6 +191,28 @@ pub struct SpaceWeatherEvent {
     // Legacy fields
     pub event_type: Option<SpaceWeatherEventType>,
     pub metadata: HashMap<String, String>,
+}
+
+impl Default for SpaceWeatherEvent {
+    fn default() -> Self {
+        Self {
+            timestamp: chrono::Utc::now(),
+            source: String::new(),
+            session_id: None,
+            kp_index: None,
+            solar_flux: None,
+            dst_index: None,
+            solar_wind_speed_km_s: None,
+            solar_wind_density_n_cm3: None,
+            proton_flux_pfu: None,
+            electron_flux: None,
+            xray_flux: None,
+            radio_flux_sfu: None,
+            geomagnetic_storm: false,
+            event_type: None,
+            metadata: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,7 +252,7 @@ pub struct UserState {
 /// Physiological state for user context
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PhysioState {
-    pub severity: ContextSeverity,
+    pub severity: Severity,
     pub hrv_level: Option<String>,
     pub heart_rate_bpm: Option<f64>,
     pub spo2_percent: Option<f64>,
@@ -191,7 +262,7 @@ pub struct PhysioState {
 /// Environmental state for user context
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EnvState {
-    pub severity: ContextSeverity,
+    pub severity: Severity,
     pub summary: Option<String>,
     pub temperature: Option<f64>,
     pub humidity: Option<f64>,
@@ -201,38 +272,10 @@ pub struct EnvState {
 /// Space weather state for user context
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SpaceState {
-    pub severity: ContextSeverity,
+    pub severity: Severity,
     pub heliobio_risk_level: Option<String>,
     pub kp_index: Option<f64>,
     pub solar_flux: Option<f64>,
-}
-
-/// Severity level for context states
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ContextSeverity {
-    Normal,
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-
-impl Default for ContextSeverity {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
-
-impl ContextSeverity {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Normal => "normal",
-            Self::Low => "low",
-            Self::Medium => "medium",
-            Self::High => "high",
-            Self::Critical => "critical",
-        }
-    }
 }
 
 /// Generic observation for timeline tracking
@@ -273,12 +316,15 @@ pub struct UniversalObserver {
 
 impl UniversalObserver {
     /// Create new universal observer
-    pub fn new() -> Result<Self> {
-        // Use tokio runtime to create the async SystemObserver
-        let rt = tokio::runtime::Handle::try_current()
-            .unwrap_or_else(|_| tokio::runtime::Runtime::new().unwrap().handle().clone());
+    pub async fn new_async() -> Result<Self> {
+        // NOTE: `SystemObserver::new` is async for forward-compat (it may do IO later),
+        // but today construction is synchronous. Keep this `async` API for callers.
+        Ok(Self::new()?)
+    }
 
-        let inner = rt.block_on(async { SystemObserver::new(ObserverConfig::default()).await })?;
+    /// Create new universal observer (sync)
+    pub fn new() -> Result<Self> {
+        let inner = SystemObserver::new_sync(ObserverConfig::default())?;
 
         Ok(Self {
             inner,
@@ -300,6 +346,10 @@ impl UniversalObserver {
     /// Get the inner system observer
     pub fn system_observer(&self) -> &SystemObserver {
         &self.inner
+    }
+
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<Event> {
+        self.inner.subscribe()
     }
 
     /// Get current user context
@@ -326,30 +376,104 @@ impl UniversalObserver {
     /// Returns the computed severity level
     pub async fn record_physio_event(
         &self,
-        event: PhysioEvent,
+        mut event: PhysioEvent,
         _session: Option<&str>,
-    ) -> Result<ContextSeverity> {
+    ) -> Result<Severity> {
+        let cfg = beagle_config::load();
+        let thresholds = &cfg.observer.physio;
+
+        // Populate derived fields when missing (HTTP clients often only send raw metrics)
+        if event.hrv_level.is_none() {
+            if let Some(hrv_ms) = event.hrv_ms {
+                event.hrv_level = Some(beagle_config::classify_hrv(hrv_ms as f32, None));
+            }
+        }
+        if event.stress_index.is_none() {
+            let hrv_ms = event.hrv_ms.map(|v| v as f32);
+            let hr_bpm = event.heart_rate_bpm.map(|v| v as f32);
+            event.stress_index =
+                crate::context::PhysioContext::compute_stress_index(hrv_ms, hr_bpm)
+                    .map(|v| v as f64);
+        }
+
         // Update user state if HRV level present
         if let Some(ref hrv) = event.hrv_level {
             let mut ctx = self.user_context.write().await;
             ctx.current_state.hrv_level = Some(hrv.clone());
+            ctx.current_state.stress_level = event.stress_index;
+            ctx.current_state.focus_score = match hrv.as_str() {
+                "high" => Some(0.8),
+                "normal" => Some(0.5),
+                "low" => Some(0.3),
+                _ => None,
+            };
             ctx.current_state.last_updated = Some(chrono::Utc::now());
         }
 
-        // Compute severity based on readings
-        let severity = self.compute_physio_severity(&event);
+        let (severity, dominant_metric) = self.compute_physio_severity(&event, thresholds);
 
         // Update physio state
         {
             let mut ctx = self.user_context.write().await;
-            ctx.physio.severity = severity.clone();
+            ctx.physio.severity = severity;
             ctx.physio.hrv_level = event.hrv_level.clone();
             ctx.physio.heart_rate_bpm = event.heart_rate_bpm;
             ctx.physio.spo2_percent = event.spo2_percent;
             ctx.physio.stress_index = event.stress_index;
         }
 
+        if severity >= Severity::Moderate {
+            if let Some((metric, value, threshold, metric_severity)) = dominant_metric {
+                let data_dir = std::path::PathBuf::from(&cfg.storage.data_dir);
+                crate::alerts::log_alert(
+                    &data_dir,
+                    &crate::alerts::AlertEvent::physio(
+                        metric,
+                        metric_severity,
+                        value,
+                        threshold,
+                        event.session_id.clone(),
+                        None,
+                    ),
+                )?;
+            }
+        }
+
         self.physio_events.write().await.push(event.clone());
+
+        // Persist raw physiological events for baseline learning and audits.
+        // Best-effort: never fail the request due to logging issues.
+        {
+            use std::fs::OpenOptions;
+            use std::io::Write;
+
+            let data_dir = std::path::PathBuf::from(&cfg.storage.data_dir);
+            let observer_dir = data_dir.join("observer");
+            if let Err(e) = std::fs::create_dir_all(&observer_dir) {
+                ::tracing::warn!("Failed to create observer dir {:?}: {}", observer_dir, e);
+            } else {
+                let file_path = observer_dir.join("physio_events.jsonl");
+                match OpenOptions::new().create(true).append(true).open(&file_path) {
+                    Ok(mut file) => match serde_json::to_string(&event) {
+                        Ok(line) => {
+                            if let Err(e) = writeln!(file, "{}", line) {
+                                ::tracing::warn!(
+                                    "Failed to append physio event to {:?}: {}",
+                                    file_path,
+                                    e
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            ::tracing::warn!("Failed to serialize physio event: {}", e);
+                        }
+                    },
+                    Err(e) => {
+                        ::tracing::warn!("Failed to open {:?}: {}", file_path, e);
+                    }
+                }
+            }
+        }
 
         // Also add to timeline
         let obs = Observation {
@@ -368,24 +492,78 @@ impl UniversalObserver {
     }
 
     /// Compute severity from physiological readings
-    fn compute_physio_severity(&self, event: &PhysioEvent) -> ContextSeverity {
-        if let Some(hr) = event.heart_rate_bpm {
-            if hr > 120.0 || hr < 50.0 {
-                return ContextSeverity::High;
-            }
-            if hr > 100.0 || hr < 60.0 {
-                return ContextSeverity::Medium;
+    fn compute_physio_severity(
+        &self,
+        event: &PhysioEvent,
+        thresholds: &beagle_config::PhysioThresholds,
+    ) -> (Severity, Option<(&'static str, f32, f32, Severity)>) {
+        use crate::classification::{
+            classify_hr, classify_hrv, classify_resp_rate, classify_skin_temp, classify_spo2,
+        };
+
+        let mut best = (Severity::Normal, None);
+
+        if let Some(hrv_ms) = event.hrv_ms {
+            let value = hrv_ms as f32;
+            let sev = classify_hrv(value, thresholds);
+            if sev > best.0 {
+                best = (sev, Some(("hrv_ms", value, thresholds.hrv_low_ms, sev)));
             }
         }
-        if let Some(spo2) = event.spo2_percent {
-            if spo2 < 90.0 {
-                return ContextSeverity::Critical;
-            }
-            if spo2 < 95.0 {
-                return ContextSeverity::High;
+
+        if let Some(heart_rate_bpm) = event.heart_rate_bpm {
+            let value = heart_rate_bpm as f32;
+            let sev = classify_hr(value, thresholds);
+            if sev > best.0 {
+                let threshold = if value >= thresholds.hr_tachy_bpm {
+                    thresholds.hr_tachy_bpm
+                } else {
+                    thresholds.hr_brady_bpm
+                };
+                best = (sev, Some(("heart_rate_bpm", value, threshold, sev)));
             }
         }
-        ContextSeverity::Normal
+
+        if let Some(spo2_percent) = event.spo2_percent {
+            let value = spo2_percent as f32;
+            let sev = classify_spo2(value, thresholds);
+            if sev > best.0 {
+                let threshold = if value <= thresholds.spo2_critical {
+                    thresholds.spo2_critical
+                } else {
+                    thresholds.spo2_warning
+                };
+                best = (sev, Some(("spo2_percent", value, threshold, sev)));
+            }
+        }
+
+        if let Some(resp_rate_bpm) = event.resp_rate_bpm {
+            let value = resp_rate_bpm as f32;
+            let sev = classify_resp_rate(value, thresholds);
+            if sev > best.0 {
+                let threshold = if value <= thresholds.resp_rate_low_bpm {
+                    thresholds.resp_rate_low_bpm
+                } else {
+                    thresholds.resp_rate_high_bpm
+                };
+                best = (sev, Some(("resp_rate_bpm", value, threshold, sev)));
+            }
+        }
+
+        if let Some(skin_temp_c) = event.skin_temp_c {
+            let value = skin_temp_c as f32;
+            let sev = classify_skin_temp(value, thresholds);
+            if sev > best.0 {
+                let threshold = if value <= thresholds.skin_temp_low_c {
+                    thresholds.skin_temp_low_c
+                } else {
+                    thresholds.skin_temp_high_c
+                };
+                best = (sev, Some(("skin_temp_c", value, threshold, sev)));
+            }
+        }
+
+        best
     }
 
     /// Record environmental event
@@ -394,15 +572,36 @@ impl UniversalObserver {
         &self,
         event: EnvEvent,
         _session: Option<&str>,
-    ) -> Result<ContextSeverity> {
-        let severity = self.compute_env_severity(&event);
+    ) -> Result<Severity> {
+        let cfg = beagle_config::load();
+        let thresholds = &cfg.observer.env;
+
+        let (severity, dominant_metric) = self.compute_env_severity(&event, thresholds);
 
         // Update env state
         {
             let mut ctx = self.user_context.write().await;
-            ctx.env.severity = severity.clone();
+            ctx.env.severity = severity;
             ctx.env.summary = Some(format!("{:?}", event.event_type));
-            ctx.env.temperature = event.value;
+            ctx.env.temperature = event.ambient_temp_c.or(event.value);
+            ctx.env.humidity = event.humidity_percent;
+        }
+
+        if severity >= Severity::Moderate {
+            if let Some((metric, value, threshold, metric_severity)) = dominant_metric {
+                let data_dir = std::path::PathBuf::from(&cfg.storage.data_dir);
+                crate::alerts::log_alert(
+                    &data_dir,
+                    &crate::alerts::AlertEvent::env(
+                        metric,
+                        metric_severity,
+                        value,
+                        threshold,
+                        event.session_id.clone(),
+                        None,
+                    ),
+                )?;
+            }
         }
 
         self.env_events.write().await.push(event.clone());
@@ -423,8 +622,60 @@ impl UniversalObserver {
     }
 
     /// Compute severity from environmental readings
-    fn compute_env_severity(&self, _event: &EnvEvent) -> ContextSeverity {
-        ContextSeverity::Normal
+    fn compute_env_severity(
+        &self,
+        event: &EnvEvent,
+        thresholds: &beagle_config::EnvThresholds,
+    ) -> (Severity, Option<(&'static str, f32, f32, Severity)>) {
+        use crate::classification::{
+            classify_altitude, classify_ambient_temp, classify_baro_pressure, classify_uv_index,
+        };
+
+        let mut best = (Severity::Normal, None);
+
+        if let Some(altitude_m) = event.altitude_m {
+            let value = altitude_m as f32;
+            let sev = classify_altitude(value, thresholds);
+            if sev > best.0 {
+                best = (sev, Some(("altitude_m", value, thresholds.altitude_high_m, sev)));
+            }
+        }
+
+        if let Some(baro_pressure_hpa) = event.baro_pressure_hpa {
+            let value = baro_pressure_hpa as f32;
+            let sev = classify_baro_pressure(value, thresholds);
+            if sev > best.0 {
+                let threshold = if value <= thresholds.baro_low_hpa {
+                    thresholds.baro_low_hpa
+                } else {
+                    thresholds.baro_high_hpa
+                };
+                best = (sev, Some(("baro_pressure_hpa", value, threshold, sev)));
+            }
+        }
+
+        if let Some(ambient_temp_c) = event.ambient_temp_c {
+            let value = ambient_temp_c as f32;
+            let sev = classify_ambient_temp(value, thresholds);
+            if sev > best.0 {
+                let threshold = if value <= thresholds.temp_cold_c {
+                    thresholds.temp_cold_c
+                } else {
+                    thresholds.temp_heat_c
+                };
+                best = (sev, Some(("ambient_temp_c", value, threshold, sev)));
+            }
+        }
+
+        if let Some(uv_index) = event.uv_index {
+            let value = uv_index as f32;
+            let sev = classify_uv_index(value, thresholds);
+            if sev > best.0 {
+                best = (sev, Some(("uv_index", value, thresholds.uv_high, sev)));
+            }
+        }
+
+        best
     }
 
     /// Record space weather event
@@ -433,17 +684,37 @@ impl UniversalObserver {
         &self,
         event: SpaceWeatherEvent,
         _session: Option<&str>,
-    ) -> Result<ContextSeverity> {
-        let severity = self.compute_space_severity(&event);
+    ) -> Result<Severity> {
+        let cfg = beagle_config::load();
+        let thresholds = &cfg.observer.space_weather;
+
+        let (severity, dominant_metric) = self.compute_space_severity(&event, thresholds);
 
         // Update space state
         {
             let mut ctx = self.user_context.write().await;
-            ctx.space.severity = severity.clone();
+            ctx.space.severity = severity;
             ctx.space.kp_index = event.kp_index;
             ctx.space.solar_flux = event.solar_flux;
             if event.geomagnetic_storm {
                 ctx.space.heliobio_risk_level = Some("high".to_string());
+            }
+        }
+
+        if severity >= Severity::Moderate {
+            if let Some((metric, value, threshold, metric_severity)) = dominant_metric {
+                let data_dir = std::path::PathBuf::from(&cfg.storage.data_dir);
+                crate::alerts::log_alert(
+                    &data_dir,
+                    &crate::alerts::AlertEvent::space_weather(
+                        metric,
+                        metric_severity,
+                        value,
+                        threshold,
+                        event.session_id.clone(),
+                        None,
+                    ),
+                )?;
             }
         }
 
@@ -471,22 +742,63 @@ impl UniversalObserver {
     }
 
     /// Compute severity from space weather
-    fn compute_space_severity(&self, event: &SpaceWeatherEvent) -> ContextSeverity {
+    fn compute_space_severity(
+        &self,
+        event: &SpaceWeatherEvent,
+        thresholds: &beagle_config::SpaceWeatherThresholds,
+    ) -> (Severity, Option<(&'static str, f32, f32, Severity)>) {
+        use crate::classification::{classify_kp_index, classify_proton_flux, classify_solar_wind_speed};
+
+        let mut best = (Severity::Normal, None);
+
         if event.geomagnetic_storm {
-            return ContextSeverity::High;
+            best = (
+                Severity::Severe,
+                Some(("geomagnetic_storm", 1.0, 1.0, Severity::Severe)),
+            );
         }
-        if let Some(kp) = event.kp_index {
-            if kp >= 7.0 {
-                return ContextSeverity::Critical;
-            }
-            if kp >= 5.0 {
-                return ContextSeverity::High;
-            }
-            if kp >= 4.0 {
-                return ContextSeverity::Medium;
+
+        if let Some(kp_index) = event.kp_index {
+            let value = kp_index as f32;
+            let sev = classify_kp_index(value, thresholds);
+            if sev > best.0 {
+                let threshold = if value >= thresholds.kp_severe_storm {
+                    thresholds.kp_severe_storm
+                } else {
+                    thresholds.kp_storm
+                };
+                best = (sev, Some(("kp_index", value, threshold, sev)));
             }
         }
-        ContextSeverity::Normal
+
+        if let Some(proton_flux_pfu) = event.proton_flux_pfu {
+            let value = proton_flux_pfu as f32;
+            let sev = classify_proton_flux(value, thresholds);
+            if sev > best.0 {
+                best = (
+                    sev,
+                    Some(("proton_flux_pfu", value, thresholds.proton_flux_high_pfu, sev)),
+                );
+            }
+        }
+
+        if let Some(solar_wind_speed_km_s) = event.solar_wind_speed_km_s {
+            let value = solar_wind_speed_km_s as f32;
+            let sev = classify_solar_wind_speed(value, thresholds);
+            if sev > best.0 {
+                best = (
+                    sev,
+                    Some((
+                        "solar_wind_speed_km_s",
+                        value,
+                        thresholds.solar_wind_speed_high_km_s,
+                        sev,
+                    )),
+                );
+            }
+        }
+
+        best
     }
 
     /// Get recent physio events
@@ -568,6 +880,11 @@ pub struct SystemObserver {
 impl SystemObserver {
     /// Create new system observer
     pub async fn new(config: ObserverConfig) -> Result<Self> {
+        Self::new_sync(config)
+    }
+
+    /// Create new system observer (sync)
+    pub fn new_sync(config: ObserverConfig) -> Result<Self> {
         let metrics = Arc::new(MetricsCollector::new());
         let alerts = Arc::new(AlertManager::new());
         let profiler = Arc::new(Profiler::default());
@@ -668,5 +985,10 @@ mod tests {
         // Check health
         let health = observer.check_health().await;
         assert!(health.is_operational());
+    }
+
+    #[tokio::test]
+    async fn test_universal_observer_new_works_inside_runtime() {
+        UniversalObserver::new().unwrap();
     }
 }

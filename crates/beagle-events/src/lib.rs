@@ -17,9 +17,18 @@ pub use events::{BeagleEvent, EventMetadata, EventType};
 pub use publisher::EventPublisher;
 pub use subscriber::{EventHandler, EventSubscriber};
 
-// Re-export pulsar types for convenience
+// Keep BeaglePulsar::new signature stable even when Pulsar integration is disabled.
+#[cfg(feature = "pulsar")]
+pub use pulsar::Authentication;
+
+#[cfg(not(feature = "pulsar"))]
+#[derive(Debug, Clone)]
+pub struct Authentication;
+
+// Re-export pulsar types for convenience (only when enabled).
+#[cfg(feature = "pulsar")]
 pub use pulsar::{
     consumer::{Consumer, ConsumerOptions},
     producer::{Message, SendFuture},
-    Authentication, Pulsar, TokioExecutor,
+    Pulsar, TokioExecutor,
 };

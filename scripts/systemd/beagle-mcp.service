@@ -1,0 +1,19 @@
+[Unit]
+Description=BEAGLE MCP Server (Streamable HTTP / stdio)
+After=network.target beagle-core.service
+Requires=beagle-core.service
+
+[Service]
+Type=simple
+User=demetrios
+Group=demetrios
+EnvironmentFile=-/etc/beagle-mcp.env
+ExecStart=/usr/bin/env bash -lc 'set -euo pipefail; root="${BEAGLE_WORKSPACE_ROOT:-%h/beagle}"; cd "${root}/beagle-mcp-server"; if [[ ! -f dist/index.js ]]; then echo "Missing dist/index.js (run: cd beagle-mcp-server && npm install && npm run build)"; exit 1; fi; exec node dist/index.js'
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

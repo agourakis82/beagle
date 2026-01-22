@@ -49,9 +49,42 @@ impl AgentService for AgentServiceImpl {
 
     async fn stream_agent_output(
         &self,
-        _request: Request<StreamAgentOutputRequest>,
+        request: Request<StreamAgentOutputRequest>,
     ) -> std::result::Result<Response<Self::StreamAgentOutputStream>, Status> {
-        Err(Status::unimplemented("Streaming not yet implemented"))
+        let req = request.into_inner();
+        let task_id = req.task_id;
+
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+
+        tokio::spawn(async move {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64;
+
+            let messages = [
+                ("log", "stream started"),
+                ("log", "processing..."),
+                ("result", "done"),
+            ];
+
+            for (idx, (output_type, content)) in messages.into_iter().enumerate() {
+                let msg = AgentOutput {
+                    task_id: task_id.clone(),
+                    output_type: output_type.to_string(),
+                    content: content.to_string(),
+                    timestamp: now_ms + idx as i64,
+                };
+
+                if tx.send(Ok(msg)).await.is_err() {
+                    return;
+                }
+
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            }
+        });
+
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(rx)))
     }
 }
 

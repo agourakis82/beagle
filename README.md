@@ -1,20 +1,20 @@
-# BEAGLE v0.3.0 - Memory & MCP Layer
+# BEAGLE v0.27.0 - Exocortex ResearchOps (Darwin)
 
 **Exocórtex Científico Pessoal** - Rust + Julia + Swift/Tauri
 
-## 🚀 Versão Atual: v0.3.0
+## 🚀 Versão Atual: v0.27.0
 
-BEAGLE v0.3.0 implementa a camada de **Memory & MCP (Model Context Protocol)**, transformando o BEAGLE em um verdadeiro **exocórtex MCP** acessível via ChatGPT e Claude.
+BEAGLE v0.27.0 consolida o **loop completo do Exocórtex**: Core + MCP + Observer + **DARWIN ResearchOps** (RAG com atualização contínua) para código, papers, docs e livros.
 
-### ✨ Novidades v0.3.0
+### ✨ Novidades v0.27.0
 
-- **Memory Engine**: Memória persistente para todas as conversas (ChatGPT, Claude, Grok, local)
-- **MCP Server**: Servidor MCP completo para integração com ChatGPT e Claude
-- **Serendipity Integration**: Geração de acidentes férteis interdisciplinares
-- **Void Deadlock Detection**: Detecção e resolução de loops cognitivos
-- **Security**: Auth e rate limiting no MCP server
+- **RAG Update Contínuo (Rust)**: `darwin-incremental-indexer`, `darwin-knowledge-manager`, `darwin-research-harvester`, `darwin-web-harvester`, `darwin-brief`, `darwin-eval`
+- **Webhook GitHub (push)**: `POST /webhooks/github/push` → indexação incremental do repo
+- **Systemd timers**: automação (index, harvest, briefs, eval) com env seguro em `/etc/darwin-*.env`
+- **Roteamento multi-provedor**: MiniMax/Z.ai → Grok → DeepSeek (+ rotas premium quando configuradas)
+- **HRV + Observer + TTS**: endpoints operacionais e ferramentas MCP
 
-📖 **Documentação completa**: Veja [docs/BEAGLE_v0_3_RELEASE_NOTES.md](docs/BEAGLE_v0_3_RELEASE_NOTES.md)
+📖 **Release notes**: Veja [docs/RELEASE_NOTES_v0.27.0.md](docs/RELEASE_NOTES_v0.27.0.md)
 
 ---
 
@@ -24,7 +24,7 @@ BEAGLE segue uma arquitetura **Rust-first** com pipelines científicos em Julia:
 
 - **Núcleo Rust**: `beagle-llm`, `beagle-monorepo`, `beagle-triad`, `beagle-feedback`, `beagle-memory`
 - **Pipelines Julia**: PBPK, Heliobiology, Scaffolds, PCS, KEC
-- **Cloud-first LLM**: Grok 3 Tier 1 (ilimitado), Grok 4 Heavy (casos críticos)
+- **Cloud-first LLM**: MiniMax/Z.ai (alto throughput) → Grok (robustez) → DeepSeek (math)
 - **Storage centralizado**: `BEAGLE_DATA_DIR` para todos os artefatos
 
 ## Quick Start
@@ -52,23 +52,31 @@ npm run build
 MCP_AUTH_TOKEN=your-token npm start
 ```
 
-### 4. Conectar ChatGPT/Claude
+### 4. Conectar ChatGPT/Claude e rodar Darwin
 
-Siga as instruções em [docs/BEAGLE_MCP.md](docs/BEAGLE_MCP.md).
+- MCP: [docs/BEAGLE_MCP.md](docs/BEAGLE_MCP.md)
+- Dev-Canon runbook (systemd + Darwin): [docs/DEV_CANON_RUNBOOK.md](docs/DEV_CANON_RUNBOOK.md)
+- Exocortex roadmap 2026: [docs/EXOCORTEX_ROADMAP_2026.md](docs/EXOCORTEX_ROADMAP_2026.md)
 
 ## Documentação
 
 - [BEAGLE_MCP.md](docs/BEAGLE_MCP.md) - Guia do MCP Server
 - [BEAGLE_CORE_v0_1.md](docs/BEAGLE_CORE_v0_1.md) - Documentação técnica do core
-- [BEAGLE_v0_3_RELEASE_NOTES.md](docs/BEAGLE_v0_3_RELEASE_NOTES.md) - Release notes v0.3.0
+- [RELEASE_NOTES_v0.27.0.md](docs/RELEASE_NOTES_v0.27.0.md) - Release notes v0.27.0
 - [CHANGELOG.md](docs/CHANGELOG.md) - Histórico de mudanças
 
 ## Features
 
-### Memory & MCP
+### Memory, MCP & Exocortex
 - ✅ Memory Engine com GraphRAG
 - ✅ MCP Server para ChatGPT/Claude
 - ✅ RAG injection no pipeline
+
+### DARWIN ResearchOps (RAG contínuo)
+- ✅ Indexação incremental via git (add/modify/delete)
+- ✅ Collections separadas no Qdrant: `darwin-repos`, `darwin-papers`, `darwin-docs`, `darwin-books`
+- ✅ Auto-update via systemd timers
+- ✅ Push trigger via GitHub webhook
 
 ### Pipeline Científico
 - ✅ Pipeline v0.1 (Darwin + Observer + HERMES)
@@ -90,4 +98,4 @@ MIT OR Apache-2.0
 
 ---
 
-**BEAGLE v0.3.0** - Memory & MCP Layer | [Release Notes](docs/BEAGLE_v0_3_RELEASE_NOTES.md) | [Changelog](docs/CHANGELOG.md)
+**BEAGLE v0.27.0** - Exocortex ResearchOps | [Release Notes](docs/RELEASE_NOTES_v0.27.0.md) | [Changelog](docs/CHANGELOG.md)

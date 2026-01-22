@@ -302,6 +302,21 @@ pub async fn run_beagle_pipeline(
         exo_config.features.enable_observer = observer.is_some();
         exo_config.features.enable_consciousness = true;
         exo_config.features.enable_proactive = false; // Disabled for pipeline mode
+        if let Ok(persistence) = std::env::var("EXOCORTEX_IDENTITY_PERSISTENCE") {
+            if !persistence.trim().is_empty() {
+                exo_config.identity.persistence = persistence;
+            }
+        }
+        if let Ok(path) = std::env::var("EXOCORTEX_IDENTITY_PATH") {
+            if !path.trim().is_empty() {
+                exo_config.identity.persistence_path = Some(path);
+            }
+        }
+        if let Ok(database_url) = std::env::var("EXOCORTEX_IDENTITY_DATABASE_URL") {
+            if !database_url.trim().is_empty() {
+                exo_config.identity.database_url = Some(database_url);
+            }
+        }
 
         match PersonalExocortex::with_context(exo_config, exo_ctx_arc).await {
             Ok(exocortex) => {
@@ -447,9 +462,17 @@ pub async fn run_beagle_pipeline(
     std::fs::write(&draft_md, &draft)?;
     info!("✅ Draft MD salvo: {}", draft_md.display());
 
-    // PDF (placeholder - implementar renderização real)
-    render_to_pdf(&draft, &draft_pdf).await?;
-    info!("✅ Draft PDF salvo: {}", draft_pdf.display());
+    // PDF é best-effort por padrão (dev/test environments frequentemente não têm pandoc/LaTeX).
+    // Para tornar obrigatório, use: BEAGLE_PDF_REQUIRED=true
+    let pdf_required = std::env::var("BEAGLE_PDF_REQUIRED")
+        .ok()
+        .map(|v| matches!(v.to_lowercase().trim(), "1" | "true" | "t" | "yes" | "y"))
+        .unwrap_or(false);
+    match render_to_pdf(&draft, &draft_pdf).await {
+        Ok(()) => info!("✅ Draft PDF salvo: {}", draft_pdf.display()),
+        Err(e) if pdf_required => return Err(e),
+        Err(e) => warn!("PDF não gerado (best-effort): {}", e),
+    }
 
     // 5) Run report (inclui science_job_ids e UserContext se fornecidos)
     let run_report = create_run_report(
@@ -540,6 +563,11 @@ async fn call_llm_with_stats(
     // Atualiza stats
     ctx.llm_stats.update(run_id, |stats| {
         match tier {
+            ProviderTier::MiniMax => {
+                stats.minimax_calls += 1;
+                stats.minimax_tokens_in += output.tokens_in_est as u32;
+                stats.minimax_tokens_out += output.tokens_out_est as u32;
+            }
             ProviderTier::Grok3 => {
                 stats.grok3_calls += 1;
                 stats.grok3_tokens_in += output.tokens_in_est as u32;

@@ -1,0 +1,53 @@
+[package]
+name = "beagle-rag-update"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+config.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+blake3 = "1.5"
+clap = { version = "4.5", features = ["derive", "env"] }
+walkdir = "2.5"
+beagle-search = { path = "../beagle-search" }
+beagle-llm = { path = "../beagle-llm" }
+scraper = "0.18"
+flate2 = "1.0"
+quick-xml = "0.36"
+
+[[bin]]
+name = "darwin-incremental-indexer"
+path = "src/bin/incremental_indexer.rs"
+
+[[bin]]
+name = "darwin-knowledge-manager"
+path = "src/bin/knowledge_manager.rs"
+
+[[bin]]
+name = "darwin-research-harvester"
+path = "src/bin/research_harvester.rs"
+
+[[bin]]
+name = "darwin-web-harvester"
+path = "src/bin/web_harvester.rs"
+
+[[bin]]
+name = "darwin-eval"
+path = "src/bin/eval.rs"
+
+[[bin]]
+name = "darwin-brief"
+path = "src/bin/brief.rs"

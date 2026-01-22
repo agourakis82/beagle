@@ -191,23 +191,26 @@ async fn demo_search_system() -> Result<()> {
 
 /// Demo observer system
 async fn demo_observer_system() -> Result<()> {
-    use beagle_observer::{Metric, ObserverConfig, SystemObserver};
+    use beagle_observer::tracing::{TraceCollector, TracingConfig};
+    use beagle_observer::{ObserverConfig, SystemObserver};
+    use std::collections::HashMap;
 
     let config = ObserverConfig::default();
     let observer = SystemObserver::new(config).await?;
 
     // Record metrics
     observer
-        .record_metric(Metric::gauge("test.metric", 42.0))
-        .await?;
+        .record_metric("test.metric", 42.0, HashMap::new())
+        .await;
     observer
-        .record_metric(Metric::counter("test.counter", 1.0))
-        .await?;
+        .record_metric("test.counter", 1.0, HashMap::new())
+        .await;
 
-    // Start a trace
-    let span = observer.start_span("test_operation", None).await?;
+    // Tracing demo (independent of SystemObserver)
+    let tracer = TraceCollector::new(TracingConfig::default())?;
+    let span = tracer.start_span("test_operation", None).await?;
     sleep(Duration::from_millis(10)).await;
-    observer.end_span(span).await?;
+    tracer.end_span(span).await?;
 
     info!("   ✓ Observer recorded metrics and traces");
 
@@ -217,22 +220,23 @@ async fn demo_observer_system() -> Result<()> {
 /// Run integrated workflow combining multiple systems
 async fn run_integrated_workflow() -> Result<()> {
     use beagle_memory::{Document, QueryOptions, RAGEngine};
-    use beagle_observer::{Metric, ObserverConfig, SystemObserver};
+    use beagle_observer::tracing::{TraceCollector, TracingConfig};
+    use beagle_observer::{ObserverConfig, SystemObserver};
     use beagle_search::{SearchEngine, SearchQuery};
     use beagle_symbolic::{Fact, InferenceEngine, KnowledgeBase, Rule};
+    use std::collections::HashMap;
 
     debug!("Starting integrated workflow...");
 
     // Initialize observer
     let observer = Arc::new(SystemObserver::new(ObserverConfig::default()).await?);
+    let tracer = TraceCollector::new(TracingConfig::default())?;
 
     // Start workflow trace
-    let trace = observer.start_span("integrated_workflow", None).await?;
+    let trace = tracer.start_span("integrated_workflow", None).await?;
 
     // Step 1: Search for information
-    let search_span = observer
-        .start_span("search_phase", Some(trace.clone()))
-        .await?;
+    let search_span = tracer.start_span("search_phase", Some(trace.clone())).await?;
     let mut search = SearchEngine::new(1.2, 0.75);
 
     search
@@ -242,13 +246,11 @@ async fn run_integrated_workflow() -> Result<()> {
         .await?;
 
     let results = search.search(&SearchQuery::new("quantum")).await?;
-    observer.end_span(search_span).await?;
+    tracer.end_span(search_span).await?;
     debug!("  Search found {} results", results.len());
 
     // Step 2: Store in RAG memory
-    let memory_span = observer
-        .start_span("memory_phase", Some(trace.clone()))
-        .await?;
+    let memory_span = tracer.start_span("memory_phase", Some(trace.clone())).await?;
     let mut rag = RAGEngine::new(128, 256, 25);
 
     for result in &results {
@@ -260,11 +262,11 @@ async fn run_integrated_workflow() -> Result<()> {
         })
         .await?;
     }
-    observer.end_span(memory_span).await?;
+    tracer.end_span(memory_span).await?;
     debug!("  Stored {} documents in memory", results.len());
 
     // Step 3: Apply reasoning
-    let reasoning_span = observer
+    let reasoning_span = tracer
         .start_span("reasoning_phase", Some(trace.clone()))
         .await?;
     let mut kb = KnowledgeBase::new();
@@ -277,19 +279,18 @@ async fn run_integrated_workflow() -> Result<()> {
     let mut engine = InferenceEngine::new(kb);
     let query = Fact::new("advanced_system", vec!["QS1".to_string()]);
     let proven = engine.prove(&query)?;
-    observer.end_span(reasoning_span).await?;
+    tracer.end_span(reasoning_span).await?;
     debug!("  Reasoning result: {}", proven);
 
     // End workflow trace
-    observer.end_span(trace).await?;
+    tracer.end_span(trace).await?;
 
     // Record success metric
     observer
-        .record_metric(Metric::counter("workflow.completed", 1.0))
-        .await?;
+        .record_metric("workflow.completed", 1.0, HashMap::new())
+        .await;
 
     info!("   ✓ Integrated workflow completed successfully");
 
     Ok(())
 }
-

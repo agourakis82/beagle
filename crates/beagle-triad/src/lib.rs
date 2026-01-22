@@ -173,20 +173,6 @@ pub async fn run_triad(input: &TriadInput, ctx: &BeagleContext) -> anyhow::Resul
 
     // Obtém stats finais do contexto
     let llm_stats = ctx.llm_stats.get(&input.run_id).unwrap_or_default();
-    let llm_stats_converted = LlmCallsStatsLLM {
-        grok3_calls: llm_stats.grok3_calls,
-        grok3_tokens_in: llm_stats.grok3_tokens_in,
-        grok3_tokens_out: llm_stats.grok3_tokens_out,
-        grok4_calls: llm_stats.grok4_calls,
-        grok4_tokens_in: llm_stats.grok4_tokens_in,
-        grok4_tokens_out: llm_stats.grok4_tokens_out,
-        deepseek_calls: llm_stats.deepseek_calls,
-        deepseek_tokens_in: llm_stats.deepseek_tokens_in,
-        deepseek_tokens_out: llm_stats.deepseek_tokens_out,
-        local_calls: llm_stats.local_calls,
-        local_tokens_in: llm_stats.local_tokens_in,
-        local_tokens_out: llm_stats.local_tokens_out,
-    };
 
     Ok(TriadReport {
         run_id: input.run_id.clone(),
@@ -194,7 +180,7 @@ pub async fn run_triad(input: &TriadInput, ctx: &BeagleContext) -> anyhow::Resul
         final_draft,
         opinions: vec![athena, hermes, argos],
         created_at: Utc::now(),
-        llm_stats: llm_stats_converted,
+        llm_stats,
     })
 }
 

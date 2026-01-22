@@ -8,6 +8,7 @@
 
 - **Rust 1.70+**: Install from https://rustup.rs
 - **Grok API Key**: Get from https://x.ai
+- **(Optional) PDF generation**: install Pandoc + LaTeX (XeLaTeX) if you want PDF drafts.
 
 ---
 
@@ -19,6 +20,11 @@ cd beagle-remote
 
 # Build (first time takes ~5-10 minutes)
 cargo build --release
+```
+
+If you see a PyO3 error like “Python interpreter version (3.13) is newer than PyO3’s maximum supported version (3.12)”, set:
+```bash
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 ```
 
 ---
@@ -35,6 +41,11 @@ export XAI_API_KEY="xai-your-key-here"           # Your Grok API key
 # Optional: Enable Grok 4 Heavy (for critical sections)
 export BEAGLE_HEAVY_ENABLE="true"
 export BEAGLE_HEAVY_MAX_CALLS_PER_RUN="5"
+
+# Optional: Alternative routing policies
+# - minimax-grok-deepseek: MiniMax → Grok → DeepSeek (cost control)
+# - zai-grok-deepseek: Z.ai → Grok → DeepSeek (high-rate subscription)
+export BEAGLE_ROUTING_POLICY="minimax-grok-deepseek"
 ```
 
 **Pro tip:** Save these to `~/.beagle_env` and run `source ~/.beagle_env`
@@ -53,7 +64,7 @@ mkdir -p $BEAGLE_DATA_DIR/{papers/drafts,logs/beagle-pipeline,triad,feedback}
 
 ```bash
 # Start the core server (Terminal 1)
-cargo run --bin beagle-monorepo --release
+cargo run -p beagle-monorepo --bin core_server --release
 
 # In another terminal (Terminal 2)
 source ~/.beagle_env
@@ -70,11 +81,13 @@ cargo run --bin pipeline --package beagle-monorepo -- \
 💾 Fase 4: Escrita de artefatos
 
 ✅ Draft MD salvo: ~/beagle-data/papers/drafts/20250115_550e8400.md
-✅ Draft PDF salvo: ~/beagle-data/papers/drafts/20250115_550e8400.pdf
+✅ Draft PDF salvo: ~/beagle-data/papers/drafts/20250115_550e8400.pdf  # if Pandoc/LaTeX available
 ✅ Run report salvo: ~/beagle-data/logs/beagle-pipeline/20250115_550e8400.json
 
 Run ID: 550e8400-e29b-41d4-a716-446655440000
 ```
+
+If you want the pipeline to fail when PDF generation is unavailable, set `BEAGLE_PDF_REQUIRED=true`.
 
 ---
 

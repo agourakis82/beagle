@@ -65,14 +65,42 @@ impl BeagleContext {
 
         // Escolhe Vector Store (com degraded mode robusto)
         let vector: Arc<dyn VectorStore> = if let Some(qdrant_url) = &cfg.graph.qdrant_url {
-            match QdrantVectorStore::from_config(&cfg) {
-                Ok(store) => {
-                    info!("✓ Qdrant vector store inicializado: {}", qdrant_url);
-                    Arc::new(store)
+            let multi_collections = std::env::var("BEAGLE_QDRANT_COLLECTIONS")
+                .ok()
+                .map(|raw| {
+                    raw.split(',')
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>()
+                })
+                .filter(|v| !v.is_empty());
+
+            if let Some(collections) = multi_collections {
+                match MultiQdrantVectorStore::from_config(&cfg, collections.clone()) {
+                    Ok(store) => {
+                        info!(
+                            "✓ MultiQdrant vector store inicializado: {} (collections={})",
+                            qdrant_url,
+                            collections.join(",")
+                        );
+                        Arc::new(store)
+                    }
+                    Err(e) => {
+                        warn!("⚠ Falha ao conectar Qdrant ({}), usando NoOpVectorStore", e);
+                        Arc::new(NoOpVectorStore)
+                    }
                 }
-                Err(e) => {
-                    warn!("⚠ Falha ao conectar Qdrant ({}), usando NoOpVectorStore", e);
-                    Arc::new(NoOpVectorStore)
+            } else {
+                match QdrantVectorStore::from_config(&cfg) {
+                    Ok(store) => {
+                        info!("✓ Qdrant vector store inicializado: {}", qdrant_url);
+                        Arc::new(store)
+                    }
+                    Err(e) => {
+                        warn!("⚠ Falha ao conectar Qdrant ({}), usando NoOpVectorStore", e);
+                        Arc::new(NoOpVectorStore)
+                    }
                 }
             }
         } else {

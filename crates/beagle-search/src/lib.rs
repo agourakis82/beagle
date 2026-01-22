@@ -3,6 +3,9 @@
 //! Provides unified interfaces for searching scientific literature:
 //! - PubMed (biomedical/life sciences via NCBI E-utilities)
 //! - arXiv (physics, math, CS, etc.)
+//! - OpenAlex (broad bibliographic index)
+//! - Crossref (DOI-centric metadata)
+//! - Europe PMC (biomedical aggregator)
 //!
 //! All clients support:
 //! - Rate limiting (respects API limits)
@@ -11,11 +14,17 @@
 //! - Async/await
 
 pub mod arxiv;
+pub mod crossref;
+pub mod europepmc;
+pub mod openalex;
 pub mod pubmed;
 pub mod storage;
 pub mod types;
 
 pub use arxiv::ArxivClient;
+pub use crossref::CrossrefClient;
+pub use europepmc::EuropePmcClient;
+pub use openalex::OpenAlexClient;
 pub use pubmed::PubMedClient;
 pub use types::{Author, Paper, SearchError, SearchQuery, SearchResult};
 

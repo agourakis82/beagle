@@ -1533,7 +1533,7 @@ mod tests {
     #[tokio::test]
     async fn test_hrv_monitor_creation() {
         let config = HrvMonitorConfig::default();
-        let context = Arc::new(BeagleContext::new_with_mock());
+        let context = Arc::new(BeagleContext::new_with_mock().unwrap());
         let (monitor, mut alert_rx) = HrvRealTimeMonitor::new(config, context);
 
         assert!(alert_rx.try_recv().is_err()); // No alerts initially

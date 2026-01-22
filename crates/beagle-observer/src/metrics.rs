@@ -76,6 +76,41 @@ impl Metric {
     }
 }
 
+fn sanitize_prometheus_metric_name(name: &str) -> String {
+    // Prometheus metric name regex:
+    //   [a-zA-Z_:][a-zA-Z0-9_:]*
+    // BEAGLE often uses dotted names (e.g. `docs.processed`), so we sanitize to underscores.
+    let mut out = String::with_capacity(name.len().max(1));
+
+    for (idx, ch) in name.chars().enumerate() {
+        let valid = if idx == 0 {
+            ch.is_ascii_alphabetic() || ch == '_' || ch == ':'
+        } else {
+            ch.is_ascii_alphanumeric() || ch == '_' || ch == ':'
+        };
+        if valid {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+
+    if out.is_empty() {
+        out.push('_');
+    }
+
+    // Ensure first character is valid.
+    let first_valid = out
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == ':');
+    if !first_valid {
+        out.insert(0, '_');
+    }
+
+    out
+}
+
 /// Metrics collector with Prometheus backend
 pub struct MetricsCollector {
     registry: Registry,
@@ -187,15 +222,16 @@ impl MetricsCollector {
     /// Get or create counter
     async fn get_or_create_counter(&self, name: &str) -> Result<Counter> {
         let mut counters = self.counters.write().await;
+        let prom_name = sanitize_prometheus_metric_name(name);
 
-        if let Some(counter) = counters.get(name) {
+        if let Some(counter) = counters.get(&prom_name) {
             return Ok(counter.clone());
         }
 
-        let opts = Opts::new(name, format!("Counter for {}", name));
+        let opts = Opts::new(&prom_name, format!("Counter for {}", name));
         let counter = Counter::with_opts(opts)?;
         self.registry.register(Box::new(counter.clone()))?;
-        counters.insert(name.to_string(), counter.clone());
+        counters.insert(prom_name, counter.clone());
 
         Ok(counter)
     }
@@ -203,15 +239,16 @@ impl MetricsCollector {
     /// Get or create gauge
     async fn get_or_create_gauge(&self, name: &str) -> Result<Gauge> {
         let mut gauges = self.gauges.write().await;
+        let prom_name = sanitize_prometheus_metric_name(name);
 
-        if let Some(gauge) = gauges.get(name) {
+        if let Some(gauge) = gauges.get(&prom_name) {
             return Ok(gauge.clone());
         }
 
-        let opts = Opts::new(name, format!("Gauge for {}", name));
+        let opts = Opts::new(&prom_name, format!("Gauge for {}", name));
         let gauge = Gauge::with_opts(opts)?;
         self.registry.register(Box::new(gauge.clone()))?;
-        gauges.insert(name.to_string(), gauge.clone());
+        gauges.insert(prom_name, gauge.clone());
 
         Ok(gauge)
     }
@@ -219,15 +256,16 @@ impl MetricsCollector {
     /// Get or create histogram
     async fn get_or_create_histogram(&self, name: &str) -> Result<Histogram> {
         let mut histograms = self.histograms.write().await;
+        let prom_name = sanitize_prometheus_metric_name(name);
 
-        if let Some(histogram) = histograms.get(name) {
+        if let Some(histogram) = histograms.get(&prom_name) {
             return Ok(histogram.clone());
         }
 
-        let opts = HistogramOpts::new(name, format!("Histogram for {}", name));
+        let opts = HistogramOpts::new(&prom_name, format!("Histogram for {}", name));
         let histogram = Histogram::with_opts(opts)?;
         self.registry.register(Box::new(histogram.clone()))?;
-        histograms.insert(name.to_string(), histogram.clone());
+        histograms.insert(prom_name, histogram.clone());
 
         Ok(histogram)
     }

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 const DEFAULT_EMBEDDING_URL: &str = "http://t560.local:8001/v1";
+const DEFAULT_EMBEDDING_MODEL: &str = "BAAI/bge-large-en-v1.5";
 
 /// Tipo para representar um vetor de embedding
 pub type Embedding = Vec<f64>;
@@ -16,6 +17,7 @@ pub type Embedding = Vec<f64>;
 pub struct EmbeddingClient {
     client: Client,
     base_url: String,
+    model: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -38,9 +40,13 @@ struct EmbeddingData {
 
 impl EmbeddingClient {
     pub fn new(base_url: impl Into<String>) -> Self {
+        let model = std::env::var("EMBEDDING_MODEL")
+            .or_else(|_| std::env::var("BEAGLE_EMBEDDING_MODEL"))
+            .unwrap_or_else(|_| DEFAULT_EMBEDDING_MODEL.to_string());
         Self {
             client: Client::new(),
             base_url: base_url.into(),
+            model,
         }
     }
 
@@ -53,7 +59,7 @@ impl EmbeddingClient {
         let url = format!("{}/embeddings", self.base_url);
 
         let request = EmbeddingRequest {
-            model: "BAAI/bge-large-en-v1.5".to_string(),
+            model: self.model.clone(),
             input: vec![text.to_string()],
         };
 
@@ -97,7 +103,7 @@ impl EmbeddingClient {
         let url = format!("{}/embeddings", self.base_url);
 
         let request = EmbeddingRequest {
-            model: "BAAI/bge-large-en-v1.5".to_string(),
+            model: self.model.clone(),
             input: texts.iter().map(|s| s.to_string()).collect(),
         };
 

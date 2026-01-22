@@ -24,6 +24,10 @@ pub enum ProviderTier {
     Cursor,
     /// Claude Direct - Tier 0: Direct Anthropic API (Claude MAX subscription)
     ClaudeDirect,
+    /// MiniMax - Tier 1: Default (MiniMax 2.1)
+    MiniMax,
+    /// Z.ai - Tier 1: Default (GLM-4.7, subscription/high rate)
+    Zai,
     /// Grok 3 - Tier 1: Default, ~94% dos casos (unlimited)
     Grok3,
     /// Grok 4 Heavy - Tier 2a: Anti-bias vaccine, critical methods
@@ -43,6 +47,8 @@ impl ProviderTier {
             ProviderTier::Copilot => "copilot",
             ProviderTier::Cursor => "cursor",
             ProviderTier::ClaudeDirect => "claude-direct",
+            ProviderTier::MiniMax => "minimax",
+            ProviderTier::Zai => "zai",
             ProviderTier::Grok3 => "grok-3",
             ProviderTier::Grok4Heavy => "grok-4-heavy",
             ProviderTier::DeepSeekMath => "deepseek-math",
@@ -58,6 +64,8 @@ impl ProviderTier {
             ProviderTier::Copilot => 0.0,       // Subscription
             ProviderTier::Cursor => 0.0,        // Subscription
             ProviderTier::ClaudeDirect => 15.0, // ~$15/M tokens
+            ProviderTier::MiniMax => 0.0,       // Unknown; see BEAGLE_MINIMAX_COST_PER_MILLION
+            ProviderTier::Zai => 0.0,           // Unknown/subscription; see BEAGLE_ZAI_COST_PER_MILLION
             ProviderTier::Grok3 => 5.0,         // ~$5/M tokens
             ProviderTier::Grok4Heavy => 25.0,   // ~$25/M tokens
             ProviderTier::DeepSeekMath => 14.0, // ~$14/M tokens
@@ -74,6 +82,7 @@ impl ProviderTier {
                 | ProviderTier::CloudMath
                 | ProviderTier::ClaudeCli
                 | ProviderTier::ClaudeDirect
+                | ProviderTier::Zai
         )
     }
 }
@@ -191,6 +200,10 @@ fn env_u32(key: &str, default: u32) -> u32 {
         .unwrap_or(default)
 }
 
+fn limit_allows(current: u32, max: u32) -> bool {
+    max == 0 || current < max
+}
+
 /// Router com sistema de Tiers completo
 #[derive(Clone)]
 pub struct TieredRouter {
@@ -198,6 +211,8 @@ pub struct TieredRouter {
     pub copilot: Option<Arc<dyn LlmClient>>,
     pub cursor: Option<Arc<dyn LlmClient>>,
     pub claude: Option<Arc<dyn LlmClient>>,
+    pub minimax: Option<Arc<dyn LlmClient>>,
+    pub zai: Option<Arc<dyn LlmClient>>,
     pub grok3: Arc<dyn LlmClient>,
     pub grok4_heavy: Option<Arc<dyn LlmClient>>,
     pub math: Option<Arc<dyn LlmClient>>,
@@ -206,6 +221,73 @@ pub struct TieredRouter {
 }
 
 impl TieredRouter {
+    fn choose_premium_subscription(&self, meta: &RequestMeta) -> Option<(Arc<dyn LlmClient>, ProviderTier)> {
+        if !(meta.requires_phd_level_reasoning || meta.critical_section) {
+            return None;
+        }
+
+        // Priority: Claude CLI > Claude Direct > Copilot > Cursor
+        if let Some(claude_cli) = &self.claude_cli {
+            info!(
+                "Router → Claude CLI (premium: phd_reasoning={}, critical={})",
+                meta.requires_phd_level_reasoning, meta.critical_section
+            );
+            return Some((claude_cli.clone(), ProviderTier::ClaudeCli));
+        }
+
+        if let Some(claude) = &self.claude {
+            info!(
+                "Router → Claude Direct (premium: phd_reasoning={}, critical={})",
+                meta.requires_phd_level_reasoning, meta.critical_section
+            );
+            return Some((claude.clone(), ProviderTier::ClaudeDirect));
+        }
+
+        if let Some(copilot) = &self.copilot {
+            info!(
+                "Router → Copilot (premium: phd_reasoning={}, critical={})",
+                meta.requires_phd_level_reasoning, meta.critical_section
+            );
+            return Some((copilot.clone(), ProviderTier::Copilot));
+        }
+
+        if let Some(cursor) = &self.cursor {
+            info!(
+                "Router → Cursor (premium: phd_reasoning={}, critical={})",
+                meta.requires_phd_level_reasoning, meta.critical_section
+            );
+            return Some((cursor.clone(), ProviderTier::Cursor));
+        }
+
+        None
+    }
+
+    fn zai_policy_enabled() -> bool {
+        let policy = std::env::var("BEAGLE_ROUTING_POLICY")
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase();
+        matches!(
+            policy.as_str(),
+            "zai"
+                | "zai-glm-4.7"
+                | "zai_glm_4.7"
+                | "zai-grok-deepseek"
+                | "zai_grok_deepseek"
+        )
+    }
+
+    fn minimax_policy_enabled() -> bool {
+        let policy = std::env::var("BEAGLE_ROUTING_POLICY")
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase();
+        matches!(
+            policy.as_str(),
+            "minimax" | "minimax-2.1" | "minimax-grok-deepseek" | "minimax_grok_deepseek"
+        )
+    }
+
     /// Cria um TieredRouter com mocks para testes
     pub fn new_with_mocks() -> anyhow::Result<Self> {
         use crate::clients::mock::MockLlmClient;
@@ -214,6 +296,8 @@ impl TieredRouter {
             copilot: None,
             cursor: None,
             claude: None,
+            minimax: Some(MockLlmClient::new()),
+            zai: Some(MockLlmClient::new()),
             grok3: MockLlmClient::new(),
             grok4_heavy: Some(MockLlmClient::new()),
             math: None,
@@ -224,6 +308,10 @@ impl TieredRouter {
 
     /// Cria router com Grok 3 como default
     pub fn new() -> anyhow::Result<Self> {
+        let enable_minimax =
+            env_bool("BEAGLE_MINIMAX_ENABLE", std::env::var("MINIMAX_API_KEY").is_ok());
+        let enable_zai = env_bool("BEAGLE_ZAI_ENABLE", std::env::var("ZAI_API_KEY").is_ok());
+
         // Claude CLI client (auto-detect if `claude` command available)
         let claude_cli: Option<Arc<dyn LlmClient>> =
             match crate::clients::claude_cli::ClaudeCliClient::new() {
@@ -290,6 +378,38 @@ impl TieredRouter {
             None
         };
 
+        // MiniMax (Tier 1 primary) - requires MINIMAX_API_KEY
+        let minimax: Option<Arc<dyn LlmClient>> = if enable_minimax {
+            match crate::clients::minimax::MiniMaxClient::from_env() {
+                Ok(client) => {
+                    info!("MiniMax habilitado (Tier 1 primary)");
+                    Some(Arc::new(client))
+                }
+                Err(e) => {
+                    warn!("MiniMax configurado mas falhou ao inicializar: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // Z.ai (Tier 1 primary) - requires ZAI_API_KEY
+        let zai: Option<Arc<dyn LlmClient>> = if enable_zai {
+            match crate::clients::zai::ZaiClient::from_env() {
+                Ok(client) => {
+                    info!("Z.ai habilitado (Tier 1 primary)");
+                    Some(Arc::new(client))
+                }
+                Err(e) => {
+                    warn!("Z.ai configurado mas falhou ao inicializar: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let grok3: Arc<dyn LlmClient> = Arc::new(crate::clients::grok::GrokClient::new());
 
         // Grok 4 Heavy usa o mesmo client, mas com modelo diferente
@@ -327,6 +447,8 @@ impl TieredRouter {
             copilot,
             cursor,
             claude,
+            minimax,
+            zai,
             grok3,
             grok4_heavy,
             math,
@@ -361,10 +483,128 @@ impl TieredRouter {
         meta: &RequestMeta,
         stats: &crate::stats::LlmCallsStats,
     ) -> (Arc<dyn LlmClient>, ProviderTier) {
+        if Self::zai_policy_enabled() {
+            // In zai policy, use a strict order:
+            // offline → deepseek(math) → (bias→grok heavy) → (critical→subscriptions) → zai(default) → grok(default)
+            if meta.offline_required {
+                if let Some(ref local) = self.local {
+                    info!("Router → LocalFallback (offline required)");
+                    return (local.clone(), ProviderTier::LocalFallback);
+                }
+            }
+
+            if meta.requires_math && self.cfg.enable_deepseek_math {
+                if limit_allows(stats.deepseek_calls, self.cfg.deepseek_max_calls_per_run)
+                    && limit_allows(stats.deepseek_total_tokens(), self.cfg.deepseek_max_tokens_per_run)
+                {
+                    if let Some(math) = &self.math {
+                        info!("Router → DeepSeekMath (zai policy)");
+                        return (math.clone(), ProviderTier::DeepSeekMath);
+                    }
+                }
+            }
+
+            // Bias-risk tasks should prioritize Grok4Heavy if available (anti-bias "vaccine").
+            if meta.high_bias_risk && self.cfg.enable_heavy {
+                if limit_allows(stats.grok4_calls, self.cfg.heavy_max_calls_per_run)
+                    && limit_allows(stats.grok4_total_tokens(), self.cfg.heavy_max_tokens_per_run)
+                {
+                    if let Some(heavy) = &self.grok4_heavy {
+                        info!("Router → Grok4Heavy (zai policy; bias risk)");
+                        return (heavy.clone(), ProviderTier::Grok4Heavy);
+                    }
+                }
+            }
+
+            // Critical/phd tasks can use existing subscriptions if configured.
+            if let Some((client, tier)) = self.choose_premium_subscription(meta) {
+                return (client, tier);
+            }
+
+            // Fallback: Grok4Heavy for critical tasks if within limits.
+            if (meta.requires_phd_level_reasoning || meta.critical_section) && self.cfg.enable_heavy {
+                if limit_allows(stats.grok4_calls, self.cfg.heavy_max_calls_per_run)
+                    && limit_allows(stats.grok4_total_tokens(), self.cfg.heavy_max_tokens_per_run)
+                {
+                    if let Some(heavy) = &self.grok4_heavy {
+                        info!("Router → Grok4Heavy (zai policy; critical fallback)");
+                        return (heavy.clone(), ProviderTier::Grok4Heavy);
+                    }
+                }
+            }
+
+            if let Some(zai) = &self.zai {
+                info!("Router → Z.ai (default)");
+                return (zai.clone(), ProviderTier::Zai);
+            }
+
+            info!("Router → Grok3 (fallback)");
+            return (self.grok3.clone(), ProviderTier::Grok3);
+        }
+
+        if Self::minimax_policy_enabled() {
+            // In minimax policy, use a strict order:
+            // offline → deepseek(math) → (bias→grok heavy) → (critical→subscriptions) → minimax(default) → grok(default)
+            if meta.offline_required {
+                if let Some(ref local) = self.local {
+                    info!("Router → LocalFallback (offline required)");
+                    return (local.clone(), ProviderTier::LocalFallback);
+                }
+            }
+
+            if meta.requires_math && self.cfg.enable_deepseek_math {
+                if limit_allows(stats.deepseek_calls, self.cfg.deepseek_max_calls_per_run)
+                    && limit_allows(stats.deepseek_total_tokens(), self.cfg.deepseek_max_tokens_per_run)
+                {
+                    if let Some(math) = &self.math {
+                        info!("Router → DeepSeekMath (minimax policy)");
+                        return (math.clone(), ProviderTier::DeepSeekMath);
+                    }
+                }
+            }
+
+            // Bias-risk tasks should prioritize Grok4Heavy if available (anti-bias "vaccine").
+            if meta.high_bias_risk && self.cfg.enable_heavy {
+                if limit_allows(stats.grok4_calls, self.cfg.heavy_max_calls_per_run)
+                    && limit_allows(stats.grok4_total_tokens(), self.cfg.heavy_max_tokens_per_run)
+                {
+                    if let Some(heavy) = &self.grok4_heavy {
+                        info!("Router → Grok4Heavy (minimax policy; bias risk)");
+                        return (heavy.clone(), ProviderTier::Grok4Heavy);
+                    }
+                }
+            }
+
+            // Critical/phd tasks can use existing subscriptions if configured.
+            if let Some((client, tier)) = self.choose_premium_subscription(meta) {
+                return (client, tier);
+            }
+
+            // Fallback: Grok4Heavy for critical tasks if within limits.
+            if (meta.requires_phd_level_reasoning || meta.critical_section) && self.cfg.enable_heavy {
+                if limit_allows(stats.grok4_calls, self.cfg.heavy_max_calls_per_run)
+                    && limit_allows(stats.grok4_total_tokens(), self.cfg.heavy_max_tokens_per_run)
+                {
+                    if let Some(heavy) = &self.grok4_heavy {
+                        info!("Router → Grok4Heavy (minimax policy; critical fallback)");
+                        return (heavy.clone(), ProviderTier::Grok4Heavy);
+                    }
+                }
+            }
+
+            if let Some(minimax) = &self.minimax {
+                info!("Router → MiniMax (default)");
+                return (minimax.clone(), ProviderTier::MiniMax);
+            }
+
+            info!("Router → Grok3 (fallback)");
+            return (self.grok3.clone(), ProviderTier::Grok3);
+        }
+
         // 1) Math specialist - DeepSeek Math (Tier 2b) - check BEFORE Heavy
         if meta.requires_math && self.cfg.enable_deepseek_math {
-            if stats.deepseek_calls < self.cfg.deepseek_max_calls_per_run
-                && stats.deepseek_total_tokens() < self.cfg.deepseek_max_tokens_per_run
+            if limit_allows(stats.deepseek_calls, self.cfg.deepseek_max_calls_per_run)
+                && limit_allows(stats.deepseek_total_tokens(), self.cfg.deepseek_max_tokens_per_run)
             {
                 if let Some(math) = &self.math {
                     info!(
@@ -391,8 +631,8 @@ impl TieredRouter {
         if meta.high_bias_risk || meta.requires_phd_level_reasoning || meta.critical_section {
             if self.cfg.enable_heavy {
                 // Checa limites por run
-                if stats.grok4_calls < self.cfg.heavy_max_calls_per_run
-                    && stats.grok4_total_tokens() < self.cfg.heavy_max_tokens_per_run
+                if limit_allows(stats.grok4_calls, self.cfg.heavy_max_calls_per_run)
+                    && limit_allows(stats.grok4_total_tokens(), self.cfg.heavy_max_tokens_per_run)
                 {
                     if let Some(heavy) = &self.grok4_heavy {
                         info!(
@@ -423,6 +663,90 @@ impl TieredRouter {
     /// Escolhe cliente baseado em metadados
     /// Retorna (client, tier) para logging
     pub fn choose(&self, meta: &RequestMeta) -> (Arc<dyn LlmClient>, ProviderTier) {
+        if Self::zai_policy_enabled() {
+            if meta.offline_required {
+                if let Some(ref local) = self.local {
+                    info!("Router → LocalFallback (offline required)");
+                    return (local.clone(), ProviderTier::LocalFallback);
+                }
+            }
+
+            if meta.requires_math {
+                if let Some(math) = &self.math {
+                    info!("Router → CloudMath (zai policy)");
+                    return (math.clone(), ProviderTier::CloudMath);
+                }
+            }
+
+            if meta.high_bias_risk && self.cfg.enable_heavy {
+                if let Some(heavy) = &self.grok4_heavy {
+                    info!("Router → Grok4Heavy (zai policy; bias risk)");
+                    return (heavy.clone(), ProviderTier::Grok4Heavy);
+                }
+            }
+
+            if let Some((client, tier)) = self.choose_premium_subscription(meta) {
+                return (client, tier);
+            }
+
+            if (meta.requires_phd_level_reasoning || meta.critical_section) && self.cfg.enable_heavy {
+                if let Some(heavy) = &self.grok4_heavy {
+                    info!("Router → Grok4Heavy (zai policy; critical fallback)");
+                    return (heavy.clone(), ProviderTier::Grok4Heavy);
+                }
+            }
+
+            if let Some(zai) = &self.zai {
+                info!("Router → Z.ai (default)");
+                return (zai.clone(), ProviderTier::Zai);
+            }
+
+            info!("Router → Grok3 (fallback)");
+            return (self.grok3.clone(), ProviderTier::Grok3);
+        }
+
+        if Self::minimax_policy_enabled() {
+            if meta.offline_required {
+                if let Some(ref local) = self.local {
+                    info!("Router → LocalFallback (offline required)");
+                    return (local.clone(), ProviderTier::LocalFallback);
+                }
+            }
+
+            if meta.requires_math {
+                if let Some(math) = &self.math {
+                    info!("Router → CloudMath (minimax policy)");
+                    return (math.clone(), ProviderTier::CloudMath);
+                }
+            }
+
+            if meta.high_bias_risk && self.cfg.enable_heavy {
+                if let Some(heavy) = &self.grok4_heavy {
+                    info!("Router → Grok4Heavy (minimax policy; bias risk)");
+                    return (heavy.clone(), ProviderTier::Grok4Heavy);
+                }
+            }
+
+            if let Some((client, tier)) = self.choose_premium_subscription(meta) {
+                return (client, tier);
+            }
+
+            if (meta.requires_phd_level_reasoning || meta.critical_section) && self.cfg.enable_heavy {
+                if let Some(heavy) = &self.grok4_heavy {
+                    info!("Router → Grok4Heavy (minimax policy; critical fallback)");
+                    return (heavy.clone(), ProviderTier::Grok4Heavy);
+                }
+            }
+
+            if let Some(minimax) = &self.minimax {
+                info!("Router → MiniMax (default)");
+                return (minimax.clone(), ProviderTier::MiniMax);
+            }
+
+            info!("Router → Grok3 (fallback)");
+            return (self.grok3.clone(), ProviderTier::Grok3);
+        }
+
         // 1) Offline sempre força local
         if meta.offline_required {
             if let Some(ref local) = self.local {
@@ -432,44 +756,8 @@ impl TieredRouter {
         }
 
         // 2) Premium quality tasks → Use existing subscriptions
-        // Priority: Claude CLI > Claude Direct > Copilot > Cursor
-        if meta.requires_phd_level_reasoning || meta.critical_section {
-            // First choice: Claude CLI (if installed - no API key needed!)
-            if let Some(claude_cli) = &self.claude_cli {
-                info!(
-                    "Router → Claude CLI (premium: phd_reasoning={}, critical={})",
-                    meta.requires_phd_level_reasoning, meta.critical_section
-                );
-                return (claude_cli.clone(), ProviderTier::ClaudeCli);
-            }
-
-            // Second choice: Claude Direct (if Claude MAX subscription available)
-            // Best for: Research analysis, paper understanding, critical reasoning
-            if let Some(claude) = &self.claude {
-                info!(
-                    "Router → Claude Direct (premium: phd_reasoning={}, critical={})",
-                    meta.requires_phd_level_reasoning, meta.critical_section
-                );
-                return (claude.clone(), ProviderTier::ClaudeDirect);
-            }
-
-            // Second choice: Copilot (has o1-preview for complex reasoning)
-            if let Some(copilot) = &self.copilot {
-                info!(
-                    "Router → Copilot (premium quality: phd_reasoning={}, critical={})",
-                    meta.requires_phd_level_reasoning, meta.critical_section
-                );
-                return (copilot.clone(), ProviderTier::Copilot);
-            }
-
-            // Third choice: Cursor
-            if let Some(cursor) = &self.cursor {
-                info!(
-                    "Router → Cursor (premium quality: phd_reasoning={}, critical={})",
-                    meta.requires_phd_level_reasoning, meta.critical_section
-                );
-                return (cursor.clone(), ProviderTier::Cursor);
-            }
+        if let Some((client, tier)) = self.choose_premium_subscription(meta) {
+            return (client, tier);
         }
 
         // 3) Heavy – só se habilitado e disponível (anti-bias)

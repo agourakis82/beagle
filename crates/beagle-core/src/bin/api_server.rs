@@ -88,6 +88,11 @@ async fn llm_complete_handler(
     // Atualiza stats
     ctx.llm_stats.update(run_id, |stats| {
         match tier {
+            ProviderTier::MiniMax => {
+                stats.minimax_calls += 1;
+                stats.minimax_tokens_in += output.tokens_in_est as u32;
+                stats.minimax_tokens_out += output.tokens_out_est as u32;
+            }
             ProviderTier::Grok3 => {
                 stats.grok3_calls += 1;
                 stats.grok3_tokens_in += output.tokens_in_est as u32;

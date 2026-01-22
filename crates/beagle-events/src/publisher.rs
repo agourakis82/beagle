@@ -1,16 +1,24 @@
+#[cfg(feature = "pulsar")]
 use crate::{metrics, resilience::RetryConfig, BeagleEvent, BeaglePulsar, EventError, Result};
+#[cfg(feature = "pulsar")]
 use backoff::{backoff::Backoff, ExponentialBackoffBuilder};
+#[cfg(feature = "pulsar")]
 use pulsar::producer::{Message, Producer};
+#[cfg(feature = "pulsar")]
 use pulsar::TokioExecutor;
+#[cfg(feature = "pulsar")]
 use std::time::Instant;
+#[cfg(feature = "pulsar")]
 use tracing::{debug, error};
 
 /// Event publisher
+#[cfg(feature = "pulsar")]
 pub struct EventPublisher {
     producer: Producer<TokioExecutor>,
     retry_config: RetryConfig,
 }
 
+#[cfg(feature = "pulsar")]
 impl EventPublisher {
     /// Create new event publisher
     ///
@@ -100,5 +108,33 @@ impl EventPublisher {
         }
 
         result
+    }
+}
+
+// ---------------------------------------------------------------------------
+// No-op implementation when Pulsar is disabled.
+// ---------------------------------------------------------------------------
+
+#[cfg(not(feature = "pulsar"))]
+use crate::{metrics, BeagleEvent, BeaglePulsar, Result};
+
+/// Event publisher (no-op when built without feature `pulsar`)
+#[cfg(not(feature = "pulsar"))]
+pub struct EventPublisher;
+
+#[cfg(not(feature = "pulsar"))]
+impl EventPublisher {
+    pub async fn new(_pulsar: &BeaglePulsar, _topic: impl Into<String>) -> Result<Self> {
+        tracing::warn!("EventPublisher is running in no-op mode (feature 'pulsar' disabled)");
+        Ok(Self)
+    }
+
+    pub async fn publish(&mut self, event: &BeagleEvent) -> Result<()> {
+        metrics::EventMetrics::inc_published();
+        tracing::debug!(
+            event_id = %event.metadata.event_id,
+            "Dropping event (feature 'pulsar' disabled)"
+        );
+        Ok(())
     }
 }

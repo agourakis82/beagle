@@ -31,6 +31,43 @@ This MCP server acts as a **thin, type-safe adapter** between AI assistants (Cla
 
 ---
 
+## Extended Tools
+
+### Darwin (Continuous RAG + ResearchOps)
+
+These tools trigger **server-side Darwin jobs** (indexing/harvesting/brief/eval) via BEAGLE Core.
+
+| Tool | Description | Key Inputs | Outputs |
+|------|-------------|-----------|---------|
+| `beagle_start_darwin_job` | Start Darwin job | `kind`, `config` | `job_id`, `status` |
+| `beagle_darwin_brief_zai` | Start `darwin-brief` with `BEAGLE_ROUTING_POLICY=zai-grok-deepseek` | `topics_file`, `topic[]`, `delta_days` | `job_id`, `status` |
+| `beagle_darwin_web_harvester` | Start `darwin-web-harvester` (URLs/RSS/sitemaps → docs) | `url[]`/`rss[]`/`sitemap[]`, `crawl_depth` | `job_id`, `status` |
+| `beagle_darwin_research_harvester` | Start `darwin-research-harvester` (papers → darwin-papers) | `query[]`/`topics_file`/`rss[]`, `backend` | `job_id`, `status` |
+| `beagle_darwin_knowledge_manager` | Start `darwin-knowledge-manager` (local PDFs/docs/books → collections) | `command`, `dir`/`path`, `title`, metadata | `job_id`, `status` |
+| `beagle_darwin_eval` | Start `darwin-eval` (retrieval quality gates) | `eval_file`, `k`, thresholds | `job_id`, `status` |
+| `beagle_darwin_nightly_workflow_zai` | Start nightly workflow (research → web → brief(Z.ai) → eval) | `harvest_args`, `web_harvest_args`, `brief_args`, `eval_args` | `job_id`, `status` |
+| `beagle_darwin_nightly_workflow_minimax` | Start nightly workflow (research → web → brief(MiniMax) → eval) | `harvest_args`, `web_harvest_args`, `brief_args`, `eval_args` | `job_id`, `status` |
+| `beagle_get_darwin_job_status` | Check Darwin job status | `job_id` | `status`, timestamps, `error` |
+| `beagle_get_darwin_job_artifacts` | Get Darwin job artifacts | `job_id` | `output_paths`, `result_json` |
+| `beagle_list_recent_darwin_jobs` | List recent Darwin jobs | `limit` | `jobs[]` |
+
+Notes:
+- `kind=indexer` runs the Rust incremental indexer inside the core server.
+- Other kinds run `darwin-*` binaries on the core server host (ensure they are in `PATH` or set `DARWIN_BIN_DIR` on the core server).
+
+### Observer + Voice (HRV + TTS)
+
+| Tool | Description | Key Inputs | Outputs |
+|------|-------------|-----------|---------|
+| `beagle_observer_update_physio` | Update HRV/HR in Observer | `hrv_ms`, `heart_rate_bpm` | `status`, `hrv_level` |
+| `beagle_observer_get_context` | Fetch current Observer context | (optional) `run_id` | full `UserContext` JSON |
+| `beagle_voice_tts` | Generate `audio/wav` via Core TTS | `text`, (optional) `language`, `rate_wpm` | `content_type`, `wav_base64`, `bytes` |
+
+Notes:
+- `beagle_voice_tts` returns base64 audio; keep text short or set `max_bytes`.
+
+---
+
 ## Installation
 
 ### Prerequisites
@@ -112,6 +149,7 @@ export MCP_HTTP_PORT=3000
 ```bash
 npm run start
 # Server listening on http://localhost:3000/mcp
+# Health check: http://localhost:3000/health
 ```
 
 #### 3. Configure ChatGPT App
@@ -140,10 +178,15 @@ See `.env.example` for all available options. Key variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BEAGLE_CORE_URL` | `http://localhost:8080` | BEAGLE Core API base URL |
-| `MCP_AUTH_TOKEN` | (empty) | Optional auth token for BEAGLE Core |
+| `BEAGLE_CORE_API_TOKEN` | (empty) | Bearer token for BEAGLE Core (`BEAGLE_API_TOKEN`) |
 | `HTTP_TIMEOUT` | `60000` | Request timeout in milliseconds |
 | `HTTP_MAX_RETRIES` | `2` | Max retry attempts for failed requests |
 | `MCP_TRANSPORT` | `stdio` | Transport protocol (`stdio` or `http`) |
+| `MCP_HTTP_HOST` | `0.0.0.0` | HTTP bind host (HTTP transport only) |
+| `MCP_HTTP_PORT` | `3000` | HTTP bind port (HTTP transport only) |
+| `MCP_HTTP_PATH` | `/mcp` | MCP endpoint path (HTTP transport only) |
+| `MCP_ENABLE_AUTH` | `false` | Require auth for MCP clients (Bearer) |
+| `MCP_AUTH_TOKEN` | (empty) | MCP server auth token (when `MCP_ENABLE_AUTH=true`) |
 | `OPENAI_APPS_SDK_ENABLED` | `false` | Enable ChatGPT Apps SDK mode |
 
 ### Timeouts by Tool

@@ -314,7 +314,7 @@ Focus on accuracy, completeness, and proper citation of sources."#,
             None => {
                 let session = self
                     .context_bridge
-                    .create_session(None)
+                    .create_session(None, None)
                     .await
                     .context("Failed to create conversation session")?;
                 (session.id, true)

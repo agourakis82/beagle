@@ -14,6 +14,23 @@ export interface BeagleConfig {
 export class BeagleClient {
     private timeout: number;
     private maxRetries: number;
+    private chatBuffers: Map<
+        string,
+        {
+            source: string;
+            turns: Array<
+                | {
+                      role: "user" | "assistant";
+                      content: string;
+                      timestamp?: string;
+                      model?: string;
+                  }
+                | undefined
+            >;
+            tags: Set<string>;
+            subjectHint?: string;
+        }
+    > = new Map();
 
     constructor(
         public baseUrl: string,
@@ -90,6 +107,101 @@ export class BeagleClient {
                 }
 
                 return {} as T;
+            } catch (error) {
+                lastError = error as Error;
+
+                // Don't retry on abort/timeout or non-retryable errors
+                if (
+                    error instanceof Error &&
+                    (error.name === "AbortError" ||
+                        error.name === "TimeoutError")
+                ) {
+                    logger.error(
+                        `BEAGLE API request timeout: ${method} ${path} (${timeoutMs}ms)`,
+                    );
+                    throw new Error(
+                        `Request timeout after ${timeoutMs}ms: ${method} ${path}`,
+                    );
+                }
+
+                // Retry network errors
+                if (attempt < this.maxRetries) {
+                    logger.warn(
+                        `Retrying ${method} ${path} after error (attempt ${attempt + 1}/${this.maxRetries}): ${error}`,
+                    );
+                    await this.sleep(1000 * Math.pow(2, attempt));
+                    continue;
+                }
+
+                logger.error(`BEAGLE API request failed: ${method} ${path}`, {
+                    error,
+                });
+                throw error;
+            }
+        }
+
+        throw lastError || new Error("Request failed after retries");
+    }
+
+    private async requestBytes(
+        method: string,
+        path: string,
+        body?: unknown,
+        customTimeout?: number,
+    ): Promise<{ contentType: string | null; bytes: Uint8Array }> {
+        const url = `${this.baseUrl}${path}`;
+        const timeoutMs = customTimeout || this.timeout;
+
+        const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+        };
+
+        if (this.authToken) {
+            headers["Authorization"] = `Bearer ${this.authToken}`;
+        }
+
+        const options: RequestInit = {
+            method,
+            headers,
+            signal: AbortSignal.timeout(timeoutMs),
+        };
+
+        if (body) {
+            options.body = JSON.stringify(body);
+        }
+
+        let lastError: Error | null = null;
+
+        for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+            try {
+                const response = await fetch(url, options);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    const error = new Error(
+                        `BEAGLE API error (${response.status}): ${errorText}`,
+                    );
+
+                    // Don't retry client errors (4xx)
+                    if (response.status >= 400 && response.status < 500) {
+                        throw error;
+                    }
+
+                    // Retry server errors (5xx) and network errors
+                    if (attempt < this.maxRetries) {
+                        logger.warn(
+                            `Retrying ${method} ${path} (attempt ${attempt + 1}/${this.maxRetries})`,
+                        );
+                        await this.sleep(1000 * Math.pow(2, attempt)); // Exponential backoff
+                        continue;
+                    }
+
+                    throw error;
+                }
+
+                const contentType = response.headers.get("content-type");
+                const bytes = new Uint8Array(await response.arrayBuffer());
+                return { contentType, bytes };
             } catch (error) {
                 lastError = error as Error;
 
@@ -232,10 +344,44 @@ export class BeagleClient {
             metadata?: Record<string, unknown>;
         }>;
     }> {
-        return this.request("POST", "/api/memory/query", {
-            query,
-            top_k: topK,
-        });
+        type CoreMemoryHighlight = {
+            source: string;
+            date?: string;
+            snippet: string;
+            run_id?: string | null;
+            session_id?: string | null;
+            relevance: number;
+        };
+
+        type CoreMemoryResult = {
+            summary: string;
+            highlights: CoreMemoryHighlight[];
+            links: unknown[];
+        };
+
+        const result = await this.request<CoreMemoryResult>(
+            "POST",
+            "/api/memory/query",
+            {
+                query,
+                max_items: topK,
+            },
+        );
+
+        return {
+            results: (result.highlights || []).map((h, i) => ({
+                id: `${h.session_id || h.source}:${h.date || i}`,
+                source: h.source,
+                snippet: h.snippet,
+                score: h.relevance,
+                metadata: {
+                    date: h.date,
+                    run_id: h.run_id,
+                    session_id: h.session_id,
+                    summary: result.summary,
+                },
+            })),
+        };
     }
 
     async memoryIngestChat(
@@ -250,15 +396,143 @@ export class BeagleClient {
         stored: boolean;
         memory_id?: string;
     }> {
-        return this.request("POST", "/api/memory/ingest_chat", {
+        const normalizedRole: "user" | "assistant" =
+            role === "assistant" ? "assistant" : "user";
+        const normalizedText =
+            role === "system" ? `[SYSTEM]\n${text}` : text;
+
+        const now = new Date().toISOString();
+        const existing =
+            this.chatBuffers.get(conversationId) || {
+                source,
+                turns: [],
+                tags: new Set<string>(),
+                subjectHint: undefined,
+            };
+
+        const buffer = {
+            source: existing.source,
+            turns: [...existing.turns],
+            tags: new Set(existing.tags),
+            subjectHint: subjectHint || existing.subjectHint,
+        };
+
+        buffer.turns[turnIndex] = {
+            role: normalizedRole,
+            content: normalizedText,
+            timestamp: now,
+        };
+
+        if (tags) {
+            for (const t of tags) buffer.tags.add(t);
+        }
+
+        this.chatBuffers.set(conversationId, buffer);
+
+        const sessionTurns = buffer.turns.filter(
+            (t): t is NonNullable<typeof t> => Boolean(t),
+        );
+
+        const resp = await this.request<{
+            status: string;
+            session_id: string;
+            num_turns: number;
+            num_chunks: number;
+        }>("POST", "/api/memory/ingest_chat", {
             source,
-            conversation_id: conversationId,
-            turn_index: turnIndex,
-            role,
-            text,
-            subject_hint: subjectHint,
-            tags,
+            session_id: conversationId,
+            turns: sessionTurns,
+            tags: Array.from(buffer.tags),
+            metadata: {
+                subject_hint: buffer.subjectHint,
+                last_turn_index: turnIndex,
+            },
         });
+
+        return {
+            stored: resp.status === "ok",
+            memory_id: resp.session_id,
+        };
+    }
+
+    async serendipityDiscover(
+        focusProject: string,
+        maxConnections = 5,
+    ): Promise<{
+        connections: Array<{
+            id: string;
+            source_project: string;
+            target_project: string;
+            source_concept: string;
+            target_concept: string;
+            similarity_score: number;
+            novelty_score: number;
+            connection_type: string;
+            explanation: string;
+            potential_impact: string;
+        }>;
+        count: number;
+    }> {
+        return this.request("POST", "/api/serendipity/discover", {
+            focus_project: focusProject,
+            max_connections: maxConnections,
+        });
+    }
+
+    async serendipityToggle(
+        enabled: boolean,
+        options?: { in_triad?: boolean },
+    ): Promise<{
+        status: string;
+        enabled: boolean;
+        in_triad: boolean;
+        persisted: boolean;
+    }> {
+        return this.request("POST", "/api/serendipity/toggle", {
+            enabled,
+            in_triad: options?.in_triad,
+        });
+    }
+
+    async serendipityPerturbPrompt(
+        prompt: string,
+        options?: { max_accidents?: number },
+    ): Promise<{
+        mutated_prompt: string;
+        delta_description: string;
+        message: string;
+        enabled: boolean;
+    }> {
+        return this.request("POST", "/api/serendipity/perturb", {
+            prompt,
+            max_accidents: options?.max_accidents,
+        });
+    }
+
+    async voidBreakLoop(
+        runId: string,
+        reason: string,
+    ): Promise<{
+        status: string;
+        run_id: string;
+        action: string;
+        description: string;
+        message: string;
+        void_insight?: string;
+        enabled: boolean;
+    }> {
+        return this.request("POST", "/api/void/break_loop", {
+            run_id: runId,
+            reason,
+        });
+    }
+
+    async voidToggle(enabled: boolean): Promise<{
+        status: string;
+        enabled: boolean;
+        persisted: boolean;
+    }> {
+        return this.request("POST", "/api/void/toggle", { enabled });
     }
 
     async tagRun(
@@ -309,6 +583,54 @@ export class BeagleClient {
         });
     }
 
+    async getObserverContext(runId?: string): Promise<unknown> {
+        if (runId && runId.trim().length > 0) {
+            return this.request("GET", `/api/observer/context/${runId}`);
+        }
+        return this.request("GET", "/api/observer/context");
+    }
+
+    async voiceTts(
+        text: string,
+        options?: {
+            language?: string;
+            voice?: string;
+            rate_wpm?: number;
+            use_hrv_rate?: boolean;
+            max_bytes?: number;
+        },
+    ): Promise<{
+        content_type: string;
+        wav_base64: string;
+        bytes: number;
+    }> {
+        const maxBytes = options?.max_bytes ?? 512_000;
+        const { contentType, bytes } = await this.requestBytes(
+            "POST",
+            "/api/voice/tts",
+            {
+                text,
+                language: options?.language,
+                voice: options?.voice,
+                rate_wpm: options?.rate_wpm,
+                use_hrv_rate: options?.use_hrv_rate,
+            },
+            120000,
+        );
+
+        if (bytes.length > maxBytes) {
+            throw new Error(
+                `TTS output too large (${bytes.length} bytes > ${maxBytes}). Shorten text or increase max_bytes.`,
+            );
+        }
+
+        return {
+            content_type: contentType || "application/octet-stream",
+            wav_base64: Buffer.from(bytes).toString("base64"),
+            bytes: bytes.length,
+        };
+    }
+
     async llmComplete(
         prompt: string,
         options?: {
@@ -336,5 +658,126 @@ export class BeagleClient {
             max_tokens: options?.max_tokens,
             temperature: options?.temperature,
         });
+    }
+
+    async exocortexProcess(
+        userId: string,
+        query: string,
+        options?: {
+            intent?: string;
+            context?: string;
+            urgency?: number;
+            modality?: "text" | "voice" | "multimodal";
+            config?: Record<string, unknown>;
+        },
+    ): Promise<{
+        status: string;
+        output: {
+            response: string;
+            confidence: number;
+            agents_used: string[];
+            consciousness_state: unknown;
+            adaptations_applied: string[];
+            proactive_suggestions: Array<{
+                suggestion: string;
+                reasoning: string;
+                relevance: number;
+                category: string;
+            }>;
+            metadata: {
+                processing_time_ms: number;
+                memories_retrieved: number;
+                working_memory_usage: number;
+            };
+            retrieved_sources?: Array<{
+                key: string;
+                collection: string;
+                id: string;
+                reference: string;
+                score: number;
+                doc_id?: string;
+                title?: string;
+                repo?: string;
+                file?: string;
+                commit?: string;
+                doi?: string;
+                url?: string;
+                chunk_idx?: number;
+                snippet: string;
+            }>;
+            citations?: Array<{
+                key: string;
+                collection: string;
+                id: string;
+                reference: string;
+                score: number;
+                doc_id?: string;
+                title?: string;
+                repo?: string;
+                file?: string;
+                commit?: string;
+                doi?: string;
+                url?: string;
+                chunk_idx?: number;
+                snippet: string;
+            }>;
+        };
+    }> {
+        return this.request("POST", "/api/exocortex/process", {
+            user_id: userId,
+            query,
+            intent: options?.intent,
+            context: options?.context,
+            urgency: options?.urgency,
+            modality: options?.modality,
+            config: options?.config,
+        });
+    }
+
+    async startDarwinJob(
+        kind: string,
+        config: Record<string, unknown>,
+    ): Promise<{
+        job_id: string;
+        status: string;
+    }> {
+        return this.request("POST", "/api/jobs/darwin/start", {
+            kind,
+            params: config,
+        });
+    }
+
+    async getDarwinJobStatus(jobId: string): Promise<{
+        job_id: string;
+        kind: string;
+        status: string;
+        created_at?: string;
+        updated_at?: string;
+        error?: string | null;
+    }> {
+        return this.request("GET", `/api/jobs/darwin/status/${jobId}`);
+    }
+
+    async getDarwinJobArtifacts(jobId: string): Promise<{
+        job_id: string;
+        kind: string;
+        status: string;
+        output_paths: string[];
+        result_json?: unknown;
+    }> {
+        return this.request("GET", `/api/jobs/darwin/${jobId}/artifacts`);
+    }
+
+    async listRecentDarwinJobs(limit = 10): Promise<{
+        jobs: Array<{
+            job_id: string;
+            kind: string;
+            status: string;
+            created_at?: string;
+            updated_at?: string;
+            error?: string | null;
+        }>;
+    }> {
+        return this.request("GET", `/api/jobs/darwin/recent?limit=${limit}`);
     }
 }

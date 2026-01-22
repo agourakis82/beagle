@@ -250,3 +250,130 @@ impl Default for ScienceJobRegistry {
         Self::new()
     }
 }
+
+// ============================================================================
+// DARWIN JOBS (Continuous RAG + ResearchOps)
+// ============================================================================
+
+/// Tipo de job Darwin (RAG update / ResearchOps)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DarwinJobKind {
+    Indexer,
+    ResearchHarvester,
+    WebHarvester,
+    KnowledgeManager,
+    Brief,
+    Eval,
+    Nightly,
+}
+
+/// Status de um job Darwin
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DarwinJobStatus {
+    Created,
+    Running,
+    Error(String),
+    Done,
+}
+
+impl ToString for DarwinJobStatus {
+    fn to_string(&self) -> String {
+        match self {
+            DarwinJobStatus::Created => "created".to_string(),
+            DarwinJobStatus::Running => "running".to_string(),
+            DarwinJobStatus::Error(_) => "error".to_string(),
+            DarwinJobStatus::Done => "done".to_string(),
+        }
+    }
+}
+
+/// Estado de um job Darwin em execução
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DarwinJobState {
+    pub job_id: String,
+    pub kind: DarwinJobKind,
+    pub status: DarwinJobStatus,
+    pub params: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub error: Option<String>,
+    pub output_paths: Vec<String>,
+    pub result_json: Option<serde_json::Value>,
+}
+
+impl DarwinJobState {
+    pub fn new(job_id: String, kind: DarwinJobKind, params: serde_json::Value) -> Self {
+        let now = Utc::now();
+        Self {
+            job_id,
+            kind,
+            status: DarwinJobStatus::Created,
+            params,
+            created_at: now,
+            updated_at: now,
+            error: None,
+            output_paths: Vec::new(),
+            result_json: None,
+        }
+    }
+
+    pub fn update_status(&mut self, status: DarwinJobStatus) {
+        self.status = status;
+        self.updated_at = Utc::now();
+    }
+
+    pub fn set_error(&mut self, error_msg: String) {
+        self.status = DarwinJobStatus::Error(error_msg.clone());
+        self.error = Some(error_msg);
+        self.updated_at = Utc::now();
+    }
+}
+
+/// Registry de jobs Darwin
+#[derive(Debug, Clone)]
+pub struct DarwinJobRegistry {
+    jobs: Arc<Mutex<HashMap<String, DarwinJobState>>>,
+}
+
+impl DarwinJobRegistry {
+    pub fn new() -> Self {
+        Self {
+            jobs: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub async fn add_job(&self, job_state: DarwinJobState) {
+        let mut jobs = self.jobs.lock().await;
+        jobs.insert(job_state.job_id.clone(), job_state);
+    }
+
+    pub async fn get_job(&self, job_id: &str) -> Option<DarwinJobState> {
+        let jobs = self.jobs.lock().await;
+        jobs.get(job_id).cloned()
+    }
+
+    pub async fn update_job<F>(&self, job_id: &str, f: F)
+    where
+        F: FnOnce(&mut DarwinJobState),
+    {
+        let mut jobs = self.jobs.lock().await;
+        if let Some(job_state) = jobs.get_mut(job_id) {
+            f(job_state);
+        }
+    }
+
+    pub async fn get_recent_jobs(&self, limit: usize) -> Vec<DarwinJobState> {
+        let jobs = self.jobs.lock().await;
+        let mut sorted_jobs: Vec<DarwinJobState> = jobs.values().cloned().collect();
+        sorted_jobs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        sorted_jobs.into_iter().take(limit).collect()
+    }
+}
+
+impl Default for DarwinJobRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}

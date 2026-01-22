@@ -1,14 +1,8 @@
-//! Teste do Universal Observer
+//! Universal Observer example.
 //!
-//! Demonstra todas as funcionalidades:
-//! - File watcher
-//! - Clipboard
-//! - Screenshots
-//! - Input activity
-//! - Browser history
-//! - HealthKit bridge
+//! Demonstrates creating an observer, subscribing to the event stream, and emitting a few events.
 
-use beagle_observer::{Observation, UniversalObserver};
+use beagle_observer::{Event, UniversalObserver};
 use std::time::Duration;
 use tracing::info;
 
@@ -18,50 +12,23 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter("beagle_observer=info")
         .init();
 
-    info!("🧪 Testando Universal Observer...");
+    let observer = UniversalObserver::new_async().await?;
+    let mut rx = observer.subscribe();
 
-    let observer = UniversalObserver::new()?;
-    let mut rx = observer.subscribe().await;
-
-    // Inicia surveillance
     observer.start_full_surveillance().await?;
 
-    info!("✅ Observer iniciado. Coletando observações por 10 segundos...");
+    for i in 0..5usize {
+        let message = format!("tick {}", i);
+        observer
+            .system_observer()
+            .record_event(Event::log("example", "info", &message))
+            .await;
 
-    // Coleta observações por 10 segundos
-    let mut observations = Vec::new();
-    let timeout = tokio::time::sleep(Duration::from_secs(10));
-    tokio::pin!(timeout);
+        let event = rx.recv().await?;
+        info!("event: {} | {}", event.source, event.message);
 
-    loop {
-        tokio::select! {
-            _ = &mut timeout => {
-                info!("⏱️  Timeout atingido. Total de observações: {}", observations.len());
-                break;
-            }
-            Some(obs) = rx.recv() => {
-                info!("📊 Observação: {} - {}", obs.source, obs.content_preview.chars().take(50).collect::<String>());
-                observations.push(obs);
-            }
-        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
-    // Análise fisiológica se houver dados de HealthKit
-    let health_obs: Vec<Observation> = observations
-        .iter()
-        .filter(|o| o.source == "healthkit")
-        .cloned()
-        .collect();
-
-    if !health_obs.is_empty() {
-        info!(
-            "🏥 Analisando {} observações de HealthKit...",
-            health_obs.len()
-        );
-        let analysis = observer.physiological_state_analysis(&health_obs).await?;
-        info!("📋 Análise fisiológica:\n{}", analysis);
-    }
-
-    info!("✅ Teste concluído!");
     Ok(())
 }

@@ -27,7 +27,7 @@ Este documento descreve como expor o BEAGLE core e MCP server de forma segura vi
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ BEAGLE MCP Server (Node/TypeScript)                      │  │
 │  │ - Listens on: stdio (Claude Desktop)                    │  │
-│  │ - Or: 127.0.0.1:4000 (HTTP mode)                        │  │
+│  │ - Or: 127.0.0.1:3000 (HTTP mode)                        │  │
 │  │ - Calls BEAGLE Core with Bearer token                   │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
@@ -170,7 +170,7 @@ ingress:
 
   # BEAGLE MCP Server (se rodando em modo HTTP)
   - hostname: beagle-mcp.yourdomain.com
-    service: http://127.0.0.1:4000
+    service: http://127.0.0.1:3000
     originRequest:
       noTLSVerify: false
       connectTimeout: 30s

@@ -14,6 +14,11 @@ pub enum EventError {
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 
+    #[cfg(not(feature = "pulsar"))]
+    #[error("Pulsar integration disabled (enable feature 'pulsar')")]
+    PulsarDisabled,
+
+    #[cfg(feature = "pulsar")]
     #[error("Pulsar error: {0}")]
     PulsarError(#[from] pulsar::Error),
 

@@ -41,6 +41,7 @@ members = [
     "crates/beagle-latex",
     "crates/beagle-checkpoint",
     "crates/beagle-signatures",
+    "crates/beagle-rag-update",
 ]
 resolver = "2"
 
@@ -48,7 +49,7 @@ resolver = "2"
 authors = ["Dr. Demetrios Agourakis <contact@darwin-cluster.ai>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/darwin-cluster/beagle"
+repository = "https://github.com/agourakis82/beagle"
 version = "0.10.0"
 
 # ---------------------------------------------------------------------------

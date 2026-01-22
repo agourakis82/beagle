@@ -52,6 +52,52 @@ Content-Type: application/json
 }
 ```
 
+### 2.1 (Compat) Enviar HRV (endpoint legado)
+
+Compatível com clientes antigos (ex.: `BeagleHRV.swift`) que enviam apenas HRV bruto:
+
+```
+POST /api/hrv
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "hrv": 55.2,
+  "state": "NORMAL",                  // "FLOW" | "STRESS" | "NORMAL"
+  "timestamp": 1737369000.123          // unix seconds (float)
+}
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "hrv_level": "normal",
+  "speed_multiplier": 1.02
+}
+```
+
+### 2.2 (Opcional) TTS (Text-to-Speech)
+
+Gera áudio WAV no servidor (requer `espeak-ng` ou `espeak` instalado):
+
+```
+POST /api/voice/tts
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "text": "Olá, Demetrios.",
+  "language": "pt-BR"                  // opcional (default: pt-BR)
+}
+```
+
+**Response:** `audio/wav` (bytes)
+
 ### 3. Iniciar Pipeline
 
 ```
@@ -138,21 +184,23 @@ GET /api/observer/context/{run_id}
 **Response:**
 ```json
 {
-  "run_id": "uuid-v4-string",
-  "observations": [
-    {
-      "id": "obs-id",
-      "timestamp": "2025-01-20T10:30:00Z",
-      "source": "pipeline_physio",
-      "path": null,
-      "content_preview": "Estado fisiológico: HRV 55.2ms (normal)",
-      "metadata": {
-        "hrv_ms": 55.2,
-        "hrv_level": "normal"
-      }
-    }
-  ],
-  "count": 1
+  "user_id": null,
+  "session_id": null,
+  "current_state": {
+    "hrv_level": "normal",
+    "stress_level": 0.42,
+    "focus_score": 0.5,
+    "last_updated": "2025-01-20T10:30:00Z"
+  },
+  "physio": {
+    "severity": "Normal",
+    "hrv_level": "normal",
+    "heart_rate_bpm": 70.5,
+    "spo2_percent": null,
+    "stress_index": 0.42
+  },
+  "env": { "severity": "Normal" },
+  "space": { "severity": "Normal" }
 }
 ```
 
@@ -165,9 +213,10 @@ GET /api/observer/context/{run_id}
 
 ## Autenticação
 
-Atualmente não há autenticação. Em produção, adicionar:
-- API Key via header `X-API-Key`
-- Ou JWT token via `Authorization: Bearer <token>`
+Se `BEAGLE_API_TOKEN` estiver configurado, envie:
+- `Authorization: Bearer <token>`
+
+Em `dev/lab`, se `BEAGLE_API_TOKEN` estiver vazio, o core permite acesso (com warning). Em `prod`, configure token.
 
 ## Rate Limiting
 
@@ -209,4 +258,3 @@ func sendHRV(hrv: Double, heartRate: Double?) {
 - Todos os paths são relativos a `BEAGLE_DATA_DIR`
 - O endpoint `/api/observer/physio` classifica automaticamente HRV em "low" | "normal" | "high"
 - Thresholds configuráveis via `BEAGLE_HRV_LOW_THRESHOLD` e `BEAGLE_HRV_HIGH_THRESHOLD` (default: 30ms e 70ms)
-

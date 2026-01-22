@@ -7,7 +7,7 @@ use crate::traits::*;
 use anyhow::Result;
 use async_trait::async_trait;
 use beagle_config::BeagleConfig;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -234,11 +234,15 @@ impl QdrantVectorStore {
             .qdrant_url
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("QDRANT_URL não configurado"))?;
+        let collection = std::env::var("BEAGLE_QDRANT_COLLECTION")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
         // Embedding URL pode vir de env ou usar default
         let embedding_url = std::env::var("EMBEDDING_URL")
             .or_else(|_| std::env::var("BEAGLE_EMBEDDING_URL"))
             .ok();
-        Ok(Self::new(url.clone(), None, embedding_url))
+        Ok(Self::new(url.clone(), collection, embedding_url))
     }
 
     /// Gera embedding com cache
@@ -318,11 +322,13 @@ impl VectorStore for QdrantVectorStore {
         let mut hits = Vec::new();
         if let Some(results) = search_response.get("result").and_then(|r| r.as_array()) {
             for result in results {
-                let id = result
-                    .get("id")
+                let id_value = result.get("id");
+                let id = id_value
                     .and_then(|v| v.as_str())
-                    .unwrap_or("unknown")
-                    .to_string();
+                    .map(|s| s.to_string())
+                    .or_else(|| id_value.and_then(|v| v.as_u64()).map(|n| n.to_string()))
+                    .or_else(|| id_value.and_then(|v| v.as_i64()).map(|n| n.to_string()))
+                    .unwrap_or_else(|| "unknown".to_string());
                 let score = result
                     .get("score")
                     .and_then(|v| v.as_f64())
@@ -342,6 +348,169 @@ impl VectorStore for QdrantVectorStore {
             warn!("Qdrant retornou resultados vazios para: {}", text);
         }
 
+        Ok(hits)
+    }
+}
+
+/// VectorStore que consulta múltiplas collections do Qdrant e agrega os resultados.
+///
+/// Útil para o “Exocortex completo” quando o corpus está separado por tipo:
+/// `darwin-repos`, `darwin-papers`, `darwin-docs`, `darwin-books`, etc.
+///
+/// Recomenda-se configurar via env:
+/// - `BEAGLE_QDRANT_COLLECTIONS=darwin-repos,darwin-papers,darwin-docs,darwin-books`
+pub struct MultiQdrantVectorStore {
+    base_url: String,
+    collections: Vec<String>,
+    client: reqwest::Client,
+    embedding_client: beagle_llm::embedding::EmbeddingClient,
+    embedding_cache:
+        std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, Vec<f64>>>>,
+}
+
+impl MultiQdrantVectorStore {
+    pub fn new(qdrant_url: String, collections: Vec<String>, embedding_url: Option<String>) -> Self {
+        let embedding_url =
+            embedding_url.unwrap_or_else(|| "http://t560.local:8001/v1".to_string());
+        Self {
+            base_url: qdrant_url.trim_end_matches('/').to_string(),
+            collections,
+            client: reqwest::Client::new(),
+            embedding_client: beagle_llm::embedding::EmbeddingClient::new(embedding_url),
+            embedding_cache: std::sync::Arc::new(tokio::sync::RwLock::new(
+                std::collections::HashMap::new(),
+            )),
+        }
+    }
+
+    pub fn from_config(cfg: &BeagleConfig, collections: Vec<String>) -> Result<Self> {
+        let url = cfg
+            .graph
+            .qdrant_url
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("QDRANT_URL não configurado"))?;
+        let embedding_url = std::env::var("EMBEDDING_URL")
+            .or_else(|_| std::env::var("BEAGLE_EMBEDDING_URL"))
+            .ok();
+        Ok(Self::new(url.clone(), collections, embedding_url))
+    }
+
+    async fn get_embedding(&self, text: &str) -> Result<Vec<f64>> {
+        {
+            let cache = self.embedding_cache.read().await;
+            if let Some(emb) = cache.get(text) {
+                return Ok(emb.clone());
+            }
+        }
+
+        let embedding = self.embedding_client.embed(text).await?;
+
+        {
+            let mut cache = self.embedding_cache.write().await;
+            cache.insert(text.to_string(), embedding.clone());
+        }
+
+        Ok(embedding)
+    }
+}
+
+#[async_trait]
+impl VectorStore for MultiQdrantVectorStore {
+    async fn query(&self, text: &str, top_k: usize) -> Result<Vec<VectorHit>> {
+        use serde_json::json;
+
+        if self.collections.is_empty() {
+            warn!("MultiQdrantVectorStore: no collections configured; returning empty");
+            return Ok(Vec::new());
+        }
+
+        let query_embedding = self.get_embedding(text).await?;
+        let query_vector: Vec<f32> = query_embedding.iter().map(|&x| x as f32).collect();
+
+        let mut hits = Vec::new();
+        for collection in &self.collections {
+            let search_url = format!(
+                "{}/collections/{}/points/search",
+                self.base_url, collection
+            );
+            let search_request = json!({
+                "vector": query_vector,
+                "limit": top_k,
+                "with_payload": true,
+                "with_vector": false
+            });
+
+            let response = match self
+                .client
+                .post(&search_url)
+                .json(&search_request)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("Qdrant multi search request failed ({}): {}", collection, e);
+                    continue;
+                }
+            };
+
+            let status = response.status();
+            if !status.is_success() {
+                let error_text = response.text().await.unwrap_or_default();
+                warn!(
+                    "Qdrant search error {} (collection={}): {}",
+                    status, collection, error_text
+                );
+                continue;
+            }
+
+            let search_response: serde_json::Value = match response.json().await {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("Failed to decode Qdrant JSON (collection={}): {}", collection, e);
+                    continue;
+                }
+            };
+
+            if let Some(results) = search_response.get("result").and_then(|r| r.as_array()) {
+                for result in results {
+                    let id_value = result.get("id");
+                    let id = id_value
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| id_value.and_then(|v| v.as_u64()).map(|n| n.to_string()))
+                        .or_else(|| id_value.and_then(|v| v.as_i64()).map(|n| n.to_string()))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let score = result
+                        .get("score")
+                        .and_then(|v| v.as_f64())
+                        .map(|s| s as f32)
+                        .unwrap_or(0.0);
+
+                    let mut payload =
+                        result.get("payload").cloned().unwrap_or_else(|| json!({}));
+                    if let Some(obj) = payload.as_object_mut() {
+                        obj.insert(
+                            "collection".to_string(),
+                            serde_json::Value::String(collection.clone()),
+                        );
+                    }
+
+                    hits.push(VectorHit {
+                        id: format!("{}:{}", collection, id),
+                        score,
+                        metadata: payload,
+                    });
+                }
+            }
+        }
+
+        hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        hits.truncate(top_k);
         Ok(hits)
     }
 }

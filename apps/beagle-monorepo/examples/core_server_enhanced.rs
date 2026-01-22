@@ -226,7 +226,7 @@ async fn main() -> Result<()> {
     // Initialize components
     let ctx = Arc::new(BeagleContext::new(cfg.clone()).await?);
     let observer =
-        Arc::new(UniversalObserver::new().context("Failed to create UniversalObserver")?);
+        Arc::new(UniversalObserver::new_async().await.context("Failed to create UniversalObserver")?);
     let metrics = Arc::new(ServerMetrics::new()?);
 
     // Create enhanced state

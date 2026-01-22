@@ -14,6 +14,21 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+fn stable_uuid(namespace: &str, name: &str) -> Uuid {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    fn hash64(value: &str) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        value.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    let hi = hash64(&format!("{namespace}:{name}:hi"));
+    let lo = hash64(&format!("{namespace}:{name}:lo"));
+    Uuid::from_u128(((hi as u128) << 64) | lo as u128)
+}
+
 /// Simplified chat turn for ingestion
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatTurn {
@@ -89,53 +104,83 @@ impl MemoryEngine {
             "Ingesting chat session"
         );
 
-        // Convert ChatSession to ConversationSession + ConversationTurns
-        let session_uuid = Uuid::parse_str(&session.session_id).unwrap_or_else(|_| Uuid::new_v4());
+        // Convert ChatSession to a deterministic session UUID so re-ingestion is idempotent.
+        let session_uuid = Uuid::parse_str(&session.session_id)
+            .unwrap_or_else(|_| stable_uuid("beagle-session", &session.session_id));
 
         // Create or get session
         let _conv_session = self
             .bridge
-            .create_session(None)
+            .create_session(Some(session_uuid), None)
             .await
             .context("Failed to create conversation session")?;
 
         let mut num_chunks = 0;
+        let mut pair_index: usize = 0;
+        let mut buffered_user: Option<(String, DateTime<Utc>, Option<String>)> = None;
 
-        // Ingest each turn
+        // Ingest as Q/A pairs where possible (better retrieval than half-turns)
         for (idx, turn) in session.turns.iter().enumerate() {
-            let _timestamp = turn.timestamp.unwrap_or_else(|| Utc::now());
+            let timestamp = turn.timestamp.unwrap_or_else(Utc::now);
 
-            // Convert ChatTurn to ConversationTurn
-            let conv_turn = ConversationTurn::new(
-                session_uuid,
-                if turn.role == "user" {
-                    turn.content.clone()
-                } else {
-                    String::new()
+            match turn.role.as_str() {
+                "user" => match buffered_user.as_mut() {
+                    Some((content, ts, _model)) => {
+                        content.push_str("\n\n");
+                        content.push_str(&turn.content);
+                        *ts = timestamp;
+                    }
+                    None => {
+                        buffered_user = Some((turn.content.clone(), timestamp, turn.model.clone()));
+                    }
                 },
-                if turn.role == "assistant" {
-                    turn.content.clone()
-                } else {
-                    String::new()
-                },
-                beagle_personality::Domain::General, // Default, can be enhanced
-                turn.model.clone().unwrap_or_else(|| "unknown".to_string()),
-            );
+                "assistant" => {
+                    let Some((query, query_ts, query_model)) = buffered_user.take() else {
+                        warn!(
+                            turn_index = idx,
+                            "Assistant turn without preceding user; skipping"
+                        );
+                        continue;
+                    };
+                    let model = turn
+                        .model
+                        .clone()
+                        .or(query_model)
+                        .unwrap_or_else(|| "unknown".to_string());
 
-            // Store turn
-            match self.bridge.store_turn(conv_turn).await {
-                Ok(_) => {
-                    num_chunks += 1;
-                }
-                Err(e) => {
-                    warn!(
-                        turn_index = idx,
-                        error = %e,
-                        "Failed to store turn"
+                    let mut conv_turn = ConversationTurn::new(
+                        session_uuid,
+                        query,
+                        turn.content.clone(),
+                        beagle_personality::Domain::General,
+                        model,
                     );
+                    conv_turn.id =
+                        stable_uuid(&session_uuid.to_string(), &format!("turn:{pair_index}"));
+                    conv_turn.timestamp = if timestamp > query_ts { timestamp } else { query_ts };
+                    conv_turn.metadata.tags = session.tags.clone();
+                    conv_turn
+                        .metadata
+                        .tags
+                        .push(format!("source:{}", session.source));
+
+                    match self.bridge.store_turn(conv_turn).await {
+                        Ok(_) => {
+                            num_chunks += 1;
+                        }
+                        Err(e) => {
+                            warn!(turn_index = idx, error = %e, "Failed to store turn");
+                        }
+                    }
+                    pair_index += 1;
+                }
+                other => {
+                    warn!(turn_index = idx, role = other, "Ignoring unsupported chat role");
                 }
             }
         }
+
+        // Trailing user message with no assistant response is intentionally skipped.
 
         Ok(IngestStats {
             num_turns: session.turns.len(),

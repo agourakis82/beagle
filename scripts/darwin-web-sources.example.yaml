@@ -1,0 +1,16 @@
+sources:
+  - name: rust-docs
+    enabled: true
+    tags: ["docs", "rust"]
+    urls:
+      - "https://doc.rust-lang.org/book/"
+    rss: []
+    sitemaps: []
+
+  - name: tokio
+    enabled: true
+    tags: ["docs", "rust", "async"]
+    urls:
+      - "https://tokio.rs/"
+    rss: []
+    sitemaps: []

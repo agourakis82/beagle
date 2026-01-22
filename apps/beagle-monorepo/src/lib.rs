@@ -11,8 +11,8 @@ pub mod pipeline_void;
 
 pub use http::{build_router, AppState};
 pub use jobs::{
-    JobRegistry, RunState, RunStatus, ScienceJobKind, ScienceJobRegistry, ScienceJobState,
-    ScienceJobStatus,
+    DarwinJobKind, DarwinJobRegistry, DarwinJobState, DarwinJobStatus, JobRegistry, RunState,
+    RunStatus, ScienceJobKind, ScienceJobRegistry, ScienceJobState, ScienceJobStatus,
 };
 pub use pipeline::{run_beagle_pipeline, ExperimentFlags, PipelinePaths};
 pub use pipeline_checkpoint::{PipelineCheckpointer, PipelinePhase, PipelineState};

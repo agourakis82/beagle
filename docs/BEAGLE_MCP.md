@@ -52,6 +52,24 @@ MCP_ENABLE_SERENDIPITY=false
 MCP_ENABLE_VOID=false
 ```
 
+### Variáveis para Memória Semântica (Qdrant)
+
+Para `beagle_query_memory` retornar **contexto relevante via busca semântica**, configure:
+
+```bash
+# Vector DB
+QDRANT_URL=http://localhost:6333
+
+# Servidor de embeddings (OpenAI-compatible)
+EMBEDDING_URL=http://localhost:8001/v1
+EMBEDDING_MODEL=NV-Embed-v2
+
+# (Opcional) Collection de memória (padrão: beagle-memory)
+BEAGLE_MEMORY_QDRANT_COLLECTION=beagle-memory
+```
+
+Se `QDRANT_URL` não estiver definido, o BEAGLE ainda ingere conversas no hypergraph, mas a busca semântica retorna vazio.
+
 ## Executando
 
 ### Desenvolvimento
@@ -66,6 +84,54 @@ npm run dev
 npm run build
 npm start
 ```
+
+### HTTP (ChatGPT Apps / Streamable HTTP)
+
+O BEAGLE MCP Server suporta **MCP Streamable HTTP (SSE)** via `MCP_TRANSPORT=http`.
+
+Exemplo:
+
+```bash
+export OPENAI_APPS_SDK_ENABLED=true
+export MCP_TRANSPORT=http
+export MCP_HTTP_PORT=3000
+# Optional: proxy GitHub webhooks via MCP (forwards to BEAGLE Core /webhooks/github/push)
+export MCP_GITHUB_WEBHOOK_PROXY_ENABLED=true
+export MCP_GITHUB_WEBHOOK_PATH=/webhooks/github/push
+npm start
+
+# Health:
+curl http://localhost:3000/health
+```
+
+## DARWIN (RAG contínuo / ResearchOps)
+
+Os binários `darwin-*` vivem em `crates/beagle-rag-update/`. Para rodar sem instalar:
+
+```bash
+cargo run -p beagle-rag-update --bin darwin-brief -- --topics-file scripts/darwin-research-topics.yaml
+```
+
+Se preferir instalar, garanta que `~/.cargo/bin` esteja no `PATH` (ou instale em `/usr/local` para systemd).
+
+### Jobs Darwin via MCP
+
+O MCP expõe ferramentas para disparar **jobs server-side** no BEAGLE Core (index/harvest/brief/eval).
+
+Pré-requisitos no host do BEAGLE Core:
+- `BEAGLE_WORKSPACE_ROOT` apontando para o root do repo (ex.: `/root/beagle`)
+- `darwin-*` disponíveis em `PATH` **ou** `DARWIN_BIN_DIR=/usr/local/bin` (ou `~/.cargo/bin`)
+
+Ferramentas úteis:
+- `beagle_start_darwin_job` (genérica)
+- `beagle_darwin_indexer` (index incremental git-based; suporta repo registry + GitHub discovery)
+- `beagle_darwin_knowledge_manager` (indexa PDFs/docs/books locais em collections separadas)
+- `beagle_darwin_nightly_workflow_minimax` (policy: `minimax-grok-deepseek`)
+- `beagle_darwin_nightly_workflow_zai` (policy: `zai-grok-deepseek`)
+
+Para acompanhar execução:
+- `beagle_get_darwin_job_status`
+- `beagle_get_darwin_job_artifacts`
 
 ## Integração com ChatGPT
 
@@ -152,6 +218,10 @@ Use MCP server: BEAGLE. Query memory for recent experiments on heliobiology.
 - **`beagle_get_run_summary`**: Obtém resumo e artefatos de um run
 - **`beagle_list_recent_runs`**: Lista runs recentes
 
+### Exocortex
+
+- **`beagle_exocortex_process`**: Processa uma query via Exocortex (identidade + contexto + agentes + memória + consciência)
+
 ### Science Jobs
 
 - **`beagle_start_science_job`**: Inicia job científico (PBPK, Helio, Scaffold, PCS, KEC)
@@ -172,7 +242,15 @@ Use MCP server: BEAGLE. Query memory for recent experiments on heliobiology.
 
 - **`beagle_serendipity_toggle`**: Liga/desliga Serendipity Engine
 - **`beagle_serendipity_perturb_prompt`**: Perturba prompt via Serendipity
+- **`beagle_void_toggle`**: Liga/desliga Void Engine
 - **`beagle_void_break_loop`**: Aplica comportamento Void
+
+Notas:
+- Para expor esses tools no MCP server: `MCP_ENABLE_SERENDIPITY=true` (e/ou `MCP_ENABLE_VOID=true`).
+- O toggle/persistência usa `POST /api/serendipity/toggle` no BEAGLE Core e grava overrides em `BEAGLE_DATA_DIR/config/runtime_overrides.json` (aplicado no próximo boot).
+- `beagle_serendipity_perturb_prompt` chama `POST /api/serendipity/perturb` e retorna `mutated_prompt` + descrição do delta.
+- `beagle_void_toggle` chama `POST /api/void/toggle` (persistido em `BEAGLE_DATA_DIR/config/runtime_overrides.json`).
+- `beagle_void_break_loop` chama `POST /api/void/break_loop`.
 
 ## Segurança
 
@@ -282,4 +360,3 @@ Logs são escritos em stdout. Configure `MCP_LOG_LEVEL`:
 - [MCP Specification](https://platform.openai.com/docs/mcp)
 - [MCPKit (OpenAI)](https://github.com/openai/mcpkit)
 - [BEAGLE Core API](../apps/beagle-monorepo/README.md)
-

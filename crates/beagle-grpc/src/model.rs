@@ -30,9 +30,33 @@ impl ModelService for ModelServiceImpl {
 
     async fn stream_query(
         &self,
-        _request: Request<ModelQueryRequest>,
+        request: Request<ModelQueryRequest>,
     ) -> std::result::Result<Response<Self::StreamQueryStream>, Status> {
-        Err(Status::unimplemented("Streaming not yet implemented"))
+        let req = request.into_inner();
+
+        let response_text = format!("Echo: {}", req.prompt);
+        let chunk_size = req
+            .parameters
+            .get("chunk_size")
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(64)
+            .max(1);
+
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+
+        tokio::spawn(async move {
+            let bytes = response_text.as_bytes();
+            for (idx, chunk) in bytes.chunks(chunk_size).enumerate() {
+                let content = String::from_utf8_lossy(chunk).to_string();
+                let is_final = idx == (bytes.len().saturating_sub(1) / chunk_size);
+                let msg = ModelChunk { content, is_final };
+                if tx.send(Ok(msg)).await.is_err() {
+                    return;
+                }
+            }
+        });
+
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(rx)))
     }
 }
 

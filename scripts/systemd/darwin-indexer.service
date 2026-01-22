@@ -1,0 +1,15 @@
+[Unit]
+Description=DARWIN Incremental RAG Indexer
+After=network.target
+
+[Service]
+Type=oneshot
+User=demetrios
+Group=demetrios
+EnvironmentFile=-/etc/darwin-indexer.env
+ExecStart=/usr/bin/env bash -lc 'cd "${BEAGLE_WORKSPACE_ROOT:-%h/beagle}" && bash scripts/systemd/darwin-run.sh darwin-incremental-indexer --sync ${DARWIN_INDEX_ARGS}'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

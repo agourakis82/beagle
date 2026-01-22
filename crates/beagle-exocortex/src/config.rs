@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Main configuration for the exocortex system
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ExocortexConfig {
     /// Identity system configuration
     pub identity: IdentityConfig,
@@ -71,6 +72,7 @@ impl ExocortexConfig {
 
 /// Identity system configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct IdentityConfig {
     /// Persistence backend (memory, file, postgres)
     pub persistence: String,
@@ -106,6 +108,7 @@ impl Default for IdentityConfig {
 
 /// Brain connector (consciousness) configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct BrainConfig {
     /// Phi (Φ) threshold for deep reasoning escalation
     pub phi_threshold: f64,
@@ -141,6 +144,7 @@ impl Default for BrainConfig {
 
 /// Context manager configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ContextConfig {
     /// Enable world model integration
     pub enable_worldmodel: bool,
@@ -172,6 +176,7 @@ impl Default for ContextConfig {
 
 /// Agent mesh configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AgentConfig {
     /// Maximum concurrent agents
     pub max_concurrent: usize,
@@ -203,6 +208,7 @@ impl Default for AgentConfig {
 
 /// Memory bridge configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MemoryConfig {
     /// Enable semantic search
     pub enable_semantic: bool,
@@ -238,6 +244,7 @@ impl Default for MemoryConfig {
 
 /// Feature flags for optional components
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct FeatureFlags {
     /// Enable consciousness substrate (IIT/GWT)
     pub enable_consciousness: bool,

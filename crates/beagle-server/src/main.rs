@@ -21,6 +21,9 @@ use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLay
 use tracing::info;
 use utoipa::OpenApi;
 
+#[cfg(not(feature = "swagger-ui"))]
+use axum::{routing::get, Json};
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
@@ -58,10 +61,17 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::routes::hrv_routes())
         .merge(api::routes::science_jobs_routes())
         .merge(api::routes::dev::dev_routes())
-        .merge(api::routes::metrics_routes())
-        .merge(
-            utoipa_swagger_ui::SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi),
-        )
+        .merge(api::routes::metrics_routes());
+
+    #[cfg(feature = "swagger-ui")]
+    let app = app.merge(
+        utoipa_swagger_ui::SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi),
+    );
+
+    #[cfg(not(feature = "swagger-ui"))]
+    let app = app.route("/api-docs/openapi.json", get(move || async move { Json(openapi) }));
+
+    let app = app
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
         .layer(CorsLayer::permissive())

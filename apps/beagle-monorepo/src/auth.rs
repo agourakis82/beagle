@@ -108,7 +108,7 @@ pub async fn auth_error_handler(status: StatusCode) -> impl IntoResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{JobRegistry, ScienceJobRegistry};
+    use crate::{DarwinJobRegistry, JobRegistry, ScienceJobRegistry};
     use axum::{
         body::Body,
         http::{Request, StatusCode},
@@ -125,13 +125,13 @@ mod tests {
         "ok"
     }
 
-    fn create_test_state(api_token: Option<String>, profile: &str) -> AppState {
-        let mut cfg = BeagleConfig {
+    async fn create_test_state(api_token: Option<String>, profile: &str) -> AppState {
+        let cfg = BeagleConfig {
             profile: profile.to_string(),
             safe_mode: true,
             api_token,
             llm: Default::default(),
-            storage: beagle_config::model::StorageConfig {
+            storage: beagle_config::StorageConfig {
                 data_dir: beagle_config::beagle_data_dir()
                     .to_string_lossy()
                     .to_string(),
@@ -142,23 +142,20 @@ mod tests {
             observer: Default::default(),
         };
 
-        let ctx = BeagleContext {
-            cfg,
-            router: beagle_llm::TieredRouter::new(Default::default()),
-            llm_stats: beagle_llm::LlmStatsRegistry::new(),
-        };
+        let ctx = BeagleContext::new_with_mocks(cfg);
 
         AppState {
             ctx: Arc::new(Mutex::new(ctx)),
             jobs: Arc::new(JobRegistry::new()),
             science_jobs: Arc::new(ScienceJobRegistry::new()),
-            observer: Arc::new(UniversalObserver::new().unwrap()),
+            darwin_jobs: Arc::new(DarwinJobRegistry::new()),
+            observer: Arc::new(UniversalObserver::new_async().await.unwrap()),
         }
     }
 
     #[tokio::test]
     async fn test_auth_with_valid_token() {
-        let state = create_test_state(Some("test-secret-token".to_string()), "dev");
+        let state = create_test_state(Some("test-secret-token".to_string()), "dev").await;
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
@@ -180,7 +177,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_with_invalid_token() {
-        let state = create_test_state(Some("test-secret-token".to_string()), "dev");
+        let state = create_test_state(Some("test-secret-token".to_string()), "dev").await;
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
@@ -202,7 +199,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_without_header() {
-        let state = create_test_state(Some("test-secret-token".to_string()), "dev");
+        let state = create_test_state(Some("test-secret-token".to_string()), "dev").await;
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
@@ -220,7 +217,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_with_no_token_configured_dev() {
-        let state = create_test_state(None, "dev");
+        let state = create_test_state(None, "dev").await;
 
         let app = Router::new()
             .route("/test", get(dummy_handler))

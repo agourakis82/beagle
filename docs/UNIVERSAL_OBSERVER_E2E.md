@@ -92,15 +92,15 @@ cargo test --package beagle-observer -- --nocapture
 ```rust
 use beagle_observer::UniversalObserver;
 
-let observer = UniversalObserver::new()?;
-let mut rx = observer.subscribe().await;
+let observer = UniversalObserver::new_async().await?;
+let mut rx = observer.subscribe();
 
 // Inicia surveillance
 observer.start_full_surveillance().await?;
 
 // Recebe observações
-while let Some(obs) = rx.recv().await {
-    println!("{}: {}", obs.source, obs.content_preview);
+while let Ok(event) = rx.recv().await {
+    println!("{}: {}", event.source, event.message);
 }
 ```
 
@@ -135,4 +135,3 @@ cargo run --example test_observer --package beagle-observer
 - ✅ Compilação: Sem erros
 
 **O Universal Observer está 100% funcional e pronto para uso E2E.**
-

@@ -66,5 +66,11 @@ impl From<String> for ExocortexError {
     }
 }
 
+impl From<sqlx::Error> for ExocortexError {
+    fn from(e: sqlx::Error) -> Self {
+        ExocortexError::Internal(anyhow::Error::new(e))
+    }
+}
+
 /// Result type alias for exocortex operations
 pub type ExocortexResult<T> = Result<T, ExocortexError>;

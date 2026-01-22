@@ -55,8 +55,7 @@ async fn publish_event(
 /// Health check
 #[axum::debug_handler]
 async fn health_check(State(_state): State<AppState>) -> Json<HealthResponse> {
-    // TODO: implement real check when available
-    let connected = true;
+    let connected = _state.pulsar.is_enabled();
     Json(HealthResponse {
         status: if connected {
             "healthy".into()

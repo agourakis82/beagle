@@ -1,0 +1,16 @@
+[Unit]
+Description=DARWIN Web Harvester (URLs/RSS/Sitemaps → darwin-docs)
+After=network.target
+
+[Service]
+Type=oneshot
+User=demetrios
+Group=demetrios
+EnvironmentFile=-/etc/darwin-web.env
+ExecStart=/usr/bin/env bash -lc 'cd "${BEAGLE_WORKSPACE_ROOT:-%h/beagle}" && bash scripts/systemd/darwin-run.sh darwin-web-harvester ${DARWIN_WEB_HARVEST_ARGS}'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

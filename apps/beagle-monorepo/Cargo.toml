@@ -48,16 +48,30 @@ beagle-search = { path = "../../crates/beagle-search" }
 beagle-latex = { path = "../../crates/beagle-latex" }
 beagle-exocortex = { path = "../../crates/beagle-exocortex" }
 beagle-checkpoint = { path = "../../crates/beagle-checkpoint" }
-# beagle-void e beagle-ontic comentados temporariamente (requerem dependências adicionais)
-# beagle-void = { path = "../../crates/beagle-void" }
-# beagle-ontic = { path = "../../crates/beagle-ontic" }
+beagle-rag-update = { path = "../../crates/beagle-rag-update" }
+beagle-ontic = { path = "../../crates/beagle-ontic" }
+beagle-physio = { path = "../../crates/beagle-physio" }
 axum = { version = "0.7", features = ["macros", "query"] }
 tempfile = "3.8"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 
 [features]
 default = []
 memory = ["beagle-core/memory"]
+enhanced-examples = []
+
+[[example]]
+name = "core_server_enhanced"
+path = "examples/core_server_enhanced.rs"
+required-features = ["enhanced-examples"]
+
+[[example]]
+name = "integrated_application"
+path = "examples/integrated_application.rs"
+required-features = ["enhanced-examples"]
 
 [dev-dependencies]
 tempfile = "3.8"
-tokio-test = "0.4"
+tower = { workspace = true }

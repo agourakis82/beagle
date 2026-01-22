@@ -72,7 +72,7 @@ pub use memory::{
 };
 pub use orchestrator::{
     ExocortexBuilder, ExocortexInput, ExocortexOutput, InputModality, PersonalExocortex,
-    ProactiveSuggestion, SessionStats,
+    ProactiveSuggestion, RetrievedSource, SessionStats,
 };
 pub use workflow::{
     AgentDefinition, FlowDefinition, FlowStep, FlowType, ModelConfig, TeamDefinition,

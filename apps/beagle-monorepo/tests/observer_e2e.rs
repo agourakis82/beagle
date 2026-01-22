@@ -7,7 +7,17 @@ use anyhow::Result;
 use beagle_observer::{Severity, UniversalObserver};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use tempfile::TempDir;
+
+static ENV_LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+
+fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
 
 /// Setup: cria contexto e observer para testes
 async fn setup_test_observer() -> Result<(TempDir, Arc<UniversalObserver>, PathBuf)> {
@@ -26,7 +36,7 @@ async fn setup_test_observer() -> Result<(TempDir, Arc<UniversalObserver>, PathB
     std::env::set_var("BEAGLE_DATA_DIR", data_dir.to_string_lossy().to_string());
 
     // Cria observer (ele carrega config automaticamente de BEAGLE_DATA_DIR)
-    let observer = UniversalObserver::new()?;
+    let observer = UniversalObserver::new_async().await?;
 
     // Verifica que o observer está usando o data_dir correto
     // (o observer internamente usa beagle_config::load() que lê BEAGLE_DATA_DIR)
@@ -36,6 +46,7 @@ async fn setup_test_observer() -> Result<(TempDir, Arc<UniversalObserver>, PathB
 
 #[tokio::test]
 async fn test_physio_event_ingest_and_alert() -> Result<()> {
+    let _guard = lock_env();
     let (_temp_dir, observer, data_dir) = setup_test_observer().await?;
 
     // Cria evento fisiológico com SpO₂ crítica (deve gerar alert Severe)
@@ -48,10 +59,7 @@ async fn test_physio_event_ingest_and_alert() -> Result<()> {
         spo2_percent: Some(88.0),    // SpO₂ crítica (Severe)
         resp_rate_bpm: Some(8.0),    // Respiração baixa (Moderate)
         skin_temp_c: Some(32.0),     // Temp baixa (Moderate)
-        body_temp_c: None,
-        steps: None,
-        energy_burned_kcal: None,
-        vo2max_ml_kg_min: None,
+        ..Default::default()
     };
 
     // Registra evento
@@ -87,6 +95,7 @@ async fn test_physio_event_ingest_and_alert() -> Result<()> {
 
 #[tokio::test]
 async fn test_env_event_ingest_and_alert() -> Result<()> {
+    let _guard = lock_env();
     let (_temp_dir, observer, data_dir) = setup_test_observer().await?;
 
     // Cria evento ambiental com altitude alta e pressão baixa (deve gerar alert Moderate)
@@ -103,7 +112,7 @@ async fn test_env_event_ingest_and_alert() -> Result<()> {
         wind_speed_m_s: None,
         wind_dir_deg: None,
         uv_index: Some(8.0), // UV alto (Moderate)
-        noise_db: None,
+        ..Default::default()
     };
 
     // Registra evento
@@ -130,6 +139,7 @@ async fn test_env_event_ingest_and_alert() -> Result<()> {
 
 #[tokio::test]
 async fn test_space_weather_event_ingest_and_alert() -> Result<()> {
+    let _guard = lock_env();
     let (_temp_dir, observer, data_dir) = setup_test_observer().await?;
 
     // Cria evento de clima espacial com Kp alto (deve gerar alert Moderate/Severe)
@@ -145,6 +155,7 @@ async fn test_space_weather_event_ingest_and_alert() -> Result<()> {
         electron_flux: None,
         xray_flux: Some(1e-4),
         radio_flux_sfu: Some(150.0),
+        ..Default::default()
     };
 
     // Registra evento
@@ -174,6 +185,7 @@ async fn test_space_weather_event_ingest_and_alert() -> Result<()> {
 
 #[tokio::test]
 async fn test_user_context_aggregation() -> Result<()> {
+    let _guard = lock_env();
     let (_temp_dir, observer, _data_dir) = setup_test_observer().await?;
 
     // Registra eventos de todos os tipos
@@ -186,10 +198,8 @@ async fn test_user_context_aggregation() -> Result<()> {
         spo2_percent: Some(98.0),
         resp_rate_bpm: Some(16.0),
         skin_temp_c: Some(35.0),
-        body_temp_c: None,
-        steps: None,
-        energy_burned_kcal: None,
-        vo2max_ml_kg_min: None,
+        hrv_level: Some("normal".to_string()),
+        ..Default::default()
     };
     observer.record_physio_event(physio_event, None).await?;
 
@@ -206,7 +216,7 @@ async fn test_user_context_aggregation() -> Result<()> {
         wind_speed_m_s: None,
         wind_dir_deg: None,
         uv_index: Some(4.0),
-        noise_db: None,
+        ..Default::default()
     };
     observer.record_env_event(env_event, None).await?;
 
@@ -215,20 +225,15 @@ async fn test_user_context_aggregation() -> Result<()> {
         source: "test_noaa".to_string(),
         session_id: None,
         kp_index: Some(3.0),
-        dst_index: None,
         solar_wind_speed_km_s: Some(400.0),
-        solar_wind_density_n_cm3: None,
-        proton_flux_pfu: None,
-        electron_flux: None,
-        xray_flux: None,
-        radio_flux_sfu: None,
+        ..Default::default()
     };
     observer
         .record_space_weather_event(space_event, None)
         .await?;
 
     // Obtém contexto agregado
-    let user_ctx = observer.current_user_context().await?;
+    let user_ctx = observer.current_user_context().await;
 
     // Verifica que o contexto foi agregado corretamente
     assert!(
@@ -246,8 +251,8 @@ async fn test_user_context_aggregation() -> Result<()> {
     );
 
     assert!(
-        user_ctx.env.location.is_some(),
-        "Localização deve estar presente"
+        user_ctx.env.temperature.is_some(),
+        "Temperatura deve estar presente"
     );
     assert_eq!(
         user_ctx.env.severity,
@@ -270,6 +275,7 @@ async fn test_user_context_aggregation() -> Result<()> {
 
 #[tokio::test]
 async fn test_observer_pipeline_integration() -> Result<()> {
+    let _guard = lock_env();
     let (_temp_dir, observer, _data_dir) = setup_test_observer().await?;
 
     // Registra evento fisiológico com severidade alta
@@ -280,17 +286,12 @@ async fn test_observer_pipeline_integration() -> Result<()> {
         hrv_ms: Some(20.0),          // HRV muito baixa
         heart_rate_bpm: Some(115.0), // FC alta
         spo2_percent: Some(92.0),    // SpO₂ levemente baixa
-        resp_rate_bpm: None,
-        skin_temp_c: None,
-        body_temp_c: None,
-        steps: None,
-        energy_burned_kcal: None,
-        vo2max_ml_kg_min: None,
+        ..Default::default()
     };
     let physio_severity = observer.record_physio_event(event, None).await?;
 
     // Obtém contexto
-    let user_ctx = observer.current_user_context().await?;
+    let user_ctx = observer.current_user_context().await;
 
     // Verifica que o contexto tem as severidades corretas
     assert!(
@@ -323,6 +324,7 @@ async fn test_observer_pipeline_integration() -> Result<()> {
 
 #[tokio::test]
 async fn test_alert_file_creation() -> Result<()> {
+    let _guard = lock_env();
     let (_temp_dir, observer, data_dir) = setup_test_observer().await?;
 
     // Verifica que diretório de alerts foi criado
@@ -337,12 +339,7 @@ async fn test_alert_file_creation() -> Result<()> {
         hrv_ms: Some(20.0),          // HRV baixa
         heart_rate_bpm: Some(115.0), // FC alta
         spo2_percent: Some(89.0),    // SpO₂ crítica
-        resp_rate_bpm: None,
-        skin_temp_c: None,
-        body_temp_c: None,
-        steps: None,
-        energy_burned_kcal: None,
-        vo2max_ml_kg_min: None,
+        ..Default::default()
     };
     observer.record_physio_event(physio_event, None).await?;
 

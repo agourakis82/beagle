@@ -1,0 +1,6 @@
+[env]
+# Ubuntu "development branch" may ship Python 3.13+, but some pinned PyO3 versions
+# still cap their supported interpreter version at 3.12. This flag suppresses the
+# version check and builds against the stable ABI.
+PYO3_USE_ABI3_FORWARD_COMPATIBILITY = "1"
+

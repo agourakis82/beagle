@@ -1,0 +1,15 @@
+[Unit]
+Description=DARWIN Knowledge Manager (local PDFs/docs/books → Qdrant)
+After=network.target
+
+[Service]
+Type=oneshot
+User=demetrios
+Group=demetrios
+EnvironmentFile=-/etc/darwin-knowledge.env
+ExecStart=/usr/bin/env bash -lc 'cd "${BEAGLE_WORKSPACE_ROOT:-%h/beagle}" && bash scripts/systemd/darwin-run.sh darwin-knowledge-manager ${DARWIN_KNOWLEDGE_ARGS}'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

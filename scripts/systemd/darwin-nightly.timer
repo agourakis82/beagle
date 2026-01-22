@@ -1,0 +1,12 @@
+[Unit]
+Description=Run DARWIN nightly ResearchOps pipeline
+
+[Timer]
+OnBootSec=20min
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+

@@ -1,0 +1,24 @@
+# Example repo registry for darwin-incremental-indexer
+#
+# Supported formats: YAML/TOML/JSON (use --repos-file).
+# Each entry can be:
+# - a local path (string)
+# - a clone URL (string)
+# - an object with {name?, path?, url?}
+#
+# Notes:
+# - For URL-only entries, the repo is cloned into DARWIN_REPOS_DIR/<repo-name>.
+# - Avoid putting secrets (tokens/keys) in this file.
+
+repos:
+  # Local repo path
+  - path: /home/demetrios/beagle
+
+  # Remote repo (cloned into DARWIN_REPOS_DIR)
+  - url: https://github.com/agourakis82/beagle.git
+
+  # Combined (explicit path + url)
+  - name: beagle
+    path: /home/demetrios/repos/beagle
+    url: https://github.com/agourakis82/beagle.git
+

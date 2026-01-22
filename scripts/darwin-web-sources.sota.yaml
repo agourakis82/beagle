@@ -1,0 +1,37 @@
+sources:
+  - name: qdrant-docs
+    enabled: true
+    tags: ["docs", "vector-db", "qdrant", "rag"]
+    urls:
+      - "https://qdrant.tech/documentation/"
+      - "https://qdrant.tech/documentation/concepts/filtering/"
+    rss: []
+    sitemaps: []
+
+  - name: mcp-spec
+    enabled: true
+    tags: ["mcp", "agents", "tool-use"]
+    urls:
+      - "https://modelcontextprotocol.io/"
+    rss: []
+    sitemaps: []
+
+  - name: systemd
+    enabled: true
+    tags: ["ops", "systemd"]
+    urls:
+      - "https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html"
+      - "https://www.freedesktop.org/software/systemd/man/latest/systemd.timer.html"
+    rss: []
+    sitemaps: []
+
+  - name: rust-stack
+    enabled: true
+    tags: ["docs", "rust", "async"]
+    urls:
+      - "https://doc.rust-lang.org/book/"
+      - "https://tokio.rs/"
+      - "https://docs.rs/axum/latest/axum/"
+    rss: []
+    sitemaps: []
+

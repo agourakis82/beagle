@@ -9,6 +9,7 @@
 mod model;
 pub use model::*;
 
+use serde::Deserialize;
 use std::env;
 use std::path::PathBuf;
 
@@ -580,6 +581,19 @@ mod tests {
 pub fn load() -> BeagleConfig {
     use model::AdvancedModulesConfig;
 
+    #[derive(Debug, Default, Deserialize)]
+    struct RuntimeOverrides {
+        advanced: Option<AdvancedOverrides>,
+    }
+
+    #[derive(Debug, Default, Deserialize)]
+    struct AdvancedOverrides {
+        serendipity_enabled: Option<bool>,
+        serendipity_in_triad: Option<bool>,
+        void_enabled: Option<bool>,
+        memory_retrieval_enabled: Option<bool>,
+    }
+
     // 1) Carrega defaults a partir de env
     let profile = env::var("BEAGLE_PROFILE")
         .unwrap_or_else(|_| "dev".to_string())
@@ -651,6 +665,41 @@ pub fn load() -> BeagleConfig {
                 // Merge simples: arquivo sobrepõe defaults, mas env mantém precedência
                 cfg = merge_config(cfg, file_cfg);
             }
+        }
+    }
+
+    // 3) Runtime overrides (written by HTTP toggle endpoints). These are applied last.
+    let runtime_overrides_file = PathBuf::from(&cfg.storage.data_dir)
+        .join("config")
+        .join("runtime_overrides.json");
+    if runtime_overrides_file.exists() {
+        match std::fs::read_to_string(&runtime_overrides_file) {
+            Ok(text) => match serde_json::from_str::<RuntimeOverrides>(&text) {
+                Ok(rt) => {
+                    if let Some(adv) = rt.advanced {
+                        if let Some(v) = adv.serendipity_enabled {
+                            cfg.advanced.serendipity_enabled = v;
+                        }
+                        if let Some(v) = adv.serendipity_in_triad {
+                            cfg.advanced.serendipity_in_triad = v;
+                        }
+                        if let Some(v) = adv.void_enabled {
+                            cfg.advanced.void_enabled = v;
+                        }
+                        if let Some(v) = adv.memory_retrieval_enabled {
+                            cfg.advanced.memory_retrieval_enabled = v;
+                        }
+                    }
+                }
+                Err(e) => tracing::warn!(
+                    "Falha ao parsear runtime_overrides.json (ignorando): {}",
+                    e
+                ),
+            },
+            Err(e) => tracing::warn!(
+                "Falha ao ler runtime_overrides.json (ignorando): {}",
+                e
+            ),
         }
     }
 

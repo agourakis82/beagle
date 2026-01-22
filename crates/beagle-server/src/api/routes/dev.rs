@@ -63,7 +63,7 @@ pub async fn dev_chat(
     } else {
         let session = state
             .context_bridge()
-            .create_session(None)
+            .create_session(None, None)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         info!("📂 Created new session: {}", session.id);

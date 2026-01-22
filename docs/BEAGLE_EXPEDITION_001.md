@@ -471,7 +471,7 @@ After Expedition 001 data collection:
 
 For questions about Expedition 001:
 - **PI**: Dr. Demetrios Agourakis
-- **Repository**: https://github.com/darwin-cluster/beagle
+- **Repository**: https://github.com/agourakis82/beagle
 - **Documentation**: `docs/BEAGLE_EXPEDITION_001.md`
 
 ---
@@ -479,4 +479,3 @@ For questions about Expedition 001:
 **Document Version**: 1.0  
 **Last Updated**: 2026-01-15  
 **Status**: Active Experiment
-

@@ -3,7 +3,10 @@
 //! Implementa detecção de deadlock e aplica estratégias Void quando necessário
 
 use std::collections::VecDeque;
+use std::time::Duration;
 use tracing::{info, warn};
+
+use beagle_ontic::{DissolutionState, VoidNavigator};
 
 /// Estado de detecção de deadlock para um run
 #[derive(Debug, Clone)]
@@ -91,6 +94,24 @@ fn similarity(a: &str, b: &str) -> f64 {
     }
 }
 
+fn env_bool(key: &str, default: bool) -> bool {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| match v.trim().to_lowercase().as_str() {
+            "1" | "true" | "yes" | "y" => Some(true),
+            "0" | "false" | "no" | "n" => Some(false),
+            _ => None,
+        })
+        .unwrap_or(default)
+}
+
+fn env_f64(key: &str, default: f64) -> f64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .unwrap_or(default)
+}
+
 /// Aplica estratégia Void para quebrar deadlock
 pub async fn handle_deadlock(run_id: &str, reason: &str, _focus: &str) -> anyhow::Result<String> {
     info!(
@@ -99,15 +120,74 @@ pub async fn handle_deadlock(run_id: &str, reason: &str, _focus: &str) -> anyhow
         "VOID: Aplicando estratégia de quebra de deadlock"
     );
 
-    // Estratégia conservadora: apenas loga e retorna insight do Void
-    // Em lab/prod, pode ser mais agressivo (resetar contexto, trocar provider, etc.)
+    if !env_bool("BEAGLE_VOID_NAVIGATOR_ENABLE", false) {
+        warn!("VOID: Usando fallback (BEAGLE_VOID_NAVIGATOR_ENABLE não habilitado)");
+        return Ok(format!(
+            "[VOID BREAK APPLIED] {}\n\nInsight do vazio: Deadlock detectado. Considerando abordagem alternativa ou redução de contexto.",
+            reason
+        ));
+    }
 
-    // Por enquanto, retorna mensagem simples (VoidNavigator requer beagle-ontic que pode não estar disponível)
-    // TODO: Integrar VoidNavigator quando beagle-ontic estiver disponível
-    warn!("VOID: Usando implementação fallback (VoidNavigator não disponível)");
+    let vllm_url = std::env::var("BEAGLE_VLLM_URL")
+        .or_else(|_| std::env::var("VLLM_URL"))
+        .ok();
+    let navigator = match vllm_url {
+        Some(url) if !url.trim().is_empty() => VoidNavigator::with_vllm_url(url),
+        _ => VoidNavigator::new(),
+    };
 
-    Ok(format!(
-        "[VOID BREAK APPLIED] {}\n\nInsight do vazio: Deadlock detectado. Considerando abordagem alternativa ou redução de contexto.",
-        reason
-    ))
+    let now = chrono::Utc::now();
+    let dissolution_state = DissolutionState {
+        id: uuid::Uuid::new_v4().to_string(),
+        pre_dissolution_state: format!("run_id={run_id}\nreason={reason}"),
+        dissolution_experience: reason.to_string(),
+        void_duration_subjective: 0.0,
+        dissolution_complete: false,
+        initiated_at: now,
+        emerged_at: None,
+    };
+
+    let target_depth = env_f64("BEAGLE_VOID_TARGET_DEPTH", 0.6).clamp(0.0, 1.0);
+    let timeout_secs = env_f64("BEAGLE_VOID_TIMEOUT_SECS", 20.0)
+        .max(1.0)
+        .min(180.0);
+    let timeout = Duration::from_secs_f64(timeout_secs);
+
+    match tokio::time::timeout(timeout, navigator.navigate_void(&dissolution_state, target_depth))
+        .await
+    {
+        Ok(Ok(void_state)) => {
+            let mut out = String::new();
+            out.push_str(&format!("[VOID BREAK APPLIED] {reason}\n\n"));
+            out.push_str("VoidNavigator insights:\n");
+            for (idx, insight) in void_state.navigation_path.iter().take(8).enumerate() {
+                out.push_str(&format!(
+                    "{}. (depth {:.2}, impossibility {:.2}) {}\n",
+                    idx + 1,
+                    insight.depth_at_discovery,
+                    insight.impossibility_level,
+                    insight.insight_text.trim()
+                ));
+            }
+            out.push_str(&format!(
+                "\nNon-dual awareness: {:.0}%\n",
+                void_state.non_dual_awareness * 100.0
+            ));
+            Ok(out)
+        }
+        Ok(Err(e)) => {
+            warn!("VOID: VoidNavigator falhou, usando fallback: {e}");
+            Ok(format!(
+                "[VOID BREAK APPLIED] {}\n\nInsight do vazio: Deadlock detectado. Considerando abordagem alternativa ou redução de contexto.",
+                reason
+            ))
+        }
+        Err(_) => {
+            warn!("VOID: VoidNavigator timeout após {:.1}s, usando fallback", timeout_secs);
+            Ok(format!(
+                "[VOID BREAK APPLIED] {}\n\nInsight do vazio: Deadlock detectado. Considerando abordagem alternativa ou redução de contexto.",
+                reason
+            ))
+        }
+    }
 }

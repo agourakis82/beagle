@@ -127,6 +127,24 @@ impl ArxivClient {
 
         Ok(papers)
     }
+
+    fn build_search_query(query: &str) -> String {
+        let q = query.trim();
+        if q.is_empty() {
+            return "all:*".to_string();
+        }
+
+        // arXiv supports advanced query syntax like `cat:cs.AI AND ti:transformer`.
+        // Only prefix with `all:` for plain free-text queries.
+        let advanced = regex::Regex::new(r"(?i)\b(all|ti|au|abs|cat|id|jr|rn|co):")
+            .ok()
+            .is_some_and(|re| re.is_match(q));
+        if advanced {
+            q.to_string()
+        } else {
+            format!("all:{q}")
+        }
+    }
 }
 
 impl Default for ArxivClient {
@@ -143,14 +161,19 @@ impl SearchClient for ArxivClient {
         self.rate_limiter.until_ready().await;
 
         // Build arXiv API query
-        // Syntax: search_query=all:electron or ti:quantum or au:einstein
-        let search_query = format!("all:{}", query.query);
+        // Syntax: search_query=all:electron or ti:quantum or au:einstein or cat:cs.AI
+        let search_query = Self::build_search_query(&query.query);
+        let sort_by = if search_query.to_lowercase().contains("cat:") {
+            "submittedDate"
+        } else {
+            "relevance"
+        };
 
         let params = [
             ("search_query", search_query.as_str()),
             ("start", &query.offset.to_string()),
             ("max_results", &query.max_results.to_string()),
-            ("sortBy", "relevance"),
+            ("sortBy", sort_by),
             ("sortOrder", "descending"),
         ];
 

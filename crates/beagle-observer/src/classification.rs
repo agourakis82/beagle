@@ -6,10 +6,10 @@ use beagle_config::{EnvThresholds, PhysioThresholds, SpaceWeatherThresholds};
 
 /// Classifica HRV em nível de severidade
 pub fn classify_hrv(hrv_ms: f32, t: &PhysioThresholds) -> Severity {
-    if hrv_ms <= t.hrv_low_ms {
+    // Keep HRV severity aligned with `beagle_config::classify_hrv` semantics:
+    // below the low threshold is alert-worthy, otherwise treat as Normal.
+    if hrv_ms < t.hrv_low_ms {
         Severity::Moderate
-    } else if hrv_ms <= t.hrv_low_ms * 1.5 {
-        Severity::Mild
     } else {
         Severity::Normal
     }
@@ -101,7 +101,7 @@ pub fn classify_altitude(altitude_m: f32, t: &EnvThresholds) -> Severity {
 pub fn classify_baro_pressure(pressure_hpa: f32, t: &EnvThresholds) -> Severity {
     if pressure_hpa <= t.baro_low_hpa || pressure_hpa >= t.baro_high_hpa {
         Severity::Moderate
-    } else if pressure_hpa <= t.baro_low_hpa * 1.02 || pressure_hpa >= t.baro_high_hpa * 0.98 {
+    } else if pressure_hpa <= t.baro_low_hpa * 1.01 || pressure_hpa >= t.baro_high_hpa * 0.995 {
         Severity::Mild
     } else {
         Severity::Normal

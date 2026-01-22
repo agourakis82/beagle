@@ -1,0 +1,18 @@
+[Unit]
+Description=DARWIN Nightly ResearchOps (harvest + eval)
+After=network.target
+
+[Service]
+Type=oneshot
+User=demetrios
+Group=demetrios
+EnvironmentFile=-/etc/darwin-indexer.env
+EnvironmentFile=-/etc/darwin-harvester.env
+EnvironmentFile=-/etc/darwin-web.env
+EnvironmentFile=-/etc/darwin-nightly.env
+ExecStart=/usr/bin/env bash -lc 'cd "${BEAGLE_WORKSPACE_ROOT:-%h/beagle}" && bash scripts/systemd/darwin-nightly.sh'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

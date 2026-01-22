@@ -25,6 +25,8 @@ pub use clients::copilot::{CopilotClient, CopilotModel};
 pub use clients::cursor::{CursorClient, CursorModel};
 pub use clients::deepseek::DeepSeekClient;
 pub use clients::grok::GrokClient;
+pub use clients::minimax::MiniMaxClient;
+pub use clients::zai::ZaiClient;
 pub use clients::mock::MockLlmClient;
 pub use meta::RequestMeta;
 pub use orchestrator::{

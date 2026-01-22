@@ -1,32 +1,345 @@
 use crate::models::{ConversationSession, ConversationTurn, RetrievedContext};
 use anyhow::{Context, Result};
 use beagle_hypergraph::{CachedPostgresStorage, ContentType, Hyperedge, Node, StorageRepository};
+use beagle_llm::embedding::EmbeddingClient;
 use beagle_personality::Domain;
 use chrono::{DateTime, Utc};
 use serde_json::json;
+use std::time::Duration;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 const DEVICE_ID: &str = "context-bridge";
 const EDGE_LABEL: &str = "ConversationTurn";
+const DEFAULT_MEMORY_QDRANT_COLLECTION: &str = "beagle-memory";
+
+fn stable_uuid_for_parts(parts: &[&str]) -> Uuid {
+    fn fnv1a64(s: &str) -> u64 {
+        const OFFSET: u64 = 0xcbf29ce484222325;
+        const PRIME: u64 = 0x100000001b3;
+        let mut hash = OFFSET;
+        for b in s.as_bytes() {
+            hash ^= *b as u64;
+            hash = hash.wrapping_mul(PRIME);
+        }
+        hash
+    }
+
+    let joined = parts.join("\u{1f}");
+    let hi = fnv1a64(&format!("hi:{joined}"));
+    let lo = fnv1a64(&format!("lo:{joined}"));
+    Uuid::from_u128(((hi as u128) << 64) | lo as u128)
+}
+
+#[derive(Debug, Clone)]
+struct MemoryVectorIndex {
+    qdrant_url: String,
+    collection: String,
+    qdrant: reqwest::Client,
+    embedder: EmbeddingClient,
+}
+
+impl MemoryVectorIndex {
+    fn try_from_env() -> Result<Option<Self>> {
+        let qdrant_url = std::env::var("QDRANT_URL")
+            .or_else(|_| std::env::var("BEAGLE_QDRANT_URL"))
+            .ok();
+        let Some(qdrant_url) = qdrant_url else {
+            return Ok(None);
+        };
+
+        let collection = std::env::var("BEAGLE_MEMORY_QDRANT_COLLECTION")
+            .or_else(|_| std::env::var("BEAGLE_MEMORY_COLLECTION"))
+            .unwrap_or_else(|_| DEFAULT_MEMORY_QDRANT_COLLECTION.to_string());
+
+        let embedding_url = std::env::var("EMBEDDING_URL")
+            .or_else(|_| std::env::var("BEAGLE_EMBEDDING_URL"))
+            .unwrap_or_else(|_| "http://localhost:8001/v1".to_string());
+
+        let qdrant = reqwest::Client::builder()
+            .timeout(Duration::from_secs(60))
+            .build()
+            .context("Failed to build Qdrant HTTP client")?;
+
+        Ok(Some(Self {
+            qdrant_url: qdrant_url.trim_end_matches('/').to_string(),
+            collection,
+            qdrant,
+            embedder: EmbeddingClient::new(embedding_url),
+        }))
+    }
+
+    async fn ensure_collection(&self, vector_size: usize) -> Result<()> {
+        let url = format!("{}/collections/{}", self.qdrant_url, self.collection);
+        let resp = self.qdrant.get(&url).send().await?;
+        if resp.status().as_u16() == 404 {
+            let body = json!({ "vectors": { "size": vector_size, "distance": "Cosine" } });
+            let resp = self.qdrant.put(&url).json(&body).send().await?;
+            let status = resp.status();
+            if !status.is_success() {
+                let body = resp.text().await.unwrap_or_default();
+                anyhow::bail!("Qdrant create collection error {status}: {body}");
+            }
+            return Ok(());
+        }
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Qdrant get collection error {status}: {body}");
+        }
+
+        Ok(())
+    }
+
+    async fn upsert_turn(&self, turn: &ConversationTurn) -> Result<()> {
+        let text = format_turn_for_embedding(turn);
+        if text.trim().is_empty() {
+            return Ok(());
+        }
+
+        let embedding = self.embedder.embed(&text).await?;
+        let vector_size = embedding.len();
+        if vector_size == 0 {
+            anyhow::bail!("Embedding server returned empty vector");
+        }
+
+        self.ensure_collection(vector_size).await?;
+
+        let vector: Vec<f32> = embedding.into_iter().map(|v| v as f32).collect();
+        let url = format!(
+            "{}/collections/{}/points?wait=true",
+            self.qdrant_url, self.collection
+        );
+
+        let payload = json!({
+            "turn_id": turn.id.to_string(),
+            "session_id": turn.session_id.to_string(),
+            "timestamp": turn.timestamp.to_rfc3339(),
+            "domain": turn.domain,
+            "model": turn.model,
+            "query": turn.query,
+            "response": turn.response,
+            "metadata": turn.metadata,
+        });
+
+        let body = json!({
+            "points": [{
+                "id": turn.id.to_string(),
+                "vector": vector,
+                "payload": payload,
+            }]
+        });
+
+        let resp = self.qdrant.put(&url).json(&body).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Qdrant upsert error {status}: {body}");
+        }
+
+        Ok(())
+    }
+
+    async fn search_turns(&self, query: &str, limit: usize) -> Result<Vec<(ConversationTurn, f32)>> {
+        let embedding = self.embedder.embed(query).await?;
+        let vector_size = embedding.len();
+        if vector_size == 0 {
+            return Ok(vec![]);
+        }
+
+        self.ensure_collection(vector_size).await?;
+
+        let vector: Vec<f32> = embedding.into_iter().map(|v| v as f32).collect();
+        let url = format!(
+            "{}/collections/{}/points/search",
+            self.qdrant_url, self.collection
+        );
+        let body = json!({
+            "vector": vector,
+            "limit": limit,
+            "with_payload": true,
+            "with_vector": false,
+        });
+
+        let resp = self.qdrant.post(&url).json(&body).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Qdrant search error {status}: {body}");
+        }
+
+        let v: serde_json::Value = resp.json().await?;
+        let results = v
+            .get("result")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut out = Vec::new();
+        for hit in results {
+            let score = hit.get("score").and_then(|value| value.as_f64()).unwrap_or(0.0) as f32;
+            let payload = match hit.get("payload") {
+                Some(payload) => payload.clone(),
+                None => continue,
+            };
+
+            let turn = parse_turn_from_qdrant_payload(payload).ok();
+            if let Some(turn) = turn {
+                out.push((turn, score));
+            }
+        }
+
+        Ok(out)
+    }
+}
+
+fn format_turn_for_embedding(turn: &ConversationTurn) -> String {
+    let query = turn.query.trim();
+    let response = turn.response.trim();
+
+    match (!query.is_empty(), !response.is_empty()) {
+        (true, true) => format!("User:\n{}\n\nAssistant:\n{}", query, response),
+        (true, false) => format!("User:\n{}", query),
+        (false, true) => format!("Assistant:\n{}", response),
+        (false, false) => String::new(),
+    }
+}
+
+fn parse_turn_from_qdrant_payload(payload: serde_json::Value) -> Result<ConversationTurn> {
+    let turn_id = payload
+        .get("turn_id")
+        .and_then(|v| v.as_str())
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .context("Missing payload.turn_id")?;
+    let session_id = payload
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .context("Missing payload.session_id")?;
+    let timestamp = payload
+        .get("timestamp")
+        .and_then(|v| v.as_str())
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_else(Utc::now);
+
+    let query = payload
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let response = payload
+        .get("response")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let model = payload
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let domain: Domain = payload
+        .get("domain")
+        .cloned()
+        .map(|value| serde_json::from_value(value))
+        .transpose()
+        .context("Failed to deserialize domain")?
+        .unwrap_or(Domain::General);
+
+    let conv_metadata: crate::models::ConversationMetadata = payload
+        .get("metadata")
+        .cloned()
+        .map(|value| serde_json::from_value(value))
+        .transpose()
+        .context("Failed to deserialize conversation metadata")?
+        .unwrap_or_else(default_metadata);
+
+    Ok(ConversationTurn {
+        id: turn_id,
+        session_id,
+        query,
+        response,
+        domain,
+        model,
+        timestamp,
+        metadata: conv_metadata,
+    })
+}
 
 /// Context Bridge - Manages conversation memory in hypergraph
 pub struct ContextBridge {
     storage: Arc<CachedPostgresStorage>,
+    vector_index: Option<Arc<MemoryVectorIndex>>,
 }
 
 impl ContextBridge {
     /// Create new context bridge
     pub fn new(storage: Arc<CachedPostgresStorage>) -> Self {
-        Self { storage }
+        let vector_index = match MemoryVectorIndex::try_from_env() {
+            Ok(Some(index)) => Some(Arc::new(index)),
+            Ok(None) => None,
+            Err(err) => {
+                warn!(error = %err, "Memory vector index disabled (failed to initialize)");
+                None
+            }
+        };
+
+        Self {
+            storage,
+            vector_index,
+        }
     }
 
     /// Create new conversation session
-    pub async fn create_session(&self, user_id: Option<String>) -> Result<ConversationSession> {
+    pub async fn create_session(
+        &self,
+        session_id: Option<Uuid>,
+        user_id: Option<String>,
+    ) -> Result<ConversationSession> {
         let now = Utc::now();
+        let id = session_id.unwrap_or_else(Uuid::new_v4);
+
+        if let Ok(existing) = self.storage.get_node(id).await {
+            let metadata = &existing.metadata;
+            let user_id = metadata
+                .get("user_id")
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_string())
+                .or(user_id);
+
+            let started_at = metadata
+                .get("started_at")
+                .and_then(|value| value.as_str())
+                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or(existing.created_at);
+
+            let last_active = metadata
+                .get("last_active")
+                .and_then(|value| value.as_str())
+                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or(existing.updated_at);
+
+            let turn_count = metadata
+                .get("turn_count")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0) as usize;
+
+            return Ok(ConversationSession {
+                id,
+                user_id,
+                started_at,
+                last_active,
+                turn_count,
+            });
+        }
+
         let session = ConversationSession {
-            id: Uuid::new_v4(),
+            id,
             user_id: user_id.clone(),
             started_at: now,
             last_active: now,
@@ -66,7 +379,14 @@ impl ContextBridge {
 
         ensure_session_node(&self.storage, turn.session_id).await?;
 
+        let turn_key = turn.id.to_string();
+        let query_node_id = stable_uuid_for_parts(&["beagle-memory", "turn", &turn_key, "user"]);
+        let response_node_id =
+            stable_uuid_for_parts(&["beagle-memory", "turn", &turn_key, "assistant"]);
+        let edge_id = stable_uuid_for_parts(&["beagle-memory", "turn", &turn_key, "edge"]);
+
         let query_node = Node::builder()
+            .id(query_node_id)
             .content(turn.query.clone())
             .content_type(ContentType::Context)
             .metadata(json!({
@@ -80,13 +400,16 @@ impl ContextBridge {
             .build()
             .context("Failed to build query node")?;
 
-        let query_node = self
-            .storage
-            .create_node(query_node)
-            .await
-            .context("Failed to create query node")?;
+        let query_node = match self.storage.create_node(query_node).await {
+            Ok(node) => node,
+            Err(err) => match self.storage.get_node(query_node_id).await {
+                Ok(node) => node,
+                Err(_) => return Err(err).context("Failed to create query node"),
+            },
+        };
 
         let response_node = Node::builder()
+            .id(response_node_id)
             .content(turn.response.clone())
             .content_type(ContentType::Context)
             .metadata(json!({
@@ -100,11 +423,13 @@ impl ContextBridge {
             .build()
             .context("Failed to build response node")?;
 
-        let response_node = self
-            .storage
-            .create_node(response_node)
-            .await
-            .context("Failed to create response node")?;
+        let response_node = match self.storage.create_node(response_node).await {
+            Ok(node) => node,
+            Err(err) => match self.storage.get_node(response_node_id).await {
+                Ok(node) => node,
+                Err(_) => return Err(err).context("Failed to create response node"),
+            },
+        };
 
         let metadata = json!({
             "turn_id": turn.id,
@@ -124,14 +449,26 @@ impl ContextBridge {
             DEVICE_ID,
         )
         .context("Failed to build conversation hyperedge")?;
+        edge.id = edge_id;
         edge.metadata = metadata;
 
-        self.storage
-            .create_hyperedge(edge)
-            .await
-            .context("Failed to create conversation hyperedge")?;
+        let created_edge = match self.storage.create_hyperedge(edge).await {
+            Ok(_) => true,
+            Err(err) => match self.storage.get_hyperedge(edge_id).await {
+                Ok(_) => false,
+                Err(_) => return Err(err).context("Failed to create conversation hyperedge"),
+            },
+        };
 
-        update_session_metadata(&self.storage, turn.session_id, turn.timestamp).await?;
+        if created_edge {
+            update_session_metadata(&self.storage, turn.session_id, turn.timestamp).await?;
+        }
+
+        if let Some(index) = &self.vector_index {
+            if let Err(err) = index.upsert_turn(&turn).await {
+                warn!(error = %err, turn_id = %turn.id, "Memory vector upsert failed");
+            }
+        }
 
         info!(turn_id = %turn.id, "✅ Stored conversation turn");
 
@@ -181,19 +518,40 @@ impl ContextBridge {
     pub async fn retrieve_similar_context(
         &self,
         query: &str,
-        _max_turns: usize,
-        _min_similarity: f32,
+        max_turns: usize,
+        min_similarity: f32,
     ) -> Result<RetrievedContext> {
         debug!("🔍 Searching for similar context to: {}", query);
 
-        // TODO: Implement semantic search via Qdrant
-        warn!("⚠️ Semantic search not yet implemented, returning empty context");
+        let Some(index) = &self.vector_index else {
+            warn!("Qdrant not configured; returning empty semantic context");
+            return Ok(RetrievedContext {
+                turns: vec![],
+                relevance_scores: vec![],
+                total_tokens: 0,
+            });
+        };
 
-        Ok(RetrievedContext {
-            turns: vec![],
-            relevance_scores: vec![],
+        let limit = std::cmp::max(max_turns, 1) * 3;
+        let mut hits = index.search_turns(query, limit).await?;
+
+        hits.retain(|(_, score)| *score >= min_similarity);
+        hits.truncate(max_turns);
+
+        let mut context = RetrievedContext {
+            turns: hits.iter().map(|(t, _)| t.clone()).collect(),
+            relevance_scores: hits.iter().map(|(_, s)| *s).collect(),
             total_tokens: 0,
-        })
+        };
+
+        // Rough approximation: 4 chars ≈ 1 token
+        context.total_tokens = context
+            .turns
+            .iter()
+            .map(|turn| turn.char_count() / 4)
+            .sum();
+
+        Ok(context)
     }
 
     /// Build context string from retrieved turns

@@ -1477,20 +1477,99 @@ impl SerendipityInjector {
         _quantum_state: &beagle_quantum::HypothesisSet,
         research_question: &str,
     ) -> Result<Vec<FertileAccident>> {
-        // Generate perturbations based on research question
-        let mut rng = rand::thread_rng();
-        let mut accidents = Vec::new();
+        fn fnv1a64(s: &str) -> u64 {
+            const OFFSET: u64 = 0xcbf29ce484222325;
+            const PRIME: u64 = 0x100000001b3;
+            let mut hash = OFFSET;
+            for b in s.as_bytes() {
+                hash ^= *b as u64;
+                hash = hash.wrapping_mul(PRIME);
+            }
+            hash
+        }
 
-        // Simple heuristic: inject accidents based on exploration rate
-        if rng.gen::<f64>() < self.config.exploration_rate {
+        let question = research_question.trim();
+        let question_preview: String = question.chars().take(120).collect();
+
+        let max_accidents = 6usize;
+        let desired = ((self.config.exploration_rate * max_accidents as f64).ceil() as usize)
+            .clamp(1, max_accidents);
+
+        let domains: &[(&str, &[&str])] = &[
+            (
+                "ComplexSystems",
+                &[
+                    "Treat it as an attractor landscape: what variables define the basin boundaries?",
+                    "Look for phase transitions: what control parameter flips the regime?",
+                    "Map feedback loops and delays; search for instability + oscillation sources.",
+                ],
+            ),
+            (
+                "Heliobiology",
+                &[
+                    "Add circadian phase as a hidden variable; test time-of-day gating effects.",
+                    "Reframe as phase-response: what input shifts the system clock?",
+                    "Try seasonal/light-exposure confounds as causal modifiers.",
+                ],
+            ),
+            (
+                "PBPK",
+                &[
+                    "Model as compartments + flows: what are the conserved quantities and clearances?",
+                    "Look for saturable kinetics: where would nonlinearity enter (Vmax/Km analogue)?",
+                    "Try sensitivity analysis: which parameters dominate outcomes and why?",
+                ],
+            ),
+            (
+                "Quantum",
+                &[
+                    "Reframe as measurement: what 'observable' collapses your uncertainty?",
+                    "Use superposition framing: enumerate incompatible hypotheses and interference points.",
+                    "Ask what 'decoheres' the system (noise sources that kill signal).",
+                ],
+            ),
+            (
+                "MetaDiscovery",
+                &[
+                    "Invert the problem: what would falsify the most plausible explanation fastest?",
+                    "Search for the simplest ablation study that disambiguates competing causes.",
+                    "Design a 'minimal publishable unit' experiment with clear endpoints.",
+                ],
+            ),
+            (
+                "Music",
+                &[
+                    "Use tension/resolution: identify what builds 'harmonic tension' and what resolves it.",
+                    "Think in motifs: what repeats across scales and can be varied systematically?",
+                    "Try counterpoint: can two independent mechanisms explain the same observation?",
+                ],
+            ),
+        ];
+
+        let sources: &[PerturbationSource] = &[
+            PerturbationSource::CrossDomain,
+            PerturbationSource::Chaos,
+            PerturbationSource::Annealing,
+            PerturbationSource::Mutation,
+            PerturbationSource::Curiosity,
+            PerturbationSource::Quantum,
+        ];
+
+        let seed = fnv1a64(question);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        let mut accidents = Vec::with_capacity(desired);
+
+        for _ in 0..desired {
+            let (domain, hooks) = domains[rng.gen_range(0..domains.len())];
+            let hook = hooks[rng.gen_range(0..hooks.len())];
+            let source = sources[rng.gen_range(0..sources.len())];
+            let novelty_score = rng.gen_range(0.65..0.98);
+
             accidents.push(FertileAccident {
                 id: Uuid::new_v4(),
-                description: format!(
-                    "Cross-domain insight for: {}",
-                    &research_question[..research_question.len().min(50)]
-                ),
-                novelty_score: rng.gen_range(0.6..0.95),
-                source: PerturbationSource::CrossDomain,
+                description: format!("[{domain}] {hook} — apply to: {question_preview}"),
+                novelty_score,
+                source,
             });
         }
 

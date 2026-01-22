@@ -1,8 +1,12 @@
 use crate::{BeagleEvent, BeaglePulsar, EventError, Result};
 use async_trait::async_trait;
+#[cfg(feature = "pulsar")]
 use futures_util::TryStreamExt;
+#[cfg(feature = "pulsar")]
 use pulsar::consumer::{Consumer, ConsumerOptions};
+#[cfg(feature = "pulsar")]
 use pulsar::{SubType, TokioExecutor};
+#[cfg(feature = "pulsar")]
 use tracing::{debug, error, info};
 
 /// Event handler trait
@@ -12,10 +16,12 @@ pub trait EventHandler: Send + Sync {
 }
 
 /// Event subscriber
+#[cfg(feature = "pulsar")]
 pub struct EventSubscriber {
     consumer: Consumer<Vec<u8>, TokioExecutor>,
 }
 
+#[cfg(feature = "pulsar")]
 impl EventSubscriber {
     /// Create new event subscriber
     ///
@@ -97,5 +103,31 @@ impl EventSubscriber {
         }
 
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stub implementation when Pulsar is disabled.
+// ---------------------------------------------------------------------------
+
+/// Event subscriber (disabled when built without feature `pulsar`)
+#[cfg(not(feature = "pulsar"))]
+pub struct EventSubscriber;
+
+#[cfg(not(feature = "pulsar"))]
+impl EventSubscriber {
+    pub async fn new(
+        _pulsar: &BeaglePulsar,
+        _topic: impl Into<String>,
+        _subscription: impl Into<String>,
+    ) -> Result<Self> {
+        Err(EventError::PulsarDisabled)
+    }
+
+    pub async fn consume<H>(&mut self, _handler: H) -> Result<()>
+    where
+        H: EventHandler,
+    {
+        Err(EventError::PulsarDisabled)
     }
 }

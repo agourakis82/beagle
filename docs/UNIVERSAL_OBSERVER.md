@@ -69,18 +69,22 @@ cargo run --example test_observer --package beagle-observer
 ### Programático
 
 ```rust
-use beagle_observer::UniversalObserver;
+use beagle_observer::{Event, UniversalObserver};
 
-let mut observer = UniversalObserver::new()?;
-let mut rx = observer.get_observations_receiver()
-    .ok_or_else(|| anyhow::anyhow!("Falha ao obter receiver"))?;
+let observer = UniversalObserver::new_async().await?;
+let mut rx = observer.subscribe();
 
 // Inicia surveillance
 observer.start_full_surveillance().await?;
 
-// Recebe observações
-while let Some(obs) = rx.recv().await {
-    println!("{}: {}", obs.source, obs.content_preview);
+// Exemplo: emite um evento e lê do stream
+observer
+    .system_observer()
+    .record_event(Event::log("demo", "info", "hello"))
+    .await;
+
+while let Ok(event) = rx.recv().await {
+    println!("{}: {}", event.source, event.message);
 }
 ```
 
@@ -108,14 +112,20 @@ URLSession.shared.dataTask(with: request).resume()
 ### Análise Fisiológica
 
 ```rust
-let health_obs: Vec<Observation> = observations
-    .iter()
-    .filter(|o| o.source == "healthkit")
-    .cloned()
-    .collect();
+use beagle_observer::PhysioEvent;
 
-let analysis = observer.physiological_state_analysis(&health_obs).await?;
-// → Análise completa via Grok 4 Heavy
+let severity = observer
+    .record_physio_event(
+        PhysioEvent {
+            source: "healthkit".to_string(),
+            spo2_percent: Some(92.0),
+            ..Default::default()
+        },
+        None,
+    )
+    .await?;
+
+println!("Physio severity: {}", severity.as_str());
 ```
 
 ## Observações
@@ -194,4 +204,3 @@ Recomendações:
 ---
 
 **Status**: ✅ 100% Implementado e Funcional
-
