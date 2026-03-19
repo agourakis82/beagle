@@ -1,0 +1,6 @@
+{
+  "profile_id": "cpu-batch-v1",
+  "parameters": {
+    "run_label": "b95-<run-id>-cpu-batch"
+  }
+}

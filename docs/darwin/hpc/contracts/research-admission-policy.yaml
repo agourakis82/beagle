@@ -1,0 +1,74 @@
+apiVersion: darwin.platform/v1alpha1
+kind: HpcResearchAdmissionPolicy
+metadata:
+  name: darwin-research-controlled-admission
+  phase: B9.6
+  title: Research-facing Controlled Admission
+spec:
+  objective: >
+    Extend the internal HPC gateway from platform-owned use to research-facing
+    controlled admission without reopening storage, ingress, edge, HA, or
+    topology.
+  design_rules:
+    - Keep the gateway policy-first.
+    - Keep profile-based submission only.
+    - Do not expose raw scheduler payloads.
+    - Do not allow arbitrary scripts.
+    - Do not broaden topology.
+    - Do not move Slurm into Kubernetes.
+    - Do not expose the gateway publicly.
+  caller_scope:
+    allowed_namespaces:
+      - darwin-research
+    allowed_service_accounts:
+      - namespace: darwin-research
+        name: darwin-research-hpc-client
+        purpose: Controlled research-side gateway consumer.
+  gateway_binding:
+    service_name: darwin-hpc-gateway
+    namespace: darwin-platform
+    service_type: ClusterIP
+    port: 80
+    exposure: internal-only
+  allowed_api_surface:
+    - method: GET
+      path: /profiles
+      purpose: Discover the approved workload catalog.
+    - method: POST
+      path: /jobs/submit
+      purpose: Submit an approved profile with approved parameters only.
+    - method: GET
+      path: /jobs/{job_id}
+      purpose: Retrieve normalized job status.
+    - method: GET
+      path: /jobs/{job_id}/artifact-manifest
+      purpose: Retrieve artifact metadata.
+    - method: GET
+      path: /jobs/{job_id}/stdout
+      purpose: Retrieve stdout captured by the gateway.
+    - method: GET
+      path: /jobs/{job_id}/stderr
+      purpose: Retrieve stderr captured by the gateway.
+  profile_policy:
+    allowed_profiles:
+      - cpu-short-v1
+      - cpu-batch-v1
+      - gpu-single-v1
+    default_validation_profile: cpu-short-v1
+    submission_contract_source: phase-b9/contract/gateway-submit-schema.json
+  preserved_restrictions:
+    allow_raw_scheduler_payload: false
+    allow_arbitrary_scripts: false
+    allow_arbitrary_partitions: false
+    allow_arbitrary_gpu_count: false
+    allow_multi_node: false
+    allow_mpi: false
+  validation_goals:
+    - A research-side caller can reach the gateway.
+    - GET /profiles works from the research-side path.
+    - POST /jobs/submit works with an approved profile only.
+    - Status retrieval works.
+    - Artifact manifest retrieval works.
+    - Stdout and stderr retrieval work.
+    - Cluster health remains green.
+    - Slurm health remains green.

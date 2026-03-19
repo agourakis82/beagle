@@ -1,0 +1,6 @@
+{
+  "profile_id": "cpu-short-v1",
+  "parameters": {
+    "run_label": "b95-cpu-short-demo"
+  }
+}

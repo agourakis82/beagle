@@ -1,0 +1,72 @@
+phase: B10.3
+mode: retention-lifecycle-policy
+status: active-canary-enforced
+
+target:
+  bucket: darwin-hpc-artifacts
+  forbidden_bucket: darwin-k8s-backups
+  key_prefix_family: hpc/
+
+execution:
+  destructive_mode_default: false
+  first_canonical_run_mode: dry-run-only
+
+enforcement_canary:
+  prefix: hpc-retention-canary/
+  profile_id: cpu-short-v1
+  job_id: 0
+  destructive_mode_allowed: true
+  production_prefix_guard: hpc/
+  required_object_names:
+    - artifact.bin
+    - stdout.txt
+    - stderr.txt
+    - artifact-manifest.json
+
+minimum_retained_metadata:
+  - profile_id
+  - job_id
+  - run_label
+  - object_bucket
+  - object_key
+  - publication_time
+  - published_checksum
+  - manifest_object_key
+
+profiles:
+  cpu-short-v1:
+    retention_class: short
+    artifact_rules:
+      artifact.bin:
+        retain_days: 7
+      stdout.txt:
+        retain_days: 7
+      stderr.txt:
+        retain_days: 7
+      artifact-manifest.json:
+        retain_days: 30
+        preserve_longer_than_payload: true
+  cpu-batch-v1:
+    retention_class: medium
+    artifact_rules:
+      artifact.bin:
+        retain_days: 30
+      stdout.txt:
+        retain_days: 30
+      stderr.txt:
+        retain_days: 30
+      artifact-manifest.json:
+        retain_days: 60
+        preserve_longer_than_payload: true
+  gpu-single-v1:
+    retention_class: medium-long
+    artifact_rules:
+      artifact.bin:
+        retain_days: 45
+      stdout.txt:
+        retain_days: 45
+      stderr.txt:
+        retain_days: 45
+      artifact-manifest.json:
+        retain_days: 90
+        preserve_longer_than_payload: true

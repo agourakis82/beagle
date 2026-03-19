@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://darwin.local/phase-b11/result-catalog-entry.json",
+  "title": "B11 Result Catalog Entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "job_id",
+    "job_name",
+    "profile_id",
+    "run_label",
+    "state",
+    "node_list",
+    "submit_time",
+    "start_time",
+    "end_time",
+    "artifact_bucket",
+    "artifact_prefix",
+    "artifact_manifest_key",
+    "artifact_sha256",
+    "retention_scope"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "job_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile_id": {
+      "type": "string",
+      "enum": [
+        "cpu-short-v1",
+        "cpu-batch-v1",
+        "gpu-single-v1"
+      ]
+    },
+    "run_label": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "type": "string",
+      "minLength": 1
+    },
+    "node_list": {
+      "type": "string",
+      "minLength": 1
+    },
+    "submit_time": {
+      "type": "string",
+      "minLength": 1
+    },
+    "start_time": {
+      "type": "string",
+      "minLength": 1
+    },
+    "end_time": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_bucket": {
+      "type": "string",
+      "const": "darwin-hpc-artifacts"
+    },
+    "artifact_prefix": {
+      "type": "string",
+      "pattern": "^hpc/(cpu-short-v1|cpu-batch-v1|gpu-single-v1)/[0-9]+/[A-Za-z0-9._-]+/$"
+    },
+    "artifact_manifest_key": {
+      "type": "string",
+      "pattern": "^hpc/(cpu-short-v1|cpu-batch-v1|gpu-single-v1)/[0-9]+/[A-Za-z0-9._-]+/artifact-manifest\\.json$"
+    },
+    "artifact_object_key": {
+      "type": "string",
+      "pattern": "^hpc/(cpu-short-v1|cpu-batch-v1|gpu-single-v1)/[0-9]+/[A-Za-z0-9._-]+/artifact\\.bin$"
+    },
+    "artifact_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "retention_scope": {
+      "type": "string",
+      "enum": [
+        "short",
+        "medium",
+        "medium-long"
+      ]
+    },
+    "publication_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_phase": {
+      "type": "string",
+      "enum": [
+        "B9.6",
+        "B10.2"
+      ]
+    },
+    "source_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "exit_code": {
+      "type": "integer"
+    }
+  }
+}
