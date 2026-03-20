@@ -19,6 +19,48 @@ const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
 const DEFAULT_POLL_TIMEOUT_SECONDS: u64 = 180;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceCurrentTask {
+    pub task_kind: String,
+    pub task_state: String,
+    pub current_step: String,
+    pub profile_id: String,
+    pub repo: String,
+    pub branch: String,
+    pub session_id: String,
+    pub started_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submitted_job_id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub published_result_job_id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceLastSuccessfulTask {
+    pub task_kind: String,
+    pub task_state: String,
+    pub profile_id: String,
+    pub repo: String,
+    pub branch: String,
+    pub session_id: String,
+    pub submitted_job_id: u64,
+    pub published_result_job_id: u64,
+    pub published_result_run_label: String,
+    pub completed_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceCatalogSnapshot {
+    pub profile_id: String,
+    pub state: String,
+    pub total: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_result: Option<crate::ResultCatalogEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceSessionState {
     pub workspace_id: String,
     pub canonical_repo: String,
@@ -35,6 +77,10 @@ pub struct WorkspaceSessionState {
     pub bootstrap_count: u64,
     pub last_handoff: Option<String>,
     pub last_workflow_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_task: Option<WorkspaceCurrentTask>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_successful_task: Option<WorkspaceLastSuccessfulTask>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_workflow_repo: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -67,6 +113,8 @@ impl WorkspaceSessionState {
             bootstrap_count: 0,
             last_handoff: None,
             last_workflow_kind: None,
+            current_task: None,
+            last_successful_task: None,
             last_workflow_repo: None,
             last_workflow_branch: None,
             last_job_id: None,
@@ -96,6 +144,8 @@ pub struct WorkspaceBootstrapResponse {
     pub bootstrap_count: u64,
     pub last_handoff: Option<String>,
     pub last_workflow_kind: Option<String>,
+    pub current_task: Option<WorkspaceCurrentTask>,
+    pub last_successful_task: Option<WorkspaceLastSuccessfulTask>,
     pub last_workflow_repo: Option<String>,
     pub last_workflow_branch: Option<String>,
     pub last_job_id: Option<u64>,
@@ -126,13 +176,16 @@ pub struct WorkspacePilotResponse {
     pub canonical_branch: String,
     pub canonical_track: String,
     pub repo_context: RepoContext,
+    pub catalog_before: WorkspaceCatalogSnapshot,
     pub submitted_job: HpcSubmitResponse,
     pub final_job: HpcJobStatus,
     pub artifact_manifest: JobArtifactManifest,
     pub published_result: crate::ResultCatalogEntry,
+    pub resolved_result_lookup: crate::ResultCatalogEntry,
     pub published_result_manifest: ObjectResultManifest,
     pub bridge_health: BridgeHealth,
     pub bridge_providers: Vec<BridgeProviderInfo>,
+    pub last_successful_task: WorkspaceLastSuccessfulTask,
     pub handoff: String,
 }
 
@@ -243,6 +296,8 @@ pub fn bootstrap_workspace_session(
         bootstrap_count: state.bootstrap_count,
         last_handoff: state.last_handoff.clone(),
         last_workflow_kind: state.last_workflow_kind.clone(),
+        current_task: state.current_task.clone(),
+        last_successful_task: state.last_successful_task.clone(),
         last_workflow_repo: state.last_workflow_repo.clone(),
         last_workflow_branch: state.last_workflow_branch.clone(),
         last_job_id: state.last_job_id,
@@ -277,112 +332,288 @@ pub async fn run_workspace_pilot(
         .to_string();
 
     let run_label = request.run_label.clone().unwrap_or_else(|| {
-        format!(
-            "b125-{}",
-            Utc::now().format("%m%d%H%M%S")
-        )
+        format!("b126-{}", Utc::now().format("%m%d%H%M%S"))
     });
 
     let repo_context = bootstrap.repo_context.clone();
-
-    let submit_request = HpcSubmitRequest {
-        profile_id: profile_id.clone(),
-        parameters: serde_json::json!({
-            "run_label": run_label,
-        }),
-    };
-
-    let submitted_job = gateway.submit_job(&submit_request).await?;
-
-    let poll_interval_seconds = request
-        .poll_interval_seconds
-        .unwrap_or(DEFAULT_POLL_INTERVAL_SECONDS);
-    let timeout_seconds = request.timeout_seconds.unwrap_or(DEFAULT_POLL_TIMEOUT_SECONDS);
-    let started = std::time::Instant::now();
-
-    let final_job = loop {
-        let job = gateway.job_status(submitted_job.job_id).await?;
-        let state = job.state.as_deref().unwrap_or("UNKNOWN");
-        if is_success_state(state) {
-            break job;
-        }
-        if is_failure_state(state) {
-            bail!("pilot job entered failure state: {}", state);
-        }
-        if started.elapsed().as_secs() >= timeout_seconds {
-            bail!("timed out waiting for workspace pilot job completion");
-        }
-        sleep(Duration::from_secs(poll_interval_seconds)).await;
-    };
-
-    let artifact_manifest = gateway.job_artifact_manifest(submitted_job.job_id).await?;
-    let published_result = gateway
-        .results(&ResultCatalogQuery {
-            profile_id: Some(profile_id.clone()),
-            run_label: None,
-            state: Some("COMPLETED".to_string()),
-            node_list: None,
-        })
-        .await?
-        .results
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("no published result found for profile {}", profile_id))?;
-
-    let published_result_manifest = gateway.result_manifest(published_result.job_id).await?;
-    let bridge_health = bridge.health();
-    let bridge_providers = bridge.providers();
-
-    let handoff = format!(
-        "workspace={} repo={} branch={} session={} completed {} job {} and recovered published result {} from {}",
-        workspace_id,
-        repo_context.canonical_repo,
-        repo_context.canonical_branch,
-        bootstrap.session_id,
-        profile_id,
-        final_job.job_id,
-        published_result.job_id,
-        published_result.run_label
-    );
-
     let mut state = load_workspace_session(data_dir, cfg, workspace_id)?
-        .unwrap_or_else(|| WorkspaceSessionState::new(cfg, workspace_id.to_string(), Some(bootstrap.session_id.clone())));
+        .unwrap_or_else(|| {
+            WorkspaceSessionState::new(
+                cfg,
+                workspace_id.to_string(),
+                Some(bootstrap.session_id.clone()),
+            )
+        });
 
     normalize_workspace_session(cfg, &mut state);
     state.updated_at = Utc::now();
-    state.last_handoff = Some(handoff.clone());
-    state.last_workflow_kind = Some("operator_workflow_pilot".to_string());
-    state.last_workflow_repo = Some(repo_context.canonical_repo.clone());
-    state.last_workflow_branch = Some(repo_context.canonical_branch.clone());
-    state.last_job_id = Some(final_job.job_id);
-    state.last_job_state = final_job.state.clone();
-    state.last_job_profile_id = Some(profile_id);
-    state.last_job_run_label = Some(run_label);
-    state.last_job_artifact_ready = final_job.artifact_ready.unwrap_or(false);
-    state.last_published_result_job_id = Some(published_result.job_id);
-    state.last_published_result_run_label = Some(published_result.run_label.clone());
-    state.last_published_result_profile_id = Some(published_result.profile_id.clone());
-    state.last_published_manifest_key = Some(published_result.artifact_manifest_key.clone());
-
+    state.current_task = Some(WorkspaceCurrentTask {
+        task_kind: "operator_real_workflow_pilot".to_string(),
+        task_state: "running".to_string(),
+        current_step: "catalog_preflight".to_string(),
+        profile_id: profile_id.clone(),
+        repo: repo_context.canonical_repo.clone(),
+        branch: repo_context.canonical_branch.clone(),
+        session_id: bootstrap.session_id.clone(),
+        started_at: Utc::now(),
+        updated_at: Utc::now(),
+        submitted_job_id: None,
+        published_result_job_id: None,
+        error: None,
+    });
     write_workspace_session(data_dir, &state)?;
 
-    Ok(WorkspacePilotResponse {
-        status: "ok".to_string(),
-        workspace_id: state.workspace_id,
-        session_id: state.session_id,
-        canonical_repo: state.canonical_repo,
-        canonical_branch: state.canonical_branch,
-        canonical_track: state.canonical_track,
-        repo_context: state.repo_context,
-        submitted_job,
-        final_job,
-        artifact_manifest,
-        published_result,
-        published_result_manifest,
-        bridge_health,
-        bridge_providers,
-        handoff,
-    })
+    let flow = async {
+        let catalog_before_response = gateway
+            .results(&ResultCatalogQuery {
+                profile_id: Some(profile_id.clone()),
+                run_label: None,
+                state: Some("COMPLETED".to_string()),
+                node_list: None,
+            })
+            .await?;
+        let catalog_before = WorkspaceCatalogSnapshot {
+            profile_id: profile_id.clone(),
+            state: "COMPLETED".to_string(),
+            total: catalog_before_response.total,
+            latest_result: catalog_before_response.results.into_iter().next(),
+        };
+
+        update_current_task(
+            data_dir,
+            cfg,
+            &mut state,
+            "workflow_submit",
+            None,
+            None,
+            None,
+        )?;
+
+        let submit_request = HpcSubmitRequest {
+            profile_id: profile_id.clone(),
+            parameters: serde_json::json!({
+                "run_label": run_label,
+            }),
+        };
+
+        let submitted_job = gateway.submit_job(&submit_request).await?;
+
+        update_current_task(
+            data_dir,
+            cfg,
+            &mut state,
+            "job_wait",
+            Some(submitted_job.job_id),
+            None,
+            None,
+        )?;
+
+        let poll_interval_seconds = request
+            .poll_interval_seconds
+            .unwrap_or(DEFAULT_POLL_INTERVAL_SECONDS);
+        let timeout_seconds = request.timeout_seconds.unwrap_or(DEFAULT_POLL_TIMEOUT_SECONDS);
+        let started = std::time::Instant::now();
+
+        let final_job = loop {
+            let job = gateway.job_status(submitted_job.job_id).await?;
+            let current_state = job.state.as_deref().unwrap_or("UNKNOWN");
+            if is_success_state(current_state) {
+                break job;
+            }
+            if is_failure_state(current_state) {
+                bail!("pilot job entered failure state: {}", current_state);
+            }
+            if started.elapsed().as_secs() >= timeout_seconds {
+                bail!("timed out waiting for workspace pilot job completion");
+            }
+            sleep(Duration::from_secs(poll_interval_seconds)).await;
+        };
+
+        update_current_task(
+            data_dir,
+            cfg,
+            &mut state,
+            "result_resolution",
+            Some(final_job.job_id),
+            None,
+            None,
+        )?;
+
+        let artifact_manifest = gateway.job_artifact_manifest(submitted_job.job_id).await?;
+        let published_result = gateway
+            .results(&ResultCatalogQuery {
+                profile_id: Some(profile_id.clone()),
+                run_label: None,
+                state: Some("COMPLETED".to_string()),
+                node_list: None,
+            })
+            .await?
+            .results
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("no published result found for profile {}", profile_id))?;
+
+        update_current_task(
+            data_dir,
+            cfg,
+            &mut state,
+            "manifest_resolution",
+            Some(final_job.job_id),
+            Some(published_result.job_id),
+            None,
+        )?;
+
+        let resolved_result_lookup = gateway.result_by_job(published_result.job_id).await?;
+        let published_result_manifest = gateway.result_manifest(published_result.job_id).await?;
+        let bridge_health = bridge.health();
+        let bridge_providers = bridge.providers();
+
+        let handoff = format!(
+            "workspace={} repo={} branch={} session={} completed {} job {} and resolved published result {} from {}",
+            workspace_id,
+            repo_context.canonical_repo,
+            repo_context.canonical_branch,
+            bootstrap.session_id,
+            profile_id,
+            final_job.job_id,
+            published_result.job_id,
+            published_result.run_label
+        );
+
+        Ok((
+            catalog_before,
+            submitted_job,
+            final_job,
+            artifact_manifest,
+            published_result,
+            resolved_result_lookup,
+            published_result_manifest,
+            bridge_health,
+            bridge_providers,
+            handoff,
+        ))
+    }
+    .await;
+
+    match flow {
+        Ok((
+            catalog_before,
+            submitted_job,
+            final_job,
+            artifact_manifest,
+            published_result,
+            resolved_result_lookup,
+            published_result_manifest,
+            bridge_health,
+            bridge_providers,
+            handoff,
+        )) => {
+            state.updated_at = Utc::now();
+            state.current_task = None;
+            state.last_handoff = Some(handoff.clone());
+            state.last_workflow_kind = Some("operator_real_workflow_pilot".to_string());
+            state.last_workflow_repo = Some(repo_context.canonical_repo.clone());
+            state.last_workflow_branch = Some(repo_context.canonical_branch.clone());
+            state.last_job_id = Some(final_job.job_id);
+            state.last_job_state = final_job.state.clone();
+            state.last_job_profile_id = Some(profile_id.clone());
+            state.last_job_run_label = Some(run_label);
+            state.last_job_artifact_ready = final_job.artifact_ready.unwrap_or(false);
+            state.last_published_result_job_id = Some(published_result.job_id);
+            state.last_published_result_run_label = Some(published_result.run_label.clone());
+            state.last_published_result_profile_id = Some(published_result.profile_id.clone());
+            state.last_published_manifest_key =
+                Some(published_result.artifact_manifest_key.clone());
+            state.last_successful_task = Some(WorkspaceLastSuccessfulTask {
+                task_kind: "operator_real_workflow_pilot".to_string(),
+                task_state: "completed".to_string(),
+                profile_id: profile_id.clone(),
+                repo: repo_context.canonical_repo.clone(),
+                branch: repo_context.canonical_branch.clone(),
+                session_id: bootstrap.session_id.clone(),
+                submitted_job_id: final_job.job_id,
+                published_result_job_id: published_result.job_id,
+                published_result_run_label: published_result.run_label.clone(),
+                completed_at: Utc::now(),
+            });
+
+            write_workspace_session(data_dir, &state)?;
+
+            let last_successful_task = state
+                .last_successful_task
+                .clone()
+                .ok_or_else(|| anyhow!("last_successful_task missing after successful run"))?;
+            let workspace_id = state.workspace_id.clone();
+            let session_id = state.session_id.clone();
+            let canonical_repo = state.canonical_repo.clone();
+            let canonical_branch = state.canonical_branch.clone();
+            let canonical_track = state.canonical_track.clone();
+            let persisted_repo_context = state.repo_context.clone();
+
+            Ok(WorkspacePilotResponse {
+                status: "ok".to_string(),
+                workspace_id,
+                session_id,
+                canonical_repo,
+                canonical_branch,
+                canonical_track,
+                repo_context: persisted_repo_context,
+                catalog_before,
+                submitted_job,
+                final_job,
+                artifact_manifest,
+                published_result,
+                resolved_result_lookup,
+                published_result_manifest,
+                bridge_health,
+                bridge_providers,
+                last_successful_task,
+                handoff,
+            })
+        }
+        Err(error) => {
+            state.updated_at = Utc::now();
+            if let Some(current_task) = state.current_task.as_mut() {
+                current_task.task_state = "failed".to_string();
+                current_task.updated_at = Utc::now();
+                current_task.error = Some(error.to_string());
+            }
+            let _ = write_workspace_session(data_dir, &state);
+            Err(error)
+        }
+    }
+}
+
+fn update_current_task(
+    data_dir: &Path,
+    cfg: &BeagleConfig,
+    state: &mut WorkspaceSessionState,
+    current_step: &str,
+    submitted_job_id: Option<u64>,
+    published_result_job_id: Option<u64>,
+    error: Option<String>,
+) -> anyhow::Result<()> {
+    normalize_workspace_session(cfg, state);
+    state.updated_at = Utc::now();
+
+    let current_task = state
+        .current_task
+        .as_mut()
+        .ok_or_else(|| anyhow!("workspace current_task is missing"))?;
+
+    current_task.current_step = current_step.to_string();
+    current_task.updated_at = Utc::now();
+    if let Some(job_id) = submitted_job_id {
+        current_task.submitted_job_id = Some(job_id);
+    }
+    if let Some(result_job_id) = published_result_job_id {
+        current_task.published_result_job_id = Some(result_job_id);
+    }
+    if error.is_some() {
+        current_task.error = error;
+    }
+
+    write_workspace_session(data_dir, state)
 }
 
 fn normalize_workspace_session(cfg: &BeagleConfig, state: &mut WorkspaceSessionState) -> bool {

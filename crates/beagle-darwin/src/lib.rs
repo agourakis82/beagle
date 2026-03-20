@@ -47,6 +47,7 @@ pub use workspace_plane::{
     bootstrap_workspace_session, load_workspace_session, read_workspace_session,
     run_workspace_pilot, workspace_plane_dir, workspace_session_path,
     write_workspace_session, WorkspaceBootstrapResponse, WorkspacePilotRequest,
+    WorkspaceCatalogSnapshot, WorkspaceCurrentTask, WorkspaceLastSuccessfulTask,
     WorkspacePilotResponse, WorkspaceSessionState,
 };
 
