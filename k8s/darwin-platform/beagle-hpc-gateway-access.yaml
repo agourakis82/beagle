@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: darwin-hpc-gateway-from-beagle
+  namespace: darwin-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: darwin-hpc-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: beagle
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: beagle-core
+      ports:
+        - protocol: TCP
+          port: 8080

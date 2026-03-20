@@ -14,6 +14,8 @@
 //! println!("DARWIN + BEAGLE: {answer}");
 //! ```
 
+pub mod object_results;
+pub mod result_catalog;
 pub mod tool_bridge;
 pub mod tool_bridge_ledger;
 pub mod tool_bridge_types;
@@ -24,8 +26,16 @@ use beagle_smart_router::query_smart;
 use std::sync::Arc;
 use tracing::{info, warn};
 
+pub use object_results::{HpcTextArtifact, JobArtifactManifest, ObjectPublishedArtifact, ObjectResultManifest};
+pub use result_catalog::{
+    DarwinHpcGatewayClient, DarwinHpcGatewayError, HpcJobStatus, HpcProfile, HpcProfileCatalog,
+    HpcSubmitRequest, HpcSubmitResponse, ResultCatalogEntry, ResultCatalogQuery,
+    ResultCatalogResponse, DEFAULT_DARWIN_HPC_GATEWAY_BASE_URL,
+};
 pub use tool_bridge::ToolBridge;
-pub use tool_bridge_ledger::{append_ledger_entry, ledger_file_path, BridgeLedgerEntry};
+pub use tool_bridge_ledger::{
+    append_ledger_entry, ledger_file_path, read_recent_ledger_entries, BridgeLedgerEntry,
+};
 pub use tool_bridge_types::{
     BridgeHealth, BridgeKind, BridgeMode, BridgeProvider, BridgeProviderInfo, BridgeRequest,
     BridgeResponse, BridgeStatus, BridgeTokenUsage,

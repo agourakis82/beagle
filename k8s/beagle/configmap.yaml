@@ -19,5 +19,7 @@ data:
   BEAGLE_ZAI_BASE_URL: https://open.bigmodel.cn/api/paas/v4
   BEAGLE_XAI_BASE_URL: https://api.x.ai/v1
   BEAGLE_MINIMAX_BASE_URL: https://api.minimax.chat/v1
+  BEAGLE_DARWIN_HPC_GATEWAY_BASE_URL: http://darwin-hpc-gateway.darwin-platform.svc.cluster.local
+  BEAGLE_DARWIN_HPC_GATEWAY_TIMEOUT_SECONDS: "30"
   RUST_LOG: beagle=info,beagle_monorepo=info,beagle_core=info,tower_http=info
   RUST_LOG_JSON: "1"
