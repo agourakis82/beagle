@@ -43,6 +43,10 @@ pub struct WorkspaceLastSuccessfulTask {
     pub task_state: String,
     pub profile_id: String,
     pub workflow_run_label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_node: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_result_node: Option<String>,
     pub repo: String,
     pub branch: String,
     pub session_id: String,
@@ -90,14 +94,17 @@ pub struct WorkspaceSessionState {
     pub last_job_state: Option<String>,
     pub last_job_profile_id: Option<String>,
     pub last_job_run_label: Option<String>,
+    pub last_job_node_list: Option<String>,
     pub last_job_artifact_ready: bool,
     pub last_published_result_job_id: Option<u64>,
     pub last_published_result_run_label: Option<String>,
     pub last_published_result_profile_id: Option<String>,
+    pub last_published_result_node_list: Option<String>,
     pub last_published_manifest_key: Option<String>,
     pub last_result_lookup_job_id: Option<u64>,
     pub last_result_lookup_run_label: Option<String>,
     pub last_result_lookup_profile_id: Option<String>,
+    pub last_result_lookup_node_list: Option<String>,
 }
 
 impl WorkspaceSessionState {
@@ -125,14 +132,17 @@ impl WorkspaceSessionState {
             last_job_state: None,
             last_job_profile_id: None,
             last_job_run_label: None,
+            last_job_node_list: None,
             last_job_artifact_ready: false,
             last_published_result_job_id: None,
             last_published_result_run_label: None,
             last_published_result_profile_id: None,
+            last_published_result_node_list: None,
             last_published_manifest_key: None,
             last_result_lookup_job_id: None,
             last_result_lookup_run_label: None,
             last_result_lookup_profile_id: None,
+            last_result_lookup_node_list: None,
         }
     }
 }
@@ -156,8 +166,10 @@ pub struct WorkspaceBootstrapResponse {
     pub last_workflow_repo: Option<String>,
     pub last_workflow_branch: Option<String>,
     pub last_job_id: Option<u64>,
+    pub last_job_node_list: Option<String>,
     pub last_published_result_job_id: Option<u64>,
     pub last_result_lookup_job_id: Option<u64>,
+    pub last_result_lookup_node_list: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -309,8 +321,10 @@ pub fn bootstrap_workspace_session(
         last_workflow_repo: state.last_workflow_repo.clone(),
         last_workflow_branch: state.last_workflow_branch.clone(),
         last_job_id: state.last_job_id,
+        last_job_node_list: state.last_job_node_list.clone(),
         last_published_result_job_id: state.last_published_result_job_id,
         last_result_lookup_job_id: state.last_result_lookup_job_id,
+        last_result_lookup_node_list: state.last_result_lookup_node_list.clone(),
     })
 }
 
@@ -341,6 +355,8 @@ pub async fn run_workspace_pilot(
         .to_string();
     let task_kind = if profile_id == "cpu-batch-v1" {
         "single_rich_operator_workflow"
+    } else if profile_id == "gpu-single-v1" {
+        "advanced_operator_gpu_workflow"
     } else {
         "operator_real_workflow_pilot"
     };
@@ -532,21 +548,26 @@ pub async fn run_workspace_pilot(
             state.last_job_state = final_job.state.clone();
             state.last_job_profile_id = Some(profile_id.clone());
             state.last_job_run_label = Some(run_label.clone());
+            state.last_job_node_list = final_job.node_list.clone();
             state.last_job_artifact_ready = final_job.artifact_ready.unwrap_or(false);
             state.last_published_result_job_id = Some(published_result.job_id);
             state.last_published_result_run_label = Some(published_result.run_label.clone());
             state.last_published_result_profile_id = Some(published_result.profile_id.clone());
+            state.last_published_result_node_list = Some(published_result.node_list.clone());
             state.last_published_manifest_key =
                 Some(published_result.artifact_manifest_key.clone());
             state.last_result_lookup_job_id = Some(resolved_result_lookup.job_id);
             state.last_result_lookup_run_label = Some(resolved_result_lookup.run_label.clone());
             state.last_result_lookup_profile_id =
                 Some(resolved_result_lookup.profile_id.clone());
+            state.last_result_lookup_node_list = Some(resolved_result_lookup.node_list.clone());
             state.last_successful_task = Some(WorkspaceLastSuccessfulTask {
                 task_kind: task_kind.to_string(),
                 task_state: "completed".to_string(),
                 profile_id: profile_id.clone(),
                 workflow_run_label: run_label.clone(),
+                execution_node: final_job.node_list.clone(),
+                resolved_result_node: Some(resolved_result_lookup.node_list.clone()),
                 repo: repo_context.canonical_repo.clone(),
                 branch: repo_context.canonical_branch.clone(),
                 session_id: bootstrap.session_id.clone(),
