@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Week 1 cluster MVP is intentionally validated in degraded mode for external
+# integrations (Qdrant, Neo4j, Redis, DB), which remain out of scope here.
+
 ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 NAMESPACE="${NAMESPACE:-beagle}"
 APP_NAME="${APP_NAME:-beagle-core}"

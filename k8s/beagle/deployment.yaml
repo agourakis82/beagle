@@ -23,7 +23,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: core-server
-          image: beagle-core:dev
+          image: localhost/beagle-core:dev
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

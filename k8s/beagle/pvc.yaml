@@ -9,4 +9,4 @@ spec:
     requests:
       storage: 20Gi
   volumeMode: Filesystem
-  storageClassName: REPLACE_WITH_CEPH_STORAGECLASS
+  storageClassName: ceph-rbd-ssd
