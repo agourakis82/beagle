@@ -6,11 +6,13 @@ use axum::{
     Json, Router,
 };
 use beagle_darwin::{
-    read_recent_ledger_entries, BridgeHealth, BridgeLedgerEntry, BridgeProviderInfo, BridgeRequest,
+    bootstrap_workspace_session, read_recent_ledger_entries, read_workspace_session,
+    run_workspace_pilot, BridgeHealth, BridgeLedgerEntry, BridgeProviderInfo, BridgeRequest,
     BridgeResponse, BridgeStatus, DarwinHpcGatewayClient, DarwinHpcGatewayError, HpcJobStatus,
     HpcProfile, HpcProfileCatalog, HpcSubmitRequest, HpcSubmitResponse, HpcTextArtifact,
     JobArtifactManifest, ObjectResultManifest, ResultCatalogEntry, ResultCatalogQuery,
-    ResultCatalogResponse, ToolBridge,
+    ResultCatalogResponse, ToolBridge, WorkspaceBootstrapResponse, WorkspacePilotRequest,
+    WorkspacePilotResponse, WorkspaceSessionState,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -21,6 +23,12 @@ type JsonError = (StatusCode, Json<Value>);
 
 pub fn darwin_hpc_routes() -> Router<AppState> {
     Router::new()
+        .route("/api/darwin/workspace/bootstrap", get(workspace_bootstrap_handler))
+        .route("/api/darwin/workspace/session", get(workspace_session_handler))
+        .route(
+            "/api/darwin/workspace/pilot/execute",
+            post(workspace_pilot_execute_handler),
+        )
         .route("/api/darwin/hpc/control", get(hpc_control_handler))
         .route("/api/darwin/hpc/profiles", get(hpc_profiles_handler))
         .route("/api/darwin/hpc/jobs/submit", post(hpc_job_submit_handler))
@@ -54,6 +62,14 @@ struct ResultsQueryParams {
     node_list: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct WorkspaceQueryParams {
+    #[serde(default)]
+    workspace_id: Option<String>,
+    #[serde(default)]
+    session_id: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct HpcControlSurfaceSummary {
     status: String,
@@ -63,6 +79,62 @@ struct HpcControlSurfaceSummary {
     bridge_health: BridgeHealth,
     bridge_providers: Vec<BridgeProviderInfo>,
     recent_bridge_ledger: Vec<BridgeLedgerEntry>,
+}
+
+async fn workspace_bootstrap_handler(
+    State(state): State<AppState>,
+    Query(query): Query<WorkspaceQueryParams>,
+) -> Result<Json<WorkspaceBootstrapResponse>, JsonError> {
+    let cfg = current_cfg(&state).await;
+    let data_dir = FsPath::new(&cfg.storage.data_dir);
+
+    let response = bootstrap_workspace_session(
+        data_dir,
+        &cfg,
+        query.workspace_id.as_deref(),
+        query.session_id.as_deref(),
+    )
+    .map_err(|error| internal_error_response("workspace_bootstrap_failed", error.to_string()))?;
+
+    Ok(Json(response))
+}
+
+async fn workspace_session_handler(
+    State(state): State<AppState>,
+    Query(query): Query<WorkspaceQueryParams>,
+) -> Result<Json<WorkspaceSessionState>, JsonError> {
+    let cfg = current_cfg(&state).await;
+    let data_dir = FsPath::new(&cfg.storage.data_dir);
+    let workspace_id = query
+        .workspace_id
+        .as_deref()
+        .unwrap_or(&cfg.workspace.canonical_workspace_id);
+
+    match read_workspace_session(data_dir, workspace_id)
+        .map_err(|error| internal_error_response("workspace_session_read_failed", error.to_string()))?
+    {
+        Some(session) => Ok(Json(session)),
+        None => Err(not_found_response(
+            "workspace_session_not_found",
+            format!("no session recorded for workspace {}", workspace_id),
+        )),
+    }
+}
+
+async fn workspace_pilot_execute_handler(
+    State(state): State<AppState>,
+    Json(request): Json<WorkspacePilotRequest>,
+) -> Result<Json<WorkspacePilotResponse>, JsonError> {
+    let cfg = current_cfg(&state).await;
+    let data_dir = FsPath::new(&cfg.storage.data_dir);
+    let gateway = gateway_client()?;
+    let bridge = tool_bridge_from_cfg(&cfg)?;
+
+    let response = run_workspace_pilot(data_dir, &cfg, &gateway, &bridge, &request)
+        .await
+        .map_err(|error| internal_error_response("workspace_pilot_failed", error.to_string()))?;
+
+    Ok(Json(response))
 }
 
 async fn hpc_control_handler(
@@ -308,6 +380,16 @@ fn gateway_error_response(error: DarwinHpcGatewayError) -> JsonError {
 fn internal_error_response(code: &str, detail: String) -> JsonError {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({
+            "error": code,
+            "detail": detail,
+        })),
+    )
+}
+
+fn not_found_response(code: &str, detail: String) -> JsonError {
+    (
+        StatusCode::NOT_FOUND,
         Json(json!({
             "error": code,
             "detail": detail,

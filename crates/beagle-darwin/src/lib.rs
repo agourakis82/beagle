@@ -19,6 +19,7 @@ pub mod result_catalog;
 pub mod tool_bridge;
 pub mod tool_bridge_ledger;
 pub mod tool_bridge_types;
+pub mod workspace_plane;
 
 use beagle_core::{BeagleContext, KnowledgeSnippet};
 use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
@@ -39,6 +40,12 @@ pub use tool_bridge_ledger::{
 pub use tool_bridge_types::{
     BridgeHealth, BridgeKind, BridgeMode, BridgeProvider, BridgeProviderInfo, BridgeRequest,
     BridgeResponse, BridgeStatus, BridgeTokenUsage,
+};
+pub use workspace_plane::{
+    bootstrap_workspace_session, read_workspace_session, run_workspace_pilot,
+    workspace_plane_dir, workspace_session_path, write_workspace_session,
+    WorkspaceBootstrapResponse, WorkspacePilotRequest, WorkspacePilotResponse,
+    WorkspaceSessionState,
 };
 
 /// Contexto retornado pelo enhanced_cycle

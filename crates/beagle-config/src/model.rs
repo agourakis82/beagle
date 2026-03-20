@@ -262,6 +262,29 @@ impl Default for ToolBridgeConfig {
     }
 }
 
+/// Configuração mínima da workspace plane do Beagle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspacePlaneConfig {
+    pub canonical_workspace_id: String,
+    pub canonical_repo: String,
+    pub canonical_track: String,
+    pub operator_name: Option<String>,
+    #[serde(default = "default_true")]
+    pub bootstrap_enabled: bool,
+}
+
+impl Default for WorkspacePlaneConfig {
+    fn default() -> Self {
+        Self {
+            canonical_workspace_id: "beagle-cluster-pilot".to_string(),
+            canonical_repo: "agourakis82/beagle".to_string(),
+            canonical_track: "darwin-hpc".to_string(),
+            operator_name: None,
+            bootstrap_enabled: true,
+        }
+    }
+}
+
 /// Thresholds para classificação de eventos fisiológicos
 ///
 /// **Nota**: Estes valores são heurísticos e configuráveis.
@@ -487,6 +510,8 @@ pub struct BeagleConfig {
     pub hermes: HermesConfig,
     #[serde(default)]
     pub tool_bridge: ToolBridgeConfig,
+    #[serde(default)]
+    pub workspace: WorkspacePlaneConfig,
     #[serde(default)]
     pub advanced: AdvancedModulesConfig,
     #[serde(default)]

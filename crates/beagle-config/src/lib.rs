@@ -654,6 +654,16 @@ pub fn load() -> BeagleConfig {
             ledger_enabled: bool_env("BEAGLE_TOOL_BRIDGE_LEDGER_ENABLED", true),
             dry_run: bool_env("BEAGLE_TOOL_BRIDGE_DRY_RUN", false),
         },
+        workspace: model::WorkspacePlaneConfig {
+            canonical_workspace_id: env::var("BEAGLE_WORKSPACE_CANONICAL_ID")
+                .unwrap_or_else(|_| "beagle-cluster-pilot".to_string()),
+            canonical_repo: env::var("BEAGLE_WORKSPACE_CANONICAL_REPO")
+                .unwrap_or_else(|_| "agourakis82/beagle".to_string()),
+            canonical_track: env::var("BEAGLE_WORKSPACE_CANONICAL_TRACK")
+                .unwrap_or_else(|_| "darwin-hpc".to_string()),
+            operator_name: env::var("BEAGLE_WORKSPACE_OPERATOR").ok(),
+            bootstrap_enabled: bool_env("BEAGLE_WORKSPACE_BOOTSTRAP_ENABLED", true),
+        },
         advanced: AdvancedModulesConfig {
             serendipity_enabled: bool_env("BEAGLE_SERENDIPITY", false),
             serendipity_in_triad: bool_env("BEAGLE_SERENDIPITY_TRIAD", false),
@@ -738,6 +748,32 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
             redis_url: override_cfg.hermes.redis_url.or(base.hermes.redis_url),
         },
         tool_bridge: override_cfg.tool_bridge.clone(),
+        workspace: model::WorkspacePlaneConfig {
+            canonical_workspace_id: if override_cfg.workspace.canonical_workspace_id
+                != model::WorkspacePlaneConfig::default().canonical_workspace_id
+            {
+                override_cfg.workspace.canonical_workspace_id
+            } else {
+                base.workspace.canonical_workspace_id
+            },
+            canonical_repo: if override_cfg.workspace.canonical_repo
+                != model::WorkspacePlaneConfig::default().canonical_repo
+            {
+                override_cfg.workspace.canonical_repo
+            } else {
+                base.workspace.canonical_repo
+            },
+            canonical_track: if override_cfg.workspace.canonical_track
+                != model::WorkspacePlaneConfig::default().canonical_track
+            {
+                override_cfg.workspace.canonical_track
+            } else {
+                base.workspace.canonical_track
+            },
+            operator_name: override_cfg.workspace.operator_name.or(base.workspace.operator_name),
+            bootstrap_enabled: override_cfg.workspace.bootstrap_enabled
+                || base.workspace.bootstrap_enabled,
+        },
         advanced: AdvancedModulesConfig {
             serendipity_enabled: override_cfg.advanced.serendipity_enabled
                 || base.advanced.serendipity_enabled,
