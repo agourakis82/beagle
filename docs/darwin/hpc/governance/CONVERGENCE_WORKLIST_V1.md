@@ -35,3 +35,9 @@ Translate the ecosystem authority map into repo-by-repo decisions that can be ex
 No repository should remain in an ambiguous state where its public naming implies sovereignty that its structure and authority do not support.
 
 If a repository cannot justify sovereign status with real structural authority, it must resolve toward containment, absorption, or freeze.
+
+## Execution Queue
+
+The first executable queue derived from this worklist is tracked in:
+
+- `CONVERGENCE_WORKLIST_PHASE1.md`
