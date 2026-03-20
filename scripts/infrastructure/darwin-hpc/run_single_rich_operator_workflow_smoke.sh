@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+KUBECTL="${KUBECTL:-kubectl}"
+NAMESPACE="${NAMESPACE:-beagle}"
+SERVICE_NAME="${SERVICE_NAME:-beagle-core}"
+LOCAL_PORT="${LOCAL_PORT:-18087}"
+PROFILE_ID="${PROFILE_ID:-cpu-batch-v1}"
+OUT="${OUT:-${ROOT}/.artifacts/darwin-hpc/single-rich-operator-workflow-smoke}"
+API_TOKEN="${BEAGLE_API_TOKEN:?BEAGLE_API_TOKEN is required}"
+WORKSPACE_ID="${WORKSPACE_ID:-b127-$(date +%m%d%H%M%S)}"
+EXPECTED_REPO="${EXPECTED_REPO:-agourakis82/beagle}"
+EXPECTED_BRANCH="${EXPECTED_BRANCH:-$(git -C "${ROOT}" rev-parse --abbrev-ref HEAD)}"
+RUN_LABEL="${RUN_LABEL:-b127-$(date +%m%d%H%M%S)-cpu-batch}"
+TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-600}"
+
+require() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "[FAIL] missing command: $1" >&2
+    exit 1
+  }
+}
+
+require curl
+require jq
+require ss
+require git
+require "${KUBECTL%% *}"
+
+mkdir -p "${OUT}"
+
+choose_local_port() {
+  local port="${LOCAL_PORT}"
+  local max_tries=20
+  local try=0
+
+  while (( try < max_tries )); do
+    if ! ss -ltn "( sport = :${port} )" | tail -n +2 | grep -q .; then
+      echo "${port}"
+      return 0
+    fi
+    port=$((port + 1))
+    try=$((try + 1))
+  done
+
+  echo "[FAIL] unable to find a free local port starting at ${LOCAL_PORT}" >&2
+  exit 1
+}
+
+start_port_forward() {
+  local port="$1"
+  local pf_log="$2"
+
+  : > "${pf_log}"
+  ${KUBECTL} -n "${NAMESPACE}" port-forward service/"${SERVICE_NAME}" "${port}:8080" >"${pf_log}" 2>&1 &
+  PF_PID=$!
+
+  for _ in $(seq 1 20); do
+    if grep -q "Forwarding from" "${pf_log}" 2>/dev/null; then
+      return 0
+    fi
+    if ! kill -0 "${PF_PID}" >/dev/null 2>&1; then
+      echo "[FAIL] port-forward exited before binding local port ${port}" >&2
+      cat "${pf_log}" >&2 || true
+      exit 1
+    fi
+    sleep 1
+  done
+
+  echo "[FAIL] port-forward did not bind local port ${port}" >&2
+  cat "${pf_log}" >&2 || true
+  exit 1
+}
+
+wait_for_health() {
+  local port="$1"
+  local target="$2"
+  local ready=0
+
+  for _ in $(seq 1 20); do
+    if curl -fsS -H "${AUTH_HEADER}" "http://127.0.0.1:${port}/health" > "${target}.tmp" 2>/dev/null; then
+      mv "${target}.tmp" "${target}"
+      ready=1
+      break
+    fi
+    if ! kill -0 "${PF_PID}" >/dev/null 2>&1; then
+      echo "[FAIL] port-forward exited before Beagle health became ready" >&2
+      cat "${PF_LOG}" >&2 || true
+      exit 1
+    fi
+    sleep 1
+  done
+
+  if [[ "${ready}" != "1" ]]; then
+    echo "[FAIL] Beagle health endpoint did not become ready on local port ${port}" >&2
+    cat "${PF_LOG}" >&2 || true
+    exit 1
+  fi
+}
+
+stop_port_forward() {
+  if [[ -n "${PF_PID:-}" ]]; then
+    kill "${PF_PID}" >/dev/null 2>&1 || true
+    wait "${PF_PID}" >/dev/null 2>&1 || true
+    PF_PID=""
+  fi
+}
+
+cleanup() {
+  stop_port_forward
+}
+trap cleanup EXIT
+
+LOCAL_PORT="$(choose_local_port)"
+AUTH_HEADER="Authorization: Bearer ${API_TOKEN}"
+PF_LOG="${OUT}/port-forward.log"
+
+echo "${LOCAL_PORT}" > "${OUT}/selected-port.txt"
+echo "${WORKSPACE_ID}" > "${OUT}/workspace-id.txt"
+echo "${EXPECTED_REPO}" > "${OUT}/expected-repo.txt"
+echo "${EXPECTED_BRANCH}" > "${OUT}/expected-branch.txt"
+echo "${RUN_LABEL}" > "${OUT}/run-label.txt"
+
+${KUBECTL} -n "${NAMESPACE}" rollout status deployment/"${SERVICE_NAME}" --timeout=180s > "${OUT}/rollout-before.txt"
+
+start_port_forward "${LOCAL_PORT}" "${PF_LOG}"
+wait_for_health "${LOCAL_PORT}" "${OUT}/beagle-health-before.json"
+
+curl -fsS -H "${AUTH_HEADER}" \
+  "http://127.0.0.1:${LOCAL_PORT}/api/darwin/workspace/bootstrap?workspace_id=${WORKSPACE_ID}" \
+  > "${OUT}/bootstrap-before.json"
+
+curl -fsS -H "${AUTH_HEADER}" \
+  "http://127.0.0.1:${LOCAL_PORT}/api/darwin/hpc/control" \
+  > "${OUT}/control-before.json"
+
+curl -fsS -H "${AUTH_HEADER}" \
+  "http://127.0.0.1:${LOCAL_PORT}/api/darwin/hpc/results?profile_id=${PROFILE_ID}&state=COMPLETED" \
+  > "${OUT}/results-before.json"
+
+cat > "${OUT}/pilot-request.json" <<EOF
+{
+  "workspace_id": "${WORKSPACE_ID}",
+  "profile_id": "${PROFILE_ID}",
+  "run_label": "${RUN_LABEL}",
+  "timeout_seconds": ${TIMEOUT_SECONDS}
+}
+EOF
+
+curl -fsS -H "${AUTH_HEADER}" -H 'Content-Type: application/json' \
+  --data @"${OUT}/pilot-request.json" \
+  "http://127.0.0.1:${LOCAL_PORT}/api/darwin/workspace/pilot/execute" \
+  > "${OUT}/pilot.json"
+
+PUBLISHED_RESULT_JOB_ID="$(jq -r '.published_result.job_id' "${OUT}/pilot.json")"
+if [[ -z "${PUBLISHED_RESULT_JOB_ID}" || "${PUBLISHED_RESULT_JOB_ID}" == "null" ]]; then
+  echo "[FAIL] pilot.json missing published_result.job_id" >&2
+  exit 1
+fi
+
+curl -fsS -H "${AUTH_HEADER}" \
+  "http://127.0.0.1:${LOCAL_PORT}/api/darwin/hpc/results/${PUBLISHED_RESULT_JOB_ID}" \
+  > "${OUT}/result-after.json"
+
+curl -fsS -H "${AUTH_HEADER}" \
+  "http://127.0.0.1:${LOCAL_PORT}/api/darwin/hpc/results/${PUBLISHED_RESULT_JOB_ID}/manifest" \
+  > "${OUT}/result-manifest-after.json"
+
+curl -fsS -H "${AUTH_HEADER}" \
+  "http://127.0.0.1:${LOCAL_PORT}/api/darwin/workspace/session?workspace_id=${WORKSPACE_ID}" \
+  > "${OUT}/session-before-restart.json"
+
+stop_port_forward
+
+${KUBECTL} -n "${NAMESPACE}" rollout restart deployment/"${SERVICE_NAME}" > "${OUT}/restart.txt"
+${KUBECTL} -n "${NAMESPACE}" rollout status deployment/"${SERVICE_NAME}" --timeout=600s > "${OUT}/rollout-after.txt"
+
+PF_LOG="${OUT}/port-forward-after.log"
+start_port_forward "${LOCAL_PORT}" "${PF_LOG}"
+wait_for_health "${LOCAL_PORT}" "${OUT}/beagle-health-after.json"
+
+curl -fsS -H "${AUTH_HEADER}" \
+  "http://127.0.0.1:${LOCAL_PORT}/api/darwin/workspace/bootstrap?workspace_id=${WORKSPACE_ID}" \
+  > "${OUT}/bootstrap-after-restart.json"
+
+curl -fsS -H "${AUTH_HEADER}" \
+  "http://127.0.0.1:${LOCAL_PORT}/api/darwin/workspace/session?workspace_id=${WORKSPACE_ID}" \
+  > "${OUT}/session-after-restart.json"
+
+{
+  echo "captured_at=$(date -Iseconds)"
+  echo
+  echo "## beagle"
+  ${KUBECTL} -n "${NAMESPACE}" get deploy,svc,pods -o wide || true
+  echo
+  echo "## darwin-gateway"
+  ${KUBECTL} -n darwin-platform get deploy,svc,pods -l app.kubernetes.io/name=darwin-hpc-gateway -o wide || true
+  echo
+  echo "## nodes"
+  ${KUBECTL} get nodes -o wide || true
+  echo
+  if command -v scontrol >/dev/null 2>&1; then
+    echo "## scontrol-ping"
+    scontrol ping || true
+    echo
+  fi
+  if command -v sinfo >/dev/null 2>&1; then
+    echo "## sinfo"
+    sinfo -N -l || true
+    echo
+  fi
+} > "${OUT}/final-cluster-health.txt"
+
+echo "[OK] single rich operator workflow smoke artifacts written to ${OUT}"

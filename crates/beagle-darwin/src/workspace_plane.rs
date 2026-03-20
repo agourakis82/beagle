@@ -42,6 +42,7 @@ pub struct WorkspaceLastSuccessfulTask {
     pub task_kind: String,
     pub task_state: String,
     pub profile_id: String,
+    pub workflow_run_label: String,
     pub repo: String,
     pub branch: String,
     pub session_id: String,
@@ -94,6 +95,9 @@ pub struct WorkspaceSessionState {
     pub last_published_result_run_label: Option<String>,
     pub last_published_result_profile_id: Option<String>,
     pub last_published_manifest_key: Option<String>,
+    pub last_result_lookup_job_id: Option<u64>,
+    pub last_result_lookup_run_label: Option<String>,
+    pub last_result_lookup_profile_id: Option<String>,
 }
 
 impl WorkspaceSessionState {
@@ -126,6 +130,9 @@ impl WorkspaceSessionState {
             last_published_result_run_label: None,
             last_published_result_profile_id: None,
             last_published_manifest_key: None,
+            last_result_lookup_job_id: None,
+            last_result_lookup_run_label: None,
+            last_result_lookup_profile_id: None,
         }
     }
 }
@@ -150,6 +157,7 @@ pub struct WorkspaceBootstrapResponse {
     pub last_workflow_branch: Option<String>,
     pub last_job_id: Option<u64>,
     pub last_published_result_job_id: Option<u64>,
+    pub last_result_lookup_job_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -302,6 +310,7 @@ pub fn bootstrap_workspace_session(
         last_workflow_branch: state.last_workflow_branch.clone(),
         last_job_id: state.last_job_id,
         last_published_result_job_id: state.last_published_result_job_id,
+        last_result_lookup_job_id: state.last_result_lookup_job_id,
     })
 }
 
@@ -330,6 +339,11 @@ pub async fn run_workspace_pilot(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(DEFAULT_WORKSPACE_PROFILE_ID)
         .to_string();
+    let task_kind = if profile_id == "cpu-batch-v1" {
+        "single_rich_operator_workflow"
+    } else {
+        "operator_real_workflow_pilot"
+    };
 
     let run_label = request.run_label.clone().unwrap_or_else(|| {
         format!("b126-{}", Utc::now().format("%m%d%H%M%S"))
@@ -348,7 +362,7 @@ pub async fn run_workspace_pilot(
     normalize_workspace_session(cfg, &mut state);
     state.updated_at = Utc::now();
     state.current_task = Some(WorkspaceCurrentTask {
-        task_kind: "operator_real_workflow_pilot".to_string(),
+        task_kind: task_kind.to_string(),
         task_state: "running".to_string(),
         current_step: "catalog_preflight".to_string(),
         profile_id: profile_id.clone(),
@@ -511,23 +525,28 @@ pub async fn run_workspace_pilot(
             state.updated_at = Utc::now();
             state.current_task = None;
             state.last_handoff = Some(handoff.clone());
-            state.last_workflow_kind = Some("operator_real_workflow_pilot".to_string());
+            state.last_workflow_kind = Some(task_kind.to_string());
             state.last_workflow_repo = Some(repo_context.canonical_repo.clone());
             state.last_workflow_branch = Some(repo_context.canonical_branch.clone());
             state.last_job_id = Some(final_job.job_id);
             state.last_job_state = final_job.state.clone();
             state.last_job_profile_id = Some(profile_id.clone());
-            state.last_job_run_label = Some(run_label);
+            state.last_job_run_label = Some(run_label.clone());
             state.last_job_artifact_ready = final_job.artifact_ready.unwrap_or(false);
             state.last_published_result_job_id = Some(published_result.job_id);
             state.last_published_result_run_label = Some(published_result.run_label.clone());
             state.last_published_result_profile_id = Some(published_result.profile_id.clone());
             state.last_published_manifest_key =
                 Some(published_result.artifact_manifest_key.clone());
+            state.last_result_lookup_job_id = Some(resolved_result_lookup.job_id);
+            state.last_result_lookup_run_label = Some(resolved_result_lookup.run_label.clone());
+            state.last_result_lookup_profile_id =
+                Some(resolved_result_lookup.profile_id.clone());
             state.last_successful_task = Some(WorkspaceLastSuccessfulTask {
-                task_kind: "operator_real_workflow_pilot".to_string(),
+                task_kind: task_kind.to_string(),
                 task_state: "completed".to_string(),
                 profile_id: profile_id.clone(),
+                workflow_run_label: run_label.clone(),
                 repo: repo_context.canonical_repo.clone(),
                 branch: repo_context.canonical_branch.clone(),
                 session_id: bootstrap.session_id.clone(),
