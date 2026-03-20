@@ -659,6 +659,8 @@ pub fn load() -> BeagleConfig {
                 .unwrap_or_else(|_| "beagle-cluster-pilot".to_string()),
             canonical_repo: env::var("BEAGLE_WORKSPACE_CANONICAL_REPO")
                 .unwrap_or_else(|_| "agourakis82/beagle".to_string()),
+            canonical_branch: env::var("BEAGLE_WORKSPACE_CANONICAL_BRANCH")
+                .unwrap_or_else(|_| "main".to_string()),
             canonical_track: env::var("BEAGLE_WORKSPACE_CANONICAL_TRACK")
                 .unwrap_or_else(|_| "darwin-hpc".to_string()),
             operator_name: env::var("BEAGLE_WORKSPACE_OPERATOR").ok(),
@@ -762,6 +764,13 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
                 override_cfg.workspace.canonical_repo
             } else {
                 base.workspace.canonical_repo
+            },
+            canonical_branch: if override_cfg.workspace.canonical_branch
+                != model::WorkspacePlaneConfig::default().canonical_branch
+            {
+                override_cfg.workspace.canonical_branch
+            } else {
+                base.workspace.canonical_branch
             },
             canonical_track: if override_cfg.workspace.canonical_track
                 != model::WorkspacePlaneConfig::default().canonical_track

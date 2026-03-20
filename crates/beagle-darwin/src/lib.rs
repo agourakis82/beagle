@@ -14,6 +14,7 @@
 //! println!("DARWIN + BEAGLE: {answer}");
 //! ```
 
+pub mod repo_context;
 pub mod object_results;
 pub mod result_catalog;
 pub mod tool_bridge;
@@ -27,6 +28,7 @@ use beagle_smart_router::query_smart;
 use std::sync::Arc;
 use tracing::{info, warn};
 
+pub use repo_context::RepoContext;
 pub use object_results::{HpcTextArtifact, JobArtifactManifest, ObjectPublishedArtifact, ObjectResultManifest};
 pub use result_catalog::{
     DarwinHpcGatewayClient, DarwinHpcGatewayError, HpcJobStatus, HpcProfile, HpcProfileCatalog,
@@ -42,10 +44,10 @@ pub use tool_bridge_types::{
     BridgeResponse, BridgeStatus, BridgeTokenUsage,
 };
 pub use workspace_plane::{
-    bootstrap_workspace_session, read_workspace_session, run_workspace_pilot,
-    workspace_plane_dir, workspace_session_path, write_workspace_session,
-    WorkspaceBootstrapResponse, WorkspacePilotRequest, WorkspacePilotResponse,
-    WorkspaceSessionState,
+    bootstrap_workspace_session, load_workspace_session, read_workspace_session,
+    run_workspace_pilot, workspace_plane_dir, workspace_session_path,
+    write_workspace_session, WorkspaceBootstrapResponse, WorkspacePilotRequest,
+    WorkspacePilotResponse, WorkspaceSessionState,
 };
 
 /// Contexto retornado pelo enhanced_cycle

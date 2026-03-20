@@ -267,6 +267,7 @@ impl Default for ToolBridgeConfig {
 pub struct WorkspacePlaneConfig {
     pub canonical_workspace_id: String,
     pub canonical_repo: String,
+    pub canonical_branch: String,
     pub canonical_track: String,
     pub operator_name: Option<String>,
     #[serde(default = "default_true")]
@@ -278,6 +279,7 @@ impl Default for WorkspacePlaneConfig {
         Self {
             canonical_workspace_id: "beagle-cluster-pilot".to_string(),
             canonical_repo: "agourakis82/beagle".to_string(),
+            canonical_branch: "main".to_string(),
             canonical_track: "darwin-hpc".to_string(),
             operator_name: None,
             bootstrap_enabled: true,

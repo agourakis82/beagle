@@ -6,7 +6,7 @@ use axum::{
     Json, Router,
 };
 use beagle_darwin::{
-    bootstrap_workspace_session, read_recent_ledger_entries, read_workspace_session,
+    bootstrap_workspace_session, load_workspace_session, read_recent_ledger_entries,
     run_workspace_pilot, BridgeHealth, BridgeLedgerEntry, BridgeProviderInfo, BridgeRequest,
     BridgeResponse, BridgeStatus, DarwinHpcGatewayClient, DarwinHpcGatewayError, HpcJobStatus,
     HpcProfile, HpcProfileCatalog, HpcSubmitRequest, HpcSubmitResponse, HpcTextArtifact,
@@ -110,7 +110,7 @@ async fn workspace_session_handler(
         .as_deref()
         .unwrap_or(&cfg.workspace.canonical_workspace_id);
 
-    match read_workspace_session(data_dir, workspace_id)
+    match load_workspace_session(data_dir, &cfg, workspace_id)
         .map_err(|error| internal_error_response("workspace_session_read_failed", error.to_string()))?
     {
         Some(session) => Ok(Json(session)),
