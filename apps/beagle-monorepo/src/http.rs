@@ -25,6 +25,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tower_http::trace::TraceLayer;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -144,6 +145,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .merge(protected_routes)
         .merge(public_routes)
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 

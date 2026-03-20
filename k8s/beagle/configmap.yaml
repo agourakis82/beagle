@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: beagle-core-config
+data:
+  # Runtime authority for the cluster MVP:
+  # - binary: core_server
+  # - bind: 0.0.0.0:8080
+  # - health: GET /health
+  BEAGLE_BIND_ADDR: 0.0.0.0:8080
+  BEAGLE_CORE_ADDR: 0.0.0.0:8080
+  BEAGLE_DATA_DIR: /var/lib/beagle
+  BEAGLE_PROFILE: cluster
+  BEAGLE_SAFE_MODE: "true"
+  RUST_LOG: beagle=info,beagle_monorepo=info,beagle_core=info,tower_http=info
+  RUST_LOG_JSON: "1"
