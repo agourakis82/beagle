@@ -2,7 +2,7 @@
 
 ## Current status
 
-B12.2b is currently `GO-WITH-BLOCKER`.
+B12.2b is currently `GO`.
 
 Current evidence:
 
@@ -10,7 +10,8 @@ Current evidence:
 2. the internal endpoints answer from the live cluster deployment
 3. human premium requests are represented and correctly deferred
 4. the append-only ledger is written under `BEAGLE_DATA_DIR`
-5. the remaining blocker is the absence of a real cheap-provider secret in the cluster for end-to-end API smoke
+5. a real DeepSeek execution completed successfully through the cheap API lane
+6. the live cluster remained healthy after rollout restart and smoke
 
 ## GO if
 

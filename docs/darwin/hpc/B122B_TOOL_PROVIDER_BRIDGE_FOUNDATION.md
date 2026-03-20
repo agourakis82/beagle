@@ -48,8 +48,7 @@ The bridge foundation is now live in the cluster-facing Beagle service:
 - `GET /api/darwin/bridge/providers` exposes the initial bridge catalog
 - `POST /api/darwin/bridge/execute` correctly records and defers human premium requests
 - the bridge ledger is appended under `BEAGLE_DATA_DIR`
-
-The current blocker is narrow and explicit: the cluster does not yet have a real cheap-provider secret materialized, so the structural smoke is complete but the first real cheap API execution remains pending.
+- a real `deepseek` cheap-provider execution now completes successfully through the live cluster deployment
 
 ## Success condition
 
