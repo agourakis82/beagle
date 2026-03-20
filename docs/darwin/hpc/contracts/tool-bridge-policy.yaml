@@ -1,0 +1,33 @@
+phase: B12.2b
+mode: beagle-tool-provider-bridge-foundation
+status: in-progress
+
+lanes:
+  human_premium:
+    providers:
+      - codex_human
+      - claude_human
+    cluster_backend_allowed: false
+  cheap_api:
+    providers:
+      - deepseek
+      - glm5
+      - grok_fast
+      - minimax
+    cluster_backend_allowed: true
+  mcp_connector:
+    providers:
+      - mcp_generic
+    cluster_backend_allowed: true
+
+rules:
+  no_cli_daemons_in_cluster: true
+  no_paid_premium_center: true
+  no_parallel_architecture: true
+  no_multi_agent_or_magic_fallback: true
+  ledger_required: true
+
+runtime:
+  ledger_mode: append_only_jsonl
+  ledger_path_family: BEAGLE_DATA_DIR/tool-bridge/
+  first_live_provider: deepseek

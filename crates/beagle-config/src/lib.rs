@@ -612,8 +612,23 @@ pub fn load() -> BeagleConfig {
             xai_api_key: env::var("XAI_API_KEY").ok(),
             anthropic_api_key: env::var("ANTHROPIC_API_KEY").ok(),
             openai_api_key: env::var("OPENAI_API_KEY").ok(),
+            deepseek_api_key: env::var("DEEPSEEK_API_KEY").ok(),
+            zai_api_key: env::var("ZAI_API_KEY").ok(),
+            minimax_api_key: env::var("MINIMAX_API_KEY").ok(),
             vllm_url: env::var("VLLM_URL")
                 .or_else(|_| env::var("BEAGLE_VLLM_URL"))
+                .ok(),
+            deepseek_base_url: env::var("BEAGLE_DEEPSEEK_BASE_URL")
+                .or_else(|_| env::var("DEEPSEEK_BASE_URL"))
+                .ok(),
+            zai_base_url: env::var("BEAGLE_ZAI_BASE_URL")
+                .or_else(|_| env::var("ZAI_BASE_URL"))
+                .ok(),
+            xai_base_url: env::var("BEAGLE_XAI_BASE_URL")
+                .or_else(|_| env::var("XAI_BASE_URL"))
+                .ok(),
+            minimax_base_url: env::var("BEAGLE_MINIMAX_BASE_URL")
+                .or_else(|_| env::var("MINIMAX_BASE_URL"))
                 .ok(),
             grok_model: env::var("BEAGLE_GROK_MODEL").unwrap_or_else(|_| "grok-3".to_string()),
             routing: model::LlmRoutingConfig::from_env(profile_enum),
@@ -630,6 +645,14 @@ pub fn load() -> BeagleConfig {
         hermes: HermesConfig {
             database_url: env::var("DATABASE_URL").ok(),
             redis_url: env::var("REDIS_URL").ok(),
+        },
+        tool_bridge: model::ToolBridgeConfig {
+            default_timeout_seconds: env::var("BEAGLE_TOOL_BRIDGE_TIMEOUT_SECONDS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(60),
+            ledger_enabled: bool_env("BEAGLE_TOOL_BRIDGE_LEDGER_ENABLED", true),
+            dry_run: bool_env("BEAGLE_TOOL_BRIDGE_DRY_RUN", false),
         },
         advanced: AdvancedModulesConfig {
             serendipity_enabled: bool_env("BEAGLE_SERENDIPITY", false),
@@ -674,7 +697,20 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
                 .anthropic_api_key
                 .or(base.llm.anthropic_api_key),
             openai_api_key: override_cfg.llm.openai_api_key.or(base.llm.openai_api_key),
+            deepseek_api_key: override_cfg.llm.deepseek_api_key.or(base.llm.deepseek_api_key),
+            zai_api_key: override_cfg.llm.zai_api_key.or(base.llm.zai_api_key),
+            minimax_api_key: override_cfg.llm.minimax_api_key.or(base.llm.minimax_api_key),
             vllm_url: override_cfg.llm.vllm_url.or(base.llm.vllm_url),
+            deepseek_base_url: override_cfg
+                .llm
+                .deepseek_base_url
+                .or(base.llm.deepseek_base_url),
+            zai_base_url: override_cfg.llm.zai_base_url.or(base.llm.zai_base_url),
+            xai_base_url: override_cfg.llm.xai_base_url.or(base.llm.xai_base_url),
+            minimax_base_url: override_cfg
+                .llm
+                .minimax_base_url
+                .or(base.llm.minimax_base_url),
             grok_model: if override_cfg.llm.grok_model != default_grok_model() {
                 override_cfg.llm.grok_model
             } else {
@@ -701,6 +737,7 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
                 .or(base.hermes.database_url),
             redis_url: override_cfg.hermes.redis_url.or(base.hermes.redis_url),
         },
+        tool_bridge: override_cfg.tool_bridge.clone(),
         advanced: AdvancedModulesConfig {
             serendipity_enabled: override_cfg.advanced.serendipity_enabled
                 || base.advanced.serendipity_enabled,

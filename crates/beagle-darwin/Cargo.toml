@@ -13,6 +13,7 @@ serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
 anyhow.workspace = true
+chrono.workspace = true
 
 # Dependências internas do BEAGLE
 beagle-grok-api = { path = "../beagle-grok-api" }

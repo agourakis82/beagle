@@ -126,7 +126,7 @@ mod tests {
     }
 
     fn create_test_state(api_token: Option<String>, profile: &str) -> AppState {
-        let mut cfg = BeagleConfig {
+        let cfg = BeagleConfig {
             profile: profile.to_string(),
             safe_mode: true,
             api_token,
@@ -138,15 +138,12 @@ mod tests {
             },
             graph: Default::default(),
             hermes: Default::default(),
+            tool_bridge: Default::default(),
             advanced: Default::default(),
             observer: Default::default(),
         };
 
-        let ctx = BeagleContext {
-            cfg,
-            router: beagle_llm::TieredRouter::new(Default::default()),
-            llm_stats: beagle_llm::LlmStatsRegistry::new(),
-        };
+        let ctx = BeagleContext::new_with_mocks(cfg);
 
         AppState {
             ctx: Arc::new(Mutex::new(ctx)),

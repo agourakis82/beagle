@@ -13,7 +13,7 @@ use tempfile::tempdir;
 async fn pipeline_demo_produz_draft_e_summary() -> Result<()> {
     // 1. Configuração de teste com diretório temporário
     let temp_dir = tempdir()?;
-    let mut cfg = BeagleConfig {
+    let cfg = BeagleConfig {
         profile: "dev".to_string(),
         safe_mode: true,
         api_token: None,
@@ -23,6 +23,7 @@ async fn pipeline_demo_produz_draft_e_summary() -> Result<()> {
         },
         graph: Default::default(),
         hermes: Default::default(),
+        tool_bridge: Default::default(),
         advanced: Default::default(),
         observer: Default::default(),
     };
@@ -83,6 +84,7 @@ async fn beagle_context_com_mocks_funciona() -> Result<()> {
         },
         graph: Default::default(),
         hermes: Default::default(),
+        tool_bridge: Default::default(),
         advanced: Default::default(),
         observer: Default::default(),
     };

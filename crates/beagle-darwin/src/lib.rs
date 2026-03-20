@@ -14,11 +14,22 @@
 //! println!("DARWIN + BEAGLE: {answer}");
 //! ```
 
+pub mod tool_bridge;
+pub mod tool_bridge_ledger;
+pub mod tool_bridge_types;
+
 use beagle_core::{BeagleContext, KnowledgeSnippet};
 use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
 use beagle_smart_router::query_smart;
 use std::sync::Arc;
 use tracing::{info, warn};
+
+pub use tool_bridge::ToolBridge;
+pub use tool_bridge_ledger::{append_ledger_entry, ledger_file_path, BridgeLedgerEntry};
+pub use tool_bridge_types::{
+    BridgeHealth, BridgeKind, BridgeMode, BridgeProvider, BridgeProviderInfo, BridgeRequest,
+    BridgeResponse, BridgeStatus, BridgeTokenUsage,
+};
 
 /// Contexto retornado pelo enhanced_cycle
 #[derive(Debug, Clone)]

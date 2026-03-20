@@ -12,7 +12,14 @@ pub struct LlmConfig {
     pub xai_api_key: Option<String>,
     pub anthropic_api_key: Option<String>,
     pub openai_api_key: Option<String>,
+    pub deepseek_api_key: Option<String>,
+    pub zai_api_key: Option<String>,
+    pub minimax_api_key: Option<String>,
     pub vllm_url: Option<String>,
+    pub deepseek_base_url: Option<String>,
+    pub zai_base_url: Option<String>,
+    pub xai_base_url: Option<String>,
+    pub minimax_base_url: Option<String>,
     /// Modelo Grok padrão (default: "grok-3")
     #[serde(default = "default_grok_model")]
     pub grok_model: String,
@@ -132,7 +139,14 @@ impl Default for LlmConfig {
             xai_api_key: None,
             anthropic_api_key: None,
             openai_api_key: None,
+            deepseek_api_key: None,
+            zai_api_key: None,
+            minimax_api_key: None,
             vllm_url: None,
+            deepseek_base_url: None,
+            zai_base_url: None,
+            xai_base_url: None,
+            minimax_base_url: None,
             grok_model: default_grok_model(),
             routing: LlmRoutingConfig::default(),
         }
@@ -208,6 +222,10 @@ fn default_false() -> bool {
     false
 }
 
+fn default_true() -> bool {
+    true
+}
+
 impl Default for AdvancedModulesConfig {
     fn default() -> Self {
         Self {
@@ -215,6 +233,31 @@ impl Default for AdvancedModulesConfig {
             serendipity_in_triad: false,
             void_enabled: false,
             memory_retrieval_enabled: false,
+        }
+    }
+}
+
+/// Configuração mínima da bridge de tools/providers do Beagle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolBridgeConfig {
+    #[serde(default = "default_bridge_timeout_seconds")]
+    pub default_timeout_seconds: u64,
+    #[serde(default = "default_true")]
+    pub ledger_enabled: bool,
+    #[serde(default = "default_false")]
+    pub dry_run: bool,
+}
+
+const fn default_bridge_timeout_seconds() -> u64 {
+    60
+}
+
+impl Default for ToolBridgeConfig {
+    fn default() -> Self {
+        Self {
+            default_timeout_seconds: default_bridge_timeout_seconds(),
+            ledger_enabled: true,
+            dry_run: false,
         }
     }
 }
@@ -443,6 +486,8 @@ pub struct BeagleConfig {
     pub graph: GraphConfig,
     pub hermes: HermesConfig,
     #[serde(default)]
+    pub tool_bridge: ToolBridgeConfig,
+    #[serde(default)]
     pub advanced: AdvancedModulesConfig,
     #[serde(default)]
     pub observer: ObserverThresholds,
@@ -458,6 +503,9 @@ impl BeagleConfig {
         self.llm.xai_api_key.is_some()
             || self.llm.anthropic_api_key.is_some()
             || self.llm.openai_api_key.is_some()
+            || self.llm.deepseek_api_key.is_some()
+            || self.llm.zai_api_key.is_some()
+            || self.llm.minimax_api_key.is_some()
             || self.llm.vllm_url.is_some()
     }
 

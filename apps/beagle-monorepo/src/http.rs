@@ -122,6 +122,7 @@ pub fn build_router(state: AppState) -> Router {
             "/api/jobs/science/:job_id/artifacts",
             get(science_job_artifacts_handler),
         )
+        .merge(crate::http_darwin_hpc::darwin_hpc_routes())
         .merge(crate::http_memory::memory_routes())
         .route("/api/pcs/reason", post(pcs_reason_handler))
         .route("/api/fractal/grow", post(fractal_grow_handler))
