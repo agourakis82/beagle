@@ -2,10 +2,17 @@
 
 ## Current status
 
-B9.7 is currently `GO-WITH-BLOCKER`.
+B9.7 is currently `GO`.
 
-The remaining gate is live multi-consumer validation on the cluster-hosted
-Beagle service.
+Current evidence:
+
+1. `beagle-operator` authenticated and retained workspace/control-surface access
+2. `darwin-research` authenticated through the same service with bounded permissions
+3. denied research access returned explicit `403` responses for control-surface and GPU submit
+4. one allowed research workflow completed through submit/status/artifact retrieval
+5. historical published-result lookup and manifest retrieval remained intact
+6. cluster remained green
+7. Slurm remained green
 
 ## GO if
 

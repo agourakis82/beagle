@@ -2,11 +2,17 @@
 
 ## Current status
 
-B9.7 is currently `GO-WITH-BLOCKER`.
+B9.7 is currently `GO`.
 
-The repo-native consumer policy layer exists inside Beagle, but the phase only
-closes after the live cluster smoke proves two distinct consumers using the same
-internal control surface.
+Canonical smoke evidence lives under:
+
+- `.artifacts/darwin-hpc/controlled-consumer-expansion-smoke/beagle-health.json`
+- `.artifacts/darwin-hpc/controlled-consumer-expansion-smoke/operator-self.json`
+- `.artifacts/darwin-hpc/controlled-consumer-expansion-smoke/operator-control.json`
+- `.artifacts/darwin-hpc/controlled-consumer-expansion-smoke/research-self.json`
+- `.artifacts/darwin-hpc/controlled-consumer-expansion-smoke/research-submit.json`
+- `.artifacts/darwin-hpc/controlled-consumer-expansion-smoke/research-result.json`
+- `.artifacts/darwin-hpc/controlled-consumer-expansion-smoke/final-cluster-health.txt`
 
 ## Objective
 
@@ -100,3 +106,15 @@ The phase closes when:
 5. an allowed research workflow completes and resolves through the current result plane
 6. cluster remains green
 7. Slurm remains green
+
+## Live result
+
+The validated phase proved that:
+
+- `beagle-operator` and `darwin-research` authenticate through the same live Beagle service
+- operator access remains intact for workspace and control-surface paths
+- research access is explicitly denied for workspace, control-surface and `gpu-single-v1`
+- research can still submit approved CPU profiles and read job/result surfaces
+- historical published-result resolution remains intact through the same shared result plane
+- cluster remained green
+- Slurm remained green
