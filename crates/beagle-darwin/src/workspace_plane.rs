@@ -20,6 +20,13 @@ const DEFAULT_POLL_TIMEOUT_SECONDS: u64 = 180;
 const WORKSPACE_PLANE_CONTRACT_VERSION: &str = "darwin-workspace-plane-v2";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceDevPlanePolicy {
+    pub default_dev_plane: String,
+    pub vm_fallback_role: String,
+    pub promotion_scope: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceCurrentTask {
     pub task_kind: String,
     pub task_state: String,
@@ -78,6 +85,8 @@ pub struct WorkspaceSessionState {
     pub operator_name: Option<String>,
     #[serde(default)]
     pub repo_context: RepoContext,
+    #[serde(default = "workspace_dev_plane_policy_default")]
+    pub dev_plane_policy: WorkspaceDevPlanePolicy,
     pub session_id: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -121,6 +130,7 @@ impl WorkspaceSessionState {
             canonical_track: cfg.workspace.canonical_track.clone(),
             operator_name: cfg.workspace.operator_name.clone(),
             repo_context: RepoContext::from_workspace_cfg(cfg),
+            dev_plane_policy: WorkspaceDevPlanePolicy::from_workspace_cfg(cfg),
             session_id: session_id.unwrap_or_else(generate_session_id),
             created_at: now,
             updated_at: now,
@@ -151,6 +161,16 @@ impl WorkspaceSessionState {
     }
 }
 
+impl WorkspaceDevPlanePolicy {
+    pub fn from_workspace_cfg(cfg: &BeagleConfig) -> Self {
+        Self {
+            default_dev_plane: cfg.workspace.default_dev_plane.clone(),
+            vm_fallback_role: cfg.workspace.vm_fallback_role.clone(),
+            promotion_scope: cfg.workspace.promotion_scope.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceBootstrapResponse {
     pub status: String,
@@ -161,6 +181,7 @@ pub struct WorkspaceBootstrapResponse {
     pub canonical_track: String,
     pub operator_name: Option<String>,
     pub repo_context: RepoContext,
+    pub dev_plane_policy: WorkspaceDevPlanePolicy,
     pub session_id: String,
     pub recovered_session: bool,
     pub bootstrap_count: u64,
@@ -317,6 +338,7 @@ pub fn bootstrap_workspace_session(
         canonical_track: state.canonical_track.clone(),
         operator_name: state.operator_name.clone(),
         repo_context: state.repo_context.clone(),
+        dev_plane_policy: state.dev_plane_policy.clone(),
         session_id: state.session_id.clone(),
         recovered_session: recovered,
         bootstrap_count: state.bootstrap_count,
@@ -685,6 +707,22 @@ fn normalize_workspace_session(cfg: &BeagleConfig, state: &mut WorkspaceSessionS
         state.operator_name = cfg.workspace.operator_name.clone();
         changed = true;
     }
+    if state.dev_plane_policy.default_dev_plane.trim().is_empty()
+        || state.dev_plane_policy.vm_fallback_role.trim().is_empty()
+        || state.dev_plane_policy.promotion_scope.trim().is_empty()
+    {
+        state.dev_plane_policy = WorkspaceDevPlanePolicy::from_workspace_cfg(cfg);
+        changed = true;
+    } else {
+        let expected_policy = WorkspaceDevPlanePolicy::from_workspace_cfg(cfg);
+        if state.dev_plane_policy.default_dev_plane != expected_policy.default_dev_plane
+            || state.dev_plane_policy.vm_fallback_role != expected_policy.vm_fallback_role
+            || state.dev_plane_policy.promotion_scope != expected_policy.promotion_scope
+        {
+            state.dev_plane_policy = expected_policy;
+            changed = true;
+        }
+    }
 
     if !state.repo_context.is_complete() {
         state.repo_context = RepoContext::from_workspace_cfg(cfg);
@@ -737,4 +775,12 @@ fn sanitize_workspace_id(workspace_id: &str) -> String {
 
 fn workspace_plane_contract_version_value() -> String {
     WORKSPACE_PLANE_CONTRACT_VERSION.to_string()
+}
+
+fn workspace_dev_plane_policy_default() -> WorkspaceDevPlanePolicy {
+    WorkspaceDevPlanePolicy {
+        default_dev_plane: "beagle-cluster".to_string(),
+        vm_fallback_role: "fallback-only".to_string(),
+        promotion_scope: "beagle-darwin-hpc-small-medium".to_string(),
+    }
 }

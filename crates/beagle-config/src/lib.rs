@@ -664,6 +664,12 @@ pub fn load() -> BeagleConfig {
             canonical_track: env::var("BEAGLE_WORKSPACE_CANONICAL_TRACK")
                 .unwrap_or_else(|_| "darwin-hpc".to_string()),
             operator_name: env::var("BEAGLE_WORKSPACE_OPERATOR").ok(),
+            default_dev_plane: env::var("BEAGLE_WORKSPACE_DEFAULT_DEV_PLANE")
+                .unwrap_or_else(|_| "beagle-cluster".to_string()),
+            vm_fallback_role: env::var("BEAGLE_WORKSPACE_VM_FALLBACK_ROLE")
+                .unwrap_or_else(|_| "fallback-only".to_string()),
+            promotion_scope: env::var("BEAGLE_WORKSPACE_PROMOTION_SCOPE")
+                .unwrap_or_else(|_| "beagle-darwin-hpc-small-medium".to_string()),
             bootstrap_enabled: bool_env("BEAGLE_WORKSPACE_BOOTSTRAP_ENABLED", true),
         },
         consumers: model::ConsumerAccessConfig {
@@ -787,6 +793,27 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
                 base.workspace.canonical_track
             },
             operator_name: override_cfg.workspace.operator_name.or(base.workspace.operator_name),
+            default_dev_plane: if override_cfg.workspace.default_dev_plane
+                != model::WorkspacePlaneConfig::default().default_dev_plane
+            {
+                override_cfg.workspace.default_dev_plane
+            } else {
+                base.workspace.default_dev_plane
+            },
+            vm_fallback_role: if override_cfg.workspace.vm_fallback_role
+                != model::WorkspacePlaneConfig::default().vm_fallback_role
+            {
+                override_cfg.workspace.vm_fallback_role
+            } else {
+                base.workspace.vm_fallback_role
+            },
+            promotion_scope: if override_cfg.workspace.promotion_scope
+                != model::WorkspacePlaneConfig::default().promotion_scope
+            {
+                override_cfg.workspace.promotion_scope
+            } else {
+                base.workspace.promotion_scope
+            },
             bootstrap_enabled: override_cfg.workspace.bootstrap_enabled
                 || base.workspace.bootstrap_enabled,
         },

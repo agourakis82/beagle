@@ -270,6 +270,9 @@ pub struct WorkspacePlaneConfig {
     pub canonical_branch: String,
     pub canonical_track: String,
     pub operator_name: Option<String>,
+    pub default_dev_plane: String,
+    pub vm_fallback_role: String,
+    pub promotion_scope: String,
     #[serde(default = "default_true")]
     pub bootstrap_enabled: bool,
 }
@@ -282,6 +285,9 @@ impl Default for WorkspacePlaneConfig {
             canonical_branch: "main".to_string(),
             canonical_track: "darwin-hpc".to_string(),
             operator_name: None,
+            default_dev_plane: "beagle-cluster".to_string(),
+            vm_fallback_role: "fallback-only".to_string(),
+            promotion_scope: "beagle-darwin-hpc-small-medium".to_string(),
             bootstrap_enabled: true,
         }
     }
