@@ -2,11 +2,15 @@
 
 ## Current status
 
-B13.1 is currently `GO-WITH-BLOCKER`.
+B13.1 is currently `GO`.
 
-The cutover model is defined, but the phase only closes after one live
-repo-aware development loop is proven end to end through the Beagle workspace
-plane on the cluster.
+Canonical smoke evidence lives under:
+
+- `.artifacts/darwin-hpc/canonical-dev-cutover-smoke/bootstrap-before.json`
+- `.artifacts/darwin-hpc/canonical-dev-cutover-smoke/bridge-execute.json`
+- `.artifacts/darwin-hpc/canonical-dev-cutover-smoke/pilot.json`
+- `.artifacts/darwin-hpc/canonical-dev-cutover-smoke/session-after-restart.json`
+- `.artifacts/darwin-hpc/canonical-dev-cutover-smoke/final-cluster-health.txt`
 
 ## Objective
 
@@ -69,3 +73,16 @@ The phase closes when one canonical workspace can:
 5. resolve the published result through the current result plane
 6. preserve repo, branch, handoff, ledger and last workflow across restart
 7. leave the VM as an allowed fallback, but not the mandatory center for this pilot
+
+## Live result
+
+The validated pilot proved that one canonical development loop can:
+
+- bootstrap workspace `b131-0320231730` on repo `agourakis82/beagle` and branch
+  `feat/darwin-hpc-governance`
+- execute one real cheap-lane bridge request through `deepseek`
+- persist the bridge request in the append-only ledger under `BEAGLE_DATA_DIR`
+- run one real `cpu-short-v1` workflow through the workspace plane with job `44`
+- resolve published result `24` through the current result plane
+- persist handoff, last workflow and last result context in the workspace session
+- recover the same session `ws-20260321021731` cleanly after Beagle rollout restart

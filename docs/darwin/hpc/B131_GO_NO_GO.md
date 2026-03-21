@@ -2,10 +2,18 @@
 
 ## Current status
 
-B13.1 is currently `GO-WITH-BLOCKER`.
+B13.1 is currently `GO`.
 
-The remaining gate is one live cutover smoke proving a real development loop
-through the Beagle workspace plane.
+Current evidence:
+
+1. one canonical workspace bootstrapped with the expected repo and branch
+2. the cheap bridge executed a real `deepseek` request
+3. the bridge ledger persisted that request under `BEAGLE_DATA_DIR`
+4. one real `cpu-short-v1` workflow completed through the workspace plane
+5. the published result remained resolvable through the current result plane
+6. restart/recovery preserved session, handoff and last workflow/result context
+7. cluster remained green
+8. Slurm remained green
 
 ## GO if
 
