@@ -20,6 +20,7 @@ data:
   BEAGLE_TOOL_BRIDGE_TIMEOUT_SECONDS: "60"
   BEAGLE_TOOL_BRIDGE_LEDGER_ENABLED: "true"
   BEAGLE_TOOL_BRIDGE_DRY_RUN: "false"
+  BEAGLE_CONSUMER_POLICY_ENABLED: "true"
   BEAGLE_DEEPSEEK_BASE_URL: https://api.deepseek.com
   BEAGLE_ZAI_BASE_URL: https://open.bigmodel.cn/api/paas/v4
   BEAGLE_XAI_BASE_URL: https://api.x.ai/v1

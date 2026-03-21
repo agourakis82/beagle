@@ -287,6 +287,25 @@ impl Default for WorkspacePlaneConfig {
     }
 }
 
+/// Configuração mínima da política de consumers do plano Darwin/HPC.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsumerAccessConfig {
+    #[serde(default = "default_false")]
+    pub policy_enabled: bool,
+    pub operator_token: Option<String>,
+    pub research_token: Option<String>,
+}
+
+impl Default for ConsumerAccessConfig {
+    fn default() -> Self {
+        Self {
+            policy_enabled: false,
+            operator_token: None,
+            research_token: None,
+        }
+    }
+}
+
 /// Thresholds para classificação de eventos fisiológicos
 ///
 /// **Nota**: Estes valores são heurísticos e configuráveis.
@@ -514,6 +533,8 @@ pub struct BeagleConfig {
     pub tool_bridge: ToolBridgeConfig,
     #[serde(default)]
     pub workspace: WorkspacePlaneConfig,
+    #[serde(default)]
+    pub consumers: ConsumerAccessConfig,
     #[serde(default)]
     pub advanced: AdvancedModulesConfig,
     #[serde(default)]

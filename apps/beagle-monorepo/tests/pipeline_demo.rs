@@ -24,6 +24,7 @@ async fn pipeline_demo_produz_draft_e_summary() -> Result<()> {
         graph: Default::default(),
         hermes: Default::default(),
         tool_bridge: Default::default(),
+        consumers: Default::default(),
         advanced: Default::default(),
         observer: Default::default(),
     };
@@ -85,6 +86,7 @@ async fn beagle_context_com_mocks_funciona() -> Result<()> {
         graph: Default::default(),
         hermes: Default::default(),
         tool_bridge: Default::default(),
+        consumers: Default::default(),
         advanced: Default::default(),
         observer: Default::default(),
     };

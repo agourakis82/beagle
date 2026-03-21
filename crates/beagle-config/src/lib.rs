@@ -666,6 +666,13 @@ pub fn load() -> BeagleConfig {
             operator_name: env::var("BEAGLE_WORKSPACE_OPERATOR").ok(),
             bootstrap_enabled: bool_env("BEAGLE_WORKSPACE_BOOTSTRAP_ENABLED", true),
         },
+        consumers: model::ConsumerAccessConfig {
+            policy_enabled: bool_env("BEAGLE_CONSUMER_POLICY_ENABLED", false),
+            operator_token: env::var("BEAGLE_OPERATOR_API_TOKEN")
+                .ok()
+                .or_else(|| env::var("BEAGLE_API_TOKEN").ok()),
+            research_token: env::var("BEAGLE_RESEARCH_API_TOKEN").ok(),
+        },
         advanced: AdvancedModulesConfig {
             serendipity_enabled: bool_env("BEAGLE_SERENDIPITY", false),
             serendipity_in_triad: bool_env("BEAGLE_SERENDIPITY_TRIAD", false),
@@ -782,6 +789,11 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
             operator_name: override_cfg.workspace.operator_name.or(base.workspace.operator_name),
             bootstrap_enabled: override_cfg.workspace.bootstrap_enabled
                 || base.workspace.bootstrap_enabled,
+        },
+        consumers: model::ConsumerAccessConfig {
+            policy_enabled: override_cfg.consumers.policy_enabled || base.consumers.policy_enabled,
+            operator_token: override_cfg.consumers.operator_token.or(base.consumers.operator_token),
+            research_token: override_cfg.consumers.research_token.or(base.consumers.research_token),
         },
         advanced: AdvancedModulesConfig {
             serendipity_enabled: override_cfg.advanced.serendipity_enabled

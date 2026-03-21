@@ -14,6 +14,7 @@
 //! println!("DARWIN + BEAGLE: {answer}");
 //! ```
 
+pub mod consumer_policy;
 pub mod repo_context;
 pub mod object_results;
 pub mod result_catalog;
@@ -28,6 +29,9 @@ use beagle_smart_router::query_smart;
 use std::sync::Arc;
 use tracing::{info, warn};
 
+pub use consumer_policy::{
+    available_consumers, consumer_identity_for_id, ConsumerId, ConsumerIdentity,
+};
 pub use repo_context::RepoContext;
 pub use object_results::{HpcTextArtifact, JobArtifactManifest, ObjectPublishedArtifact, ObjectResultManifest};
 pub use result_catalog::{

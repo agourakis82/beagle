@@ -1,11 +1,12 @@
 use crate::http::AppState;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
 use beagle_darwin::{
+    available_consumers, ConsumerIdentity,
     bootstrap_workspace_session, load_workspace_session, read_recent_ledger_entries,
     run_workspace_pilot, BridgeHealth, BridgeLedgerEntry, BridgeProviderInfo, BridgeRequest,
     BridgeResponse, BridgeStatus, DarwinHpcGatewayClient, DarwinHpcGatewayError, HpcJobStatus,
@@ -29,6 +30,7 @@ pub fn darwin_hpc_routes() -> Router<AppState> {
             "/api/darwin/workspace/pilot/execute",
             post(workspace_pilot_execute_handler),
         )
+        .route("/api/darwin/consumers/self", get(consumer_self_handler))
         .route("/api/darwin/hpc/control", get(hpc_control_handler))
         .route("/api/darwin/hpc/profiles", get(hpc_profiles_handler))
         .route("/api/darwin/hpc/jobs/submit", post(hpc_job_submit_handler))
@@ -83,8 +85,10 @@ struct HpcControlSurfaceSummary {
 
 async fn workspace_bootstrap_handler(
     State(state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
     Query(query): Query<WorkspaceQueryParams>,
 ) -> Result<Json<WorkspaceBootstrapResponse>, JsonError> {
+    ensure_allowed(consumer.ensure_workspace_plane())?;
     let cfg = current_cfg(&state).await;
     let data_dir = FsPath::new(&cfg.storage.data_dir);
 
@@ -101,8 +105,10 @@ async fn workspace_bootstrap_handler(
 
 async fn workspace_session_handler(
     State(state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
     Query(query): Query<WorkspaceQueryParams>,
 ) -> Result<Json<WorkspaceSessionState>, JsonError> {
+    ensure_allowed(consumer.ensure_workspace_plane())?;
     let cfg = current_cfg(&state).await;
     let data_dir = FsPath::new(&cfg.storage.data_dir);
     let workspace_id = query
@@ -123,8 +129,13 @@ async fn workspace_session_handler(
 
 async fn workspace_pilot_execute_handler(
     State(state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
     Json(request): Json<WorkspacePilotRequest>,
 ) -> Result<Json<WorkspacePilotResponse>, JsonError> {
+    ensure_allowed(consumer.ensure_workspace_plane())?;
+    if let Some(profile_id) = request.profile_id.as_deref() {
+        ensure_allowed(consumer.ensure_hpc_submit(profile_id))?;
+    }
     let cfg = current_cfg(&state).await;
     let data_dir = FsPath::new(&cfg.storage.data_dir);
     let gateway = gateway_client()?;
@@ -137,9 +148,17 @@ async fn workspace_pilot_execute_handler(
     Ok(Json(response))
 }
 
+async fn consumer_self_handler(
+    Extension(consumer): Extension<ConsumerIdentity>,
+) -> Json<ConsumerIdentity> {
+    Json(consumer)
+}
+
 async fn hpc_control_handler(
     State(state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
 ) -> Result<Json<HpcControlSurfaceSummary>, JsonError> {
+    ensure_allowed(consumer.ensure_hpc_control())?;
     let cfg = current_cfg(&state).await;
     let data_dir = FsPath::new(&cfg.storage.data_dir);
 
@@ -174,7 +193,9 @@ async fn hpc_control_handler(
 
 async fn hpc_profiles_handler(
     State(_state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
 ) -> Result<Json<HpcProfileCatalog>, JsonError> {
+    ensure_allowed(consumer.ensure_hpc_read())?;
     let gateway = gateway_client()?;
     gateway
         .profiles()
@@ -185,8 +206,10 @@ async fn hpc_profiles_handler(
 
 async fn hpc_job_submit_handler(
     State(_state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
     Json(request): Json<HpcSubmitRequest>,
 ) -> Result<Json<HpcSubmitResponse>, JsonError> {
+    ensure_allowed(consumer.ensure_hpc_submit(&request.profile_id))?;
     let gateway = gateway_client()?;
     gateway
         .submit_job(&request)
@@ -197,8 +220,10 @@ async fn hpc_job_submit_handler(
 
 async fn hpc_job_status_handler(
     State(_state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
     Path(job_id): Path<u64>,
 ) -> Result<Json<HpcJobStatus>, JsonError> {
+    ensure_allowed(consumer.ensure_hpc_read())?;
     let gateway = gateway_client()?;
     gateway
         .job_status(job_id)
@@ -209,8 +234,10 @@ async fn hpc_job_status_handler(
 
 async fn hpc_job_manifest_handler(
     State(_state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
     Path(job_id): Path<u64>,
 ) -> Result<Json<JobArtifactManifest>, JsonError> {
+    ensure_allowed(consumer.ensure_hpc_read())?;
     let gateway = gateway_client()?;
     gateway
         .job_artifact_manifest(job_id)
@@ -221,8 +248,10 @@ async fn hpc_job_manifest_handler(
 
 async fn hpc_job_stdout_handler(
     State(_state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
     Path(job_id): Path<u64>,
 ) -> Result<Json<HpcTextArtifact>, JsonError> {
+    ensure_allowed(consumer.ensure_hpc_read())?;
     let gateway = gateway_client()?;
     gateway
         .job_stdout(job_id)
@@ -233,8 +262,10 @@ async fn hpc_job_stdout_handler(
 
 async fn hpc_job_stderr_handler(
     State(_state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
     Path(job_id): Path<u64>,
 ) -> Result<Json<HpcTextArtifact>, JsonError> {
+    ensure_allowed(consumer.ensure_hpc_read())?;
     let gateway = gateway_client()?;
     gateway
         .job_stderr(job_id)
@@ -245,8 +276,10 @@ async fn hpc_job_stderr_handler(
 
 async fn hpc_results_handler(
     State(_state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
     Query(query): Query<ResultsQueryParams>,
 ) -> Result<Json<ResultCatalogResponse>, JsonError> {
+    ensure_allowed(consumer.ensure_hpc_read())?;
     let gateway = gateway_client()?;
     let query = ResultCatalogQuery {
         profile_id: query.profile_id,
@@ -264,8 +297,10 @@ async fn hpc_results_handler(
 
 async fn hpc_result_lookup_handler(
     State(_state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
     Path(job_id): Path<u64>,
 ) -> Result<Json<ResultCatalogEntry>, JsonError> {
+    ensure_allowed(consumer.ensure_hpc_read())?;
     let gateway = gateway_client()?;
     gateway
         .result_by_job(job_id)
@@ -276,8 +311,10 @@ async fn hpc_result_lookup_handler(
 
 async fn hpc_result_manifest_handler(
     State(_state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
     Path(job_id): Path<u64>,
 ) -> Result<Json<ObjectResultManifest>, JsonError> {
+    ensure_allowed(consumer.ensure_hpc_read())?;
     let gateway = gateway_client()?;
     gateway
         .result_manifest(job_id)
@@ -286,14 +323,18 @@ async fn hpc_result_manifest_handler(
         .map_err(gateway_error_response)
 }
 
-async fn bridge_health_handler(State(state): State<AppState>) -> Json<BridgeHealth> {
+async fn bridge_health_handler(
+    State(state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
+) -> Result<Json<BridgeHealth>, JsonError> {
+    ensure_allowed(consumer.ensure_bridge_read())?;
     let cfg = current_cfg(&state).await;
 
     match ToolBridge::from_config(&cfg) {
-        Ok(bridge) => Json(bridge.health()),
+        Ok(bridge) => Ok(Json(bridge.health())),
         Err(error) => {
             error!("failed to initialize tool bridge for health: {}", error);
-            Json(BridgeHealth {
+            Ok(Json(BridgeHealth {
                 status: "error".to_string(),
                 safe_mode: cfg.safe_mode,
                 dry_run: cfg.tool_bridge.dry_run,
@@ -301,36 +342,40 @@ async fn bridge_health_handler(State(state): State<AppState>) -> Json<BridgeHeal
                 data_dir: cfg.storage.data_dir,
                 implemented_providers: 0,
                 configured_providers: 0,
-            })
+            }))
         }
     }
 }
 
 async fn bridge_providers_handler(
     State(state): State<AppState>,
-) -> Json<Vec<BridgeProviderInfo>> {
+    Extension(consumer): Extension<ConsumerIdentity>,
+) -> Result<Json<Vec<BridgeProviderInfo>>, JsonError> {
+    ensure_allowed(consumer.ensure_bridge_read())?;
     let cfg = current_cfg(&state).await;
 
     match ToolBridge::from_config(&cfg) {
-        Ok(bridge) => Json(bridge.providers()),
+        Ok(bridge) => Ok(Json(bridge.providers())),
         Err(error) => {
             error!("failed to initialize tool bridge for providers: {}", error);
-            Json(Vec::new())
+            Ok(Json(Vec::new()))
         }
     }
 }
 
 async fn bridge_execute_handler(
     State(state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
     Json(request): Json<BridgeRequest>,
-) -> Json<BridgeResponse> {
+) -> Result<Json<BridgeResponse>, JsonError> {
+    ensure_allowed(consumer.ensure_bridge_execute())?;
     let cfg = current_cfg(&state).await;
 
     match ToolBridge::from_config(&cfg) {
-        Ok(bridge) => Json(bridge.execute(request).await),
+        Ok(bridge) => Ok(Json(bridge.execute(request).await)),
         Err(error) => {
             error!("failed to initialize tool bridge for execute: {}", error);
-            Json(BridgeResponse {
+            Ok(Json(BridgeResponse {
                 request_id: request.request_id,
                 provider: request.provider,
                 model: request.model,
@@ -341,7 +386,7 @@ async fn bridge_execute_handler(
                 output: json!({}),
                 error: Some(format!("tool bridge init failed: {}", error)),
                 warnings: vec![],
-            })
+            }))
         }
     }
 }
@@ -395,4 +440,19 @@ fn not_found_response(code: &str, detail: String) -> JsonError {
             "detail": detail,
         })),
     )
+}
+
+fn forbidden_response(code: &str, detail: String) -> JsonError {
+    (
+        StatusCode::FORBIDDEN,
+        Json(json!({
+            "error": code,
+            "detail": detail,
+            "available_consumers": available_consumers(),
+        })),
+    )
+}
+
+fn ensure_allowed(result: Result<(), String>) -> Result<(), JsonError> {
+    result.map_err(|detail| forbidden_response("darwin_consumer_forbidden", detail))
 }
