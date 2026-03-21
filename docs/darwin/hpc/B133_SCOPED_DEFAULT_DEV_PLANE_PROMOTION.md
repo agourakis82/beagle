@@ -2,11 +2,18 @@
 
 ## Current status
 
-B13.3 is currently `GO-WITH-BLOCKER`.
+B13.3 is currently `GO`.
 
-The scoped default-dev-plane promotion only closes after one live cluster smoke
-proves that a bounded development scope now defaults to Beagle/cluster, with VM
-remaining fallback-only for that same scope.
+Canonical smoke evidence lives under:
+
+- `.artifacts/darwin-hpc/scoped-default-dev-plane-smoke/bootstrap-before.json`
+- `.artifacts/darwin-hpc/scoped-default-dev-plane-smoke/policy-summary.json`
+- `.artifacts/darwin-hpc/scoped-default-dev-plane-smoke/bootstrap-after-deploy.json`
+- `.artifacts/darwin-hpc/scoped-default-dev-plane-smoke/bridge-execute.json`
+- `.artifacts/darwin-hpc/scoped-default-dev-plane-smoke/pilot.json`
+- `.artifacts/darwin-hpc/scoped-default-dev-plane-smoke/smoke.json`
+- `.artifacts/darwin-hpc/scoped-default-dev-plane-smoke/session-after-restart.json`
+- `.artifacts/darwin-hpc/scoped-default-dev-plane-smoke/final-cluster-health.txt`
 
 ## Objective
 
@@ -67,3 +74,22 @@ The phase closes when:
 5. the promoted scope is explicit and bounded
 6. cluster remains green
 7. Slurm remains green
+
+## Live result
+
+The validated promotion proved one bounded scope now defaults to Beagle/cluster:
+
+- workspace `b133-0321071858` bootstrapped on repo `agourakis82/beagle` and
+  branch `feat/darwin-hpc-governance`
+- after deploy, the live workspace bootstrap exposed explicit policy:
+  `default_dev_plane=beagle-cluster`,
+  `vm_fallback_role=fallback-only`,
+  `promotion_scope=beagle-darwin-hpc-small-medium`
+- the same session `ws-20260321101859` remained canonical through deploy and
+  restart
+- one real cheap-lane bridge request ran through `deepseek`
+- one real `cpu-short-v1` workflow completed through the promoted path as job
+  `46`
+- published result `24` remained resolvable through the current result and
+  manifest surfaces
+- restart/recovery preserved repo, branch, policy and handoff context

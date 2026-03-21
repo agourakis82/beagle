@@ -2,11 +2,20 @@
 
 ## Current status
 
-B13.3 is currently `GO-WITH-BLOCKER`.
+B13.3 is currently `GO`.
 
-The remaining gate is one live smoke proving that scoped default-dev-plane
-policy is explicit in the workspace plane and that one real workflow still runs
-cleanly through the promoted Beagle/cluster path.
+Current evidence:
+
+1. explicit scoped default-dev-plane policy is visible in live workspace state
+2. the live policy marks `beagle-cluster` as default and `fallback-only` as the
+   VM role
+3. one real `deepseek` bridge request completed through the promoted path
+4. one real `cpu-short-v1` workflow completed through the promoted path as job
+   `46`
+5. published result `24` remained resolvable through the current result plane
+6. restart/recovery preserved repo, branch, policy and handoff context
+7. cluster remained green
+8. Slurm remained green
 
 ## GO if
 
