@@ -49,10 +49,12 @@ pub use tool_bridge_types::{
 };
 pub use workspace_plane::{
     bootstrap_workspace_session, load_workspace_session, read_workspace_session,
-    run_workspace_pilot, workspace_plane_dir, workspace_session_path,
+    record_workspace_fallback_return, record_workspace_fallback_start, run_workspace_pilot,
+    workspace_fallback_ledger_path, workspace_plane_dir, workspace_session_path,
     write_workspace_session, WorkspaceBootstrapResponse, WorkspacePilotRequest,
-    WorkspaceCatalogSnapshot, WorkspaceCurrentTask, WorkspaceLastSuccessfulTask,
-    WorkspacePilotResponse, WorkspaceSessionState,
+    WorkspaceCatalogSnapshot, WorkspaceCurrentTask, WorkspaceDevPlanePolicy,
+    WorkspaceFallbackDrillRequest, WorkspaceFallbackDrillResponse, WorkspaceFallbackEvent,
+    WorkspaceLastSuccessfulTask, WorkspacePilotResponse, WorkspaceSessionState,
 };
 
 /// Contexto retornado pelo enhanced_cycle

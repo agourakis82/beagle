@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -24,6 +25,29 @@ pub struct WorkspaceDevPlanePolicy {
     pub default_dev_plane: String,
     pub vm_fallback_role: String,
     pub promotion_scope: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceFallbackEvent {
+    pub event_kind: String,
+    pub from_plane: String,
+    pub to_plane: String,
+    pub reason: String,
+    pub recorded_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceFallbackLedgerEntry {
+    pub workspace_id: String,
+    pub session_id: String,
+    pub canonical_repo: String,
+    pub canonical_branch: String,
+    pub default_dev_plane: String,
+    pub vm_fallback_role: String,
+    pub promotion_scope: String,
+    pub event: WorkspaceFallbackEvent,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +111,22 @@ pub struct WorkspaceSessionState {
     pub repo_context: RepoContext,
     #[serde(default = "workspace_dev_plane_policy_default")]
     pub dev_plane_policy: WorkspaceDevPlanePolicy,
+    #[serde(default = "workspace_active_dev_plane_default")]
+    pub active_dev_plane: String,
+    #[serde(default)]
+    pub fallback_active: bool,
+    #[serde(default)]
+    pub fallback_event_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_fallback_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_fallback_started_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_fallback_ended_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_fallback_duration_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_fallback_event: Option<WorkspaceFallbackEvent>,
     pub session_id: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -131,6 +171,14 @@ impl WorkspaceSessionState {
             operator_name: cfg.workspace.operator_name.clone(),
             repo_context: RepoContext::from_workspace_cfg(cfg),
             dev_plane_policy: WorkspaceDevPlanePolicy::from_workspace_cfg(cfg),
+            active_dev_plane: cfg.workspace.default_dev_plane.clone(),
+            fallback_active: false,
+            fallback_event_count: 0,
+            last_fallback_reason: None,
+            last_fallback_started_at: None,
+            last_fallback_ended_at: None,
+            last_fallback_duration_seconds: None,
+            last_fallback_event: None,
             session_id: session_id.unwrap_or_else(generate_session_id),
             created_at: now,
             updated_at: now,
@@ -182,6 +230,11 @@ pub struct WorkspaceBootstrapResponse {
     pub operator_name: Option<String>,
     pub repo_context: RepoContext,
     pub dev_plane_policy: WorkspaceDevPlanePolicy,
+    pub active_dev_plane: String,
+    pub fallback_active: bool,
+    pub fallback_event_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_fallback_event: Option<WorkspaceFallbackEvent>,
     pub session_id: String,
     pub recovered_session: bool,
     pub bootstrap_count: u64,
@@ -196,6 +249,31 @@ pub struct WorkspaceBootstrapResponse {
     pub last_published_result_job_id: Option<u64>,
     pub last_result_lookup_job_id: Option<u64>,
     pub last_result_lookup_node_list: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceFallbackDrillRequest {
+    pub workspace_id: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceFallbackDrillResponse {
+    pub status: String,
+    pub workspace_id: String,
+    pub session_id: String,
+    pub canonical_repo: String,
+    pub canonical_branch: String,
+    pub dev_plane_policy: WorkspaceDevPlanePolicy,
+    pub active_dev_plane: String,
+    pub fallback_active: bool,
+    pub fallback_event_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_fallback_event: Option<WorkspaceFallbackEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_handoff: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,6 +323,10 @@ pub fn workspace_sessions_dir(data_dir: &Path) -> PathBuf {
 
 pub fn workspace_session_path(data_dir: &Path, workspace_id: &str) -> PathBuf {
     workspace_sessions_dir(data_dir).join(format!("{}.json", sanitize_workspace_id(workspace_id)))
+}
+
+pub fn workspace_fallback_ledger_path(data_dir: &Path) -> PathBuf {
+    workspace_plane_dir(data_dir).join("fallback_discipline_events.jsonl")
 }
 
 pub fn read_workspace_session(
@@ -297,6 +379,46 @@ pub fn write_workspace_session(
     Ok(())
 }
 
+fn append_workspace_fallback_event(
+    data_dir: &Path,
+    entry: &WorkspaceFallbackLedgerEntry,
+) -> anyhow::Result<()> {
+    let path = workspace_fallback_ledger_path(data_dir);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create workspace fallback ledger dir {}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .with_context(|| format!("failed to open workspace fallback ledger {}", path.display()))?;
+    let line = serde_json::to_string(entry)?;
+    writeln!(file, "{line}")
+        .with_context(|| format!("failed to append workspace fallback ledger {}", path.display()))
+}
+
+fn workspace_fallback_response(state: &WorkspaceSessionState) -> WorkspaceFallbackDrillResponse {
+    WorkspaceFallbackDrillResponse {
+        status: "ok".to_string(),
+        workspace_id: state.workspace_id.clone(),
+        session_id: state.session_id.clone(),
+        canonical_repo: state.canonical_repo.clone(),
+        canonical_branch: state.canonical_branch.clone(),
+        dev_plane_policy: state.dev_plane_policy.clone(),
+        active_dev_plane: state.active_dev_plane.clone(),
+        fallback_active: state.fallback_active,
+        fallback_event_count: state.fallback_event_count,
+        last_fallback_event: state.last_fallback_event.clone(),
+        last_handoff: state.last_handoff.clone(),
+    }
+}
+
 pub fn bootstrap_workspace_session(
     data_dir: &Path,
     cfg: &BeagleConfig,
@@ -339,6 +461,10 @@ pub fn bootstrap_workspace_session(
         operator_name: state.operator_name.clone(),
         repo_context: state.repo_context.clone(),
         dev_plane_policy: state.dev_plane_policy.clone(),
+        active_dev_plane: state.active_dev_plane.clone(),
+        fallback_active: state.fallback_active,
+        fallback_event_count: state.fallback_event_count,
+        last_fallback_event: state.last_fallback_event.clone(),
         session_id: state.session_id.clone(),
         recovered_session: recovered,
         bootstrap_count: state.bootstrap_count,
@@ -354,6 +480,161 @@ pub fn bootstrap_workspace_session(
         last_result_lookup_job_id: state.last_result_lookup_job_id,
         last_result_lookup_node_list: state.last_result_lookup_node_list.clone(),
     })
+}
+
+pub fn record_workspace_fallback_start(
+    data_dir: &Path,
+    cfg: &BeagleConfig,
+    request: &WorkspaceFallbackDrillRequest,
+) -> anyhow::Result<WorkspaceFallbackDrillResponse> {
+    let workspace_id = request.workspace_id.trim();
+    if workspace_id.is_empty() {
+        bail!("workspace_id is required");
+    }
+
+    let reason = request.reason.trim();
+    if reason.is_empty() {
+        bail!("fallback reason is required");
+    }
+
+    let mut state = load_workspace_session(data_dir, cfg, workspace_id)?
+        .unwrap_or_else(|| {
+            WorkspaceSessionState::new(
+                cfg,
+                workspace_id.to_string(),
+                request.session_id.clone(),
+            )
+        });
+    normalize_workspace_session(cfg, &mut state);
+
+    if state.fallback_active {
+        bail!("workspace fallback is already active");
+    }
+
+    let from_plane = state.active_dev_plane.clone();
+    let recorded_at = Utc::now();
+    let event = WorkspaceFallbackEvent {
+        event_kind: "fallback_entered".to_string(),
+        from_plane,
+        to_plane: "vm-fallback".to_string(),
+        reason: reason.to_string(),
+        recorded_at,
+        duration_seconds: None,
+    };
+
+    state.updated_at = recorded_at;
+    state.active_dev_plane = "vm-fallback".to_string();
+    state.fallback_active = true;
+    state.fallback_event_count += 1;
+    state.last_fallback_reason = Some(reason.to_string());
+    state.last_fallback_started_at = Some(recorded_at);
+    state.last_fallback_ended_at = None;
+    state.last_fallback_duration_seconds = None;
+    state.last_fallback_event = Some(event.clone());
+    state.last_handoff = Some(format!(
+        "workspace={} repo={} branch={} session={} entered vm fallback because {}",
+        state.workspace_id,
+        state.canonical_repo,
+        state.canonical_branch,
+        state.session_id,
+        reason
+    ));
+
+    write_workspace_session(data_dir, &state)?;
+    append_workspace_fallback_event(
+        data_dir,
+        &WorkspaceFallbackLedgerEntry {
+            workspace_id: state.workspace_id.clone(),
+            session_id: state.session_id.clone(),
+            canonical_repo: state.canonical_repo.clone(),
+            canonical_branch: state.canonical_branch.clone(),
+            default_dev_plane: state.dev_plane_policy.default_dev_plane.clone(),
+            vm_fallback_role: state.dev_plane_policy.vm_fallback_role.clone(),
+            promotion_scope: state.dev_plane_policy.promotion_scope.clone(),
+            event,
+        },
+    )?;
+
+    Ok(workspace_fallback_response(&state))
+}
+
+pub fn record_workspace_fallback_return(
+    data_dir: &Path,
+    cfg: &BeagleConfig,
+    request: &WorkspaceFallbackDrillRequest,
+) -> anyhow::Result<WorkspaceFallbackDrillResponse> {
+    let workspace_id = request.workspace_id.trim();
+    if workspace_id.is_empty() {
+        bail!("workspace_id is required");
+    }
+
+    let reason = request.reason.trim();
+    if reason.is_empty() {
+        bail!("return reason is required");
+    }
+
+    let Some(mut state) = load_workspace_session(data_dir, cfg, workspace_id)? else {
+        bail!("workspace session not found for fallback return");
+    };
+    normalize_workspace_session(cfg, &mut state);
+
+    if !state.fallback_active {
+        bail!("workspace fallback is not active");
+    }
+
+    let recorded_at = Utc::now();
+    let duration_seconds = state
+        .last_fallback_started_at
+        .and_then(|started_at| {
+            let duration = (recorded_at - started_at).num_seconds();
+            if duration < 0 {
+                None
+            } else {
+                Some(duration as u64)
+            }
+        });
+    let event = WorkspaceFallbackEvent {
+        event_kind: "returned_to_canonical".to_string(),
+        from_plane: state.active_dev_plane.clone(),
+        to_plane: state.dev_plane_policy.default_dev_plane.clone(),
+        reason: reason.to_string(),
+        recorded_at,
+        duration_seconds,
+    };
+
+    state.updated_at = recorded_at;
+    state.active_dev_plane = state.dev_plane_policy.default_dev_plane.clone();
+    state.fallback_active = false;
+    state.last_fallback_ended_at = Some(recorded_at);
+    state.last_fallback_duration_seconds = duration_seconds;
+    state.last_fallback_event = Some(event.clone());
+    state.last_handoff = Some(format!(
+        "workspace={} repo={} branch={} session={} returned to {} after vm fallback; reason={} duration_seconds={}",
+        state.workspace_id,
+        state.canonical_repo,
+        state.canonical_branch,
+        state.session_id,
+        state.dev_plane_policy.default_dev_plane,
+        reason,
+        duration_seconds.unwrap_or(0)
+    ));
+
+    write_workspace_session(data_dir, &state)?;
+    append_workspace_fallback_event(
+        data_dir,
+        &WorkspaceFallbackLedgerEntry {
+            workspace_id: state.workspace_id.clone(),
+            session_id: state.session_id.clone(),
+            canonical_repo: state.canonical_repo.clone(),
+            canonical_branch: state.canonical_branch.clone(),
+            default_dev_plane: state.dev_plane_policy.default_dev_plane.clone(),
+            vm_fallback_role: state.dev_plane_policy.vm_fallback_role.clone(),
+            promotion_scope: state.dev_plane_policy.promotion_scope.clone(),
+            event,
+        },
+    )?;
+
+    Ok(workspace_fallback_response(&state))
 }
 
 pub async fn run_workspace_pilot(
@@ -723,6 +1004,22 @@ fn normalize_workspace_session(cfg: &BeagleConfig, state: &mut WorkspaceSessionS
             changed = true;
         }
     }
+    if state.active_dev_plane.trim().is_empty() {
+        state.active_dev_plane = if state.fallback_active {
+            "vm-fallback".to_string()
+        } else {
+            state.dev_plane_policy.default_dev_plane.clone()
+        };
+        changed = true;
+    } else if state.fallback_active && state.active_dev_plane != "vm-fallback" {
+        state.active_dev_plane = "vm-fallback".to_string();
+        changed = true;
+    } else if !state.fallback_active
+        && state.active_dev_plane != state.dev_plane_policy.default_dev_plane
+    {
+        state.active_dev_plane = state.dev_plane_policy.default_dev_plane.clone();
+        changed = true;
+    }
 
     if !state.repo_context.is_complete() {
         state.repo_context = RepoContext::from_workspace_cfg(cfg);
@@ -783,4 +1080,8 @@ fn workspace_dev_plane_policy_default() -> WorkspaceDevPlanePolicy {
         vm_fallback_role: "fallback-only".to_string(),
         promotion_scope: "beagle-darwin-hpc-small-medium".to_string(),
     }
+}
+
+fn workspace_active_dev_plane_default() -> String {
+    "beagle-cluster".to_string()
 }

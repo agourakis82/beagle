@@ -8,12 +8,14 @@ use axum::{
 use beagle_darwin::{
     available_consumers, ConsumerIdentity,
     bootstrap_workspace_session, load_workspace_session, read_recent_ledger_entries,
-    run_workspace_pilot, BridgeHealth, BridgeLedgerEntry, BridgeProviderInfo, BridgeRequest,
-    BridgeResponse, BridgeStatus, DarwinHpcGatewayClient, DarwinHpcGatewayError, HpcJobStatus,
-    HpcProfile, HpcProfileCatalog, HpcSubmitRequest, HpcSubmitResponse, HpcTextArtifact,
+    record_workspace_fallback_return, record_workspace_fallback_start, run_workspace_pilot,
+    BridgeHealth, BridgeLedgerEntry, BridgeProviderInfo, BridgeRequest, BridgeResponse,
+    BridgeStatus, DarwinHpcGatewayClient, DarwinHpcGatewayError, HpcJobStatus, HpcProfile,
+    HpcProfileCatalog, HpcSubmitRequest, HpcSubmitResponse, HpcTextArtifact,
     JobArtifactManifest, ObjectResultManifest, ResultCatalogEntry, ResultCatalogQuery,
-    ResultCatalogResponse, ToolBridge, WorkspaceBootstrapResponse, WorkspacePilotRequest,
-    WorkspacePilotResponse, WorkspaceSessionState,
+    ResultCatalogResponse, ToolBridge, WorkspaceBootstrapResponse, WorkspaceFallbackDrillRequest,
+    WorkspaceFallbackDrillResponse, WorkspacePilotRequest, WorkspacePilotResponse,
+    WorkspaceSessionState,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -26,6 +28,14 @@ pub fn darwin_hpc_routes() -> Router<AppState> {
     Router::new()
         .route("/api/darwin/workspace/bootstrap", get(workspace_bootstrap_handler))
         .route("/api/darwin/workspace/session", get(workspace_session_handler))
+        .route(
+            "/api/darwin/workspace/fallback/start",
+            post(workspace_fallback_start_handler),
+        )
+        .route(
+            "/api/darwin/workspace/fallback/return",
+            post(workspace_fallback_return_handler),
+        )
         .route(
             "/api/darwin/workspace/pilot/execute",
             post(workspace_pilot_execute_handler),
@@ -125,6 +135,38 @@ async fn workspace_session_handler(
             format!("no session recorded for workspace {}", workspace_id),
         )),
     }
+}
+
+async fn workspace_fallback_start_handler(
+    State(state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
+    Json(request): Json<WorkspaceFallbackDrillRequest>,
+) -> Result<Json<WorkspaceFallbackDrillResponse>, JsonError> {
+    ensure_allowed(consumer.ensure_workspace_plane())?;
+    let cfg = current_cfg(&state).await;
+    let data_dir = FsPath::new(&cfg.storage.data_dir);
+
+    let response = record_workspace_fallback_start(data_dir, &cfg, &request).map_err(|error| {
+        internal_error_response("workspace_fallback_start_failed", error.to_string())
+    })?;
+
+    Ok(Json(response))
+}
+
+async fn workspace_fallback_return_handler(
+    State(state): State<AppState>,
+    Extension(consumer): Extension<ConsumerIdentity>,
+    Json(request): Json<WorkspaceFallbackDrillRequest>,
+) -> Result<Json<WorkspaceFallbackDrillResponse>, JsonError> {
+    ensure_allowed(consumer.ensure_workspace_plane())?;
+    let cfg = current_cfg(&state).await;
+    let data_dir = FsPath::new(&cfg.storage.data_dir);
+
+    let response = record_workspace_fallback_return(data_dir, &cfg, &request).map_err(|error| {
+        internal_error_response("workspace_fallback_return_failed", error.to_string())
+    })?;
+
+    Ok(Json(response))
 }
 
 async fn workspace_pilot_execute_handler(
