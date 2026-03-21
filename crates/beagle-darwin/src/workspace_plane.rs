@@ -17,6 +17,7 @@ use tokio::time::sleep;
 const DEFAULT_WORKSPACE_PROFILE_ID: &str = "cpu-short-v1";
 const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
 const DEFAULT_POLL_TIMEOUT_SECONDS: u64 = 180;
+const WORKSPACE_PLANE_CONTRACT_VERSION: &str = "darwin-workspace-plane-v2";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceCurrentTask {
@@ -67,6 +68,8 @@ pub struct WorkspaceCatalogSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceSessionState {
+    #[serde(default = "workspace_plane_contract_version_value")]
+    pub workspace_plane_contract_version: String,
     pub workspace_id: String,
     pub canonical_repo: String,
     #[serde(default)]
@@ -111,6 +114,7 @@ impl WorkspaceSessionState {
     pub fn new(cfg: &BeagleConfig, workspace_id: String, session_id: Option<String>) -> Self {
         let now = Utc::now();
         Self {
+            workspace_plane_contract_version: workspace_plane_contract_version_value(),
             workspace_id,
             canonical_repo: cfg.workspace.canonical_repo.clone(),
             canonical_branch: cfg.workspace.canonical_branch.clone(),
@@ -150,6 +154,7 @@ impl WorkspaceSessionState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceBootstrapResponse {
     pub status: String,
+    pub workspace_plane_contract_version: String,
     pub workspace_id: String,
     pub canonical_repo: String,
     pub canonical_branch: String,
@@ -305,6 +310,7 @@ pub fn bootstrap_workspace_session(
 
     Ok(WorkspaceBootstrapResponse {
         status: "ok".to_string(),
+        workspace_plane_contract_version: state.workspace_plane_contract_version.clone(),
         workspace_id: state.workspace_id.clone(),
         canonical_repo: state.canonical_repo.clone(),
         canonical_branch: state.canonical_branch.clone(),
@@ -663,6 +669,10 @@ fn normalize_workspace_session(cfg: &BeagleConfig, state: &mut WorkspaceSessionS
         state.canonical_repo = cfg.workspace.canonical_repo.clone();
         changed = true;
     }
+    if state.workspace_plane_contract_version != WORKSPACE_PLANE_CONTRACT_VERSION {
+        state.workspace_plane_contract_version = workspace_plane_contract_version_value();
+        changed = true;
+    }
     if state.canonical_branch.trim().is_empty() {
         state.canonical_branch = cfg.workspace.canonical_branch.clone();
         changed = true;
@@ -723,4 +733,8 @@ fn sanitize_workspace_id(workspace_id: &str) -> String {
     } else {
         sanitized
     }
+}
+
+fn workspace_plane_contract_version_value() -> String {
+    WORKSPACE_PLANE_CONTRACT_VERSION.to_string()
 }
