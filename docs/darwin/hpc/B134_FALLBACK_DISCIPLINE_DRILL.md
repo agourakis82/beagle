@@ -2,11 +2,17 @@
 
 ## Current status
 
-B13.4 is currently `GO-WITH-BLOCKER`.
+B13.4 is currently `GO`.
 
-The drill only closes after one live cluster run proves that VM fallback remains
-explicit, bounded, recorded, and that the workspace returns cleanly to
-Beagle/cluster as the default plane for the promoted scope.
+Canonical drill evidence lives under:
+
+- `.artifacts/darwin-hpc/fallback-discipline-drill/bootstrap-after-deploy.json`
+- `.artifacts/darwin-hpc/fallback-discipline-drill/fallback-enter.json`
+- `.artifacts/darwin-hpc/fallback-discipline-drill/fallback-return.json`
+- `.artifacts/darwin-hpc/fallback-discipline-drill/bridge-execute.json`
+- `.artifacts/darwin-hpc/fallback-discipline-drill/smoke.json`
+- `.artifacts/darwin-hpc/fallback-discipline-drill/session-after-restart.json`
+- `.artifacts/darwin-hpc/fallback-discipline-drill/final-cluster-health.txt`
 
 ## Objective
 
@@ -68,3 +74,21 @@ The phase closes when:
 5. the same session remains coherent after restart
 6. cluster remains green
 7. Slurm remains green
+
+## Live result
+
+The validated drill proved that VM stays bounded and explicit for the promoted
+scope:
+
+- workspace `b134-0321073224` bootstrapped on repo `agourakis82/beagle` and
+  branch `feat/darwin-hpc-governance` with active plane `beagle-cluster`
+- fallback start explicitly moved the live workspace state to
+  `active_dev_plane=vm-fallback` with reason `bounded_vm_fallback_drill`
+- fallback return explicitly moved the workspace back to
+  `active_dev_plane=beagle-cluster` with reason `fallback_window_closed` and
+  `duration_seconds=2`
+- both fallback events were persisted in session state and in the append-only
+  fallback ledger under `BEAGLE_DATA_DIR/workspace-plane/fallback_discipline_events.jsonl`
+- one real `deepseek` cheap-lane request still completed cleanly after return
+- the same session `ws-20260321103225` remained canonical after restart, with
+  fallback history and return handoff preserved

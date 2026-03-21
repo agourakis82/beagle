@@ -2,10 +2,18 @@
 
 ## Current status
 
-B13.4 is currently `GO-WITH-BLOCKER`.
+B13.4 is currently `GO`.
 
-The remaining gate is one live drill proving that VM fallback remains bounded,
-explicit and reversible for the already-promoted development scope.
+Current evidence:
+
+1. the live workspace plane recorded explicit fallback start
+2. the live workspace plane recorded explicit return to canonical plane
+3. the return preserved `duration_seconds=2`
+4. the active plane returned to `beagle-cluster`
+5. handoff and append-only ledger both recorded the drill
+6. restart/recovery preserved the same session and fallback history
+7. cluster remained green
+8. Slurm remained green
 
 ## GO if
 
