@@ -2,10 +2,20 @@
 
 ## Current status
 
-B13.2 is currently `GO-WITH-BLOCKER`.
+B13.2 is currently `GO`.
 
-The remaining gate is one live repo-native iteration loop proving source edit,
-build, deploy, validate and recovery on the cluster-hosted Beagle service.
+Current evidence:
+
+1. one bounded source change was applied to the canonical Beagle repo
+2. image build and image load succeeded for `localhost/beagle-core:dev`
+3. the redeployed live bootstrap response exposed
+   `workspace_plane_contract_version=darwin-workspace-plane-v2`
+4. one real `cpu-short-v1` workflow completed through the updated service as
+   job `45`
+5. published result `24` remained resolvable through the current result plane
+6. restart/recovery preserved the same session and updated workspace context
+7. cluster remained green
+8. Slurm remained green
 
 ## GO if
 

@@ -2,11 +2,17 @@
 
 ## Current status
 
-B13.2 is currently `GO-WITH-BLOCKER`.
+B13.2 is currently `GO`.
 
-The repo-native loop is implemented, but the phase only closes after the live
-cluster smoke proves one bounded code change moving from source edit to running
-service validation.
+Canonical smoke evidence lives under:
+
+- `.artifacts/darwin-hpc/repo-native-dev-loop-smoke/bootstrap-before.json`
+- `.artifacts/darwin-hpc/repo-native-dev-loop-smoke/patch-summary.json`
+- `.artifacts/darwin-hpc/repo-native-dev-loop-smoke/deploy.json`
+- `.artifacts/darwin-hpc/repo-native-dev-loop-smoke/pilot.json`
+- `.artifacts/darwin-hpc/repo-native-dev-loop-smoke/smoke.json`
+- `.artifacts/darwin-hpc/repo-native-dev-loop-smoke/session-after-restart.json`
+- `.artifacts/darwin-hpc/repo-native-dev-loop-smoke/final-cluster-health.txt`
 
 ## Objective
 
@@ -66,3 +72,25 @@ The phase closes when:
 6. session recovery after restart preserves the updated workspace context
 7. cluster remains green
 8. Slurm remains green
+
+## Live result
+
+The validated pilot proved one real repo-native development loop on the
+canonical Beagle repo:
+
+- bootstrap before deploy showed workspace `b132-0321061051` on repo
+  `agourakis82/beagle` and branch `feat/darwin-hpc-governance`
+- the live predeploy bootstrap response did not yet expose
+  `workspace_plane_contract_version`
+- the bounded source change added `workspace_plane_contract_version` with value
+  `darwin-workspace-plane-v2` to the workspace plane contract
+- the Beagle image rebuilt successfully as `localhost/beagle-core:dev`
+- the new image loaded onto the cluster, redeployed, and exposed
+  `workspace_plane_contract_version=darwin-workspace-plane-v2` in the live
+  bootstrap response after deploy
+- one real `cpu-short-v1` workflow completed through the updated service with
+  job `45`
+- published result `24` remained resolvable through the current result and
+  manifest surfaces
+- the same session `ws-20260321091052` recovered cleanly after restart with the
+  updated workspace context preserved
