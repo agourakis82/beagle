@@ -148,42 +148,29 @@ struct RootView: View {
 
     private var tabContent: some View {
         TabView(selection: $selectedTab) {
-            // Tab 0: Home — "What's happening now?" (cognitive state, HRV, last triad, last job)
-            NavigationStack {
-                CognitiveStateView()
+            // Tab 0: Home — "What's happening now?" One screen, all status.
+            NavigationStack(path: $path) {
+                HomeView()
+                    .navigationDestination(for: Project.self) { project in
+                        ControlRoomView(slug: project.projectSlug)
+                    }
             }
             .tabItem { Label("Home", systemImage: "house") }
             .tag(0)
 
-            // Tab 1: Projects — "What projects are running and in what posture?"
-            NavigationStack(path: $path) {
-                CommandBridgeView()
-                    .navigationTitle("Projects")
-                    .navigationBarTitleDisplayModeIfAvailable(.large)
-            }
-            .tabItem { Label("Projects", systemImage: "square.grid.2x2") }
-            .tag(1)
-
-            // Tab 2: Cluster — "What's the cluster and HPC state?"
-            NavigationStack {
-                HPCDashboardView()
-            }
-            .tabItem { Label("Cluster", systemImage: "server.rack") }
-            .tag(2)
-
-            // Tab 3: Capture — "Capture thoughts into the exocortex"
+            // Tab 1: Capture — "Capture thoughts into the exocortex"
             NavigationStack {
                 ThoughtCaptureView()
             }
             .tabItem { Label("Capture", systemImage: "thought.bubble") }
-            .tag(3)
+            .tag(1)
 
-            // Tab 4: Agent — "Agent terminal session"
+            // Tab 2: Agent — "Agent terminal session"
             NavigationStack {
                 AgentSessionView(slug: "sounio")
             }
             .tabItem { Label("Agent", systemImage: "terminal") }
-            .tag(4)
+            .tag(2)
         }
         .tint(BeagleTheme.truthObserved)
     }
