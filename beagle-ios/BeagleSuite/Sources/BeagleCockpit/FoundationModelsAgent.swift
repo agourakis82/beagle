@@ -91,6 +91,43 @@ public final class FoundationModelsAgent {
         #endif
     }
 
+    /// Generate exocortex provocations — thought starters based on current context.
+    /// Returns a JSON array of objects with title, subtitle, and prompt fields.
+    public func generateProvocations(
+        projects: [String],
+        recentThoughts: [String],
+        recentJobs: [(kind: String, status: String)],
+        postureCounts: (on: Int, warm: Int, cold: Int)
+    ) async -> String? {
+        var context = "Current state of my sovereign computing platform:\n"
+        context += "- \(postureCounts.on) always-on, \(postureCounts.warm) warm, \(postureCounts.cold) cold projects\n"
+        context += "- Projects: \(projects.joined(separator: ", "))\n"
+
+        if !recentJobs.isEmpty {
+            let jobLines = recentJobs.prefix(5).map { "\($0.kind): \($0.status)" }
+            context += "- Recent jobs: \(jobLines.joined(separator: "; "))\n"
+        }
+
+        if !recentThoughts.isEmpty {
+            context += "- Recent thoughts:\n"
+            for thought in recentThoughts.prefix(3) {
+                context += "  - \(thought)\n"
+            }
+        }
+
+        context += "\nGenerate 3 thought provocations. Each should be a genuine intellectual provocation — a surprising connection, a contrarian hypothesis, or a deep question that would make a researcher stop and think. Not operational tasks. Intellectual sparks.\n"
+        context += "\nFormat: Return exactly 3 lines, each with format: TITLE | SUBTITLE | PROMPT\n"
+        context += "TITLE: 3-6 words, intriguing\nSUBTITLE: 1 sentence expanding\nPROMPT: the full question to explore"
+
+        return await summarize(context, instructions: """
+        You are an intellectual provocateur embedded in a researcher's exocortex.
+        Your job is to generate surprising, cross-domain, deep questions that
+        provoke genuine insight. Think like a brilliant colleague who reads widely
+        and makes unexpected connections. Never suggest tasks or operational work.
+        Generate intellectual sparks only. Be specific to the researcher's context.
+        """)
+    }
+
     /// One-line operational triage of the current project state.
     public func triageLaneStatus(
         slug: String,
