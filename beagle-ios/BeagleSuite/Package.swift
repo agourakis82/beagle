@@ -21,11 +21,24 @@ let package = Package(
             targets: ["BeagleCore"]
         )
     ],
+    dependencies: [
+        // On-device LLM inference via Apple MLX
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", branch: "main"),
+        // HuggingFace Hub client for model downloads + tokenizers
+        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "1.1.0")),
+    ],
     targets: [
         // Shared core: API client, truth system, models, Tailnet resolver,
-        // Observation-framework data stores. No UI. Platform-agnostic.
+        // Observation-framework data stores, on-device LLM engine.
+        // No UI. Platform-agnostic (except watchOS excludes MLX).
         .target(
             name: "BeagleCore",
+            dependencies: [
+                .product(name: "MLXLLM", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
+                .product(name: "Hub", package: "swift-transformers", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
+                .product(name: "Tokenizers", package: "swift-transformers", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
+            ],
             path: "Sources/BeagleCore",
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
