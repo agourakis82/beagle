@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/primary.swiftdeps"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.derived/runner.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/runner.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/runner.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/runner~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/runner.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/runner.dia"
+  }
+}

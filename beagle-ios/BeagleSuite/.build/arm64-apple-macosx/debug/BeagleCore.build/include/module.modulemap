@@ -1,0 +1,3 @@
+module BeagleCore {
+    header "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/include/BeagleCore-Swift.h"
+}

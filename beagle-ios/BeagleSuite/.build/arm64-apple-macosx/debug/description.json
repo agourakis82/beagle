@@ -1,0 +1,929 @@
+{
+  "builtTestProducts" : [
+    {
+      "binaryPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.xctest/Contents/MacOS/BeagleSuitePackageTests",
+      "packagePath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite",
+      "productName" : "BeagleSuitePackageTests"
+    }
+  ],
+  "copyCommands" : {
+
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.BeagleCore-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/sources",
+      "importPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/ANSIParser.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/AttributedStringBuilder.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/BeagleClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/CockpitClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/CognitiveStore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Components.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/ConversationStore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/HPCStore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Models.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Posture.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Stores.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalColorPalette.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalGrid.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalStore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Theme.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Truth.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/WebSocketClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "BeagleCore",
+      "moduleOutputPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules/BeagleCore.swiftmodule",
+      "objects" : [
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ANSIParser.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/AttributedStringBuilder.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/BeagleClient.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CockpitClient.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CognitiveStore.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Components.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ConversationStore.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/HPCStore.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Models.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Posture.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Stores.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalColorPalette.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalGrid.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalStore.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Theme.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Truth.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/WebSocketClient.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx26.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j16",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-emit-objc-header",
+        "-emit-objc-header-path",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/include/BeagleCore-Swift.h",
+        "-swift-version",
+        "6",
+        "-enable-experimental-feature",
+        "StrictConcurrency",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "beaglesuite"
+      ],
+      "outputFileMapPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ANSIParser.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/AttributedStringBuilder.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/BeagleClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CockpitClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CognitiveStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Components.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ConversationStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/HPCStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Models.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Posture.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Stores.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalColorPalette.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalGrid.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Theme.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Truth.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/WebSocketClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules/BeagleCore.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/ANSIParser.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/AttributedStringBuilder.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/BeagleClient.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/CockpitClient.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/CognitiveStore.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Components.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/ConversationStore.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/HPCStore.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Models.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Posture.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Stores.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalColorPalette.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalGrid.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalStore.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Theme.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Truth.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/WebSocketClient.swift"
+      ],
+      "tempsPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build",
+      "wholeModuleOptimization" : false
+    },
+    "C.BeagleCoreTests-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCoreTests.build/sources",
+      "importPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Tests/BeagleCoreTests/ANSIParserTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Tests/BeagleCoreTests/BeagleCoreTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules/BeagleCore.swiftmodule"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCoreTests.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "BeagleCoreTests",
+      "moduleOutputPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules/BeagleCoreTests.swiftmodule",
+      "objects" : [
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCoreTests.build/ANSIParserTests.swift.o",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCoreTests.build/BeagleCoreTests.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx26.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-Xfrontend",
+        "-enable-cross-import-overlays",
+        "-j16",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-swift-version",
+        "6",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "beaglesuite"
+      ],
+      "outputFileMapPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCoreTests.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCoreTests.build/ANSIParserTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCoreTests.build/BeagleCoreTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules/BeagleCoreTests.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Tests/BeagleCoreTests/ANSIParserTests.swift",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Tests/BeagleCoreTests/BeagleCoreTests.swift"
+      ],
+      "tempsPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCoreTests.build",
+      "wholeModuleOptimization" : false
+    },
+    "C.BeagleSuitePackageTests-arm64-apple-macosx-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/sources",
+      "importPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.derived/runner.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules/BeagleCoreTests.swiftmodule"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "BeagleSuitePackageTests",
+      "moduleOutputPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules/BeagleSuitePackageTests.swiftmodule",
+      "objects" : [
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/runner.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx26.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-Xfrontend",
+        "-enable-cross-import-overlays",
+        "-j16",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-emit-objc-header",
+        "-emit-objc-header-path",
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/include/BeagleSuitePackageTests-Swift.h",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "beaglesuite"
+      ],
+      "outputFileMapPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/runner.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules/BeagleSuitePackageTests.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.derived/runner.swift"
+      ],
+      "tempsPath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "BeagleCore" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "BeagleCore",
+      "-package-name",
+      "beaglesuite",
+      "-c",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/ANSIParser.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/AttributedStringBuilder.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/BeagleClient.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/CockpitClient.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/CognitiveStore.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Components.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/ConversationStore.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/HPCStore.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Models.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Posture.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Stores.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalColorPalette.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalGrid.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalStore.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Theme.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Truth.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/WebSocketClient.swift",
+      "-I",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx26.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j16",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-emit-objc-header",
+      "-emit-objc-header-path",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/include/BeagleCore-Swift.h",
+      "-swift-version",
+      "6",
+      "-enable-experimental-feature",
+      "StrictConcurrency",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "beaglesuite",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ],
+    "BeagleCoreTests" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "BeagleCoreTests",
+      "-package-name",
+      "beaglesuite",
+      "-c",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Tests/BeagleCoreTests/ANSIParserTests.swift",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Tests/BeagleCoreTests/BeagleCoreTests.swift",
+      "-I",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx26.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-Xfrontend",
+      "-enable-cross-import-overlays",
+      "-j16",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-swift-version",
+      "6",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "beaglesuite",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ],
+    "BeagleSuitePackageTests" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "BeagleSuitePackageTests",
+      "-package-name",
+      "beaglesuite",
+      "-c",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.derived/runner.swift",
+      "-I",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx26.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-Xfrontend",
+      "-enable-cross-import-overlays",
+      "-j16",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-emit-objc-header",
+      "-emit-objc-header-path",
+      "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/include/BeagleSuitePackageTests-Swift.h",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "beaglesuite",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "BeagleCore" : [
+
+    ],
+    "BeagleCoreTests" : [
+      "BeagleCore"
+    ],
+    "BeagleSuitePackageTests" : [
+      "BeagleCoreTests",
+      "BeagleCore"
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+    "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.derived/runner.swift" : {
+      "inputs" : [
+
+      ],
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.derived/runner.swift"
+        }
+      ]
+    }
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/ANSIParser.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/AttributedStringBuilder.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/BeagleClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/CockpitClient.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/CognitiveStore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Components.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/ConversationStore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/HPCStore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Models.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Posture.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Stores.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalColorPalette.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalGrid.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalStore.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Theme.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Truth.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/WebSocketClient.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/sources"
+    },
+    "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCoreTests.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Tests/BeagleCoreTests/ANSIParserTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Tests/BeagleCoreTests/BeagleCoreTests.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCoreTests.build/sources"
+    },
+    "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.derived/runner.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/sources"
+    },
+    "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ANSIParser.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/AttributedStringBuilder.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/BeagleClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CockpitClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CognitiveStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Components.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ConversationStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/HPCStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Models.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Posture.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Stores.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalColorPalette.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalGrid.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalStore.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Theme.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Truth.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/WebSocketClient.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCoreTests.build/ANSIParserTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCoreTests.build/BeagleCoreTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/runner.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.product/Objects.LinkFileList"
+    },
+    "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+    }
+  }
+}

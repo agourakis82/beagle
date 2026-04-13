@@ -1,0 +1,124 @@
+{
+  "": {
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/primary.swiftdeps"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/ANSIParser.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ANSIParser.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ANSIParser.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ANSIParser~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ANSIParser.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ANSIParser.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/AttributedStringBuilder.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/AttributedStringBuilder.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/AttributedStringBuilder.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/AttributedStringBuilder~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/AttributedStringBuilder.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/AttributedStringBuilder.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/BeagleClient.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/BeagleClient.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/BeagleClient.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/BeagleClient~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/BeagleClient.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/BeagleClient.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/CockpitClient.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CockpitClient.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CockpitClient.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CockpitClient~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CockpitClient.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CockpitClient.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/CognitiveStore.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CognitiveStore.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CognitiveStore.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CognitiveStore~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CognitiveStore.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/CognitiveStore.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Components.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Components.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Components.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Components~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Components.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Components.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/ConversationStore.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ConversationStore.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ConversationStore.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ConversationStore~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ConversationStore.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/ConversationStore.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/HPCStore.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/HPCStore.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/HPCStore.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/HPCStore~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/HPCStore.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/HPCStore.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Models.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Models.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Models.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Models~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Models.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Models.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Posture.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Posture.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Posture.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Posture~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Posture.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Posture.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Stores.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Stores.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Stores.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Stores~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Stores.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Stores.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalColorPalette.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalColorPalette.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalColorPalette.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalColorPalette~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalColorPalette.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalColorPalette.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalGrid.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalGrid.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalGrid.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalGrid~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalGrid.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalGrid.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalStore.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalStore.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalStore.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalStore~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalStore.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/TerminalStore.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Theme.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Theme.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Theme.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Theme~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Theme.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Theme.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Truth.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Truth.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Truth.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Truth~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Truth.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/Truth.dia"
+  },
+  "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/WebSocketClient.swift": {
+    "dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/WebSocketClient.d",
+    "object": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/WebSocketClient.swift.o",
+    "swiftmodule": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/WebSocketClient~partial.swiftmodule",
+    "swift-dependencies": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/WebSocketClient.swiftdeps",
+    "diagnostics": "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleCore.build/WebSocketClient.dia"
+  }
+}

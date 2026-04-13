@@ -1,0 +1,17 @@
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/ANSIParser.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/AttributedStringBuilder.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/BeagleClient.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/CockpitClient.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/CognitiveStore.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Components.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/ConversationStore.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/HPCStore.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Models.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Posture.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Stores.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalColorPalette.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalGrid.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/TerminalStore.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Theme.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/Truth.swift
+/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/Sources/BeagleCore/WebSocketClient.swift

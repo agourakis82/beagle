@@ -1,0 +1,162 @@
+name: BeagleSuite
+options:
+  bundleIdPrefix: dev.sounio
+  xcodeVersion: "26.4"
+  deploymentTarget:
+    iOS: "26.0"
+    macOS: "26.0"
+    watchOS: "26.0"
+    visionOS: "26.0"
+  groupSortPosition: top
+  generateEmptyDirectories: true
+  defaultConfig: Debug
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_USER_SCRIPT_SANDBOXING: true
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: 2
+    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+packages:
+  BeagleSuite:
+    path: BeagleSuite
+
+targets:
+
+  # ── BeagleCockpit (iOS + iPadOS + macOS) ──────────────────────
+  BeagleCockpit:
+    type: application
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: BeagleSuite/Sources/BeagleCockpit
+      - path: BeagleSuite/Sources/BeagleIntents
+      - path: Assets.xcassets
+    dependencies:
+      - package: BeagleSuite
+        product: BeagleCore
+      - target: BeagleWidgets
+        platformFilter: iOS
+    info:
+      path: BeagleCockpit-Info.plist
+      properties:
+        CFBundleIconName: AppIcon
+        CFBundleDisplayName: BeagleCockpit
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSMicrophoneUsageDescription: "Beagle uses the microphone for voice commands."
+        NSSpeechRecognitionUsageDescription: "Beagle uses speech recognition for voice commands."
+        ITSAppUsesNonExemptEncryption: false
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - beagle
+            CFBundleURLName: dev.sounio.cockpit
+        NSUserActivityTypes:
+          - dev.sounio.cockpit.viewProject
+          - dev.sounio.cockpit.viewAgent
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            tail21cbc4.ts.net:
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSIncludesSubdomains: true
+            100.111.39.149:
+              NSExceptionAllowsInsecureHTTPLoads: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.sounio.cockpit
+        CODE_SIGN_ENTITLEMENTS: Entitlements/BeagleCockpit.entitlements
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: S9DPGW22A8
+        GENERATE_INFOPLIST_FILE: false
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: Entitlements/BeagleCockpit.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.dev.sounio.cockpit
+        aps-environment: development
+
+  # ── BeagleWidgets (Widget Extension for BeagleCockpit) ────────
+  BeagleWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: BeagleSuite/Sources/BeagleWidgets
+    dependencies:
+      - package: BeagleSuite
+        product: BeagleCore
+    info:
+      path: BeagleWidgets-Info.plist
+      properties:
+        CFBundleDisplayName: BeagleWidgets
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.sounio.cockpit.widgets
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: S9DPGW22A8
+        GENERATE_INFOPLIST_FILE: false
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: Entitlements/BeagleWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.dev.sounio.cockpit
+
+  # ── BeagleVisionOS (spatial cockpit) ──────────────────────────
+  BeagleVisionOS:
+    type: application
+    platform: visionOS
+    sources:
+      - path: BeagleSuite/Sources/BeagleVisionOS
+      - path: Assets.xcassets
+    dependencies:
+      - package: BeagleSuite
+        product: BeagleCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.sounio.cockpit.vision
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: S9DPGW22A8
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_CFBundleDisplayName: BeagleVisionOS
+        ITSAppUsesNonExemptEncryption: false
+
+  # ── BeagleWatch (cluster glance) ──────────────────────────────
+  BeagleWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: BeagleSuite/Sources/BeagleWatch
+      - path: Assets.xcassets
+    dependencies:
+      - package: BeagleSuite
+        product: BeagleCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.sounio.cockpit.watch
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: S9DPGW22A8
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_CFBundleDisplayName: BeagleWatch
+        INFOPLIST_KEY_NSHealthShareUsageDescription: "Beagle monitors HRV to suggest flow-state focus modes."
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: Entitlements/BeagleWatch.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access:
+          - health-records
