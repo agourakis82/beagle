@@ -16,7 +16,7 @@ struct ThoughtCaptureView: View {
     @State private var captureMode: CaptureMode = .keyboard
     @State private var lastRefined: String?
     @State private var conversation = ConversationStore()
-    #if canImport(Speech) && os(iOS)
+    #if os(iOS)
     @State private var speechRecognizer = SpeechRecognizer()
     #endif
     @FocusState private var inputFocused: Bool
@@ -54,6 +54,9 @@ struct ThoughtCaptureView: View {
                 }
                 .background { PostureGradientBackground(counts: .empty) }
                 .navigationTitle("Capture")
+                #if os(iOS)
+                .task { await speechRecognizer.setup() }
+                #endif
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
@@ -141,8 +144,19 @@ struct ThoughtCaptureView: View {
     // MARK: - Voice
 
     private var voiceSection: some View {
-        #if canImport(Speech) && os(iOS)
+        #if os(iOS)
         VStack(spacing: BeagleSpacing.md) {
+            // Whisper status
+            if speechRecognizer.isWhisperReady {
+                HStack(spacing: BeagleSpacing.xxs) {
+                    Image(systemName: "waveform.badge.microphone")
+                        .font(.system(size: 10))
+                    Text("Whisper on-device")
+                        .font(BeagleFont.caption2.font)
+                }
+                .foregroundStyle(BeagleTheme.truthObserved.opacity(0.7))
+            }
+
             // Mic icon with live animation
             Image(systemName: speechRecognizer.isRecording ? "waveform" : "mic.fill")
                 .font(.system(size: 32))
