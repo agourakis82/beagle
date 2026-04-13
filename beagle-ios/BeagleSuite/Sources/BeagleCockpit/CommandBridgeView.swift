@@ -17,9 +17,15 @@ struct CommandBridgeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: BeagleSpacing.xxl) {
                 headerSection
+                if catalog.executive.mode == .stale {
+                    catalogErrorBanner
+                }
                 alwaysOnSection
                 warmSection
                 coldSection
+                if catalog.projects.isEmpty && catalog.executive.mode != .stale {
+                    emptyProjectsState
+                }
                 Spacer(minLength: BeagleSpacing.jumbo)
             }
             .padding(.horizontal, BeagleSpacing.lg)
@@ -31,19 +37,65 @@ struct CommandBridgeView: View {
         }
     }
 
+    private var catalogErrorBanner: some View {
+        GlassPanel(elevation: .raised, truth: .stale) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "wifi.exclamationmark")
+                        .foregroundStyle(BeagleTheme.stateError)
+                    Text("Could not load projects")
+                        .font(BeagleFont.headline.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                }
+                if let error = catalog.executive.error {
+                    Text(error)
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineLimit(2)
+                }
+                Button {
+                    Task { await catalog.refresh() }
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(PrimaryButton(color: BeagleTheme.stateError))
+            }
+        }
+    }
+
+    private var emptyProjectsState: some View {
+        VStack(spacing: BeagleSpacing.md) {
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: 32))
+                .foregroundStyle(BeagleTheme.textTertiary.opacity(0.4))
+            Text("No projects found")
+                .font(BeagleFont.footnote.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+            Text("Pull to refresh when cockpit is reachable")
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.textTertiary.opacity(0.6))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, BeagleSpacing.jumbo)
+    }
+
     // MARK: - Header
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.md) {
-            VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
-                Text("Sovereign Surfaces")
-                    .font(BeagleFont.title1.font)
-                    .tracking(-0.3)
-                    .foregroundStyle(BeagleTheme.textPrimary)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+                    Text("Projects")
+                        .font(BeagleFont.title1.font)
+                        .tracking(-0.3)
+                        .foregroundStyle(BeagleTheme.textPrimary)
 
-                Text("Command bridge · \(catalog.postureCounts.totalProjects) sovereign projects")
-                    .font(BeagleFont.footnote.font)
-                    .foregroundStyle(BeagleTheme.textTertiary)
+                    Text("\(catalog.postureCounts.totalProjects) sovereign surfaces")
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
+                Spacer()
+                TruthBadge(catalog.executive.mode)
             }
 
             // Posture pills

@@ -153,6 +153,10 @@ struct ControlRoomView: View {
                     }
                     .padding(.top, BeagleSpacing.xxs)
                 }
+            } else if store.mission.mode == .stale {
+                LaneErrorState(error: store.mission.error) {
+                    Task { await store.refresh() }
+                }
             } else {
                 LaneSkeleton()
             }
@@ -176,6 +180,10 @@ struct ControlRoomView: View {
                 } else {
                     MetalClusterView(nodes: nodes)
                         .clipShape(RoundedRectangle(cornerRadius: BeagleRadius.lg))
+                }
+            } else if store.clusterTruth.mode == .stale {
+                LaneErrorState(error: store.clusterTruth.error) {
+                    Task { await store.refresh() }
                 }
             } else {
                 LaneSkeleton()
@@ -203,6 +211,10 @@ struct ControlRoomView: View {
                     Text("Scientific pipelines: brain morphometry, heliobiology, PBPK")
                         .font(BeagleFont.caption.font)
                         .foregroundStyle(BeagleTheme.textTertiary)
+                }
+            } else if store.research.mode == .stale {
+                LaneErrorState(error: store.research.error) {
+                    Task { await store.refresh() }
                 }
             } else {
                 LaneSkeleton()
@@ -252,6 +264,10 @@ struct ControlRoomView: View {
                             .font(BeagleFont.caption.font)
                             .foregroundStyle(BeagleTheme.textSecondary)
                     }
+                }
+            } else if store.inference.mode == .stale {
+                LaneErrorState(error: store.inference.error) {
+                    Task { await store.refresh() }
                 }
             } else {
                 LaneSkeleton()

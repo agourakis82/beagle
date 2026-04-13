@@ -12,6 +12,7 @@ import BeagleCore
 struct ScienceJobsView: View {
     @Environment(CognitiveStore.self) private var cognitive
     @State private var selectedKind: String?
+    @State private var launchError: String?
 
     private let jobKinds = [
         ("pbpk",     "cross.vial.fill",      "PBPK"),
@@ -26,6 +27,9 @@ struct ScienceJobsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
                     launcherSection
+                    if let error = launchError {
+                        launchErrorBanner(error)
+                    }
                     runningSection
                     completedSection
                 }
@@ -157,9 +161,40 @@ struct ScienceJobsView: View {
     // MARK: - Actions
 
     private func launchJob(kind: String) async {
+        launchError = nil
         selectedKind = kind
-        _ = await cognitive.launchJob(kind: kind)
-        try? await Task.sleep(for: .seconds(1))
+        let job = await cognitive.launchJob(kind: kind)
+        if job == nil {
+            withAnimation(BeagleMotion.snappy) {
+                launchError = "Failed to submit \(kind) job. Check backend connectivity."
+            }
+        }
+        try? await Task.sleep(for: .seconds(0.5))
         selectedKind = nil
+    }
+
+    private func launchErrorBanner(_ error: String) -> some View {
+        HStack(spacing: BeagleSpacing.xs) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(BeagleTheme.stateError)
+            Text(error)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.textSecondary)
+                .lineLimit(2)
+            Spacer()
+            Button {
+                withAnimation(BeagleMotion.snappy) { launchError = nil }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(BeagleSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.md)
+                .fill(BeagleTheme.stateError.opacity(0.1))
+        )
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }
