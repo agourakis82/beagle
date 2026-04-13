@@ -53,6 +53,23 @@ struct HomeView: View {
         )
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    ModelSettingsView()
+                } label: {
+                    HStack(spacing: BeagleSpacing.xxs) {
+                        if LocalLLMEngine.shared.isReady {
+                            Image(systemName: "brain")
+                                .font(.system(size: 12))
+                                .foregroundStyle(BeagleTheme.truthObserved)
+                        }
+                        Image(systemName: "gearshape")
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                    }
+                }
+            }
+        }
         .task {
             await bootstrap()
         }
@@ -86,6 +103,18 @@ struct HomeView: View {
                 .opacity(hasAppeared ? 1 : 0)
                 .offset(y: hasAppeared ? 0 : 8)
                 .animation(.easeOut(duration: 0.6).delay(0.15), value: hasAppeared)
+
+            if LocalLLMEngine.shared.isReady, let model = LocalLLMEngine.shared.currentModel {
+                HStack(spacing: BeagleSpacing.xxs) {
+                    Image(systemName: "brain")
+                        .font(.system(size: 10))
+                    Text("\(model.displayName) on-device")
+                        .font(BeagleFont.caption2.font)
+                }
+                .foregroundStyle(BeagleTheme.truthObserved.opacity(0.7))
+                .opacity(hasAppeared ? 1 : 0)
+                .animation(.easeOut(duration: 0.4).delay(0.25), value: hasAppeared)
+            }
         }
     }
 

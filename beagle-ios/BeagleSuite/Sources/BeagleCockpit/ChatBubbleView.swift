@@ -144,9 +144,15 @@ struct ChatBubbleView: View {
                 .foregroundStyle(BeagleTheme.textTertiary)
 
             if let model = message.model {
-                Text(model)
-                    .font(BeagleFont.caption2.font)
-                    .foregroundStyle(BeagleTheme.textTertiary)
+                HStack(spacing: 2) {
+                    if message.isLocal {
+                        Image(systemName: "iphone")
+                            .font(.system(size: 8))
+                    }
+                    Text(model)
+                }
+                .font(BeagleFont.caption2.font)
+                .foregroundStyle(message.isLocal ? BeagleTheme.truthObserved.opacity(0.6) : BeagleTheme.textTertiary)
             }
 
             if let tokens = message.tokensUsed, tokens > 0 {

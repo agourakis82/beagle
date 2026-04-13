@@ -3,7 +3,8 @@
 //  BeagleCore
 //
 //  Observable conversation model for chat-style interactions.
-//  Wraps BeagleClient.chat() with message history and streaming support.
+//  Routes between on-device MLX (Tier 0.5) and cloud HERMES (Tier 2+).
+//  On-device is preferred when model is loaded; cloud is fallback.
 //
 
 import Foundation
@@ -25,6 +26,7 @@ public struct ChatMessage: Identifiable, Sendable {
     public var isStreaming: Bool
     public var model: String?
     public var tokensUsed: Int?
+    public var isLocal: Bool
 
     public init(
         id: UUID = UUID(),
@@ -33,7 +35,8 @@ public struct ChatMessage: Identifiable, Sendable {
         timestamp: Date = .now,
         isStreaming: Bool = false,
         model: String? = nil,
-        tokensUsed: Int? = nil
+        tokensUsed: Int? = nil,
+        isLocal: Bool = false
     ) {
         self.id = id
         self.role = role
@@ -42,6 +45,7 @@ public struct ChatMessage: Identifiable, Sendable {
         self.isStreaming = isStreaming
         self.model = model
         self.tokensUsed = tokensUsed
+        self.isLocal = isLocal
     }
 }
 
@@ -54,36 +58,90 @@ public final class ConversationStore {
     public private(set) var messages: [ChatMessage] = []
     public private(set) var isStreaming: Bool = false
 
+    /// Whether to prefer on-device model when available.
+    public var preferLocal: Bool = true
+
     private let client = BeagleClient.shared
+    private let llm = LocalLLMEngine.shared
 
     public init() {}
 
-    // MARK: - Send
+    // MARK: - Send (auto-routing)
 
-    /// Send a user message and get an assistant response.
+    /// Send a message with automatic routing: local MLX if ready, cloud otherwise.
     public func sendMessage(_ text: String) async {
+        if preferLocal && llm.isReady {
+            await sendMessageLocal(text)
+        } else {
+            await sendMessageCloud(text)
+        }
+    }
+
+    // MARK: - Send via on-device LLM
+
+    /// Send using the on-device MLX model (streaming).
+    public func sendMessageLocal(_ text: String) async {
+        guard llm.isReady else {
+            // Fallback to cloud
+            await sendMessageCloud(text)
+            return
+        }
+
         let userMessage = ChatMessage(role: .user, content: text)
         messages.append(userMessage)
 
-        // Create placeholder assistant message
+        let assistantId = UUID()
+        let modelName = llm.currentModel?.displayName ?? "local"
+        let placeholder = ChatMessage(
+            id: assistantId, role: .assistant, content: "",
+            isStreaming: true, model: modelName, isLocal: true
+        )
+        messages.append(placeholder)
+        isStreaming = true
+
+        // Stream tokens from on-device model
+        do {
+            for try await chunk in llm.generate(prompt: text) {
+                if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+                    messages[idx].content += chunk
+                }
+            }
+        } catch {
+            if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+                if messages[idx].content.isEmpty {
+                    messages[idx].content = "Local model error: \(error.localizedDescription)"
+                }
+            }
+        }
+
+        if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+            messages[idx].isStreaming = false
+        }
+        isStreaming = false
+    }
+
+    // MARK: - Send via cloud (HERMES)
+
+    /// Send using the cloud backend (beagle-core /api/v1/chat).
+    public func sendMessageCloud(_ text: String) async {
+        let userMessage = ChatMessage(role: .user, content: text)
+        messages.append(userMessage)
+
         let assistantId = UUID()
         let placeholder = ChatMessage(id: assistantId, role: .assistant, content: "", isStreaming: true)
         messages.append(placeholder)
         isStreaming = true
 
-        // Call the API
         let result = await client.chat(prompt: text)
 
-        // Update assistant message with response
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
             if let response = result.value {
                 let fullText = response.response ?? ""
                 messages[idx].model = response.model
                 messages[idx].tokensUsed = response.tokensUsed
 
-                // Typing reveal: show characters progressively
+                // Typing reveal for cloud responses
                 await revealText(fullText, at: idx)
-
                 messages[idx].isStreaming = false
             } else {
                 messages[idx].content = result.error ?? "No response received."
@@ -94,19 +152,15 @@ public final class ConversationStore {
         isStreaming = false
     }
 
-    /// Regenerate the last assistant response.
+    // MARK: - Regenerate
+
     public func regenerateLastResponse() async {
-        // Find the last user message
         guard let lastUserIdx = messages.lastIndex(where: { $0.role == .user }) else { return }
         let prompt = messages[lastUserIdx].content
 
-        // Remove all messages after (and including) the last assistant response
         if let lastAssistantIdx = messages.lastIndex(where: { $0.role == .assistant }) {
             messages.removeSubrange(lastAssistantIdx...)
         }
-
-        // Re-send
-        // Remove the user message too — sendMessage will re-add it
         if let userIdx = messages.lastIndex(where: { $0.role == .user && $0.content == prompt }) {
             messages.remove(at: userIdx)
         }
@@ -120,12 +174,8 @@ public final class ConversationStore {
         isStreaming = false
     }
 
-    // MARK: - Derived
+    // MARK: - Typing reveal (cloud responses)
 
-    // MARK: - Typing reveal
-
-    /// Progressively reveal text for a typing effect.
-    /// Shows ~30 characters per tick at 50ms intervals.
     private func revealText(_ text: String, at index: Int) async {
         let chars = Array(text)
         let chunkSize = 30
@@ -135,14 +185,14 @@ public final class ConversationStore {
             let end = min(pos + chunkSize, chars.count)
             messages[index].content = String(chars[0..<end])
             pos = end
-
             if pos < chars.count {
                 try? await Task.sleep(for: .milliseconds(35))
             }
         }
     }
 
-    public var isEmpty: Bool { messages.isEmpty }
+    // MARK: - Derived
 
+    public var isEmpty: Bool { messages.isEmpty }
     public var lastMessage: ChatMessage? { messages.last }
 }
