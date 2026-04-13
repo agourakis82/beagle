@@ -9,17 +9,16 @@
 
 import SwiftUI
 import BeagleCore
-#if canImport(Speech)
-import Speech
-#endif
 
 struct ThoughtCaptureView: View {
     @Environment(CognitiveStore.self) private var cognitive
     @State private var inputText = ""
     @State private var captureMode: CaptureMode = .keyboard
     @State private var lastRefined: String?
-    @State private var isTranscribing = false
     @State private var conversation = ConversationStore()
+    #if canImport(Speech) && os(iOS)
+    @State private var speechRecognizer = SpeechRecognizer()
+    #endif
     @FocusState private var inputFocused: Bool
 
     enum CaptureMode: String, CaseIterable {
@@ -142,33 +141,75 @@ struct ThoughtCaptureView: View {
     // MARK: - Voice
 
     private var voiceSection: some View {
+        #if canImport(Speech) && os(iOS)
         VStack(spacing: BeagleSpacing.md) {
-            Image(systemName: isTranscribing ? "waveform" : "mic.fill")
+            // Mic icon with live animation
+            Image(systemName: speechRecognizer.isRecording ? "waveform" : "mic.fill")
                 .font(.system(size: 32))
-                .foregroundStyle(isTranscribing ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
-                .symbolEffect(.variableColor, isActive: isTranscribing)
+                .foregroundStyle(speechRecognizer.isRecording ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
+                .symbolEffect(.variableColor, isActive: speechRecognizer.isRecording)
                 .frame(height: 60)
 
-            if isTranscribing {
-                Text(inputText.isEmpty ? "Listening..." : inputText)
+            // Live transcript
+            if speechRecognizer.isRecording || !speechRecognizer.transcript.isEmpty {
+                Text(speechRecognizer.transcript.isEmpty ? "Listening..." : speechRecognizer.transcript)
                     .font(BeagleFont.body.font)
                     .foregroundStyle(BeagleTheme.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
             }
 
-            if isTranscribing {
-                Button { stopTranscription() } label: {
-                    Label("Stop", systemImage: "stop.fill")
+            // Error
+            if let error = speechRecognizer.error {
+                Text(error)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.stateError)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // Controls
+            if speechRecognizer.isRecording {
+                HStack(spacing: BeagleSpacing.sm) {
+                    Button {
+                        speechRecognizer.stopRecording()
+                        inputText = speechRecognizer.transcript
+                        if !inputText.isEmpty {
+                            Task { await captureThought() }
+                        }
+                    } label: {
+                        Label("Capture", systemImage: "sparkles")
+                    }
+                    .buttonStyle(PrimaryButton())
+                    .disabled(speechRecognizer.transcript.isEmpty)
+
+                    Button {
+                        speechRecognizer.stopRecording()
+                    } label: {
+                        Label("Cancel", systemImage: "xmark")
+                    }
+                    .buttonStyle(SecondaryButton(color: BeagleTheme.stateError))
                 }
-                .buttonStyle(SecondaryButton(color: BeagleTheme.stateError))
             } else {
-                Button { startTranscription() } label: {
+                Button {
+                    Task { await speechRecognizer.startRecording() }
+                } label: {
                     Label("Start Recording", systemImage: "mic.fill")
                 }
                 .buttonStyle(PrimaryButton())
             }
         }
         .frame(minHeight: 100)
+        #else
+        VStack(spacing: BeagleSpacing.md) {
+            Image(systemName: "mic.slash")
+                .font(.system(size: 32))
+                .foregroundStyle(BeagleTheme.textTertiary)
+            Text("Voice capture requires iOS")
+                .font(BeagleFont.footnote.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+        }
+        .frame(minHeight: 100)
+        #endif
     }
 
     // MARK: - Refined result
@@ -253,26 +294,4 @@ struct ThoughtCaptureView: View {
         #endif
     }
 
-    // MARK: - Speech Recognition
-
-    private func startTranscription() {
-        #if canImport(Speech) && os(iOS)
-        SFSpeechRecognizer.requestAuthorization { status in
-            guard status == .authorized else { return }
-            Task { @MainActor in
-                isTranscribing = true
-                inputText = ""
-                // Real-time transcription would use SFSpeechAudioBufferRecognitionRequest
-                // Simplified: after a delay, stop and capture
-            }
-        }
-        #endif
-    }
-
-    private func stopTranscription() {
-        isTranscribing = false
-        if !inputText.isEmpty {
-            Task { await captureThought() }
-        }
-    }
 }

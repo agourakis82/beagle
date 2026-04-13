@@ -77,10 +77,14 @@ public final class ConversationStore {
         // Update assistant message with response
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
             if let response = result.value {
-                messages[idx].content = response.response ?? ""
-                messages[idx].isStreaming = false
+                let fullText = response.response ?? ""
                 messages[idx].model = response.model
                 messages[idx].tokensUsed = response.tokensUsed
+
+                // Typing reveal: show characters progressively
+                await revealText(fullText, at: idx)
+
+                messages[idx].isStreaming = false
             } else {
                 messages[idx].content = result.error ?? "No response received."
                 messages[idx].isStreaming = false
@@ -117,6 +121,26 @@ public final class ConversationStore {
     }
 
     // MARK: - Derived
+
+    // MARK: - Typing reveal
+
+    /// Progressively reveal text for a typing effect.
+    /// Shows ~30 characters per tick at 50ms intervals.
+    private func revealText(_ text: String, at index: Int) async {
+        let chars = Array(text)
+        let chunkSize = 30
+        var pos = 0
+
+        while pos < chars.count {
+            let end = min(pos + chunkSize, chars.count)
+            messages[index].content = String(chars[0..<end])
+            pos = end
+
+            if pos < chars.count {
+                try? await Task.sleep(for: .milliseconds(35))
+            }
+        }
+    }
 
     public var isEmpty: Bool { messages.isEmpty }
 
