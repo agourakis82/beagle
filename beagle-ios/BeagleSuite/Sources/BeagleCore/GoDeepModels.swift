@@ -555,6 +555,61 @@ public struct ControlRoomVisionResponse: Codable, Sendable {
 }
 
 // ============================================================================
+// MARK: - Agent Scratchpad (inter-agent communication)
+// ============================================================================
+
+/// A message posted by any agent surface to the shared scratchpad.
+public struct AgentMessage: Codable, Sendable, Identifiable {
+    public var id: String { messageId ?? UUID().uuidString }
+    public let messageId: String?
+    public let agent: String?          // "claude-code-remote", "claude-code-ios", "chatgpt", "cockpit-web"
+    public let surface: String?        // "mcp", "openapi", "ios", "web"
+    public let kind: String?           // "deployed", "needs", "discovered", "completed", "question"
+    public let content: String?
+    public let metadata: JSONValue?
+    public let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case messageId = "id"
+        case agent, surface, kind, content, metadata
+        case createdAt = "created_at"
+    }
+
+    public init(
+        messageId: String? = nil, agent: String?, surface: String?,
+        kind: String?, content: String?, metadata: JSONValue? = nil, createdAt: String? = nil
+    ) {
+        self.messageId = messageId
+        self.agent = agent
+        self.surface = surface
+        self.kind = kind
+        self.content = content
+        self.metadata = metadata
+        self.createdAt = createdAt
+    }
+}
+
+public struct AgentScratchpad: Codable, Sendable {
+    public let messages: [AgentMessage]?
+    public let generatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case messages
+        case generatedAt = "generated_at"
+    }
+}
+
+public struct AgentMessageAck: Codable, Sendable {
+    public let ok: Bool?
+    public let messageId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case messageId = "message_id"
+    }
+}
+
+// ============================================================================
 // MARK: - JSON flexible value (for loosely-typed backend responses)
 // ============================================================================
 

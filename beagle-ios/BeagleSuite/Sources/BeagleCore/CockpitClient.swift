@@ -268,4 +268,19 @@ public actor CockpitClient {
     public func controlRoomVision() async -> Truthful<ControlRoomVisionResponse> {
         await fetch(ControlRoomVisionResponse.self, path: "/api/public/vision/control-room")
     }
+
+    // MARK: - Agent Scratchpad (inter-agent communication)
+
+    public func agentScratchpad(slug: String) async -> Truthful<AgentScratchpad> {
+        await fetch(AgentScratchpad.self, path: "/api/projects/\(slug)/agents/scratchpad")
+    }
+
+    public func postAgentMessage(slug: String, agent: String, kind: String, content: String) async -> Truthful<AgentMessageAck> {
+        await post(AgentMessageAck.self, path: "/api/projects/\(slug)/agents/scratchpad", body: [
+            "agent": agent,
+            "surface": "ios",
+            "kind": kind,
+            "content": content
+        ])
+    }
 }

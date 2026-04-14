@@ -38,6 +38,7 @@ struct HomeView: View {
                     if !conversation.isEmpty {
                         conversationSection
                     }
+                    agentActivityLink
                     statusGlance
                 }
                 .padding(.horizontal, BeagleSpacing.lg)
@@ -377,6 +378,43 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Agent Activity Link
+
+    private var agentActivityLink: some View {
+        NavigationLink {
+            AgentActivityView()
+        } label: {
+            HStack(spacing: BeagleSpacing.sm) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 14))
+                    .foregroundStyle(BeagleTheme.truthRemembered)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Agent Activity")
+                        .font(BeagleFont.footnote.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    Text("See what all agents are doing")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
+            .padding(BeagleSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                    .fill(BeagleTheme.surface1.opacity(0.5))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                    .strokeBorder(BeagleTheme.truthRemembered.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Status glance (minimal, at the bottom)
