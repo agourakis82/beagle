@@ -252,29 +252,22 @@ struct AgentSessionView: View {
                 Button {
                     Task { await spawnSession() }
                 } label: {
-                    Label("Start Session", systemImage: "play.fill")
+                    Label("Connect", systemImage: "play.fill")
                 }
                 .buttonStyle(PrimaryButton())
-
-                Button {
-                    Task { await resumeLastSession() }
-                } label: {
-                    Label("Resume Last", systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(SecondaryButton())
 
             case .running:
                 Button {
                     Task { await pauseSession() }
                 } label: {
-                    Label("Pause", systemImage: "pause.fill")
+                    Label("Detach", systemImage: "pause.fill")
                 }
                 .buttonStyle(SecondaryButton(color: BeagleTheme.postureWarm))
 
                 Button {
                     Task { await stopSession() }
                 } label: {
-                    Label("Stop", systemImage: "stop.fill")
+                    Label("Disconnect", systemImage: "stop.fill")
                 }
                 .buttonStyle(SecondaryButton(color: BeagleTheme.stateError))
 
@@ -327,61 +320,53 @@ struct AgentSessionView: View {
 
     // MARK: - Actions
 
+    /// Connect to a running agent session.
+    /// Fetches sessions list from cockpit, finds the matching kind, connects WebSocket.
     private func spawnSession() async {
         sessionState = .spawning
-        let result = await CockpitClient.shared.startAgentSession(slug: slug, kind: selectedKind.rawValue)
-        if let session = result.value, session.isRunning || session.action == "start" {
-            let podName = session.podName ?? "\(slug)-\(selectedKind.rawValue)-0"
-            sessionState = .running(podName: podName)
-            terminal.connect(slug: slug, kind: selectedKind.rawValue)
-            LiveActivityManager.shared.startAgentActivity(slug: slug, kind: selectedKind.rawValue, sessionId: podName)
+
+        // Fetch real sessions from cockpit
+        let result = await CockpitClient.shared.agentSessions(slug: slug)
+
+        if let response = result.value, let sessions = response.sessions {
+            // Find a running session matching selected kind
+            if let session = sessions.first(where: {
+                $0.kind == selectedKind.rawValue && $0.isRunning
+            }) {
+                let podName = session.podName ?? session.name ?? "\(slug)-\(selectedKind.rawValue)"
+                sessionState = .running(podName: podName)
+                terminal.connect(slug: slug, kind: selectedKind.rawValue)
+                LiveActivityManager.shared.startAgentActivity(slug: slug, kind: selectedKind.rawValue, sessionId: podName)
+            } else if let session = sessions.first(where: { $0.kind == selectedKind.rawValue }) {
+                // Session exists but not running
+                sessionState = .error("\(selectedKind.displayName) exists but is not running (status: \(session.status ?? "unknown")). Scale it up from the cluster.")
+            } else {
+                // No session of this kind at all
+                sessionState = .error("No \(selectedKind.displayName) session found for \(slug). Deploy it from the workspace first.")
+            }
         } else if let error = result.error {
-            sessionState = .error(error)
+            sessionState = .error("Could not reach cockpit: \(error)")
         } else {
-            sessionState = .running(podName: "\(slug)-\(selectedKind.rawValue)-0")
-            terminal.connect(slug: slug, kind: selectedKind.rawValue)
-            LiveActivityManager.shared.startAgentActivity(slug: slug, kind: selectedKind.rawValue, sessionId: "\(slug)-\(selectedKind.rawValue)-0")
+            sessionState = .error("Could not fetch agent sessions. Check Tailnet.")
         }
     }
 
+    /// Disconnect from the terminal (session keeps running in K8s).
     private func pauseSession() async {
         terminal.disconnect()
-        let result = await CockpitClient.shared.pauseAgentSession(slug: slug, kind: selectedKind.rawValue)
-        if let error = result.error {
-            sessionState = .error(error)
-        } else {
-            sessionState = .paused
-            LiveActivityManager.shared.updateAgentActivity(status: "paused", tokens: 0, snippet: "session paused")
-        }
+        sessionState = .paused
+        LiveActivityManager.shared.updateAgentActivity(status: "detached", tokens: 0, snippet: "detached from terminal")
     }
 
+    /// Disconnect and return to idle.
     private func stopSession() async {
         terminal.disconnect()
-        let result = await CockpitClient.shared.stopAgentSession(slug: slug, kind: selectedKind.rawValue)
-        if let error = result.error {
-            sessionState = .error(error)
-        } else {
-            sessionState = .idle
-            LiveActivityManager.shared.endAgentActivity(finalStatus: "stopped")
-        }
+        sessionState = .idle
+        LiveActivityManager.shared.endAgentActivity(finalStatus: "detached")
     }
 
+    /// Same as spawnSession — checks for running session and connects.
     private func resumeLastSession() async {
-        sessionState = .spawning
-        let existing = await CockpitClient.shared.agentSession(slug: slug, kind: selectedKind.rawValue)
-        if let session = existing.value, session.isRunning {
-            let podName = session.podName ?? "\(slug)-\(selectedKind.rawValue)-0"
-            sessionState = .running(podName: podName)
-            terminal.connect(slug: slug, kind: selectedKind.rawValue)
-            return
-        }
-        let result = await CockpitClient.shared.resumeAgentSession(slug: slug, kind: selectedKind.rawValue)
-        if let session = result.value {
-            let podName = session.podName ?? "\(slug)-\(selectedKind.rawValue)-0"
-            sessionState = .running(podName: podName)
-            terminal.connect(slug: slug, kind: selectedKind.rawValue)
-        } else {
-            sessionState = .error(result.error ?? "no session to resume")
-        }
+        await spawnSession()
     }
 }
