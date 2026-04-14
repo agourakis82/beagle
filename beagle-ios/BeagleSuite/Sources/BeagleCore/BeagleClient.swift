@@ -25,8 +25,8 @@ public actor BeagleClient {
 
     /// beagle-server URLs — tried in sequence.
     private var baseURLs: [URL] = [
-        URL(string: "http://beagle-core.tail21cbc4.ts.net")!,
-        URL(string: "http://beagle-core.beagle.svc.cluster.local:8080")!
+        URL(string: "https://beagle-core.tail21cbc4.ts.net")!,
+        URL(string: "http://beagle-core.beagle.svc.cluster.local:8080")!  // Pod network only
     ]
 
     /// Auth token for beagle-core consumer API.
@@ -52,10 +52,6 @@ public actor BeagleClient {
         self.baseURLs = baseURLs
         if let consumerId { self.consumerId = consumerId }
         if let token { self.consumerToken = token }
-    }
-
-    public func configure(baseURLs: [URL]) {
-        self.baseURLs = baseURLs
     }
 
     /// Whether beagle-server is reachable (quick health check).
@@ -140,8 +136,7 @@ public actor BeagleClient {
         guard !tokenFetched else { return }
         // GET /api/auth/beagle-token from cockpit
         let cockpitURLs = [
-            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
-            URL(string: "http://100.107.208.198")!
+            URL(string: "https://sounio-cockpit.tail21cbc4.ts.net")!
         ]
         for base in cockpitURLs {
             guard let url = URL(string: "/api/auth/beagle-token", relativeTo: base) else { continue }

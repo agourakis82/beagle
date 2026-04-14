@@ -61,10 +61,12 @@ public final class ConversationStore {
     /// Whether to prefer on-device model when available.
     public var preferLocal: Bool = true
 
-    private let client = BeagleClient.shared
+    private let client: BeagleClient
     private let llm = LocalLLMEngine.shared
 
-    public init() {}
+    public init(client: BeagleClient = .shared) {
+        self.client = client
+    }
 
     // MARK: - Send (auto-routing)
 
@@ -152,7 +154,14 @@ public final class ConversationStore {
         messages.append(placeholder)
         isStreaming = true
 
-        let result = await client.chat(prompt: text)
+        // Build conversation history (last 10 turns) for context
+        let history = messages
+            .filter { $0.id != assistantId }  // exclude placeholder
+            .suffix(10)
+            .map { "\($0.role == .user ? "User" : "Assistant"): \($0.content)" }
+            .joined(separator: "\n")
+        let contextualPrompt = history.isEmpty ? text : "\(history)\nUser: \(text)"
+        let result = await client.chat(prompt: contextualPrompt)
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
             if let response = result.value {
@@ -176,12 +185,15 @@ public final class ConversationStore {
 
     public func regenerateLastResponse() async {
         guard let lastUserIdx = messages.lastIndex(where: { $0.role == .user }) else { return }
+        let userId = messages[lastUserIdx].id
         let prompt = messages[lastUserIdx].content
 
+        // Remove the assistant response(s) after the last user message
         if let lastAssistantIdx = messages.lastIndex(where: { $0.role == .assistant }) {
             messages.removeSubrange(lastAssistantIdx...)
         }
-        if let userIdx = messages.lastIndex(where: { $0.role == .user && $0.content == prompt }) {
+        // Remove the user message by id (not content) to avoid matching duplicates
+        if let userIdx = messages.lastIndex(where: { $0.id == userId }) {
             messages.remove(at: userIdx)
         }
 

@@ -1,3 +1,0 @@
-module BeagleSuitePackageTests {
-    header "/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.build/include/BeagleSuitePackageTests-Swift.h"
-}

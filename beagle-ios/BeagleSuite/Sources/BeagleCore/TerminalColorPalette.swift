@@ -53,7 +53,7 @@ public struct TerminalColorPalette: Sendable {
         case .standard(let idx):
             return table[Int(idx)]
         case .bright(let idx):
-            return table[Int(idx) + 8]
+            return table[Int(min(idx, 7)) + 8]
         case .palette(let idx):
             return table[Int(idx)]
         case .rgb(let r, let g, let b):

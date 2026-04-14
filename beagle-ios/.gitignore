@@ -1,0 +1,18 @@
+# Swift Package Manager build artifacts
+.build/
+*.o
+*.d
+*.dia
+*.swiftdeps
+
+# Xcode
+DerivedData/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# macOS
+.DS_Store
+
+# Archives (built locally)
+*.xcarchive

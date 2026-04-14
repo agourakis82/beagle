@@ -25,9 +25,11 @@ public struct AttributedTerminalLine: Identifiable, Sendable {
 public struct AttributedStringBuilder: Sendable {
 
     private let palette: TerminalColorPalette
+    private let fontSize: CGFloat
 
-    public init(palette: TerminalColorPalette = .beagleDark) {
+    public init(palette: TerminalColorPalette = .beagleDark, fontSize: CGFloat = 13) {
         self.palette = palette
+        self.fontSize = fontSize
     }
 
     /// Convert a TerminalRow to an AttributedString.
@@ -85,7 +87,7 @@ public struct AttributedStringBuilder: Sendable {
         var str = AttributedString(text)
 
         // Font — monospaced, with weight/style variants
-        let size: CGFloat = 13
+        let size = fontSize
         if attrs.bold && attrs.italic {
             str.font = .system(size: size, weight: .bold, design: .monospaced).italic()
         } else if attrs.bold {

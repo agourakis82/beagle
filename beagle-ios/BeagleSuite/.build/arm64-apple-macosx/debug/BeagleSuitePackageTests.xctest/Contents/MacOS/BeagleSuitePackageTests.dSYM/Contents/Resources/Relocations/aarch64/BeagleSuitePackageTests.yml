@@ -1,5 +1,0 @@
----
-triple:          'arm64-apple-darwin'
-binary-path:     '/Users/demetriosagourakis/dev/beagle/beagle-ios/BeagleSuite/.build/arm64-apple-macosx/debug/BeagleSuitePackageTests.xctest/Contents/MacOS/BeagleSuitePackageTests'
-relocations:     []
-...

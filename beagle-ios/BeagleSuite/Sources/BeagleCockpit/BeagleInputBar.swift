@@ -77,6 +77,7 @@ struct BeagleInputBar: View {
 
     // MARK: - Keyboard toolbar
 
+    #if os(iOS)
     @ViewBuilder
     private var keyboardToolbarContent: some View {
         if mode == .terminal {
@@ -86,6 +87,7 @@ struct BeagleInputBar: View {
         Button("Done") { isFocused = false }
             .font(BeagleFont.footnote.font)
     }
+    #endif
 
     // MARK: - Input field container (with background)
 
