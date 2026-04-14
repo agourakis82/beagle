@@ -15,7 +15,7 @@ import Observation
 public final class CognitiveStore {
 
     public var state: Truthful<CognitiveState> = .declared(
-        CognitiveState(hrv: nil, recentDrafts: nil, triadLatest: nil, agentSessions: nil)
+        CognitiveState(hrv: nil, recentDrafts: nil, triadLatest: nil, agentSessions: nil, recentVoidJourneys: nil, recentFractalTrees: nil, recentPhiMeasurements: nil)
     )
     public var recentThoughts: [ThoughtCapture] = []
     public var activeJobs: [ScienceJob] = []

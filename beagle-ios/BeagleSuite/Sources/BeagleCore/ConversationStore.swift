@@ -68,12 +68,32 @@ public final class ConversationStore {
 
     // MARK: - Send (auto-routing)
 
-    /// Send a message with automatic routing: local MLX if ready, cloud otherwise.
+    /// HRV-aware flow state for routing decisions.
+    public var flowState: String? = nil
+
+    /// Send a message with HRV-gated routing:
+    /// FLOW → cloud (deep reasoning worth the latency)
+    /// NORMAL → local MLX (balanced)
+    /// STRESS → Foundation Models (fast, don't overwhelm)
     public func sendMessage(_ text: String) async {
-        if preferLocal && llm.isReady {
-            await sendMessageLocal(text)
-        } else {
+        switch flowState {
+        case "FLOW":
+            // Deep focus → use cloud for best reasoning
             await sendMessageCloud(text)
+        case "STRESS":
+            // Stressed → quick local response
+            if llm.isReady {
+                await sendMessageLocal(text)
+            } else {
+                await sendMessageCloud(text)
+            }
+        default:
+            // NORMAL or unknown → prefer local if available
+            if preferLocal && llm.isReady {
+                await sendMessageLocal(text)
+            } else {
+                await sendMessageCloud(text)
+            }
         }
     }
 

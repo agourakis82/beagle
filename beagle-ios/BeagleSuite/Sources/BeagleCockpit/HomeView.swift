@@ -33,6 +33,7 @@ struct HomeView: View {
                     if !provocations.isEmpty {
                         provocationsSection
                     }
+                    noveltySection
                     recentThoughtsSection
                     if !conversation.isEmpty {
                         conversationSection
@@ -200,6 +201,112 @@ struct HomeView: View {
         )
     }
 
+    // MARK: - Novelty (Void, Fractal, Phi)
+
+    @ViewBuilder
+    private var noveltySection: some View {
+        let fractals = cognitive.state.value?.recentFractalTrees ?? []
+        let phis = cognitive.state.value?.recentPhiMeasurements ?? []
+        let voids = cognitive.state.value?.recentVoidJourneys ?? []
+
+        if !fractals.isEmpty || !phis.isEmpty || !voids.isEmpty {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "atom")
+                        .font(.system(size: 12))
+                        .foregroundStyle(BeagleTheme.truthRemembered)
+                    Text("Exocortex")
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
+
+                // Latest fractal tree
+                if let fractal = fractals.first {
+                    Button {
+                        let prompt = fractal.rootPrompt ?? "fractal tree"
+                        Task { await conversation.sendMessage("Explain this fractal exploration: \(prompt) — it produced \(fractal.nodeCount ?? 0) nodes at depth \(fractal.maxDepth ?? 0) in \(fractal.durationMs ?? 0)ms") }
+                    } label: {
+                        noveltyCard(
+                            icon: "tree",
+                            color: BeagleTheme.truthObserved,
+                            title: "Fractal: \(fractal.nodeCount ?? 0) nodes",
+                            subtitle: fractal.rootPrompt ?? "",
+                            detail: "depth \(fractal.maxDepth ?? 0) \u{00B7} \(fractal.durationMs ?? 0)ms",
+                            truthMode: fractal.truthMode
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Latest phi measurement
+                if let phi = phis.first {
+                    Button {
+                        Task { await conversation.sendMessage("Analyze this IIT measurement: \u{03A6} = \(phi.phi ?? 0) for query '\(phi.querySnippet ?? "")'. Awareness: \(phi.awarenessLevel ?? "unknown"). What does this mean?") }
+                    } label: {
+                        noveltyCard(
+                            icon: "waveform.path.ecg",
+                            color: BeagleTheme.truthRemembered,
+                            title: "\u{03A6} = \(String(format: "%.4f", phi.phi ?? 0))",
+                            subtitle: phi.querySnippet ?? "",
+                            detail: "\(phi.awarenessLevel ?? "") \u{00B7} \(phi.substrateSize ?? 0) substrates",
+                            truthMode: phi.truthMode
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // Void journeys count
+                if !voids.isEmpty {
+                    noveltyCard(
+                        icon: "circle.dotted",
+                        color: BeagleTheme.postureWarm,
+                        title: "\(voids.count) void journey\(voids.count > 1 ? "s" : "")",
+                        subtitle: "\(voids.first?.insights?.count ?? 0) insights from latest",
+                        detail: "depth \(String(format: "%.1f", voids.first?.maxDepthReached ?? 0))",
+                        truthMode: voids.first?.truthMode
+                    )
+                }
+            }
+        }
+    }
+
+    private func noveltyCard(icon: String, color: Color, title: String, subtitle: String, detail: String, truthMode: String?) -> some View {
+        HStack(spacing: BeagleSpacing.sm) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(color)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(BeagleFont.footnote.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                Text(subtitle)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(detail)
+                    .font(BeagleFont.dataSmall.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                if let mode = truthMode {
+                    TruthBadge(TruthMode(rawValue: mode) ?? .declared, compact: true)
+                }
+            }
+        }
+        .padding(BeagleSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.md)
+                .fill(BeagleTheme.surface1.opacity(0.5))
+        )
+    }
+
     // MARK: - Recent thoughts
 
     @ViewBuilder
@@ -363,6 +470,9 @@ struct HomeView: View {
         async let c: () = catalog.refresh()
         async let g: () = cognitive.refresh()
         _ = await (c, g)
+        // Wire HRV flow state into conversation routing
+        conversation.flowState = cognitive.flowState
+
         generateProvocations()
         withAnimation { hasAppeared = true }
 

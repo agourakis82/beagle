@@ -435,12 +435,87 @@ public struct CognitiveState: Codable, Sendable {
     public let recentDrafts: [CognitiveDraft]?
     public let triadLatest: CognitiveTriad?
     public let agentSessions: [AgentSession]?
+    public let recentVoidJourneys: [VoidJourney]?
+    public let recentFractalTrees: [FractalTree]?
+    public let recentPhiMeasurements: [PhiMeasurement]?
 
     enum CodingKeys: String, CodingKey {
         case hrv
         case recentDrafts = "recent_drafts"
         case triadLatest = "triad_latest"
         case agentSessions = "agent_sessions"
+        case recentVoidJourneys = "recent_void_journeys"
+        case recentFractalTrees = "recent_fractal_trees"
+        case recentPhiMeasurements = "recent_phi_measurements"
+    }
+}
+
+// MARK: - Novelty Endpoints (Void, Fractal, Phi)
+
+public struct VoidJourney: Codable, Sendable, Identifiable {
+    public var id: String { journeyId ?? UUID().uuidString }
+    public let journeyId: String?
+    public let status: String?
+    public let maxDepthReached: Double?
+    public let durationMs: Int?
+    public let insights: [String]?
+    public let truthMode: String?
+
+    enum CodingKeys: String, CodingKey {
+        case journeyId = "journey_id"
+        case status
+        case maxDepthReached = "max_depth_reached"
+        case durationMs = "duration_ms"
+        case insights
+        case truthMode = "truth_mode"
+    }
+}
+
+public struct FractalTree: Codable, Sendable, Identifiable {
+    public var id: String { rootId ?? UUID().uuidString }
+    public let rootId: String?
+    public let rootPrompt: String?
+    public let maxDepth: Int?
+    public let branching: Int?
+    public let nodeCount: Int?
+    public let generatedAt: String?
+    public let durationMs: Int?
+    public let truthMode: String?
+
+    enum CodingKeys: String, CodingKey {
+        case rootId = "root_id"
+        case rootPrompt = "root_prompt"
+        case maxDepth = "max_depth"
+        case branching
+        case nodeCount = "node_count"
+        case generatedAt = "generated_at"
+        case durationMs = "duration_ms"
+        case truthMode = "truth_mode"
+    }
+}
+
+public struct PhiMeasurement: Codable, Sendable, Identifiable {
+    public var id: String { "\(measuredAt ?? UUID().uuidString)" }
+    public let querySnippet: String?
+    public let phi: Double?
+    public let substrateSize: Int?
+    public let mipPartition: [[String]]?
+    public let awarenessLevel: String?
+    public let routerTier: String?
+    public let measuredAt: String?
+    public let durationMs: Int?
+    public let truthMode: String?
+
+    enum CodingKeys: String, CodingKey {
+        case querySnippet = "query_snippet"
+        case phi
+        case substrateSize = "substrate_size"
+        case mipPartition = "mip_partition"
+        case awarenessLevel = "awareness_level"
+        case routerTier = "router_tier"
+        case measuredAt = "measured_at"
+        case durationMs = "duration_ms"
+        case truthMode = "truth_mode"
     }
 }
 

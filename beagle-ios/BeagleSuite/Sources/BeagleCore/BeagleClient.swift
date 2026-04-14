@@ -316,4 +316,27 @@ public actor BeagleClient {
         if let system { body["system"] = system }
         return await post(ChatResponse.self, path: "/api/v1/chat", body: body)
     }
+
+    // MARK: - Novelty Endpoints (Void, Fractal, Phi)
+
+    public func startVoidJourney(prompt: String, maxDepth: Int = 3) async -> Truthful<VoidJourney> {
+        await post(VoidJourney.self, path: "/dev/void", body: [
+            "prompt": prompt,
+            "max_depth": maxDepth
+        ] as [String: any Sendable])
+    }
+
+    public func startFractalTree(prompt: String, maxDepth: Int = 2, branching: Int = 2) async -> Truthful<FractalTree> {
+        await post(FractalTree.self, path: "/api/fractal/recurse", body: [
+            "prompt": prompt,
+            "max_depth": maxDepth,
+            "branching_factor": branching
+        ] as [String: any Sendable])
+    }
+
+    public func measurePhi(prompt: String) async -> Truthful<PhiMeasurement> {
+        await post(PhiMeasurement.self, path: "/api/exocortex/process", body: [
+            "prompt": prompt
+        ] as [String: any Sendable])
+    }
 }
