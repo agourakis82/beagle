@@ -2,10 +2,12 @@
 //  SpeechRecognizer.swift
 //  BeagleCockpit
 //
-//  On-device speech-to-text using WhisperKit (OpenAI Whisper on Apple Neural Engine).
-//  Streams real-time transcription with no cloud dependency.
+//  On-device speech-to-text using WhisperKit (OpenAI Whisper on Neural Engine).
+//  Two modes:
+//    1. Manual: tap to record, tap to stop (thought capture)
+//    2. Ambient: continuous background listening, auto-captures insights
 //
-//  Falls back to Apple SFSpeechRecognizer if WhisperKit model not downloaded.
+//  All processing on-device. Zero cloud dependency.
 //
 
 import SwiftUI
@@ -27,11 +29,20 @@ import Speech
 @MainActor
 final class SpeechRecognizer {
 
+    // MARK: - Public state
+
     private(set) var transcript: String = ""
     private(set) var isRecording: Bool = false
     private(set) var error: String?
     private(set) var isWhisperReady: Bool = false
-    private(set) var downloadProgress: Double = 0
+
+    /// Ambient capture mode — continuous background listening.
+    private(set) var isAmbientActive: Bool = false
+
+    /// Captured fragments from ambient mode (new since last check).
+    private(set) var ambientFragments: [AmbientFragment] = []
+
+    // MARK: - Private state
 
     #if canImport(WhisperKit) && os(iOS)
     nonisolated(unsafe) private var whisperKit: WhisperKit?
@@ -39,10 +50,11 @@ final class SpeechRecognizer {
 
     #if canImport(AVFoundation) && os(iOS)
     private var audioEngine: AVAudioEngine?
-    private var audioBuffer: [Float] = []
     #endif
 
-    // MARK: - Setup WhisperKit
+    private var ambientTask: Task<Void, Never>?
+
+    // MARK: - Setup
 
     func setup() async {
         #if canImport(WhisperKit) && os(iOS)
@@ -60,17 +72,65 @@ final class SpeechRecognizer {
         #endif
     }
 
-    // MARK: - Start Recording
+    // MARK: - Manual recording (tap to start/stop)
 
     func startRecording() async {
         error = nil
         transcript = ""
+        await startAudioEngine()
 
         #if canImport(AVFoundation) && os(iOS)
-        // Configure audio session
+        guard isRecording else { return }
+
+        let bufferRef = UnsafeMutablePointer<[Float]>.allocate(capacity: 1)
+        bufferRef.initialize(to: [])
+
+        audioEngine?.inputNode.installTap(onBus: 0, bufferSize: 4096, format: audioEngine!.inputNode.outputFormat(forBus: 0)) { buffer, _ in
+            let channelData = buffer.floatChannelData?[0]
+            let frameLength = Int(buffer.frameLength)
+            if let channelData, frameLength > 0 {
+                bufferRef.pointee.append(contentsOf: Array(UnsafeBufferPointer(start: channelData, count: frameLength)))
+            }
+        }
+
+        Task {
+            while isRecording {
+                try? await Task.sleep(for: .seconds(2))
+                guard isRecording else { break }
+                let samples = bufferRef.pointee
+                if !samples.isEmpty {
+                    await transcribeAndUpdate(samples)
+                }
+            }
+            bufferRef.deallocate()
+        }
+        #endif
+    }
+
+    func stopRecording() {
+        stopAudioEngine()
+    }
+
+    // MARK: - Ambient capture mode
+
+    /// Toggle ambient listening on/off.
+    func toggleAmbient() async {
+        if isAmbientActive {
+            stopAmbient()
+        } else {
+            await startAmbient()
+        }
+    }
+
+    func startAmbient() async {
+        guard !isAmbientActive else { return }
+        error = nil
+
+        #if canImport(AVFoundation) && os(iOS)
+        // Configure for background audio
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetooth])
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             self.error = "Audio session error: \(error.localizedDescription)"
@@ -81,7 +141,11 @@ final class SpeechRecognizer {
         let inputNode = engine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
-        audioBuffer = []
+        // Sliding window: accumulate 30s chunks, transcribe, slide
+        let chunkDuration: TimeInterval = 30
+        let sampleRate = recordingFormat.sampleRate
+        let chunkSamples = Int(sampleRate * chunkDuration)
+
         let bufferRef = UnsafeMutablePointer<[Float]>.allocate(capacity: 1)
         bufferRef.initialize(to: [])
 
@@ -89,8 +153,11 @@ final class SpeechRecognizer {
             let channelData = buffer.floatChannelData?[0]
             let frameLength = Int(buffer.frameLength)
             if let channelData, frameLength > 0 {
-                let samples = Array(UnsafeBufferPointer(start: channelData, count: frameLength))
-                bufferRef.pointee.append(contentsOf: samples)
+                bufferRef.pointee.append(contentsOf: Array(UnsafeBufferPointer(start: channelData, count: frameLength)))
+                // Keep only last 60s of audio (2 chunks)
+                if bufferRef.pointee.count > chunkSamples * 2 {
+                    bufferRef.pointee.removeFirst(bufferRef.pointee.count - chunkSamples * 2)
+                }
             }
         }
 
@@ -98,78 +165,73 @@ final class SpeechRecognizer {
             engine.prepare()
             try engine.start()
         } catch {
-            self.error = "Could not start audio: \(error.localizedDescription)"
+            self.error = "Could not start ambient audio: \(error.localizedDescription)"
             bufferRef.deallocate()
             return
         }
 
         self.audioEngine = engine
-        self.isRecording = true
+        self.isAmbientActive = true
 
-        // Periodic transcription (every 2 seconds)
-        Task {
-            while isRecording {
-                try? await Task.sleep(for: .seconds(2))
-                guard isRecording else { break }
+        // Background transcription loop
+        ambientTask = Task {
+            var lastTranscript = ""
 
-                let currentSamples = bufferRef.pointee
+            while !Task.isCancelled && isAmbientActive {
+                try? await Task.sleep(for: .seconds(chunkDuration))
+                guard isAmbientActive else { break }
 
-                #if canImport(WhisperKit)
-                if !currentSamples.isEmpty {
-                    await self.transcribeChunk(currentSamples)
+                let samples = bufferRef.pointee
+                guard samples.count > Int(sampleRate * 2) else { continue } // at least 2s of audio
+
+                // Transcribe the chunk
+                let text = await transcribeRaw(Array(samples.suffix(chunkSamples)))
+
+                // Only capture if there's meaningful new content
+                if let text, !text.isEmpty, text != lastTranscript {
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // Filter out silence/noise (very short fragments or repeated)
+                    if trimmed.count > 10 {
+                        let fragment = AmbientFragment(
+                            text: trimmed,
+                            timestamp: Date()
+                        )
+                        ambientFragments.append(fragment)
+
+                        // Keep last 50 fragments
+                        if ambientFragments.count > 50 {
+                            ambientFragments.removeFirst(ambientFragments.count - 50)
+                        }
+                    }
+                    lastTranscript = text
                 }
-                #endif
             }
+
             bufferRef.deallocate()
         }
         #else
-        error = "Audio recording requires iOS"
+        error = "Ambient capture requires iOS"
         #endif
     }
 
-    #if canImport(WhisperKit) && os(iOS)
-    private func transcribeChunk(_ samples: [Float]) async {
-        guard let whisper = whisperKit else { return }
-        do {
-            let results = try await whisper.transcribe(audioArray: samples)
-            if let text = results.first?.text, !text.isEmpty {
-                self.transcript = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        } catch {
-            // Whisper failed for this chunk — will retry next cycle
-        }
-    }
-    #endif
-
-    // MARK: - Stop Recording
-
-    func stopRecording() {
-        #if canImport(AVFoundation) && os(iOS)
-        audioEngine?.stop()
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine = nil
-        isRecording = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        #endif
+    func stopAmbient() {
+        ambientTask?.cancel()
+        ambientTask = nil
+        isAmbientActive = false
+        stopAudioEngine()
     }
 
-    // MARK: - Fallback to Apple Speech (if Whisper unavailable)
+    /// Consume and clear captured fragments (called by CognitiveStore).
+    func consumeFragments() -> [AmbientFragment] {
+        let fragments = ambientFragments
+        ambientFragments.removeAll()
+        return fragments
+    }
 
-    func startRecordingAppleSpeech() async {
-        #if canImport(Speech) && canImport(AVFoundation) && os(iOS)
-        error = nil
-        transcript = ""
+    // MARK: - Private: audio engine
 
-        let authorized = await withCheckedContinuation { cont in
-            SFSpeechRecognizer.requestAuthorization { status in
-                cont.resume(returning: status == .authorized)
-            }
-        }
-        guard authorized else {
-            error = "Speech recognition not authorized."
-            return
-        }
-
+    #if canImport(AVFoundation) && os(iOS)
+    private func startAudioEngine() async {
         let audioSession = AVAudioSession.sharedInstance()
         do {
             try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
@@ -179,23 +241,7 @@ final class SpeechRecognizer {
             return
         }
 
-        guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
-            error = "Speech recognition not available."
-            return
-        }
-
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        request.addsPunctuation = true
-
         let engine = AVAudioEngine()
-        let inputNode = engine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
-            request.append(buffer)
-        }
-
         do {
             engine.prepare()
             try engine.start()
@@ -206,18 +252,44 @@ final class SpeechRecognizer {
 
         self.audioEngine = engine
         self.isRecording = true
+    }
 
-        recognizer.recognitionTask(with: request) { [weak self] result, error in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if let result {
-                    self.transcript = result.bestTranscription.formattedString
-                }
-                if result?.isFinal == true || error != nil {
-                    self.stopRecording()
-                }
-            }
+    private func stopAudioEngine() {
+        audioEngine?.stop()
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine = nil
+        isRecording = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+    #endif
+
+    // MARK: - Private: transcription
+
+    private func transcribeAndUpdate(_ samples: [Float]) async {
+        if let text = await transcribeRaw(samples), !text.isEmpty {
+            transcript = text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
+    }
+
+    private func transcribeRaw(_ samples: [Float]) async -> String? {
+        #if canImport(WhisperKit) && os(iOS)
+        guard let whisper = whisperKit else { return nil }
+        do {
+            let results = try await whisper.transcribe(audioArray: samples)
+            return results.first?.text
+        } catch {
+            return nil
+        }
+        #else
+        return nil
         #endif
     }
+}
+
+// MARK: - Ambient fragment model
+
+struct AmbientFragment: Identifiable, Sendable {
+    let id = UUID()
+    let text: String
+    let timestamp: Date
 }

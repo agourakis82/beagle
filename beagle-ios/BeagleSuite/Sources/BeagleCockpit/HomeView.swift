@@ -18,12 +18,18 @@ struct HomeView: View {
     @State private var provocations: [Provocation] = []
     @State private var greeting = ""
     @State private var hasAppeared = false
+    #if os(iOS)
+    @State private var speechRecognizer = SpeechRecognizer()
+    #endif
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
                     greetingSection
+                    #if os(iOS)
+                    ambientCaptureToggle
+                    #endif
                     if !provocations.isEmpty {
                         provocationsSection
                     }
@@ -301,16 +307,120 @@ struct HomeView: View {
         )
     }
 
+    // MARK: - Ambient capture toggle
+
+    #if os(iOS)
+    private var ambientCaptureToggle: some View {
+        HStack(spacing: BeagleSpacing.sm) {
+            Image(systemName: speechRecognizer.isAmbientActive ? "waveform.badge.microphone" : "mic.badge.plus")
+                .font(.system(size: 16))
+                .foregroundStyle(speechRecognizer.isAmbientActive ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
+                .symbolEffect(.variableColor, isActive: speechRecognizer.isAmbientActive)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Ambient Capture")
+                    .font(BeagleFont.footnote.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                Text(speechRecognizer.isAmbientActive ? "Whisper listening on-device" : "Off — tap to start")
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(speechRecognizer.isAmbientActive ? BeagleTheme.truthObserved.opacity(0.7) : BeagleTheme.textTertiary)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: Binding(
+                get: { speechRecognizer.isAmbientActive },
+                set: { _ in Task { await speechRecognizer.toggleAmbient() } }
+            ))
+            .tint(BeagleTheme.truthObserved)
+            .labelsHidden()
+        }
+        .padding(BeagleSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .fill(speechRecognizer.isAmbientActive ? BeagleTheme.truthObserved.opacity(0.06) : BeagleTheme.surface1.opacity(0.7))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .strokeBorder(
+                    speechRecognizer.isAmbientActive ? BeagleTheme.truthObserved.opacity(0.2) : Color.white.opacity(0.06),
+                    lineWidth: 1
+                )
+        )
+        .opacity(hasAppeared ? 1 : 0)
+        .animation(.easeOut(duration: 0.4).delay(0.2), value: hasAppeared)
+    }
+    #endif
+
     // MARK: - Bootstrap
 
     private func bootstrap() async {
         greeting = timeGreeting()
+        #if os(iOS)
+        await speechRecognizer.setup()
+        #endif
         async let c: () = catalog.refresh()
         async let g: () = cognitive.refresh()
         _ = await (c, g)
         generateProvocations()
         withAnimation { hasAppeared = true }
+
+        #if os(iOS)
+        // Start ambient triage loop: periodically sends fragments to cluster for filtering
+        startAmbientTriageLoop()
+        #endif
     }
+
+    #if os(iOS)
+    private func startAmbientTriageLoop() {
+        Task {
+            while true {
+                try? await Task.sleep(for: .seconds(60))  // Every 60s
+                guard speechRecognizer.isAmbientActive else { continue }
+
+                let fragments = speechRecognizer.consumeFragments()
+                guard !fragments.isEmpty else { continue }
+
+                // Batch all fragments into one triage request
+                let batch = fragments.map { "[\($0.timestamp.formatted(.dateTime.hour().minute().second()))]: \($0.text)" }.joined(separator: "\n")
+
+                let triagePrompt = """
+                These are ambient speech fragments captured from my environment. \
+                Analyze each and classify as INSIGHT (worth capturing as a thought) \
+                or NOISE (casual conversation, filler, irrelevant). \
+                For each INSIGHT, extract the core idea in one refined sentence.
+
+                Fragments:
+                \(batch)
+
+                Respond with only the insights, one per line. If nothing is useful, respond with "NO_INSIGHTS".
+                """
+
+                // Try local LLM first, then cloud
+                let llm = LocalLLMEngine.shared
+                var triageResult: String?
+
+                if llm.isReady {
+                    triageResult = try? await llm.respond(to: triagePrompt)
+                }
+
+                if triageResult == nil || triageResult?.isEmpty == true {
+                    let cloudResult = await BeagleClient.shared.chat(prompt: triagePrompt, system: "You are a cognitive filter for an exocortex. Extract only genuine intellectual insights from ambient speech. Be aggressive about filtering noise.")
+                    triageResult = cloudResult.value?.response
+                }
+
+                // Process triage results
+                if let result = triageResult, result != "NO_INSIGHTS" && !result.isEmpty {
+                    let insights = result.components(separatedBy: "\n").filter { !$0.isEmpty && !$0.contains("NO_INSIGHTS") }
+                    for insight in insights {
+                        _ = await cognitive.captureThought(text: insight, source: "ambient-whisper")
+                    }
+                }
+            }
+        }
+    }
+    #endif
 
     private func timeGreeting() -> String {
         let hour = Calendar.current.component(.hour, from: Date())
