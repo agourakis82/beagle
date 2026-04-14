@@ -87,6 +87,7 @@ targets:
         com.apple.security.application-groups:
           - group.dev.sounio.cockpit
         aps-environment: development
+        com.apple.developer.kernel.increased-memory-limit: true
 
   # ── BeagleWidgets (Widget Extension for BeagleCockpit) ────────
   BeagleWidgets:

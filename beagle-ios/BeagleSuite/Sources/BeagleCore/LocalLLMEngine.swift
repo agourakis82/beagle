@@ -188,6 +188,12 @@ public final class LocalLLMEngine {
         #if canImport(MLXLLM)
         guard loadState != .loading else { return }
 
+        // Check if model fits on this device
+        if !model.fitsOnThisDevice {
+            loadState = .error("Not enough RAM for \(model.displayName). Needs \(model.minimumRAMGB)GB+.")
+            return
+        }
+
         currentModel = model
         loadState = .downloading(0)
 
