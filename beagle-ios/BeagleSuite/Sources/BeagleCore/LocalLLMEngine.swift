@@ -32,8 +32,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     case deepseekR1   = "deepseek-r1-7b-4bit"
     case llama3_1_8B  = "llama3.1-8b-4bit"
     case gemma2_9B    = "gemma2-9b-4bit"
+    case falconH1_7B  = "falcon-h1r-7b-4bit"
     case gemma4_4B    = "gemma4-e4b-4bit"
     case qwen3_4B     = "qwen3-4b-4bit"
+    case jamba3B      = "jamba-reasoning-3b-4bit"
     case gemma4_2B    = "gemma4-e2b-4bit"
     case llama3_2_3B  = "llama3.2-3b-4bit"
     case gemma2_2B    = "gemma2-2b-4bit"
@@ -47,8 +49,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .deepseekR1:  return "DeepSeek-R1 7B"
         case .llama3_1_8B: return "Llama 3.1 8B"
         case .gemma2_9B:   return "Gemma 2 9B"
+        case .falconH1_7B: return "Falcon H1R 7B (SSM)"
         case .gemma4_4B:   return "Gemma 4 4B"
         case .qwen3_4B:    return "Qwen 3 4B"
+        case .jamba3B:     return "Jamba 3B (SSM)"
         case .gemma4_2B:   return "Gemma 4 2B"
         case .llama3_2_3B: return "Llama 3.2 3B"
         case .gemma2_2B:   return "Gemma 2 2B"
@@ -62,8 +66,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .deepseekR1:  return "~5 GB"
         case .llama3_1_8B: return "~4.8 GB"
         case .gemma2_9B:   return "~5.5 GB"
+        case .falconH1_7B: return "~4.5 GB"
         case .gemma4_4B:   return "~2.8 GB"
         case .qwen3_4B:    return "~2.5 GB"
+        case .jamba3B:     return "~2 GB"
         case .gemma4_2B:   return "~1.5 GB"
         case .llama3_2_3B: return "~2 GB"
         case .gemma2_2B:   return "~1.5 GB"
@@ -73,10 +79,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     public var parameterCount: String {
         switch self {
         case .qwen3_8B, .llama3_1_8B: return "8B"
-        case .qwen2_5_7B, .deepseekR1: return "7B"
+        case .qwen2_5_7B, .deepseekR1, .falconH1_7B: return "7B"
         case .gemma2_9B:   return "9B"
         case .gemma4_4B, .qwen3_4B: return "4B"
-        case .llama3_2_3B: return "3B"
+        case .jamba3B, .llama3_2_3B: return "3B"
         case .gemma4_2B, .gemma2_2B: return "2B"
         }
     }
@@ -88,8 +94,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .deepseekR1:  return "Chain-of-thought, step-by-step derivations"
         case .llama3_1_8B: return "General + biomedical knowledge"
         case .gemma2_9B:   return "Reasoning, safety, instruction following"
+        case .falconH1_7B: return "SSM hybrid (Mamba2), long context, efficient"
         case .gemma4_4B:   return "Latest Google reasoning, multimodal-ready"
         case .qwen3_4B:    return "Fast reasoning, balanced quality/speed"
+        case .jamba3B:     return "SSM hybrid, reasoning, linear complexity"
         case .gemma4_2B:   return "Latest Google, ultra-fast, efficient"
         case .llama3_2_3B: return "Fast general purpose"
         case .gemma2_2B:   return "Ultra-fast fallback"
@@ -100,8 +108,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     public var minimumRAMGB: UInt64 {
         switch self {
         case .qwen3_8B, .deepseekR1, .llama3_1_8B, .gemma2_9B, .qwen2_5_7B: return 8
+        case .falconH1_7B: return 8
         case .gemma4_4B:   return 6
         case .qwen3_4B:    return 6
+        case .jamba3B:     return 4
         case .gemma4_2B:   return 4
         case .llama3_2_3B: return 4
         case .gemma2_2B:   return 4
@@ -122,8 +132,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .deepseekR1:  return LLMRegistry.deepSeekR1_7B_4bit
         case .llama3_1_8B: return LLMRegistry.llama3_1_8B_4bit
         case .gemma2_9B:   return LLMRegistry.gemma_2_9b_it_4bit
+        case .falconH1_7B: return ModelConfiguration(id: "mlx-community/Falcon-H1R-7B-4bit")
         case .gemma4_4B:   return LLMRegistry.gemma4_e4b_it_4bit
         case .qwen3_4B:    return LLMRegistry.qwen3_4b_4bit
+        case .jamba3B:     return ModelConfiguration(id: "mlx-community/AI21-Jamba-Reasoning-3B-4bit")
         case .gemma4_2B:   return LLMRegistry.gemma4_e2b_it_4bit
         case .llama3_2_3B: return LLMRegistry.llama3_2_3B_4bit
         case .gemma2_2B:   return LLMRegistry.gemma_2_2b_it_4bit
