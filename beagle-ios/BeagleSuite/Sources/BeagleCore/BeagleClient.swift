@@ -339,4 +339,105 @@ public actor BeagleClient {
             "prompt": prompt
         ] as [String: any Sendable])
     }
+
+    // MARK: - Go Deeper (advanced reasoning)
+
+    public func deepResearch(query: String) async -> Truthful<DeepResearchResult> {
+        await post(DeepResearchResult.self, path: "/dev/deep-research", body: ["query": query], timeout: 180)
+    }
+
+    public func quantumReasoning(
+        hypotheses: [[String: any Sendable]],
+        threshold: Double = 0.15,
+        interferenceStrength: Double = 1.0,
+        probabilistic: Bool = true,
+        applyDecoherence: Bool = true
+    ) async -> Truthful<QuantumReasoningResult> {
+        await post(QuantumReasoningResult.self, path: "/dev/quantum-reasoning", body: [
+            "hypotheses": hypotheses,
+            "threshold": threshold,
+            "interference_strength": interferenceStrength,
+            "probabilistic": probabilistic,
+            "apply_decoherence": applyDecoherence
+        ] as [String: any Sendable], timeout: 120)
+    }
+
+    public func swarmConsensus(query: String) async -> Truthful<SwarmResult> {
+        await post(SwarmResult.self, path: "/dev/swarm", body: ["query": query], timeout: 120)
+    }
+
+    public func causalExtract(text: String) async -> Truthful<CausalGraph> {
+        await post(CausalGraph.self, path: "/dev/causal/extract", body: ["text": text], timeout: 60)
+    }
+
+    public func causalIntervention(
+        graphId: String,
+        intervention: String
+    ) async -> Truthful<CausalIntervention> {
+        await post(CausalIntervention.self, path: "/dev/causal/intervention", body: [
+            "graph_id": graphId,
+            "intervention": intervention
+        ] as [String: any Sendable], timeout: 60)
+    }
+
+    public func temporalReasoning(query: String) async -> Truthful<TemporalResult> {
+        await post(TemporalResult.self, path: "/dev/temporal", body: ["query": query], timeout: 90)
+    }
+
+    public func neurosymbolicReasoning(query: String) async -> Truthful<NeurosymbolicResult> {
+        await post(NeurosymbolicResult.self, path: "/dev/neurosymbolic", body: ["query": query], timeout: 90)
+    }
+
+    public func adversarialCompete(query: String) async -> Truthful<AdversarialResult> {
+        await post(AdversarialResult.self, path: "/dev/adversarial-compete", body: ["query": query], timeout: 180)
+    }
+
+    public func research(query: String) async -> Truthful<ResearchResult> {
+        await post(ResearchResult.self, path: "/dev/research", body: ["query": query], timeout: 120)
+    }
+
+    public func researchParallel(query: String) async -> Truthful<ParallelResearchResult> {
+        await post(ParallelResearchResult.self, path: "/dev/research/parallel", body: ["query": query], timeout: 180)
+    }
+
+    public func reasoningPath(source: String, target: String) async -> Truthful<ReasoningPathResult> {
+        await post(ReasoningPathResult.self, path: "/dev/reasoning", body: [
+            "source": source, "target": target
+        ] as [String: any Sendable], timeout: 90)
+    }
+
+    // MARK: - World Model
+
+    public func worldModelState() async -> Truthful<WorldModelState> {
+        await fetch(WorldModelState.self, path: "/worldmodel/state")
+    }
+
+    public func worldModelPredict(query: String) async -> Truthful<WorldModelPrediction> {
+        await post(WorldModelPrediction.self, path: "/worldmodel/predict", body: ["query": query], timeout: 60)
+    }
+
+    public func worldModelCounterfactual(query: String) async -> Truthful<WorldModelCounterfactual> {
+        await post(WorldModelCounterfactual.self, path: "/worldmodel/counterfactual", body: ["query": query], timeout: 60)
+    }
+
+    // MARK: - Extended (RAG, Fractal Grow, PCS, Serendipity)
+
+    public func addDocument(content: String, metadata: [String: String] = [:]) async -> Truthful<DocumentAddResult> {
+        await post(DocumentAddResult.self, path: "/api/memory/documents", body: [
+            "content": content,
+            "metadata": metadata
+        ] as [String: any Sendable])
+    }
+
+    public func fractalGrow(seed: String) async -> Truthful<FractalGrowResult> {
+        await post(FractalGrowResult.self, path: "/api/fractal/grow", body: ["seed": seed], timeout: 90)
+    }
+
+    public func pcsReason(query: String) async -> Truthful<PCSReasonResult> {
+        await post(PCSReasonResult.self, path: "/api/pcs/reason", body: ["query": query], timeout: 60)
+    }
+
+    public func serendipityDiscover(query: String) async -> Truthful<SerendipityResult> {
+        await post(SerendipityResult.self, path: "/api/serendipity/discover", body: ["query": query], timeout: 60)
+    }
 }

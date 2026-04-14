@@ -31,6 +31,7 @@ struct CognitiveStateView: View {
             }
             .background { HealthPulseGradient(truth: cognitive.state.mode) }
             .navigationTitle("Home")
+            .sensoryFeedback(.success, trigger: cognitive.state.mode == .observed)
             .task { await cognitive.refresh() }
             .refreshable { await cognitive.refresh() }
         }
@@ -65,22 +66,29 @@ struct CognitiveStateView: View {
     private var hrvSection: some View {
         GlassPanel(elevation: .floating, truth: cognitive.state.mode) {
             VStack(spacing: BeagleSpacing.md) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(String(format: "%.0f", cognitive.hrvValue))
-                        .font(BeagleFont.hero.font)
-                        .foregroundStyle(hrvColor)
-                    Text("ms")
-                        .font(BeagleFont.footnote.font)
-                        .foregroundStyle(BeagleTheme.textTertiary)
-                    TruthBadge(cognitive.state.mode, compact: true)
-                    Spacer()
-                    Text(cognitive.flowState)
-                        .font(BeagleFont.dataProminent.font)
-                        .fontWeight(.bold)
-                        .foregroundStyle(hrvColor)
-                        .padding(.horizontal, BeagleSpacing.sm)
-                        .padding(.vertical, BeagleSpacing.xxs)
-                        .background(Capsule().fill(hrvColor.opacity(0.12)))
+                if cognitive.state.mode == .declared && cognitive.hrvValue == 0 && cognitive.isLoading {
+                    // Loading skeleton
+                    HStack(alignment: .firstTextBaseline) {
+                        LaneSkeleton()
+                    }
+                } else {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(String(format: "%.0f", cognitive.hrvValue))
+                            .font(BeagleFont.hero.font)
+                            .foregroundStyle(hrvColor)
+                        Text("ms")
+                            .font(BeagleFont.footnote.font)
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                        TruthBadge(cognitive.state.mode, compact: true)
+                        Spacer()
+                        Text(cognitive.flowState)
+                            .font(BeagleFont.dataProminent.font)
+                            .fontWeight(.bold)
+                            .foregroundStyle(hrvColor)
+                            .padding(.horizontal, BeagleSpacing.sm)
+                            .padding(.vertical, BeagleSpacing.xxs)
+                            .background(Capsule().fill(hrvColor.opacity(0.12)))
+                    }
                 }
 
                 // HRV gauge

@@ -6,6 +6,13 @@
 //  Capture raw thoughts → HERMES refines → hypergraph stores.
 //  Voice, keyboard, or clipboard. The iPhone is the entry point of the exocortex.
 //
+//  Premium patterns:
+//   - Living background reacts to cognitive state (HRV, job count)
+//   - HERMES refinement shows rotating thinking messages, not a spinner
+//   - Haptic on capture success — the thought "landed"
+//   - Recent thoughts have GoDeep context menu + 44pt tap targets
+//   - Refined card persists with save confirmation
+//
 
 import SwiftUI
 import BeagleCore
@@ -15,11 +22,21 @@ struct ThoughtCaptureView: View {
     @State private var inputText = ""
     @State private var captureMode: CaptureMode = .keyboard
     @State private var lastRefined: String?
+    @State private var refinedPersisted = false
     @State private var conversation = ConversationStore()
+    @State private var hermesPhase = ""
+    @State private var hermesPhaseIndex = 0
     #if os(iOS)
     @State private var speechRecognizer = SpeechRecognizer()
     #endif
     @FocusState private var inputFocused: Bool
+
+    private static let hermesMessages = [
+        "HERMES receiving thought...",
+        "Identifying core insight...",
+        "Refining prose structure...",
+        "Mapping to hypergraph...",
+    ]
 
     enum CaptureMode: String, CaseIterable {
         case keyboard, voice, clipboard, chat
@@ -52,7 +69,7 @@ struct ThoughtCaptureView: View {
                         .padding(.top, BeagleSpacing.md)
                     ConversationView(conversation: conversation)
                 }
-                .background { PostureGradientBackground(counts: .empty) }
+                .background { captureBackground }
                 .navigationTitle("Capture")
                 #if os(iOS)
                 .task { await speechRecognizer.setup() }
@@ -61,6 +78,9 @@ struct ThoughtCaptureView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
                         captureSection
+                        if cognitive.isCapturing {
+                            hermesThinkingCard
+                        }
                         if let refined = lastRefined {
                             refinedSection(refined)
                         }
@@ -68,16 +88,25 @@ struct ThoughtCaptureView: View {
                     }
                     .padding(.horizontal, BeagleSpacing.lg)
                     .padding(.top, BeagleSpacing.md)
+                    .padding(.bottom, BeagleSpacing.jumbo)
                 }
-                .background { PostureGradientBackground(counts: .empty) }
+                .background { captureBackground }
                 .navigationTitle("Capture")
             }
         }
     }
 
-    // MARK: - Capture input
+    // MARK: - Living Background (reacts to cognitive state)
 
-    // MARK: - Mode picker (shared)
+    private var captureBackground: some View {
+        CaptureGradient(
+            isCapturing: cognitive.isCapturing,
+            hasRecentThoughts: !cognitive.recentThoughts.isEmpty,
+            serverReachable: cognitive.serverReachable
+        )
+    }
+
+    // MARK: - Mode Picker
 
     private var modePicker: some View {
         HStack(spacing: BeagleSpacing.xs) {
@@ -91,7 +120,8 @@ struct ThoughtCaptureView: View {
                     Label(mode.label, systemImage: mode.icon)
                         .font(BeagleFont.footnote.font)
                         .padding(.horizontal, BeagleSpacing.sm)
-                        .padding(.vertical, BeagleSpacing.xs)
+                        .padding(.vertical, BeagleSpacing.xs + 2)
+                        .frame(minHeight: 44)
                         .foregroundStyle(captureMode == mode ? BeagleTheme.truthObserved : BeagleTheme.textSecondary)
                         .background(
                             Capsule().fill(captureMode == mode ? BeagleTheme.truthObserved.opacity(0.12) : Color.white.opacity(0.04))
@@ -104,39 +134,77 @@ struct ThoughtCaptureView: View {
         }
     }
 
+    // MARK: - Capture Input
+
     private var captureSection: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.md) {
             modePicker
 
-            // Text input area
             if captureMode == .voice {
                 GlassPanel(elevation: .raised) {
                     voiceSection
                 }
             } else {
-                VStack(spacing: BeagleSpacing.xs) {
-                    if cognitive.isCapturing {
-                        HStack(spacing: BeagleSpacing.xs) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("HERMES refining...")
-                                .font(BeagleFont.caption.font)
-                                .foregroundStyle(BeagleTheme.postureWarm)
-                            Spacer()
-                        }
-                        .padding(.horizontal, BeagleSpacing.md)
+                BeagleInputBar(
+                    text: $inputText,
+                    placeholder: "What are you thinking about?",
+                    mode: .chat,
+                    isEnabled: !cognitive.isCapturing,
+                    onSubmit: { _ in
+                        Task { await captureThought() }
                     }
+                )
+            }
+        }
+    }
 
-                    BeagleInputBar(
-                        text: $inputText,
-                        placeholder: "What are you thinking about?",
-                        mode: .chat,
-                        isEnabled: !cognitive.isCapturing,
-                        onSubmit: { _ in
-                            Task { await captureThought() }
-                        }
-                    )
-                }
+    // MARK: - HERMES Thinking (replaces ProgressView spinner)
+
+    private var hermesThinkingCard: some View {
+        HStack(spacing: BeagleSpacing.sm) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 14))
+                .foregroundStyle(BeagleTheme.postureWarm)
+                .symbolEffect(.pulse, isActive: true)
+
+            VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+                Text("HERMES")
+                    .font(BeagleFont.caption.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(BeagleTheme.postureWarm)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+
+                Text(hermesPhase.isEmpty ? Self.hermesMessages[0] : hermesPhase)
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .contentTransition(.numericText())
+                    .animation(BeagleMotion.normal, value: hermesPhase)
+            }
+
+            Spacer()
+
+            ProgressView()
+                .controlSize(.small)
+                .tint(BeagleTheme.postureWarm)
+        }
+        .padding(.horizontal, BeagleSpacing.lg)
+        .padding(.vertical, BeagleSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .fill(BeagleTheme.postureWarm.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .strokeBorder(BeagleTheme.postureWarm.opacity(0.1), lineWidth: 1)
+        )
+        .transition(.asymmetric(insertion: .push(from: .bottom).combined(with: .opacity), removal: .opacity))
+        .task {
+            hermesPhaseIndex = 0
+            while !Task.isCancelled {
+                hermesPhase = Self.hermesMessages[hermesPhaseIndex % Self.hermesMessages.count]
+                hermesPhaseIndex += 1
+                try? await Task.sleep(for: .seconds(2))
             }
         }
     }
@@ -157,12 +225,24 @@ struct ThoughtCaptureView: View {
                 .foregroundStyle(BeagleTheme.truthObserved.opacity(0.7))
             }
 
-            // Mic icon with live animation
-            Image(systemName: speechRecognizer.isRecording ? "waveform" : "mic.fill")
-                .font(.system(size: 32))
-                .foregroundStyle(speechRecognizer.isRecording ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
-                .symbolEffect(.variableColor, isActive: speechRecognizer.isRecording)
-                .frame(height: 60)
+            // Mic icon with live waveform animation
+            ZStack {
+                // Breathing ring when recording
+                if speechRecognizer.isRecording {
+                    Circle()
+                        .strokeBorder(BeagleTheme.truthObserved.opacity(0.2), lineWidth: 2)
+                        .frame(width: 72, height: 72)
+                        .scaleEffect(speechRecognizer.isRecording ? 1.15 : 1.0)
+                        .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: speechRecognizer.isRecording)
+                }
+
+                Image(systemName: speechRecognizer.isRecording ? "waveform" : "mic.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(speechRecognizer.isRecording ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
+                    .symbolEffect(.variableColor.iterative, isActive: speechRecognizer.isRecording)
+            }
+            .frame(height: 76)
+            .sensoryFeedback(.impact(weight: .light), trigger: speechRecognizer.isRecording)
 
             // Live transcript
             if speechRecognizer.isRecording || !speechRecognizer.transcript.isEmpty {
@@ -175,10 +255,16 @@ struct ThoughtCaptureView: View {
 
             // Error
             if let error = speechRecognizer.error {
-                Text(error)
-                    .font(BeagleFont.caption.font)
-                    .foregroundStyle(BeagleTheme.stateError)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(BeagleTheme.stateError)
+                    Text(error)
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.stateError)
+                        .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             // Controls
@@ -226,11 +312,11 @@ struct ThoughtCaptureView: View {
         #endif
     }
 
-    // MARK: - Refined result
+    // MARK: - Refined Result
 
     private func refinedSection(_ refined: String) -> some View {
-        GlassPanel(elevation: .raised, truth: .observed) {
-            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+        GlassPanel(elevation: .floating, truth: .observed) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
                 HStack(spacing: BeagleSpacing.xxs) {
                     Image(systemName: "sparkles")
                         .foregroundStyle(BeagleTheme.truthObserved)
@@ -238,17 +324,46 @@ struct ThoughtCaptureView: View {
                         .font(BeagleFont.caption.font)
                         .fontWeight(.medium)
                         .foregroundStyle(BeagleTheme.truthObserved)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+                    Spacer()
+                    TruthBadge(.observed, compact: true)
                 }
+
                 Text(refined)
                     .font(BeagleFont.body.font)
                     .foregroundStyle(BeagleTheme.textPrimary)
                     .textSelection(.enabled)
+                    .lineSpacing(2)
+
+                // Persistence confirmation
+                HStack(spacing: BeagleSpacing.sm) {
+                    if refinedPersisted {
+                        HStack(spacing: BeagleSpacing.xxs) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 11))
+                            Text("Stored in hypergraph")
+                                .font(BeagleFont.caption.font)
+                        }
+                        .foregroundStyle(BeagleTheme.truthObserved.opacity(0.7))
+                    }
+
+                    Spacer()
+
+                    GoDeepButton(prompt: refined)
+                }
             }
         }
-        .transition(.asymmetric(insertion: .push(from: .bottom), removal: .opacity))
+        .transition(.asymmetric(insertion: .push(from: .bottom).combined(with: .opacity), removal: .opacity))
+        .sensoryFeedback(.success, trigger: lastRefined != nil)
+        .onAppear {
+            withAnimation(BeagleMotion.slow.delay(0.5)) {
+                refinedPersisted = true
+            }
+        }
     }
 
-    // MARK: - Recent thoughts
+    // MARK: - Recent Thoughts
 
     private var recentThoughtsSection: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
@@ -257,16 +372,19 @@ struct ThoughtCaptureView: View {
                     .font(BeagleFont.caption.font)
                     .fontWeight(.medium)
                     .foregroundStyle(BeagleTheme.textTertiary)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
 
                 ForEach(cognitive.recentThoughts.prefix(10)) { thought in
+                    let thoughtText = thought.refinedText ?? thought.rawText ?? ""
                     HStack(alignment: .top, spacing: BeagleSpacing.sm) {
                         Circle()
                             .fill(thought.refinedText != nil ? BeagleTheme.truthObserved : BeagleTheme.truthDeclared)
                             .frame(width: 6, height: 6)
-                            .padding(.top, 6)
+                            .padding(.top, 8)
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(thought.refinedText ?? thought.rawText ?? "—")
+                            Text(thoughtText.isEmpty ? "—" : thoughtText)
                                 .font(BeagleFont.footnote.font)
                                 .foregroundStyle(BeagleTheme.textPrimary)
                                 .lineLimit(3)
@@ -276,8 +394,30 @@ struct ThoughtCaptureView: View {
                                     .foregroundStyle(BeagleTheme.textTertiary)
                             }
                         }
+
+                        Spacer()
                     }
-                    .padding(.vertical, BeagleSpacing.xxs)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                    .contextMenu {
+                        Button {
+                            inputText = thoughtText
+                        } label: {
+                            Label("Edit & Recapture", systemImage: "pencil")
+                        }
+
+                        if !thoughtText.isEmpty {
+                            GoDeepContextAction(prompt: thoughtText)
+                        }
+
+                        Button {
+                            #if os(iOS)
+                            UIPasteboard.general.string = thoughtText
+                            #endif
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+                    }
                 }
             }
         }
@@ -289,6 +429,7 @@ struct ThoughtCaptureView: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
+        refinedPersisted = false
         let thought = await cognitive.captureThought(text: text, source: "ios-\(captureMode.rawValue)")
         withAnimation(BeagleMotion.slow) {
             lastRefined = thought?.refinedText ?? thought?.rawText
@@ -307,5 +448,66 @@ struct ThoughtCaptureView: View {
         }
         #endif
     }
+}
 
+// MARK: - Capture Gradient (living background)
+
+/// MeshGradient that reflects cognitive state:
+/// - Capturing: warm gold glow (HERMES is working)
+/// - Has thoughts: subtle teal presence (knowledge is growing)
+/// - Server reachable: brighter mesh (connected)
+/// - Idle: deep void (waiting for input)
+private struct CaptureGradient: View {
+    let isCapturing: Bool
+    let hasRecentThoughts: Bool
+    let serverReachable: Bool
+    @State private var phase: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        MeshGradient(
+            width: 3, height: 3,
+            points: animatedPoints,
+            colors: gradientColors
+        )
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 1.5), value: isCapturing)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 7).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
+        }
+    }
+
+    private var animatedPoints: [SIMD2<Float>] {
+        let d: Float = reduceMotion ? 0 : Float(phase) * 0.07
+        let captureDrift: Float = isCapturing ? 0.03 : 0
+        return [
+            SIMD2(0,             0),     SIMD2(0.5,       0),           SIMD2(1,             0),
+            SIMD2(0+d,           0.5-d), SIMD2(0.5+d+captureDrift, 0.5+d), SIMD2(1-d,       0.5+d),
+            SIMD2(0,             1),     SIMD2(0.5,       1),           SIMD2(1,             1)
+        ]
+    }
+
+    private var gradientColors: [Color] {
+        let base = Color(red: 0.02, green: 0.03, blue: 0.07)
+
+        // Gold warmth when HERMES is refining
+        let goldIntensity = isCapturing ? 0.25 : 0.0
+        // Teal presence when thoughts exist
+        let tealIntensity = hasRecentThoughts ? 0.12 : (serverReachable ? 0.04 : 0.0)
+
+        return [
+            BeagleTheme.truthObserved.opacity(tealIntensity),
+            Color(white: 0.04),
+            Color(white: 0.03),
+
+            BeagleTheme.postureWarm.opacity(goldIntensity),
+            base,
+            Color(white: 0.03),
+
+            base, base, Color(white: 0.02)
+        ]
+    }
 }

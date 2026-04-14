@@ -319,9 +319,9 @@ struct HomeView: View {
                     .foregroundStyle(BeagleTheme.textTertiary)
 
                 ForEach(cognitive.recentThoughts.prefix(3)) { thought in
+                    let thoughtText = thought.refinedText ?? thought.rawText ?? ""
                     Button {
-                        let text = thought.refinedText ?? thought.rawText ?? ""
-                        Task { await conversation.sendMessage("Expand on this thought: \(text)") }
+                        Task { await conversation.sendMessage("Expand on this thought: \(thoughtText)") }
                     } label: {
                         HStack(alignment: .top, spacing: BeagleSpacing.sm) {
                             Circle()
@@ -329,7 +329,7 @@ struct HomeView: View {
                                 .frame(width: 6, height: 6)
                                 .padding(.top, 6)
 
-                            Text(thought.refinedText ?? thought.rawText ?? "—")
+                            Text(thoughtText.isEmpty ? "—" : thoughtText)
                                 .font(BeagleFont.footnote.font)
                                 .foregroundStyle(BeagleTheme.textPrimary)
                                 .lineLimit(2)
@@ -339,6 +339,16 @@ struct HomeView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .contextMenu {
+                        Button {
+                            Task { await conversation.sendMessage("Expand on this thought: \(thoughtText)") }
+                        } label: {
+                            Label("Expand", systemImage: "text.bubble")
+                        }
+                        if !thoughtText.isEmpty {
+                            GoDeepContextAction(prompt: thoughtText)
+                        }
+                    }
                 }
             }
         }
@@ -356,6 +366,15 @@ struct HomeView: View {
                         Task { await conversation.regenerateLastResponse() }
                     } : nil
                 )
+
+                // Go Deeper button on assistant responses
+                if message.role == .assistant && !message.isStreaming {
+                    HStack {
+                        GoDeepButton(prompt: message.content)
+                        Spacer()
+                    }
+                    .padding(.leading, BeagleSpacing.md)
+                }
             }
         }
     }

@@ -41,7 +41,7 @@ struct HPCDashboardView: View {
                 .padding(.horizontal, BeagleSpacing.lg)
                 .padding(.top, BeagleSpacing.md)
             }
-            .background { PostureGradientBackground(counts: .empty) }
+            .background { HealthPulseGradient(truth: hpc.jobQueue.mode) }
             .navigationTitle("Cluster")
             .task { await hpc.refresh() }
             .refreshable { await hpc.refresh() }

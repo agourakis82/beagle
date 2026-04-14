@@ -13,6 +13,7 @@ struct ScienceJobsView: View {
     @Environment(CognitiveStore.self) private var cognitive
     @State private var selectedKind: String?
     @State private var launchError: String?
+    @State private var launchSuccess: String?
 
     private let jobKinds = [
         ("pbpk",     "cross.vial.fill",      "PBPK"),
@@ -27,6 +28,9 @@ struct ScienceJobsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
                     launcherSection
+                    if let success = launchSuccess {
+                        launchSuccessBanner(success)
+                    }
                     if let error = launchError {
                         launchErrorBanner(error)
                     }
@@ -36,7 +40,7 @@ struct ScienceJobsView: View {
                 .padding(.horizontal, BeagleSpacing.lg)
                 .padding(.top, BeagleSpacing.md)
             }
-            .background { PostureGradientBackground(counts: .empty) }
+            .background { ScienceJobsGradient(hasRunning: cognitive.activeJobs.contains(where: \.isRunning)) }
             .navigationTitle("Science")
             .task {
                 await cognitive.pollActiveJobs()
@@ -68,6 +72,7 @@ struct ScienceJobsView: View {
                                 .foregroundStyle(BeagleTheme.textSecondary)
                         }
                         .frame(maxWidth: .infinity)
+                        .frame(minHeight: 72)
                         .padding(.vertical, BeagleSpacing.md)
                         .background(
                             RoundedRectangle(cornerRadius: BeagleRadius.lg)
@@ -144,13 +149,16 @@ struct ScienceJobsView: View {
                         HStack(spacing: BeagleSpacing.sm) {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundStyle(BeagleTheme.truthObserved)
-                            Text(job.kind ?? "unknown")
-                                .font(BeagleFont.footnote.font)
-                                .foregroundStyle(BeagleTheme.textPrimary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(job.kind ?? "unknown")
+                                    .font(BeagleFont.footnote.font)
+                                    .foregroundStyle(BeagleTheme.textPrimary)
+                                Text(job.jobId ?? "")
+                                    .font(BeagleFont.dataSmall.font)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                            }
                             Spacer()
-                            Text(job.jobId ?? "")
-                                .font(BeagleFont.dataSmall.font)
-                                .foregroundStyle(BeagleTheme.textTertiary)
+                            GoDeepButton(prompt: "Analyze the results of my \(job.kind ?? "science") job \(job.jobId ?? "")")
                         }
                     }
                 }
@@ -162,15 +170,45 @@ struct ScienceJobsView: View {
 
     private func launchJob(kind: String) async {
         launchError = nil
+        launchSuccess = nil
         selectedKind = kind
         let job = await cognitive.launchJob(kind: kind)
-        if job == nil {
+        if let job {
+            withAnimation(BeagleMotion.snappy) {
+                launchSuccess = "\(kind.uppercased()) submitted — \(job.jobId ?? "tracking")"
+            }
+        } else {
             withAnimation(BeagleMotion.snappy) {
                 launchError = "Failed to submit \(kind) job. Check backend connectivity."
             }
         }
         try? await Task.sleep(for: .seconds(0.5))
         selectedKind = nil
+    }
+
+    private func launchSuccessBanner(_ message: String) -> some View {
+        HStack(spacing: BeagleSpacing.xs) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(BeagleTheme.truthObserved)
+            Text(message)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.truthObserved)
+            Spacer()
+            Button {
+                withAnimation(BeagleMotion.snappy) { launchSuccess = nil }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(BeagleSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.md)
+                .fill(BeagleTheme.truthObserved.opacity(0.08))
+        )
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .sensoryFeedback(.success, trigger: launchSuccess != nil)
     }
 
     private func launchErrorBanner(_ error: String) -> some View {
@@ -196,5 +234,54 @@ struct ScienceJobsView: View {
                 .fill(BeagleTheme.stateError.opacity(0.1))
         )
         .transition(.move(edge: .top).combined(with: .opacity))
+    }
+}
+
+// MARK: - Science Jobs Gradient
+
+/// Background pulses with gold warmth when jobs are running.
+private struct ScienceJobsGradient: View {
+    let hasRunning: Bool
+    @State private var phase: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        MeshGradient(
+            width: 3, height: 3,
+            points: animatedPoints,
+            colors: gradientColors
+        )
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 1.5), value: hasRunning)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 7).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
+        }
+    }
+
+    private var animatedPoints: [SIMD2<Float>] {
+        let d: Float = reduceMotion ? 0 : Float(phase) * 0.06
+        return [
+            SIMD2(0,     0),     SIMD2(0.5,   0),       SIMD2(1,     0),
+            SIMD2(0+d,   0.5-d), SIMD2(0.5+d, 0.5+d),   SIMD2(1-d,   0.5+d),
+            SIMD2(0,     1),     SIMD2(0.5,   1),       SIMD2(1,     1)
+        ]
+    }
+
+    private var gradientColors: [Color] {
+        let base = Color(red: 0.02, green: 0.03, blue: 0.07)
+        return [
+            BeagleTheme.truthObserved.opacity(hasRunning ? 0.12 : 0.0),
+            Color(white: 0.04),
+            Color(white: 0.03),
+
+            BeagleTheme.postureWarm.opacity(hasRunning ? 0.18 : 0.0),
+            base,
+            Color(white: 0.03),
+
+            base, base, Color(white: 0.02)
+        ]
     }
 }

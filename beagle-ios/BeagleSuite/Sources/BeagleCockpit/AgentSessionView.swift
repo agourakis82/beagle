@@ -86,14 +86,9 @@ struct AgentSessionView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .background(
-            LinearGradient(
-                colors: [BeagleTheme.surface0, BeagleTheme.surface1.opacity(0.5)],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        )
+        .background { AgentSessionGradient(sessionState: sessionState, connectionState: terminal.connectionState) }
         .navigationTitle("Agent \u{00B7} \(slug)")
+        .sensoryFeedback(.success, trigger: sessionState.isRunning)
         .onChange(of: sessionState) {
             if sessionState.isRunning {
                 inputFocused = true
@@ -213,7 +208,8 @@ struct AgentSessionView: View {
                         Label(kind.displayName, systemImage: kind.iconSystemName)
                             .font(BeagleFont.footnote.font)
                             .padding(.horizontal, BeagleSpacing.md)
-                            .padding(.vertical, BeagleSpacing.xs)
+                            .padding(.vertical, BeagleSpacing.xs + 2)
+                            .frame(minHeight: 44)
                             .foregroundStyle(
                                 selectedKind == kind ? BeagleTheme.truthObserved : BeagleTheme.textSecondary
                             )
@@ -280,11 +276,7 @@ struct AgentSessionView: View {
                 .buttonStyle(PrimaryButton())
 
             case .spawning:
-                ProgressView()
-                    .controlSize(.small)
-                Text("Starting...")
-                    .font(BeagleFont.footnote.font)
-                    .foregroundStyle(BeagleTheme.textSecondary)
+                SpawningIndicator(agentKind: selectedKind)
 
             case .error:
                 Button {
@@ -368,5 +360,107 @@ struct AgentSessionView: View {
     /// Same as spawnSession — checks for running session and connects.
     private func resumeLastSession() async {
         await spawnSession()
+    }
+}
+
+// MARK: - Spawning Indicator (rotating messages)
+
+private struct SpawningIndicator: View {
+    let agentKind: AgentKind
+    @State private var message = ""
+    @State private var index = 0
+
+    private var messages: [String] {
+        [
+            "Requesting pod from cluster...",
+            "Pulling container image...",
+            "Mounting persistent volume...",
+            "Starting \(agentKind.displayName)...",
+        ]
+    }
+
+    var body: some View {
+        HStack(spacing: BeagleSpacing.xs) {
+            Image(systemName: agentKind.iconSystemName)
+                .font(.system(size: 12))
+                .foregroundStyle(BeagleTheme.postureWarm)
+                .symbolEffect(.pulse, isActive: true)
+
+            Text(message.isEmpty ? messages[0] : message)
+                .font(BeagleFont.footnote.font)
+                .foregroundStyle(BeagleTheme.postureWarm)
+                .contentTransition(.numericText())
+                .animation(BeagleMotion.normal, value: message)
+
+            ProgressView()
+                .controlSize(.small)
+                .tint(BeagleTheme.postureWarm)
+        }
+        .task {
+            while !Task.isCancelled {
+                message = messages[index % messages.count]
+                index += 1
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+}
+
+// MARK: - Agent Session Gradient
+
+/// Living background that reacts to session state.
+private struct AgentSessionGradient: View {
+    let sessionState: AgentSessionView.AgentSessionState
+    let connectionState: WebSocketState
+    @State private var phase: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        MeshGradient(
+            width: 3, height: 3,
+            points: animatedPoints,
+            colors: gradientColors
+        )
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 1.5), value: sessionState.isRunning)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 8).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
+        }
+    }
+
+    private var animatedPoints: [SIMD2<Float>] {
+        let d: Float = reduceMotion ? 0 : Float(phase) * 0.06
+        return [
+            SIMD2(0,     0),     SIMD2(0.5,   0),       SIMD2(1,     0),
+            SIMD2(0+d,   0.5-d), SIMD2(0.5+d, 0.5+d),   SIMD2(1-d,   0.5+d),
+            SIMD2(0,     1),     SIMD2(0.5,   1),       SIMD2(1,     1)
+        ]
+    }
+
+    private var gradientColors: [Color] {
+        let base = Color(red: 0.02, green: 0.03, blue: 0.07)
+        let isLive = sessionState.isRunning && connectionState.isConnected
+
+        return [
+            BeagleTheme.truthObserved.opacity(isLive ? 0.25 : 0.0),
+            Color(white: 0.04),
+            Color(white: 0.03),
+
+            BeagleTheme.postureWarm.opacity(sessionState == .spawning ? 0.15 : 0.0),
+            base,
+            Color(white: 0.03),
+
+            base, base, Color(white: 0.02)
+        ]
+    }
+}
+
+private extension WebSocketState {
+    var isConnected: Bool {
+        if case .connected = self { return true }
+        return false
     }
 }

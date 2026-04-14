@@ -207,4 +207,66 @@ public actor CockpitClient {
     public func goWorkNow(slug: String) async -> Truthful<GoWorkNow> {
         await fetch(GoWorkNow.self, path: "/api/projects/\(slug)/go-work-now")
     }
+
+    // MARK: - Project Memory
+
+    public func fastMemory(slug: String) async -> Truthful<ProjectMemory> {
+        await fetch(ProjectMemory.self, path: "/api/projects/\(slug)/memory/fast")
+    }
+
+    public func deepMemory(slug: String) async -> Truthful<ProjectMemory> {
+        await fetch(ProjectMemory.self, path: "/api/projects/\(slug)/memory/deep", timeout: 15)
+    }
+
+    // MARK: - Sovereign Surface
+
+    public func sovereignSurface(slug: String) async -> Truthful<SovereignSurface> {
+        await fetch(SovereignSurface.self, path: "/api/projects/\(slug)/sovereign-surface")
+    }
+
+    public func truthSummary(slug: String) async -> Truthful<ProjectTruthSummary> {
+        await fetch(ProjectTruthSummary.self, path: "/api/projects/\(slug)/truth/summary")
+    }
+
+    // MARK: - Git Operations
+
+    public func gitStatus(slug: String) async -> Truthful<GitStatusResponse> {
+        await fetch(GitStatusResponse.self, path: "/api/projects/\(slug)/git/status")
+    }
+
+    public func gitDiff(slug: String) async -> Truthful<GitDiffResponse> {
+        await fetch(GitDiffResponse.self, path: "/api/projects/\(slug)/git/diff")
+    }
+
+    // MARK: - Execution & Workflows
+
+    public func executionPackets(slug: String) async -> Truthful<ExecutionPacketsResponse> {
+        await fetch(ExecutionPacketsResponse.self, path: "/api/projects/\(slug)/execution/packets")
+    }
+
+    public func scientificWorkflows(slug: String) async -> Truthful<ScientificWorkflowsResponse> {
+        await fetch(ScientificWorkflowsResponse.self, path: "/api/projects/\(slug)/workflows/scientific")
+    }
+
+    public func datasetCatalog(slug: String) async -> Truthful<DatasetCatalogResponse> {
+        await fetch(DatasetCatalogResponse.self, path: "/api/projects/\(slug)/datasets/catalog")
+    }
+
+    // MARK: - Session
+
+    public func sessionHeartbeat(slug: String, clientSessionId: String) async -> Truthful<SessionHeartbeatResponse> {
+        await post(SessionHeartbeatResponse.self, path: "/api/projects/\(slug)/session/heartbeat", body: [
+            "clientSessionId": clientSessionId
+        ])
+    }
+
+    // MARK: - Vision (public endpoints)
+
+    public func appleBrief() async -> Truthful<AppleBriefResponse> {
+        await fetch(AppleBriefResponse.self, path: "/api/public/vision/apple-brief")
+    }
+
+    public func controlRoomVision() async -> Truthful<ControlRoomVisionResponse> {
+        await fetch(ControlRoomVisionResponse.self, path: "/api/public/vision/control-room")
+    }
 }

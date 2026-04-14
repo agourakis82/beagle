@@ -93,13 +93,7 @@ struct ChatBubbleView: View {
     }
 
     private var streamingPlaceholder: some View {
-        HStack(spacing: BeagleSpacing.xs) {
-            ProgressView()
-                .controlSize(.small)
-            Text("Thinking...")
-                .font(BeagleFont.footnote.font)
-                .foregroundStyle(BeagleTheme.textSecondary)
-        }
+        ThinkingIndicator()
     }
 
     @ViewBuilder
@@ -183,6 +177,45 @@ struct ChatBubbleView: View {
                 onRegenerate()
             } label: {
                 Label("Regenerate", systemImage: "arrow.clockwise")
+            }
+
+            Divider()
+
+            GoDeepContextAction(prompt: message.content)
+        }
+    }
+}
+
+// MARK: - Thinking Indicator (rotating messages instead of spinner)
+
+private struct ThinkingIndicator: View {
+    @State private var message = ""
+    @State private var index = 0
+
+    private static let messages = [
+        "Thinking...",
+        "Considering context...",
+        "Forming response...",
+    ]
+
+    var body: some View {
+        HStack(spacing: BeagleSpacing.xs) {
+            Image(systemName: "brain")
+                .font(.system(size: 11))
+                .foregroundStyle(BeagleTheme.truthObserved)
+                .symbolEffect(.pulse, isActive: true)
+
+            Text(message.isEmpty ? Self.messages[0] : message)
+                .font(BeagleFont.footnote.font)
+                .foregroundStyle(BeagleTheme.textSecondary)
+                .contentTransition(.numericText())
+                .animation(BeagleMotion.normal, value: message)
+        }
+        .task {
+            while !Task.isCancelled {
+                message = Self.messages[index % Self.messages.count]
+                index += 1
+                try? await Task.sleep(for: .seconds(2))
             }
         }
     }
