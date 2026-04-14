@@ -246,26 +246,45 @@ struct ModelSettingsView: View {
         }
     }
 
-    // MARK: - Model Catalog
+    // MARK: - Model Catalog (grouped by category)
 
     private var catalogSection: some View {
-        VStack(alignment: .leading, spacing: BeagleSpacing.md) {
-            sectionLabel("Available Models")
+        VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
+            ForEach(ModelCategory.allCases, id: \.rawValue) { category in
+                let models = OnDeviceModel.models(in: category)
+                if !models.isEmpty {
+                    VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                        HStack(spacing: BeagleSpacing.xs) {
+                            Image(systemName: categoryIcon(category))
+                                .font(.system(size: 13))
+                                .foregroundStyle(categoryColor(category))
+                            Text(category.rawValue)
+                                .font(BeagleFont.headline.font)
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                        }
 
-            ForEach(OnDeviceModel.allCases) { model in
-                let isActive = llm.currentModel == model && llm.isReady
-                let isDisabled = !model.fitsOnThisDevice || llm.loadState == .loading
+                        Text(categoryDescription(category))
+                            .font(BeagleFont.caption.font)
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .lineSpacing(1)
 
-                Button {
-                    selectedModel = model
-                    Task { await llm.load(model) }
-                } label: {
-                    modelCard(model, isActive: isActive)
+                        ForEach(models) { model in
+                            let isActive = llm.currentModel == model && llm.isReady
+                            let isDisabled = !model.fitsOnThisDevice || llm.loadState == .loading
+
+                            Button {
+                                selectedModel = model
+                                Task { await llm.load(model) }
+                            } label: {
+                                modelCard(model, isActive: isActive)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isDisabled)
+                            .opacity(isDisabled ? 0.5 : 1.0)
+                            .sensoryFeedback(.impact(weight: .medium), trigger: selectedModel == model)
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(isDisabled)
-                .opacity(isDisabled ? 0.5 : 1.0)
-                .sensoryFeedback(.impact(weight: .medium), trigger: selectedModel == model)
             }
 
             Text("Models download from HuggingFace on first use. WiFi recommended.")
@@ -275,50 +294,101 @@ struct ModelSettingsView: View {
         }
     }
 
+    private func categoryIcon(_ cat: ModelCategory) -> String {
+        switch cat {
+        case .reasoning:    return "brain.head.profile"
+        case .code:         return "curlybraces"
+        case .ssm:          return "waveform.path"
+        case .multilingual: return "globe"
+        case .fast:         return "hare"
+        }
+    }
+
+    private func categoryColor(_ cat: ModelCategory) -> Color {
+        switch cat {
+        case .reasoning:    return BeagleTheme.truthObserved
+        case .code:         return BeagleTheme.truthRemembered
+        case .ssm:          return BeagleTheme.postureWarm
+        case .multilingual: return BeagleTheme.textData
+        case .fast:         return BeagleTheme.truthDeclared
+        }
+    }
+
+    private func categoryDescription(_ cat: ModelCategory) -> String {
+        switch cat {
+        case .reasoning:
+            return "Mathematical proofs, scientific analysis, step-by-step derivations. Use for deep thinking."
+        case .code:
+            return "Function generation, structured output (JSON/YAML), technical writing. Use for building."
+        case .ssm:
+            return "State Space Models — O(n) complexity, infinite context without memory blowup. The future of on-device LLM."
+        case .multilingual:
+            return "Strong Portuguese, French, Spanish alongside English. Use for multilingual drafting."
+        case .fast:
+            return "Quick answers, low memory, fast loading. Use as fallback or for simple questions."
+        }
+    }
+
     private func modelCard(_ model: OnDeviceModel, isActive: Bool) -> some View {
-        HStack(spacing: BeagleSpacing.sm) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: BeagleSpacing.xs) {
-                    Text(model.displayName)
-                        .font(BeagleFont.body.font)
-                        .foregroundStyle(model.fitsOnThisDevice ? BeagleTheme.textPrimary : BeagleTheme.textTertiary)
+        VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+            HStack(spacing: BeagleSpacing.xs) {
+                Text(model.displayName)
+                    .font(BeagleFont.body.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(model.fitsOnThisDevice ? BeagleTheme.textPrimary : BeagleTheme.textTertiary)
 
-                    Text(model.parameterCount)
-                        .font(BeagleFont.dataSmall.font)
-                        .foregroundStyle(BeagleTheme.textTertiary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.white.opacity(0.06)))
-                }
-
-                Text(model.bestFor)
-                    .font(BeagleFont.caption.font)
-                    .foregroundStyle(BeagleTheme.textTertiary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(model.sizeDescription)
+                Text(model.parameterCount)
                     .font(BeagleFont.dataSmall.font)
-                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.white.opacity(0.06)))
 
-                if !model.fitsOnThisDevice {
-                    Text("too large")
-                        .font(BeagleFont.caption2.font)
-                        .foregroundStyle(BeagleTheme.stateError)
-                } else if model == .recommended {
-                    Text("recommended")
-                        .font(BeagleFont.caption2.font)
+                Text(model.tagline)
+                    .font(BeagleFont.caption2.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(categoryColor(model.category))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(categoryColor(model.category).opacity(0.1)))
+
+                Spacer()
+
+                if isActive {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 16))
                         .foregroundStyle(BeagleTheme.truthObserved)
                 }
             }
 
-            if isActive {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 16))
+            Text(model.bestFor)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.textSecondary)
+                .lineLimit(2)
+                .lineSpacing(1)
+
+            HStack(spacing: BeagleSpacing.sm) {
+                Text(model.sizeDescription)
+                    .font(BeagleFont.dataSmall.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+
+                if !model.fitsOnThisDevice {
+                    Text("too large for this device")
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.stateError)
+                } else if model == .recommended {
+                    HStack(spacing: 3) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 8))
+                        Text("recommended")
+                    }
+                    .font(BeagleFont.caption2.font)
                     .foregroundStyle(BeagleTheme.truthObserved)
+                }
+
+                Text("min \(model.minimumRAMGB) GB RAM")
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
             }
         }
         .frame(minHeight: 44)
