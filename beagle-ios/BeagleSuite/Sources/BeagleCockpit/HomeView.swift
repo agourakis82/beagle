@@ -56,17 +56,7 @@ struct HomeView: View {
 
             exocortexInput
         }
-        .background(
-            LinearGradient(
-                colors: [
-                    BeagleTheme.surface0,
-                    Color(red: 8/255, green: 15/255, blue: 28/255),
-                    Color(red: 5/255, green: 12/255, blue: 24/255)
-                ],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        )
+        .background { HomeGradient(thoughtCount: cognitive.recentThoughts.count, hasJobs: !cognitive.activeJobs.isEmpty) }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -97,7 +87,7 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Greeting
+    // MARK: - Greeting (recognition, not template)
 
     private var greetingSection: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
@@ -105,42 +95,80 @@ struct HomeView: View {
                 .font(BeagleFont.largeTitle.font)
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [BeagleTheme.textPrimary, BeagleTheme.truthObserved.opacity(0.7)],
+                        colors: circadianGradientColors,
                         startPoint: .leading, endPoint: .trailing
                     )
                 )
                 .opacity(hasAppeared ? 1 : 0)
                 .offset(y: hasAppeared ? 0 : 10)
-                .animation(.easeOut(duration: 0.6), value: hasAppeared)
+                .animation(.easeOut(duration: 0.8), value: hasAppeared)
 
             Text(contextLine)
                 .font(BeagleFont.body.font)
                 .foregroundStyle(BeagleTheme.textSecondary)
+                .lineSpacing(3)
                 .opacity(hasAppeared ? 1 : 0)
                 .offset(y: hasAppeared ? 0 : 8)
-                .animation(.easeOut(duration: 0.6).delay(0.15), value: hasAppeared)
+                .animation(.easeOut(duration: 0.8).delay(0.2), value: hasAppeared)
 
-            if LocalLLMEngine.shared.isReady, let model = LocalLLMEngine.shared.currentModel {
-                HStack(spacing: BeagleSpacing.xxs) {
-                    Image(systemName: "brain")
-                        .font(.system(size: 10))
-                    Text("\(model.displayName) on-device")
-                        .font(BeagleFont.caption2.font)
+            // Growth + safety
+            HStack(spacing: BeagleSpacing.md) {
+                if !cognitive.recentThoughts.isEmpty {
+                    HStack(spacing: BeagleSpacing.xxs) {
+                        Image(systemName: "leaf.fill")
+                            .font(.system(size: 9))
+                        Text("\(cognitive.recentThoughts.count) thoughts")
+                            .font(BeagleFont.caption2.font)
+                    }
+                    .foregroundStyle(BeagleTheme.truthObserved.opacity(0.6))
                 }
-                .foregroundStyle(BeagleTheme.truthObserved.opacity(0.7))
-                .opacity(hasAppeared ? 1 : 0)
-                .animation(.easeOut(duration: 0.4).delay(0.25), value: hasAppeared)
+
+                if LocalLLMEngine.shared.isReady {
+                    HStack(spacing: BeagleSpacing.xxs) {
+                        Image(systemName: "lock.shield.fill")
+                            .font(.system(size: 9))
+                        Text("On-device")
+                            .font(BeagleFont.caption2.font)
+                    }
+                    .foregroundStyle(BeagleTheme.truthObserved.opacity(0.5))
+                }
             }
+            .opacity(hasAppeared ? 1 : 0)
+            .animation(.easeOut(duration: 0.6).delay(0.4), value: hasAppeared)
+        }
+    }
+
+    /// Circadian gradient: warm gold in morning, teal in afternoon, soft violet at night.
+    private var circadianGradientColors: [Color] {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<10:  return [BeagleTheme.postureWarm, BeagleTheme.textPrimary]         // morning gold
+        case 10..<17: return [BeagleTheme.textPrimary, BeagleTheme.truthObserved.opacity(0.7)]  // day teal
+        case 17..<21: return [BeagleTheme.textPrimary, BeagleTheme.truthRemembered.opacity(0.6)] // evening sky
+        default:      return [BeagleTheme.textPrimary, Color(hue: 270/360, saturation: 0.3, brightness: 0.7)] // night violet
         }
     }
 
     private var contextLine: String {
-        let jobCount = cognitive.activeJobs.count
-        let projectCount = catalog.postureCounts.totalProjects
-        if jobCount > 0 {
-            return "\(jobCount) job\(jobCount > 1 ? "s" : "") running across \(projectCount) surfaces."
+        let thoughts = cognitive.recentThoughts
+        let jobs = cognitive.activeJobs
+
+        // Recognition: acknowledge what the user has been working on
+        if let latest = thoughts.first, let text = latest.refinedText ?? latest.rawText {
+            let snippet = String(text.prefix(60))
+            if jobs.isEmpty {
+                return "Your last thought: \"\(snippet)\(text.count > 60 ? "..." : "")\" — want to continue?"
+            } else {
+                return "\(jobs.count) job\(jobs.count > 1 ? "s" : "") running. Last thought: \"\(snippet)\(text.count > 60 ? "..." : "")\""
+            }
         }
-        return "\(projectCount) sovereign surfaces. What are you thinking about?"
+
+        // Returning user with no recent thoughts
+        let hour = Calendar.current.component(.hour, from: Date())
+        if hour >= 0 && hour < 5 {
+            return "Late night thinking? Your exocortex is here. Everything stays on this device."
+        }
+        return "Your exocortex is ready. What's on your mind?"
     }
 
     // MARK: - Provocations (like ChatGPT Pulse)
@@ -470,7 +498,7 @@ struct HomeView: View {
     private var exocortexInput: some View {
         BeagleInputBar(
             text: $inputText,
-            placeholder: "Ask the exocortex...",
+            placeholder: circadianPlaceholder,
             mode: .chat,
             isEnabled: !conversation.isStreaming,
             onSubmit: { text in
@@ -720,13 +748,38 @@ struct HomeView: View {
     }
     #endif
 
-    private func timeGreeting() -> String {
+    private var circadianPlaceholder: String {
         let hour = Calendar.current.component(.hour, from: Date())
         switch hour {
-        case 5..<12:  return "Good morning."
-        case 12..<17: return "Good afternoon."
-        case 17..<22: return "Good evening."
-        default:      return "Still thinking?"
+        case 5..<9:    return "What's on your mind this morning?"
+        case 9..<12:   return "What are you working through?"
+        case 12..<14:  return "Any insights from the morning?"
+        case 14..<18:  return "What's taking shape?"
+        case 18..<22:  return "Anything worth capturing tonight?"
+        default:       return "Can't sleep? Write it down..."
+        }
+    }
+
+    private func timeGreeting() -> String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let thoughtCount = cognitive.recentThoughts.count
+
+        // Contextual, warm — acknowledges where you are in your day and journey
+        switch hour {
+        case 5..<8:
+            return thoughtCount > 0 ? "Early start." : "Fresh morning."
+        case 8..<12:
+            return thoughtCount > 10 ? "Your mind has been active." : "Good morning."
+        case 12..<14:
+            return "Midday."
+        case 14..<17:
+            return thoughtCount > 5 ? "Deep afternoon." : "Good afternoon."
+        case 17..<20:
+            return "Winding down."
+        case 20..<23:
+            return thoughtCount > 0 ? "Evening reflections." : "Quiet evening."
+        default:
+            return "Still here."
         }
     }
 
@@ -840,4 +893,87 @@ struct Provocation: Identifiable {
     let icon: String
     let color: Color
     let prompt: String
+}
+
+// MARK: - Home Gradient (circadian, warm, alive)
+
+/// The home screen breathes with a circadian rhythm.
+/// Morning: warm amber glow. Afternoon: focused teal. Evening: soft violet.
+/// Night: deep indigo with a gentle heartbeat. The more thoughts you have,
+/// the more alive the mesh becomes — your intellectual presence warms the space.
+private struct HomeGradient: View {
+    let thoughtCount: Int
+    let hasJobs: Bool
+    @State private var phase: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        MeshGradient(
+            width: 3, height: 3,
+            points: animatedPoints,
+            colors: gradientColors
+        )
+        .ignoresSafeArea()
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 10).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
+        }
+    }
+
+    private var animatedPoints: [SIMD2<Float>] {
+        // Slower breathing than other views — this is home, not a cockpit
+        let d: Float = reduceMotion ? 0 : Float(phase) * 0.05
+        return [
+            SIMD2(0,       0),     SIMD2(0.5,     0),       SIMD2(1,       0),
+            SIMD2(0+d,     0.5-d), SIMD2(0.5+d,   0.5+d),   SIMD2(1-d,     0.5+d),
+            SIMD2(0,       1),     SIMD2(0.5,     1),       SIMD2(1,       1)
+        ]
+    }
+
+    private var gradientColors: [Color] {
+        let base = Color(red: 0.02, green: 0.03, blue: 0.06)
+        let hour = Calendar.current.component(.hour, from: Date())
+
+        // Intellectual presence: more thoughts = warmer mesh
+        let presenceWarmth = min(Double(thoughtCount) * 0.015, 0.20)
+
+        // Circadian accent
+        let accent: Color
+        let accentIntensity: Double
+
+        switch hour {
+        case 5..<10:
+            // Morning: amber warmth, gentle
+            accent = Color(hue: 35/360, saturation: 0.7, brightness: 0.9)
+            accentIntensity = 0.12 + presenceWarmth
+        case 10..<17:
+            // Day: teal focus, productive
+            accent = BeagleTheme.truthObserved
+            accentIntensity = 0.10 + presenceWarmth
+        case 17..<21:
+            // Evening: violet-blue, reflective
+            accent = Color(hue: 250/360, saturation: 0.4, brightness: 0.7)
+            accentIntensity = 0.10 + presenceWarmth
+        default:
+            // Night: deep indigo, quiet, safe
+            accent = Color(hue: 240/360, saturation: 0.3, brightness: 0.5)
+            accentIntensity = 0.06 + presenceWarmth
+        }
+
+        let jobGlow = hasJobs ? BeagleTheme.postureWarm.opacity(0.08) : Color(white: 0.03)
+
+        return [
+            accent.opacity(accentIntensity),
+            accent.opacity(accentIntensity * 0.3),
+            Color(white: 0.03),
+
+            jobGlow,
+            base,
+            Color(white: 0.03),
+
+            base, base, Color(white: 0.02)
+        ]
+    }
 }
