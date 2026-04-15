@@ -60,7 +60,7 @@ struct GoDeepView: View {
 
                 // Wire Live Activity callbacks
                 store.onResearchStart = { runId, name, slug in
-                    LiveActivityManager.shared.startResearchActivity(runId: runId, campaignName: name, slug: slug)
+                    LiveActivityManager.shared.startResearchActivity(runId: runId, campaign: name, slug: slug)
                 }
                 store.onResearchUpdate = { step, total, eta in
                     LiveActivityManager.shared.updateResearchActivity(step: step, total: total, eta: eta)

@@ -177,7 +177,7 @@ struct ScienceJobsView: View {
             // Start Live Activity on Dynamic Island
             LiveActivityManager.shared.startResearchActivity(
                 runId: job.jobId ?? UUID().uuidString,
-                campaignName: kind.uppercased(),
+                campaign: kind.uppercased(),
                 slug: "science"
             )
             withAnimation(BeagleMotion.snappy) {
