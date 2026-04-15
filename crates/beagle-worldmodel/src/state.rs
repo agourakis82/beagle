@@ -12,15 +12,15 @@
 //! - "Probabilistic World Models" (Hafner et al., 2025)
 //! - "Object-Centric World Models" (Kipf et al., 2024)
 
-use std::sync::Arc;
-use std::collections::{HashMap, HashSet};
-use serde::{Serialize, Deserialize};
-use dashmap::DashMap;
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
+use dashmap::DashMap;
 use nalgebra as na;
-use petgraph::graph::{Graph, NodeIndex};
 use parking_lot::RwLock;
+use petgraph::graph::{Graph, NodeIndex};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use uuid::Uuid;
 
 /// World state representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,8 +171,8 @@ pub struct BoundingBox {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ReferenceFrame {
     World,
-    Local(Uuid),  // Relative to another entity
-    Geographic,   // Lat/lon/alt
+    Local(Uuid), // Relative to another entity
+    Geographic,  // Lat/lon/alt
 }
 
 /// Temporal information
@@ -199,9 +199,9 @@ pub struct TemporalInfo {
 pub enum RecurrencePattern {
     Daily,
     Weekly(Vec<chrono::Weekday>),
-    Monthly(u32), // Day of month
+    Monthly(u32),     // Day of month
     Yearly(u32, u32), // Month, day
-    Custom(String), // Cron expression
+    Custom(String),   // Cron expression
 }
 
 /// Belief state using particle representation
@@ -241,7 +241,8 @@ impl BeliefState {
     }
 
     pub fn entropy(&self) -> f64 {
-        -self.particles
+        -self
+            .particles
             .iter()
             .filter(|p| p.weight > 0.0)
             .map(|p| p.weight * p.weight.ln())
@@ -379,9 +380,15 @@ pub struct Region {
 pub enum Geometry {
     Point(na::Point3<f64>),
     Box(BoundingBox),
-    Sphere { center: na::Point3<f64>, radius: f64 },
+    Sphere {
+        center: na::Point3<f64>,
+        radius: f64,
+    },
     Polygon(Vec<na::Point3<f64>>),
-    Mesh { vertices: Vec<na::Point3<f64>>, faces: Vec<[u32; 3]> },
+    Mesh {
+        vertices: Vec<na::Point3<f64>>,
+        faces: Vec<[u32; 3]>,
+    },
 }
 
 impl WorldState {
@@ -443,9 +450,7 @@ impl WorldState {
     pub fn query_by_property(&self, key: &str, value: &str) -> Vec<Entity> {
         self.entities
             .values()
-            .filter(|e| {
-                e.properties.get_string(key) == Some(value)
-            })
+            .filter(|e| e.properties.get_string(key) == Some(value))
             .cloned()
             .collect()
     }
@@ -460,13 +465,11 @@ impl WorldState {
             .filter(|e| {
                 // Check entity type
                 match &e.entity_type {
-                    EntityType::Object(name) |
-                    EntityType::Agent(name) |
-                    EntityType::Location(name) |
-                    EntityType::Event(name) |
-                    EntityType::Abstract(name) => {
-                        name.to_lowercase().contains(&query_lower)
-                    },
+                    EntityType::Object(name)
+                    | EntityType::Agent(name)
+                    | EntityType::Location(name)
+                    | EntityType::Event(name)
+                    | EntityType::Abstract(name) => name.to_lowercase().contains(&query_lower),
                     _ => false,
                 }
             })
@@ -481,14 +484,13 @@ impl WorldState {
             match self.entities.get_mut(&id) {
                 Some(existing) => {
                     // Merge properties and beliefs
-                    existing.beliefs.update(
-                        &entity.beliefs.particles[0].state,
-                        0.1
-                    );
-                },
+                    existing
+                        .beliefs
+                        .update(&entity.beliefs.particles[0].state, 0.1);
+                }
                 None => {
                     self.entities.insert(id, entity);
-                },
+                }
             }
         }
 
@@ -564,10 +566,11 @@ impl WorldState {
             let composite = Entity {
                 id: composite_id,
                 entity_type: EntityType::Composite(
-                    group.iter()
+                    group
+                        .iter()
                         .filter_map(|id| self.entities.get(id))
                         .map(|e| e.entity_type.clone())
-                        .collect()
+                        .collect(),
                 ),
                 properties: composite_props,
                 spatial: self.compute_group_spatial(&group),
@@ -585,7 +588,8 @@ impl WorldState {
     }
 
     fn compute_group_spatial(&self, group: &[Uuid]) -> Option<SpatialInfo> {
-        let positions: Vec<_> = group.iter()
+        let positions: Vec<_> = group
+            .iter()
             .filter_map(|id| self.entities.get(id))
             .filter_map(|e| e.spatial.as_ref())
             .map(|s| s.position.coords)
@@ -611,12 +615,18 @@ impl WorldState {
     fn simplify_properties(&mut self) {
         for entity in self.entities.values_mut() {
             // Keep only important properties (simplified heuristic)
-            let important_keys: HashSet<_> = entity.properties.strings.keys()
+            let important_keys: HashSet<_> = entity
+                .properties
+                .strings
+                .keys()
                 .filter(|k| k.contains("type") || k.contains("name") || k.contains("id"))
                 .cloned()
                 .collect();
 
-            entity.properties.strings.retain(|k, _| important_keys.contains(k));
+            entity
+                .properties
+                .strings
+                .retain(|k, _| important_keys.contains(k));
 
             // Round numeric properties
             for value in entity.properties.numbers.values_mut() {
@@ -653,9 +663,20 @@ pub struct PropertyDiff {
 /// Relationship change
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RelationshipChange {
-    Added { from: Uuid, to: Uuid, rel: Relationship },
-    Removed { from: Uuid, to: Uuid },
-    Modified { from: Uuid, to: Uuid, rel: Relationship },
+    Added {
+        from: Uuid,
+        to: Uuid,
+        rel: Relationship,
+    },
+    Removed {
+        from: Uuid,
+        to: Uuid,
+    },
+    Modified {
+        from: Uuid,
+        to: Uuid,
+        rel: Relationship,
+    },
 }
 
 impl WorldState {
@@ -682,10 +703,8 @@ impl WorldState {
         // Find modified entities
         for (id, entity) in &self.entities {
             if let Some(other_entity) = other.entities.get(id) {
-                let prop_diff = Self::compute_property_diff(
-                    &entity.properties,
-                    &other_entity.properties
-                );
+                let prop_diff =
+                    Self::compute_property_diff(&entity.properties, &other_entity.properties);
 
                 if !prop_diff.is_empty() {
                     modified.push((*id, prop_diff));
@@ -723,19 +742,23 @@ impl WorldState {
 
         // Similar for other property types...
 
-        PropertyDiff { added, removed, modified }
+        PropertyDiff {
+            added,
+            removed,
+            modified,
+        }
     }
 }
 
 impl PropertyDiff {
     fn is_empty(&self) -> bool {
-        self.added.booleans.is_empty() &&
-        self.added.numbers.is_empty() &&
-        self.added.strings.is_empty() &&
-        self.removed.is_empty() &&
-        self.modified.booleans.is_empty() &&
-        self.modified.numbers.is_empty() &&
-        self.modified.strings.is_empty()
+        self.added.booleans.is_empty()
+            && self.added.numbers.is_empty()
+            && self.added.strings.is_empty()
+            && self.removed.is_empty()
+            && self.modified.booleans.is_empty()
+            && self.modified.numbers.is_empty()
+            && self.modified.strings.is_empty()
     }
 }
 
@@ -778,10 +801,7 @@ mod tests {
         let mut beliefs = BeliefState::new_uniform(100);
         assert_eq!(beliefs.particles.len(), 100);
 
-        let observation = HashMap::from([
-            ("x".to_string(), 1.0),
-            ("y".to_string(), 2.0),
-        ]);
+        let observation = HashMap::from([("x".to_string(), 1.0), ("y".to_string(), 2.0)]);
 
         beliefs.update(&observation, 0.1);
 
