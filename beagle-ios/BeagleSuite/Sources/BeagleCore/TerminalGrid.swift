@@ -81,8 +81,12 @@ public struct TerminalRow: Sendable, Identifiable {
 
     /// The text content of this row (trailing spaces trimmed).
     public var text: String {
-        let chars = cells.map { $0.character }
-        return String(chars).replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+        var lastNonSpace = cells.count - 1
+        while lastNonSpace >= 0 && cells[lastNonSpace].character == " " {
+            lastNonSpace -= 1
+        }
+        guard lastNonSpace >= 0 else { return "" }
+        return String(cells[0...lastNonSpace].map { $0.character })
     }
 
     /// Whether the row has any non-space content.
@@ -182,7 +186,9 @@ public final class TerminalGrid {
         }
 
         trimScrollback()
-        revision += 1
+        if !tokens.isEmpty {
+            revision += 1
+        }
     }
 
     /// Resize the terminal grid.
@@ -199,6 +205,7 @@ public final class TerminalGrid {
             rows[i].isDirty = true
         }
         cursorCol = min(cursorCol, cols - 1)
+        savedCursorCol = min(savedCursorCol, cols - 1)
         revision += 1
     }
 

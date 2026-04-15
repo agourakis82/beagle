@@ -17,6 +17,7 @@ import BeagleCore
 struct MetalClusterView: View {
     let nodes: [ClusterNode]
     @State private var selectedNode: ClusterNode?
+    @State private var pulseHealthy = false
 
     var body: some View {
         VStack(spacing: BeagleSpacing.md) {
@@ -41,6 +42,9 @@ struct MetalClusterView: View {
                 nodeCard(node)
             }
         }
+        .onAppear {
+            pulseHealthy = true
+        }
     }
 
     private func nodeCard(_ node: ClusterNode) -> some View {
@@ -54,12 +58,18 @@ struct MetalClusterView: View {
             }
         } label: {
             VStack(spacing: BeagleSpacing.xs) {
-                // Health indicator
+                // Health indicator — Circle doesn't support symbolEffect, use scale animation
                 Circle()
                     .fill(color)
                     .frame(width: 12, height: 12)
                     .shadow(color: color.opacity(isHealthy ? 0.5 : 0), radius: 4)
-                    .symbolEffect(.pulse, isActive: isHealthy)
+                    .scaleEffect(isHealthy && pulseHealthy ? 1.25 : 1.0)
+                    .animation(
+                        isHealthy
+                            ? .easeInOut(duration: 1.2).repeatForever(autoreverses: true)
+                            : .default,
+                        value: pulseHealthy
+                    )
 
                 // Hostname
                 Text(node.hostname ?? node.name ?? "?")
@@ -138,13 +148,12 @@ struct MetalClusterView: View {
     // MARK: - Helpers
 
     private func nodeColor(_ node: ClusterNode) -> Color {
-        if node.healthy == true {
-            return BeagleTheme.truthObserved
+        guard node.healthy == true else { return BeagleTheme.stateError }
+        // Distinguish role even when healthy: ctrl = gold, worker = teal
+        switch node.role {
+        case "ctrl", "control-plane": return BeagleTheme.postureWarm
+        default:                      return BeagleTheme.truthObserved
         }
-        if node.role == "ctrl" {
-            return BeagleTheme.truthDeclared
-        }
-        return BeagleTheme.stateError
     }
 
     private var defaultNodes: [ClusterNode] {

@@ -146,6 +146,13 @@ public final class ConversationStore {
 
     /// Send using the cloud backend (beagle-core /api/v1/chat).
     public func sendMessageCloud(_ text: String) async {
+        // Build history BEFORE appending new user message to avoid duplication
+        let history = messages
+            .suffix(10)
+            .map { "\($0.role == .user ? "User" : "Assistant"): \($0.content)" }
+            .joined(separator: "\n")
+        let contextualPrompt = history.isEmpty ? text : "\(history)\nUser: \(text)"
+
         let userMessage = ChatMessage(role: .user, content: text)
         messages.append(userMessage)
 
@@ -154,13 +161,6 @@ public final class ConversationStore {
         messages.append(placeholder)
         isStreaming = true
 
-        // Build conversation history (last 10 turns) for context
-        let history = messages
-            .filter { $0.id != assistantId }  // exclude placeholder
-            .suffix(10)
-            .map { "\($0.role == .user ? "User" : "Assistant"): \($0.content)" }
-            .joined(separator: "\n")
-        let contextualPrompt = history.isEmpty ? text : "\(history)\nUser: \(text)"
         let result = await client.chat(prompt: contextualPrompt)
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
@@ -214,11 +214,16 @@ public final class ConversationStore {
         var pos = 0
 
         while pos < chars.count {
+            // Guard against clear() being called mid-reveal
+            guard index < messages.count else { return }
             let end = min(pos + chunkSize, chars.count)
             messages[index].content = String(chars[0..<end])
             pos = end
             if pos < chars.count {
+                // Propagate cancellation instead of swallowing it with try?
+                guard !Task.isCancelled else { return }
                 try? await Task.sleep(for: .milliseconds(35))
+                if Task.isCancelled { return }
             }
         }
     }
