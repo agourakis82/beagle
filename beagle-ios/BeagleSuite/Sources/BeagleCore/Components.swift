@@ -432,3 +432,150 @@ extension View {
         modifier(PulsingGlow(enabled: enabled))
     }
 }
+
+// MARK: - Staggered Appear (for lists and grids)
+
+/// Applies a staggered fade+slide entrance animation to a view.
+public struct StaggeredAppear: ViewModifier {
+    let index: Int
+    let baseDelay: Double
+    @State private var appeared = false
+
+    public init(index: Int, baseDelay: Double = 0.06) {
+        self.index = index
+        self.baseDelay = baseDelay
+    }
+
+    public func body(content: Content) -> some View {
+        content
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 12)
+            .scaleEffect(appeared ? 1 : 0.97)
+            .animation(
+                .spring(duration: 0.5, bounce: 0.15).delay(Double(index) * baseDelay),
+                value: appeared
+            )
+            .onAppear { appeared = true }
+    }
+}
+
+public extension View {
+    func staggeredAppear(index: Int, delay: Double = 0.06) -> some View {
+        modifier(StaggeredAppear(index: index, baseDelay: delay))
+    }
+}
+
+// MARK: - Scale Press (subtle press feedback)
+
+public struct ScalePress: ButtonStyle {
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .opacity(configuration.isPressed ? 0.85 : 1.0)
+            .animation(BeagleMotion.fast, value: configuration.isPressed)
+    }
+}
+
+// MARK: - Breathing Indicator
+
+/// A gently pulsing dot that communicates "alive".
+public struct BreathingDot: View {
+    let color: Color
+    let size: CGFloat
+    @State private var phase = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    public init(color: Color = BeagleTheme.truthObserved, size: CGFloat = 8) {
+        self.color = color
+        self.size = size
+    }
+
+    public var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .shadow(color: color.opacity(phase ? 0.5 : 0.15), radius: phase ? size : size/3)
+            .scaleEffect(phase ? 1.15 : 1.0)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
+                    phase = true
+                }
+            }
+    }
+}
+
+// MARK: - Thought Pulse (radiating rings when a thought is captured)
+
+public struct ThoughtPulse: View {
+    let color: Color
+    @State private var animate = false
+
+    public init(color: Color = BeagleTheme.truthObserved) {
+        self.color = color
+    }
+
+    public var body: some View {
+        ZStack {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .strokeBorder(color.opacity(animate ? 0 : 0.3), lineWidth: 1.5)
+                    .scaleEffect(animate ? 2.5 : 1)
+                    .animation(
+                        .easeOut(duration: 1.5)
+                        .repeatCount(1)
+                        .delay(Double(i) * 0.3),
+                        value: animate
+                    )
+            }
+        }
+        .frame(width: 20, height: 20)
+        .onAppear { animate = true }
+    }
+}
+
+// MARK: - Parallax Header
+
+/// A header that moves slower than the scroll for depth.
+public struct ParallaxHeader<Content: View>: View {
+    let height: CGFloat
+    let content: Content
+
+    public init(height: CGFloat = 200, @ViewBuilder content: () -> Content) {
+        self.height = height
+        self.content = content()
+    }
+
+    public var body: some View {
+        GeometryReader { geo in
+            let minY = geo.frame(in: .scrollView).minY
+            let parallax = minY > 0 ? -minY * 0.3 : 0
+
+            content
+                .frame(width: geo.size.width, height: height + (minY > 0 ? minY : 0))
+                .offset(y: parallax)
+                .clipped()
+        }
+        .frame(height: height)
+    }
+}
+
+// MARK: - Separator Line
+
+public struct SoftSeparator: View {
+    public init() {}
+
+    public var body: some View {
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [.clear, Color.white.opacity(0.06), .clear],
+                    startPoint: .leading, endPoint: .trailing
+                )
+            )
+            .frame(height: 1)
+            .padding(.vertical, BeagleSpacing.sm)
+    }
+}

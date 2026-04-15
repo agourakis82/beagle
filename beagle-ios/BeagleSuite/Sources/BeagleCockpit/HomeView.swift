@@ -51,6 +51,7 @@ struct HomeView: View {
                 .padding(.horizontal, BeagleSpacing.lg)
                 .padding(.top, BeagleSpacing.xl)
                 .padding(.bottom, BeagleSpacing.jumbo)
+                .scrollTargetLayout()
             }
 
             exocortexInput
@@ -199,24 +200,26 @@ struct HomeView: View {
                 } label: {
                     provocationCard(provocation)
                 }
-                .buttonStyle(.plain)
-                .opacity(hasAppeared ? 1 : 0)
-                .offset(y: hasAppeared ? 0 : 12)
-                .animation(.easeOut(duration: 0.5).delay(0.35 + Double(index) * 0.1), value: hasAppeared)
+                .buttonStyle(ScalePress())
+                .staggeredAppear(index: index + 2, delay: 0.1)
             }
         }
     }
 
     private func provocationCard(_ p: Provocation) -> some View {
         HStack(spacing: BeagleSpacing.sm) {
-            Image(systemName: p.icon)
-                .font(.system(size: 16))
-                .foregroundStyle(p.color)
-                .frame(width: 32)
+            ZStack {
+                Circle()
+                    .fill(p.color.opacity(0.08))
+                    .frame(width: 36, height: 36)
+                Image(systemName: p.icon)
+                    .font(.system(size: 15))
+                    .foregroundStyle(p.color)
+            }
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(p.title)
-                    .font(BeagleFont.footnote.font)
+                    .font(BeagleFont.subheadline.font)
                     .fontWeight(.medium)
                     .foregroundStyle(BeagleTheme.textPrimary)
                     .lineLimit(1)
@@ -224,22 +227,29 @@ struct HomeView: View {
                     .font(BeagleFont.caption.font)
                     .foregroundStyle(BeagleTheme.textSecondary)
                     .lineLimit(2)
+                    .lineSpacing(1)
             }
 
             Spacer()
 
             Image(systemName: "arrow.up.right")
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(BeagleTheme.textTertiary)
+                .foregroundStyle(p.color.opacity(0.5))
         }
-        .padding(BeagleSpacing.md)
+        .frame(minHeight: 56)
+        .padding(.horizontal, BeagleSpacing.md)
+        .padding(.vertical, BeagleSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                .fill(BeagleTheme.surface1.opacity(0.7))
+                .fill(.regularMaterial)
+                .opacity(0.6)
         )
+        #if os(iOS)
+        .glassEffect(.regular.tint(p.color.opacity(0.03)), in: .rect(cornerRadius: BeagleRadius.lg))
+        #endif
         .overlay(
             RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                .strokeBorder(p.color.opacity(0.1), lineWidth: 1)
+                .strokeBorder(p.color.opacity(0.08), lineWidth: 1)
         )
     }
 
@@ -253,14 +263,15 @@ struct HomeView: View {
 
         if !fractals.isEmpty || !phis.isEmpty || !voids.isEmpty {
             VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                SoftSeparator()
+
                 HStack(spacing: BeagleSpacing.xs) {
-                    Image(systemName: "atom")
-                        .font(.system(size: 12))
-                        .foregroundStyle(BeagleTheme.truthRemembered)
-                    Text("Exocortex")
+                    BreathingDot(color: BeagleTheme.truthRemembered, size: 6)
+                    Text("EXOCORTEX")
                         .font(BeagleFont.caption.font)
                         .fontWeight(.medium)
                         .foregroundStyle(BeagleTheme.textTertiary)
+                        .tracking(0.5)
                 }
 
                 // Latest fractal tree
@@ -355,32 +366,42 @@ struct HomeView: View {
     private var recentThoughtsSection: some View {
         if !cognitive.recentThoughts.isEmpty {
             VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
-                Text("Recent thoughts")
+                SoftSeparator()
+
+                Text("RECENT THOUGHTS")
                     .font(BeagleFont.caption.font)
                     .fontWeight(.medium)
                     .foregroundStyle(BeagleTheme.textTertiary)
+                    .tracking(0.5)
 
-                ForEach(cognitive.recentThoughts.prefix(3)) { thought in
+                ForEach(Array(cognitive.recentThoughts.prefix(3).enumerated()), id: \.element.id) { index, thought in
                     let thoughtText = thought.refinedText ?? thought.rawText ?? ""
                     Button {
                         Task { await conversation.sendMessage("Expand on this thought: \(thoughtText)") }
                     } label: {
                         HStack(alignment: .top, spacing: BeagleSpacing.sm) {
-                            Circle()
-                                .fill(BeagleTheme.truthObserved.opacity(0.5))
-                                .frame(width: 6, height: 6)
-                                .padding(.top, 6)
+                            if thought.refinedText != nil {
+                                BreathingDot(color: BeagleTheme.truthObserved, size: 6)
+                                    .padding(.top, 7)
+                            } else {
+                                Circle()
+                                    .fill(BeagleTheme.truthDeclared)
+                                    .frame(width: 6, height: 6)
+                                    .padding(.top, 7)
+                            }
 
                             Text(thoughtText.isEmpty ? "—" : thoughtText)
                                 .font(BeagleFont.footnote.font)
                                 .foregroundStyle(BeagleTheme.textPrimary)
                                 .lineLimit(2)
                                 .multilineTextAlignment(.leading)
+                                .lineSpacing(2)
 
                             Spacer()
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(ScalePress())
+                    .staggeredAppear(index: index)
                     .contextMenu {
                         Button {
                             Task { await conversation.sendMessage("Expand on this thought: \(thoughtText)") }
