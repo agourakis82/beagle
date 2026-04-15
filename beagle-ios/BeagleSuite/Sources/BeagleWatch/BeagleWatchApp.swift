@@ -49,6 +49,12 @@ struct WatchRootView: View {
             PulseView()
                 .tabItem { Label("Pulse", systemImage: "waveform.path") }
 
+            ClusterHealthView()
+                .tabItem { Label("Cluster", systemImage: "server.rack") }
+
+            WatchDashboardView()
+                .tabItem { Label("Dashboard", systemImage: "gauge.medium") }
+
             QuickCaptureView()
                 .tabItem { Label("Capture", systemImage: "thought.bubble") }
         }
@@ -289,6 +295,219 @@ struct QuickCaptureView: View {
             )
             .ignoresSafeArea()
         }
+    }
+}
+
+// MARK: - Cluster Health View
+
+/// Per-node cluster health. Each node is a colored dot — green is healthy.
+/// One glance tells you if the sovereign infrastructure is intact.
+struct ClusterHealthView: View {
+    @Environment(CatalogStore.self) private var catalog
+    @State private var store: ProjectStore?
+    @State private var nodes: [ClusterNode] = []
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 10) {
+                Text("CLUSTER")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(1)
+                    .foregroundStyle(.tertiary)
+
+                if nodes.isEmpty {
+                    VStack(spacing: 6) {
+                        Image(systemName: "server.rack")
+                            .font(.system(size: 24))
+                            .foregroundStyle(.tertiary)
+                        Text("Loading...")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 8)
+                } else {
+                    // Summary line
+                    let healthy = nodes.filter { $0.healthy == true }.count
+                    HStack(spacing: 4) {
+                        Text("\(healthy)/\(nodes.count)")
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                            .foregroundStyle(healthy == nodes.count ? BeagleTheme.truthObserved : BeagleTheme.postureWarm)
+                        Text("healthy")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    // Node grid
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 38))], spacing: 8) {
+                        ForEach(nodes) { node in
+                            VStack(spacing: 3) {
+                                Circle()
+                                    .fill(node.healthy == true ? BeagleTheme.truthObserved : BeagleTheme.stateError)
+                                    .frame(width: 12, height: 12)
+                                    .shadow(
+                                        color: (node.healthy == true ? BeagleTheme.truthObserved : BeagleTheme.stateError).opacity(0.4),
+                                        radius: 4
+                                    )
+
+                                Text(node.hostname ?? node.name ?? "?")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 4)
+
+                    // Role breakdown
+                    let roles = Dictionary(grouping: nodes, by: { $0.role ?? "unknown" })
+                    ForEach(Array(roles.keys.sorted()), id: \.self) { role in
+                        let count = roles[role]?.count ?? 0
+                        let healthyInRole = roles[role]?.filter { $0.healthy == true }.count ?? 0
+                        HStack(spacing: 4) {
+                            Text(role)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text("\(healthyInRole)/\(count)")
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(healthyInRole == count ? BeagleTheme.truthObserved : BeagleTheme.postureWarm)
+                        }
+                        .padding(.horizontal, 8)
+                    }
+                }
+            }
+        }
+        .containerBackground(for: .tabView) {
+            let allHealthy = !nodes.isEmpty && nodes.allSatisfy { $0.healthy == true }
+            LinearGradient(
+                colors: [
+                    (allHealthy ? BeagleTheme.truthObserved : BeagleTheme.postureWarm).opacity(nodes.isEmpty ? 0.02 : 0.08),
+                    Color(white: 0.03)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        }
+        .task {
+            let slug = catalog.primaryProject?.projectSlug ?? "sounio"
+            let projectStore = ProjectStore(slug: slug)
+            store = projectStore
+            await projectStore.refresh()
+            nodes = projectStore.clusterSummary.value?.nodes ?? []
+        }
+    }
+}
+
+// MARK: - Watch Dashboard View
+
+/// Mini operational dashboard — jobs, inference, agent sessions.
+/// Everything you need to know at a glance while away from the desk.
+struct WatchDashboardView: View {
+    @Environment(CatalogStore.self) private var catalog
+    @State private var store: ProjectStore?
+    @State private var cognitive = CognitiveStore()
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("DASHBOARD")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(1)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+
+                // Active jobs
+                dashboardRow(
+                    icon: "flask.fill",
+                    label: "Jobs",
+                    value: "\(cognitive.activeJobs.filter(\.isRunning).count) running",
+                    color: cognitive.activeJobs.contains(where: \.isRunning) ? BeagleTheme.postureWarm : BeagleTheme.textTertiary
+                )
+
+                // Inference
+                if let runtime = store?.inference.value {
+                    dashboardRow(
+                        icon: "cpu",
+                        label: "Inference",
+                        value: runtime.reachable == true ? "\(runtime.models?.count ?? 0) models" : "offline",
+                        color: runtime.reachable == true ? BeagleTheme.truthObserved : BeagleTheme.textTertiary
+                    )
+                }
+
+                // Thoughts today
+                dashboardRow(
+                    icon: "leaf.fill",
+                    label: "Thoughts",
+                    value: "\(cognitive.recentThoughts.count) captured",
+                    color: cognitive.recentThoughts.isEmpty ? BeagleTheme.textTertiary : BeagleTheme.truthObserved
+                )
+
+                // Agent sessions
+                if let sessions = cognitive.state.value?.agentSessions {
+                    let running = sessions.filter(\.isRunning)
+                    dashboardRow(
+                        icon: "sparkles",
+                        label: "Agents",
+                        value: running.isEmpty ? "none active" : "\(running.count) live",
+                        color: running.isEmpty ? BeagleTheme.textTertiary : BeagleTheme.truthObserved
+                    )
+                }
+
+                // Primary project branch
+                if let project = catalog.primaryProject, let branch = project.branch {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Branch")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                        Text(branch)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 4)
+                    .padding(.top, 4)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+        .containerBackground(for: .tabView) {
+            LinearGradient(
+                colors: [
+                    BeagleTheme.truthRemembered.opacity(0.06),
+                    Color(white: 0.03)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        }
+        .task {
+            let slug = catalog.primaryProject?.projectSlug ?? "sounio"
+            let projectStore = ProjectStore(slug: slug)
+            store = projectStore
+            async let p: () = projectStore.refresh()
+            async let c: () = cognitive.refresh()
+            _ = await (p, c)
+        }
+    }
+
+    private func dashboardRow(icon: String, label: String, value: String, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 11))
+                .foregroundStyle(color)
+                .frame(width: 16)
+
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Text(value)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(color)
+        }
+        .padding(.horizontal, 4)
     }
 }
 
