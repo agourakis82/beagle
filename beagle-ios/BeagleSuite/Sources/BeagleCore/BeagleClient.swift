@@ -25,8 +25,8 @@ public actor BeagleClient {
 
     /// beagle-server URLs — tried in sequence.
     private var baseURLs: [URL] = [
-        URL(string: "https://beagle-core.tail21cbc4.ts.net")!,
-        URL(string: "http://beagle-core.beagle.svc.cluster.local:8080")!  // Pod network only
+        URL(string: "http://beagle-core.tail21cbc4.ts.net")!,            // Tailnet (HTTP, verified)
+        URL(string: "http://beagle-core.beagle.svc.cluster.local:8080")! // In-cluster pod network
     ]
 
     /// Auth token for beagle-core consumer API.
@@ -363,7 +363,8 @@ public actor BeagleClient {
     // MARK: - Go Deeper (advanced reasoning)
 
     public func deepResearch(query: String) async -> Truthful<DeepResearchResult> {
-        await post(DeepResearchResult.self, path: "/dev/deep-research", body: ["query": query], timeout: 180)
+        // Backend field: research_question (verified 2026-04-15)
+        await post(DeepResearchResult.self, path: "/dev/deep-research", body: ["research_question": query], timeout: 180)
     }
 
     public func quantumReasoning(
@@ -383,11 +384,13 @@ public actor BeagleClient {
     }
 
     public func swarmConsensus(query: String) async -> Truthful<SwarmResult> {
-        await post(SwarmResult.self, path: "/dev/swarm", body: ["query": query], timeout: 120)
+        // Backend field: exploration_query (verified 2026-04-15)
+        await post(SwarmResult.self, path: "/dev/swarm", body: ["exploration_query": query], timeout: 120)
     }
 
     public func causalExtract(text: String) async -> Truthful<CausalGraph> {
-        await post(CausalGraph.self, path: "/dev/causal", body: ["text": text], timeout: 60)
+        // Backend field: query (verified 2026-04-15)
+        await post(CausalGraph.self, path: "/dev/causal", body: ["query": text], timeout: 60)
     }
 
     public func causalIntervention(
@@ -401,11 +404,13 @@ public actor BeagleClient {
     }
 
     public func temporalReasoning(query: String) async -> Truthful<TemporalResult> {
-        await post(TemporalResult.self, path: "/dev/temporal", body: ["query": query], timeout: 90)
+        // Backend field: events (array) (verified 2026-04-15)
+        await post(TemporalResult.self, path: "/dev/temporal", body: ["events": [query]], timeout: 90)
     }
 
     public func neurosymbolicReasoning(query: String) async -> Truthful<NeurosymbolicResult> {
-        await post(NeurosymbolicResult.self, path: "/dev/neurosymbolic", body: ["query": query], timeout: 90)
+        // Backend field: problem (verified 2026-04-15)
+        await post(NeurosymbolicResult.self, path: "/dev/neurosymbolic", body: ["problem": query], timeout: 90)
     }
 
     public func adversarialCompete(query: String) async -> Truthful<AdversarialResult> {
@@ -413,7 +418,8 @@ public actor BeagleClient {
     }
 
     public func research(query: String) async -> Truthful<ResearchResult> {
-        await post(ResearchResult.self, path: "/dev/research", body: ["query": query], timeout: 120)
+        // Backend field: research_goal (verified 2026-04-15)
+        await post(ResearchResult.self, path: "/dev/research", body: ["research_goal": query], timeout: 120)
     }
 
     public func researchParallel(query: String) async -> Truthful<ParallelResearchResult> {
@@ -421,43 +427,48 @@ public actor BeagleClient {
     }
 
     public func reasoningPath(source: String, target: String) async -> Truthful<ReasoningPathResult> {
+        // Backend expects start_concept / end_concept (verified 2026-04-15)
         await post(ReasoningPathResult.self, path: "/dev/reasoning", body: [
-            "source": source, "target": target
+            "start_concept": source, "end_concept": target
         ] as [String: any Sendable], timeout: 90)
     }
 
     // MARK: - World Model
 
     public func worldModelState() async -> Truthful<WorldModelState> {
-        await fetch(WorldModelState.self, path: "/api/worldmodel/predict")
+        // /api/worldmodel/predict requires POST with context field (verified 2026-04-15)
+        await post(WorldModelState.self, path: "/api/worldmodel/predict", body: ["context": "current"], timeout: 30)
     }
 
     public func worldModelPredict(query: String) async -> Truthful<WorldModelPrediction> {
-        await post(WorldModelPrediction.self, path: "/worldmodel/predict", body: ["query": query], timeout: 60)
+        await post(WorldModelPrediction.self, path: "/api/worldmodel/predict", body: ["context": query], timeout: 60)
     }
 
     public func worldModelCounterfactual(query: String) async -> Truthful<WorldModelCounterfactual> {
         await post(WorldModelCounterfactual.self, path: "/worldmodel/counterfactual", body: ["query": query], timeout: 60)
     }
 
-    // MARK: - Extended (RAG, Fractal Grow, PCS, Serendipity)
-
-    public func addDocument(content: String, metadata: [String: String] = [:]) async -> Truthful<DocumentAddResult> {
-        await post(DocumentAddResult.self, path: "/api/memory/documents", body: [
-            "content": content,
-            "metadata": metadata
-        ] as [String: any Sendable])
-    }
+    // MARK: - Extended (Fractal, PCS, Serendipity)
 
     public func fractalGrow(seed: String) async -> Truthful<FractalGrowResult> {
-        await post(FractalGrowResult.self, path: "/api/fractal/grow", body: ["seed": seed], timeout: 90)
+        // Backend field: root_prompt (verified 2026-04-15)
+        await post(FractalGrowResult.self, path: "/api/fractal/recurse", body: ["root_prompt": seed], timeout: 90)
     }
 
     public func pcsReason(query: String) async -> Truthful<PCSReasonResult> {
-        await post(PCSReasonResult.self, path: "/api/pcs/reason", body: ["query": query], timeout: 60)
+        await post(PCSReasonResult.self, path: "/api/pcs/reason", body: ["symptoms": [query]], timeout: 60)
     }
 
     public func serendipityDiscover(query: String) async -> Truthful<SerendipityResult> {
-        await post(SerendipityResult.self, path: "/api/serendipity/discover", body: ["query": query], timeout: 60)
+        await post(SerendipityResult.self, path: "/api/serendipity/discover", body: [
+            "query": query, "focus_project": "sounio"
+        ] as [String: any Sendable], timeout: 60)
+    }
+
+    public func deepThink(prompt: String, depth: Int = 3) async -> Truthful<ChatResponse> {
+        // Backend field: root_prompt (verified 2026-04-15)
+        await post(ChatResponse.self, path: "/api/cognitive/deep-think", body: [
+            "root_prompt": prompt, "depth": depth
+        ] as [String: any Sendable], timeout: 180)
     }
 }

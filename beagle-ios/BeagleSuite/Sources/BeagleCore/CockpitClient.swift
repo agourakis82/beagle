@@ -23,8 +23,8 @@ public actor CockpitClient {
     /// URL resolution order — tried in sequence until one responds.
     /// Override via `configure(baseURLs:)` from the app.
     private var baseURLs: [URL] = [
-        URL(string: "https://sounio-cockpit.tail21cbc4.ts.net")!,       // Tailnet (TLS)
-        URL(string: "http://project-cockpit.beagle.svc.cluster.local")! // In-cluster (pod network only)
+        URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,         // Tailnet (HTTP, verified)
+        URL(string: "http://project-cockpit.beagle.svc.cluster.local")!  // In-cluster (pod network only)
     ]
 
     private init() {
