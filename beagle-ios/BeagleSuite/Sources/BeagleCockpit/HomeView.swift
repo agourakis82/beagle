@@ -21,6 +21,8 @@ struct HomeView: View {
     @State private var serendipityInsight: String?
     @State private var morningBrief: String?
     @State private var searchText = ""
+    @State private var milestoneToShow: Int?
+    @State private var lastSeenThoughtCount = 0
     #if os(iOS)
     @State private var speechRecognizer = SpeechRecognizer()
     #endif
@@ -65,6 +67,15 @@ struct HomeView: View {
                 searchResults
             }
         }
+        .overlay {
+            if let milestone = milestoneToShow {
+                MilestoneCelebration(count: milestone) {
+                    milestoneToShow = nil
+                }
+                .transition(.opacity)
+                .zIndex(100)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
@@ -91,23 +102,42 @@ struct HomeView: View {
             _ = await (c, g)
             generateProvocations()
         }
+        .onChange(of: cognitive.recentThoughts.count) { oldCount, newCount in
+            checkMilestone(oldCount: oldCount, newCount: newCount)
+        }
+    }
+
+    private func checkMilestone(oldCount: Int, newCount: Int) {
+        let milestones = [1, 10, 50, 100, 500]
+        for m in milestones {
+            if oldCount < m && newCount >= m {
+                milestoneToShow = m
+                #if os(iOS)
+                BeagleHaptics.capture()
+                #endif
+                break
+            }
+        }
     }
 
     // MARK: - Greeting (recognition, not template)
 
     private var greetingSection: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
-            Text(greeting)
-                .font(BeagleFont.largeTitle.font)
-                .foregroundStyle(
+            TypewriterText(
+                greeting,
+                font: BeagleFont.largeTitle.font,
+                foregroundStyle: AnyShapeStyle(
                     LinearGradient(
                         colors: circadianGradientColors,
                         startPoint: .leading, endPoint: .trailing
                     )
-                )
-                .opacity(hasAppeared ? 1 : 0)
-                .offset(y: hasAppeared ? 0 : 10)
-                .animation(.easeOut(duration: 0.8), value: hasAppeared)
+                ),
+                speed: 24
+            )
+            .opacity(hasAppeared ? 1 : 0)
+            .offset(y: hasAppeared ? 0 : 10)
+            .animation(.easeOut(duration: 0.5), value: hasAppeared)
 
             Text(contextLine)
                 .font(BeagleFont.body.font)
@@ -528,6 +558,9 @@ struct HomeView: View {
             mode: .chat,
             isEnabled: !conversation.isStreaming,
             onSubmit: { text in
+                #if os(iOS)
+                BeagleHaptics.capture()
+                #endif
                 Task { await conversation.sendMessage(text) }
             }
         )
@@ -680,6 +713,9 @@ struct HomeView: View {
             )
             if let brief, !brief.isEmpty {
                 withAnimation(BeagleMotion.slow) { morningBrief = brief }
+                #if os(iOS)
+                BeagleHaptics.morningBrief()
+                #endif
             }
 
             // Serendipity — find an unexpected connection

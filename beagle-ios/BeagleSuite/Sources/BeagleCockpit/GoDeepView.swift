@@ -67,6 +67,9 @@ struct GoDeepView: View {
                 }
                 store.onResearchEnd = { _ in
                     LiveActivityManager.shared.endResearchActivity()
+                    #if os(iOS)
+                    BeagleHaptics.goDeepComplete()
+                    #endif
                 }
 
                 store.goDeeper(prompt: prompt)
