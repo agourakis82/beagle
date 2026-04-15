@@ -65,8 +65,8 @@ struct GoDeepView: View {
                 store.onResearchUpdate = { step, total, eta in
                     LiveActivityManager.shared.updateResearchActivity(step: step, total: total, eta: eta)
                 }
-                store.onResearchEnd = { status in
-                    LiveActivityManager.shared.endResearchActivity(finalStatus: status)
+                store.onResearchEnd = { _ in
+                    LiveActivityManager.shared.endResearchActivity()
                 }
 
                 store.goDeeper(prompt: prompt)
