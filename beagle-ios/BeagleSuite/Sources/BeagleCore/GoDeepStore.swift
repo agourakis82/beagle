@@ -104,6 +104,11 @@ public final class GoDeepStore {
     private let client = BeagleClient.shared
     private var runTask: Task<Void, Never>?
 
+    /// Callbacks for Live Activity (set by view layer, since LiveActivityManager is in BeagleCockpit).
+    public var onResearchStart: ((String, String, String) -> Void)?   // (runId, name, slug)
+    public var onResearchUpdate: ((Int, Int, Int) -> Void)?           // (step, total, eta)
+    public var onResearchEnd: ((String) -> Void)?                     // (finalStatus)
+
     public init() {}
 
     // MARK: - Thinking Status Messages
@@ -137,6 +142,9 @@ public final class GoDeepStore {
         // Initialize all modality states as waiting
         modalityStates = modalities.map { ModalityState(modality: $0) }
 
+        // Start Live Activity on Dynamic Island
+        onResearchStart?(session.id.uuidString, "Go Deeper", "exocortex")
+
         runTask = Task { [client] in
             // Start thinking status animation for all modalities
             let thinkingTask = Task { await self.animateThinkingStatuses() }
@@ -168,6 +176,9 @@ public final class GoDeepStore {
             guard !Task.isCancelled else { return }
             self.synthesis = synthText
             self.isSynthesizing = false
+
+            // End Live Activity
+            self.onResearchEnd?(synthText != nil ? "complete" : "no synthesis")
 
             self.isRunning = false
             if var session = self.activeSession {
@@ -219,6 +230,9 @@ public final class GoDeepStore {
         } else {
             modalityStates[idx].phase = .resolved(result)
         }
+
+        // Update Live Activity progress
+        onResearchUpdate?(completedCount + 1, totalCount, max(0, (totalCount - completedCount - 1) * 15))
     }
 
     // MARK: - Animate Thinking Statuses

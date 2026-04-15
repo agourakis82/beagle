@@ -57,6 +57,18 @@ struct GoDeepView: View {
             .task {
                 guard !hasLaunched else { return }
                 hasLaunched = true
+
+                // Wire Live Activity callbacks
+                store.onResearchStart = { runId, name, slug in
+                    LiveActivityManager.shared.startResearchActivity(runId: runId, campaignName: name, slug: slug)
+                }
+                store.onResearchUpdate = { step, total, eta in
+                    LiveActivityManager.shared.updateResearchActivity(step: step, total: total, eta: eta)
+                }
+                store.onResearchEnd = { status in
+                    LiveActivityManager.shared.endResearchActivity(finalStatus: status)
+                }
+
                 store.goDeeper(prompt: prompt)
 
                 // Fire quick-take on-device (arrives in ~1s, before cloud)

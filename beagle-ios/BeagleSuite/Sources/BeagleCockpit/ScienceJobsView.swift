@@ -174,6 +174,12 @@ struct ScienceJobsView: View {
         selectedKind = kind
         let job = await cognitive.launchJob(kind: kind)
         if let job {
+            // Start Live Activity on Dynamic Island
+            LiveActivityManager.shared.startResearchActivity(
+                runId: job.jobId ?? UUID().uuidString,
+                campaignName: kind.uppercased(),
+                slug: "science"
+            )
             withAnimation(BeagleMotion.snappy) {
                 launchSuccess = "\(kind.uppercased()) submitted — \(job.jobId ?? "tracking")"
             }

@@ -174,11 +174,27 @@ public final class TerminalStore {
 
     // MARK: - Internal
 
+    /// Token counter for Live Activity updates.
+    public private(set) var totalTokens = 0
+    private var lastActivityUpdate: Date = .distantPast
+
+    /// Callback for Live Activity updates (set by the view layer).
+    /// Parameters: (status: String, tokens: Int, snippet: String)
+    public var onActivityUpdate: ((String, Int, String) -> Void)?
+
     private func processRawOutput(_ text: String, isStderr: Bool) {
         let tokens = parser.parse(text)
         guard !tokens.isEmpty else { return }
         grid.processTokens(tokens, isStderr: isStderr)
         rebuildAttributedLines()
+
+        // Update Live Activity with terminal output (throttled to every 2s)
+        totalTokens += text.count
+        if Date.now.timeIntervalSince(lastActivityUpdate) > 2 {
+            lastActivityUpdate = .now
+            let snippet = String((lastLine?.text ?? "").prefix(60))
+            onActivityUpdate?("active", totalTokens, snippet)
+        }
     }
 
     private func appendStatusLine(_ text: String, isStderr: Bool) {

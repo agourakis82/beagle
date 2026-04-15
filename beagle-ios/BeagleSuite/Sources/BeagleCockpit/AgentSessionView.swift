@@ -94,6 +94,11 @@ struct AgentSessionView: View {
                 inputFocused = true
             }
         }
+        .onAppear {
+            terminal.onActivityUpdate = { status, tokens, snippet in
+                LiveActivityManager.shared.updateAgentActivity(status: status, tokens: tokens, snippet: snippet)
+            }
+        }
     }
 
     // MARK: - Header
