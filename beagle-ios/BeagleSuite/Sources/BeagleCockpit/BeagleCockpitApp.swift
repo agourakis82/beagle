@@ -21,10 +21,12 @@ struct BeagleCockpitApp: App {
     @State private var hpc = HPCStore()
     @State private var navigationPath = NavigationPath()
     @State private var bootError: String?
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     var body: some Scene {
         WindowGroup {
-            RootView(path: $navigationPath, bootError: $bootError)
+            if hasCompletedOnboarding {
+                RootView(path: $navigationPath, bootError: $bootError)
                 .environment(catalog)
                 .environment(cognitive)
                 .environment(hpc)
@@ -47,6 +49,10 @@ struct BeagleCockpitApp: App {
                 }
                 .preferredColorScheme(.dark)
                 .tint(BeagleTheme.truthObserved)
+            } else {
+                OnboardingView(isComplete: $hasCompletedOnboarding)
+                    .preferredColorScheme(.dark)
+            }
         }
         #if os(macOS)
         .windowStyle(.automatic)
@@ -122,12 +128,74 @@ struct RootView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            tabContent
+            if sizeClass == .regular {
+                iPadLayout
+            } else {
+                tabContent
+            }
             if let error = bootError {
                 authErrorBanner(error)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+    }
+
+    // MARK: - iPad Layout (sidebar + detail)
+
+    enum SidebarItem: String, CaseIterable, Identifiable {
+        case mind = "Mind"
+        case deep = "Deep"
+        case platform = "Platform"
+        case terminal = "Terminal"
+        case settings = "Settings"
+
+        var id: String { rawValue }
+
+        var icon: String {
+            switch self {
+            case .mind:     return "brain.head.profile"
+            case .deep:     return "scope"
+            case .platform: return "server.rack"
+            case .terminal: return "terminal"
+            case .settings: return "gearshape"
+            }
+        }
+    }
+
+    @State private var sidebarSelection: SidebarItem? = .mind
+
+    private var iPadLayout: some View {
+        NavigationSplitView {
+            List(SidebarItem.allCases, selection: $sidebarSelection) { item in
+                Label(item.rawValue, systemImage: item.icon)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+            }
+            .navigationTitle("Beagle")
+            .listStyle(.sidebar)
+        } detail: {
+            NavigationStack(path: $path) {
+                Group {
+                    switch sidebarSelection {
+                    case .mind:
+                        HomeView()
+                    case .deep:
+                        DeepExplorationView()
+                    case .platform:
+                        PlatformView()
+                            .navigationDestination(for: Project.self) { project in
+                                ControlRoomView(slug: project.projectSlug)
+                            }
+                    case .terminal:
+                        AgentSessionView(slug: catalog.primaryProject?.projectSlug ?? "sounio")
+                    case .settings:
+                        ModelSettingsView()
+                    case nil:
+                        HomeView()
+                    }
+                }
+            }
+        }
+        .tint(BeagleTheme.truthObserved)
     }
 
     private func authErrorBanner(_ error: String) -> some View {
