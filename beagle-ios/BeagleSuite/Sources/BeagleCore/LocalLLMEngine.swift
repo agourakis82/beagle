@@ -29,6 +29,7 @@ import Tokenizers
 public enum ModelCategory: String, CaseIterable, Sendable {
     case reasoning    = "Reasoning"
     case code         = "Code"
+    case medical      = "Medical & Bio"
     case ssm          = "SSM (State Space)"
     case multilingual = "Multilingual"
     case fast         = "Fast & Light"
@@ -49,6 +50,12 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     case mimo7B          = "mimo-7b-sft-4bit"
     case phi35Mini       = "phi-3.5-mini-4bit"
     case qwen2_5_7B      = "qwen2.5-7b"
+    case codeQwen7B      = "codeqwen-7b-4bit"
+
+    // Medical & Bio (PBPK, pharmacokinetics, biomedical literature)
+    case bioMistral7B    = "biomistral-7b-4bit"
+    case openBioLLM7B    = "openbiollm-7b-4bit"
+    case meditron7B      = "meditron-7b-4bit"
 
     // SSM / Hybrid (linear complexity, long context)
     case falconH1_7B     = "falcon-h1r-7b-4bit"
@@ -82,6 +89,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mimo7B:        return "MiMo 7B"
         case .phi35Mini:     return "Phi 3.5 Mini"
         case .qwen2_5_7B:    return "Qwen 2.5 7B"
+        case .codeQwen7B:    return "CodeQwen 7B"
+        case .bioMistral7B:  return "BioMistral 7B"
+        case .openBioLLM7B:  return "OpenBioLLM 7B"
+        case .meditron7B:    return "Meditron 7B"
         case .falconH1_7B:   return "Falcon H1R 7B"
         case .lfm2MoE:       return "LFM2 8B-A1B"
         case .lfm2_1B:       return "LFM2 1.2B"
@@ -101,7 +112,8 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     public var category: ModelCategory {
         switch self {
         case .qwen3_8B, .deepseekR1, .aceReason7B, .gemma2_9B, .gemma4_4B, .qwen3_4B: return .reasoning
-        case .mimo7B, .phi35Mini, .qwen2_5_7B: return .code
+        case .mimo7B, .phi35Mini, .qwen2_5_7B, .codeQwen7B: return .code
+        case .bioMistral7B, .openBioLLM7B, .meditron7B: return .medical
         case .falconH1_7B, .lfm2MoE, .lfm2_1B, .jamba3B, .graniteHybrid: return .ssm
         case .mistral7B, .qwen3_1_7B: return .multilingual
         case .llama3_1_8B, .llama3_2_3B, .smolLM3_3B, .gemma4_2B, .gemma2_2B, .bitnet2B: return .fast
@@ -119,6 +131,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mimo7B:        return "~4.5 GB"
         case .phi35Mini:     return "~2.3 GB"
         case .qwen2_5_7B:    return "~4.5 GB"
+        case .codeQwen7B:    return "~4.5 GB"
+        case .bioMistral7B:  return "~4.5 GB"
+        case .openBioLLM7B:  return "~4.5 GB"
+        case .meditron7B:    return "~4.5 GB"
         case .falconH1_7B:   return "~4.5 GB"
         case .lfm2MoE:       return "~3 GB"
         case .lfm2_1B:       return "~0.8 GB"
@@ -138,7 +154,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     public var parameterCount: String {
         switch self {
         case .qwen3_8B, .llama3_1_8B: return "8B"
-        case .deepseekR1, .aceReason7B, .falconH1_7B, .mimo7B, .qwen2_5_7B, .mistral7B: return "7B"
+        case .deepseekR1, .aceReason7B, .falconH1_7B, .mimo7B, .qwen2_5_7B, .mistral7B, .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B: return "7B"
         case .gemma2_9B: return "9B"
         case .lfm2MoE: return "8B (1B active)"
         case .gemma4_4B, .qwen3_4B: return "4B"
@@ -162,6 +178,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mimo7B:        return "Xiaomi’s code specialist. Trained on code + math. Better functions than general models."
         case .phi35Mini:     return "Microsoft’s STEM optimizer. Excels at code generation and scientific text."
         case .qwen2_5_7B:    return "Strong coder and technical writer. Good at structured output (JSON, YAML)."
+        case .codeQwen7B:    return "Alibaba’s dedicated code model. Trained on 3T code tokens. Superior at completion, refactoring, and explanation."
+        case .bioMistral7B:  return "Fine-tuned on PubMed + medical literature. Understands pharmacokinetics, drug interactions, clinical terminology."
+        case .openBioLLM7B:  return "Biomedical knowledge extraction specialist. Strong on PBPK modeling terminology and research paper analysis."
+        case .meditron7B:    return "Adapted from Llama on medical guidelines + PubMed. Clinical reasoning and evidence-based answers."
         case .falconH1_7B:   return "Mamba2 SSM hybrid — O(n) complexity. Long context without degrading. Future architecture."
         case .lfm2MoE:       return "Liquid SSM + MoE: only 1B params active but 8B total knowledge. Extremely fast."
         case .lfm2_1B:       return "Pure SSM from Liquid AI. Tiny but supports native tool-calling. Fastest in catalog."
@@ -189,6 +209,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mimo7B:        return "Code specialist"
         case .phi35Mini:     return "STEM focused"
         case .qwen2_5_7B:    return "Structured output"
+        case .codeQwen7B:    return "3T code tokens"
+        case .bioMistral7B:  return "PubMed trained"
+        case .openBioLLM7B:  return "Bio extraction"
+        case .meditron7B:    return "Clinical reasoning"
         case .falconH1_7B:   return "Long context SSM"
         case .lfm2MoE:       return "Fastest 8B"
         case .lfm2_1B:       return "Tiny + tools"
@@ -208,7 +232,8 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     public var minimumRAMGB: UInt64 {
         switch self {
         case .qwen3_8B, .deepseekR1, .aceReason7B, .llama3_1_8B, .gemma2_9B,
-             .qwen2_5_7B, .falconH1_7B, .mimo7B, .mistral7B:
+             .qwen2_5_7B, .falconH1_7B, .mimo7B, .mistral7B,
+             .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B:
             return 8
         case .gemma4_4B, .qwen3_4B, .phi35Mini, .lfm2MoE:
             return 6
@@ -235,6 +260,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mimo7B:        return ModelConfiguration(id: "mlx-community/MiMo-7B-SFT-4bit")
         case .phi35Mini:     return ModelConfiguration(id: "mlx-community/Phi-3.5-mini-instruct-4bit")
         case .qwen2_5_7B:    return LLMRegistry.qwen2_5_7b
+        case .codeQwen7B:    return ModelConfiguration(id: "mlx-community/CodeQwen1.5-7B-Chat-4bit")
+        case .bioMistral7B:  return ModelConfiguration(id: "mlx-community/BioMistral-7B-DARE-4bit")
+        case .openBioLLM7B:  return ModelConfiguration(id: "mlx-community/OpenBioLLM-Llama3-8B-4bit")
+        case .meditron7B:    return ModelConfiguration(id: "mlx-community/meditron-7b-chat-4bit")
         case .falconH1_7B:   return ModelConfiguration(id: "mlx-community/Falcon-H1R-7B-4bit")
         case .lfm2MoE:       return ModelConfiguration(id: "mlx-community/LFM2-8B-A1B-3bit-MLX")
         case .lfm2_1B:       return ModelConfiguration(id: "mlx-community/LFM2-1.2B-4bit")

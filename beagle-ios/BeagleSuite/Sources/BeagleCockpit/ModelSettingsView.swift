@@ -298,6 +298,7 @@ struct ModelSettingsView: View {
         switch cat {
         case .reasoning:    return "brain.head.profile"
         case .code:         return "curlybraces"
+        case .medical:      return "cross.vial.fill"
         case .ssm:          return "waveform.path"
         case .multilingual: return "globe"
         case .fast:         return "hare"
@@ -308,6 +309,7 @@ struct ModelSettingsView: View {
         switch cat {
         case .reasoning:    return BeagleTheme.truthObserved
         case .code:         return BeagleTheme.truthRemembered
+        case .medical:      return BeagleTheme.stateError
         case .ssm:          return BeagleTheme.postureWarm
         case .multilingual: return BeagleTheme.textData
         case .fast:         return BeagleTheme.truthDeclared
@@ -320,6 +322,8 @@ struct ModelSettingsView: View {
             return "Mathematical proofs, scientific analysis, step-by-step derivations. Use for deep thinking."
         case .code:
             return "Function generation, structured output (JSON/YAML), technical writing. Use for building."
+        case .medical:
+            return "Fine-tuned on PubMed, medical guidelines, clinical literature. Understands pharmacokinetics, drug interactions, PBPK terminology."
         case .ssm:
             return "State Space Models — O(n) complexity, infinite context without memory blowup. The future of on-device LLM."
         case .multilingual:
