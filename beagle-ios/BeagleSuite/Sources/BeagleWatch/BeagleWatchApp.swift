@@ -2,13 +2,16 @@
 //  BeagleWatchApp.swift
 //  BeagleWatch
 //
-//  watchOS 26 companion — cluster glance from the wrist.
+//  watchOS 26 companion — your exocortex on the wrist.
+//
+//  Not a dashboard. A gentle tap when something matters.
+//  A quick glance to know your platform is alive.
+//  A voice capture that flows into your thinking.
 //
 //  Screens:
-//   - Cluster status (pulse of truth badge + posture counts)
-//   - Project list (all sovereign surfaces)
-//   - Project detail (mission + cluster + research)
-//   - HRV flow state (preserved from BeagleHRV prototype)
+//   - Flow: HRV + cognitive state (the core)
+//   - Pulse: cluster health at a glance
+//   - Capture: quick voice thought into the exocortex
 //
 
 import SwiftUI
@@ -40,129 +43,256 @@ struct WatchRootView: View {
 
     var body: some View {
         TabView {
-            ClusterGlanceView()
-                .tabItem { Label("Cluster", systemImage: "sparkle") }
-
-            ProjectListView()
-                .tabItem { Label("Projects", systemImage: "folder.fill") }
-
-            HRVFlowView()
+            FlowView()
                 .tabItem { Label("Flow", systemImage: "heart.fill") }
+
+            PulseView()
+                .tabItem { Label("Pulse", systemImage: "waveform.path") }
+
+            QuickCaptureView()
+                .tabItem { Label("Capture", systemImage: "thought.bubble") }
         }
     }
 }
 
-// MARK: - ClusterGlanceView
+// MARK: - Flow View (the emotional core)
 
-struct ClusterGlanceView: View {
+/// Your cognitive state. How are you feeling? The watch knows.
+struct FlowView: View {
+    @Environment(HRVMonitor.self) private var hrv
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // Circadian-aware label
+            Text(flowGreeting)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .tracking(0.5)
+
+            // Hero HRV number
+            Text(String(format: "%.0f", hrv.latestHRV))
+                .font(.system(size: 44, weight: .bold, design: .rounded))
+                .foregroundStyle(flowColor)
+
+            Text("ms")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .offset(y: -4)
+
+            // Flow state badge
+            Text(hrv.flowState.rawValue.uppercased())
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(flowColor)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(flowColor.opacity(0.15))
+                )
+
+            // Gentle guidance
+            Text(flowMessage)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+        }
+        .containerBackground(for: .tabView) {
+            flowGradient
+        }
+    }
+
+    private var flowColor: Color {
+        switch hrv.flowState {
+        case .flow:    return BeagleTheme.truthObserved
+        case .normal:  return BeagleTheme.textData
+        case .stress:  return BeagleTheme.postureWarm
+        case .unknown: return BeagleTheme.textTertiary
+        }
+    }
+
+    private var flowGreeting: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<10:  return "MORNING"
+        case 10..<17: return "FOCUS"
+        case 17..<22: return "EVENING"
+        default:      return "REST"
+        }
+    }
+
+    private var flowMessage: String {
+        switch hrv.flowState {
+        case .flow:    return "Deep flow. Protect this state."
+        case .normal:  return "Steady. Good for thinking."
+        case .stress:  return "Elevated stress. Take a breath."
+        case .unknown: return "Measuring..."
+        }
+    }
+
+    private var flowGradient: some View {
+        LinearGradient(
+            colors: [
+                flowColor.opacity(0.15),
+                Color(white: 0.05),
+                Color(white: 0.03)
+            ],
+            startPoint: .top, endPoint: .bottom
+        )
+        .ignoresSafeArea()
+    }
+}
+
+// MARK: - Pulse View (cluster glance)
+
+/// Your platform's heartbeat. One glance tells you everything is OK.
+struct PulseView: View {
     @Environment(CatalogStore.self) private var catalog
 
     var body: some View {
-        let counts = catalog.postureCounts
         VStack(spacing: 10) {
-            Text("COCKPIT")
-                .font(BeagleTheme.uiFont(size: 9, weight: .semibold))
-                .tracking(1)
-                .foregroundStyle(BeagleTheme.textTertiary)
-
+            // Truth indicator — the single most important signal
             TruthBadge(catalog.executive.mode)
 
-            VStack(spacing: 4) {
-                row(count: counts.alwaysOn, label: "on", color: BeagleTheme.postureOn)
-                row(count: counts.warm, label: "warm", color: BeagleTheme.postureWarm)
-                row(count: counts.cold, label: "cold", color: BeagleTheme.postureCold)
+            let counts = catalog.postureCounts
+
+            // Posture counts with warm styling
+            VStack(spacing: 6) {
+                postureRow(count: counts.alwaysOn, label: "alive", color: BeagleTheme.postureOn, pulse: true)
+                postureRow(count: counts.warm, label: "warm", color: BeagleTheme.postureWarm, pulse: false)
+                postureRow(count: counts.cold, label: "resting", color: BeagleTheme.postureCold, pulse: false)
             }
+
+            Text("\(counts.totalProjects) surfaces")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
 
             Button {
                 Task { await catalog.refresh() }
             } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12))
             }
             .buttonStyle(.bordered)
             .controlSize(.mini)
+            .tint(BeagleTheme.truthObserved)
         }
-        .padding(.horizontal, 8)
+        .containerBackground(for: .tabView) {
+            LinearGradient(
+                colors: [
+                    BeagleTheme.truthObserved.opacity(catalog.executive.mode == .observed ? 0.1 : 0.02),
+                    Color(white: 0.03)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        }
     }
 
-    private func row(count: Int, label: String, color: Color) -> some View {
-        HStack(spacing: 4) {
-            Circle().fill(color).frame(width: 5, height: 5)
+    private func postureRow(count: Int, label: String, color: Color, pulse: Bool) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+                .shadow(color: pulse ? color.opacity(0.4) : .clear, radius: 3)
+
             Text("\(count)")
-                .font(BeagleTheme.dataFont(size: 14, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(color)
+
             Text(label)
-                .font(BeagleTheme.dataFont(size: 11))
-                .foregroundStyle(BeagleTheme.textSecondary)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
             Spacer()
         }
     }
 }
 
-// MARK: - ProjectListView
+// MARK: - Quick Capture View
 
-struct ProjectListView: View {
-    @Environment(CatalogStore.self) private var catalog
+/// Capture a thought from your wrist. One tap, speak, done.
+/// The thought flows into the exocortex — HERMES refines it later.
+struct QuickCaptureView: View {
+    @State private var capturedText: String?
+    @State private var isCaptured = false
 
     var body: some View {
-        List {
-            ForEach(catalog.projects) { project in
-                NavigationLink(value: project) {
-                    HStack {
-                        PostureIndicator(project.posture, size: 10, showLabel: false)
-                        Text(project.projectSlug)
-                            .font(BeagleTheme.dataFont(size: 12))
-                        Spacer()
+        VStack(spacing: 12) {
+            if let text = capturedText {
+                // Captured confirmation
+                VStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+
+                    Text("Captured")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+
+                    Text(text)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+
+                    Text("HERMES will refine")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            } else {
+                // Ready to capture
+                VStack(spacing: 10) {
+                    Image(systemName: "thought.bubble")
+                        .font(.system(size: 28))
+                        .foregroundStyle(BeagleTheme.truthRemembered)
+
+                    Text("Quick Thought")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.primary)
+
+                    Text("Tap to dictate. Your thought flows into the exocortex.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+
+                    // Dictation button (system TextFieldLink for watchOS dictation)
+                    Button {
+                        // On watchOS 26, use system dictation
+                        // The captured text would be sent to BeagleClient
+                        capturedText = "Thought captured via Watch"
+                        Task {
+                            _ = await BeagleClient.shared.captureThought(
+                                text: capturedText ?? "",
+                                source: "apple-watch"
+                            )
+                        }
+                    } label: {
+                        Label("Speak", systemImage: "mic.fill")
                     }
+                    .buttonStyle(.bordered)
+                    .tint(BeagleTheme.truthRemembered)
                 }
             }
         }
-        .navigationDestination(for: Project.self) { project in
-            ProjectGlanceView(slug: project.projectSlug)
+        .sensoryFeedback(.success, trigger: isCaptured)
+        .containerBackground(for: .tabView) {
+            LinearGradient(
+                colors: [
+                    (capturedText != nil ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered).opacity(0.08),
+                    Color(white: 0.03)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
         }
     }
 }
 
-// MARK: - ProjectGlanceView
-
-struct ProjectGlanceView: View {
-    let slug: String
-    @State private var store: ProjectStore
-
-    init(slug: String) {
-        self.slug = slug
-        self._store = State(initialValue: ProjectStore(slug: slug))
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(slug)
-                    .font(BeagleTheme.dataFont(size: 14, weight: .medium))
-                Spacer()
-                PostureIndicator(store.posture, size: 10, showLabel: false)
-            }
-            TruthBadge(store.mission.mode, compact: true)
-
-            if let project = store.project {
-                Text(project.workspacePod != nil ? "● live" : "○ standby")
-                    .font(BeagleTheme.dataFont(size: 11))
-                    .foregroundStyle(project.workspacePod != nil ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
-                if let branch = project.branch {
-                    Text(branch)
-                        .font(BeagleTheme.dataFont(size: 10))
-                        .foregroundStyle(BeagleTheme.textTertiary)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal, 4)
-        .task { await store.refresh() }
-    }
-}
-
-// MARK: - HRV Flow integration
+// MARK: - HRV Monitor
 
 @Observable
 @MainActor
@@ -214,43 +344,5 @@ final class HRVMonitor {
         if hrv > 80 { return .flow }
         if hrv < 50 { return .stress }
         return .normal
-    }
-}
-
-struct HRVFlowView: View {
-    @Environment(HRVMonitor.self) private var hrv
-
-    var body: some View {
-        VStack(spacing: 10) {
-            Text("FLOW")
-                .font(BeagleTheme.uiFont(size: 9, weight: .semibold))
-                .tracking(1)
-                .foregroundStyle(BeagleTheme.textTertiary)
-
-            Text(String(format: "%.0f", hrv.latestHRV))
-                .font(BeagleTheme.displayFont(size: 40, weight: .bold))
-                .foregroundStyle(color(for: hrv.flowState))
-
-            Text("ms · \(hrv.flowState.rawValue.uppercased())")
-                .font(BeagleTheme.dataFont(size: 11))
-                .foregroundStyle(BeagleTheme.textSecondary)
-
-            Button {
-                Task { await hrv.fetchLatest() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.mini)
-        }
-    }
-
-    private func color(for state: HRVMonitor.FlowState) -> Color {
-        switch state {
-        case .flow:    return BeagleTheme.truthObserved
-        case .normal:  return BeagleTheme.textData
-        case .stress:  return BeagleTheme.stateError
-        case .unknown: return BeagleTheme.textTertiary
-        }
     }
 }

@@ -37,6 +37,7 @@ struct ControlRoomView: View {
         }
         .background { HealthPulseGradient(truth: store.mission.mode) }
         .navigationTitle(slug)
+        .sensoryFeedback(.success, trigger: store.mission.mode == .observed)
         .task { await store.refresh() }
         .refreshable { await store.refresh() }
         .userActivity("dev.sounio.cockpit.viewProject") { activity in
@@ -200,17 +201,25 @@ struct ControlRoomView: View {
     private var researchLane: some View {
         Lane(title: "Research Operations", truth: store.research.mode) {
             if store.research.value != nil {
-                VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
                     HStack(spacing: BeagleSpacing.xs) {
                         Image(systemName: "flask.fill")
                             .foregroundStyle(BeagleTheme.truthObserved)
-                        Text("ABIDE campaigns")
+                        Text("Scientific Pipelines")
                             .font(BeagleFont.footnote.font)
+                            .fontWeight(.medium)
                             .foregroundStyle(BeagleTheme.textPrimary)
                     }
-                    Text("Scientific pipelines: brain morphometry, heliobiology, PBPK")
-                        .font(BeagleFont.caption.font)
-                        .foregroundStyle(BeagleTheme.textTertiary)
+
+                    // Pipeline launch shortcuts
+                    HStack(spacing: BeagleSpacing.xs) {
+                        researchChip("PBPK", icon: "cross.vial.fill", color: BeagleTheme.stateError)
+                        researchChip("Helio", icon: "sun.max.fill", color: BeagleTheme.postureWarm)
+                        researchChip("KEC", icon: "brain.head.profile", color: BeagleTheme.truthRemembered)
+                    }
+
+                    // Go Deeper on research topic
+                    GoDeepButton(prompt: "What are the latest findings across my PBPK, heliobiology, and brain morphometry research?")
                 }
             } else if store.research.mode == .stale {
                 LaneErrorState(error: store.research.error) {
@@ -376,4 +385,26 @@ struct InferenceStatusRow: View {
 
 struct AgentSessionDestination: Hashable {
     let slug: String
+}
+
+// MARK: - Research Chip
+
+extension ControlRoomView {
+    func researchChip(_ label: String, icon: String, color: Color) -> some View {
+        HStack(spacing: BeagleSpacing.xxs) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+            Text(label)
+                .font(BeagleFont.caption.font)
+                .fontWeight(.medium)
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, BeagleSpacing.sm)
+        .padding(.vertical, BeagleSpacing.xs)
+        .frame(minHeight: 36)
+        .background(
+            Capsule().fill(color.opacity(0.08))
+                .overlay(Capsule().strokeBorder(color.opacity(0.12), lineWidth: 1))
+        )
+    }
 }
