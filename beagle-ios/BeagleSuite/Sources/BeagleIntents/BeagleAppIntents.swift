@@ -289,9 +289,9 @@ public struct BeagleShortcutsProvider: AppShortcutsProvider {
         AppShortcut(
             intent: CaptureThoughtIntent(),
             phrases: [
-                "\(.applicationName) capture \(\.$thought)",
-                "\(.applicationName) remember \(\.$thought)",
-                "Capture thought in \(.applicationName)"
+                "Capture thought in \(.applicationName)",
+                "\(.applicationName) capture a thought",
+                "Remember this in \(.applicationName)"
             ],
             shortTitle: "Capture Thought",
             systemImageName: "thought.bubble"
@@ -311,8 +311,8 @@ public struct BeagleShortcutsProvider: AppShortcutsProvider {
         AppShortcut(
             intent: GoDeepIntent(),
             phrases: [
-                "\(.applicationName) go deeper on \(\.$question)",
-                "Explore \(\.$question) in \(.applicationName)"
+                "Go deeper in \(.applicationName)",
+                "\(.applicationName) explore deeply"
             ],
             shortTitle: "Go Deeper",
             systemImageName: "scope"
