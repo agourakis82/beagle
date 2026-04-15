@@ -34,8 +34,17 @@ public final class AgentActivityStore {
     public func refresh() async {
         isLoading = true
         let result = await cockpit.agentScratchpad(slug: slug)
-        if let scratchpad = result.value, let msgs = scratchpad.messages {
-            messages = msgs
+        if let scratchpad = result.value, let entries = scratchpad.entries {
+            messages = entries.map { entry in
+                AgentMessage(
+                    messageId: entry.entryId,
+                    agent: entry.agent,
+                    surface: nil,
+                    kind: nil,
+                    content: entry.text,
+                    createdAt: entry.timestamp
+                )
+            }
         }
         lastRefresh = .now
         isLoading = false
@@ -48,8 +57,7 @@ public final class AgentActivityStore {
         let result = await cockpit.postAgentMessage(
             slug: slug,
             agent: "claude-code-ios",
-            kind: kind,
-            content: content
+            text: "[\(kind)] \(content)"
         )
         if result.value?.ok == true {
             // Refresh to see our own message + any new ones

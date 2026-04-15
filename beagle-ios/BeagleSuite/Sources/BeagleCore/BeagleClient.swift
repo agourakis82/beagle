@@ -274,6 +274,31 @@ public actor BeagleClient {
         await fetch(CognitiveState.self, path: "/api/v1/cognitive/state")
     }
 
+    /// Per-caller Φ rhythm (tool usage patterns).
+    public func toolRhythmPhi() async -> Truthful<ChatResponse> {
+        await fetch(ChatResponse.self, path: "/api/v1/cognitive/tool_rhythm_phi?caller=ios&split=true")
+    }
+
+    /// Joint semantic + behavioral Φ.
+    public func jointPhi(hops: Int = 2) async -> Truthful<ChatResponse> {
+        await fetch(ChatResponse.self, path: "/api/v1/cognitive/joint_phi?hops=\(hops)")
+    }
+
+    /// Recursive Φ (phi of phi).
+    public func phiOfPhi() async -> Truthful<ChatResponse> {
+        await fetch(ChatResponse.self, path: "/api/v1/cognitive/phi_of_phi")
+    }
+
+    /// Meta Φ (phi over recent events).
+    public func metaPhi() async -> Truthful<ChatResponse> {
+        await fetch(ChatResponse.self, path: "/api/v1/cognitive/meta_phi")
+    }
+
+    /// Chained deep-think: fractal + void + phi in sequence.
+    public func deepThink(prompt: String) async -> Truthful<ChatResponse> {
+        await post(ChatResponse.self, path: "/api/cognitive/deep-think", body: ["prompt": prompt], timeout: 180)
+    }
+
     // MARK: - Hypergraph
 
     public func queryHyperedges(nodeId: String? = nil) async -> Truthful<[Hyperedge]> {
@@ -309,7 +334,7 @@ public actor BeagleClient {
     public func chat(prompt: String, system: String? = nil) async -> Truthful<ChatResponse> {
         var body: [String: any Sendable] = ["prompt": prompt]
         if let system { body["system"] = system }
-        return await post(ChatResponse.self, path: "/api/v1/chat", body: body)
+        return await post(ChatResponse.self, path: "/api/llm/complete", body: body)
     }
 
     // MARK: - Novelty Endpoints (Void, Fractal, Phi)
@@ -362,7 +387,7 @@ public actor BeagleClient {
     }
 
     public func causalExtract(text: String) async -> Truthful<CausalGraph> {
-        await post(CausalGraph.self, path: "/dev/causal/extract", body: ["text": text], timeout: 60)
+        await post(CausalGraph.self, path: "/dev/causal", body: ["text": text], timeout: 60)
     }
 
     public func causalIntervention(
@@ -404,7 +429,7 @@ public actor BeagleClient {
     // MARK: - World Model
 
     public func worldModelState() async -> Truthful<WorldModelState> {
-        await fetch(WorldModelState.self, path: "/worldmodel/state")
+        await fetch(WorldModelState.self, path: "/api/worldmodel/predict")
     }
 
     public func worldModelPredict(query: String) async -> Truthful<WorldModelPrediction> {

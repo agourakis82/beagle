@@ -599,6 +599,28 @@ public struct AgentScratchpad: Codable, Sendable {
     }
 }
 
+/// Real scratchpad response from cockpit (JSONL-backed).
+public struct ScratchpadResponse: Codable, Sendable {
+    public let projectSlug: String?
+    public let entries: [ScratchpadEntry]?
+    public let count: Int?
+    public let truthMode: String?
+}
+
+public struct ScratchpadEntry: Codable, Sendable, Identifiable {
+    public var id: String { entryId ?? UUID().uuidString }
+    public let entryId: String?
+    public let slug: String?
+    public let agent: String?
+    public let text: String?
+    public let timestamp: String?
+
+    enum CodingKeys: String, CodingKey {
+        case entryId = "entry_id"
+        case slug, agent, text, timestamp
+    }
+}
+
 public struct AgentMessageAck: Codable, Sendable {
     public let ok: Bool?
     public let messageId: String?

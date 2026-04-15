@@ -271,16 +271,14 @@ public actor CockpitClient {
 
     // MARK: - Agent Scratchpad (inter-agent communication)
 
-    public func agentScratchpad(slug: String) async -> Truthful<AgentScratchpad> {
-        await fetch(AgentScratchpad.self, path: "/api/projects/\(slug)/agents/scratchpad")
+    public func agentScratchpad(slug: String) async -> Truthful<ScratchpadResponse> {
+        await fetch(ScratchpadResponse.self, path: "/api/projects/\(slug)/agents/scratchpad")
     }
 
-    public func postAgentMessage(slug: String, agent: String, kind: String, content: String) async -> Truthful<AgentMessageAck> {
+    public func postAgentMessage(slug: String, agent: String, text: String) async -> Truthful<AgentMessageAck> {
         await post(AgentMessageAck.self, path: "/api/projects/\(slug)/agents/scratchpad", body: [
             "agent": agent,
-            "surface": "ios",
-            "kind": kind,
-            "content": content
+            "text": text
         ])
     }
 }
