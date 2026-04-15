@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolBridgeRequest",
+  "type": "object",
+  "required": [
+    "request_id",
+    "bridge_kind",
+    "bridge_mode",
+    "task_type",
+    "payload"
+  ],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bridge_kind": {
+      "type": "string",
+      "enum": [
+        "human_premium",
+        "cheap_api",
+        "mcp_connector"
+      ]
+    },
+    "bridge_mode": {
+      "type": "string",
+      "enum": [
+        "human_session",
+        "cheap_api",
+        "mcp_server",
+        "api_optional"
+      ]
+    },
+    "provider": {
+      "type": "string",
+      "enum": [
+        "deepseek",
+        "glm5",
+        "grok_fast",
+        "minimax",
+        "codex_human",
+        "claude_human",
+        "mcp_generic"
+      ]
+    },
+    "model": {
+      "type": "string"
+    },
+    "task_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "payload": {},
+    "metadata": {}
+  },
+  "additionalProperties": false
+}

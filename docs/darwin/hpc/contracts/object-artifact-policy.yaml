@@ -1,0 +1,51 @@
+phase: B10.1
+mode: object-backed-artifact-publication
+status: live-matrix-proven
+
+source_bundle:
+  source_phase: approved-gateway-source
+  source_type: approved-gateway-artifact-manifest
+  initial_profile_id: cpu-short-v1
+  allowed_profile_ids:
+    - cpu-short-v1
+    - cpu-batch-v1
+    - gpu-single-v1
+
+publication_target:
+  id: hpc-artifacts-v1
+  kind: rgw-s3
+  endpoint: http://192.168.3.171:7480
+  bucket: darwin-hpc-artifacts
+  forbidden_bucket: darwin-k8s-backups
+  credential_owner: platform
+  separate_from_backup_bucket: true
+
+object_layout:
+  prefix_template: hpc/{profile_id}/{job_id}/{run_label}
+  required_objects:
+    - artifact.bin
+    - stdout.txt
+    - stderr.txt
+    - artifact-manifest.json
+
+manifest_requirements:
+  required_fields:
+    - object_bucket
+    - object_key
+    - publication_time
+    - published_checksum
+  required_published_object_fields:
+    - artifact_kind
+    - object_key
+    - published_checksum
+    - size_bytes
+
+restrictions:
+  no_velero_bucket_reuse: true
+  no_pvc_pv_reopen: true
+  no_ingress_edge_reopen: true
+  no_ha_reopen: true
+  no_topology_change: true
+  no_slurm_in_kubernetes: true
+  no_arbitrary_bucket_selection: true
+  no_arbitrary_object_key_override: true

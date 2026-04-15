@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: beagle-core-config
+data:
+  # Runtime authority for the cluster MVP:
+  # - binary: core_server
+  # - bind: 0.0.0.0:8080
+  # - health: GET /health
+  BEAGLE_BIND_ADDR: 0.0.0.0:8080
+  BEAGLE_CORE_ADDR: 0.0.0.0:8080
+  BEAGLE_DATA_DIR: /var/lib/beagle
+  BEAGLE_PROFILE: cluster
+  BEAGLE_SAFE_MODE: "true"
+  BEAGLE_WORKSPACE_CANONICAL_ID: beagle-cluster-pilot
+  BEAGLE_WORKSPACE_CANONICAL_REPO: agourakis82/beagle
+  BEAGLE_WORKSPACE_CANONICAL_BRANCH: feat/darwin-hpc-governance
+  BEAGLE_WORKSPACE_CANONICAL_TRACK: darwin-hpc
+  BEAGLE_WORKSPACE_OPERATOR: devsounio
+  BEAGLE_WORKSPACE_DEFAULT_DEV_PLANE: beagle-cluster
+  BEAGLE_WORKSPACE_VM_FALLBACK_ROLE: fallback-only
+  BEAGLE_WORKSPACE_PROMOTION_SCOPE: beagle-darwin-hpc-small-medium
+  BEAGLE_TOOL_BRIDGE_TIMEOUT_SECONDS: "60"
+  BEAGLE_TOOL_BRIDGE_LEDGER_ENABLED: "true"
+  BEAGLE_TOOL_BRIDGE_DRY_RUN: "false"
+  BEAGLE_CONSUMER_POLICY_ENABLED: "true"
+  BEAGLE_DEEPSEEK_BASE_URL: https://api.deepseek.com
+  BEAGLE_ZAI_BASE_URL: https://open.bigmodel.cn/api/paas/v4
+  BEAGLE_XAI_BASE_URL: https://api.x.ai/v1
+  BEAGLE_MINIMAX_BASE_URL: https://api.minimax.chat/v1
+  BEAGLE_DARWIN_HPC_GATEWAY_BASE_URL: http://darwin-hpc-gateway.darwin-platform.svc.cluster.local
+  BEAGLE_DARWIN_HPC_GATEWAY_TIMEOUT_SECONDS: "30"
+  RUST_LOG: beagle=info,beagle_monorepo=info,beagle_core=info,tower_http=info
+  RUST_LOG_JSON: "1"

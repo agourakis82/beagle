@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://darwin-v2.internal/phase-b9/gateway-submit-schema.json",
+  "title": "Darwin B9.5 Gateway Submit Request",
+  "description": "Profile-based HPC gateway submission contract for approved workload classes only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "profile_id",
+    "parameters"
+  ],
+  "properties": {
+    "profile_id": {
+      "type": "string",
+      "enum": [
+        "cpu-short-v1",
+        "cpu-batch-v1",
+        "gpu-single-v1"
+      ]
+    },
+    "parameters": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "profile_id": {
+            "const": "cpu-short-v1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "run_label"
+            ],
+            "properties": {
+              "run_label": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]{2,39}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile_id": {
+            "const": "cpu-batch-v1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "run_label"
+            ],
+            "properties": {
+              "run_label": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]{2,39}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile_id": {
+            "const": "gpu-single-v1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "run_label"
+            ],
+            "properties": {
+              "run_label": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]{2,39}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "examples": [
+    {
+      "profile_id": "cpu-short-v1",
+      "parameters": {
+        "run_label": "cpu-short-demo"
+      }
+    },
+    {
+      "profile_id": "cpu-batch-v1",
+      "parameters": {
+        "run_label": "cpu-batch-demo"
+      }
+    },
+    {
+      "profile_id": "gpu-single-v1",
+      "parameters": {
+        "run_label": "gpu-single-demo"
+      }
+    }
+  ]
+}

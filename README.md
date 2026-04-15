@@ -1,10 +1,19 @@
-# BEAGLE v0.3.0 - Memory & MCP Layer
+# Beagle
 
-**Exocórtex Científico Pessoal** - Rust + Julia + Swift/Tauri
+**Beagle is the exocortex of the Darwin ecosystem.** It is the cognitive-operational layer that coordinates memory, agents, MCP orchestration, workflows, cluster-facing services, and the Darwin scientific and product lines it carries.
 
-## 🚀 Versão Atual: v0.3.0
+Beagle is the platform and integration surface of the ecosystem. It is **not** the language substrate. **Sounio** is the technical star and the long-term systems-language foundation; **Beagle** is the exocortical layer that organizes, operates, and integrates the system around it.
 
-BEAGLE v0.3.0 implementa a camada de **Memory & MCP (Model Context Protocol)**, transformando o BEAGLE em um verdadeiro **exocórtex MCP** acessível via ChatGPT e Claude.
+## Authority Position
+
+- **Sounio** is the authority for language, compiler, stdlib, and long-term systems convergence.
+- **Beagle** is the authority for memory, agents, MCP, workflows, orchestration, and platform integration.
+- **Darwin** is a constellation of scientific, operational, and product lines carried inside the Beagle-centered platform.
+- Historical language lines such as **MedLang** do not define Beagle's present authority.
+
+## 🚀 Current Release Context
+
+The current repository state includes the `v0.3.0` Memory & MCP layer, which turned Beagle into a true MCP-facing exocortical platform accessible from ChatGPT and Claude.
 
 ### ✨ Novidades v0.3.0
 

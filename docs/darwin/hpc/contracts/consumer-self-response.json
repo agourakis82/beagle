@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Controlled Consumer Self Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "lane",
+    "description",
+    "allowed_profiles",
+    "allow_workspace_plane",
+    "allow_hpc_control",
+    "allow_hpc_submit",
+    "allow_hpc_read",
+    "allow_bridge_read",
+    "allow_bridge_execute"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "enum": [
+        "beagle-operator",
+        "darwin-research"
+      ]
+    },
+    "lane": {
+      "type": "string",
+      "enum": [
+        "operator",
+        "research"
+      ]
+    },
+    "description": {
+      "type": "string"
+    },
+    "allowed_profiles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allow_workspace_plane": {
+      "type": "boolean"
+    },
+    "allow_hpc_control": {
+      "type": "boolean"
+    },
+    "allow_hpc_submit": {
+      "type": "boolean"
+    },
+    "allow_hpc_read": {
+      "type": "boolean"
+    },
+    "allow_bridge_read": {
+      "type": "boolean"
+    },
+    "allow_bridge_execute": {
+      "type": "boolean"
+    }
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://darwin.local/phase-b10/object-artifact-contract.json",
+  "title": "B10 Published Artifact Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_format",
+    "publication_target_id",
+    "source_phase",
+    "source_run_id",
+    "job_id",
+    "job_name",
+    "profile_id",
+    "run_label",
+    "object_bucket",
+    "object_key",
+    "manifest_object_key",
+    "publication_time",
+    "published_checksum",
+    "published_objects"
+  ],
+  "properties": {
+    "manifest_format": {
+      "type": "string",
+      "const": "darwin-b101-object-artifact-v1"
+    },
+    "publication_target_id": {
+      "type": "string",
+      "const": "hpc-artifacts-v1"
+    },
+    "source_phase": {
+      "type": "string",
+      "enum": [
+        "B9.6",
+        "B10.2"
+      ]
+    },
+    "source_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_manifest_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "job_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "job_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile_id": {
+      "type": "string",
+      "enum": [
+        "cpu-short-v1",
+        "cpu-batch-v1",
+        "gpu-single-v1"
+      ]
+    },
+    "run_label": {
+      "type": "string",
+      "minLength": 1
+    },
+    "object_bucket": {
+      "type": "string",
+      "const": "darwin-hpc-artifacts"
+    },
+    "object_key": {
+      "type": "string",
+      "pattern": "^hpc/(cpu-short-v1|cpu-batch-v1|gpu-single-v1)/[0-9]+/[A-Za-z0-9._-]+/artifact\\.bin$"
+    },
+    "manifest_object_key": {
+      "type": "string",
+      "pattern": "^hpc/(cpu-short-v1|cpu-batch-v1|gpu-single-v1)/[0-9]+/[A-Za-z0-9._-]+/artifact-manifest\\.json$"
+    },
+    "publication_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "published_checksum": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "published_objects": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact_kind",
+          "object_key",
+          "content_type",
+          "published_checksum",
+          "size_bytes"
+        ],
+        "properties": {
+          "artifact_kind": {
+            "type": "string",
+            "enum": [
+              "artifact",
+              "stdout",
+              "stderr"
+            ]
+          },
+          "object_key": {
+            "type": "string",
+            "pattern": "^hpc/(cpu-short-v1|cpu-batch-v1|gpu-single-v1)/[0-9]+/[A-Za-z0-9._-]+/(artifact\\.bin|stdout\\.txt|stderr\\.txt)$"
+          },
+          "content_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "published_checksum": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

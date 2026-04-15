@@ -1,0 +1,64 @@
+version: v1
+phase: B9.7
+title: Controlled Consumer Expansion Policy
+
+service:
+  auth_header: Authorization
+  auth_scheme: Bearer
+  consumer_header: X-Beagle-Consumer
+  policy_enabled_env: BEAGLE_CONSUMER_POLICY_ENABLED
+  operator_token_env: BEAGLE_OPERATOR_API_TOKEN
+  research_token_env: BEAGLE_RESEARCH_API_TOKEN
+
+consumers:
+  - id: beagle-operator
+    lane: operator
+    description: Primary internal operator path with full workspace and bridge access.
+    allow_workspace_plane: true
+    allow_hpc_control: true
+    allow_hpc_submit: true
+    allow_hpc_read: true
+    allow_bridge_read: true
+    allow_bridge_execute: true
+    allowed_profiles:
+      - cpu-short-v1
+      - cpu-batch-v1
+      - gpu-single-v1
+  - id: darwin-research
+    lane: research
+    description: Controlled research consumer limited to approved CPU profiles.
+    allow_workspace_plane: false
+    allow_hpc_control: false
+    allow_hpc_submit: true
+    allow_hpc_read: true
+    allow_bridge_read: false
+    allow_bridge_execute: false
+    allowed_profiles:
+      - cpu-short-v1
+      - cpu-batch-v1
+
+shared_surface:
+  - GET /api/darwin/consumers/self
+  - GET /api/darwin/hpc/profiles
+  - POST /api/darwin/hpc/jobs/submit
+  - GET /api/darwin/hpc/jobs/{job_id}
+  - GET /api/darwin/hpc/jobs/{job_id}/artifact-manifest
+  - GET /api/darwin/hpc/jobs/{job_id}/stdout
+  - GET /api/darwin/hpc/jobs/{job_id}/stderr
+  - GET /api/darwin/hpc/results
+  - GET /api/darwin/hpc/results/{job_id}
+  - GET /api/darwin/hpc/results/{job_id}/manifest
+
+operator_only_surface:
+  - GET /api/darwin/workspace/bootstrap
+  - GET /api/darwin/workspace/session
+  - POST /api/darwin/workspace/pilot/execute
+  - GET /api/darwin/hpc/control
+  - GET /api/darwin/bridge/health
+  - GET /api/darwin/bridge/providers
+  - POST /api/darwin/bridge/execute
+
+validation:
+  required_smoke: scripts/infrastructure/darwin-hpc/run_controlled_consumer_expansion_smoke.sh
+  required_validator: scripts/infrastructure/darwin-hpc/validate_controlled_consumer_expansion_smoke.sh
+  deny_status_code: 403

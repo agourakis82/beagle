@@ -25,6 +25,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tower_http::trace::TraceLayer;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -121,6 +122,7 @@ pub fn build_router(state: AppState) -> Router {
             "/api/jobs/science/:job_id/artifacts",
             get(science_job_artifacts_handler),
         )
+        .merge(crate::http_darwin_hpc::darwin_hpc_routes())
         .merge(crate::http_memory::memory_routes())
         .route("/api/pcs/reason", post(pcs_reason_handler))
         .route("/api/fractal/grow", post(fractal_grow_handler))
@@ -144,6 +146,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .merge(protected_routes)
         .merge(public_routes)
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
