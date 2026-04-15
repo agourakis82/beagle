@@ -30,6 +30,7 @@ public enum ModelCategory: String, CaseIterable, Sendable {
     case reasoning    = "Reasoning"
     case code         = "Code"
     case medical      = "Medical & Bio"
+    case exotic       = "Exotic & Frontier"
     case ssm          = "SSM (State Space)"
     case multilingual = "Multilingual"
     case fast         = "Fast & Light"
@@ -63,6 +64,14 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     case lfm2_1B         = "lfm2-1.2b-4bit"
     case jamba3B         = "jamba-reasoning-3b-4bit"
     case graniteHybrid   = "granite-4.0-h-tiny-4bit"
+
+    // Exotic & Frontier (different thinking, different architectures)
+    case olmo2_7B        = "olmo2-7b-4bit"
+    case smolLM2_1_7B    = "smollm2-1.7b-4bit"
+    case danube3_4B      = "danube3-4b-4bit"
+    case exaone3_8B      = "exaone3-7.8b-4bit"
+    case internLM3_8B    = "internlm3-8b-4bit"
+    case yi1_5_9B        = "yi-1.5-9b-4bit"
 
     // Multilingual (strong Portuguese)
     case mistral7B       = "mistral-7b-v0.3-4bit"
@@ -98,6 +107,12 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .lfm2_1B:       return "LFM2 1.2B"
         case .jamba3B:       return "Jamba 3B"
         case .graniteHybrid: return "Granite Hybrid"
+        case .olmo2_7B:      return "OLMo 2 7B"
+        case .smolLM2_1_7B:  return "SmolLM2 1.7B"
+        case .danube3_4B:    return "Danube 3 4B"
+        case .exaone3_8B:    return "EXAONE 3 7.8B"
+        case .internLM3_8B:  return "InternLM 3 8B"
+        case .yi1_5_9B:      return "Yi 1.5 9B"
         case .mistral7B:     return "Mistral 7B v0.3"
         case .qwen3_1_7B:    return "Qwen 3 1.7B"
         case .llama3_1_8B:   return "Llama 3.1 8B"
@@ -115,6 +130,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mimo7B, .phi35Mini, .qwen2_5_7B, .codeQwen7B: return .code
         case .bioMistral7B, .openBioLLM7B, .meditron7B: return .medical
         case .falconH1_7B, .lfm2MoE, .lfm2_1B, .jamba3B, .graniteHybrid: return .ssm
+        case .olmo2_7B, .smolLM2_1_7B, .danube3_4B, .exaone3_8B, .internLM3_8B, .yi1_5_9B: return .exotic
         case .mistral7B, .qwen3_1_7B: return .multilingual
         case .llama3_1_8B, .llama3_2_3B, .smolLM3_3B, .gemma4_2B, .gemma2_2B, .bitnet2B: return .fast
         }
@@ -140,6 +156,12 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .lfm2_1B:       return "~0.8 GB"
         case .jamba3B:       return "~2 GB"
         case .graniteHybrid: return "~1.5 GB"
+        case .olmo2_7B:      return "~4.5 GB"
+        case .smolLM2_1_7B:  return "~1.2 GB"
+        case .danube3_4B:    return "~2.5 GB"
+        case .exaone3_8B:    return "~5 GB"
+        case .internLM3_8B:  return "~5 GB"
+        case .yi1_5_9B:      return "~5.5 GB"
         case .mistral7B:     return "~4.5 GB"
         case .qwen3_1_7B:    return "~1.2 GB"
         case .llama3_1_8B:   return "~4.8 GB"
@@ -154,14 +176,16 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     public var parameterCount: String {
         switch self {
         case .qwen3_8B, .llama3_1_8B: return "8B"
-        case .deepseekR1, .aceReason7B, .falconH1_7B, .mimo7B, .qwen2_5_7B, .mistral7B, .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B: return "7B"
-        case .gemma2_9B: return "9B"
+        case .deepseekR1, .aceReason7B, .falconH1_7B, .mimo7B, .qwen2_5_7B, .mistral7B, .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B, .olmo2_7B: return "7B"
+        case .gemma2_9B, .yi1_5_9B: return "9B"
+        case .exaone3_8B, .internLM3_8B: return "7.8B"
+        case .danube3_4B: return "4B"
         case .lfm2MoE: return "8B (1B active)"
         case .gemma4_4B, .qwen3_4B: return "4B"
         case .phi35Mini: return "3.8B"
         case .jamba3B, .llama3_2_3B, .smolLM3_3B: return "3B"
         case .gemma4_2B, .gemma2_2B, .bitnet2B: return "2B"
-        case .qwen3_1_7B: return "1.7B"
+        case .qwen3_1_7B, .smolLM2_1_7B: return "1.7B"
         case .lfm2_1B: return "1.2B"
         case .graniteHybrid: return "~1B"
         }
@@ -187,6 +211,12 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .lfm2_1B:       return "Pure SSM from Liquid AI. Tiny but supports native tool-calling. Fastest in catalog."
         case .jamba3B:       return "AI21’s SSM+Transformer hybrid. Linear complexity for long exocortex conversations."
         case .graniteHybrid: return "IBM’s triple hybrid: SSM + Transformer + MoE. Experimental frontier architecture."
+        case .olmo2_7B:      return "Allen AI’s fully open model — weights, data, training logs public. Think different: trained with radical transparency."
+        case .smolLM2_1_7B:  return "HuggingFace’s tiny philosopher. Surprisingly coherent for 1.7B. Try it for distilled, crystallized reasoning."
+        case .danube3_4B:    return "H2O.ai’s water-themed model. Trained differently — mix of synthetic + real data. Fresh perspective on familiar problems."
+        case .exaone3_8B:    return "LG AI Research (Korean). Bilingual mind: trained on Korean+English corpus. East Asian scientific tradition + Western logic."
+        case .internLM3_8B:  return "Shanghai AI Lab. Chinese research ecosystem. Different citation base, different assumptions, different conclusions."
+        case .yi1_5_9B:      return "01.AI (Yi). Trained on massive Chinese internet. Different cultural priors — valuable for lateral thinking."
         case .mistral7B:     return "Mistral’s multilingual flagship. Strong Portuguese, French, Spanish. 128k context."
         case .qwen3_1_7B:    return "Alibaba’s fast multilingual. Good Portuguese from massive training. Quick draft model."
         case .llama3_1_8B:   return "Meta’s reliable generalist. Broad biomedical knowledge. Predictable behavior."
@@ -218,6 +248,12 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .lfm2_1B:       return "Tiny + tools"
         case .jamba3B:       return "Reasoning SSM"
         case .graniteHybrid: return "Triple hybrid"
+        case .olmo2_7B:      return "Radically open"
+        case .smolLM2_1_7B:  return "Tiny philosopher"
+        case .danube3_4B:    return "Fresh perspective"
+        case .exaone3_8B:    return "Korean+English"
+        case .internLM3_8B:  return "Chinese research"
+        case .yi1_5_9B:      return "Different priors"
         case .mistral7B:     return "Multilingual"
         case .qwen3_1_7B:    return "Quick draft"
         case .llama3_1_8B:   return "Reliable generalist"
@@ -233,12 +269,13 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .qwen3_8B, .deepseekR1, .aceReason7B, .llama3_1_8B, .gemma2_9B,
              .qwen2_5_7B, .falconH1_7B, .mimo7B, .mistral7B,
-             .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B:
+             .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B,
+             .olmo2_7B, .exaone3_8B, .internLM3_8B, .yi1_5_9B:
             return 8
-        case .gemma4_4B, .qwen3_4B, .phi35Mini, .lfm2MoE:
+        case .gemma4_4B, .qwen3_4B, .phi35Mini, .lfm2MoE, .danube3_4B:
             return 6
         case .jamba3B, .llama3_2_3B, .smolLM3_3B, .gemma4_2B, .gemma2_2B,
-             .bitnet2B, .qwen3_1_7B, .lfm2_1B, .graniteHybrid:
+             .bitnet2B, .qwen3_1_7B, .lfm2_1B, .graniteHybrid, .smolLM2_1_7B:
             return 4
         }
     }
@@ -284,6 +321,12 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .lfm2_1B:       return ModelConfiguration(id: "mlx-community/LFM2-1.2B-4bit")
         case .jamba3B:       return ModelConfiguration(id: "mlx-community/AI21-Jamba-Reasoning-3B-4bit")
         case .graniteHybrid: return ModelConfiguration(id: "mlx-community/Granite-4.0-H-Tiny-4bit-DWQ")
+        case .olmo2_7B:      return ModelConfiguration(id: "mlx-community/OLMo-2-1124-7B-Instruct-4bit")
+        case .smolLM2_1_7B:  return ModelConfiguration(id: "mlx-community/SmolLM2-1.7B-Instruct-4bit")
+        case .danube3_4B:    return ModelConfiguration(id: "mlx-community/h2o-danube3-4b-chat-4bit")
+        case .exaone3_8B:    return ModelConfiguration(id: "mlx-community/EXAONE-3.5-7.8B-Instruct-4bit")
+        case .internLM3_8B:  return ModelConfiguration(id: "mlx-community/internlm3-8b-instruct-4bit")
+        case .yi1_5_9B:      return ModelConfiguration(id: "mlx-community/Yi-1.5-9B-Chat-4bit")
         case .mistral7B:     return ModelConfiguration(id: "mlx-community/Mistral-7B-Instruct-v0.3-4bit")
         case .qwen3_1_7B:    return ModelConfiguration(id: "mlx-community/Qwen3-1.7B-4bit")
         case .llama3_1_8B:   return LLMRegistry.llama3_1_8B_4bit

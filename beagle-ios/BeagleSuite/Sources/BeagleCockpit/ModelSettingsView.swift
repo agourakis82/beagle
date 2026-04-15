@@ -358,6 +358,7 @@ struct ModelSettingsView: View {
         case .reasoning:    return "brain.head.profile"
         case .code:         return "curlybraces"
         case .medical:      return "cross.vial.fill"
+        case .exotic:       return "sparkle"
         case .ssm:          return "waveform.path"
         case .multilingual: return "globe"
         case .fast:         return "hare"
@@ -369,6 +370,7 @@ struct ModelSettingsView: View {
         case .reasoning:    return BeagleTheme.truthObserved
         case .code:         return BeagleTheme.truthRemembered
         case .medical:      return BeagleTheme.stateError
+        case .exotic:       return Color(hue: 300/360, saturation: 0.6, brightness: 0.9) // magenta
         case .ssm:          return BeagleTheme.postureWarm
         case .multilingual: return BeagleTheme.textData
         case .fast:         return BeagleTheme.truthDeclared
@@ -383,6 +385,8 @@ struct ModelSettingsView: View {
             return "Function generation, structured output (JSON/YAML), technical writing. Use for building."
         case .medical:
             return "Fine-tuned on PubMed, medical guidelines, clinical literature. Understands pharmacokinetics, drug interactions, PBPK terminology."
+        case .exotic:
+            return "Models trained with different data, different cultures, different assumptions. When you need to think sideways, try a mind that was shaped differently."
         case .ssm:
             return "State Space Models — O(n) complexity, infinite context without memory blowup. The future of on-device LLM."
         case .multilingual:
