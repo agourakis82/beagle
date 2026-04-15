@@ -21,6 +21,8 @@ struct ModelSettingsView: View {
     @State private var selectedModel: OnDeviceModel = .recommended
     @State private var loadPhase = ""
     @State private var loadPhaseIndex = 0
+    @AppStorage("hfToken") private var hfToken = ""
+    @State private var showTokenInput = false
 
     private static let loadMessages = [
         "Initializing neural engine...",
@@ -33,6 +35,7 @@ struct ModelSettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: BeagleSpacing.lg) {
                 deviceCard
+                hfTokenCard
                 statusCard
                 catalogSection
             }
@@ -42,6 +45,62 @@ struct ModelSettingsView: View {
         }
         .background { ModelGradient(loadState: llm.loadState) }
         .navigationTitle("On-Device Model")
+    }
+
+    // MARK: - HuggingFace Token Card
+
+    private var hfTokenCard: some View {
+        GlassPanel(elevation: .flush, truth: hfToken.isEmpty ? .declared : .observed) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "key.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(hfToken.isEmpty ? BeagleTheme.postureWarm : BeagleTheme.truthObserved)
+                    Text("HuggingFace Token")
+                        .font(BeagleFont.footnote.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    Spacer()
+                    if !hfToken.isEmpty {
+                        HStack(spacing: BeagleSpacing.xxs) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 10))
+                            Text("Configured")
+                                .font(BeagleFont.caption2.font)
+                        }
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                    }
+                }
+
+                if hfToken.isEmpty {
+                    Text("Some models (Medical, Llama, Mistral) are gated and require a HuggingFace access token. Get one at huggingface.co/settings/tokens.")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .lineSpacing(1)
+                }
+
+                if showTokenInput || hfToken.isEmpty {
+                    SecureField("hf_...", text: $hfToken)
+                        .font(BeagleFont.data.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .padding(BeagleSpacing.sm)
+                        .background(
+                            RoundedRectangle(cornerRadius: BeagleRadius.md)
+                                .fill(BeagleTheme.surface1.opacity(0.6))
+                        )
+                        .sensoryFeedback(.success, trigger: !hfToken.isEmpty)
+                } else {
+                    Button {
+                        showTokenInput = true
+                    } label: {
+                        Text("Change token")
+                            .font(BeagleFont.caption.font)
+                            .foregroundStyle(BeagleTheme.truthRemembered)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
     }
 
     // MARK: - Device Card
@@ -380,6 +439,14 @@ struct ModelSettingsView: View {
                     Text("too large for this device")
                         .font(BeagleFont.caption2.font)
                         .foregroundStyle(BeagleTheme.stateError)
+                } else if model.requiresHFToken && hfToken.isEmpty {
+                    HStack(spacing: 3) {
+                        Image(systemName: "key.fill")
+                            .font(.system(size: 8))
+                        Text("needs HF token")
+                    }
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.postureWarm)
                 } else if model == .recommended {
                     HStack(spacing: 3) {
                         Image(systemName: "star.fill")

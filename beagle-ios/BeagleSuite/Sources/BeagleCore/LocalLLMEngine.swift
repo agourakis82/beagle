@@ -248,6 +248,21 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         return ramGB >= minimumRAMGB
     }
 
+    /// Whether this model requires a HuggingFace token (gated model).
+    public var requiresHFToken: Bool {
+        switch self {
+        case .bioMistral7B, .openBioLLM7B, .meditron7B: return true
+        case .llama3_1_8B, .llama3_2_3B: return true  // Meta Llama requires agreement
+        case .mistral7B: return true                    // Mistral gated
+        default: return false
+        }
+    }
+
+    /// Whether the HF token is configured.
+    public static var hasHFToken: Bool {
+        UserDefaults.standard.string(forKey: "hfToken")?.isEmpty == false
+    }
+
     #if canImport(MLXLLM)
     var mlxConfiguration: ModelConfiguration {
         switch self {
@@ -490,8 +505,11 @@ struct HubApiDownloader: Downloader, Sendable {
     let hub: HubApi
 
     init() {
+        // Use stored HF token for gated models (medical, etc.)
+        let token = UserDefaults.standard.string(forKey: "hfToken")
         self.hub = HubApi(
-            downloadBase: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            downloadBase: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
+            hfToken: token
         )
     }
 
