@@ -123,27 +123,47 @@ struct RootView: View {
     }
 
     private func authErrorBanner(_ error: String) -> some View {
-        HStack(spacing: BeagleSpacing.xs) {
-            Image(systemName: "wifi.exclamationmark")
-                .foregroundStyle(BeagleTheme.stateError)
-            Text(error)
-                .font(BeagleFont.caption.font)
-                .foregroundStyle(BeagleTheme.textPrimary)
-                .lineLimit(2)
-            Spacer()
-            Button {
-                withAnimation(BeagleMotion.snappy) { bootError = nil }
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(BeagleTheme.textTertiary)
+        GlassPanel(elevation: .raised, truth: .stale) {
+            HStack(spacing: BeagleSpacing.xs) {
+                Image(systemName: "wifi.exclamationmark")
+                    .font(.system(size: 14))
+                    .foregroundStyle(BeagleTheme.stateError)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Cannot reach cockpit")
+                        .font(BeagleFont.footnote.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    Text(error)
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                Button {
+                    Task {
+                        bootError = nil
+                        await catalog.refresh()
+                        if catalog.executive.mode == .stale {
+                            bootError = error
+                        }
+                    }
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(SecondaryButton(color: BeagleTheme.truthObserved))
+                .controlSize(.small)
+
+                Button {
+                    withAnimation(BeagleMotion.snappy) { bootError = nil }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
-        .padding(BeagleSpacing.md)
-        .background(BeagleTheme.stateError.opacity(0.15))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(BeagleTheme.stateError.opacity(0.3)).frame(height: 1)
-        }
+        .padding(.horizontal, BeagleSpacing.lg)
+        .padding(.top, BeagleSpacing.md)
     }
 
     private var tabContent: some View {
@@ -167,7 +187,7 @@ struct RootView: View {
 
             // Tab 2: Agent — "Agent terminal session"
             NavigationStack {
-                AgentSessionView(slug: "sounio")
+                AgentSessionView(slug: catalog.primaryProject?.projectSlug ?? "sounio")
             }
             .tabItem { Label("Agent", systemImage: "terminal") }
             .tag(2)

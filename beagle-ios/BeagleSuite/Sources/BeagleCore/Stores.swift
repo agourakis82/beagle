@@ -39,6 +39,11 @@ public final class CatalogStore {
         projects.filter { $0.posture == .alwaysOn }
     }
 
+    /// The primary project — first always-on, or first project overall.
+    public var primaryProject: Project? {
+        alwaysOnProjects.first ?? projects.first
+    }
+
     public var warmProjects: [Project] {
         projects.filter { $0.posture == .warm }
     }

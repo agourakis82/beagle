@@ -18,6 +18,8 @@ struct HomeView: View {
     @State private var provocations: [Provocation] = []
     @State private var greeting = ""
     @State private var hasAppeared = false
+    @State private var serendipityInsight: String?
+    @State private var morningBrief: String?
     #if os(iOS)
     @State private var speechRecognizer = SpeechRecognizer()
     #endif
@@ -32,6 +34,12 @@ struct HomeView: View {
                     #endif
                     if !provocations.isEmpty {
                         provocationsSection
+                    }
+                    if let brief = morningBrief {
+                        morningBriefCard(brief)
+                    }
+                    if let insight = serendipityInsight {
+                        serendipityCard(insight)
                     }
                     noveltySection
                     recentThoughtsSection
@@ -517,6 +525,128 @@ struct HomeView: View {
     }
     #endif
 
+    // MARK: - Morning Brief (synthesized from overnight agent activity)
+
+    private func morningBriefCard(_ brief: String) -> some View {
+        GlassPanel(elevation: .floating, truth: .observed) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "sunrise.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(BeagleTheme.postureWarm)
+                    Text("Morning Brief")
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.postureWarm)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+                    Spacer()
+                    TruthBadge(.observed, compact: true)
+                }
+
+                Text(brief)
+                    .font(BeagleFont.subheadline.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .lineSpacing(3)
+
+                GoDeepButton(prompt: "Expand on this morning brief: \(brief)")
+            }
+        }
+        .opacity(hasAppeared ? 1 : 0)
+        .offset(y: hasAppeared ? 0 : 12)
+        .animation(.easeOut(duration: 0.6).delay(0.2), value: hasAppeared)
+    }
+
+    // MARK: - Serendipity Card (unexpected connections)
+
+    private func serendipityCard(_ insight: String) -> some View {
+        HStack(alignment: .top, spacing: BeagleSpacing.sm) {
+            Image(systemName: "sparkle")
+                .font(.system(size: 16))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [Color(hue: 300/360, saturation: 0.6, brightness: 0.9), BeagleTheme.truthRemembered],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                )
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                Text("Serendipity")
+                    .font(BeagleFont.caption.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+
+                Text(insight)
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineSpacing(2)
+                    .italic()
+
+                GoDeepButton(prompt: insight)
+            }
+        }
+        .padding(.horizontal, BeagleSpacing.lg)
+        .padding(.vertical, BeagleSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .fill(Color(hue: 300/360, saturation: 0.6, brightness: 0.9).opacity(0.03))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .strokeBorder(Color(hue: 300/360, saturation: 0.6, brightness: 0.9).opacity(0.06), lineWidth: 1)
+        )
+        .opacity(hasAppeared ? 1 : 0)
+        .offset(y: hasAppeared ? 0 : 12)
+        .animation(.easeOut(duration: 0.6).delay(0.35), value: hasAppeared)
+    }
+
+    // MARK: - Generate Morning Brief + Serendipity
+
+    private func generateInspirationLayer() {
+        let thoughts = cognitive.recentThoughts.prefix(5).compactMap { $0.refinedText ?? $0.rawText }
+        let projects = catalog.projects.map(\.projectSlug)
+        let jobs = cognitive.activeJobs
+
+        Task {
+            // Morning brief — what happened overnight, synthesized
+            let briefPrompt = """
+            My sovereign computing platform has \(projects.count) projects: \(projects.joined(separator: ", ")).
+            \(jobs.isEmpty ? "No jobs running." : "\(jobs.count) jobs active.")
+            \(thoughts.isEmpty ? "" : "Recent thoughts: \(thoughts.joined(separator: "; "))")
+
+            Give me a 2-sentence morning brief: what's the most interesting state of my platform right now, and one thing I should explore today. Be specific to my context, not generic.
+            """
+
+            let brief = await FoundationModelsAgent.shared.summarize(
+                briefPrompt,
+                instructions: "You are a sovereign computing platform operator's morning brief. Be concise, specific, and inspiring. One insight, one suggestion."
+            )
+            if let brief, !brief.isEmpty {
+                withAnimation(BeagleMotion.slow) { morningBrief = brief }
+            }
+
+            // Serendipity — find an unexpected connection
+            guard thoughts.count >= 2 else { return }
+            let serendipityPrompt = """
+            These are recent thoughts from a researcher:
+            \(thoughts.enumerated().map { "\($0 + 1). \($1)" }.joined(separator: "\n"))
+
+            Find one surprising, non-obvious connection between any two of these thoughts. The connection should make the researcher stop and think "I hadn't considered that." Be specific.
+            """
+
+            let insight = await FoundationModelsAgent.shared.summarize(
+                serendipityPrompt,
+                instructions: "You are a serendipity engine. Find unexpected cross-domain connections between ideas. Be specific and surprising, not vague."
+            )
+            if let insight, !insight.isEmpty {
+                withAnimation(BeagleMotion.slow) { serendipityInsight = insight }
+            }
+        }
+    }
+
     // MARK: - Bootstrap
 
     private func bootstrap() async {
@@ -531,6 +661,7 @@ struct HomeView: View {
         conversation.flowState = cognitive.flowState
 
         generateProvocations()
+        generateInspirationLayer()
         withAnimation { hasAppeared = true }
 
         #if os(iOS)
