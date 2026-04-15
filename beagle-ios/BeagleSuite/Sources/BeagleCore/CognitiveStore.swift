@@ -9,6 +9,7 @@
 
 import Foundation
 import Observation
+import SwiftData
 
 @Observable
 @MainActor
@@ -28,7 +29,34 @@ public final class CognitiveStore {
     /// Whether beagle-server is reachable.
     public var serverReachable = false
 
+    /// SwiftData context for persisting thoughts.
+    public var modelContext: ModelContext?
+
+    /// Total thoughts ever captured (persisted count).
+    public var totalThoughtCount: Int = 0
+
     public init() {}
+
+    /// Load persisted thoughts from SwiftData on launch.
+    public func loadPersistedThoughts() {
+        guard let context = modelContext else { return }
+        let descriptor = FetchDescriptor<PersistedThought>(
+            sortBy: [SortDescriptor(\.capturedAt, order: .reverse)]
+        )
+        if let persisted = try? context.fetch(descriptor) {
+            totalThoughtCount = persisted.count
+            // Convert to ThoughtCapture for display (most recent 50)
+            recentThoughts = persisted.prefix(50).map { p in
+                ThoughtCapture(
+                    nodeId: p.nodeId,
+                    refinedText: p.refinedText,
+                    rawText: p.rawText,
+                    source: p.source,
+                    createdAt: ISO8601DateFormatter().string(from: p.capturedAt)
+                )
+            }
+        }
+    }
 
     // MARK: - Refresh cognitive state
 
@@ -52,29 +80,39 @@ public final class CognitiveStore {
 
         let result = await BeagleClient.shared.captureThought(text: text, source: source)
 
+        let thought: ThoughtCapture
+        let persisted = PersistedThought(rawText: text, source: source)
+
         if let response = result.value, let refined = response.response {
-            let thought = ThoughtCapture(
+            thought = ThoughtCapture(
                 nodeId: nil,
                 refinedText: refined,
                 rawText: text,
                 source: source,
                 createdAt: ISO8601DateFormatter().string(from: .now)
             )
-            recentThoughts.insert(thought, at: 0)
-            if recentThoughts.count > 50 { recentThoughts.removeLast() }
-            return thought
+            persisted.refinedText = refined
+            persisted.syncedToServer = true
+        } else {
+            // Fallback: store raw thought locally
+            thought = ThoughtCapture(
+                nodeId: nil,
+                refinedText: nil,
+                rawText: text,
+                source: "\(source)-offline",
+                createdAt: ISO8601DateFormatter().string(from: .now)
+            )
         }
 
-        // Fallback: store raw thought locally
-        let fallback = ThoughtCapture(
-            nodeId: nil,
-            refinedText: nil,
-            rawText: text,
-            source: "\(source)-offline",
-            createdAt: ISO8601DateFormatter().string(from: .now)
-        )
-        recentThoughts.insert(fallback, at: 0)
-        return fallback
+        recentThoughts.insert(thought, at: 0)
+        if recentThoughts.count > 50 { recentThoughts.removeLast() }
+        totalThoughtCount += 1
+
+        // Persist to SwiftData
+        modelContext?.insert(persisted)
+        try? modelContext?.save()
+
+        return thought
     }
 
     // MARK: - Triad review

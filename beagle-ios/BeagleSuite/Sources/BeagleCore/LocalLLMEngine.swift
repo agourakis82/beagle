@@ -302,7 +302,19 @@ public final class LocalLLMEngine {
     public static let shared = LocalLLMEngine()
 
     public private(set) var loadState: LoadState = .idle
-    public private(set) var currentModel: OnDeviceModel?
+    public private(set) var currentModel: OnDeviceModel? {
+        didSet {
+            if let model = currentModel {
+                UserDefaults.standard.set(model.rawValue, forKey: "lastSelectedModel")
+            }
+        }
+    }
+
+    /// Last model the user selected (persisted across restarts).
+    public var lastSelectedModel: OnDeviceModel? {
+        guard let raw = UserDefaults.standard.string(forKey: "lastSelectedModel") else { return nil }
+        return OnDeviceModel(rawValue: raw)
+    }
     public private(set) var downloadProgress: Double = 0
     public private(set) var isGenerating: Bool = false
     public private(set) var tokensPerSecond: Double = 0

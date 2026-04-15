@@ -11,6 +11,7 @@
 //
 
 import SwiftUI
+import SwiftData
 import BeagleCore
 
 @main
@@ -27,6 +28,7 @@ struct BeagleCockpitApp: App {
                 .environment(catalog)
                 .environment(cognitive)
                 .environment(hpc)
+                .modelContainer(for: [PersistedThought.self, PersistedMessage.self, PersistedDeepSession.self])
                 .task {
                     await bootstrap()
                 }
@@ -81,7 +83,13 @@ struct BeagleCockpitApp: App {
         }
     }
 
+    @Environment(\.modelContext) private var modelContext
+
     private func bootstrap() async {
+        // Wire persistence into stores
+        cognitive.modelContext = modelContext
+        cognitive.loadPersistedThoughts()
+
         // Auth bridge first — gets token from cockpit
         await BeagleClient.shared.ensureAuth()
         // Parallel refresh
@@ -110,7 +118,7 @@ struct RootView: View {
     @Binding var path: NavigationPath
     @Binding var bootError: String?
     @Environment(CatalogStore.self) private var catalog
-    @State private var selectedTab = 0
+    @AppStorage("selectedTab") private var selectedTab = 0
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -166,31 +174,40 @@ struct RootView: View {
         .padding(.top, BeagleSpacing.md)
     }
 
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
     private var tabContent: some View {
         TabView(selection: $selectedTab) {
-            // Tab 0: Home — "What's happening now?" One screen, all status.
-            NavigationStack(path: $path) {
+            // Tab 0: Mind — think, capture, connect
+            NavigationStack {
                 HomeView()
+            }
+            .tabItem { Label("Mind", systemImage: "brain.head.profile") }
+            .tag(0)
+
+            // Tab 1: Deep — Go Deeper as first-class surface with history
+            NavigationStack {
+                DeepExplorationView()
+            }
+            .tabItem { Label("Deep", systemImage: "scope") }
+            .tag(1)
+
+            // Tab 2: Platform — cluster, projects, control rooms
+            NavigationStack(path: $path) {
+                PlatformView()
                     .navigationDestination(for: Project.self) { project in
                         ControlRoomView(slug: project.projectSlug)
                     }
             }
-            .tabItem { Label("Home", systemImage: "house") }
-            .tag(0)
+            .tabItem { Label("Platform", systemImage: "server.rack") }
+            .tag(2)
 
-            // Tab 1: Capture — "Capture thoughts into the exocortex"
-            NavigationStack {
-                ThoughtCaptureView()
-            }
-            .tabItem { Label("Capture", systemImage: "thought.bubble") }
-            .tag(1)
-
-            // Tab 2: Agent — "Agent terminal session"
+            // Tab 3: Terminal — agent session
             NavigationStack {
                 AgentSessionView(slug: catalog.primaryProject?.projectSlug ?? "sounio")
             }
-            .tabItem { Label("Agent", systemImage: "terminal") }
-            .tag(2)
+            .tabItem { Label("Terminal", systemImage: "terminal") }
+            .tag(3)
         }
         .tint(BeagleTheme.truthObserved)
     }

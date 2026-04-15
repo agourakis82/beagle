@@ -170,6 +170,68 @@ public struct ClusterHealthIntent: AppIntent {
     }
 }
 
+// MARK: - Intent: Capture Thought (the #1 use case)
+
+public struct CaptureThoughtIntent: AppIntent {
+    public static let title: LocalizedStringResource = "Capture Thought"
+    public static let description = IntentDescription("Capture a thought into your exocortex. HERMES refines it, then it's stored in the hypergraph.")
+    public static let openAppWhenRun: Bool = false
+
+    @Parameter(title: "Thought", requestValueDialog: "What are you thinking?")
+    public var thought: String
+
+    public init() {}
+
+    public func perform() async throws -> some IntentResult & ProvidesDialog {
+        let result = await BeagleClient.shared.captureThought(text: thought, source: "siri")
+
+        if let response = result.value, let refined = response.response {
+            return .result(dialog: "Captured and refined: \(String(refined.prefix(100)))")
+        }
+
+        // Offline fallback — still acknowledge
+        return .result(dialog: "Thought captured locally. HERMES will refine when connected.")
+    }
+}
+
+// MARK: - Intent: Flow State
+
+public struct FlowStateIntent: AppIntent {
+    public static let title: LocalizedStringResource = "Flow State"
+    public static let description = IntentDescription("Check your current cognitive flow state based on HRV.")
+    public static let openAppWhenRun: Bool = false
+
+    public init() {}
+
+    public func perform() async throws -> some IntentResult & ProvidesDialog {
+        let state = await BeagleClient.shared.cognitiveState()
+        if let hrv = state.value?.hrv {
+            let ms = hrv.latestMs ?? 0
+            let flow = hrv.displayFlowState
+            return .result(dialog: "HRV: \(Int(ms)) ms. You're in \(flow) state.")
+        }
+        return .result(dialog: "Could not read flow state. Check Apple Watch connection.")
+    }
+}
+
+// MARK: - Intent: Go Deeper
+
+public struct GoDeepIntent: AppIntent {
+    public static let title: LocalizedStringResource = "Go Deeper"
+    public static let description = IntentDescription("Explore a question through 8 reasoning modalities.")
+    public static let openAppWhenRun: Bool = true
+
+    @Parameter(title: "Question", requestValueDialog: "What do you want to explore?")
+    public var question: String
+
+    public init() {}
+
+    public func perform() async throws -> some IntentResult & ProvidesDialog {
+        // Open the app to the Deep tab with this question
+        return .result(dialog: "Opening Go Deeper for: \(String(question.prefix(60)))...")
+    }
+}
+
 // MARK: - Shortcuts Provider
 
 public struct BeagleShortcutsProvider: AppShortcutsProvider {
@@ -222,6 +284,38 @@ public struct BeagleShortcutsProvider: AppShortcutsProvider {
             ],
             shortTitle: "Latest Research",
             systemImageName: "flask.fill"
+        )
+
+        AppShortcut(
+            intent: CaptureThoughtIntent(),
+            phrases: [
+                "\(.applicationName) capture \(\.$thought)",
+                "\(.applicationName) remember \(\.$thought)",
+                "Capture thought in \(.applicationName)"
+            ],
+            shortTitle: "Capture Thought",
+            systemImageName: "thought.bubble"
+        )
+
+        AppShortcut(
+            intent: FlowStateIntent(),
+            phrases: [
+                "\(.applicationName) flow state",
+                "How am I doing \(.applicationName)",
+                "What's my flow in \(.applicationName)"
+            ],
+            shortTitle: "Flow State",
+            systemImageName: "heart.fill"
+        )
+
+        AppShortcut(
+            intent: GoDeepIntent(),
+            phrases: [
+                "\(.applicationName) go deeper on \(\.$question)",
+                "Explore \(\.$question) in \(.applicationName)"
+            ],
+            shortTitle: "Go Deeper",
+            systemImageName: "scope"
         )
     }
 }

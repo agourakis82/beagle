@@ -20,6 +20,7 @@ struct HomeView: View {
     @State private var hasAppeared = false
     @State private var serendipityInsight: String?
     @State private var morningBrief: String?
+    @State private var searchText = ""
     #if os(iOS)
     @State private var speechRecognizer = SpeechRecognizer()
     #endif
@@ -46,8 +47,6 @@ struct HomeView: View {
                     if !conversation.isEmpty {
                         conversationSection
                     }
-                    agentActivityLink
-                    statusGlance
                 }
                 .padding(.horizontal, BeagleSpacing.lg)
                 .padding(.top, BeagleSpacing.xl)
@@ -57,8 +56,14 @@ struct HomeView: View {
             exocortexInput
         }
         .background { HomeGradient(thoughtCount: cognitive.recentThoughts.count, hasJobs: !cognitive.activeJobs.isEmpty) }
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Mind")
+        .navigationBarTitleDisplayMode(.large)
+        .searchable(text: $searchText, prompt: "Search thoughts...")
+        .overlay {
+            if !searchText.isEmpty {
+                searchResults
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
@@ -747,6 +752,69 @@ struct HomeView: View {
         }
     }
     #endif
+
+    // MARK: - Search Results
+
+    private var searchResults: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                let query = searchText.lowercased()
+                let matches = cognitive.recentThoughts.filter { thought in
+                    let text = (thought.refinedText ?? thought.rawText ?? "").lowercased()
+                    return text.contains(query)
+                }
+
+                if matches.isEmpty {
+                    VStack(spacing: BeagleSpacing.md) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 28))
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                        Text("No thoughts matching \"\(searchText)\"")
+                            .font(BeagleFont.footnote.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, BeagleSpacing.xxxl)
+                } else {
+                    Text("\(matches.count) thought\(matches.count == 1 ? "" : "s")")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .padding(.horizontal, BeagleSpacing.lg)
+
+                    ForEach(matches) { thought in
+                        let text = thought.refinedText ?? thought.rawText ?? ""
+                        HStack(alignment: .top, spacing: BeagleSpacing.sm) {
+                            Circle()
+                                .fill(thought.refinedText != nil ? BeagleTheme.truthObserved : BeagleTheme.truthDeclared)
+                                .frame(width: 6, height: 6)
+                                .padding(.top, 7)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(text)
+                                    .font(BeagleFont.subheadline.font)
+                                    .foregroundStyle(BeagleTheme.textPrimary)
+                                    .lineLimit(4)
+
+                                if let source = thought.source {
+                                    Text(source)
+                                        .font(BeagleFont.caption2.font)
+                                        .foregroundStyle(BeagleTheme.textTertiary)
+                                }
+                            }
+
+                            Spacer()
+
+                            GoDeepButton(prompt: text)
+                        }
+                        .frame(minHeight: 44)
+                        .padding(.horizontal, BeagleSpacing.lg)
+                    }
+                }
+            }
+            .padding(.top, BeagleSpacing.md)
+        }
+        .background(BeagleTheme.surface0)
+    }
 
     private var circadianPlaceholder: String {
         let hour = Calendar.current.component(.hour, from: Date())
