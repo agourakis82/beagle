@@ -68,28 +68,39 @@ public actor BeagleClient {
         timeout: TimeInterval = 15
     ) async -> Truthful<T> {
         var lastError = "beagle-server unreachable"
+        let debugLabel = "[\(type)] GET \(path)"
+        print("[BeagleClient] \(debugLabel) starting...")
 
         for base in baseURLs {
-            guard let url = URL(string: path, relativeTo: base) else { continue }
+            guard let url = URL(string: path, relativeTo: base) else {
+                print("[BeagleClient] \(debugLabel) failed to construct URL with base: \(base)")
+                continue
+            }
             do {
                 var request = URLRequest(url: url)
                 request.timeoutInterval = timeout
                 applyAuth(&request)
+                print("[BeagleClient] \(debugLabel) requesting: \(url)")
                 let (data, response) = try await session.data(for: request)
 
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode) else {
-                    lastError = "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    lastError = "HTTP \(statusCode)"
+                    print("[BeagleClient] \(debugLabel) ❌ HTTP \(statusCode)")
                     continue
                 }
 
                 let decoded = try decoder.decode(T.self, from: data)
+                print("[BeagleClient] \(debugLabel) ✅ success")
                 return .observed(decoded, source: url.host)
             } catch {
                 lastError = error.localizedDescription
+                print("[BeagleClient] \(debugLabel) ❌ error: \(error.localizedDescription)")
                 continue
             }
         }
+        print("[BeagleClient] \(debugLabel) all URLs failed: \(lastError)")
         return .staleError(lastError)
     }
 
@@ -102,9 +113,14 @@ public actor BeagleClient {
         timeout: TimeInterval = 120
     ) async -> Truthful<T> {
         var lastError = "beagle-server unreachable"
+        let debugLabel = "[\(type)] POST \(path)"
+        print("[BeagleClient] \(debugLabel) starting...")
 
         for base in baseURLs {
-            guard let url = URL(string: path, relativeTo: base) else { continue }
+            guard let url = URL(string: path, relativeTo: base) else {
+                print("[BeagleClient] \(debugLabel) failed to construct URL with base: \(base)")
+                continue
+            }
             do {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
@@ -113,49 +129,70 @@ public actor BeagleClient {
                 applyAuth(&request)
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
+                print("[BeagleClient] \(debugLabel) requesting: \(url)")
                 let (data, response) = try await session.data(for: request)
 
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode) else {
-                    lastError = "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    lastError = "HTTP \(statusCode)"
+                    print("[BeagleClient] \(debugLabel) ❌ HTTP \(statusCode)")
                     continue
                 }
 
                 let decoded = try decoder.decode(T.self, from: data)
+                print("[BeagleClient] \(debugLabel) ✅ success")
                 return .observed(decoded, source: url.host)
             } catch {
                 lastError = error.localizedDescription
+                print("[BeagleClient] \(debugLabel) ❌ error: \(error.localizedDescription)")
                 continue
             }
         }
+        print("[BeagleClient] \(debugLabel) all URLs failed: \(lastError)")
         return .staleError(lastError)
     }
 
     /// Fetch auth token from cockpit bridge (zero hardcode).
     public func ensureAuth() async {
         guard !tokenFetched else { return }
+        print("[BeagleClient] ensureAuth starting...")
         // GET /api/auth/beagle-token from cockpit
         let cockpitURLs = [
-            URL(string: "https://sounio-cockpit.tail21cbc4.ts.net")!
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!  // Changed from HTTPS
         ]
         for base in cockpitURLs {
-            guard let url = URL(string: "/api/auth/beagle-token", relativeTo: base) else { continue }
+            guard let url = URL(string: "/api/auth/beagle-token", relativeTo: base) else {
+                print("[BeagleClient] ensureAuth failed to construct URL")
+                continue
+            }
             do {
+                print("[BeagleClient] ensureAuth requesting: \(url)")
                 let (data, response) = try await session.data(for: URLRequest(url: url))
-                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { continue }
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    print("[BeagleClient] ensureAuth ❌ HTTP \(statusCode)")
+                    continue
+                }
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     consumerToken = json["token"] as? String
                     consumerId = json["consumer"] as? String ?? "beagle-operator"
+                    print("[BeagleClient] ensureAuth ✅ token acquired: \(consumerId ?? "unknown")")
                     // Update base URL if provided
                     if let urlStr = json["beagleServerUrl"] as? String, let serverUrl = URL(string: urlStr) {
+                        print("[BeagleClient] ensureAuth updating base URL: \(serverUrl)")
                         baseURLs.insert(serverUrl, at: 0)
                     }
                     tokenFetched = true
                     return
                 }
-            } catch { continue }
+            } catch {
+                print("[BeagleClient] ensureAuth ❌ error: \(error.localizedDescription)")
+                continue
+            }
         }
         // Fallback: try without auth (health endpoint works without it)
+        print("[BeagleClient] ensureAuth falling back to unauthenticated mode")
         tokenFetched = true
     }
 
