@@ -76,18 +76,22 @@ public actor BeagleClient {
                 print("[BeagleClient] \(debugLabel) failed to construct URL with base: \(base)")
                 continue
             }
+            var responseData: Data?
             do {
                 var request = URLRequest(url: url)
                 request.timeoutInterval = timeout
                 applyAuth(&request)
                 print("[BeagleClient] \(debugLabel) requesting: \(url)")
                 let (data, response) = try await session.data(for: request)
+                responseData = data
 
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode) else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    let bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
                     lastError = "HTTP \(statusCode)"
                     print("[BeagleClient] \(debugLabel) ❌ HTTP \(statusCode)")
+                    print("[BeagleClient] Response body: \(bodyText.prefix(300))")
                     continue
                 }
 
@@ -96,7 +100,14 @@ public actor BeagleClient {
                 return .observed(decoded, source: url.host)
             } catch {
                 lastError = error.localizedDescription
+                let bodyText: String
+                if let data = responseData {
+                    bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
+                } else {
+                    bodyText = "<no response data>"
+                }
                 print("[BeagleClient] \(debugLabel) ❌ error: \(error.localizedDescription)")
+                print("[BeagleClient] Response body: \(bodyText.prefix(300))")
                 continue
             }
         }
@@ -121,6 +132,7 @@ public actor BeagleClient {
                 print("[BeagleClient] \(debugLabel) failed to construct URL with base: \(base)")
                 continue
             }
+            var responseData: Data?
             do {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
@@ -131,12 +143,15 @@ public actor BeagleClient {
 
                 print("[BeagleClient] \(debugLabel) requesting: \(url)")
                 let (data, response) = try await session.data(for: request)
+                responseData = data
 
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode) else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    let bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
                     lastError = "HTTP \(statusCode)"
                     print("[BeagleClient] \(debugLabel) ❌ HTTP \(statusCode)")
+                    print("[BeagleClient] Response body: \(bodyText.prefix(300))")
                     continue
                 }
 
@@ -145,7 +160,14 @@ public actor BeagleClient {
                 return .observed(decoded, source: url.host)
             } catch {
                 lastError = error.localizedDescription
+                let bodyText: String
+                if let data = responseData {
+                    bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
+                } else {
+                    bodyText = "<no response data>"
+                }
                 print("[BeagleClient] \(debugLabel) ❌ error: \(error.localizedDescription)")
+                print("[BeagleClient] Response body: \(bodyText.prefix(300))")
                 continue
             }
         }
@@ -197,8 +219,18 @@ public actor BeagleClient {
     }
 
     private func applyAuth(_ request: inout URLRequest) {
-        if let consumerId { request.setValue(consumerId, forHTTPHeaderField: "X-Beagle-Consumer") }
-        if let consumerToken { request.setValue("Bearer \(consumerToken)", forHTTPHeaderField: "Authorization") }
+        if let consumerId {
+            request.setValue(consumerId, forHTTPHeaderField: "X-Beagle-Consumer")
+            print("[BeagleClient] applyAuth: X-Beagle-Consumer = \(consumerId)")
+        } else {
+            print("[BeagleClient] applyAuth: ⚠️  consumerId is nil")
+        }
+        if let consumerToken {
+            request.setValue("Bearer \(String(consumerToken.prefix(20)))...", forHTTPHeaderField: "Authorization")
+            print("[BeagleClient] applyAuth: Authorization header set")
+        } else {
+            print("[BeagleClient] applyAuth: ⚠️  consumerToken is nil")
+        }
     }
 
     // MARK: - Thought Capture
