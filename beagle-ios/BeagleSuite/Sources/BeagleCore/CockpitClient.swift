@@ -23,14 +23,15 @@ public actor CockpitClient {
     /// URL resolution order — tried in sequence until one responds.
     /// Override via `configure(baseURLs:)` from the app.
     private var baseURLs: [URL] = [
-        URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,         // Tailnet (HTTP, verified)
+        URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,         // Tailnet FQDN
+        URL(string: "http://100.107.208.198")!,                          // Tailnet direct IP (DNS fallback)
         URL(string: "http://project-cockpit.beagle.svc.cluster.local")!  // In-cluster (pod network only)
     ]
 
     private init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 8
-        config.timeoutIntervalForResource = 15
+        config.timeoutIntervalForRequest = 12  // Tailscale proxy group needs ~6-8s on first route
+        config.timeoutIntervalForResource = 30
         config.waitsForConnectivity = true
         config.httpAdditionalHeaders = [
             "Accept": "application/json",
@@ -52,7 +53,7 @@ public actor CockpitClient {
     public func fetch<T: Decodable & Sendable>(
         _ type: T.Type,
         path: String,
-        timeout: TimeInterval = 8
+        timeout: TimeInterval = 12
     ) async -> Truthful<T> {
         var lastError: String = "no base URL reachable"
 
@@ -69,7 +70,11 @@ public actor CockpitClient {
                 }
 
                 guard (200..<300).contains(httpResponse.statusCode) else {
-                    lastError = "HTTP \(httpResponse.statusCode)"
+                    lastError = formatError(
+                        statusCode: httpResponse.statusCode,
+                        data: data,
+                        fallback: "HTTP \(httpResponse.statusCode)"
+                    )
                     continue
                 }
 
@@ -142,16 +147,18 @@ public actor CockpitClient {
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.timeoutInterval = 15
 
-                // Encode confirmed: true by default
-                var payload = body
-                if payload["confirmed"] == nil { payload["confirmed"] = true }
-                request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
                 let (data, response) = try await session.data(for: request)
 
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200..<300).contains(httpResponse.statusCode) else {
-                    lastError = "HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    lastError = formatError(
+                        statusCode: statusCode,
+                        data: data,
+                        fallback: "HTTP \(statusCode)"
+                    )
                     continue
                 }
 
@@ -163,6 +170,20 @@ public actor CockpitClient {
             }
         }
         return .staleError(lastError)
+    }
+
+    private func formatError(statusCode: Int, data: Data, fallback: String) -> String {
+        if let payload = try? decoder.decode(CockpitBackendErrorPayload.self, from: data) {
+            return payload.message(statusCode: statusCode, fallback: fallback)
+        }
+
+        let bodyText = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let bodyText, !bodyText.isEmpty {
+            return "HTTP \(statusCode) · \(bodyText)"
+        }
+
+        return fallback
     }
 
     // MARK: - Agent Sessions
@@ -194,7 +215,9 @@ public actor CockpitClient {
     // MARK: - Habitat Actions
 
     public func executeAction(slug: String, actionId: String) async -> Truthful<ActionResponse> {
-        await post(ActionResponse.self, path: "/api/projects/\(slug)/go-work-now/actions/\(actionId)")
+        await post(ActionResponse.self, path: "/api/projects/\(slug)/go-work-now/actions/\(actionId)", body: [
+            "confirm": true
+        ])
     }
 
     // MARK: - Cluster
@@ -277,8 +300,43 @@ public actor CockpitClient {
 
     public func postAgentMessage(slug: String, agent: String, text: String) async -> Truthful<AgentMessageAck> {
         await post(AgentMessageAck.self, path: "/api/projects/\(slug)/agents/scratchpad", body: [
-            "agent": agent,
+            "author": agent,
             "text": text
         ])
+    }
+}
+
+struct CockpitBackendErrorPayload: Decodable {
+    let error: String?
+    let reason: String?
+    let truthMode: String?
+    let requestId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case reason
+        case truthMode
+        case requestId
+    }
+
+    func message(statusCode: Int, fallback: String) -> String {
+        var parts = ["HTTP \(statusCode)"]
+
+        if let error, !error.isEmpty {
+            parts.append(error)
+        } else {
+            parts.append(fallback)
+        }
+        if let reason, !reason.isEmpty {
+            parts.append(reason)
+        }
+        if let truthMode, !truthMode.isEmpty {
+            parts.append("truth=\(truthMode)")
+        }
+        if let requestId, !requestId.isEmpty {
+            parts.append("requestId=\(requestId)")
+        }
+
+        return parts.joined(separator: " · ")
     }
 }

@@ -34,6 +34,7 @@ public actor BeagleClient {
     private var consumerToken: String?
     private var consumerId: String?
     private var tokenFetched = false
+    private var authBootstrapError: String?
 
     private init() {
         let config = URLSessionConfiguration.default
@@ -56,7 +57,7 @@ public actor BeagleClient {
 
     /// Whether beagle-server is reachable (quick health check).
     public func isReachable() async -> Bool {
-        let result = await fetch([String: Bool].self, path: "/health")
+        let result = await fetch([String: Bool].self, path: "/health", requiresAuth: false)
         return result.mode == .observed
     }
 
@@ -65,8 +66,17 @@ public actor BeagleClient {
     public func fetch<T: Decodable & Sendable>(
         _ type: T.Type,
         path: String,
-        timeout: TimeInterval = 15
+        timeout: TimeInterval = 15,
+        requiresAuth: Bool = true
     ) async -> Truthful<T> {
+        if requiresAuth {
+            let authReady = await ensureAuth()
+            guard authReady else {
+                let authError = authBootstrapError ?? "Auth bootstrap failed"
+                print("[BeagleClient] [\(type)] GET \(path) auth blocked: \(authError)")
+                return .staleError(authError)
+            }
+        }
         var lastError = "beagle-server unreachable"
         let debugLabel = "[\(type)] GET \(path)"
         print("[BeagleClient] \(debugLabel) starting...")
@@ -89,7 +99,7 @@ public actor BeagleClient {
                       (200..<300).contains(http.statusCode) else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
                     let bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
-                    lastError = "HTTP \(statusCode)"
+                    lastError = formatError(statusCode: statusCode, data: data, fallback: "HTTP \(statusCode)")
                     print("[BeagleClient] \(debugLabel) ❌ HTTP \(statusCode)")
                     print("[BeagleClient] Response body: \(bodyText.prefix(300))")
                     continue
@@ -121,8 +131,17 @@ public actor BeagleClient {
         _ type: T.Type,
         path: String,
         body: [String: any Sendable] = [:],
-        timeout: TimeInterval = 120
+        timeout: TimeInterval = 120,
+        requiresAuth: Bool = true
     ) async -> Truthful<T> {
+        if requiresAuth {
+            let authReady = await ensureAuth()
+            guard authReady else {
+                let authError = authBootstrapError ?? "Auth bootstrap failed"
+                print("[BeagleClient] [\(type)] POST \(path) auth blocked: \(authError)")
+                return .staleError(authError)
+            }
+        }
         var lastError = "beagle-server unreachable"
         let debugLabel = "[\(type)] POST \(path)"
         print("[BeagleClient] \(debugLabel) starting...")
@@ -149,7 +168,7 @@ public actor BeagleClient {
                       (200..<300).contains(http.statusCode) else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
                     let bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
-                    lastError = "HTTP \(statusCode)"
+                    lastError = formatError(statusCode: statusCode, data: data, fallback: "HTTP \(statusCode)")
                     print("[BeagleClient] \(debugLabel) ❌ HTTP \(statusCode)")
                     print("[BeagleClient] Response body: \(bodyText.prefix(300))")
                     continue
@@ -176,16 +195,18 @@ public actor BeagleClient {
     }
 
     /// Fetch auth token from cockpit bridge (zero hardcode).
-    public func ensureAuth() async {
-        guard !tokenFetched else { return }
+    public func ensureAuth() async -> Bool {
+        if tokenFetched { return true }
         print("[BeagleClient] ensureAuth starting...")
         // GET /api/auth/beagle-token from cockpit
         let cockpitURLs = [
             URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!  // Changed from HTTPS
         ]
+        var lastFailure = "Auth bridge unreachable"
         for base in cockpitURLs {
             guard let url = URL(string: "/api/auth/beagle-token", relativeTo: base) else {
                 print("[BeagleClient] ensureAuth failed to construct URL")
+                lastFailure = "Auth bridge URL construction failed"
                 continue
             }
             do {
@@ -193,29 +214,57 @@ public actor BeagleClient {
                 let (data, response) = try await session.data(for: URLRequest(url: url))
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    lastFailure = formatError(
+                        statusCode: statusCode,
+                        data: data,
+                        fallback: "Auth bridge HTTP \(statusCode)"
+                    )
                     print("[BeagleClient] ensureAuth ❌ HTTP \(statusCode)")
                     continue
                 }
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     consumerToken = json["token"] as? String
                     consumerId = json["consumer"] as? String ?? "beagle-operator"
-                    print("[BeagleClient] ensureAuth ✅ token acquired: \(consumerId ?? "unknown")")
+                    guard
+                        let consumerToken,
+                        !consumerToken.isEmpty,
+                        let consumerId,
+                        !consumerId.isEmpty
+                    else {
+                        lastFailure = "Auth bridge returned incomplete credentials"
+                        print("[BeagleClient] ensureAuth ❌ incomplete credentials")
+                        continue
+                    }
+                    print("[BeagleClient] ensureAuth ✅ token acquired: \(consumerId)")
                     // Update base URL if provided
                     if let urlStr = json["beagleServerUrl"] as? String, let serverUrl = URL(string: urlStr) {
                         print("[BeagleClient] ensureAuth updating base URL: \(serverUrl)")
                         baseURLs.insert(serverUrl, at: 0)
                     }
                     tokenFetched = true
-                    return
+                    authBootstrapError = nil
+                    return true
                 }
+                lastFailure = "Auth bridge returned malformed JSON"
             } catch {
+                lastFailure = error.localizedDescription
                 print("[BeagleClient] ensureAuth ❌ error: \(error.localizedDescription)")
                 continue
             }
         }
-        // Fallback: try without auth (health endpoint works without it)
-        print("[BeagleClient] ensureAuth falling back to unauthenticated mode")
-        tokenFetched = true
+        authBootstrapError = lastFailure
+        print("[BeagleClient] ensureAuth failed: \(lastFailure)")
+        return false
+    }
+
+    public func authBootstrapStatus() -> Truthful<String> {
+        if tokenFetched {
+            return .observed(consumerId ?? "token ready", source: "cockpit-auth-bridge")
+        }
+        if let authBootstrapError {
+            return .staleError(authBootstrapError, source: "cockpit-auth-bridge")
+        }
+        return .declared("auth not attempted", source: "cockpit-auth-bridge")
     }
 
     private func applyAuth(_ request: inout URLRequest) {
@@ -226,22 +275,38 @@ public actor BeagleClient {
             print("[BeagleClient] applyAuth: ⚠️  consumerId is nil")
         }
         if let consumerToken {
-            request.setValue("Bearer \(String(consumerToken.prefix(20)))...", forHTTPHeaderField: "Authorization")
-            print("[BeagleClient] applyAuth: Authorization header set")
+            request.setValue("Bearer \(consumerToken)", forHTTPHeaderField: "Authorization")
+            print("[BeagleClient] applyAuth: Authorization header set (redacted)")
         } else {
             print("[BeagleClient] applyAuth: ⚠️  consumerToken is nil")
         }
+    }
+
+    private func formatError(statusCode: Int, data: Data, fallback: String) -> String {
+        if let payload = try? decoder.decode(BeagleBackendErrorPayload.self, from: data) {
+            return payload.message(statusCode: statusCode, fallback: fallback)
+        }
+
+        let bodyText = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let bodyText, !bodyText.isEmpty {
+            return "HTTP \(statusCode) · \(bodyText)"
+        }
+
+        return fallback
     }
 
     // MARK: - Thought Capture
 
     /// Capture a thought via HERMES system prompt → beagle-server.
     public func captureThought(text: String, source: String = "ios") async -> Truthful<ChatResponse> {
-        await post(ChatResponse.self, path: "/dev/chat", body: [
-            "prompt": text,
-            "system": "You are HERMES: receive a thought fragment, refine into a structured memory. Preserve the original insight. Output only the refined text.",
-            "context": ["project": "sounio", "source": source] as [String: String]
-        ])
+        let hermesPrompt = """
+        You are HERMES. Refine the following thought fragment into a structured memory while preserving the original insight. Output only the refined text.
+
+        Source: \(source)
+        Thought: \(text)
+        """
+        return await llmComplete(prompt: hermesPrompt)
     }
 
     // MARK: - Triad (adversarial review)
@@ -249,7 +314,7 @@ public actor BeagleClient {
     /// Submit draft for ATHENA/HERMES/ARGOS/Judge review. Timeout 120s.
     public func runTriad(prompt: String) async -> Truthful<TriadResult> {
         await post(TriadResult.self, path: "/dev/debate", body: [
-            "prompt": prompt
+            "topic": prompt
         ], timeout: 120)
     }
 
@@ -258,7 +323,7 @@ public actor BeagleClient {
     public func startScienceJob(kind: String) async -> Truthful<ScienceJob> {
         await post(ScienceJob.self, path: "/api/jobs/science/start", body: [
             "kind": kind,
-            "config": [String: String]() as [String: String]
+            "params": [String: String]() as [String: String]
         ])
     }
 
@@ -270,8 +335,8 @@ public actor BeagleClient {
 
     public func submitHPCJob(kind: String, config: [String: String] = [:]) async -> Truthful<HPCJob> {
         await post(HPCJob.self, path: "/api/darwin/hpc/jobs/submit", body: [
-            "kind": kind,
-            "config": config
+            "profile_id": kind,
+            "parameters": config
         ])
     }
 
@@ -322,8 +387,19 @@ public actor BeagleClient {
     // MARK: - LLM Passthrough
 
     public func llmComplete(prompt: String, system: String? = nil) async -> Truthful<ChatResponse> {
-        var body: [String: any Sendable] = ["prompt": prompt]
-        if let system { body["system"] = system }
+        let effectivePrompt: String
+        if let system, !system.isEmpty {
+            effectivePrompt = """
+            System instruction:
+            \(system)
+
+            User prompt:
+            \(prompt)
+            """
+        } else {
+            effectivePrompt = prompt
+        }
+        let body: [String: any Sendable] = ["prompt": effectivePrompt]
         return await post(ChatResponse.self, path: "/api/llm/complete", body: body)
     }
 
@@ -332,7 +408,6 @@ public actor BeagleClient {
     public func postHRV(hrv: Double, state: String) async -> Truthful<HRVResponse> {
         await post(HRVResponse.self, path: "/api/observer/physio", body: [
             "hrv_ms": hrv,
-            "state": state,
             "source": "apple-watch"
         ])
     }
@@ -365,23 +440,18 @@ public actor BeagleClient {
 
     /// Chained deep-think: fractal + void + phi in sequence.
     public func deepThink(prompt: String) async -> Truthful<ChatResponse> {
-        await post(ChatResponse.self, path: "/api/cognitive/deep-think", body: ["prompt": prompt], timeout: 180)
+        await deepThink(prompt: prompt, depth: 3)
     }
 
     // MARK: - Hypergraph
 
     public func queryHyperedges(nodeId: String? = nil) async -> Truthful<[Hyperedge]> {
-        var path = "/api/v1/hyperedges"
-        if let nodeId { path += "?node_id=\(nodeId)" }
-        return await fetch([Hyperedge].self, path: path)
+        let detail = nodeId.map { " for node \($0)" } ?? ""
+        return .staleError("Hyperedge route retired on current beagle-core backend\(detail)")
     }
 
     public func createHyperedge(label: String, nodeIds: [String]) async -> Truthful<Hyperedge> {
-        await post(Hyperedge.self, path: "/api/v1/hyperedges", body: [
-            "label": label,
-            "node_ids": nodeIds,
-            "directed": false
-        ])
+        .staleError("Hyperedge creation route retired on current beagle-core backend")
     }
 
     // MARK: - Feedback
@@ -389,11 +459,13 @@ public actor BeagleClient {
     public func postFeedback(event: FeedbackEvent) async -> Truthful<FeedbackAck> {
         var body: [String: any Sendable] = [
             "run_id": event.runId,
-            "kind": event.kind
+            "event_type": event.kind
         ]
-        if let c = event.clarity { body["clarity"] = c }
-        if let a = event.adequacy { body["adequacy"] = a }
-        if let s = event.safety { body["safety"] = s }
+        let ratings = [event.clarity, event.adequacy, event.safety].compactMap { $0 }
+        if !ratings.isEmpty {
+            let average = Int((Double(ratings.reduce(0, +)) / Double(ratings.count)).rounded())
+            body["rating_0_10"] = average
+        }
         if let n = event.notes { body["notes"] = n }
         return await post(FeedbackAck.self, path: "/api/v1/feedback", body: body)
     }
@@ -401,23 +473,22 @@ public actor BeagleClient {
     // MARK: - Chat (generic exocortex conversation)
 
     public func chat(prompt: String, system: String? = nil) async -> Truthful<ChatResponse> {
-        var body: [String: any Sendable] = ["prompt": prompt]
-        if let system { body["system"] = system }
-        return await post(ChatResponse.self, path: "/api/llm/complete", body: body)
+        await llmComplete(prompt: prompt, system: system)
     }
 
     // MARK: - Novelty Endpoints (Void, Fractal, Phi)
 
     public func startVoidJourney(prompt: String, maxDepth: Int = 3) async -> Truthful<VoidJourney> {
         await post(VoidJourney.self, path: "/dev/void", body: [
-            "prompt": prompt,
-            "max_depth": maxDepth
+            "focus": prompt,
+            "target_depth": maxDepth,
+            "deep": true
         ] as [String: any Sendable])
     }
 
     public func startFractalTree(prompt: String, maxDepth: Int = 2, branching: Int = 2) async -> Truthful<FractalTree> {
         await post(FractalTree.self, path: "/api/fractal/recurse", body: [
-            "prompt": prompt,
+            "root_prompt": prompt,
             "max_depth": maxDepth,
             "branching_factor": branching
         ] as [String: any Sendable])
@@ -425,7 +496,7 @@ public actor BeagleClient {
 
     public func measurePhi(prompt: String) async -> Truthful<PhiMeasurement> {
         await post(PhiMeasurement.self, path: "/api/exocortex/process", body: [
-            "prompt": prompt
+            "query": prompt
         ] as [String: any Sendable])
     }
 
@@ -443,13 +514,7 @@ public actor BeagleClient {
         probabilistic: Bool = true,
         applyDecoherence: Bool = true
     ) async -> Truthful<QuantumReasoningResult> {
-        await post(QuantumReasoningResult.self, path: "/dev/quantum-reasoning", body: [
-            "hypotheses": hypotheses,
-            "threshold": threshold,
-            "interference_strength": interferenceStrength,
-            "probabilistic": probabilistic,
-            "apply_decoherence": applyDecoherence
-        ] as [String: any Sendable], timeout: 120)
+        .staleError("Quantum reasoning route is retired on the current beagle-core backend")
     }
 
     public func swarmConsensus(query: String) async -> Truthful<SwarmResult> {
@@ -466,10 +531,7 @@ public actor BeagleClient {
         graphId: String,
         intervention: String
     ) async -> Truthful<CausalIntervention> {
-        await post(CausalIntervention.self, path: "/dev/causal/intervention", body: [
-            "graph_id": graphId,
-            "intervention": intervention
-        ] as [String: any Sendable], timeout: 60)
+        .staleError("Causal intervention route is retired on the current beagle-core backend")
     }
 
     public func temporalReasoning(query: String) async -> Truthful<TemporalResult> {
@@ -483,7 +545,7 @@ public actor BeagleClient {
     }
 
     public func adversarialCompete(query: String) async -> Truthful<AdversarialResult> {
-        await post(AdversarialResult.self, path: "/dev/adversarial-compete", body: ["query": query], timeout: 180)
+        .staleError("Adversarial compete route is retired on the current beagle-core backend")
     }
 
     public func research(query: String) async -> Truthful<ResearchResult> {
@@ -492,13 +554,15 @@ public actor BeagleClient {
     }
 
     public func researchParallel(query: String) async -> Truthful<ParallelResearchResult> {
-        await post(ParallelResearchResult.self, path: "/dev/research/parallel", body: ["query": query], timeout: 180)
+        await post(ParallelResearchResult.self, path: "/dev/parallel", body: [
+            "queries": [query]
+        ], timeout: 180)
     }
 
     public func reasoningPath(source: String, target: String) async -> Truthful<ReasoningPathResult> {
         // Backend expects start_concept / end_concept (verified 2026-04-15)
         await post(ReasoningPathResult.self, path: "/dev/reasoning", body: [
-            "start_concept": source, "end_concept": target
+            "start_concept": source, "target_concept": target
         ] as [String: any Sendable], timeout: 90)
     }
 
@@ -514,7 +578,7 @@ public actor BeagleClient {
     }
 
     public func worldModelCounterfactual(query: String) async -> Truthful<WorldModelCounterfactual> {
-        await post(WorldModelCounterfactual.self, path: "/worldmodel/counterfactual", body: ["query": query], timeout: 60)
+        .staleError("World model counterfactual route is retired on the current beagle-core backend")
     }
 
     // MARK: - Extended (Fractal, PCS, Serendipity)
@@ -529,15 +593,63 @@ public actor BeagleClient {
     }
 
     public func serendipityDiscover(query: String) async -> Truthful<SerendipityResult> {
-        await post(SerendipityResult.self, path: "/api/serendipity/discover", body: [
-            "query": query, "focus_project": "sounio"
-        ] as [String: any Sendable], timeout: 60)
+        .staleError("Serendipity route no longer accepts free-text query input on the current beagle-core backend")
     }
 
     public func deepThink(prompt: String, depth: Int = 3) async -> Truthful<ChatResponse> {
         // Backend field: root_prompt (verified 2026-04-15)
         await post(ChatResponse.self, path: "/api/cognitive/deep-think", body: [
-            "root_prompt": prompt, "depth": depth
+            "root_prompt": prompt, "max_depth": depth
         ] as [String: any Sendable], timeout: 180)
+    }
+}
+
+struct BeagleBackendErrorPayload: Decodable {
+    let error: String?
+    let reason: String?
+    let truthMode: String?
+    let requestId: String?
+    let caller: String?
+    let via: String?
+    let proxiedPath: String?
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case reason
+        case truthMode
+        case requestId
+        case caller
+        case via
+        case proxiedPath = "proxied_path"
+    }
+
+    func message(statusCode: Int, fallback: String) -> String {
+        var parts = ["HTTP \(statusCode)"]
+
+        if let error, !error.isEmpty {
+            parts.append(error)
+        } else {
+            parts.append(fallback)
+        }
+        if let reason, !reason.isEmpty {
+            parts.append(reason)
+        }
+        if let truthMode, !truthMode.isEmpty {
+            parts.append("truth=\(truthMode)")
+        }
+        if let requestId, !requestId.isEmpty {
+            parts.append("requestId=\(requestId)")
+        }
+        if let caller, !caller.isEmpty {
+            parts.append("caller=\(caller)")
+        }
+        if let via, !via.isEmpty {
+            parts.append("via=\(via)")
+        }
+        if let proxiedPath, !proxiedPath.isEmpty {
+            parts.append("path=\(proxiedPath)")
+        }
+
+        return parts.joined(separator: " · ")
     }
 }

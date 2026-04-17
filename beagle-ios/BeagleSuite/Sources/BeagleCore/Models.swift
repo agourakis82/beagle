@@ -218,6 +218,17 @@ public struct AgentSession: Codable, Sendable {
 
     public var isRunning: Bool { (readyReplicas ?? 0) > 0 }
     public var podName: String? { pods?.first?.name }
+    public var phase: AgentSessionPhase {
+        if isRunning { return .running }
+        if replicas == 0 { return .paused }
+        return .pending
+    }
+}
+
+public enum AgentSessionPhase: String, Sendable {
+    case pending
+    case running
+    case paused
 }
 
 public struct AgentSessionListResponse: Codable, Sendable {
@@ -610,24 +621,41 @@ public struct FeedbackEvent: Codable, Sendable {
 public struct FeedbackAck: Codable, Sendable {
     public let ok: Bool?
     public let eventId: String?
+    public let status: String?
 
     enum CodingKeys: String, CodingKey {
         case ok
         case eventId = "event_id"
+        case status
     }
 }
 
 // MARK: - Chat (exocortex conversation)
 
-public struct ChatResponse: Codable, Sendable {
+public struct ChatResponse: Decodable, Sendable {
     public let response: String?
     public let tokensUsed: Int?
     public let model: String?
 
     enum CodingKeys: String, CodingKey {
         case response
+        case text
         case tokensUsed = "tokens_used"
         case model
+        case provider
+        case tier
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        response =
+            try container.decodeIfPresent(String.self, forKey: .response)
+            ?? container.decodeIfPresent(String.self, forKey: .text)
+        tokensUsed = try container.decodeIfPresent(Int.self, forKey: .tokensUsed)
+        model =
+            try container.decodeIfPresent(String.self, forKey: .model)
+            ?? container.decodeIfPresent(String.self, forKey: .provider)
+            ?? container.decodeIfPresent(String.self, forKey: .tier)
     }
 }
 

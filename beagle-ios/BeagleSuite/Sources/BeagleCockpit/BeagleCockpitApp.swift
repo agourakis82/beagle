@@ -97,7 +97,7 @@ struct BeagleCockpitApp: App {
         cognitive.loadPersistedThoughts()
 
         // Auth bridge first — gets token from cockpit
-        await BeagleClient.shared.ensureAuth()
+        let authReady = await BeagleClient.shared.ensureAuth()
         // Parallel refresh
         async let catalogTask: () = catalog.refresh()
         async let cognitiveTask: () = cognitive.refresh()
@@ -105,7 +105,12 @@ struct BeagleCockpitApp: App {
         _ = await (catalogTask, cognitiveTask, warmTask)
         // Check if data loaded — if not, show error
         if catalog.executive.mode == .stale {
-            bootError = "Could not reach cockpit. Check Tailnet connectivity."
+            if !authReady {
+                let authStatus = await BeagleClient.shared.authBootstrapStatus()
+                bootError = authStatus.error ?? "Could not fetch beagle-core credentials."
+            } else {
+                bootError = "Could not reach cockpit. Check Tailnet connectivity."
+            }
         }
     }
 
@@ -124,6 +129,7 @@ struct RootView: View {
     @Binding var path: NavigationPath
     @Binding var bootError: String?
     @Environment(CatalogStore.self) private var catalog
+    @Environment(CognitiveStore.self) private var cognitive
     @AppStorage("selectedTab") private var selectedTab = 0
 
     var body: some View {
@@ -251,6 +257,7 @@ struct RootView: View {
                 HomeView()
             }
             .tabItem { Label("Mind", systemImage: "brain.head.profile") }
+            .badge(cognitive.runningJobCount > 0 ? cognitive.runningJobCount : 0)
             .tag(0)
 
             // Tab 1: Deep — Go Deeper as first-class surface with history
@@ -268,13 +275,14 @@ struct RootView: View {
                     }
             }
             .tabItem { Label("Platform", systemImage: "server.rack") }
+            .badge(catalog.postureCounts.alwaysOn > 0 ? catalog.postureCounts.alwaysOn : 0)
             .tag(2)
 
             // Tab 3: Terminal — agent session
             NavigationStack {
                 AgentSessionView(slug: catalog.primaryProject?.projectSlug ?? "sounio")
             }
-            .tabItem { Label("Terminal", systemImage: "terminal") }
+            .tabItem { Label("Terminal", systemImage: "apple.terminal") }
             .tag(3)
         }
         .tint(BeagleTheme.truthObserved)

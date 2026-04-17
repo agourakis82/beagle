@@ -11,6 +11,14 @@ xcuserdata/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 
+# XcodeGen-generated project artifacts for this app
+BeagleSuite.xcodeproj/
+BeagleSuite.xcworkspace/
+
+# Local package/build export artifacts
+BeagleSuite/Package.resolved
+exportOptions.plist
+
 # macOS
 .DS_Store
 
