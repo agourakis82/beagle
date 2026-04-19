@@ -69,6 +69,8 @@ fabrics:
       id: 130
       status: configured-on-arista-et33
     status: configured-media-mismatch
+    preferred_edge_candidate: t560-proxmox
+    preferred_switch_port: Ethernet34
     ipam:
       host_range: 10.30.0.1-10.30.0.63
       dhcp_range: 10.30.0.100-10.30.0.199
@@ -152,6 +154,7 @@ nodes:
     secondary_fabric_ip: 10.200.0.2
     gpu: none
     role: control-plane
+    candidate_service_fabric_interface: ens6f0-or-ens6f1
   r770-proxmox:
     kubernetes_internal_ip: 10.100.100.1
     management_ip: 192.168.3.228
@@ -200,9 +203,11 @@ gpu_fabric:
 
 service_fabric:
   edge_node: 5860-proxmox
+  preferred_future_edge_node: t560-proxmox
   switch:
     management_ip: 192.168.3.229
     interface: Ethernet33
+    preferred_future_interface: Ethernet34
     vlan: 130
     svi: 10.30.0.254/24
   host:

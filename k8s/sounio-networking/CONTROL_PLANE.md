@@ -38,6 +38,8 @@ and distributed GPU jobs.
    - status: host and switch configured on
      `5860-proxmox:nic0 <-> arista-7060:Ethernet33`, but still `NO-CARRIER`
      / `lowerlayerdown`
+   - preferred next target: move this service edge to
+     `t560-proxmox:ens6f0|ens6f1 <-> arista-7060:Ethernet34`
    - rule: keep services and internet-adjacent traffic off the 100Gb fabrics
 
 ## Why split the fabrics
@@ -75,6 +77,10 @@ Current live note:
   - `arista-7060:Ethernet33` currently reports `Type 1000BASE-SX`
   - until `Ethernet33` has the correct copper-capable transceiver/cable path,
     the 10Gb service fabric will remain `lowerlayerdown`
+- current cleaner alternative:
+  - `t560-proxmox` has spare 10G fibre-class ports `ens6f0` and `ens6f1`
+  - `arista-7060:Ethernet34` is currently free and `notpresent`
+  - that is the cleanest candidate for a non-GPU 10Gb service edge
 
 If you keep the current flat setup for a while, still reserve those addresses
 now so the migration later is mechanical rather than creative.

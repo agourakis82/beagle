@@ -1,7 +1,8 @@
 # 10Gb Service Fabric
 
-This fabric uses the dedicated 10Gb link between `5860-proxmox:nic0` and
-`arista-7060:Ethernet33` as a services and egress plane.
+This fabric is currently prototyped on the dedicated 10Gb link between
+`5860-proxmox:nic0` and `arista-7060:Ethernet33`, but the cleaner long-term
+target is a non-GPU service edge on `t560-proxmox`.
 
 ## Intended role
 
@@ -45,6 +46,24 @@ This fabric uses the dedicated 10Gb link between `5860-proxmox:nic0` and
     `5860-proxmox:nic0` is a twisted-pair copper NIC
   - this is now diagnosed as a physical media/transceiver mismatch, not a
     missing host or switch configuration problem
+
+## Preferred next shape
+
+- keep `5860:nic0 <-> Et33` as the documented fallback path
+- prefer migrating the 10Gb service edge to:
+  - `t560-proxmox:ens6f0` or `ens6f1`
+  - `arista-7060:Ethernet34`
+- reason:
+  - `t560` is the infrastructure/control node
+  - `t560` has spare 10G fibre-class ports
+  - `Et34` is currently free on the Arista
+  - this avoids coupling the service edge to a GPU node
+
+Current hard truth:
+
+- the Arista only shows one clearly free 10G port right now: `Et34`
+- so the practical next step is **one clean 10G service edge**, not an assumed
+  `2x10G` bonded edge
 
 ## DNS behavior
 
