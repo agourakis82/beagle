@@ -128,23 +128,25 @@
                 "runtime": "needs-lmdeploy-or-vllm-stack",
                 "recommendedNode": "r740-proxmox"
               },
-              {
-                "id": "qwen3b",
-                "model": "Qwen/Qwen2.5-3B-Instruct",
-                "family": "cheap-daily",
-                "status": "available",
-                "endpoint": "http://discussion-lab-serving.beagle.svc.cluster.local:8000",
+        {
+          "id": "qwen3b",
+          "model": "Qwen/Qwen2.5-3B-Instruct",
+          "runtimeModelId": "qwen2.5-3b-instruct",
+          "family": "cheap-daily",
+          "status": "available",
+          "endpoint": "http://discussion-lab-serving.beagle.svc.cluster.local:8000",
                 "node": "5860-proxmox",
                 "gpu": "RTX Pro 4000 Ada",
                 "runtime": "vllm-openai",
                 "notes": "runs with hostUsers plus privileged GPU pod posture on 5860 after relocating containerd onto a dedicated thin-LV runtime tier because the default isolated runtime still blocks socketpair() and CUDA initialization inside standard pods"
               },
-              {
-                "id": "yi6b",
-                "model": "01-ai/Yi-6B-Chat",
-                "family": "bilingual-creative",
-                "status": "available",
-                "endpoint": "http://discussion-lab-yi-serving.beagle.svc.cluster.local:8000",
+        {
+          "id": "yi6b",
+          "model": "01-ai/Yi-6B-Chat",
+          "runtimeModelId": "yi-6b-chat",
+          "family": "bilingual-creative",
+          "status": "available",
+          "endpoint": "http://discussion-lab-yi-serving.beagle.svc.cluster.local:8000",
                 "node": "r770-proxmox",
                 "gpu": "L4",
                 "runtime": "vllm-openai",
