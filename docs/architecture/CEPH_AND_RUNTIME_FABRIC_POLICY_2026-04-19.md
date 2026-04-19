@@ -92,10 +92,17 @@ the stranded SSD PG recovery.
 
 - The self-hosted sovereign reranker on `r770-proxmox` is a bounded pilot lane,
   not a global retrieval default.
+- The active bounded trial is `Alibaba-NLP/gte-multilingual-reranker-base`
+  served through TEI on CPU with its own local cache tier on `r770-proxmox`.
 - Current observed behavior is acceptable for sovereign and privacy-sensitive
-  short-list refinement, but expensive for broad use:
-  - startup/warm readiness is slow
-  - rerank calls are materially higher latency than the general Voyage lane
+  short-list refinement, but still expensive for broad use:
+  - cold start is materially better than the previous
+    `bge-reranker-v2-m3` lane, but still measured in minutes rather than
+    seconds
+  - bounded rerank calls improved into the high single-digit seconds, but they
+    are still materially slower than the general Voyage lane
+  - the active model still falls back to CPU safetensors because no ONNX
+    artifacts are published for this path
 - Policy:
   - keep it enabled only for the sovereign lane
   - do not make it a mandatory reranking stage for `general` or `code`

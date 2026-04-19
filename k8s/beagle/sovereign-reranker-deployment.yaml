@@ -42,7 +42,7 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - --model-id
-            - BAAI/bge-reranker-v2-m3
+            - Alibaba-NLP/gte-multilingual-reranker-base
             - --port
             - "80"
             - --auto-truncate
@@ -55,7 +55,7 @@ spec:
           volumeMounts:
             - name: model-cache
               mountPath: /data
-              subPath: sovereign-reranker-cache
+              subPath: gte-multilingual-reranker-cache
           startupProbe:
             httpGet:
               path: /health
@@ -68,7 +68,7 @@ spec:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 300
+            initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 60

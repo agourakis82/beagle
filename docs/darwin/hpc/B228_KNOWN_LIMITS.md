@@ -5,6 +5,12 @@
 - `local-lexical` remains the complementary sparse path; this phase does not change sparse retrieval.
 - `Voyage rerank-2.5-lite` stays documented as a latency fallback candidate, not the promoted default.
 - The sovereign reranker is self-hosted but still bounded as a pilot lane, not a global mandatory stage.
-- The sovereign reranker is now live again, but its observed latency is still
-  high enough that it should remain a sovereign-only specialist lane until a
-  materially faster model or export is validated.
+- The active sovereign reranker trial is now
+  `Alibaba-NLP/gte-multilingual-reranker-base` on the self-hosted TEI CPU lane.
+- The trial materially improved bounded sovereign rerank latency versus the
+  earlier `bge-reranker-v2-m3` path, but it still remains expensive enough that
+  it should stay sovereign-only until a faster model or ONNX export is
+  validated.
+- The current backend reporting still leaks some old `bge-reranker-v2-m3`
+  identity in pilot metadata, so runtime measurements should be treated as the
+  source of truth until the reporting strings are updated.
