@@ -216,3 +216,7 @@ Why it is weaker than Option A:
 - current internet bandwidth is already **distributed**
 - true **combined** bandwidth still needs an intentional egress-edge design and
   more than one real upstream high-speed port
+- if the lab's `10Gb` upstream is currently forced through the `1Gb` Ubiquiti
+  switch, move that high-speed handoff into the Arista domain and terminate the
+  cluster-side edge on `t560`, while keeping Ubiquiti as the management/access
+  switch
