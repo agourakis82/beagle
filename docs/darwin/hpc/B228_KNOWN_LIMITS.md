@@ -6,11 +6,12 @@
 - `Voyage rerank-2.5-lite` stays documented as a latency fallback candidate, not the promoted default.
 - The sovereign reranker is self-hosted but still bounded as a pilot lane, not a global mandatory stage.
 - The active sovereign reranker trial is now
-  `Alibaba-NLP/gte-multilingual-reranker-base` on the self-hosted TEI CPU lane.
+  `Alibaba-NLP/gte-reranker-modernbert-base` on the self-hosted TEI CPU lane.
 - The trial materially improved bounded sovereign rerank latency versus the
-  earlier `bge-reranker-v2-m3` path, but it still remains expensive enough that
-  it should stay sovereign-only until a faster model or ONNX export is
-  validated.
+  earlier `bge-reranker-v2-m3` and `gte-multilingual-reranker-base` paths, but
+  it should still stay sovereign-only until the reporting contract tells the
+  truth and the lane is soaked under longer live traffic.
 - The current backend reporting still leaks some old `bge-reranker-v2-m3`
-  identity in pilot metadata, so runtime measurements should be treated as the
-  source of truth until the reporting strings are updated.
+  identity in pilot metadata even after the runtime was switched, so runtime
+  measurements and direct sovereign reranker health checks should be treated as
+  the source of truth until the reporting strings are updated.

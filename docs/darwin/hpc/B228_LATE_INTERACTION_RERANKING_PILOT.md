@@ -17,7 +17,7 @@ without changing:
 2. Adds a bounded reranking hook on top of routed retrieval.
 3. Activates:
    - `Voyage rerank-2.5` for the general lane
-   - `Alibaba-NLP/gte-multilingual-reranker-base` for the sovereign lane
+   - `Alibaba-NLP/gte-reranker-modernbert-base` for the sovereign lane
 4. Keeps code retrieval on prerank routing only in this phase.
 5. Pushes reranking state into the canonical workstream/program context packets.
 
@@ -39,7 +39,7 @@ The pilot stays bounded to reranking the routed top-k candidate set.
   - rerank top-k with `Voyage rerank-2.5`
 - `sovereign` queries:
   - prerank with `bge-m3 + local-lexical`
-  - rerank top-k with `Alibaba-NLP/gte-multilingual-reranker-base`
+  - rerank top-k with `Alibaba-NLP/gte-reranker-modernbert-base`
 - `code` queries:
   - remain prerank-only in `B22.8`
   - continue using `voyage-code-3 + local-lexical`
@@ -47,10 +47,11 @@ The pilot stays bounded to reranking the routed top-k candidate set.
 ## Active trial note
 
 The current sovereign reranker trial was moved off `bge-reranker-v2-m3` and
-onto `Alibaba-NLP/gte-multilingual-reranker-base` because the old lane was
-operationally too slow on the CPU-only TEI path. The new lane is still bounded
-and sovereign-only, but it materially reduces bounded rerank latency in live
-cluster testing.
+then promoted again from `Alibaba-NLP/gte-multilingual-reranker-base` onto
+`Alibaba-NLP/gte-reranker-modernbert-base` because the older lanes were still
+operationally too slow on the CPU-only TEI path. The active lane remains
+bounded and sovereign-only, but now reduces bounded rerank latency into the
+few-hundred-millisecond band in live cluster testing.
 
 ## Canonical proof
 

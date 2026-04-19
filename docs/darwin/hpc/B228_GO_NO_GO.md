@@ -4,7 +4,7 @@
 
 - the reranking profile is live as `b228-bounded-reranking-pilot`
 - the general reranking lane uses `voyage-rerank-2.5`
-- the sovereign reranking lane uses `Alibaba-NLP/gte-multilingual-reranker-base`
+- the sovereign reranking lane uses `Alibaba-NLP/gte-reranker-modernbert-base`
 - prerank/postrank comparison is explicit
 - payload-aware filters still constrain results after reranking
 - reranking context appears in the canonical workstream/program context packets

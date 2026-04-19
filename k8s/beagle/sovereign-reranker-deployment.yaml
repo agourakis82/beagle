@@ -42,7 +42,7 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - --model-id
-            - Alibaba-NLP/gte-multilingual-reranker-base
+            - Alibaba-NLP/gte-reranker-modernbert-base
             - --port
             - "80"
             - --auto-truncate
@@ -55,7 +55,7 @@ spec:
           volumeMounts:
             - name: model-cache
               mountPath: /data
-              subPath: gte-multilingual-reranker-cache
+              subPath: gte-modernbert-reranker-cache
           startupProbe:
             httpGet:
               path: /health

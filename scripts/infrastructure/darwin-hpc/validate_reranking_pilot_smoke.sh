@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 OUT="${OUT:-${ROOT}/.artifacts/darwin-hpc/reranking-pilot}"
 EXPECTED_GENERAL_RERANKER="${EXPECTED_GENERAL_RERANKER:-voyage-rerank-2.5}"
-EXPECTED_SOVEREIGN_RERANKER="${EXPECTED_SOVEREIGN_RERANKER:-Alibaba-NLP/gte-multilingual-reranker-base}"
+EXPECTED_SOVEREIGN_RERANKER="${EXPECTED_SOVEREIGN_RERANKER:-Alibaba-NLP/gte-reranker-modernbert-base}"
 
 require() {
   command -v "$1" >/dev/null 2>&1 || {

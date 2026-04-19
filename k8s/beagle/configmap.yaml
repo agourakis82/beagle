@@ -74,6 +74,6 @@ data:
   BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_URL: http://beagle-sovereign-embeddings.beagle.svc.cluster.local/v1
   BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_MODEL: BAAI/bge-m3
   BEAGLE_MEMORY_SOVEREIGN_RERANKING_URL: http://beagle-sovereign-reranker.beagle.svc.cluster.local
-  BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL: Alibaba-NLP/gte-multilingual-reranker-base
+  BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL: Alibaba-NLP/gte-reranker-modernbert-base
   RUST_LOG: beagle=info,beagle_monorepo=info,beagle_core=info,tower_http=info
   RUST_LOG_JSON: "1"
