@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beagle-sovereign-reranker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beagle-sovereign-reranker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: beagle-sovereign-reranker
+        app.kubernetes.io/part-of: beagle
+    spec:
+      nodeSelector:
+        sounio.dev/runtime-role: cluster-core
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - r770-proxmox
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      containers:
+        - name: text-embeddings-inference
+          image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+          imagePullPolicy: IfNotPresent
+          args:
+            - --model-id
+            - BAAI/bge-reranker-v2-m3
+            - --port
+            - "80"
+            - --auto-truncate
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: HF_HUB_DISABLE_PROGRESS_BARS
+              value: "1"
+          volumeMounts:
+            - name: model-cache
+              mountPath: /data
+              subPath: sovereign-reranker-cache
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 90
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 300
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 900
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "2"
+              memory: 12Gi
+            limits:
+              cpu: "8"
+              memory: 24Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            appArmorProfile:
+              type: Unconfined
+            seccompProfile:
+              type: Unconfined
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: local-ai-runtime-r770-cache

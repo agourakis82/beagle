@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-serving
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: vllm-serving
+    app.kubernetes.io/part-of: beagle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-serving
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-serving
+        app.kubernetes.io/part-of: beagle
+    spec:
+      nodeSelector:
+        sounio.dev/pool: gpu-batch
+        sounio.dev/accelerator-class: gpu
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - r770-proxmox
+                      - r740-proxmox
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.10.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - --model
+            - Qwen/Qwen2.5-Coder-1.5B-Instruct
+            - --served-model-name
+            - qwen2.5-coder-1.5b-instruct
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --gpu-memory-utilization
+            - "0.70"
+            - --max-model-len
+            - "4096"
+            - --max-num-seqs
+            - "16"
+            - --dtype
+            - auto
+            - --tensor-parallel-size
+            - "1"
+          env:
+            - name: HF_HOME
+              value: /var/cache/huggingface
+            - name: VLLM_WORKER_MULTIPROC_METHOD
+              value: spawn
+          ports:
+            - name: http
+              containerPort: 8000
+          startupProbe:
+            httpGet:
+              path: /v1/models
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /v1/models
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /v1/models
+              port: http
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "2"
+              memory: 12Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "6"
+              memory: 20Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /var/cache/huggingface
+              subPath: vllm-hf-cache
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim:
+            claimName: local-nvme-r740-scratch
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi

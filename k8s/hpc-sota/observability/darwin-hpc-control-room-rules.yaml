@@ -1,0 +1,163 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: darwin-hpc-control-room-rules
+  namespace: darwin-platform
+  labels:
+    app.kubernetes.io/part-of: darwin-observability
+    darwin.phase: B8
+    release: darwin-observability
+spec:
+  groups:
+    - name: darwin.hpc-control-room
+      rules:
+        - alert: DarwinNodeDiskPressure
+          expr: max by (node) (kube_node_status_condition{condition="DiskPressure",status="true"}) > 0
+          for: 10m
+          labels:
+            domain: storage
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: critical
+          annotations:
+            summary: Node disk pressure is active
+            description: Kubelet has reported DiskPressure on {{ $labels.node }} for at least 10 minutes.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinRootFilesystemLowFree
+          expr: |
+            (
+              node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs|nsfs|ramfs"}
+              /
+              node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs|nsfs|ramfs"}
+            ) < 0.15
+          for: 20m
+          labels:
+            domain: storage
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Root filesystem free space is low
+            description: Root filesystem free space on {{ $labels.instance }} has stayed below 15% for 20 minutes.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinRootFilesystemCriticalFree
+          expr: |
+            (
+              node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs|nsfs|ramfs"}
+              /
+              node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs|nsfs|ramfs"}
+            ) < 0.10
+          for: 10m
+          labels:
+            domain: storage
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: critical
+          annotations:
+            summary: Root filesystem free space is critically low
+            description: Root filesystem free space on {{ $labels.instance }} has stayed below 10% for 10 minutes.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinObservabilityOperatorDown
+          expr: sum(max by (pod) (kube_pod_status_ready{namespace="darwin-platform",condition="true",pod=~"darwin-observability-operator-.*"})) < 1
+          for: 10m
+          labels:
+            domain: observability
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: critical
+          annotations:
+            summary: Prometheus operator is unavailable
+            description: The darwin observability operator has had no ready pod for 10 minutes.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinGrafanaUnavailable
+          expr: sum(max by (pod) (kube_pod_status_ready{namespace="darwin-platform",condition="true",pod=~"darwin-observability-grafana-.*"})) < 1
+          for: 10m
+          labels:
+            domain: observability
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: critical
+          annotations:
+            summary: Grafana is unavailable
+            description: No ready Grafana pod has been present in darwin-platform for 10 minutes.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinKubeStateMetricsUnavailable
+          expr: sum(max by (pod) (kube_pod_status_ready{namespace="darwin-platform",condition="true",pod=~"darwin-observability-kube-state-metrics-.*"})) < 1
+          for: 10m
+          labels:
+            domain: observability
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: kube-state-metrics is unavailable
+            description: No ready kube-state-metrics pod has been present in darwin-platform for 10 minutes.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioWorkspaceHabitatUnavailable
+          expr: max(kube_statefulset_status_replicas_ready{namespace="beagle",statefulset="sounio-workspace-habitat"}) < 1
+          for: 5m
+          labels:
+            domain: workspace
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: critical
+          annotations:
+            summary: Sounio workspace habitat is unavailable
+            description: The promoted Sounio workspace habitat has had zero ready replicas for at least 5 minutes.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioTailnetIngressDegraded
+          expr: sum(max by (pod) (kube_pod_status_ready{namespace="tailscale",condition="true",pod=~"sounio-workspace-ingress-.*"})) < 2
+          for: 10m
+          labels:
+            domain: networking
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Sounio tailnet ingress is degraded
+            description: Fewer than two ready tailnet ingress proxies are available for the Sounio workspace.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSlurmControllerUnavailable
+          expr: max(kube_statefulset_status_replicas_ready{namespace="slurm-pilot",statefulset="slurm-pilot-controller"}) < 1
+          for: 5m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: critical
+          annotations:
+            summary: Slurm controller is unavailable
+            description: The Slurm controller statefulset has no ready replica.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSlurmAccountingUnavailable
+          expr: max(kube_statefulset_status_replicas_ready{namespace="slurm-pilot",statefulset="slurm-pilot-accounting"}) < 1
+          for: 5m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: critical
+          annotations:
+            summary: Slurm accounting is unavailable
+            description: The Slurm accounting service has no ready replica.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
