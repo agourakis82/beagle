@@ -35,9 +35,7 @@ and distributed GPU jobs.
 5. Service and egress fabric
    - subnet: `10.30.0.0/24`
    - purpose: DNS forwarder/cache, DHCP, registry/artifact cache, general egress
-   - status: host and switch configured on
-     `5860-proxmox:nic0 <-> arista-7060:Ethernet33`, but still `NO-CARRIER`
-     / `lowerlayerdown`
+   - status: live on `5860-proxmox:nic0 <-> arista-7060:Ethernet33`
    - preferred next target: move this service edge to
      `t560-proxmox:ens6f0|ens6f1 <-> arista-7060:Ethernet34`
    - rule: keep services and internet-adjacent traffic off the 100Gb fabrics
@@ -70,13 +68,11 @@ Current live note:
   MTU `9000`
 - `arista-7060` has `Ethernet33` in access VLAN `130` and `Vlan130` as
   `10.30.0.254/24`
-- the remaining activation blocker is physical/electrical carrier on the 10Gb
-  link, not missing Linux or switch configuration
-- current observed mismatch:
-  - `5860-proxmox:nic0` is a twisted-pair copper interface
-  - `arista-7060:Ethernet33` currently reports `Type 1000BASE-SX`
-  - until `Ethernet33` has the correct copper-capable transceiver/cable path,
-    the 10Gb service fabric will remain `lowerlayerdown`
+- after correcting the EOS-side port-speed posture on `Ethernet33`, the link is
+  now up at `10Gb/s`
+- validation now succeeds:
+  - `5860-proxmox` can ping `10.30.0.254`
+  - `arista-7060` can ping `10.30.0.1`
 - current cleaner alternative:
   - `t560-proxmox` has spare 10G fibre-class ports `ens6f0` and `ens6f1`
   - `arista-7060:Ethernet34` is currently free and `notpresent`

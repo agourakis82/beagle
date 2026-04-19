@@ -37,15 +37,16 @@ target is a non-GPU service edge on `t560-proxmox`.
 - switch-side config is present live on `arista-7060`
   - `Ethernet33` is an access port in VLAN `130`
   - `Vlan130` is configured as `10.30.0.254/24`
-- activation is still incomplete because the physical 10Gb link is currently
-  down
-  - `5860-proxmox:nic0` shows `NO-CARRIER`
-  - `5860-proxmox:vmbr30` is `DOWN`
-  - `arista-7060:Vlan130` is `down/lowerlayerdown`
-  - `arista-7060:Ethernet33` currently reports `Type 1000BASE-SX`, while
-    `5860-proxmox:nic0` is a twisted-pair copper NIC
-  - this is now diagnosed as a physical media/transceiver mismatch, not a
-    missing host or switch configuration problem
+- activation is now complete on the current `5860 <-> Et33` path
+  - `5860-proxmox:nic0` negotiates with a partner advertising `10G/5G/2.5G/1G`
+  - `5860-proxmox:vmbr30` is `UP,LOWER_UP`
+  - `arista-7060:Ethernet33` is `connected` at `10Gb/s`
+  - `arista-7060:Vlan130` is `up/up`
+  - bidirectional validation succeeds:
+    - `5860-proxmox -> 10.30.0.254` ping passes
+    - `arista-7060 -> 10.30.0.1` ping passes
+- the critical EOS fix was removing the forced `10000full` posture from
+  `Ethernet33` so the copper path could negotiate correctly
 
 ## Preferred next shape
 

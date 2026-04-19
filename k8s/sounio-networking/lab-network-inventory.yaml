@@ -68,7 +68,7 @@ fabrics:
     vlan:
       id: 130
       status: configured-on-arista-et33
-    status: configured-media-mismatch
+    status: live
     preferred_edge_candidate: t560-proxmox
     preferred_switch_port: Ethernet34
     ipam:
@@ -77,8 +77,7 @@ fabrics:
       reserved:
         - 10.30.0.1
         - 10.30.0.254
-      notes: 5860-service-fabric-edge
-      activation_blocker: arista-et33-currently-1000base-sx-while-5860-nic0-is-copper
+      notes: 5860-service-fabric-edge-live
 
 dns:
   kubernetes_zone: cluster.local
@@ -224,6 +223,10 @@ service_fabric:
         lab.sounio: 10.96.80.85
     dhcp:
       range: 10.30.0.100-10.30.0.199
+  validation:
+    link_state: connected-10g
+    host_ping_to_svi: pass
+    svi_ping_to_host: pass
 
 policies:
   - name: humans-enter-via-tailnet
