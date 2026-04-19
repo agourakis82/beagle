@@ -198,9 +198,13 @@ public actor BeagleClient {
     public func ensureAuth() async -> Bool {
         if tokenFetched { return true }
         print("[BeagleClient] ensureAuth starting...")
-        // GET /api/auth/beagle-token from cockpit
+        // GET /api/auth/beagle-token from the public Cockpit boundary first,
+        // with older private paths left as fallback during transition.
         let cockpitURLs = [
-            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!  // Changed from HTTPS
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
         ]
         var lastFailure = "Auth bridge unreachable"
         for base in cockpitURLs {
@@ -223,8 +227,28 @@ public actor BeagleClient {
                     continue
                 }
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    consumerToken = json["token"] as? String
-                    consumerId = json["consumer"] as? String ?? "beagle-operator"
+                    let rawToken = json["token"] as? String
+                    let authHeaderValue = json["auth_header_value"] as? String
+                    let consumerHeaderName = json["consumer_header_name"] as? String
+                    let consumerHeaderValue = json["consumer_header_value"] as? String
+
+                    if let rawToken, !rawToken.isEmpty {
+                        consumerToken = rawToken
+                    } else if
+                        let authHeaderValue,
+                        authHeaderValue.hasPrefix("Bearer "),
+                        authHeaderValue.count > "Bearer ".count
+                    {
+                        consumerToken = String(authHeaderValue.dropFirst("Bearer ".count))
+                    } else {
+                        consumerToken = nil
+                    }
+
+                    if consumerHeaderName == "X-Beagle-Consumer", let consumerHeaderValue, !consumerHeaderValue.isEmpty {
+                        consumerId = consumerHeaderValue
+                    } else {
+                        consumerId = json["consumer"] as? String ?? "beagle-operator"
+                    }
                     guard
                         let consumerToken,
                         !consumerToken.isEmpty,
@@ -237,7 +261,8 @@ public actor BeagleClient {
                     }
                     print("[BeagleClient] ensureAuth ✅ token acquired: \(consumerId)")
                     // Update base URL if provided
-                    if let urlStr = json["beagleServerUrl"] as? String, let serverUrl = URL(string: urlStr) {
+                    let beagleURLString = (json["beagle_url"] as? String) ?? (json["beagleServerUrl"] as? String)
+                    if let urlStr = beagleURLString, let serverUrl = URL(string: urlStr) {
                         print("[BeagleClient] ensureAuth updating base URL: \(serverUrl)")
                         baseURLs.insert(serverUrl, at: 0)
                     }
@@ -285,6 +310,38 @@ public actor BeagleClient {
     private func formatError(statusCode: Int, data: Data, fallback: String) -> String {
         if let payload = try? decoder.decode(BeagleBackendErrorPayload.self, from: data) {
             return payload.message(statusCode: statusCode, fallback: fallback)
+        }
+
+        let bodyText = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let bodyText, !bodyText.isEmpty {
+            return "HTTP \(statusCode) · \(bodyText)"
+        }
+
+        return fallback
+    }
+
+    private func formatMobileError(statusCode: Int, data: Data, fallback: String) -> String {
+        if let payload = try? decoder.decode(MobileEnvelope<ChatResponse>.self, from: data) {
+            var parts = ["HTTP \(statusCode)"]
+            if let message = payload.error?.message, !message.isEmpty {
+                parts.append(message)
+            } else {
+                parts.append(fallback)
+            }
+            if let reason = payload.error?.reason, !reason.isEmpty {
+                parts.append(reason)
+            }
+            if let code = payload.error?.code, !code.isEmpty {
+                parts.append("code=\(code)")
+            }
+            if let truthMode = payload.meta?.truthMode, !truthMode.isEmpty {
+                parts.append("truth=\(truthMode)")
+            }
+            if let requestId = payload.meta?.requestId, !requestId.isEmpty {
+                parts.append("requestId=\(requestId)")
+            }
+            return parts.joined(separator: " · ")
         }
 
         let bodyText = String(data: data, encoding: .utf8)?
@@ -386,7 +443,14 @@ public actor BeagleClient {
 
     // MARK: - LLM Passthrough
 
-    public func llmComplete(prompt: String, system: String? = nil) async -> Truthful<ChatResponse> {
+    public func llmComplete(
+        prompt: String,
+        system: String? = nil,
+        projectSlug: String = "sounio",
+        projectFamily: ProjectFamily? = nil,
+        publicationScope: PublicationScope? = nil,
+        discussionProfile: DiscussionProfile = .cluster
+    ) async -> Truthful<ChatResponse> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
             effectivePrompt = """
@@ -399,7 +463,24 @@ public actor BeagleClient {
         } else {
             effectivePrompt = prompt
         }
-        let body: [String: any Sendable] = ["prompt": effectivePrompt]
+        let family = projectFamily ?? .fromProjectSlug(projectSlug)
+        let scope = publicationScope ?? .forProjectFamily(family)
+        let body: [String: any Sendable] = [
+            "prompt": effectivePrompt,
+            "projectSlug": projectSlug,
+            "projectFamily": family.rawValue,
+            "publicationScope": scope.rawValue,
+            "discussionProfile": discussionProfile.rawValue
+        ]
+
+        let mobileResult = await postPublicMobileChat(body: body)
+        if mobileResult.value != nil {
+            return mobileResult
+        }
+        if discussionProfile != .cluster {
+            return mobileResult
+        }
+
         return await post(ChatResponse.self, path: "/api/llm/complete", body: body)
     }
 
@@ -472,8 +553,90 @@ public actor BeagleClient {
 
     // MARK: - Chat (generic exocortex conversation)
 
-    public func chat(prompt: String, system: String? = nil) async -> Truthful<ChatResponse> {
-        await llmComplete(prompt: prompt, system: system)
+    public func chat(
+        prompt: String,
+        system: String? = nil,
+        projectSlug: String = "sounio",
+        projectFamily: ProjectFamily? = nil,
+        publicationScope: PublicationScope? = nil,
+        discussionProfile: DiscussionProfile = .cluster
+    ) async -> Truthful<ChatResponse> {
+        await llmComplete(
+            prompt: prompt,
+            system: system,
+            projectSlug: projectSlug,
+            projectFamily: projectFamily,
+            publicationScope: publicationScope,
+            discussionProfile: discussionProfile
+        )
+    }
+
+    private func postPublicMobileChat(body: [String: any Sendable]) async -> Truthful<ChatResponse> {
+        let cockpitURLs = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+        ]
+
+        var lastError = "mobile chat gateway unreachable"
+        let debugLabel = "[\(ChatResponse.self)] POST /api/mobile/v1/chat"
+        print("[BeagleClient] \(debugLabel) starting...")
+
+        for base in cockpitURLs {
+            guard let url = URL(string: "/api/mobile/v1/chat", relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.timeoutInterval = 60
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                print("[BeagleClient] \(debugLabel) requesting: \(url)")
+                let (data, response) = try await session.data(for: request)
+
+                guard let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode) else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    lastError = formatMobileError(
+                        statusCode: statusCode,
+                        data: data,
+                        fallback: "HTTP \(statusCode)"
+                    )
+                    print("[BeagleClient] \(debugLabel) ❌ HTTP \(statusCode)")
+                    continue
+                }
+
+                let envelope = try decoder.decode(MobileEnvelope<ChatResponse>.self, from: data)
+                guard envelope.ok != false else {
+                    lastError = envelope.error?.message ?? "mobile chat returned ok=false"
+                    print("[BeagleClient] \(debugLabel) ❌ envelope ok=false")
+                    continue
+                }
+                guard let payload = envelope.data else {
+                    lastError = envelope.error?.message ?? "mobile chat returned no data"
+                    print("[BeagleClient] \(debugLabel) ❌ envelope missing data")
+                    continue
+                }
+
+                let mode = TruthMode(rawValue: envelope.meta?.truthMode ?? "") ?? .observed
+                print("[BeagleClient] \(debugLabel) ✅ success")
+                return Truthful(
+                    value: payload,
+                    mode: mode,
+                    observedAt: .now,
+                    source: url.host,
+                    error: nil
+                )
+            } catch {
+                lastError = error.localizedDescription
+                print("[BeagleClient] \(debugLabel) ❌ error: \(error.localizedDescription)")
+                continue
+            }
+        }
+
+        print("[BeagleClient] \(debugLabel) all URLs failed: \(lastError)")
+        return .staleError(lastError, source: "cockpit-mobile-gateway")
     }
 
     // MARK: - Novelty Endpoints (Void, Fractal, Phi)

@@ -70,6 +70,7 @@ public enum BeagleTheme {
     public static let textSecondary = Color.white.opacity(0.58)
     public static let textTertiary  = Color.white.opacity(0.34)
     public static let textData      = Color(red: 200/255, green: 230/255, blue: 255/255).opacity(0.90) // cool cyan tint
+    public static let hairline      = Color.white.opacity(0.08)
 
     // MARK: - Legacy font aliases (deprecated — use BeagleFont instead)
 

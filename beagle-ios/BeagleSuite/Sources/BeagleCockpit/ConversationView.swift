@@ -19,6 +19,7 @@ struct ConversationView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            discussionProfileStrip
             messageList
 
             // "New messages" indicator when scrolled up during streaming
@@ -28,7 +29,7 @@ struct ConversationView: View {
 
             BeagleInputBar(
                 text: $inputText,
-                placeholder: "Ask the exocortex...",
+                placeholder: "Talk to Beagle...",
                 mode: .chat,
                 isEnabled: !conversation.isStreaming,
                 onSubmit: { text in
@@ -36,6 +37,52 @@ struct ConversationView: View {
                     Task { await conversation.sendMessage(text) }
                 }
             )
+        }
+    }
+
+    private var discussionProfileStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: BeagleSpacing.xs) {
+                ForEach(DiscussionProfile.allCases) { profile in
+                    discussionProfileButton(for: profile)
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, BeagleSpacing.lg)
+            .padding(.top, BeagleSpacing.sm)
+            .padding(.bottom, BeagleSpacing.xs)
+        }
+    }
+
+    private func discussionProfileButton(for profile: DiscussionProfile) -> some View {
+        let isSelected = conversation.discussionProfile == profile
+        let foreground = isSelected ? BeagleTheme.truthObserved : BeagleTheme.textSecondary
+        let fill = isSelected
+            ? BeagleTheme.truthObserved.opacity(0.12)
+            : BeagleTheme.surface1.opacity(0.45)
+        let stroke = isSelected
+            ? BeagleTheme.truthObserved.opacity(0.18)
+            : BeagleTheme.hairline
+
+        return Button {
+            conversation.discussionProfile = profile
+        } label: {
+            HStack(spacing: BeagleSpacing.xs) {
+                Image(systemName: profile.iconName)
+                    .font(.system(size: 12, weight: .semibold))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(profile.label)
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.semibold)
+                    Text(profile.subtitle)
+                        .font(BeagleFont.caption2.font)
+                }
+            }
+            .foregroundStyle(foreground)
+            .padding(.horizontal, BeagleSpacing.sm)
+            .padding(.vertical, BeagleSpacing.xs)
+            .background(Capsule().fill(fill))
+            .overlay(Capsule().strokeBorder(stroke, lineWidth: 1))
         }
     }
 
@@ -130,25 +177,38 @@ struct ConversationView: View {
                     .font(BeagleFont.title3.font)
                     .foregroundStyle(BeagleTheme.textPrimary)
 
-                Text("Your exocortex is listening. Thoughts captured here flow into the hypergraph for HERMES refinement and Triad review.")
+                Text("Start with the mind in your hand. When the work needs more reach, Beagle can lean on the cluster.")
                     .font(BeagleFont.footnote.font)
                     .foregroundStyle(BeagleTheme.textTertiary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, BeagleSpacing.xxl)
             }
 
+            CognitiveBridgeField(
+                localWeight: 1.0,
+                bridgeWeight: 0.66,
+                clusterWeight: 0.52,
+                emphasis: .talk
+            )
+            .padding(.horizontal, BeagleSpacing.lg)
+
+            HStack(spacing: BeagleSpacing.xs) {
+                PresencePill(label: "On Device", systemImage: "iphone", tint: BeagleTheme.truthObserved)
+                PresencePill(label: "Cluster", systemImage: "server.rack", tint: BeagleTheme.truthRemembered)
+            }
+
             // Thought starters
             VStack(spacing: BeagleSpacing.xs) {
                 thoughtStarter(
-                    "What connections am I missing in my research?",
+                    "Help me think this through from the device first.",
                     icon: "link", color: BeagleTheme.truthObserved
                 )
                 thoughtStarter(
-                    "Summarize what the agents have been doing",
+                    "What has the cluster been doing while I was away?",
                     icon: "sparkles", color: BeagleTheme.postureWarm
                 )
                 thoughtStarter(
-                    "Help me think through this problem...",
+                    "Which thread should we pursue next?",
                     icon: "lightbulb.max", color: BeagleTheme.truthRemembered
                 )
             }

@@ -27,6 +27,10 @@ public struct ChatMessage: Identifiable, Sendable {
     public var model: String?
     public var tokensUsed: Int?
     public var isLocal: Bool
+    public var source: String?
+    public var agentKind: String?
+    public var sessionId: String?
+    public var podName: String?
 
     public init(
         id: UUID = UUID(),
@@ -36,7 +40,11 @@ public struct ChatMessage: Identifiable, Sendable {
         isStreaming: Bool = false,
         model: String? = nil,
         tokensUsed: Int? = nil,
-        isLocal: Bool = false
+        isLocal: Bool = false,
+        source: String? = nil,
+        agentKind: String? = nil,
+        sessionId: String? = nil,
+        podName: String? = nil
     ) {
         self.id = id
         self.role = role
@@ -46,6 +54,10 @@ public struct ChatMessage: Identifiable, Sendable {
         self.model = model
         self.tokensUsed = tokensUsed
         self.isLocal = isLocal
+        self.source = source
+        self.agentKind = agentKind
+        self.sessionId = sessionId
+        self.podName = podName
     }
 }
 
@@ -60,12 +72,26 @@ public final class ConversationStore {
 
     /// Whether to prefer on-device model when available.
     public var preferLocal: Bool = true
+    public var projectSlug: String
+    public var projectFamily: ProjectFamily?
+    public var publicationScope: PublicationScope?
+    public var discussionProfile: DiscussionProfile = .cluster
 
     private let client: BeagleClient
     private let llm = LocalLLMEngine.shared
 
-    public init(client: BeagleClient = .shared) {
+    public init(
+        client: BeagleClient = .shared,
+        preferLocal: Bool = true,
+        projectSlug: String = "sounio",
+        projectFamily: ProjectFamily? = nil,
+        publicationScope: PublicationScope? = nil
+    ) {
         self.client = client
+        self.preferLocal = preferLocal
+        self.projectSlug = projectSlug
+        self.projectFamily = projectFamily
+        self.publicationScope = publicationScope
     }
 
     // MARK: - Send (auto-routing)
@@ -161,13 +187,23 @@ public final class ConversationStore {
         messages.append(placeholder)
         isStreaming = true
 
-        let result = await client.chat(prompt: contextualPrompt)
+        let result = await client.chat(
+            prompt: contextualPrompt,
+            projectSlug: projectSlug,
+            projectFamily: projectFamily,
+            publicationScope: publicationScope,
+            discussionProfile: discussionProfile
+        )
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
             if let response = result.value {
                 let fullText = response.response ?? ""
                 messages[idx].model = response.model
                 messages[idx].tokensUsed = response.tokensUsed
+                messages[idx].source = response.source
+                messages[idx].agentKind = response.agentKind
+                messages[idx].sessionId = response.sessionId
+                messages[idx].podName = response.podName
 
                 // Typing reveal for cloud responses
                 await revealText(fullText, at: idx)

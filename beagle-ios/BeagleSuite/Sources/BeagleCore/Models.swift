@@ -91,6 +91,235 @@ public struct ExecutiveCatalog: Codable, Sendable {
     public let projectPosturePolicy: PosturePolicy?
 }
 
+public struct MobileMeta: Decodable, Sendable {
+    public let truthMode: String?
+    public let generatedAt: String?
+    public let requestId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case truthMode
+        case truthModeSnake = "truth_mode"
+        case generatedAt
+        case generatedAtSnake = "generated_at"
+        case requestId
+        case requestIdSnake = "request_id"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        truthMode =
+            try container.decodeIfPresent(String.self, forKey: .truthMode)
+            ?? container.decodeIfPresent(String.self, forKey: .truthModeSnake)
+        generatedAt =
+            try container.decodeIfPresent(String.self, forKey: .generatedAt)
+            ?? container.decodeIfPresent(String.self, forKey: .generatedAtSnake)
+        requestId =
+            try container.decodeIfPresent(String.self, forKey: .requestId)
+            ?? container.decodeIfPresent(String.self, forKey: .requestIdSnake)
+    }
+}
+
+public struct MobileEnvelopeError: Decodable, Sendable {
+    public let message: String?
+    public let reason: String?
+    public let code: String?
+
+    public init(from decoder: Decoder) throws {
+        if let singleValue = try? decoder.singleValueContainer(),
+           let stringValue = try? singleValue.decode(String.self)
+        {
+            message = stringValue
+            reason = nil
+            code = nil
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        message =
+            try container.decodeIfPresent(String.self, forKey: .message)
+            ?? container.decodeIfPresent(String.self, forKey: .error)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        code = try container.decodeIfPresent(String.self, forKey: .code)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case message
+        case error
+        case reason
+        case code
+    }
+}
+
+public struct MobileEnvelope<T: Decodable & Sendable>: Decodable, Sendable {
+    public let ok: Bool?
+    public let data: T?
+    public let error: MobileEnvelopeError?
+    public let meta: MobileMeta?
+}
+
+public struct MobileProjectOverview: Decodable, Sendable {
+    public let project: Project?
+    public let missionControl: MissionControl?
+    public let clusterLaneTruth: ClusterLaneTruth?
+    public let clusterSummary: ClusterSummary?
+    public let researchOperations: ResearchOperations?
+    public let inferenceRuntime: InferenceRuntime?
+    public let viewerRuntime: ViewerRuntimeResponse?
+
+    enum CodingKeys: String, CodingKey {
+        case project
+        case missionControl
+        case mission
+        case clusterLaneTruth
+        case clusterTruth
+        case clusterSummary
+        case cluster
+        case researchOperations
+        case research
+        case inferenceRuntime
+        case inference
+        case viewerRuntime
+        case viewer
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        project = try container.decodeIfPresent(Project.self, forKey: .project)
+        missionControl =
+            try container.decodeIfPresent(MissionControl.self, forKey: .missionControl)
+            ?? container.decodeIfPresent(MissionControl.self, forKey: .mission)
+        clusterLaneTruth =
+            try container.decodeIfPresent(ClusterLaneTruth.self, forKey: .clusterLaneTruth)
+            ?? container.decodeIfPresent(ClusterLaneTruth.self, forKey: .clusterTruth)
+        clusterSummary =
+            try container.decodeIfPresent(ClusterSummary.self, forKey: .clusterSummary)
+            ?? container.decodeIfPresent(ClusterSummary.self, forKey: .cluster)
+        researchOperations =
+            try container.decodeIfPresent(ResearchOperations.self, forKey: .researchOperations)
+            ?? container.decodeIfPresent(ResearchOperations.self, forKey: .research)
+        inferenceRuntime =
+            try container.decodeIfPresent(InferenceRuntime.self, forKey: .inferenceRuntime)
+            ?? container.decodeIfPresent(InferenceRuntime.self, forKey: .inference)
+        viewerRuntime =
+            try container.decodeIfPresent(ViewerRuntimeResponse.self, forKey: .viewerRuntime)
+            ?? container.decodeIfPresent(ViewerRuntimeResponse.self, forKey: .viewer)
+    }
+}
+
+public struct MobileHomeSummary: Decodable, Sendable {
+    public let activeAgentsCount: Int?
+    public let activeSessionsCount: Int?
+    public let clusterHealth: String?
+    public let lastMemorySyncTime: String?
+
+    enum CodingKeys: String, CodingKey {
+        case activeAgentsCount
+        case activeAgentsCountSnake = "active_agents_count"
+        case activeSessionsCount
+        case activeSessionsCountSnake = "active_sessions_count"
+        case clusterHealth
+        case clusterHealthSnake = "cluster_health"
+        case lastMemorySyncTime
+        case lastMemorySyncTimeSnake = "last_memory_sync_time"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        activeAgentsCount =
+            try container.decodeIfPresent(Int.self, forKey: .activeAgentsCount)
+            ?? container.decodeIfPresent(Int.self, forKey: .activeAgentsCountSnake)
+        activeSessionsCount =
+            try container.decodeIfPresent(Int.self, forKey: .activeSessionsCount)
+            ?? container.decodeIfPresent(Int.self, forKey: .activeSessionsCountSnake)
+        clusterHealth =
+            try container.decodeIfPresent(String.self, forKey: .clusterHealth)
+            ?? container.decodeIfPresent(String.self, forKey: .clusterHealthSnake)
+        lastMemorySyncTime =
+            try container.decodeIfPresent(String.self, forKey: .lastMemorySyncTime)
+            ?? container.decodeIfPresent(String.self, forKey: .lastMemorySyncTimeSnake)
+    }
+}
+
+public struct IdeaSaveResponse: Decodable, Sendable {
+    public let nodeId: String?
+    public let syncState: IdeaSyncState?
+    public let projectFamily: String?
+    public let publicationScope: String?
+
+    enum CodingKeys: String, CodingKey {
+        case nodeId
+        case nodeIdSnake = "node_id"
+        case syncState
+        case syncStateSnake = "sync_state"
+        case projectFamily
+        case publicationScope
+        case projectFamilySnake = "project_family"
+        case publicationScopeSnake = "publication_scope"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        nodeId =
+            try container.decodeIfPresent(String.self, forKey: .nodeId)
+            ?? container.decodeIfPresent(String.self, forKey: .nodeIdSnake)
+        syncState =
+            try container.decodeIfPresent(IdeaSyncState.self, forKey: .syncState)
+            ?? container.decodeIfPresent(IdeaSyncState.self, forKey: .syncStateSnake)
+        projectFamily =
+            try container.decodeIfPresent(String.self, forKey: .projectFamily)
+            ?? container.decodeIfPresent(String.self, forKey: .projectFamilySnake)
+        publicationScope =
+            try container.decodeIfPresent(String.self, forKey: .publicationScope)
+            ?? container.decodeIfPresent(String.self, forKey: .publicationScopeSnake)
+    }
+}
+
+public struct DelegationResponse: Decodable, Sendable {
+    public let agentKind: String?
+    public let sessionId: String?
+    public let podName: String?
+    public let resultingState: String?
+    public let projectFamily: String?
+    public let publicationScope: String?
+
+    enum CodingKeys: String, CodingKey {
+        case agentKind
+        case sessionId
+        case podName
+        case resultingState
+        case projectFamily
+        case publicationScope
+        case agentKindSnake = "agent_kind"
+        case sessionIdSnake = "session_id"
+        case podNameSnake = "pod_name"
+        case resultingStateSnake = "resulting_state"
+        case projectFamilySnake = "project_family"
+        case publicationScopeSnake = "publication_scope"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        agentKind =
+            try container.decodeIfPresent(String.self, forKey: .agentKind)
+            ?? container.decodeIfPresent(String.self, forKey: .agentKindSnake)
+        sessionId =
+            try container.decodeIfPresent(String.self, forKey: .sessionId)
+            ?? container.decodeIfPresent(String.self, forKey: .sessionIdSnake)
+        podName =
+            try container.decodeIfPresent(String.self, forKey: .podName)
+            ?? container.decodeIfPresent(String.self, forKey: .podNameSnake)
+        resultingState =
+            try container.decodeIfPresent(String.self, forKey: .resultingState)
+            ?? container.decodeIfPresent(String.self, forKey: .resultingStateSnake)
+        projectFamily =
+            try container.decodeIfPresent(String.self, forKey: .projectFamily)
+            ?? container.decodeIfPresent(String.self, forKey: .projectFamilySnake)
+        publicationScope =
+            try container.decodeIfPresent(String.self, forKey: .publicationScope)
+            ?? container.decodeIfPresent(String.self, forKey: .publicationScopeSnake)
+    }
+}
+
 // MARK: - Mission Control
 
 public struct MissionControl: Codable, Sendable {
@@ -417,6 +646,8 @@ public struct ThoughtCapture: Codable, Sendable, Identifiable {
     public let rawText: String?
     public let source: String?
     public let createdAt: String?
+    public let syncedToServer: Bool?
+    public let syncState: IdeaSyncState?
 
     enum CodingKeys: String, CodingKey {
         case nodeId = "node_id"
@@ -424,6 +655,195 @@ public struct ThoughtCapture: Codable, Sendable, Identifiable {
         case rawText = "raw_text"
         case source
         case createdAt = "created_at"
+        case syncedToServer = "synced_to_server"
+        case syncState
+        case syncStateSnake = "sync_state"
+    }
+
+    public var residency: ThoughtResidency {
+        if effectiveSyncState.isClusterResident { return .clusterMemory }
+        return .deviceOnly
+    }
+
+    public var effectiveSyncState: IdeaSyncState {
+        if let syncState { return syncState }
+        if syncedToServer == true { return .synced }
+        return .localOnly
+    }
+
+    public init(
+        nodeId: String?,
+        refinedText: String?,
+        rawText: String?,
+        source: String?,
+        createdAt: String?,
+        syncedToServer: Bool?,
+        syncState: IdeaSyncState?
+    ) {
+        self.nodeId = nodeId
+        self.refinedText = refinedText
+        self.rawText = rawText
+        self.source = source
+        self.createdAt = createdAt
+        self.syncedToServer = syncedToServer
+        self.syncState = syncState
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        nodeId = try container.decodeIfPresent(String.self, forKey: .nodeId)
+        refinedText = try container.decodeIfPresent(String.self, forKey: .refinedText)
+        rawText = try container.decodeIfPresent(String.self, forKey: .rawText)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
+        syncedToServer = try container.decodeIfPresent(Bool.self, forKey: .syncedToServer)
+        syncState =
+            try container.decodeIfPresent(IdeaSyncState.self, forKey: .syncState)
+            ?? container.decodeIfPresent(IdeaSyncState.self, forKey: .syncStateSnake)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(nodeId, forKey: .nodeId)
+        try container.encodeIfPresent(refinedText, forKey: .refinedText)
+        try container.encodeIfPresent(rawText, forKey: .rawText)
+        try container.encodeIfPresent(source, forKey: .source)
+        try container.encodeIfPresent(createdAt, forKey: .createdAt)
+        try container.encodeIfPresent(syncedToServer, forKey: .syncedToServer)
+        try container.encodeIfPresent(syncState, forKey: .syncState)
+    }
+}
+
+public enum ThoughtResidency: String, Codable, Sendable {
+    case deviceOnly
+    case clusterMemory
+
+    public var label: String {
+        switch self {
+        case .deviceOnly:
+            return "Device only"
+        case .clusterMemory:
+            return "Cluster memory"
+        }
+    }
+}
+
+public enum IdeaSyncState: String, Codable, Sendable {
+    case localOnly = "local_only"
+    case queued
+    case synced
+    case delegated
+
+    public var label: String {
+        switch self {
+        case .localOnly:
+            return "Device only"
+        case .queued:
+            return "Queued"
+        case .synced:
+            return "Cluster memory"
+        case .delegated:
+            return "Delegated"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .localOnly:
+            return "iphone"
+        case .queued:
+            return "clock.arrow.circlepath"
+        case .synced:
+            return "server.rack"
+        case .delegated:
+            return "bolt.horizontal.circle"
+        }
+    }
+
+    public var isClusterResident: Bool {
+        switch self {
+        case .localOnly, .queued:
+            return false
+        case .synced, .delegated:
+            return true
+        }
+    }
+}
+
+public enum ProjectFamily: String, Codable, Sendable {
+    case language
+    case hsn
+    case experimental
+    case platform
+
+    public static func fromProjectSlug(_ slug: String) -> ProjectFamily {
+        switch slug.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "sounio":
+            return .language
+        case "hyperbolic-semantic-networks":
+            return .hsn
+        default:
+            return .experimental
+        }
+    }
+}
+
+public enum DiscussionProfile: String, Codable, Sendable, CaseIterable, Identifiable {
+    case cluster
+    case qwen3b
+    case yi6b
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .cluster:
+            return "Cluster"
+        case .qwen3b:
+            return "Qwen"
+        case .yi6b:
+            return "Yi"
+        }
+    }
+
+    public var subtitle: String {
+        switch self {
+        case .cluster:
+            return "Default route"
+        case .qwen3b:
+            return "Daily / Cheap"
+        case .yi6b:
+            return "Bilingual / Creative"
+        }
+    }
+
+    public var iconName: String {
+        switch self {
+        case .cluster:
+            return "server.rack"
+        case .qwen3b:
+            return "bolt.horizontal.circle"
+        case .yi6b:
+            return "globe.asia.australia"
+        }
+    }
+}
+
+public enum PublicationScope: String, Codable, Sendable {
+    case `public`
+    case internalOnly = "internal"
+    case conference
+    case draft
+
+    public static func forProjectFamily(_ family: ProjectFamily) -> PublicationScope {
+        switch family {
+        case .language:
+            return .public
+        case .hsn:
+            return .conference
+        case .experimental, .platform:
+            return .internalOnly
+        }
     }
 }
 
@@ -636,6 +1056,10 @@ public struct ChatResponse: Decodable, Sendable {
     public let response: String?
     public let tokensUsed: Int?
     public let model: String?
+    public let source: String?
+    public let agentKind: String?
+    public let sessionId: String?
+    public let podName: String?
 
     enum CodingKeys: String, CodingKey {
         case response
@@ -644,6 +1068,13 @@ public struct ChatResponse: Decodable, Sendable {
         case model
         case provider
         case tier
+        case source
+        case agentKind
+        case sessionId
+        case podName
+        case agentKindSnake = "agent_kind"
+        case sessionIdSnake = "session_id"
+        case podNameSnake = "pod_name"
     }
 
     public init(from decoder: Decoder) throws {
@@ -656,6 +1087,16 @@ public struct ChatResponse: Decodable, Sendable {
             try container.decodeIfPresent(String.self, forKey: .model)
             ?? container.decodeIfPresent(String.self, forKey: .provider)
             ?? container.decodeIfPresent(String.self, forKey: .tier)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+        agentKind =
+            try container.decodeIfPresent(String.self, forKey: .agentKind)
+            ?? container.decodeIfPresent(String.self, forKey: .agentKindSnake)
+        sessionId =
+            try container.decodeIfPresent(String.self, forKey: .sessionId)
+            ?? container.decodeIfPresent(String.self, forKey: .sessionIdSnake)
+        podName =
+            try container.decodeIfPresent(String.self, forKey: .podName)
+            ?? container.decodeIfPresent(String.self, forKey: .podNameSnake)
     }
 }
 
