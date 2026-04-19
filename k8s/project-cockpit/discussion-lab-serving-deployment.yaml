@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: discussion-lab-serving
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: discussion-lab-serving
+    app.kubernetes.io/part-of: beagle
+    sounio.dev/state: lab
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: discussion-lab-serving
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: discussion-lab-serving
+        app.kubernetes.io/part-of: beagle
+        sounio.dev/state: lab
+    spec:
+      hostUsers: true
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: 5860-proxmox
+        sounio.dev/runtime-role: io-lab
+        sounio.dev/accelerator-class: gpu
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: discussion-lab
+          image: vllm/vllm-openai:v0.10.2
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: true
+            seccompProfile:
+              type: Unconfined
+          args:
+            - --model
+            - Qwen/Qwen2.5-3B-Instruct
+            - --served-model-name
+            - qwen2.5-3b-instruct
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+            - --gpu-memory-utilization
+            - "0.72"
+            - --max-model-len
+            - "8192"
+            - --max-num-seqs
+            - "12"
+            - --dtype
+            - auto
+            - --tensor-parallel-size
+            - "1"
+          env:
+            - name: HF_HOME
+              value: /var/cache/huggingface
+            - name: VLLM_WORKER_MULTIPROC_METHOD
+              value: spawn
+          ports:
+            - name: http
+              containerPort: 8000
+          startupProbe:
+            httpGet:
+              path: /v1/models
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 160
+          readinessProbe:
+            httpGet:
+              path: /v1/models
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /v1/models
+              port: http
+            initialDelaySeconds: 240
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "2"
+              memory: 12Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "6"
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /var/cache/huggingface
+              subPath: discussion-lab-hf-cache
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim:
+            claimName: discussion-lab-cache
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi

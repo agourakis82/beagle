@@ -138,3 +138,29 @@ the stranded SSD PG recovery.
 2. Revisit any old `pg_temp` / `pg_upmap_items` once recovery activity settles.
 3. Continue migrating hostname-pinned manifests toward role labels.
 4. Keep developer and lab data off root filesystems on all nodes.
+5. Relocate `containerd` root on `r770-proxmox` and `5860-proxmox` onto
+   dedicated non-root runtime tiers before attempting any further GPU-native
+   `vLLM` discussion-lab cold starts.
+
+## GPU-Native Discussion Lab Constraint
+
+The `discussion-lab` migration to `vLLM` proved a separate runtime rule that is
+now policy:
+
+- a modern GPU-serving image around `11+ GiB` is large enough to re-trigger
+  kubelet `DiskPressure` on `r770-proxmox` and `5860-proxmox` if `containerd`
+  remains effectively rooted on the small system filesystem
+- the correct fix is not more application retries
+- the correct fix is host-level `containerd` relocation onto:
+  - `r770-proxmox` -> `/mnt/ai-runtime/containerd`
+  - `5860-proxmox` -> a dedicated non-root local runtime tier
+- that storage relocation is now complete on both nodes and is required before
+  any future cold-start testing of heavyweight GPU-serving images
+- the remaining discussion-lab runtime debt is container isolation, not storage:
+  the current `Yi` and `Qwen` `vLLM` lanes still require `hostUsers: true` plus
+  `privileged: true` because standard isolated NVIDIA pods deny `socketpair()`
+  and fail CUDA initialization
+
+See:
+
+- [CONTAINERD_RUNTIME_RELOCATION_R770_5860_2026-04-19.md](CONTAINERD_RUNTIME_RELOCATION_R770_5860_2026-04-19.md)
