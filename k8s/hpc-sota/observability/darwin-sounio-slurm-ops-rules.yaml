@@ -1,0 +1,325 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: darwin-sounio-slurm-ops-rules
+  namespace: darwin-platform
+  labels:
+    app.kubernetes.io/part-of: darwin-observability
+    darwin.phase: B8
+    release: darwin-observability
+spec:
+  groups:
+    - name: darwin.sounio-dev-loop
+      rules:
+        - alert: DarwinSounioHabitatContainerRestarts
+          expr: sum(increase(kube_pod_container_status_restarts_total{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD"}[30m])) > 0
+          for: 5m
+          labels:
+            domain: workspace
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Sounio habitat restarted recently
+            description: One or more containers in the promoted Sounio habitat restarted during the last 30 minutes.
+            dashboard: Darwin Sounio Dev Loop
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioHabitatHighCPU
+          expr: sum(rate(container_cpu_usage_seconds_total{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD",image!=""}[15m])) > 1.5
+          for: 15m
+          labels:
+            domain: workspace
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Sounio habitat CPU usage is high
+            description: The promoted Sounio habitat has sustained CPU usage above 1.5 cores for 15 minutes.
+            dashboard: Darwin Sounio Dev Loop
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioHabitatHighMemory
+          expr: sum(container_memory_working_set_bytes{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD",image!=""}) > 6442450944
+          for: 15m
+          labels:
+            domain: workspace
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Sounio habitat memory usage is high
+            description: The promoted Sounio habitat has sustained memory working set above 6 GiB for 15 minutes.
+            dashboard: Darwin Sounio Dev Loop
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioHabitatLastTerminationOOMKilled
+          expr: max(kube_pod_container_status_last_terminated_reason{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD",reason="OOMKilled"}) > 0
+          for: 10m
+          labels:
+            domain: workspace
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Sounio habitat hit an OOM kill
+            description: One of the promoted Sounio habitat containers reports OOMKilled as its last termination reason.
+            dashboard: Darwin Sounio Dev Loop
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+    - name: darwin.sounio-compiler-pipeline
+      rules:
+        - alert: DarwinSounioCompilerHabitatUnavailable
+          expr: max(kube_statefulset_status_replicas_ready{namespace="beagle",statefulset="sounio-workspace-habitat"}) < 1
+          for: 3m
+          labels:
+            severity: critical
+            domain: compiler
+            namespace: darwin-platform
+            notification_tier: real-incident
+          annotations:
+            summary: Sounio compiler habitat unavailable
+            description: The promoted Sounio workspace habitat has no ready replicas for more than 3 minutes.
+            dashboard: Darwin Sounio Compiler Pipeline
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioCompilerIngressUnavailable
+          expr: sum(max by (pod) (kube_pod_status_ready{namespace="tailscale",condition="true",pod=~"sounio-workspace-ingress-.*"})) < 2
+          for: 5m
+          labels:
+            severity: warning
+            domain: compiler
+            namespace: darwin-platform
+            notification_tier: dev-noise
+          annotations:
+            summary: Sounio compiler ingress degraded
+            description: Fewer than two Sounio workspace ingress proxies have been ready for more than 5 minutes.
+            dashboard: Darwin Sounio Compiler Pipeline
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioCompilerWorkspacePVCUnbound
+          expr: max(kube_persistentvolumeclaim_status_phase{namespace="beagle",persistentvolumeclaim="workspace-data-sounio-workspace-habitat-0",phase="Bound"}) < 1
+          for: 5m
+          labels:
+            severity: critical
+            domain: compiler
+            namespace: darwin-platform
+            notification_tier: real-incident
+          annotations:
+            summary: Sounio compiler workspace PVC is not bound
+            description: The promoted Sounio workspace volume claim is not bound, so compiler/test state is at risk.
+            dashboard: Darwin Sounio Compiler Pipeline
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioCompilerRestartDriftHigh
+          expr: sum(increase(kube_pod_container_status_restarts_total{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD"}[30m])) > 1
+          for: 10m
+          labels:
+            severity: warning
+            domain: compiler
+            namespace: darwin-platform
+            notification_tier: dev-noise
+          annotations:
+            summary: Sounio compiler habitat is restarting
+            description: The promoted Sounio workspace has restarted more than once in the last 30 minutes.
+            dashboard: Darwin Sounio Compiler Pipeline
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioCompilerCPUThrottlingHigh
+          expr: (sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD",image!=""}[5m])) / clamp_min(sum by (pod) (rate(container_cpu_cfs_periods_total{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD",image!=""}[5m])), 1)) > 0.20
+          for: 15m
+          labels:
+            severity: warning
+            domain: compiler
+            namespace: darwin-platform
+            notification_tier: dev-noise
+          annotations:
+            summary: Sounio compiler loop is CPU throttled
+            description: The promoted Sounio workspace has spent more than 20% of recent CFS periods throttled for 15 minutes.
+            dashboard: Darwin Sounio Compiler Pipeline
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioCompilerMemoryPressureHigh
+          expr: sum by (pod) (container_memory_working_set_bytes{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD",image!=""}) > 10737418240
+          for: 15m
+          labels:
+            severity: warning
+            domain: compiler
+            namespace: darwin-platform
+            notification_tier: dev-noise
+          annotations:
+            summary: Sounio compiler workspace memory pressure high
+            description: The promoted Sounio workspace has been above 10 GiB working-set memory for 15 minutes.
+            dashboard: Darwin Sounio Compiler Pipeline
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioCompilerLastTerminationOOMKilled
+          expr: max(kube_pod_container_status_last_terminated_reason{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD",reason="OOMKilled"}) > 0
+          for: 10m
+          labels:
+            severity: warning
+            domain: compiler
+            namespace: darwin-platform
+            notification_tier: dev-noise
+          annotations:
+            summary: Sounio compiler habitat hit an OOM kill
+            description: One of the promoted Sounio workspace containers reports OOMKilled as its last termination reason.
+            dashboard: Darwin Sounio Compiler Pipeline
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+    - name: darwin.slurm-ops
+      rules:
+        - alert: DarwinSlurmRestAPIUnavailable
+          expr: sum(max by (pod) (kube_pod_status_ready{namespace="slurm-pilot",condition="true",pod=~"slurm-pilot-restapi-.*"})) < 1
+          for: 5m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Slurm REST API is unavailable
+            description: No ready Slurm REST API pod has been available for 5 minutes.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSlurmLoginUnavailable
+          expr: sum(max by (pod) (kube_pod_status_ready{namespace="slurm-pilot",condition="true",pod=~"slurm-pilot-login-slinky-.*"})) < 1
+          for: 5m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Slurm login pod is unavailable
+            description: No ready Slurm login pod has been available for 5 minutes.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSlurmCPUWorkerUnavailable
+          expr: sum(max by (pod) (kube_pod_status_ready{namespace="slurm-pilot",condition="true",pod=~"slurm-pilot-worker-cpuops-.*"})) < 1
+          for: 10m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Slurm CPU worker pool is unavailable
+            description: The CPU worker pool has had zero ready workers for at least 10 minutes.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSlurmGPUWorkerPoolUnavailable
+          expr: sum(max by (pod) (kube_pod_status_ready{namespace="slurm-pilot",condition="true",pod=~"slurm-pilot-worker-gpuorangefs-.*"})) < 1
+          for: 10m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: critical
+          annotations:
+            summary: Slurm GPU worker pool is unavailable
+            description: The GPU worker pool has had zero ready workers for at least 10 minutes.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSlurmControlPlaneRestarts
+          expr: sum(increase(kube_pod_container_status_restarts_total{namespace="slurm-pilot",pod=~"slurm-pilot-(controller|accounting|restapi|login-slinky).*",container!="POD"}[30m])) > 0
+          for: 5m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Slurm control-plane containers restarted recently
+            description: One or more Slurm control-plane containers restarted during the last 30 minutes.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSlurmGPUOrangefsAutohealStale
+          expr: time() - darwin_slurm_gpuorangefs_autoheal_last_run_unixtime > 1800
+          for: 5m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Slurm gpuorangefs auto-heal timer is stale
+            description: The gpuorangefs auto-heal timer has not emitted fresh textfile metrics for more than 30 minutes.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSlurmGPUOrangefsAutohealRepaired
+          expr: darwin_slurm_gpuorangefs_autoheal_repaired_nodes > 0
+          for: 2m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Slurm gpuorangefs auto-heal repaired one or more workers
+            description: The last gpuorangefs auto-heal run repaired at least one admitted worker node.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSlurmGPUOrangefsAutohealDeferred
+          expr: darwin_slurm_gpuorangefs_autoheal_deferred_nodes > 0
+          for: 2m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Slurm gpuorangefs auto-heal deferred repair
+            description: The last gpuorangefs auto-heal run found an unhealthy worker but deferred repair because jobs were still active.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSlurmGPUOrangefsAutohealFailed
+          expr: darwin_slurm_gpuorangefs_autoheal_failed_nodes > 0 or darwin_slurm_gpuorangefs_autoheal_last_run_success == 0
+          for: 2m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: warning
+          annotations:
+            summary: Slurm gpuorangefs auto-heal failed
+            description: The last gpuorangefs auto-heal run ended with a hard failure and needs manual intervention.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioABIDERunnerMetricsStale
+          expr: time() - darwin_sounio_abide_runner_metrics_last_emit_unixtime > 900
+          for: 5m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Sounio ABIDE runner metrics are stale
+            description: The host-local ABIDE runner metrics emitter on t560 has not refreshed for more than 15 minutes.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioABIDERunnerWorkerLocalFallback
+          expr: darwin_sounio_abide_runner_last_persist_mode_code == 2
+          for: 5m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: Sounio ABIDE runner used worker_local fallback
+            description: The last observed ABIDE campaign submit used worker_local persistence instead of orangefs.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
