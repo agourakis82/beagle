@@ -41,6 +41,10 @@ This fabric uses the dedicated 10Gb link between `5860-proxmox:nic0` and
   - `5860-proxmox:nic0` shows `NO-CARRIER`
   - `5860-proxmox:vmbr30` is `DOWN`
   - `arista-7060:Vlan130` is `down/lowerlayerdown`
+  - `arista-7060:Ethernet33` currently reports `Type 1000BASE-SX`, while
+    `5860-proxmox:nic0` is a twisted-pair copper NIC
+  - this is now diagnosed as a physical media/transceiver mismatch, not a
+    missing host or switch configuration problem
 
 ## DNS behavior
 

@@ -70,6 +70,11 @@ Current live note:
   `10.30.0.254/24`
 - the remaining activation blocker is physical/electrical carrier on the 10Gb
   link, not missing Linux or switch configuration
+- current observed mismatch:
+  - `5860-proxmox:nic0` is a twisted-pair copper interface
+  - `arista-7060:Ethernet33` currently reports `Type 1000BASE-SX`
+  - until `Ethernet33` has the correct copper-capable transceiver/cable path,
+    the 10Gb service fabric will remain `lowerlayerdown`
 
 If you keep the current flat setup for a while, still reserve those addresses
 now so the migration later is mechanical rather than creative.

@@ -68,7 +68,7 @@ fabrics:
     vlan:
       id: 130
       status: configured-on-arista-et33
-    status: configured-carrier-pending
+    status: configured-media-mismatch
     ipam:
       host_range: 10.30.0.1-10.30.0.63
       dhcp_range: 10.30.0.100-10.30.0.199
@@ -76,6 +76,7 @@ fabrics:
         - 10.30.0.1
         - 10.30.0.254
       notes: 5860-service-fabric-edge
+      activation_blocker: arista-et33-currently-1000base-sx-while-5860-nic0-is-copper
 
 dns:
   kubernetes_zone: cluster.local
