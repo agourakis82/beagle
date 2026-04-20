@@ -9,15 +9,22 @@
 
 import SwiftUI
 import BeagleCore
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 struct TerminalContentView: View {
     @Bindable var terminal: TerminalStore
     var onReconnect: (() -> Void)? = nil
+    var diagnosticsText: String? = nil
 
     // Smart scroll state
     @State private var isUserScrolledUp = false
     @State private var hasNewContent = false
     @State private var lastLineCount = 0
+    @State private var diagnosticsCopied = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -253,6 +260,17 @@ struct TerminalContentView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(BeagleTheme.truthObserved)
                     }
+                    if let diagnosticsText, !diagnosticsText.isEmpty {
+                        Button {
+                            copyDiagnostics(diagnosticsText)
+                        } label: {
+                            Label(diagnosticsCopied ? "Copied" : "Copy", systemImage: diagnosticsCopied ? "checkmark" : "doc.on.doc")
+                                .font(BeagleFont.caption.font)
+                                .fontWeight(.medium)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                    }
                 }
                 .padding(.horizontal, BeagleSpacing.md)
                 .padding(.vertical, BeagleSpacing.sm)
@@ -268,6 +286,20 @@ struct TerminalContentView: View {
                 .padding(.top, BeagleSpacing.sm)
                 Spacer()
             }
+        }
+    }
+
+    private func copyDiagnostics(_ text: String) {
+        #if os(iOS)
+        UIPasteboard.general.string = text
+        #elseif os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #endif
+        diagnosticsCopied = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            diagnosticsCopied = false
         }
     }
 }

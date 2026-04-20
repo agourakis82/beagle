@@ -89,7 +89,8 @@ struct AgentSessionView: View {
                 terminal: terminal,
                 onReconnect: {
                     Task { await reconnectTerminal() }
-                }
+                },
+                diagnosticsText: terminalDiagnosticsText
             )
             if sessionState.isRunning {
                 inputBar
@@ -507,6 +508,50 @@ struct AgentSessionView: View {
             sessionState = .pending(message: pendingMessage(for: session, fallback: "Session pending..."))
             await pollUntilReady()
         }
+    }
+
+    private var terminalDiagnosticsText: String? {
+        guard terminal.hasAbnormalExit else { return nil }
+        let formatter = ISO8601DateFormatter()
+        let sessionSummary: String = {
+            switch sessionState {
+            case .idle:
+                return "idle"
+            case .pending(let message):
+                return "pending: \(message)"
+            case .running(let podName):
+                return "running: \(podName)"
+            case .paused:
+                return "paused"
+            case .error(let message):
+                return "error: \(message)"
+            }
+        }()
+        let connectionSummary: String = {
+            switch terminal.connectionState {
+            case .disconnected:
+                return "disconnected"
+            case .connecting:
+                return "connecting"
+            case .connected(let source):
+                return "connected via \(source)"
+            case .reconnecting(let attempt):
+                return "reconnecting attempt \(attempt)"
+            case .failed(let message):
+                return "failed: \(message)"
+            }
+        }()
+
+        return [
+            "Beagle terminal diagnostics",
+            "timestamp: \(formatter.string(from: .now))",
+            "project: \(slug)",
+            "agent: \(selectedKind.rawValue)",
+            "session: \(sessionSummary)",
+            "connection: \(connectionSummary)",
+            "exit_code: \(terminal.lastExitCode ?? 0)",
+            "exit_detail: \(terminal.lastExitDetail ?? "unknown")"
+        ].joined(separator: "\n")
     }
 
     private func pendingMessage(for session: AgentSession, fallback: String) -> String {
