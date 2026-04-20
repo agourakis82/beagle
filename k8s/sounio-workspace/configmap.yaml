@@ -90,12 +90,15 @@ data:
         'beagle hpc profiles' \
         'beagle hpc submit <profile_id> [run_label]' \
         'beagle hpc status <job_id>' \
+        'beagle hpc artifact-fetch <job_id> [output_path]' \
         'beagle hpc artifact-manifest <job_id>' \
         'beagle hpc results [profile_id]' \
         'beagle hpc result <job_id>' \
         'beagle hpc result-manifest <job_id>' \
         'beagle hpc stdout <job_id>' \
-        'beagle hpc stderr <job_id>'
+        'beagle hpc stderr <job_id>' \
+        'beagle hpc stdout-object <job_id> [output_path]' \
+        'beagle hpc stderr-object <job_id> [output_path]'
     }
 
     __beagle_hpc_profiles() {
@@ -145,6 +148,44 @@ data:
       __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/jobs/${job_id}/artifact-manifest"
     }
 
+    __beagle_hpc_fetch_object() {
+      job_id="${1:-}"
+      stream="${2:-}"
+      output_path="${3:-}"
+      if [ -z "${job_id}" ] || [ -z "${stream}" ]; then
+        echo "beagle hpc ${stream:-object} requires <job_id>" >&2
+        return 2
+      fi
+      path="/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/jobs/${job_id}/${stream}"
+      case "${stream}" in
+        artifact)
+          if [ -z "${output_path}" ]; then
+            output_path="job-${job_id}-artifact.bin"
+          fi
+          ;;
+        stdout-object)
+          if [ -n "${output_path}" ]; then
+            curl -fsS "${BEAGLE_COCKPIT_BASE_URL}${path}" -o "${output_path}"
+            printf '%s\n' "${output_path}"
+            return
+          fi
+          curl -fsS "${BEAGLE_COCKPIT_BASE_URL}${path}"
+          return
+          ;;
+        stderr-object)
+          if [ -n "${output_path}" ]; then
+            curl -fsS "${BEAGLE_COCKPIT_BASE_URL}${path}" -o "${output_path}"
+            printf '%s\n' "${output_path}"
+            return
+          fi
+          curl -fsS "${BEAGLE_COCKPIT_BASE_URL}${path}"
+          return
+          ;;
+      esac
+      curl -fsS "${BEAGLE_COCKPIT_BASE_URL}${path}" -o "${output_path}"
+      printf '%s\n' "${output_path}"
+    }
+
     __beagle_hpc_results() {
       profile_id="${1:-}"
       path="/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/results"
@@ -183,12 +224,15 @@ data:
             profiles) __beagle_hpc_profiles "$@" ;;
             submit) __beagle_hpc_submit "$@" ;;
             status) __beagle_hpc_status "$@" ;;
+            artifact-fetch) __beagle_hpc_fetch_object "${1:-}" artifact "${2:-}" ;;
             artifact-manifest) __beagle_hpc_artifact_manifest "$@" ;;
             results) __beagle_hpc_results "$@" ;;
             result) __beagle_hpc_result "$@" ;;
             result-manifest) __beagle_hpc_result_manifest "$@" ;;
             stdout) __beagle_hpc_job_stream "${1:-}" stdout ;;
             stderr) __beagle_hpc_job_stream "${1:-}" stderr ;;
+            stdout-object) __beagle_hpc_fetch_object "${1:-}" stdout-object "${2:-}" ;;
+            stderr-object) __beagle_hpc_fetch_object "${1:-}" stderr-object "${2:-}" ;;
             *)
               __beagle_print_usage >&2
               return 2

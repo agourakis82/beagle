@@ -18,7 +18,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { ErrorCode, contractFailure, idempotent, withEnvelope } from "./contract.mjs";
 import { applyPreset, listPresets } from "./job-presets.mjs";
-import { fetchOperatorToken } from "./auth-bridge.mjs";
+import { fetchDarwinHpcAdapterConfig, fetchOperatorToken } from "./auth-bridge.mjs";
 
 const NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
 const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
@@ -26,8 +26,12 @@ const DEFAULT_IMAGE = process.env.PROJECT_COCKPIT_JOB_DEFAULT_IMAGE || "ttl.sh/b
 const BEAGLE_INTERNAL_URL =
   process.env.PROJECT_COCKPIT_BEAGLE_INTERNAL_URL ||
   "http://beagle-core.beagle.svc.cluster.local:8080";
+const DARWIN_HPC_GATEWAY_URL =
+  process.env.PROJECT_COCKPIT_DARWIN_HPC_GATEWAY_URL ||
+  "http://darwin-hpc-gateway.darwin-platform.svc.cluster.local";
 const HPC_SUBMIT_TIMEOUT_MS = Number(process.env.PROJECT_COCKPIT_HPC_SUBMIT_TIMEOUT_MS || 120000);
 const HPC_READ_TIMEOUT_MS = Number(process.env.PROJECT_COCKPIT_HPC_READ_TIMEOUT_MS || 15000);
+const HPC_OBJECT_TIMEOUT_MS = Number(process.env.PROJECT_COCKPIT_HPC_OBJECT_TIMEOUT_MS || 60000);
 const HPC_ALLOWED_PROFILES = new Set(["cpu-short-v1", "cpu-batch-v1", "gpu-single-v1"]);
 const HPC_LEGACY_KIND_MAP = Object.freeze({
   cpu: "cpu-short-v1",
@@ -194,6 +198,68 @@ async function proxyDarwinHpc(method, path, { body, timeoutMs } = {}) {
   }
 }
 
+async function proxyDarwinHpcObject(path, { timeoutMs = HPC_OBJECT_TIMEOUT_MS } = {}) {
+  const adapter = await fetchDarwinHpcAdapterConfig();
+  const baseUrl = adapter.token ? (adapter.url || DARWIN_HPC_GATEWAY_URL) : DARWIN_HPC_GATEWAY_URL;
+  const headers = { Accept: "*/*" };
+  if (adapter.token) {
+    headers.Authorization = `Bearer ${adapter.token}`;
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "GET",
+      headers,
+      signal: ctrl.signal
+    });
+    const body = Buffer.from(await res.arrayBuffer());
+    if (!res.ok) {
+      const text = body.toString("utf8");
+      let message = `Darwin HPC object request failed: ${res.status}`;
+      try {
+        const payload = text ? JSON.parse(text) : {};
+        message = payload?.error || payload?.message || message;
+      } catch {
+        message = text || message;
+      }
+      throw contractFailure(
+        res.status >= 500 ? ErrorCode.CLUSTER_UNREACHABLE : ErrorCode.BAD_REQUEST,
+        message
+      );
+    }
+    return {
+      body,
+      contentType: res.headers.get("content-type") || "application/octet-stream",
+      contentDisposition: res.headers.get("content-disposition") || null
+    };
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw contractFailure(ErrorCode.TIMEOUT, `Darwin HPC object request timed out for ${path}`);
+    }
+    if (error.code) {
+      throw error;
+    }
+    throw contractFailure(ErrorCode.CLUSTER_UNREACHABLE, error.message);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function proxyDarwinHpcAdapterJson(path, { timeoutMs = HPC_OBJECT_TIMEOUT_MS } = {}) {
+  const artifact = await proxyDarwinHpcObject(path, {
+    timeoutMs
+  });
+  try {
+    return JSON.parse(artifact.body.toString("utf8"));
+  } catch (error) {
+    throw contractFailure(
+      ErrorCode.CLUSTER_UNREACHABLE,
+      `Darwin HPC JSON artifact decode failed for ${path}: ${error.message}`
+    );
+  }
+}
+
 export async function listHpcProfiles() {
   return proxyDarwinHpc("GET", "/api/darwin/hpc/profiles", { timeoutMs: HPC_READ_TIMEOUT_MS });
 }
@@ -235,15 +301,19 @@ export async function getHpcJobTextArtifact(jobId, stream) {
 }
 
 export async function getHpcJobArtifactManifest(jobId) {
-  const payload = await proxyDarwinHpc(
-    "GET",
-    `/api/darwin/hpc/jobs/${jobId}/artifact-manifest`,
-    { timeoutMs: HPC_READ_TIMEOUT_MS }
-  );
+  const payload = await proxyDarwinHpcAdapterJson(`/jobs/${jobId}/artifact-manifest`, {
+    timeoutMs: HPC_READ_TIMEOUT_MS
+  });
   return {
     ...payload,
     via: "cockpit-darwin-hpc"
   };
+}
+
+export async function getHpcJobObject(jobId, stream) {
+  return proxyDarwinHpcObject(`/jobs/${jobId}/${stream}`, {
+    timeoutMs: HPC_OBJECT_TIMEOUT_MS
+  });
 }
 
 export async function listHpcResults(query = {}) {
@@ -583,6 +653,22 @@ export function registerJobRoutes(app) {
   );
 
   app.get(
+    "/api/projects/:slug/hpc/jobs/:jobId/artifact",
+    async (req, res, next) => {
+      try {
+        const artifact = await getHpcJobObject(req.params.jobId, "artifact");
+        res.set("Content-Type", artifact.contentType);
+        if (artifact.contentDisposition) {
+          res.set("Content-Disposition", artifact.contentDisposition);
+        }
+        res.send(artifact.body);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get(
     "/api/projects/:slug/hpc/jobs/:jobId/artifact-manifest",
     withEnvelope(async (req) => ({
       data: {
@@ -593,6 +679,22 @@ export function registerJobRoutes(app) {
   );
 
   app.get(
+    "/api/projects/:slug/hpc/jobs/:jobId/stdout-object",
+    async (req, res, next) => {
+      try {
+        const artifact = await getHpcJobObject(req.params.jobId, "stdout");
+        res.set("Content-Type", artifact.contentType);
+        if (artifact.contentDisposition) {
+          res.set("Content-Disposition", artifact.contentDisposition);
+        }
+        res.send(artifact.body);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get(
     "/api/projects/:slug/hpc/jobs/:jobId/stdout",
     withEnvelope(async (req) => ({
       data: {
@@ -600,6 +702,22 @@ export function registerJobRoutes(app) {
         ...(await getHpcJobTextArtifact(req.params.jobId, "stdout"))
       }
     }))
+  );
+
+  app.get(
+    "/api/projects/:slug/hpc/jobs/:jobId/stderr-object",
+    async (req, res, next) => {
+      try {
+        const artifact = await getHpcJobObject(req.params.jobId, "stderr");
+        res.set("Content-Type", artifact.contentType);
+        if (artifact.contentDisposition) {
+          res.set("Content-Disposition", artifact.contentDisposition);
+        }
+        res.send(artifact.body);
+      } catch (error) {
+        next(error);
+      }
+    }
   );
 
   app.get(

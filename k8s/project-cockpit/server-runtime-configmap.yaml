@@ -352,6 +352,12 @@ data:
     const NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
     const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
     const SECRET_NAME = process.env.PROJECT_COCKPIT_BEAGLE_SECRET || "beagle-core-secrets";
+    const DARWIN_HPC_ADAPTER_NAMESPACE =
+      process.env.PROJECT_COCKPIT_DARWIN_HPC_ADAPTER_NAMESPACE || "darwin-platform";
+    const DARWIN_HPC_ADAPTER_SECRET =
+      process.env.PROJECT_COCKPIT_DARWIN_HPC_ADAPTER_SECRET || "darwin-hpc-gateway-adapter";
+    const DARWIN_HPC_ADAPTER_URL =
+      process.env.PROJECT_COCKPIT_DARWIN_HPC_ADAPTER_URL || "http://192.168.3.169:6830";
     const TTL_MS = 5 * 60 * 1000;  // 5 min cache
     const BEAGLE_PUBLIC_URL =
       process.env.PROJECT_COCKPIT_BEAGLE_URL || "http://beagle-core.tail21cbc4.ts.net";
@@ -375,6 +381,8 @@ data:
 
     let tokenCache = null;
     let tokenCachedAt = 0;
+    let adapterTokenCache = null;
+    let adapterTokenCachedAt = 0;
 
     function runKubectl(args, { timeoutMs = 8000 } = {}) {
       return new Promise((resolve, reject) => {
@@ -425,6 +433,62 @@ data:
       tokenCache = foundToken;
       tokenCachedAt = now;
       return { token: foundToken, source: "fresh", key: foundKey };
+    }
+
+    export async function fetchDarwinHpcAdapterConfig() {
+      const now = Date.now();
+      if (adapterTokenCache && (now - adapterTokenCachedAt) < TTL_MS) {
+        return {
+          url: DARWIN_HPC_ADAPTER_URL,
+          token: adapterTokenCache,
+          source: "cache",
+          age_ms: now - adapterTokenCachedAt
+        };
+      }
+
+      const candidateKeys = ["adapterToken", "token", "ADAPTER_TOKEN"];
+      let raw, secret;
+      try {
+        raw = await runKubectl([
+          "-n",
+          DARWIN_HPC_ADAPTER_NAMESPACE,
+          "get",
+          "secret",
+          DARWIN_HPC_ADAPTER_SECRET,
+          "-o",
+          "json"
+        ]);
+        secret = JSON.parse(raw);
+      } catch (e) {
+        return {
+          error: `cannot read secret ${DARWIN_HPC_ADAPTER_NAMESPACE}/${DARWIN_HPC_ADAPTER_SECRET}: ${e.message}`
+        };
+      }
+
+      const data = secret.data || {};
+      let foundKey, foundToken;
+      for (const k of candidateKeys) {
+        if (data[k]) {
+          foundKey = k;
+          foundToken = Buffer.from(data[k], "base64").toString("utf8");
+          break;
+        }
+      }
+
+      if (!foundToken) {
+        return {
+          error: `no token found in secret ${DARWIN_HPC_ADAPTER_NAMESPACE}/${DARWIN_HPC_ADAPTER_SECRET} (tried: ${candidateKeys.join(", ")})`
+        };
+      }
+
+      adapterTokenCache = foundToken;
+      adapterTokenCachedAt = now;
+      return {
+        url: DARWIN_HPC_ADAPTER_URL,
+        token: foundToken,
+        source: "fresh",
+        key: foundKey
+      };
     }
 
     function deriveCaller(req) {
@@ -1270,6 +1334,12 @@ data:
           description: "Status of a typed Darwin HPC job."
         },
         {
+          name: "cockpit_hpc_job_artifact",
+          method: "GET",
+          path: "/api/projects/{slug}/hpc/jobs/{job_id}/artifact",
+          description: "Fetch the published primary artifact bytes for a Darwin HPC job."
+        },
+        {
           name: "cockpit_hpc_job_artifact_manifest",
           method: "GET",
           path: "/api/projects/{slug}/hpc/jobs/{job_id}/artifact-manifest",
@@ -1282,10 +1352,22 @@ data:
           description: "Stdout artifact for a Darwin HPC job."
         },
         {
+          name: "cockpit_hpc_job_stdout_object",
+          method: "GET",
+          path: "/api/projects/{slug}/hpc/jobs/{job_id}/stdout-object",
+          description: "Fetch the published raw stdout object for a Darwin HPC job."
+        },
+        {
           name: "cockpit_hpc_job_stderr",
           method: "GET",
           path: "/api/projects/{slug}/hpc/jobs/{job_id}/stderr",
           description: "Stderr artifact for a Darwin HPC job."
+        },
+        {
+          name: "cockpit_hpc_job_stderr_object",
+          method: "GET",
+          path: "/api/projects/{slug}/hpc/jobs/{job_id}/stderr-object",
+          description: "Fetch the published raw stderr object for a Darwin HPC job."
         },
         {
           name: "cockpit_hpc_results",
@@ -13367,7 +13449,7 @@ data:
     import { randomBytes } from "node:crypto";
     import { ErrorCode, contractFailure, idempotent, withEnvelope } from "./contract.mjs";
     import { applyPreset, listPresets } from "./job-presets.mjs";
-    import { fetchOperatorToken } from "./auth-bridge.mjs";
+    import { fetchDarwinHpcAdapterConfig, fetchOperatorToken } from "./auth-bridge.mjs";
     
     const NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
     const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
@@ -13375,8 +13457,12 @@ data:
     const BEAGLE_INTERNAL_URL =
       process.env.PROJECT_COCKPIT_BEAGLE_INTERNAL_URL ||
       "http://beagle-core.beagle.svc.cluster.local:8080";
+    const DARWIN_HPC_GATEWAY_URL =
+      process.env.PROJECT_COCKPIT_DARWIN_HPC_GATEWAY_URL ||
+      "http://darwin-hpc-gateway.darwin-platform.svc.cluster.local";
     const HPC_SUBMIT_TIMEOUT_MS = Number(process.env.PROJECT_COCKPIT_HPC_SUBMIT_TIMEOUT_MS || 120000);
     const HPC_READ_TIMEOUT_MS = Number(process.env.PROJECT_COCKPIT_HPC_READ_TIMEOUT_MS || 15000);
+    const HPC_OBJECT_TIMEOUT_MS = Number(process.env.PROJECT_COCKPIT_HPC_OBJECT_TIMEOUT_MS || 60000);
     const HPC_ALLOWED_PROFILES = new Set(["cpu-short-v1", "cpu-batch-v1", "gpu-single-v1"]);
     const HPC_LEGACY_KIND_MAP = Object.freeze({
       cpu: "cpu-short-v1",
@@ -13542,6 +13628,68 @@ data:
         clearTimeout(timer);
       }
     }
+
+    async function proxyDarwinHpcObject(path, { timeoutMs = HPC_OBJECT_TIMEOUT_MS } = {}) {
+      const adapter = await fetchDarwinHpcAdapterConfig();
+      const baseUrl = adapter.token ? (adapter.url || DARWIN_HPC_GATEWAY_URL) : DARWIN_HPC_GATEWAY_URL;
+      const headers = { Accept: "*/*" };
+      if (adapter.token) {
+        headers.Authorization = `Bearer ${adapter.token}`;
+      }
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const res = await fetch(`${baseUrl}${path}`, {
+          method: "GET",
+          headers,
+          signal: ctrl.signal
+        });
+        const body = Buffer.from(await res.arrayBuffer());
+        if (!res.ok) {
+          const text = body.toString("utf8");
+          let message = `Darwin HPC object request failed: ${res.status}`;
+          try {
+            const payload = text ? JSON.parse(text) : {};
+            message = payload?.error || payload?.message || message;
+          } catch {
+            message = text || message;
+          }
+          throw contractFailure(
+            res.status >= 500 ? ErrorCode.CLUSTER_UNREACHABLE : ErrorCode.BAD_REQUEST,
+            message
+          );
+        }
+        return {
+          body,
+          contentType: res.headers.get("content-type") || "application/octet-stream",
+          contentDisposition: res.headers.get("content-disposition") || null
+        };
+      } catch (error) {
+        if (error.name === "AbortError") {
+          throw contractFailure(ErrorCode.TIMEOUT, `Darwin HPC object request timed out for ${path}`);
+        }
+        if (error.code) {
+          throw error;
+        }
+        throw contractFailure(ErrorCode.CLUSTER_UNREACHABLE, error.message);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function proxyDarwinHpcAdapterJson(path, { timeoutMs = HPC_OBJECT_TIMEOUT_MS } = {}) {
+      const artifact = await proxyDarwinHpcObject(path, {
+        timeoutMs
+      });
+      try {
+        return JSON.parse(artifact.body.toString("utf8"));
+      } catch (error) {
+        throw contractFailure(
+          ErrorCode.CLUSTER_UNREACHABLE,
+          `Darwin HPC JSON artifact decode failed for ${path}: ${error.message}`
+        );
+      }
+    }
     
     export async function listHpcProfiles() {
       return proxyDarwinHpc("GET", "/api/darwin/hpc/profiles", { timeoutMs: HPC_READ_TIMEOUT_MS });
@@ -13584,15 +13732,19 @@ data:
     }
 
     export async function getHpcJobArtifactManifest(jobId) {
-      const payload = await proxyDarwinHpc(
-        "GET",
-        `/api/darwin/hpc/jobs/${jobId}/artifact-manifest`,
-        { timeoutMs: HPC_READ_TIMEOUT_MS }
-      );
+      const payload = await proxyDarwinHpcAdapterJson(`/jobs/${jobId}/artifact-manifest`, {
+        timeoutMs: HPC_READ_TIMEOUT_MS
+      });
       return {
         ...payload,
         via: "cockpit-darwin-hpc"
       };
+    }
+
+    export async function getHpcJobObject(jobId, stream) {
+      return proxyDarwinHpcObject(`/jobs/${jobId}/${stream}`, {
+        timeoutMs: HPC_OBJECT_TIMEOUT_MS
+      });
     }
 
     export async function listHpcResults(query = {}) {
@@ -13932,6 +14084,22 @@ data:
       );
     
       app.get(
+        "/api/projects/:slug/hpc/jobs/:jobId/artifact",
+        async (req, res, next) => {
+          try {
+            const artifact = await getHpcJobObject(req.params.jobId, "artifact");
+            res.set("Content-Type", artifact.contentType);
+            if (artifact.contentDisposition) {
+              res.set("Content-Disposition", artifact.contentDisposition);
+            }
+            res.send(artifact.body);
+          } catch (error) {
+            next(error);
+          }
+        }
+      );
+
+      app.get(
         "/api/projects/:slug/hpc/jobs/:jobId/artifact-manifest",
         withEnvelope(async (req) => ({
           data: {
@@ -13942,6 +14110,22 @@ data:
       );
     
       app.get(
+        "/api/projects/:slug/hpc/jobs/:jobId/stdout-object",
+        async (req, res, next) => {
+          try {
+            const artifact = await getHpcJobObject(req.params.jobId, "stdout");
+            res.set("Content-Type", artifact.contentType);
+            if (artifact.contentDisposition) {
+              res.set("Content-Disposition", artifact.contentDisposition);
+            }
+            res.send(artifact.body);
+          } catch (error) {
+            next(error);
+          }
+        }
+      );
+
+      app.get(
         "/api/projects/:slug/hpc/jobs/:jobId/stdout",
         withEnvelope(async (req) => ({
           data: {
@@ -13951,6 +14135,22 @@ data:
         }))
       );
     
+      app.get(
+        "/api/projects/:slug/hpc/jobs/:jobId/stderr-object",
+        async (req, res, next) => {
+          try {
+            const artifact = await getHpcJobObject(req.params.jobId, "stderr");
+            res.set("Content-Type", artifact.contentType);
+            if (artifact.contentDisposition) {
+              res.set("Content-Disposition", artifact.contentDisposition);
+            }
+            res.send(artifact.body);
+          } catch (error) {
+            next(error);
+          }
+        }
+      );
+
       app.get(
         "/api/projects/:slug/hpc/jobs/:jobId/stderr",
         withEnvelope(async (req) => ({

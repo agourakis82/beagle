@@ -16,6 +16,12 @@ import { spawn } from "node:child_process";
 const NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
 const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
 const SECRET_NAME = process.env.PROJECT_COCKPIT_BEAGLE_SECRET || "beagle-core-secrets";
+const DARWIN_HPC_ADAPTER_NAMESPACE =
+  process.env.PROJECT_COCKPIT_DARWIN_HPC_ADAPTER_NAMESPACE || "darwin-platform";
+const DARWIN_HPC_ADAPTER_SECRET =
+  process.env.PROJECT_COCKPIT_DARWIN_HPC_ADAPTER_SECRET || "darwin-hpc-gateway-adapter";
+const DARWIN_HPC_ADAPTER_URL =
+  process.env.PROJECT_COCKPIT_DARWIN_HPC_ADAPTER_URL || "http://192.168.3.169:6830";
 const TTL_MS = 5 * 60 * 1000;  // 5 min cache
 const BEAGLE_PUBLIC_URL =
   process.env.PROJECT_COCKPIT_BEAGLE_URL || "http://beagle-core.tail21cbc4.ts.net";
@@ -39,6 +45,8 @@ const BEAGLE_ALLOWED_PROXY_PREFIXES = [
 
 let tokenCache = null;
 let tokenCachedAt = 0;
+let adapterTokenCache = null;
+let adapterTokenCachedAt = 0;
 
 function runKubectl(args, { timeoutMs = 8000 } = {}) {
   return new Promise((resolve, reject) => {
@@ -89,6 +97,62 @@ export async function fetchOperatorToken() {
   tokenCache = foundToken;
   tokenCachedAt = now;
   return { token: foundToken, source: "fresh", key: foundKey };
+}
+
+export async function fetchDarwinHpcAdapterConfig() {
+  const now = Date.now();
+  if (adapterTokenCache && (now - adapterTokenCachedAt) < TTL_MS) {
+    return {
+      url: DARWIN_HPC_ADAPTER_URL,
+      token: adapterTokenCache,
+      source: "cache",
+      age_ms: now - adapterTokenCachedAt
+    };
+  }
+
+  const candidateKeys = ["adapterToken", "token", "ADAPTER_TOKEN"];
+  let raw, secret;
+  try {
+    raw = await runKubectl([
+      "-n",
+      DARWIN_HPC_ADAPTER_NAMESPACE,
+      "get",
+      "secret",
+      DARWIN_HPC_ADAPTER_SECRET,
+      "-o",
+      "json"
+    ]);
+    secret = JSON.parse(raw);
+  } catch (e) {
+    return {
+      error: `cannot read secret ${DARWIN_HPC_ADAPTER_NAMESPACE}/${DARWIN_HPC_ADAPTER_SECRET}: ${e.message}`
+    };
+  }
+
+  const data = secret.data || {};
+  let foundKey, foundToken;
+  for (const k of candidateKeys) {
+    if (data[k]) {
+      foundKey = k;
+      foundToken = Buffer.from(data[k], "base64").toString("utf8");
+      break;
+    }
+  }
+
+  if (!foundToken) {
+    return {
+      error: `no token found in secret ${DARWIN_HPC_ADAPTER_NAMESPACE}/${DARWIN_HPC_ADAPTER_SECRET} (tried: ${candidateKeys.join(", ")})`
+    };
+  }
+
+  adapterTokenCache = foundToken;
+  adapterTokenCachedAt = now;
+  return {
+    url: DARWIN_HPC_ADAPTER_URL,
+    token: foundToken,
+    source: "fresh",
+    key: foundKey
+  };
 }
 
 function deriveCaller(req) {

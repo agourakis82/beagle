@@ -360,6 +360,12 @@ export const cockpitManifest = {
       description: "Status of a typed Darwin HPC job."
     },
     {
+      name: "cockpit_hpc_job_artifact",
+      method: "GET",
+      path: "/api/projects/{slug}/hpc/jobs/{job_id}/artifact",
+      description: "Fetch the published primary artifact bytes for a Darwin HPC job."
+    },
+    {
       name: "cockpit_hpc_job_artifact_manifest",
       method: "GET",
       path: "/api/projects/{slug}/hpc/jobs/{job_id}/artifact-manifest",
@@ -372,10 +378,22 @@ export const cockpitManifest = {
       description: "Stdout artifact for a Darwin HPC job."
     },
     {
+      name: "cockpit_hpc_job_stdout_object",
+      method: "GET",
+      path: "/api/projects/{slug}/hpc/jobs/{job_id}/stdout-object",
+      description: "Fetch the published raw stdout object for a Darwin HPC job."
+    },
+    {
       name: "cockpit_hpc_job_stderr",
       method: "GET",
       path: "/api/projects/{slug}/hpc/jobs/{job_id}/stderr",
       description: "Stderr artifact for a Darwin HPC job."
+    },
+    {
+      name: "cockpit_hpc_job_stderr_object",
+      method: "GET",
+      path: "/api/projects/{slug}/hpc/jobs/{job_id}/stderr-object",
+      description: "Fetch the published raw stderr object for a Darwin HPC job."
     },
     {
       name: "cockpit_hpc_results",
