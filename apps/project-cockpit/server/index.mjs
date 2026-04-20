@@ -1181,7 +1181,7 @@ function buildGoWorkNowPacket(project, operatingPosture = null, clusterState = n
       : `kubectl -n ${namespace} scale statefulset/${workspaceController} --replicas=1
 kubectl -n ${namespace} rollout status statefulset/${workspaceController} --timeout=300s`;
   const attachTmux = project?.tmuxSession
-    ? `kubectl -n ${namespace} exec -it ${workspacePod} -c ${workspaceContainer} -- sh -lc 'tmux attach -t ${project.tmuxSession} || tmux new -s ${project.tmuxSession}'`
+    ? `kubectl -n ${namespace} exec -it ${workspacePod} -c ${workspaceContainer} -- sh -lc 'exec tmux new-session -A -s ${project.tmuxSession}'`
     : `kubectl -n ${namespace} exec -it ${workspacePod} -c ${workspaceContainer} -- sh`;
   const standbyHabitat =
     posture === "always-on"
@@ -9253,7 +9253,7 @@ async function computeFastWorkspaceMemory(project) {
       publicationCheckpoint,
       continuityTimeline,
       commands: {
-        terminal: `ssh ${project.sshHost}\ntmux attach -t ${project.tmuxSession}`,
+        terminal: `ssh ${project.sshHost}\ntmux new-session -A -s ${project.tmuxSession}`,
         workspace: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}`,
         inspectDirty: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}\ngit status --short --branch\ngit diff --stat`,
         context: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}\nsed -n '1,160p' .beagle/context/current-context-packet.json\nsed -n '1,160p' .beagle/context/workspace-hydration.json`,
@@ -9813,7 +9813,7 @@ async function computeWorkspaceMemory(project) {
     }
   });
   const resumeCommands = {
-    terminal: `ssh ${project.sshHost}\ntmux attach -t ${project.tmuxSession}`,
+    terminal: `ssh ${project.sshHost}\ntmux new-session -A -s ${project.tmuxSession}`,
     workspace: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}`,
     inspectDirty: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}\ngit status --short --branch\ngit diff --stat`,
     context: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}\nsed -n '1,160p' .beagle/context/current-context-packet.json\nsed -n '1,160p' .beagle/context/workspace-hydration.json`,
@@ -11519,9 +11519,10 @@ wss.on("connection", async (ws, req) => {
     }
   });
 
-  proc.onExit(({ exitCode }) => {
+  proc.onExit(({ exitCode, signal }) => {
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: "exit", data: `terminal exited (${exitCode})` }));
+      const detail = signal ? `terminal exited (${exitCode}, signal ${signal})` : `terminal exited (${exitCode})`;
+      ws.send(JSON.stringify({ type: "exit", data: detail }));
       ws.close();
     }
   });
