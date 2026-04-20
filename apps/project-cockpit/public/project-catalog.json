@@ -17,7 +17,7 @@
       "workspacePod": "sounio-workspace-habitat-0",
       "workspaceContainer": "workspace-ide",
       "preferredPrBase": "integration/sounio-dev-ready-base",
-      "workstreamId": "sounio-main",
+      "workstreamId": "sounio-lang-main",
       "envFile": "/home/devsounio/beagle/k8s/workspace-platform/catalog/always-on/sounio.env",
       "doctorCommand": "./ops/workspace-platform-doctor.sh",
       "browserAutomationCommand": "agent-browser",

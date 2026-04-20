@@ -40,6 +40,9 @@ const HPC_LEGACY_KIND_MAP = Object.freeze({
   gpu: "gpu-single-v1",
   "gpu-single": "gpu-single-v1"
 });
+const HPC_PROJECT_WORKSTREAM_MAP = Object.freeze({
+  sounio: "sounio-lang-main"
+});
 
 // Known data mount profiles — maps short name → k8s volume + mountPath
 const MOUNT_PROFILES = {
@@ -105,6 +108,112 @@ function buildDefaultRunLabel(slug, profileId) {
     .replace(/^-+|-+$/g, "")
     .replace(/--+/g, "-");
   return base.slice(0, 40);
+}
+
+function asNumericJobId(value) {
+  const parsed = Number(cleanString(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function resolveHpcWorkstreamId(slug) {
+  const normalized = cleanString(slug).toLowerCase();
+  return HPC_PROJECT_WORKSTREAM_MAP[normalized] || `${normalized}-main`;
+}
+
+function hasMappedHpcWorkstream(slug) {
+  const normalized = cleanString(slug).toLowerCase();
+  return Boolean(HPC_PROJECT_WORKSTREAM_MAP[normalized]);
+}
+
+function workbenchRecipeKindForProfile(profileId) {
+  if (profileId === "gpu-single-v1") {
+    return "operator_gpu_loop";
+  }
+  return "operator_cpu_loop";
+}
+
+function buildWorkbenchRunRequest(slug, request) {
+  const profileId = request.profile_id;
+  const runLabel = request.parameters.run_label;
+  const recipeKind = workbenchRecipeKindForProfile(profileId);
+  const workflowDescriptor = profileId === "gpu-single-v1" ? "GPU operator workflow" : "CPU operator workflow";
+  const reservationLane = profileId === "gpu-single-v1" ? "gpu-single" : profileId;
+  const experimentSuffix = recipeKind.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+
+  return {
+    requested_by: "partner-dev",
+    requester_role_id: "partner-dev",
+    selected_subagent_id: "experiments",
+    task_family: "analysis",
+    intent_text: `Run a bounded ${workflowDescriptor} for ${slug} through the shared Beagle workbench and bind the published result back into the same session.`,
+    compute_profile_id: profileId,
+    run_label: runLabel,
+    recipe_kind: recipeKind,
+    experiment_id: `${slug}-${experimentSuffix}`,
+    reservation_note: `Reserve the bounded partner-dev ${reservationLane} lane for the canonical ${slug} ${workflowDescriptor.toLowerCase()}.`,
+    dispatch_note: `Dispatch the bounded partner-dev analysis run for ${slug} through the workbench orchestration surface and persist the published result binding.`,
+    poll_interval_seconds: 5,
+    timeout_seconds: profileId === "gpu-single-v1" ? 900 : 600
+  };
+}
+
+function deterministicBindingMatchesJob(jobId, receipt = {}, publication = {}, binding = {}) {
+  const candidate = asNumericJobId(jobId);
+  if (candidate === null) {
+    return false;
+  }
+  const values = [
+    receipt.submitted_job_id,
+    receipt.final_job_id,
+    receipt.published_result_job_id,
+    receipt.resolved_result_lookup_job_id,
+    receipt.result_manifest_job_id,
+    publication.submitted_job_id,
+    publication.published_result_job_id,
+    binding.submitted_job_id,
+    binding.published_result_job_id,
+    binding.resolved_result_lookup_job_id,
+    binding.result_manifest_job_id
+  ]
+    .map(asNumericJobId)
+    .filter((value) => value !== null);
+  return values.includes(candidate);
+}
+
+async function getHpcDeterministicResultBinding(slug, jobId) {
+  const workstreamId = resolveHpcWorkstreamId(slug);
+  const [receipt, publication, binding] = await Promise.all([
+    proxyDarwinHpc(
+      "GET",
+      `/api/darwin/workstreams/${workstreamId}/run-result-identity-receipt`,
+      { timeoutMs: HPC_READ_TIMEOUT_MS }
+    ),
+    proxyDarwinHpc(
+      "GET",
+      `/api/darwin/workstreams/${workstreamId}/run-scoped-publication`,
+      { timeoutMs: HPC_READ_TIMEOUT_MS }
+    ),
+    proxyDarwinHpc(
+      "GET",
+      `/api/darwin/workstreams/${workstreamId}/deterministic-result-binding`,
+      { timeoutMs: HPC_READ_TIMEOUT_MS }
+    )
+  ]);
+
+  if (!deterministicBindingMatchesJob(jobId, receipt, publication, binding)) {
+    throw contractFailure(
+      ErrorCode.NOT_FOUND,
+      `no deterministic result binding found for job ${jobId} in workstream ${workstreamId}`
+    );
+  }
+
+  return {
+    workstream_id: workstreamId,
+    receipt,
+    publication,
+    binding,
+    via: "cockpit-darwin-hpc-deterministic-fallback"
+  };
 }
 
 function resolveHpcProfileId(body = {}) {
@@ -266,6 +375,37 @@ export async function listHpcProfiles() {
 
 export async function submitHpcJob(slug, body = {}) {
   const request = normalizeHpcSubmitRequest(slug, body);
+  if (hasMappedHpcWorkstream(slug)) {
+    const workstreamId = resolveHpcWorkstreamId(slug);
+    const orchestration = await proxyDarwinHpc(
+      "POST",
+      `/api/darwin/workstreams/${workstreamId}/workbench-run`,
+      {
+        body: buildWorkbenchRunRequest(slug, request),
+        timeoutMs: HPC_SUBMIT_TIMEOUT_MS
+      }
+    );
+    return {
+      job_id: orchestration.run?.submitted_job_id,
+      job_name: `darwin-${request.profile_id}-${request.parameters.run_label}`,
+      partition: request.profile_id.startsWith("gpu-") ? "gpu" : "cpu",
+      profile_id: request.profile_id,
+      remote_workdir: null,
+      submitted_at:
+        orchestration.run?.lifecycle_transitions?.[0]?.transitioned_at || new Date().toISOString(),
+      parameters: request.parameters,
+      projectSlug: slug,
+      workstream_id: workstreamId,
+      published_result_job_id: orchestration.run?.published_result_job_id,
+      result_binding_id: orchestration.result_binding?.binding_id,
+      run_result_identity_receipt_id: orchestration.run_result_identity_receipt?.receipt_id,
+      run_scoped_publication_id: orchestration.run_scoped_publication?.publication_id,
+      deterministic_result_binding_id:
+        orchestration.deterministic_result_binding?.binding_id,
+      via: "cockpit-darwin-hpc-workbench-run"
+    };
+  }
+
   const payload = await proxyDarwinHpc("POST", "/api/darwin/hpc/jobs/submit", {
     body: request,
     timeoutMs: HPC_SUBMIT_TIMEOUT_MS
@@ -334,23 +474,72 @@ export async function listHpcResults(query = {}) {
   };
 }
 
-export async function getHpcResult(jobId) {
-  const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/results/${jobId}`, {
-    timeoutMs: HPC_READ_TIMEOUT_MS
-  });
+export async function getHpcResult(slug, jobId) {
+  try {
+    const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/results/${jobId}`, {
+      timeoutMs: HPC_READ_TIMEOUT_MS
+    });
+    return {
+      ...payload,
+      via: "cockpit-darwin-hpc"
+    };
+  } catch (error) {
+    if (error.code !== ErrorCode.BAD_REQUEST.code && error.code !== ErrorCode.NOT_FOUND.code) {
+      throw error;
+    }
+  }
+
+  const fallback = await getHpcDeterministicResultBinding(slug, jobId);
   return {
-    ...payload,
-    via: "cockpit-darwin-hpc"
+    job_id: asNumericJobId(jobId),
+    submitted_job_id: fallback.binding.submitted_job_id,
+    published_result_job_id: fallback.binding.published_result_job_id,
+    resolved_result_lookup_job_id: fallback.binding.resolved_result_lookup_job_id,
+    result_manifest_job_id: fallback.binding.result_manifest_job_id,
+    profile_id: fallback.publication.published_result_profile_id,
+    requested_run_label: fallback.binding.requested_run_label,
+    published_result_run_label: fallback.binding.published_result_run_label,
+    final_job_state: fallback.publication.final_job_state,
+    publication_state: fallback.publication.publication_state,
+    result_lookup_scope: fallback.binding.result_lookup_scope,
+    published_result_manifest_key: fallback.binding.published_result_manifest_key,
+    result_manifest_object_key: fallback.binding.result_manifest_object_key,
+    workstream_id: fallback.workstream_id,
+    deterministic_result_binding: fallback.binding,
+    run_scoped_publication: fallback.publication,
+    run_result_identity_receipt: fallback.receipt,
+    via: fallback.via
   };
 }
 
-export async function getHpcResultManifest(jobId) {
-  const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/results/${jobId}/manifest`, {
-    timeoutMs: HPC_READ_TIMEOUT_MS
-  });
+export async function getHpcResultManifest(slug, jobId) {
+  try {
+    const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/results/${jobId}/manifest`, {
+      timeoutMs: HPC_READ_TIMEOUT_MS
+    });
+    return {
+      ...payload,
+      via: "cockpit-darwin-hpc"
+    };
+  } catch (error) {
+    if (error.code !== ErrorCode.BAD_REQUEST.code && error.code !== ErrorCode.NOT_FOUND.code) {
+      throw error;
+    }
+  }
+
+  const fallback = await getHpcDeterministicResultBinding(slug, jobId);
   return {
-    ...payload,
-    via: "cockpit-darwin-hpc"
+    job_id: asNumericJobId(jobId),
+    workstream_id: fallback.workstream_id,
+    contract_kind: "cockpit-hpc-result-manifest-fallback",
+    contract_version: "cockpit-hpc-result-manifest-fallback-v1",
+    result_lookup_scope: fallback.binding.result_lookup_scope,
+    published_result_manifest_key: fallback.binding.published_result_manifest_key,
+    result_manifest_object_key: fallback.binding.result_manifest_object_key,
+    deterministic_result_binding: fallback.binding,
+    run_scoped_publication: fallback.publication,
+    run_result_identity_receipt: fallback.receipt,
+    via: fallback.via
   };
 }
 
@@ -745,7 +934,7 @@ export function registerJobRoutes(app) {
     withEnvelope(async (req) => ({
       data: {
         projectSlug: req.params.slug,
-        ...(await getHpcResult(req.params.jobId))
+        ...(await getHpcResult(req.params.slug, req.params.jobId))
       }
     }))
   );
@@ -755,7 +944,7 @@ export function registerJobRoutes(app) {
     withEnvelope(async (req) => ({
       data: {
         projectSlug: req.params.slug,
-        ...(await getHpcResultManifest(req.params.jobId))
+        ...(await getHpcResultManifest(req.params.slug, req.params.jobId))
       }
     }))
   );
