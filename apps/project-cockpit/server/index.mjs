@@ -11488,7 +11488,7 @@ wss.on("connection", async (ws, req) => {
   }
 
   const shellCommand =
-    'cd "$WORKSPACE_ROOT" && tmux attach -t "$TMUX_SESSION" || tmux new -s "$TMUX_SESSION"';
+    'cd "$WORKSPACE_ROOT" && exec tmux new-session -A -s "$TMUX_SESSION"';
 
   const proc = pty.spawn(
     "kubectl",
