@@ -246,6 +246,44 @@ export async function getHpcJobArtifactManifest(jobId) {
   };
 }
 
+export async function listHpcResults(query = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query || {})) {
+    const normalized = cleanString(value);
+    if (normalized) {
+      params.set(key, normalized);
+    }
+  }
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/results${suffix}`, {
+    timeoutMs: HPC_READ_TIMEOUT_MS
+  });
+  return {
+    ...payload,
+    via: "cockpit-darwin-hpc"
+  };
+}
+
+export async function getHpcResult(jobId) {
+  const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/results/${jobId}`, {
+    timeoutMs: HPC_READ_TIMEOUT_MS
+  });
+  return {
+    ...payload,
+    via: "cockpit-darwin-hpc"
+  };
+}
+
+export async function getHpcResultManifest(jobId) {
+  const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/results/${jobId}/manifest`, {
+    timeoutMs: HPC_READ_TIMEOUT_MS
+  });
+  return {
+    ...payload,
+    via: "cockpit-darwin-hpc"
+  };
+}
+
 // ─── K8s Job manifest rendering ───────────────────────────────────────
 
 function renderK8sJob({ slug, campaign, image, command, resources, dataMounts, timeoutSec, jobId, extraLabels }) {
@@ -570,6 +608,36 @@ export function registerJobRoutes(app) {
       data: {
         projectSlug: req.params.slug,
         ...(await getHpcJobTextArtifact(req.params.jobId, "stderr"))
+      }
+    }))
+  );
+
+  app.get(
+    "/api/projects/:slug/hpc/results",
+    withEnvelope(async (req) => ({
+      data: {
+        projectSlug: req.params.slug,
+        ...(await listHpcResults(req.query || {}))
+      }
+    }))
+  );
+
+  app.get(
+    "/api/projects/:slug/hpc/results/:jobId",
+    withEnvelope(async (req) => ({
+      data: {
+        projectSlug: req.params.slug,
+        ...(await getHpcResult(req.params.jobId))
+      }
+    }))
+  );
+
+  app.get(
+    "/api/projects/:slug/hpc/results/:jobId/manifest",
+    withEnvelope(async (req) => ({
+      data: {
+        projectSlug: req.params.slug,
+        ...(await getHpcResultManifest(req.params.jobId))
       }
     }))
   );

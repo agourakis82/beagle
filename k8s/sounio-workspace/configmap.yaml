@@ -47,6 +47,173 @@ data:
   BEAGLE_VSIX_RECOMMENDED_EXTENSIONS: EditorConfig.EditorConfig,tamasfe.even-better-toml,ms-vscode.makefile-tools,yzhang.markdown-all-in-one,ms-vscode.cpptools,ocamllabs.ocaml-platform,leanprover.lean4
   BEAGLE_VSIX_EXPERIMENTAL_EXTENSIONS: ""
   BEAGLE_AI_IDE_AGENTS: '[{"name":"codex","mode":"vsix-first"},{"name":"claude-code","mode":"hybrid"}]'
+  beagle-shell-helpers.sh: |
+    shopt -s expand_aliases 2>/dev/null || true
+    export PATH="$HOME/bin:$PATH"
+
+    srepo() { cd /workspace/sounio; }
+    gst() { git -C /workspace/sounio status -sb "$@"; }
+    gsync() { git -C /workspace/sounio pull --ff-only "$@"; }
+    gbranches() { git -C /workspace/sounio branch -vv "$@"; }
+    glog() { git -C /workspace/sounio log --oneline --decorate --graph -20 "$@"; }
+    ghst() { gh auth status "$@"; }
+    gready() {
+      gh auth status &&
+      git -C /workspace/sounio remote -v &&
+      git -C /workspace/sounio status -sb
+    }
+    gpushcheck() { "$HOME/bin/sounio-gh-push-check" "$@"; }
+
+    export BEAGLE_COCKPIT_BASE_URL="${BEAGLE_COCKPIT_BASE_URL:-http://project-cockpit.beagle.svc.cluster.local}"
+    export BEAGLE_PROJECT_SLUG="${BEAGLE_PROJECT_SLUG:-sounio}"
+
+    __beagle_request() {
+      method="$1"
+      path="$2"
+      body="${3:-}"
+      url="${BEAGLE_COCKPIT_BASE_URL}${path}"
+      if [ "${method}" = "GET" ]; then
+        curl -fsS "${url}"
+        return
+      fi
+      request_id="beagle-${USER:-user}-$(date +%s)-$$"
+      curl -fsS \
+        -H "Content-Type: application/json" \
+        -H "X-Request-ID: ${request_id}" \
+        -d "${body}" \
+        -X "${method}" \
+        "${url}"
+    }
+
+    __beagle_print_usage() {
+      printf '%s\n' \
+        'beagle hpc profiles' \
+        'beagle hpc submit <profile_id> [run_label]' \
+        'beagle hpc status <job_id>' \
+        'beagle hpc artifact-manifest <job_id>' \
+        'beagle hpc results [profile_id]' \
+        'beagle hpc result <job_id>' \
+        'beagle hpc result-manifest <job_id>' \
+        'beagle hpc stdout <job_id>' \
+        'beagle hpc stderr <job_id>'
+    }
+
+    __beagle_hpc_profiles() {
+      __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/profiles"
+    }
+
+    __beagle_hpc_submit() {
+      profile_id="${1:-}"
+      run_label="${2:-}"
+      if [ -z "${profile_id}" ]; then
+        echo "beagle hpc submit requires <profile_id>" >&2
+        return 2
+      fi
+      if [ -n "${run_label}" ]; then
+        body=$(printf '{"profile_id":"%s","run_label":"%s"}' "${profile_id}" "${run_label}")
+      else
+        body=$(printf '{"profile_id":"%s"}' "${profile_id}")
+      fi
+      __beagle_request POST "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/jobs/submit" "${body}"
+    }
+
+    __beagle_hpc_job_stream() {
+      job_id="${1:-}"
+      stream="${2:-}"
+      if [ -z "${job_id}" ] || [ -z "${stream}" ]; then
+        echo "beagle hpc ${stream:-stream} requires <job_id>" >&2
+        return 2
+      fi
+      __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/jobs/${job_id}/${stream}"
+    }
+
+    __beagle_hpc_status() {
+      job_id="${1:-}"
+      if [ -z "${job_id}" ]; then
+        echo "beagle hpc status requires <job_id>" >&2
+        return 2
+      fi
+      __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/jobs/${job_id}"
+    }
+
+    __beagle_hpc_artifact_manifest() {
+      job_id="${1:-}"
+      if [ -z "${job_id}" ]; then
+        echo "beagle hpc artifact-manifest requires <job_id>" >&2
+        return 2
+      fi
+      __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/jobs/${job_id}/artifact-manifest"
+    }
+
+    __beagle_hpc_results() {
+      profile_id="${1:-}"
+      path="/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/results"
+      if [ -n "${profile_id}" ]; then
+        path="${path}?profile_id=${profile_id}"
+      fi
+      __beagle_request GET "${path}"
+    }
+
+    __beagle_hpc_result() {
+      job_id="${1:-}"
+      if [ -z "${job_id}" ]; then
+        echo "beagle hpc result requires <job_id>" >&2
+        return 2
+      fi
+      __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/results/${job_id}"
+    }
+
+    __beagle_hpc_result_manifest() {
+      job_id="${1:-}"
+      if [ -z "${job_id}" ]; then
+        echo "beagle hpc result-manifest requires <job_id>" >&2
+        return 2
+      fi
+      __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/results/${job_id}/manifest"
+    }
+
+    __beagle_main() {
+      domain="${1:-}"
+      shift || true
+      case "${domain}" in
+        hpc)
+          action="${1:-}"
+          shift || true
+          case "${action}" in
+            profiles) __beagle_hpc_profiles "$@" ;;
+            submit) __beagle_hpc_submit "$@" ;;
+            status) __beagle_hpc_status "$@" ;;
+            artifact-manifest) __beagle_hpc_artifact_manifest "$@" ;;
+            results) __beagle_hpc_results "$@" ;;
+            result) __beagle_hpc_result "$@" ;;
+            result-manifest) __beagle_hpc_result_manifest "$@" ;;
+            stdout) __beagle_hpc_job_stream "${1:-}" stdout ;;
+            stderr) __beagle_hpc_job_stream "${1:-}" stderr ;;
+            *)
+              __beagle_print_usage >&2
+              return 2
+              ;;
+          esac
+          ;;
+        "")
+          __beagle_print_usage >&2
+          return 2
+          ;;
+        *)
+          echo "unknown beagle domain: ${domain}" >&2
+          __beagle_print_usage >&2
+          return 2
+          ;;
+      esac
+    }
+  beagle-cli: |
+    #!/bin/sh
+    set -eu
+    export BEAGLE_COCKPIT_BASE_URL="${BEAGLE_COCKPIT_BASE_URL:-http://project-cockpit.beagle.svc.cluster.local}"
+    export BEAGLE_PROJECT_SLUG="${BEAGLE_PROJECT_SLUG:-sounio}"
+    # shellcheck disable=SC1090
+    . "/opt/sounio-workspace/beagle-shell-helpers.sh"
+    __beagle_main "$@"
   bootstrap-workspace.sh: |
     #!/bin/sh
     set -eu
@@ -232,6 +399,11 @@ data:
     ensure_persistent_file "${HOME_DIR}/.zshrc"
     ensure_persistent_file "${HOME_DIR}/.tmux.conf"
 
+    if [ -L "${HOME_DIR}/.beagle_shell_helpers.sh" ]; then
+      rm -f "${HOME_DIR}/.beagle_shell_helpers.sh"
+      : > "${HOME_DIR}/.beagle_shell_helpers.sh"
+    fi
+
     ensure_contains_block() {
       target="$1"
       marker="$2"
@@ -318,156 +490,14 @@ data:
     ensure_login_link "${LOGIN_HOME}/.gemini" "${HOME_DIR}/.gemini"
     ensure_login_link "${LOGIN_HOME}/.ssh" "${HOME_DIR}/.ssh"
 
-    write_atomic "${HOME_DIR}/.beagle_shell_helpers.sh" <<'EOF'
-    shopt -s expand_aliases 2>/dev/null || true
-    export PATH="$HOME/bin:$PATH"
-
-    srepo() { cd /workspace/sounio; }
-    gst() { git -C /workspace/sounio status -sb "$@"; }
-    gsync() { git -C /workspace/sounio pull --ff-only "$@"; }
-    gbranches() { git -C /workspace/sounio branch -vv "$@"; }
-    glog() { git -C /workspace/sounio log --oneline --decorate --graph -20 "$@"; }
-    ghst() { gh auth status "$@"; }
-    gready() {
-      gh auth status &&
-      git -C /workspace/sounio remote -v &&
-      git -C /workspace/sounio status -sb
-    }
-    gpushcheck() { "$HOME/bin/sounio-gh-push-check" "$@"; }
-
-    export BEAGLE_COCKPIT_BASE_URL="${BEAGLE_COCKPIT_BASE_URL:-http://project-cockpit.beagle.svc.cluster.local}"
-    export BEAGLE_PROJECT_SLUG="${BEAGLE_PROJECT_SLUG:-sounio}"
-
-    __beagle_python() {
-      if command -v python3 >/dev/null 2>&1; then
-        python3 "$@"
-        return
-      fi
-      python "$@"
-    }
-
-    __beagle_request() {
-      method="$1"
-      path="$2"
-      body="${3:-}"
-      url="${BEAGLE_COCKPIT_BASE_URL}${path}"
-      if [ "${method}" = "GET" ]; then
-        curl -fsS "${url}"
-        return
-      fi
-      request_id="beagle-${USER:-user}-$(date +%s)-$$"
-      curl -fsS \
-        -H "Content-Type: application/json" \
-        -H "X-Request-ID: ${request_id}" \
-        -d "${body}" \
-        -X "${method}" \
-        "${url}"
-    }
-
-    __beagle_print_usage() {
-      printf '%s\n' \
-        'beagle hpc profiles' \
-        'beagle hpc submit <profile_id> [run_label]' \
-        'beagle hpc status <job_id>' \
-        'beagle hpc artifact-manifest <job_id>' \
-        'beagle hpc stdout <job_id>' \
-        'beagle hpc stderr <job_id>'
-    }
-
-    __beagle_hpc_profiles() {
-      __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/profiles"
-    }
-
-    __beagle_hpc_submit() {
-      profile_id="${1:-}"
-      run_label="${2:-}"
-      if [ -z "${profile_id}" ]; then
-        echo "beagle hpc submit requires <profile_id>" >&2
-        return 2
-      fi
-      if [ -n "${run_label}" ]; then
-        body=$(printf '{"profile_id":"%s","run_label":"%s"}' "${profile_id}" "${run_label}")
-      else
-        body=$(printf '{"profile_id":"%s"}' "${profile_id}")
-      fi
-      __beagle_request POST "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/jobs/submit" "${body}"
-    }
-
-    __beagle_hpc_job_stream() {
-      job_id="${1:-}"
-      stream="${2:-}"
-      if [ -z "${job_id}" ] || [ -z "${stream}" ]; then
-        echo "beagle hpc ${stream:-stream} requires <job_id>" >&2
-        return 2
-      fi
-      __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/jobs/${job_id}/${stream}"
-    }
-
-    __beagle_hpc_status() {
-      job_id="${1:-}"
-      if [ -z "${job_id}" ]; then
-        echo "beagle hpc status requires <job_id>" >&2
-        return 2
-      fi
-      __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/jobs/${job_id}"
-    }
-
-    __beagle_hpc_artifact_manifest() {
-      job_id="${1:-}"
-      if [ -z "${job_id}" ]; then
-        echo "beagle hpc artifact-manifest requires <job_id>" >&2
-        return 2
-      fi
-      __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/jobs/${job_id}/artifact-manifest"
-    }
-
-    __beagle_main() {
-      domain="${1:-}"
-      shift || true
-      case "${domain}" in
-        hpc)
-          action="${1:-}"
-          shift || true
-          case "${action}" in
-            profiles) __beagle_hpc_profiles "$@" ;;
-            submit) __beagle_hpc_submit "$@" ;;
-            status) __beagle_hpc_status "$@" ;;
-            artifact-manifest) __beagle_hpc_artifact_manifest "$@" ;;
-            stdout) __beagle_hpc_job_stream "${1:-}" stdout ;;
-            stderr) __beagle_hpc_job_stream "${1:-}" stderr ;;
-            *)
-              __beagle_print_usage >&2
-              return 2
-              ;;
-          esac
-          ;;
-        "")
-          __beagle_print_usage >&2
-          return 2
-          ;;
-        *)
-          echo "unknown beagle domain: ${domain}" >&2
-          __beagle_print_usage >&2
-          return 2
-          ;;
-      esac
-    }
-    EOF
-
-    write_atomic "${HOME_DIR}/bin/beagle" <<'EOF'
-    #!/bin/sh
-    set -eu
-    export BEAGLE_COCKPIT_BASE_URL="${BEAGLE_COCKPIT_BASE_URL:-http://project-cockpit.beagle.svc.cluster.local}"
-    export BEAGLE_PROJECT_SLUG="${BEAGLE_PROJECT_SLUG:-sounio}"
-    # shellcheck disable=SC1090
-    . "${HOME}/.beagle_shell_helpers.sh"
-    __beagle_main "$@"
-    EOF
-    chmod +x "${HOME_DIR}/bin/beagle"
+    if [ -f /opt/sounio-workspace/beagle-cli ]; then
+      rm -f "${HOME_DIR}/bin/beagle"
+      ln -sfn /opt/sounio-workspace/beagle-cli "${HOME_DIR}/bin/beagle"
+    fi
 
     shell_init_block='export PATH="$HOME/bin:$PATH"
-    if [ -f "$HOME/.beagle_shell_helpers.sh" ]; then
-      . "$HOME/.beagle_shell_helpers.sh"
+    if [ -f "/opt/sounio-workspace/beagle-shell-helpers.sh" ]; then
+      . "/opt/sounio-workspace/beagle-shell-helpers.sh"
     fi'
     ensure_contains_block "${HOME_DIR}/.bashrc" "# beagle-workspace-shell" "${shell_init_block}"
     ensure_contains_block "${HOME_DIR}/.bash_profile" "# beagle-workspace-shell" "${shell_init_block}"

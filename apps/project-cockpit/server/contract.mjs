@@ -378,6 +378,24 @@ export const cockpitManifest = {
       description: "Stderr artifact for a Darwin HPC job."
     },
     {
+      name: "cockpit_hpc_results",
+      method: "GET",
+      path: "/api/projects/{slug}/hpc/results",
+      description: "Object-backed Darwin HPC result catalog. Accepts optional filters like profile_id, run_label, state, and node_list."
+    },
+    {
+      name: "cockpit_hpc_result",
+      method: "GET",
+      path: "/api/projects/{slug}/hpc/results/{job_id}",
+      description: "Lookup a published Darwin HPC result catalog entry by job id."
+    },
+    {
+      name: "cockpit_hpc_result_manifest",
+      method: "GET",
+      path: "/api/projects/{slug}/hpc/results/{job_id}/manifest",
+      description: "Published object-backed result manifest for a Darwin HPC result."
+    },
+    {
       name: "cockpit_submit_job",
       method: "POST",
       path: "/api/projects/{slug}/jobs/submit",

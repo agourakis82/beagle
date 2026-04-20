@@ -106,8 +106,7 @@ spec:
             - name: workspace-data
               mountPath: /workspace
             - name: workspace-config
-              mountPath: /opt/sounio-workspace/bootstrap-workspace.sh
-              subPath: bootstrap-workspace.sh
+              mountPath: /opt/sounio-workspace
               readOnly: true
           readinessProbe:
             exec:
@@ -172,6 +171,9 @@ spec:
           volumeMounts:
             - name: workspace-data
               mountPath: /workspace
+            - name: workspace-config
+              mountPath: /opt/sounio-workspace
+              readOnly: true
             - name: workspace-ssh-authorized-keys
               mountPath: /var/run/beagle-workspace-ssh
               readOnly: true

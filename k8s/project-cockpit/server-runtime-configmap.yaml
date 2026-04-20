@@ -1288,6 +1288,24 @@ data:
           description: "Stderr artifact for a Darwin HPC job."
         },
         {
+          name: "cockpit_hpc_results",
+          method: "GET",
+          path: "/api/projects/{slug}/hpc/results",
+          description: "Object-backed Darwin HPC result catalog. Accepts optional filters like profile_id, run_label, state, and node_list."
+        },
+        {
+          name: "cockpit_hpc_result",
+          method: "GET",
+          path: "/api/projects/{slug}/hpc/results/{job_id}",
+          description: "Lookup a published Darwin HPC result catalog entry by job id."
+        },
+        {
+          name: "cockpit_hpc_result_manifest",
+          method: "GET",
+          path: "/api/projects/{slug}/hpc/results/{job_id}/manifest",
+          description: "Published object-backed result manifest for a Darwin HPC result."
+        },
+        {
           name: "cockpit_submit_job",
           method: "POST",
           path: "/api/projects/{slug}/jobs/submit",
@@ -13576,6 +13594,44 @@ data:
         via: "cockpit-darwin-hpc"
       };
     }
+
+    export async function listHpcResults(query = {}) {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(query || {})) {
+        const normalized = cleanString(value);
+        if (normalized) {
+          params.set(key, normalized);
+        }
+      }
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
+      const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/results${suffix}`, {
+        timeoutMs: HPC_READ_TIMEOUT_MS
+      });
+      return {
+        ...payload,
+        via: "cockpit-darwin-hpc"
+      };
+    }
+
+    export async function getHpcResult(jobId) {
+      const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/results/${jobId}`, {
+        timeoutMs: HPC_READ_TIMEOUT_MS
+      });
+      return {
+        ...payload,
+        via: "cockpit-darwin-hpc"
+      };
+    }
+
+    export async function getHpcResultManifest(jobId) {
+      const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/results/${jobId}/manifest`, {
+        timeoutMs: HPC_READ_TIMEOUT_MS
+      });
+      return {
+        ...payload,
+        via: "cockpit-darwin-hpc"
+      };
+    }
     
     // ─── K8s Job manifest rendering ───────────────────────────────────────
     
@@ -13901,6 +13957,36 @@ data:
           data: {
             projectSlug: req.params.slug,
             ...(await getHpcJobTextArtifact(req.params.jobId, "stderr"))
+          }
+        }))
+      );
+
+      app.get(
+        "/api/projects/:slug/hpc/results",
+        withEnvelope(async (req) => ({
+          data: {
+            projectSlug: req.params.slug,
+            ...(await listHpcResults(req.query || {}))
+          }
+        }))
+      );
+
+      app.get(
+        "/api/projects/:slug/hpc/results/:jobId",
+        withEnvelope(async (req) => ({
+          data: {
+            projectSlug: req.params.slug,
+            ...(await getHpcResult(req.params.jobId))
+          }
+        }))
+      );
+
+      app.get(
+        "/api/projects/:slug/hpc/results/:jobId/manifest",
+        withEnvelope(async (req) => ({
+          data: {
+            projectSlug: req.params.slug,
+            ...(await getHpcResultManifest(req.params.jobId))
           }
         }))
       );
