@@ -90,7 +90,8 @@ struct AgentSessionView: View {
                 onReconnect: {
                     Task { await reconnectTerminal() }
                 },
-                diagnosticsText: terminalDiagnosticsText
+                diagnosticsText: terminalDiagnosticsText,
+                sessionIdentityText: terminalSessionIdentityText
             )
             if sessionState.isRunning {
                 inputBar
@@ -552,6 +553,22 @@ struct AgentSessionView: View {
             "exit_code: \(terminal.lastExitCode ?? 0)",
             "exit_detail: \(terminal.lastExitDetail ?? "unknown")"
         ].joined(separator: "\n")
+    }
+
+    private var terminalSessionIdentityText: String? {
+        guard case .running(let podName) = sessionState else { return nil }
+        switch terminal.connectionState {
+        case .connected(let source):
+            return "\(podName) via \(source)"
+        case .connecting:
+            return "\(podName) connecting"
+        case .reconnecting(let attempt):
+            return "\(podName) reconnecting (\(attempt))"
+        case .failed(let message):
+            return "\(podName) failed: \(message)"
+        case .disconnected:
+            return "\(podName) detached"
+        }
     }
 
     private func pendingMessage(for session: AgentSession, fallback: String) -> String {

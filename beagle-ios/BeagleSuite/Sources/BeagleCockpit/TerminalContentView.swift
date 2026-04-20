@@ -19,6 +19,7 @@ struct TerminalContentView: View {
     @Bindable var terminal: TerminalStore
     var onReconnect: (() -> Void)? = nil
     var diagnosticsText: String? = nil
+    var sessionIdentityText: String? = nil
 
     // Smart scroll state
     @State private var isUserScrolledUp = false
@@ -32,6 +33,7 @@ struct TerminalContentView: View {
             if isUserScrolledUp && hasNewContent {
                 jumpToBottomPill
             }
+            identityOverlay
             reconnectingOverlay
             exitOverlay
         }
@@ -203,6 +205,34 @@ struct TerminalContentView: View {
     // MARK: - Reconnecting overlay
 
     @ViewBuilder
+    private var identityOverlay: some View {
+        if let sessionIdentityText, !sessionIdentityText.isEmpty {
+            VStack {
+                HStack {
+                    Label(sessionIdentityText, systemImage: "link")
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineLimit(1)
+                        .padding(.horizontal, BeagleSpacing.md)
+                        .padding(.vertical, BeagleSpacing.xs)
+                        .background(
+                            Capsule()
+                                .fill(BeagleTheme.surface2)
+                        )
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                        )
+                    Spacer()
+                }
+                .padding(.horizontal, BeagleSpacing.sm)
+                .padding(.top, BeagleSpacing.sm)
+                Spacer()
+            }
+        }
+    }
+
+    @ViewBuilder
     private var reconnectingOverlay: some View {
         if case .reconnecting(let attempt) = terminal.connectionState {
             VStack {
@@ -224,6 +254,7 @@ struct TerminalContentView: View {
                     Capsule()
                         .strokeBorder(BeagleTheme.postureWarm.opacity(0.3), lineWidth: 1)
                 )
+                .padding(.horizontal, BeagleSpacing.sm)
                 .padding(.top, BeagleSpacing.sm)
 
                 Spacer()
