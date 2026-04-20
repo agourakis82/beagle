@@ -16,6 +16,10 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { ErrorCode, contractFailure, idempotent, withEnvelope } from "./contract.mjs";
 import { applyPreset, listPresets } from "./job-presets.mjs";
 import { fetchDarwinHpcAdapterConfig, fetchOperatorToken } from "./auth-bridge.mjs";
@@ -40,9 +44,24 @@ const HPC_LEGACY_KIND_MAP = Object.freeze({
   gpu: "gpu-single-v1",
   "gpu-single": "gpu-single-v1"
 });
-const HPC_PROJECT_WORKSTREAM_MAP = Object.freeze({
-  sounio: "sounio-lang-main"
-});
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDirCandidates = [
+  cleanString(process.env.PROJECT_COCKPIT_ROOT_DIR),
+  path.resolve(__dirname, ".."),
+  path.resolve(__dirname, "..", "..")
+].filter(Boolean);
+const rootDir =
+  rootDirCandidates.find(
+    (candidate) =>
+      existsSync(path.join(candidate, "public", "project-catalog.json")) ||
+      existsSync(path.join(candidate, "package.json"))
+  ) || path.resolve(__dirname, "..");
+const runtimeCatalogPath = path.join(__dirname, "project-catalog.json");
+const publicCatalogPath = existsSync(runtimeCatalogPath)
+  ? runtimeCatalogPath
+  : path.join(rootDir, "public", "project-catalog.json");
+let hpcProjectCatalogCache = null;
 
 // Known data mount profiles — maps short name → k8s volume + mountPath
 const MOUNT_PROFILES = {
@@ -110,19 +129,47 @@ function buildDefaultRunLabel(slug, profileId) {
   return base.slice(0, 40);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function asNumericJobId(value) {
   const parsed = Number(cleanString(value));
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function resolveHpcWorkstreamId(slug) {
-  const normalized = cleanString(slug).toLowerCase();
-  return HPC_PROJECT_WORKSTREAM_MAP[normalized] || `${normalized}-main`;
+async function loadHpcProjectCatalog() {
+  if (hpcProjectCatalogCache) {
+    return hpcProjectCatalogCache;
+  }
+  try {
+    const raw = await fs.readFile(publicCatalogPath, "utf8");
+    const parsed = JSON.parse(raw);
+    hpcProjectCatalogCache = Array.isArray(parsed?.projects) ? parsed.projects : [];
+  } catch {
+    hpcProjectCatalogCache = [];
+  }
+  return hpcProjectCatalogCache;
 }
 
-function hasMappedHpcWorkstream(slug) {
+async function resolveHpcWorkstreamId(slug) {
   const normalized = cleanString(slug).toLowerCase();
-  return Boolean(HPC_PROJECT_WORKSTREAM_MAP[normalized]);
+  const projects = await loadHpcProjectCatalog();
+  const project = projects.find(
+    (entry) => cleanString(entry?.projectSlug).toLowerCase() === normalized
+  );
+  const declared = cleanString(project?.workstreamId);
+  return declared || `${normalized}-main`;
+}
+
+async function hasMappedHpcWorkstream(slug) {
+  const normalized = cleanString(slug).toLowerCase();
+  const projects = await loadHpcProjectCatalog();
+  return projects.some(
+    (entry) =>
+      cleanString(entry?.projectSlug).toLowerCase() === normalized &&
+      cleanString(entry?.workstreamId)
+  );
 }
 
 function workbenchRecipeKindForProfile(profileId) {
@@ -181,7 +228,7 @@ function deterministicBindingMatchesJob(jobId, receipt = {}, publication = {}, b
 }
 
 async function getHpcDeterministicResultBinding(slug, jobId) {
-  const workstreamId = resolveHpcWorkstreamId(slug);
+  const workstreamId = await resolveHpcWorkstreamId(slug);
   const [receipt, publication, binding] = await Promise.all([
     proxyDarwinHpc(
       "GET",
@@ -375,8 +422,8 @@ export async function listHpcProfiles() {
 
 export async function submitHpcJob(slug, body = {}) {
   const request = normalizeHpcSubmitRequest(slug, body);
-  if (hasMappedHpcWorkstream(slug)) {
-    const workstreamId = resolveHpcWorkstreamId(slug);
+  if (await hasMappedHpcWorkstream(slug)) {
+    const workstreamId = await resolveHpcWorkstreamId(slug);
     const orchestration = await proxyDarwinHpc(
       "POST",
       `/api/darwin/workstreams/${workstreamId}/workbench-run`,
