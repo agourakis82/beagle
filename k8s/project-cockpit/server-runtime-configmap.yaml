@@ -917,13 +917,13 @@ data:
     // {ok, data, error, meta} envelope. The envelope is opt-in per-route so
     // existing routes continue to work; new mutations use it for safety.
     //
-
+    
     import { randomUUID } from "node:crypto";
-
+    
     // ─── Error codes ───────────────────────────────────────────────────────
     // Retryable: caller can re-attempt with exponential backoff.
     // Non-retryable: caller should surface to user, no automatic retry.
-
+    
     export const ErrorCode = Object.freeze({
       // Retryable
       CLUSTER_UNREACHABLE:  { code: "CLUSTER_UNREACHABLE",  retryable: true,  http: 503 },
@@ -931,7 +931,7 @@ data:
       RATE_LIMIT:           { code: "RATE_LIMIT",           retryable: true,  http: 429 },
       TIMEOUT:              { code: "TIMEOUT",              retryable: true,  http: 504 },
       INTERNAL:             { code: "INTERNAL",             retryable: true,  http: 500 },
-
+    
       // Non-retryable
       BAD_REQUEST:          { code: "BAD_REQUEST",          retryable: false, http: 400 },
       UNAUTHORIZED:         { code: "UNAUTHORIZED",         retryable: false, http: 401 },
@@ -940,7 +940,7 @@ data:
       HABITAT_BUSY:         { code: "HABITAT_BUSY",         retryable: false, http: 409 },
       CONFLICT:             { code: "CONFLICT",             retryable: false, http: 409 },
     });
-
+    
     /**
      * Build a contract error object.
      * @param {{code, retryable, http}} def — from ErrorCode
@@ -954,7 +954,7 @@ data:
         ...extra,
       };
     }
-
+    
     // ─── Envelope ──────────────────────────────────────────────────────────
     //
     // Standard response shape:
@@ -962,7 +962,7 @@ data:
     //
     // Legacy routes continue to return their existing payload; new routes use
     // envelopeOk/envelopeErr to emit the contracted shape.
-
+    
     export function envelopeOk(data, meta = {}) {
       const defaultMeta = {
         truthMode: "observed",
@@ -971,7 +971,7 @@ data:
       };
       return { ok: true, data, error: null, meta: defaultMeta };
     }
-
+    
     export function envelopeErr(def, message, meta = {}) {
       return {
         ok: false,
@@ -984,7 +984,7 @@ data:
         },
       };
     }
-
+    
     /**
      * Wrap an async handler to produce a contract envelope and measure latency.
      * Usage:
@@ -997,7 +997,7 @@ data:
         try {
           const result = await handler(req);
           const latency = Date.now() - started;
-
+    
           if (result && result.__envelope === "err") {
             const env = envelopeErr(result.errorDef || ErrorCode.INTERNAL, result.message, {
               ...result.meta,
@@ -1007,7 +1007,7 @@ data:
             res.status(result.errorDef?.http || 500).json(env);
             return;
           }
-
+    
           const env = envelopeOk(result?.data ?? result, {
             ...result?.meta,
             latency_ms: latency,
@@ -1025,7 +1025,7 @@ data:
         }
       };
     }
-
+    
     /**
      * Helper to signal errors from inside a handler.
      * Usage:
@@ -1036,7 +1036,7 @@ data:
       err.code = errorDef.code;
       return err;
     }
-
+    
     // ─── Request-ID idempotency middleware ────────────────────────────────
     //
     // Clients send X-Request-ID on mutations. If the same request_id hits
@@ -1045,11 +1045,11 @@ data:
     //
     // Usage:
     //   app.post("/mutate", idempotent({ ttlMs: 60_000 }), handler);
-
+    
     const idempotencyStore = new Map();  // request_id → { at, response, statusCode }
     const IDEMPOTENCY_TTL_MS_DEFAULT = 60_000;
     const IDEMPOTENCY_MAX_ENTRIES = 2000;
-
+    
     function evictOld() {
       const now = Date.now();
       for (const [k, v] of idempotencyStore) {
@@ -1063,12 +1063,12 @@ data:
         }
       }
     }
-
+    
     export function idempotent({ ttlMs = IDEMPOTENCY_TTL_MS_DEFAULT, requireHeader = false } = {}) {
       return (req, res, next) => {
         evictOld();
         const rid = req.header("X-Request-ID") || req.header("x-request-id");
-
+    
         if (!rid) {
           if (requireHeader) {
             res.status(400).json(envelopeErr(
@@ -1081,9 +1081,9 @@ data:
           req.requestId = randomUUID();
           return next();
         }
-
+    
         req.requestId = rid;
-
+    
         // Replay if we've seen this request_id recently
         const cached = idempotencyStore.get(rid);
         if (cached && Date.now() - cached.at < cached.ttl) {
@@ -1091,7 +1091,7 @@ data:
           res.status(cached.statusCode).json(cached.response);
           return;
         }
-
+    
         // Intercept res.json to cache the response
         const origJson = res.json.bind(res);
         res.json = (body) => {
@@ -1103,18 +1103,18 @@ data:
           });
           return origJson(body);
         };
-
+    
         next();
       };
     }
-
+    
     // ─── MCP Manifest ──────────────────────────────────────────────────────
     //
     // Machine-readable description of all agent-facing endpoints.
     // Published at /api/mcp/manifest.yaml and /api/mcp/manifest.json.
     // Any MCP-compatible client (Claude Desktop, Cursor, ChatGPT Apps,
     // custom agents) can discover our tools without running our stdio server.
-
+    
     export const cockpitManifest = {
       mcp_version: "1.0",
       agent: "beagle-cockpit",
@@ -1232,10 +1232,60 @@ data:
           idempotency: { header: "X-Request-ID", ttl_ms: 60000 }
         },
         {
+          name: "cockpit_hpc_profiles",
+          method: "GET",
+          path: "/api/projects/{slug}/hpc/profiles",
+          description: "Approved Darwin HPC workload profiles for this project. Use this before any GPU submission from a workspace."
+        },
+        {
+          name: "cockpit_submit_hpc_job",
+          method: "POST",
+          path: "/api/projects/{slug}/hpc/jobs/submit",
+          description: "Submit a typed Darwin HPC job. Canonical path for GPU and supercomputing work from agent workspaces.",
+          idempotency: { header: "X-Request-ID", ttl_ms: 60000 },
+          input_schema: {
+            type: "object",
+            required: ["profile_id"],
+            properties: {
+              profile_id: {
+                type: "string",
+                enum: ["cpu-short-v1", "cpu-batch-v1", "gpu-single-v1"]
+              },
+              parameters: {
+                type: "object",
+                description: "Darwin HPC profile parameters. `run_label` is required by the upstream contract but Cockpit will synthesize one if omitted."
+              },
+              run_label: {
+                type: "string",
+                description: "Optional shorthand for parameters.run_label."
+              }
+            }
+          },
+          error_codes: ["INVALID_SLUG", "BAD_REQUEST", "CLUSTER_UNREACHABLE", "TIMEOUT"]
+        },
+        {
+          name: "cockpit_hpc_job_status",
+          method: "GET",
+          path: "/api/projects/{slug}/hpc/jobs/{job_id}",
+          description: "Status of a typed Darwin HPC job."
+        },
+        {
+          name: "cockpit_hpc_job_stdout",
+          method: "GET",
+          path: "/api/projects/{slug}/hpc/jobs/{job_id}/stdout",
+          description: "Stdout artifact for a Darwin HPC job."
+        },
+        {
+          name: "cockpit_hpc_job_stderr",
+          method: "GET",
+          path: "/api/projects/{slug}/hpc/jobs/{job_id}/stderr",
+          description: "Stderr artifact for a Darwin HPC job."
+        },
+        {
           name: "cockpit_submit_job",
           method: "POST",
           path: "/api/projects/{slug}/jobs/submit",
-          description: "Submit batch job (K8s Job). Canonical escalation path from agent workspaces — never handcraft YAML.",
+          description: "Submit a generic Kubernetes batch Job. Use this for plain cluster batch work, not as the canonical GPU/HPC path.",
           idempotency: { header: "X-Request-ID", ttl_ms: 60000 },
           input_schema: {
             type: "object",
@@ -1361,7 +1411,7 @@ data:
         }
       }
     };
-
+    
     // Minimal YAML serializer for our manifest (avoid pulling js-yaml dependency).
     // Handles strings, numbers, booleans, arrays, plain objects, nulls.
     // Not a full YAML spec — enough for our well-known schema.
@@ -1392,7 +1442,7 @@ data:
       }
       return String(value);
     }
-
+    
     function toYamlInline(value, indent) {
       if (value === null || value === undefined) return "null";
       if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
@@ -1403,15 +1453,15 @@ data:
       }
       return String(value);
     }
-
+    
     export function manifestYaml() {
       return toYaml(cockpitManifest);
     }
-
+    
     export function manifestJson() {
       return cockpitManifest;
     }
-
+    
     /**
      * Register manifest endpoints on an Express app.
      */
@@ -1419,11 +1469,11 @@ data:
       app.get("/api/mcp/manifest.json", (_req, res) => {
         res.json(cockpitManifest);
       });
-
+    
       app.get("/api/mcp/manifest.yaml", (_req, res) => {
         res.type("text/yaml").send(manifestYaml());
       });
-
+    
       // Convenience: `/api/mcp` redirects to the JSON form for discovery tools
       app.get("/api/mcp", (_req, res) => {
         res.json({
@@ -13288,16 +13338,30 @@ data:
     // Supported `kind`:
     //   "k8s"   — native K8s Job (default)
     //   "slurm" — Slurm via Slinky (sbatch wrapper) — stub, pending ops wiring
-
+    
     import { spawn } from "node:child_process";
     import { randomBytes } from "node:crypto";
-    import { idempotent } from "./contract.mjs";
+    import { ErrorCode, contractFailure, idempotent, withEnvelope } from "./contract.mjs";
     import { applyPreset, listPresets } from "./job-presets.mjs";
-
+    import { fetchOperatorToken } from "./auth-bridge.mjs";
+    
     const NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
     const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
     const DEFAULT_IMAGE = process.env.PROJECT_COCKPIT_JOB_DEFAULT_IMAGE || "ttl.sh/beagle-sounio:latest";
-
+    const BEAGLE_INTERNAL_URL =
+      process.env.PROJECT_COCKPIT_BEAGLE_INTERNAL_URL ||
+      "http://beagle-core.beagle.svc.cluster.local:8080";
+    const HPC_SUBMIT_TIMEOUT_MS = Number(process.env.PROJECT_COCKPIT_HPC_SUBMIT_TIMEOUT_MS || 120000);
+    const HPC_READ_TIMEOUT_MS = Number(process.env.PROJECT_COCKPIT_HPC_READ_TIMEOUT_MS || 15000);
+    const HPC_ALLOWED_PROFILES = new Set(["cpu-short-v1", "cpu-batch-v1", "gpu-single-v1"]);
+    const HPC_LEGACY_KIND_MAP = Object.freeze({
+      cpu: "cpu-short-v1",
+      "cpu-short": "cpu-short-v1",
+      "cpu-batch": "cpu-batch-v1",
+      gpu: "gpu-single-v1",
+      "gpu-single": "gpu-single-v1"
+    });
+    
     // Known data mount profiles — maps short name → k8s volume + mountPath
     const MOUNT_PROFILES = {
       "orangefs-training": {
@@ -13319,7 +13383,7 @@ data:
         mount:  { name: "work-tmp", mountPath: "/work" }
       }
     };
-
+    
     function runKubectl(args, { input, timeoutMs = 15000 } = {}) {
       return new Promise((resolve, reject) => {
         const child = spawn(KUBECTL, args, { stdio: ["pipe", "pipe", "pipe"] });
@@ -13340,13 +13404,163 @@ data:
         if (input !== undefined) { child.stdin.write(input); child.stdin.end(); }
       });
     }
-
+    
     function shortId() {
       return randomBytes(4).toString("hex");
     }
-
+    
+    function cleanString(value) {
+      if (typeof value === "string") {
+        return value.trim();
+      }
+      if (typeof value === "number" || typeof value === "boolean") {
+        return String(value).trim();
+      }
+      return "";
+    }
+    
+    function buildDefaultRunLabel(slug, profileId) {
+      const base = `${slug}-${profileId.replace(/-v\d+$/, "")}-${shortId()}`
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .replace(/--+/g, "-");
+      return base.slice(0, 40);
+    }
+    
+    function resolveHpcProfileId(body = {}) {
+      const explicit =
+        cleanString(body.profile_id) ||
+        cleanString(body.profileId) ||
+        cleanString(body.profile) ||
+        cleanString(body.hpc_profile_id) ||
+        cleanString(body.hpcProfileId);
+      if (explicit) {
+        return explicit;
+      }
+    
+      const legacyKind =
+        cleanString(body.kind).toLowerCase() ||
+        cleanString(body.job_kind).toLowerCase() ||
+        cleanString(body.preset).toLowerCase();
+      return HPC_LEGACY_KIND_MAP[legacyKind] || "";
+    }
+    
+    function normalizeHpcSubmitRequest(slug, body = {}) {
+      const profileId = resolveHpcProfileId(body);
+      if (!HPC_ALLOWED_PROFILES.has(profileId)) {
+        throw contractFailure(
+          ErrorCode.BAD_REQUEST,
+          `unsupported HPC profile: ${profileId || "(missing)"}`
+        );
+      }
+    
+      const parameters =
+        body.parameters && typeof body.parameters === "object" && !Array.isArray(body.parameters)
+          ? { ...body.parameters }
+          : {};
+      const incomingRunLabel =
+        cleanString(parameters.run_label) ||
+        cleanString(parameters.runLabel) ||
+        cleanString(body.run_label) ||
+        cleanString(body.runLabel);
+    
+      parameters.run_label = incomingRunLabel || buildDefaultRunLabel(slug, profileId);
+      delete parameters.runLabel;
+    
+      return {
+        profile_id: profileId,
+        parameters
+      };
+    }
+    
+    async function proxyDarwinHpc(method, path, { body, timeoutMs } = {}) {
+      const tokenResult = await fetchOperatorToken();
+      if (tokenResult.error || !tokenResult.token) {
+        throw contractFailure(
+          ErrorCode.CLUSTER_UNREACHABLE,
+          tokenResult.error || "beagle operator token unavailable"
+        );
+      }
+    
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const res = await fetch(`${BEAGLE_INTERNAL_URL}${path}`, {
+          method,
+          headers: {
+            Accept: "application/json",
+            "content-type": "application/json",
+            "X-Beagle-Consumer": "beagle-operator",
+            Authorization: `Bearer ${tokenResult.token}`
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
+          signal: ctrl.signal
+        });
+        const raw = await res.text();
+        const payload = raw ? JSON.parse(raw) : {};
+        if (!res.ok) {
+          throw contractFailure(
+            res.status >= 500 ? ErrorCode.CLUSTER_UNREACHABLE : ErrorCode.BAD_REQUEST,
+            payload?.error || payload?.message || `Darwin HPC request failed: ${res.status}`
+          );
+        }
+        return payload;
+      } catch (error) {
+        if (error.name === "AbortError") {
+          throw contractFailure(ErrorCode.TIMEOUT, `Darwin HPC request timed out for ${path}`);
+        }
+        if (error.code) {
+          throw error;
+        }
+        throw contractFailure(ErrorCode.CLUSTER_UNREACHABLE, error.message);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    
+    export async function listHpcProfiles() {
+      return proxyDarwinHpc("GET", "/api/darwin/hpc/profiles", { timeoutMs: HPC_READ_TIMEOUT_MS });
+    }
+    
+    export async function submitHpcJob(slug, body = {}) {
+      const request = normalizeHpcSubmitRequest(slug, body);
+      const payload = await proxyDarwinHpc("POST", "/api/darwin/hpc/jobs/submit", {
+        body: request,
+        timeoutMs: HPC_SUBMIT_TIMEOUT_MS
+      });
+      return {
+        ...payload,
+        profile_id: payload.profile_id || request.profile_id,
+        parameters: payload.parameters || request.parameters,
+        projectSlug: slug,
+        via: "cockpit-darwin-hpc"
+      };
+    }
+    
+    export async function getHpcJobStatus(jobId) {
+      const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/jobs/${jobId}`, {
+        timeoutMs: HPC_READ_TIMEOUT_MS
+      });
+      return {
+        ...payload,
+        via: "cockpit-darwin-hpc"
+      };
+    }
+    
+    export async function getHpcJobTextArtifact(jobId, stream) {
+      const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/jobs/${jobId}/${stream}`, {
+        timeoutMs: HPC_READ_TIMEOUT_MS
+      });
+      return {
+        ...payload,
+        stream,
+        via: "cockpit-darwin-hpc"
+      };
+    }
+    
     // ─── K8s Job manifest rendering ───────────────────────────────────────
-
+    
     function renderK8sJob({ slug, campaign, image, command, resources, dataMounts, timeoutSec, jobId, extraLabels }) {
       const cpuReq = resources?.cpu || "2";
       const memReq = resources?.memory || "8Gi";
@@ -13355,7 +13569,7 @@ data:
       const cpuLim = resources?.cpuLimit || cpuReq;
       const memLim = resources?.memoryLimit || memReq;
       const gpu = Number(resources?.gpu || 0);
-
+    
       const volumes = [];
       const volumeMounts = [];
       for (const profile of (dataMounts || [])) {
@@ -13364,7 +13578,7 @@ data:
         volumes.push(m.volume);
         volumeMounts.push(m.mount);
       }
-
+    
       // GPU-specific additions
       const nodeSelector = {};
       const tolerations = [
@@ -13374,7 +13588,7 @@ data:
         requests: { cpu: cpuReq, memory: memReq },
         limits: { cpu: cpuLim, memory: memLim }
       };
-
+    
       if (gpu > 0) {
         nodeSelector["sounio.dev/accelerator-class"] = "gpu";
         tolerations.push(
@@ -13384,7 +13598,7 @@ data:
         containerResources.requests["nvidia.com/gpu"] = gpu;
         containerResources.limits["nvidia.com/gpu"] = gpu;
       }
-
+    
       const spec = {
         apiVersion: "batch/v1",
         kind: "Job",
@@ -13435,26 +13649,26 @@ data:
           }
         }
       };
-
+    
       return spec;
     }
-
+    
     // ─── Lifecycle operations ────────────────────────────────────────────
-
+    
     export async function submitJob(slug, rawOpts) {
       // Preset expansion: body wins over preset on any shared field; preset
       // stamps sounio.dev/preset label used by the reconciler as kind_label.
       const opts = applyPreset(rawOpts.preset, rawOpts);
       const kind = opts.kind || "k8s";
       const jobId = shortId();
-
+    
       if (kind === "slurm") {
         // Stub — future Slinky/sbatch integration
         const err = new Error("slurm submission not yet wired (use kind: 'k8s' for now)");
         err.statusCode = 501;
         throw err;
       }
-
+    
       const manifest = renderK8sJob({
         slug,
         campaign: opts.campaign,
@@ -13466,12 +13680,12 @@ data:
         jobId,
         extraLabels: opts.labels
       });
-
+    
       await runKubectl(
         ["-n", NAMESPACE, "apply", "-f", "-"],
         { input: JSON.stringify(manifest) }
       );
-
+    
       return {
         job_id: jobId,
         job_name: manifest.metadata.name,
@@ -13483,7 +13697,7 @@ data:
         truthMode: "observed"
       };
     }
-
+    
     // Compute a normalized phase from a K8s Job manifest. Shared between the
     // single-job status endpoint and the reconciler so state classification
     // stays consistent.
@@ -13496,7 +13710,7 @@ data:
       if ((job.status?.active || 0) === 0 && !completed && !failed) return "Pending";
       return "Running";
     }
-
+    
     // Reconciler-facing: list every cockpit-managed Job in the namespace, not
     // scoped to a single project slug.
     export async function listAllCockpitJobs() {
@@ -13512,7 +13726,7 @@ data:
         return [];
       }
     }
-
+    
     // Tail pod logs for a job — used by the reconciler to capture error context
     // when a Job terminates in Failed phase. Best-effort; returns empty on any
     // kubectl hiccup so a single bad pod doesn't break the whole reconciler tick.
@@ -13529,7 +13743,7 @@ data:
         return "";
       }
     }
-
+    
     export async function getJobStatus(slug, jobId) {
       const jobName = `job-${slug}-${jobId}`;
       try {
@@ -13539,9 +13753,9 @@ data:
           "-o", "json"
         ]);
         const job = JSON.parse(raw);
-
+    
         const phase = phaseFromJobManifest(job);
-
+    
         // Pull pod list to give more context
         let pods = [];
         try {
@@ -13558,7 +13772,7 @@ data:
             ready: p.status.containerStatuses?.every(c => c.ready) ?? false
           }));
         } catch { /* pods optional */ }
-
+    
         return {
           job_id: jobId,
           job_name: jobName,
@@ -13578,7 +13792,7 @@ data:
         throw e;
       }
     }
-
+    
     export async function listJobs(slug) {
       try {
         const raw = await runKubectl([
@@ -13601,7 +13815,7 @@ data:
         return [];
       }
     }
-
+    
     export async function cancelJob(slug, jobId) {
       const jobName = `job-${slug}-${jobId}`;
       await runKubectl([
@@ -13611,10 +13825,58 @@ data:
       ]);
       return { job_id: jobId, status: "cancelled", truthMode: "observed" };
     }
-
+    
     // ─── Route registration ─────────────────────────────────────────────
-
+    
     export function registerJobRoutes(app) {
+      app.get(
+        "/api/projects/:slug/hpc/profiles",
+        withEnvelope(async (req) => ({
+          data: {
+            projectSlug: req.params.slug,
+            ...(await listHpcProfiles())
+          }
+        }))
+      );
+    
+      app.post(
+        "/api/projects/:slug/hpc/jobs/submit",
+        idempotent(),
+        withEnvelope(async (req) => ({
+          data: await submitHpcJob(req.params.slug, req.body || {})
+        }))
+      );
+    
+      app.get(
+        "/api/projects/:slug/hpc/jobs/:jobId",
+        withEnvelope(async (req) => ({
+          data: {
+            projectSlug: req.params.slug,
+            ...(await getHpcJobStatus(req.params.jobId))
+          }
+        }))
+      );
+    
+      app.get(
+        "/api/projects/:slug/hpc/jobs/:jobId/stdout",
+        withEnvelope(async (req) => ({
+          data: {
+            projectSlug: req.params.slug,
+            ...(await getHpcJobTextArtifact(req.params.jobId, "stdout"))
+          }
+        }))
+      );
+    
+      app.get(
+        "/api/projects/:slug/hpc/jobs/:jobId/stderr",
+        withEnvelope(async (req) => ({
+          data: {
+            projectSlug: req.params.slug,
+            ...(await getHpcJobTextArtifact(req.params.jobId, "stderr"))
+          }
+        }))
+      );
+    
       app.post("/api/projects/:slug/jobs/submit", idempotent(), async (req, res) => {
         try {
           const result = await submitJob(req.params.slug, req.body || {});
@@ -13628,7 +13890,7 @@ data:
           });
         }
       });
-
+    
       app.get("/api/projects/:slug/jobs/:jobId", async (req, res) => {
         try {
           const status = await getJobStatus(req.params.slug, req.params.jobId);
@@ -13637,7 +13899,7 @@ data:
           res.status(500).json({ error: e.message, truthMode: "stale" });
         }
       });
-
+    
       app.get("/api/projects/:slug/jobs", async (req, res) => {
         try {
           const jobs = await listJobs(req.params.slug);
@@ -13646,11 +13908,11 @@ data:
           res.status(500).json({ error: e.message, truthMode: "stale" });
         }
       });
-
+    
       app.get("/api/jobs/presets", (_req, res) => {
         res.json({ presets: listPresets(), truthMode: "observed" });
       });
-
+    
       app.post("/api/projects/:slug/jobs/:jobId/cancel", idempotent(), async (req, res) => {
         try {
           const result = await cancelJob(req.params.slug, req.params.jobId);
