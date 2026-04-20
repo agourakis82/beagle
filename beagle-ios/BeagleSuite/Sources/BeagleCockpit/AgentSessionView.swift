@@ -85,14 +85,19 @@ struct AgentSessionView: View {
                 scratchpadStrip
             }
             sessionControls
-            TerminalContentView(terminal: terminal)
+            TerminalContentView(
+                terminal: terminal,
+                onReconnect: {
+                    Task { await reconnectTerminal() }
+                }
+            )
             if sessionState.isRunning {
                 inputBar
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .background { AgentSessionGradient(sessionState: sessionState, connectionState: terminal.connectionState) }
-        .navigationTitle("Agent \u{00B7} \(slug)")
+        .navigationTitle("Agents \u{00B7} \(slug)")
         .sensoryFeedback(.success, trigger: sessionState.isRunning)
         .onChange(of: sessionState) {
             if sessionState.isRunning {
@@ -369,7 +374,7 @@ struct AgentSessionView: View {
 
         guard result.mode == .observed, let sessions = result.value?.sessions else {
             let err = result.error ?? "no response"
-            sessionState = .error("Cockpit unreachable: \(err). Check Tailscale on iPhone.")
+            sessionState = .error("Cockpit unreachable: \(err). Check public gateway or Tailscale connectivity.")
             return
         }
 
@@ -478,6 +483,30 @@ struct AgentSessionView: View {
         sessionState = .running(podName: podName)
         terminal.connect(slug: slug, kind: selectedKind.rawValue)
         LiveActivityManager.shared.startAgentActivity(slug: slug, kind: selectedKind.rawValue, sessionId: podName)
+    }
+
+    private func reconnectTerminal() async {
+        guard sessionState.isRunning else {
+            await spawnSession()
+            return
+        }
+
+        let detail = await CockpitClient.shared.agentSession(slug: slug, kind: selectedKind.rawValue)
+        guard let session = detail.value else {
+            sessionState = .error(detail.error ?? "Could not refresh session before reconnect.")
+            return
+        }
+
+        switch session.phase {
+        case .running:
+            connectToSession(session)
+        case .paused:
+            terminal.disconnect()
+            sessionState = .paused
+        case .pending:
+            sessionState = .pending(message: pendingMessage(for: session, fallback: "Session pending..."))
+            await pollUntilReady()
+        }
     }
 
     private func pendingMessage(for session: AgentSession, fallback: String) -> String {

@@ -12,6 +12,7 @@ import BeagleCore
 
 struct TerminalContentView: View {
     @Bindable var terminal: TerminalStore
+    var onReconnect: (() -> Void)? = nil
 
     // Smart scroll state
     @State private var isUserScrolledUp = false
@@ -243,6 +244,15 @@ struct TerminalContentView: View {
                         }
                     }
                     Spacer()
+                    if let onReconnect {
+                        Button(action: onReconnect) {
+                            Label("Reconnect", systemImage: "arrow.clockwise")
+                                .font(BeagleFont.caption.font)
+                                .fontWeight(.medium)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                    }
                 }
                 .padding(.horizontal, BeagleSpacing.md)
                 .padding(.vertical, BeagleSpacing.sm)
