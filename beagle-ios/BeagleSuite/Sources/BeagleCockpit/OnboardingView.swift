@@ -23,8 +23,7 @@ struct OnboardingView: View {
             modelPage.tag(1)
             capturePage.tag(2)
         }
-        .tabViewStyle(.page(indexDisplayMode: .always))
-        .indexViewStyle(.page(backgroundDisplayMode: .always))
+        .modifier(OnboardingPagingStyle())
         .background(onboardingGradient)
         .onAppear {
             withAnimation(.easeOut(duration: 0.8)) { hasAppeared = true }
@@ -36,6 +35,8 @@ struct OnboardingView: View {
     private var welcomePage: some View {
         VStack(spacing: BeagleSpacing.xl) {
             Spacer()
+
+            PresencePill(label: BuildInfo.previewLabel, systemImage: "bolt.badge.clock.fill", tint: BeagleTheme.postureWarm)
 
             Image(systemName: "brain.head.profile")
                 .font(.system(size: 56))
@@ -50,25 +51,29 @@ struct OnboardingView: View {
                 .animation(.spring(duration: 0.8, bounce: 0.3), value: hasAppeared)
 
             VStack(spacing: BeagleSpacing.md) {
-                Text("Your Exocortex")
+                Text("Beagle")
                     .font(BeagleFont.title1.font)
                     .foregroundStyle(BeagleTheme.textPrimary)
 
-                Text("A second brain that captures your thoughts, explores them deeply, and never forgets.")
+                Text("A private mind in your hand that can interface with a larger living intelligence when you want more reach.")
                     .font(BeagleFont.body.font)
                     .foregroundStyle(BeagleTheme.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
                     .padding(.horizontal, BeagleSpacing.xxl)
+
+                Text("This preview makes the bridge obvious from the first screen.")
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.postureWarm)
             }
             .opacity(hasAppeared ? 1 : 0)
             .offset(y: hasAppeared ? 0 : 20)
             .animation(.easeOut(duration: 0.6).delay(0.3), value: hasAppeared)
 
             VStack(spacing: BeagleSpacing.sm) {
-                featureRow(icon: "lock.shield.fill", text: "Thoughts stay on-device. Private by default.", color: BeagleTheme.truthObserved)
-                featureRow(icon: "scope", text: "Go Deeper: 8 reasoning modalities in parallel.", color: BeagleTheme.truthRemembered)
-                featureRow(icon: "sparkles", text: "HERMES refines your raw ideas into insights.", color: BeagleTheme.postureWarm)
+                featureRow(icon: "lock.shield.fill", text: "Start privately on-device. Your thoughts are yours first.", color: BeagleTheme.truthObserved)
+                featureRow(icon: "scope", text: "Explore an idea deeply when the thread deserves it.", color: BeagleTheme.truthRemembered)
+                featureRow(icon: "server.rack", text: "When you're ready, the cluster mind can carry the work further.", color: BeagleTheme.postureWarm)
             }
             .padding(.horizontal, BeagleSpacing.lg)
             .opacity(hasAppeared ? 1 : 0)
@@ -76,7 +81,10 @@ struct OnboardingView: View {
 
             Spacer()
 
-            nextButton("Get Started") { page = 1 }
+            VStack(spacing: BeagleSpacing.md) {
+                pageIndicator
+                nextButton("Get Started") { page = 1 }
+            }
         }
         .padding(BeagleSpacing.lg)
     }
@@ -137,7 +145,10 @@ struct OnboardingView: View {
 
             Spacer()
 
-            nextButton("Continue") { page = 2 }
+            VStack(spacing: BeagleSpacing.md) {
+                pageIndicator
+                nextButton("Continue") { page = 2 }
+            }
         }
         .padding(BeagleSpacing.lg)
     }
@@ -157,7 +168,7 @@ struct OnboardingView: View {
                     .font(BeagleFont.title2.font)
                     .foregroundStyle(BeagleTheme.textPrimary)
 
-                Text("What's on your mind right now? Anything at all. This is the beginning of your exocortex.")
+                Text("What's on your mind right now? Anything at all. This is the beginning of your first thread with Beagle.")
                     .font(BeagleFont.subheadline.font)
                     .foregroundStyle(BeagleTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -182,26 +193,30 @@ struct OnboardingView: View {
 
             Spacer()
 
-            Button {
-                completeOnboarding()
-            } label: {
-                Text(firstThought.isEmpty ? "Skip for now" : "Begin")
-                    .font(BeagleFont.body.font)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, BeagleSpacing.md)
-                    .background(
-                        Capsule()
-                            .fill(
-                                firstThought.isEmpty
-                                ? BeagleTheme.textTertiary
-                                : BeagleTheme.truthObserved
-                            )
-                    )
+            VStack(spacing: BeagleSpacing.md) {
+                pageIndicator
+
+                Button {
+                    completeOnboarding()
+                } label: {
+                    Text(firstThought.isEmpty ? "Skip for now" : "Begin")
+                        .font(BeagleFont.body.font)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, BeagleSpacing.md)
+                        .background(
+                            Capsule()
+                                .fill(
+                                    firstThought.isEmpty
+                                    ? BeagleTheme.textTertiary
+                                    : BeagleTheme.truthObserved
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+                .sensoryFeedback(.success, trigger: isComplete)
             }
-            .buttonStyle(.plain)
-            .sensoryFeedback(.success, trigger: isComplete)
         }
         .padding(BeagleSpacing.lg)
     }
@@ -239,6 +254,20 @@ struct OnboardingView: View {
         .buttonStyle(.plain)
     }
 
+    private var pageIndicator: some View {
+        HStack(spacing: BeagleSpacing.xs) {
+            ForEach(0..<3, id: \.self) { index in
+                Capsule()
+                    .fill(index == page ? BeagleTheme.textPrimary : BeagleTheme.textTertiary.opacity(0.45))
+                    .frame(width: index == page ? 20 : 8, height: 8)
+                    .animation(BeagleMotion.snappy, value: page)
+            }
+        }
+        .padding(.horizontal, BeagleSpacing.md)
+        .padding(.vertical, BeagleSpacing.xs)
+        .background(.ultraThinMaterial, in: Capsule())
+    }
+
     private func completeOnboarding() {
         if !firstThought.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Task {
@@ -269,5 +298,16 @@ struct OnboardingView: View {
             startPoint: .top, endPoint: .bottom
         )
         .ignoresSafeArea()
+    }
+}
+
+private struct OnboardingPagingStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content
+            .tabViewStyle(.page(indexDisplayMode: .never))
+        #else
+        content
+        #endif
     }
 }
