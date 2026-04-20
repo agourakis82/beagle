@@ -234,6 +234,18 @@ export async function getHpcJobTextArtifact(jobId, stream) {
   };
 }
 
+export async function getHpcJobArtifactManifest(jobId) {
+  const payload = await proxyDarwinHpc(
+    "GET",
+    `/api/darwin/hpc/jobs/${jobId}/artifact-manifest`,
+    { timeoutMs: HPC_READ_TIMEOUT_MS }
+  );
+  return {
+    ...payload,
+    via: "cockpit-darwin-hpc"
+  };
+}
+
 // ─── K8s Job manifest rendering ───────────────────────────────────────
 
 function renderK8sJob({ slug, campaign, image, command, resources, dataMounts, timeoutSec, jobId, extraLabels }) {
@@ -528,6 +540,16 @@ export function registerJobRoutes(app) {
       data: {
         projectSlug: req.params.slug,
         ...(await getHpcJobStatus(req.params.jobId))
+      }
+    }))
+  );
+
+  app.get(
+    "/api/projects/:slug/hpc/jobs/:jobId/artifact-manifest",
+    withEnvelope(async (req) => ({
+      data: {
+        projectSlug: req.params.slug,
+        ...(await getHpcJobArtifactManifest(req.params.jobId))
       }
     }))
   );

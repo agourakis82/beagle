@@ -360,6 +360,12 @@ export const cockpitManifest = {
       description: "Status of a typed Darwin HPC job."
     },
     {
+      name: "cockpit_hpc_job_artifact_manifest",
+      method: "GET",
+      path: "/api/projects/{slug}/hpc/jobs/{job_id}/artifact-manifest",
+      description: "Structured artifact manifest for a Darwin HPC job."
+    },
+    {
       name: "cockpit_hpc_job_stdout",
       method: "GET",
       path: "/api/projects/{slug}/hpc/jobs/{job_id}/stdout",

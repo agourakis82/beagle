@@ -365,13 +365,13 @@ data:
     }
 
     __beagle_print_usage() {
-      cat <<'EOF'
-    beagle hpc profiles
-    beagle hpc submit <profile_id> [run_label]
-    beagle hpc status <job_id>
-    beagle hpc stdout <job_id>
-    beagle hpc stderr <job_id>
-    EOF
+      printf '%s\n' \
+        'beagle hpc profiles' \
+        'beagle hpc submit <profile_id> [run_label]' \
+        'beagle hpc status <job_id>' \
+        'beagle hpc artifact-manifest <job_id>' \
+        'beagle hpc stdout <job_id>' \
+        'beagle hpc stderr <job_id>'
     }
 
     __beagle_hpc_profiles() {
@@ -412,7 +412,16 @@ data:
       __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/jobs/${job_id}"
     }
 
-    beagle() {
+    __beagle_hpc_artifact_manifest() {
+      job_id="${1:-}"
+      if [ -z "${job_id}" ]; then
+        echo "beagle hpc artifact-manifest requires <job_id>" >&2
+        return 2
+      fi
+      __beagle_request GET "/api/projects/${BEAGLE_PROJECT_SLUG}/hpc/jobs/${job_id}/artifact-manifest"
+    }
+
+    __beagle_main() {
       domain="${1:-}"
       shift || true
       case "${domain}" in
@@ -423,6 +432,7 @@ data:
             profiles) __beagle_hpc_profiles "$@" ;;
             submit) __beagle_hpc_submit "$@" ;;
             status) __beagle_hpc_status "$@" ;;
+            artifact-manifest) __beagle_hpc_artifact_manifest "$@" ;;
             stdout) __beagle_hpc_job_stream "${1:-}" stdout ;;
             stderr) __beagle_hpc_job_stream "${1:-}" stderr ;;
             *)
@@ -451,7 +461,7 @@ data:
     export BEAGLE_PROJECT_SLUG="${BEAGLE_PROJECT_SLUG:-sounio}"
     # shellcheck disable=SC1090
     . "${HOME}/.beagle_shell_helpers.sh"
-    beagle "$@"
+    __beagle_main "$@"
     EOF
     chmod +x "${HOME_DIR}/bin/beagle"
 

@@ -1270,6 +1270,12 @@ data:
           description: "Status of a typed Darwin HPC job."
         },
         {
+          name: "cockpit_hpc_job_artifact_manifest",
+          method: "GET",
+          path: "/api/projects/{slug}/hpc/jobs/{job_id}/artifact-manifest",
+          description: "Structured artifact manifest for a Darwin HPC job."
+        },
+        {
           name: "cockpit_hpc_job_stdout",
           method: "GET",
           path: "/api/projects/{slug}/hpc/jobs/{job_id}/stdout",
@@ -13558,6 +13564,18 @@ data:
         via: "cockpit-darwin-hpc"
       };
     }
+
+    export async function getHpcJobArtifactManifest(jobId) {
+      const payload = await proxyDarwinHpc(
+        "GET",
+        `/api/darwin/hpc/jobs/${jobId}/artifact-manifest`,
+        { timeoutMs: HPC_READ_TIMEOUT_MS }
+      );
+      return {
+        ...payload,
+        via: "cockpit-darwin-hpc"
+      };
+    }
     
     // ─── K8s Job manifest rendering ───────────────────────────────────────
     
@@ -13853,6 +13871,16 @@ data:
           data: {
             projectSlug: req.params.slug,
             ...(await getHpcJobStatus(req.params.jobId))
+          }
+        }))
+      );
+    
+      app.get(
+        "/api/projects/:slug/hpc/jobs/:jobId/artifact-manifest",
+        withEnvelope(async (req) => ({
+          data: {
+            projectSlug: req.params.slug,
+            ...(await getHpcJobArtifactManifest(req.params.jobId))
           }
         }))
       );
