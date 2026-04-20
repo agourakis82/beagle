@@ -561,7 +561,7 @@ public enum TerminalMessage: Sendable {
     case data(String)
     case stderr(String)
     case ready(projectSlug: String)
-    case exit(code: Int)
+    case exit(code: Int, detail: String? = nil)
 }
 
 public enum WebSocketState: Sendable, Equatable {

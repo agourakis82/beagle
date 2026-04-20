@@ -25,9 +25,10 @@ struct TerminalContentView: View {
                 jumpToBottomPill
             }
             reconnectingOverlay
+            exitOverlay
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(BeagleTheme.surface0.opacity(0.8))
+        .background(Color(red: 0.04, green: 0.04, blue: 0.07))
     }
 
     // MARK: - Scroll content
@@ -81,80 +82,114 @@ struct TerminalContentView: View {
 
     private func terminalRow(_ line: AttributedTerminalLine) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            // Line number gutter
-            Text(String(format: "%4d", line.lineNumber))
-                .font(BeagleFont.dataSmall.font)
-                .foregroundStyle(BeagleTheme.textTertiary.opacity(0.35))
-                .frame(width: 36, alignment: .trailing)
-                .padding(.trailing, BeagleSpacing.xs)
-
-            // Gutter separator
-            Rectangle()
-                .fill(Color.white.opacity(0.06))
-                .frame(width: 1)
-
-            // Stderr indicator bar
+            // Stderr accent bar — subtle left edge
             if line.isStderr {
                 Rectangle()
-                    .fill(BeagleTheme.stateError.opacity(0.6))
+                    .fill(BeagleTheme.stateError.opacity(0.5))
                     .frame(width: 2)
-                    .padding(.leading, BeagleSpacing.xxs)
+                    .padding(.trailing, BeagleSpacing.xxs)
             }
 
             // Attributed content
             Text(line.content)
                 .textSelection(.enabled)
-                .padding(.leading, BeagleSpacing.xs)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 1.5)
+        .padding(.horizontal, BeagleSpacing.sm)
+        .padding(.vertical, 2)
     }
 
     // MARK: - Empty state
 
     private var emptyState: some View {
-        VStack(spacing: BeagleSpacing.md) {
-            Image(systemName: "terminal")
-                .font(.system(size: 32))
-                .foregroundStyle(BeagleTheme.textTertiary.opacity(0.4))
-            Text("Start a session to attach")
-                .font(BeagleFont.footnote.font)
-                .foregroundStyle(BeagleTheme.textTertiary)
+        VStack(spacing: BeagleSpacing.lg) {
+            Image(systemName: "apple.terminal")
+                .font(.system(size: 36))
+                .foregroundStyle(BeagleTheme.textTertiary.opacity(0.3))
+
+            VStack(spacing: BeagleSpacing.xs) {
+                Text("No active session")
+                    .font(BeagleFont.subheadline.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                Text("Press Connect to deploy or resume an agent pod.\nSession survives app close — your work is never lost.")
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+            }
+
+            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                shortcutHint("Ctrl+C", "interrupt current process")
+                shortcutHint("Tab", "complete command")
+                shortcutHint("↑ ↓", "navigate command history")
+            }
+            .padding(BeagleSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: BeagleRadius.md)
+                    .fill(Color.white.opacity(0.03))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BeagleRadius.md)
+                            .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                    )
+            )
         }
         .frame(maxWidth: .infinity)
+        .padding(.horizontal, BeagleSpacing.xxxl)
         .padding(.top, BeagleSpacing.jumbo)
+    }
+
+    private func shortcutHint(_ key: String, _ description: String) -> some View {
+        HStack(spacing: BeagleSpacing.sm) {
+            Text(key)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(BeagleTheme.truthObserved.opacity(0.8))
+                .padding(.horizontal, BeagleSpacing.xs)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(BeagleTheme.truthObserved.opacity(0.08))
+                )
+            Text(description)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+        }
     }
 
     // MARK: - Jump to bottom pill
 
     private var jumpToBottomPill: some View {
-        Button {
+        let newLines = max(0, terminal.attributedLines.count - lastLineCount)
+        return Button {
             withAnimation(BeagleMotion.snappy) {
                 isUserScrolledUp = false
             }
         } label: {
             HStack(spacing: BeagleSpacing.xxs) {
                 Image(systemName: "arrow.down")
-                    .font(.system(size: 11, weight: .semibold))
-                Text("New output")
-                    .font(BeagleFont.caption.font)
-                    .fontWeight(.medium)
+                    .font(.system(size: 11, weight: .bold))
+                if newLines > 0 {
+                    Text("+\(newLines) lines")
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.medium)
+                } else {
+                    Text("Jump to bottom")
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.medium)
+                }
             }
-            .foregroundStyle(BeagleTheme.truthObserved)
-            .padding(.horizontal, BeagleSpacing.sm)
-            .padding(.vertical, BeagleSpacing.xs)
+            .foregroundStyle(.black)
+            .padding(.horizontal, BeagleSpacing.md)
+            .padding(.vertical, BeagleSpacing.xs + 1)
             .background(
                 Capsule()
-                    .fill(BeagleTheme.surface2)
-                    .shadow(color: BeagleTheme.truthObserved.opacity(0.2), radius: 8)
-            )
-            .overlay(
-                Capsule()
-                    .strokeBorder(BeagleTheme.truthObserved.opacity(0.25), lineWidth: 1)
+                    .fill(BeagleTheme.truthObserved)
+                    .shadow(color: BeagleTheme.truthObserved.opacity(0.35), radius: 12, y: 4)
             )
         }
         .buttonStyle(.plain)
         .padding(.bottom, BeagleSpacing.sm)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .transition(.scale(scale: 0.85).combined(with: .opacity))
     }
 
     // MARK: - Reconnecting overlay
@@ -183,6 +218,44 @@ struct TerminalContentView: View {
                 )
                 .padding(.top, BeagleSpacing.sm)
 
+                Spacer()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var exitOverlay: some View {
+        if terminal.connectionState == .disconnected, terminal.hasAbnormalExit {
+            VStack {
+                HStack(alignment: .top, spacing: BeagleSpacing.sm) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(BeagleTheme.stateError)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Terminal session ended unexpectedly")
+                            .font(BeagleFont.caption.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                        if let detail = terminal.lastExitDetail {
+                            Text(detail)
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.textSecondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, BeagleSpacing.md)
+                .padding(.vertical, BeagleSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: BeagleRadius.md)
+                        .fill(BeagleTheme.surface2)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: BeagleRadius.md)
+                        .strokeBorder(BeagleTheme.stateError.opacity(0.35), lineWidth: 1)
+                )
+                .padding(.horizontal, BeagleSpacing.sm)
+                .padding(.top, BeagleSpacing.sm)
                 Spacer()
             }
         }

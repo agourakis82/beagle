@@ -17,7 +17,10 @@ public actor WebSocketClient {
     private let session: URLSession
 
     /// Same URL resolution as CockpitClient — http→ws scheme transform.
+    /// Public websocket routes are now available on the Cloudflare edge, with
+    /// the older private paths retained as fallback during transition.
     private var baseURLs: [URL] = [
+        URL(string: "https://beagle.chiuratto.ai")!,
         URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
         URL(string: "http://100.107.208.198")!,
         URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
@@ -133,7 +136,7 @@ public actor WebSocketClient {
                             return true
                         }
                         group.addTask {
-                            try await Task.sleep(for: .seconds(5))
+                            try await Task.sleep(for: .seconds(12))
                             throw CancellationError()
                         }
                         if let result = try await group.next() {
@@ -227,13 +230,13 @@ public actor WebSocketClient {
                                 return true
                             }
                             group.addTask {
-                                try await Task.sleep(for: .seconds(5))
+                                try await Task.sleep(for: .seconds(12))
                                 throw CancellationError()
                             }
                             if let result = try await group.next() {
                                 group.cancelAll()
                                 if result {
-                                    await self.setConnected(task: wsTask, source: base.host ?? "unknown")
+                                    self.setConnected(task: wsTask, source: base.host ?? "unknown")
                                     connected = true
                                 }
                             }
@@ -307,8 +310,9 @@ public actor WebSocketClient {
             let slug = (json["data"] as? [String: Any])?["projectSlug"] as? String ?? ""
             continuation?.yield(.ready(projectSlug: slug))
         case "exit":
-            let code = json["code"] as? Int ?? (json["data"] as? String).flatMap { Int($0) } ?? 0
-            continuation?.yield(.exit(code: code))
+            let detail = json["data"] as? String
+            let code = json["code"] as? Int ?? parseExitCode(from: detail) ?? 0
+            continuation?.yield(.exit(code: code, detail: detail))
         default:
             if let payload = json["data"] as? String {
                 continuation?.yield(.data(payload))
@@ -341,6 +345,18 @@ public actor WebSocketClient {
             .replacingOccurrences(of: "\r", with: "\\r")
             .replacingOccurrences(of: "\t", with: "\\t")
         return "\"\(escaped)\""
+    }
+
+    private func parseExitCode(from detail: String?) -> Int? {
+        guard let detail else { return nil }
+        let pattern = #"-?\d+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(detail.startIndex..<detail.endIndex, in: detail)
+        guard let match = regex.firstMatch(in: detail, range: range),
+              let matchRange = Range(match.range, in: detail) else {
+            return nil
+        }
+        return Int(detail[matchRange])
     }
 }
 

@@ -26,6 +26,10 @@ public final class TerminalStore {
     /// Updated when grid revision changes.
     public private(set) var attributedLines: [AttributedTerminalLine] = []
 
+    /// The last non-zero exit observed from the terminal stream.
+    public private(set) var lastExitCode: Int?
+    public private(set) var lastExitDetail: String?
+
     /// Whether the user is scrolled to the bottom (for smart scroll).
     public var isAtBottom: Bool = true
 
@@ -53,6 +57,7 @@ public final class TerminalStore {
         disconnect()
         connectionState = .connecting
         parser.reset()
+        clearLastExit()
 
         let stream = Task {
             await client.connectAgent(slug: slug, kind: kind)
@@ -71,8 +76,8 @@ public final class TerminalStore {
                     processRawOutput(text, isStderr: true)
                 case .ready(let slug):
                     appendStatusLine("● connected to \(slug)", isStderr: false)
-                case .exit(let code):
-                    appendStatusLine("■ process exited (\(code))", isStderr: code != 0)
+                case .exit(let code, let detail):
+                    recordExit(code: code, detail: detail, fallback: "■ process exited (\(code))")
                     connectionState = .disconnected
                 }
             }
@@ -89,6 +94,7 @@ public final class TerminalStore {
         disconnect()
         connectionState = .connecting
         parser.reset()
+        clearLastExit()
 
         let stream = Task {
             await client.connectTerminal(slug: slug, sessionId: sessionId)
@@ -107,8 +113,8 @@ public final class TerminalStore {
                     processRawOutput(text, isStderr: true)
                 case .ready(let slug):
                     appendStatusLine("● terminal ready: \(slug)", isStderr: false)
-                case .exit(let code):
-                    appendStatusLine("■ terminal exited (\(code))", isStderr: code != 0)
+                case .exit(let code, let detail):
+                    recordExit(code: code, detail: detail, fallback: "■ terminal exited (\(code))")
                     connectionState = .disconnected
                 }
             }
@@ -153,6 +159,11 @@ public final class TerminalStore {
         grid.lineCount
     }
 
+    public var hasAbnormalExit: Bool {
+        guard let lastExitCode else { return false }
+        return lastExitCode != 0
+    }
+
     // MARK: - Backward compatibility
 
     /// Flat line array for code that still reads `lines`.
@@ -194,6 +205,26 @@ public final class TerminalStore {
             lastActivityUpdate = .now
             let snippet = String((lastLine?.text ?? "").prefix(60))
             onActivityUpdate?("active", totalTokens, snippet)
+        }
+    }
+
+    /// Write a plain-text diagnostic line into the terminal buffer.
+    /// Used by AgentSessionView to show pod spawn status before the WebSocket connects.
+    public func appendDiagnosticLine(_ text: String) {
+        appendStatusLine(text, isStderr: false)
+    }
+
+    private func clearLastExit() {
+        lastExitCode = nil
+        lastExitDetail = nil
+    }
+
+    private func recordExit(code: Int, detail: String?, fallback: String) {
+        let message = detail ?? fallback
+        appendStatusLine(message, isStderr: code != 0)
+        if code != 0 {
+            lastExitCode = code
+            lastExitDetail = message
         }
     }
 
