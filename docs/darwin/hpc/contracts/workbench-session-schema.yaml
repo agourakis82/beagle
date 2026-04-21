@@ -1,0 +1,83 @@
+version: beagle-workbench-session-v1
+kind: workbench-session
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - workspace_identity_owner
+  - workspace_tenancy_state
+  - stable_workspace_alias
+  - workspace_root
+  - default_dev_plane
+  - active_dev_plane
+  - governance_state
+  - fallback_active
+  - workspace_tenancy_path
+  - workspace_subagents_path
+  - workspace_subagent_route_path
+  - context_packet_path
+  - plan_execution_path
+  - client_access
+  - subagent_roles
+  - memory_context
+  - note
+properties:
+  phase:
+    type: string
+  contract_kind:
+    const: workbench-session
+  contract_version:
+    const: beagle-workbench-session-v1
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  workspace_identity_owner:
+    type: string
+  workspace_tenancy_state:
+    type: string
+  stable_workspace_alias:
+    type: string
+  workspace_root:
+    type: string
+  default_dev_plane:
+    type: string
+  active_dev_plane:
+    type: string
+  governance_state:
+    type: string
+  fallback_active:
+    type: boolean
+  workspace_tenancy_path:
+    type: string
+  workspace_subagents_path:
+    type: string
+  workspace_subagent_route_path:
+    type: string
+  context_packet_path:
+    type: string
+  plan_execution_path:
+    type: string
+  client_access:
+    type: array
+  subagent_roles:
+    type: array
+  recommended_subagent_id:
+    type: [string, "null"]
+  live_selected_subagent_id:
+    type: [string, "null"]
+  live_execution_state:
+    type: [string, "null"]
+  memory_context:
+    type: object
+  note:
+    type: string

@@ -1,0 +1,45 @@
+openapi: 3.1.0
+info:
+  title: Beagle Retrieval Routing Decision
+  version: beagle-retrieval-routing-decision-v1
+components:
+  schemas:
+    RetrievalRoutingDecision:
+      type: object
+      required:
+        - decision_version
+        - router_version
+        - query_type
+        - selected_route
+        - selected_dense_backend
+        - sparse_backend
+        - payload_filters_present
+        - compare_against_general
+        - routing_source
+        - routing_reason
+        - note
+      properties:
+        decision_version:
+          type: string
+        router_version:
+          type: string
+        query_type:
+          type: string
+          enum: [general, code, sovereign]
+        selected_route:
+          type: string
+          enum: [general, code, sovereign]
+        selected_dense_backend:
+          type: string
+        sparse_backend:
+          type: string
+        payload_filters_present:
+          type: boolean
+        compare_against_general:
+          type: boolean
+        routing_source:
+          type: string
+        routing_reason:
+          type: string
+        note:
+          type: string

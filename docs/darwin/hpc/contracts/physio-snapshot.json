@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Observer Physio Snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "source": { "type": "string" },
+    "session_id": { "type": ["string", "null"] },
+    "timestamp": { "type": "string" },
+    "hr": { "type": ["number", "null"] },
+    "hrv_ms": { "type": ["number", "null"] },
+    "hrv_level": { "type": ["string", "null"] },
+    "spo2": { "type": ["number", "null"] },
+    "stress_index": { "type": ["number", "null"] },
+    "severity": { "type": ["string", "null"] }
+  },
+  "required": ["source", "timestamp"]
+}

@@ -12,6 +12,15 @@ pub use model::*;
 use std::env;
 use std::path::PathBuf;
 
+fn optional_non_empty_or(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        fallback.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 fn default_grok_model() -> String {
     "grok-3".to_string()
 }
@@ -243,6 +252,121 @@ pub fn bootstrap() -> anyhow::Result<()> {
     );
 
     Ok(())
+}
+
+pub fn workspace_habitat_bindings_from_env() -> Vec<WorkspaceHabitatBindingConfig> {
+    env::var("BEAGLE_WORKSPACE_HABITATS_JSON")
+        .ok()
+        .and_then(|value| serde_json::from_str::<Vec<WorkspaceHabitatBindingConfig>>(&value).ok())
+        .unwrap_or_default()
+}
+
+pub fn resolve_workspace_habitat_binding(
+    cfg: &BeagleConfig,
+    workstream_id: &str,
+) -> Option<ResolvedWorkspaceHabitatBinding> {
+    let requested = workstream_id.trim();
+    if requested.is_empty() {
+        return None;
+    }
+
+    if let Some(binding) = workspace_habitat_bindings_from_env()
+        .into_iter()
+        .find(|binding| binding.workstream_id.trim() == requested)
+    {
+        return Some(ResolvedWorkspaceHabitatBinding {
+            workstream_id: requested.to_string(),
+            workspace_id: optional_non_empty_or(&binding.workspace_id, &cfg.workspace.canonical_workspace_id),
+            session_id: optional_non_empty_or(&binding.session_id, "unassigned-session"),
+            canonical_repo: optional_non_empty_or(&binding.canonical_repo, &cfg.workspace.canonical_repo),
+            canonical_branch: optional_non_empty_or(&binding.canonical_branch, &cfg.workspace.canonical_branch),
+            canonical_track: optional_non_empty_or(&binding.canonical_track, &cfg.workspace.canonical_track),
+            branch_lineage: optional_non_empty_or(
+                &binding.branch_lineage,
+                if cfg.workspace.cutover_workstream == requested {
+                    &cfg.workspace.cutover_branch_lineage
+                } else {
+                    &cfg.workspace.canonical_branch
+                },
+            ),
+            governance_state: optional_non_empty_or(
+                &binding.governance_state,
+                if cfg.workspace.cutover_workstream == requested {
+                    &cfg.workspace.cutover_state
+                } else {
+                    "canonical"
+                },
+            ),
+            governance_last_transition: optional_non_empty_or(
+                &binding.governance_last_transition,
+                if cfg.workspace.cutover_workstream == requested {
+                    &cfg.workspace.cutover_last_transition
+                } else {
+                    "resume"
+                },
+            ),
+            default_dev_plane: optional_non_empty_or(&binding.default_dev_plane, &cfg.workspace.default_dev_plane),
+            vm_fallback_role: optional_non_empty_or(&binding.vm_fallback_role, &cfg.workspace.vm_fallback_role),
+            promotion_scope: optional_non_empty_or(&binding.promotion_scope, &cfg.workspace.promotion_scope),
+            ide_kind: optional_non_empty_or(&binding.ide_kind, &cfg.workspace.habitat.ide_kind),
+            ssh_enabled: if binding.ssh_enabled {
+                true
+            } else {
+                cfg.workspace.habitat.ssh_enabled
+            },
+            namespace: optional_non_empty_or(&binding.namespace, &cfg.workspace.habitat.namespace),
+            service_name: optional_non_empty_or(&binding.service_name, &cfg.workspace.habitat.service_name),
+            internal_base_url: optional_non_empty_or(
+                &binding.internal_base_url,
+                &cfg.workspace.habitat.internal_base_url,
+            ),
+            health_path: optional_non_empty_or(&binding.health_path, &cfg.workspace.habitat.health_path),
+            ssh_service_port: if binding.ssh_service_port == 0 {
+                cfg.workspace.habitat.ssh_service_port
+            } else {
+                binding.ssh_service_port
+            },
+            ssh_user: optional_non_empty_or(&binding.ssh_user, &cfg.workspace.habitat.ssh_user),
+            workspace_root: optional_non_empty_or(&binding.workspace_root, &cfg.workspace.habitat.workspace_root),
+            context_dir: optional_non_empty_or(&binding.context_dir, &cfg.workspace.habitat.context_dir),
+            context_packet_file: optional_non_empty_or(
+                &binding.context_packet_file,
+                &cfg.workspace.habitat.context_packet_file,
+            ),
+            context_env_file: optional_non_empty_or(&binding.context_env_file, &cfg.workspace.habitat.context_env_file),
+        });
+    }
+
+    if cfg.workspace.cutover_workstream == requested {
+        return Some(ResolvedWorkspaceHabitatBinding {
+            workstream_id: requested.to_string(),
+            workspace_id: cfg.workspace.canonical_workspace_id.clone(),
+            session_id: "unassigned-session".to_string(),
+            canonical_repo: cfg.workspace.canonical_repo.clone(),
+            canonical_branch: cfg.workspace.canonical_branch.clone(),
+            canonical_track: cfg.workspace.canonical_track.clone(),
+            branch_lineage: cfg.workspace.cutover_branch_lineage.clone(),
+            governance_state: cfg.workspace.cutover_state.clone(),
+            governance_last_transition: cfg.workspace.cutover_last_transition.clone(),
+            default_dev_plane: cfg.workspace.default_dev_plane.clone(),
+            vm_fallback_role: cfg.workspace.vm_fallback_role.clone(),
+            promotion_scope: cfg.workspace.promotion_scope.clone(),
+            ide_kind: cfg.workspace.habitat.ide_kind.clone(),
+            ssh_enabled: cfg.workspace.habitat.ssh_enabled,
+            namespace: cfg.workspace.habitat.namespace.clone(),
+            service_name: cfg.workspace.habitat.service_name.clone(),
+            internal_base_url: cfg.workspace.habitat.internal_base_url.clone(),
+            health_path: cfg.workspace.habitat.health_path.clone(),
+            ssh_service_port: cfg.workspace.habitat.ssh_service_port,
+            ssh_user: cfg.workspace.habitat.ssh_user.clone(),
+            workspace_root: cfg.workspace.habitat.workspace_root.clone(),
+            context_dir: cfg.workspace.habitat.context_dir.clone(),
+            context_packet_file: cfg.workspace.habitat.context_packet_file.clone(),
+            context_env_file: cfg.workspace.habitat.context_env_file.clone(),
+        });
+    }
+
+    None
 }
 
 // ============================================================================
@@ -562,6 +686,133 @@ mod tests {
         env::remove_var("BEAGLE_PUBLISH_MODE");
         env::remove_var("BEAGLE_SAFE_MODE");
     }
+
+    #[test]
+    fn test_workspace_habitat_binding_resolves_requested_workstream() {
+        let previous = env::var("BEAGLE_WORKSPACE_HABITATS_JSON").ok();
+        env::set_var(
+            "BEAGLE_WORKSPACE_HABITATS_JSON",
+            r#"[{
+                "workstream_id":"sounio-lang-main",
+                "workspace_id":"sounio-cluster-pilot",
+                "session_id":"ws-cluster-sounio-habitat",
+                "canonical_repo":"sounio-lang/sounio",
+                "canonical_branch":"main",
+                "canonical_track":"sounio-cluster",
+                "branch_lineage":"main",
+                "governance_state":"pilot",
+                "governance_last_transition":"bootstrap",
+                "default_dev_plane":"cluster",
+                "vm_fallback_role":"dev-laptop",
+                "promotion_scope":"sounio-lang-compiler-mainline",
+                "ide_kind":"openvscode-server",
+                "ssh_enabled":true,
+                "namespace":"beagle",
+                "service_name":"sounio-workspace",
+                "internal_base_url":"http://sounio-workspace.beagle.svc.cluster.local:8080",
+                "health_path":"/",
+                "ssh_service_port":2222,
+                "ssh_user":"openvscode-server",
+                "workspace_root":"/workspace/sounio",
+                "context_dir":"/workspace/sounio/.beagle/context",
+                "context_packet_file":"/workspace/sounio/.beagle/context/workspace-context-packet.json",
+                "context_env_file":"/workspace/sounio/.beagle/context/workspace-context.env"
+            }]"#,
+        );
+
+        let cfg = load();
+        let binding =
+            resolve_workspace_habitat_binding(&cfg, "sounio-lang-main").expect("binding should resolve");
+
+        assert_eq!(binding.workspace_id, "sounio-cluster-pilot");
+        assert_eq!(binding.session_id, "ws-cluster-sounio-habitat");
+        assert_eq!(binding.canonical_repo, "sounio-lang/sounio");
+        assert_eq!(binding.canonical_branch, "main");
+        assert_eq!(binding.service_name, "sounio-workspace");
+        assert_eq!(binding.workspace_root, "/workspace/sounio");
+        assert_eq!(
+            binding.internal_base_url,
+            "http://sounio-workspace.beagle.svc.cluster.local:8080"
+        );
+
+        if let Some(value) = previous {
+            env::set_var("BEAGLE_WORKSPACE_HABITATS_JSON", value);
+        } else {
+            env::remove_var("BEAGLE_WORKSPACE_HABITATS_JSON");
+        }
+    }
+
+    #[test]
+    fn test_workspace_habitat_binding_falls_back_to_cutover_workspace() {
+        let previous = env::var("BEAGLE_WORKSPACE_HABITATS_JSON").ok();
+        let previous_cutover_workstream = env::var("BEAGLE_WORKSPACE_CUTOVER_WORKSTREAM").ok();
+        let previous_workspace_id = env::var("BEAGLE_CANONICAL_WORKSPACE_ID").ok();
+        let previous_repo = env::var("BEAGLE_WORKSPACE_CANONICAL_REPO").ok();
+        let previous_branch = env::var("BEAGLE_WORKSPACE_CANONICAL_BRANCH").ok();
+        let previous_track = env::var("BEAGLE_WORKSPACE_CANONICAL_TRACK").ok();
+        let previous_cutover_state = env::var("BEAGLE_WORKSPACE_CUTOVER_STATE").ok();
+        let previous_cutover_transition =
+            env::var("BEAGLE_WORKSPACE_CUTOVER_LAST_TRANSITION").ok();
+        env::remove_var("BEAGLE_WORKSPACE_HABITATS_JSON");
+        env::set_var("BEAGLE_WORKSPACE_CUTOVER_WORKSTREAM", "beagle-darwin-hpc-governance");
+        env::set_var("BEAGLE_CANONICAL_WORKSPACE_ID", "beagle-cluster-pilot");
+        env::set_var("BEAGLE_WORKSPACE_CANONICAL_REPO", "sounio-lang/beagle");
+        env::set_var("BEAGLE_WORKSPACE_CANONICAL_BRANCH", "main");
+        env::set_var("BEAGLE_WORKSPACE_CANONICAL_TRACK", "beagle-cluster");
+        env::set_var("BEAGLE_WORKSPACE_CUTOVER_STATE", "pilot");
+        env::set_var("BEAGLE_WORKSPACE_CUTOVER_LAST_TRANSITION", "resume");
+
+        let cfg = load();
+        let binding = resolve_workspace_habitat_binding(&cfg, "beagle-darwin-hpc-governance")
+            .expect("cutover fallback should resolve");
+
+        assert_eq!(binding.workspace_id, "beagle-cluster-pilot");
+        assert_eq!(binding.canonical_repo, "sounio-lang/beagle");
+        assert_eq!(binding.canonical_branch, "main");
+        assert_eq!(binding.governance_state, "pilot");
+        assert_eq!(binding.governance_last_transition, "resume");
+
+        if let Some(value) = previous {
+            env::set_var("BEAGLE_WORKSPACE_HABITATS_JSON", value);
+        } else {
+            env::remove_var("BEAGLE_WORKSPACE_HABITATS_JSON");
+        }
+        if let Some(value) = previous_cutover_workstream {
+            env::set_var("BEAGLE_WORKSPACE_CUTOVER_WORKSTREAM", value);
+        } else {
+            env::remove_var("BEAGLE_WORKSPACE_CUTOVER_WORKSTREAM");
+        }
+        if let Some(value) = previous_workspace_id {
+            env::set_var("BEAGLE_CANONICAL_WORKSPACE_ID", value);
+        } else {
+            env::remove_var("BEAGLE_CANONICAL_WORKSPACE_ID");
+        }
+        if let Some(value) = previous_repo {
+            env::set_var("BEAGLE_WORKSPACE_CANONICAL_REPO", value);
+        } else {
+            env::remove_var("BEAGLE_WORKSPACE_CANONICAL_REPO");
+        }
+        if let Some(value) = previous_branch {
+            env::set_var("BEAGLE_WORKSPACE_CANONICAL_BRANCH", value);
+        } else {
+            env::remove_var("BEAGLE_WORKSPACE_CANONICAL_BRANCH");
+        }
+        if let Some(value) = previous_track {
+            env::set_var("BEAGLE_WORKSPACE_CANONICAL_TRACK", value);
+        } else {
+            env::remove_var("BEAGLE_WORKSPACE_CANONICAL_TRACK");
+        }
+        if let Some(value) = previous_cutover_state {
+            env::set_var("BEAGLE_WORKSPACE_CUTOVER_STATE", value);
+        } else {
+            env::remove_var("BEAGLE_WORKSPACE_CUTOVER_STATE");
+        }
+        if let Some(value) = previous_cutover_transition {
+            env::set_var("BEAGLE_WORKSPACE_CUTOVER_LAST_TRANSITION", value);
+        } else {
+            env::remove_var("BEAGLE_WORKSPACE_CUTOVER_LAST_TRANSITION");
+        }
+    }
 }
 
 // ============================================================================
@@ -614,6 +865,7 @@ pub fn load() -> BeagleConfig {
             openai_api_key: env::var("OPENAI_API_KEY").ok(),
             deepseek_api_key: env::var("DEEPSEEK_API_KEY").ok(),
             zai_api_key: env::var("ZAI_API_KEY").ok(),
+            groq_api_key: env::var("GROQ_API_KEY").ok(),
             minimax_api_key: env::var("MINIMAX_API_KEY").ok(),
             vllm_url: env::var("VLLM_URL")
                 .or_else(|_| env::var("BEAGLE_VLLM_URL"))
@@ -624,6 +876,9 @@ pub fn load() -> BeagleConfig {
             zai_base_url: env::var("BEAGLE_ZAI_BASE_URL")
                 .or_else(|_| env::var("ZAI_BASE_URL"))
                 .ok(),
+            groq_base_url: env::var("BEAGLE_GROQ_BASE_URL")
+                .or_else(|_| env::var("GROQ_BASE_URL"))
+                .ok(),
             xai_base_url: env::var("BEAGLE_XAI_BASE_URL")
                 .or_else(|_| env::var("XAI_BASE_URL"))
                 .ok(),
@@ -631,6 +886,8 @@ pub fn load() -> BeagleConfig {
                 .or_else(|_| env::var("MINIMAX_BASE_URL"))
                 .ok(),
             grok_model: env::var("BEAGLE_GROK_MODEL").unwrap_or_else(|_| "grok-3".to_string()),
+            kimi_model: env::var("BEAGLE_KIMI_MODEL")
+                .unwrap_or_else(|_| "moonshotai/kimi-k2-instruct-0905".to_string()),
             routing: model::LlmRoutingConfig::from_env(profile_enum),
         },
         storage: StorageConfig {
@@ -669,8 +926,81 @@ pub fn load() -> BeagleConfig {
             vm_fallback_role: env::var("BEAGLE_WORKSPACE_VM_FALLBACK_ROLE")
                 .unwrap_or_else(|_| "fallback-only".to_string()),
             promotion_scope: env::var("BEAGLE_WORKSPACE_PROMOTION_SCOPE")
-                .unwrap_or_else(|_| "beagle-darwin-hpc-small-medium".to_string()),
+                .unwrap_or_else(|_| "beagle-darwin-hpc-general-noninfra".to_string()),
+            cutover_workstream: env::var("BEAGLE_WORKSPACE_CUTOVER_WORKSTREAM")
+                .unwrap_or_else(|_| "beagle-darwin-hpc-governance".to_string()),
+            cutover_state: env::var("BEAGLE_WORKSPACE_CUTOVER_STATE")
+                .unwrap_or_else(|_| "canonical".to_string()),
+            cutover_last_transition: env::var("BEAGLE_WORKSTREAM_LAST_TRANSITION")
+                .unwrap_or_else(|_| "resume".to_string()),
+            cutover_branch_lineage: env::var("BEAGLE_WORKSPACE_CUTOVER_BRANCH_LINEAGE")
+                .unwrap_or_else(|_| "feat/darwin-hpc-governance".to_string()),
+            cutover_default_profile: env::var("BEAGLE_WORKSTREAM_DEFAULT_PROFILE")
+                .unwrap_or_else(|_| "cpu-short-v1".to_string()),
+            cutover_batch_profile: env::var("BEAGLE_WORKSTREAM_BATCH_PROFILE")
+                .unwrap_or_else(|_| "cpu-batch-v1".to_string()),
+            cutover_advanced_profile: env::var("BEAGLE_WORKSTREAM_ADVANCED_PROFILE")
+                .unwrap_or_else(|_| "gpu-single-v1".to_string()),
+            cutover_result_publication: env::var("BEAGLE_WORKSTREAM_RESULT_PUBLICATION")
+                .unwrap_or_else(|_| "object-backed".to_string()),
+            cutover_result_retrieval: env::var("BEAGLE_WORKSTREAM_RESULT_RETRIEVAL")
+                .unwrap_or_else(|_| "object-backed".to_string()),
+            cutover_result_retention_policy: env::var(
+                "BEAGLE_WORKSTREAM_RESULT_RETENTION_POLICY",
+            )
+            .unwrap_or_else(|_| "active".to_string()),
+            cutover_operator_consumer_policy: env::var(
+                "BEAGLE_WORKSTREAM_OPERATOR_CONSUMER_POLICY",
+            )
+            .unwrap_or_else(|_| "full".to_string()),
+            cutover_research_consumer_policy: env::var(
+                "BEAGLE_WORKSTREAM_RESEARCH_CONSUMER_POLICY",
+            )
+            .unwrap_or_else(|_| "bounded".to_string()),
+            cutover_recovery_required: bool_env(
+                "BEAGLE_WORKSPACE_CUTOVER_RECOVERY_REQUIRED",
+                true,
+            ),
+            cutover_handoff_required: bool_env(
+                "BEAGLE_WORKSPACE_CUTOVER_HANDOFF_REQUIRED",
+                true,
+            ),
             bootstrap_enabled: bool_env("BEAGLE_WORKSPACE_BOOTSTRAP_ENABLED", true),
+            habitat: model::WorkspaceHabitatConfig {
+                enabled: bool_env("BEAGLE_WORKSPACE_HABITAT_ENABLED", true),
+                ide_kind: env::var("BEAGLE_WORKSPACE_HABITAT_IDE")
+                    .unwrap_or_else(|_| "openvscode-server".to_string()),
+                ssh_enabled: bool_env("BEAGLE_WORKSPACE_HABITAT_SSH_ENABLED", false),
+                namespace: env::var("BEAGLE_WORKSPACE_HABITAT_NAMESPACE")
+                    .unwrap_or_else(|_| "beagle".to_string()),
+                service_name: env::var("BEAGLE_WORKSPACE_HABITAT_SERVICE_NAME")
+                    .unwrap_or_else(|_| "beagle-workspace".to_string()),
+                internal_base_url: env::var("BEAGLE_WORKSPACE_HABITAT_INTERNAL_BASE_URL")
+                    .unwrap_or_else(|_| {
+                        "http://beagle-workspace.beagle.svc.cluster.local:8080".to_string()
+                    }),
+                health_path: env::var("BEAGLE_WORKSPACE_HABITAT_HEALTH_PATH")
+                    .unwrap_or_else(|_| "/".to_string()),
+                ssh_service_port: env::var("BEAGLE_WORKSPACE_HABITAT_SSH_SERVICE_PORT")
+                    .ok()
+                    .and_then(|value| value.parse::<u16>().ok())
+                    .unwrap_or(2222),
+                ssh_user: env::var("BEAGLE_WORKSPACE_HABITAT_SSH_USER")
+                    .unwrap_or_else(|_| "openvscode-server".to_string()),
+                workspace_root: env::var("BEAGLE_WORKSPACE_HABITAT_WORKSPACE_ROOT")
+                    .unwrap_or_else(|_| "/workspace/beagle".to_string()),
+                context_dir: env::var("BEAGLE_WORKSPACE_HABITAT_CONTEXT_DIR")
+                    .unwrap_or_else(|_| "/workspace/beagle/.beagle/context".to_string()),
+                context_packet_file: env::var("BEAGLE_WORKSPACE_HABITAT_CONTEXT_PACKET_FILE")
+                    .unwrap_or_else(|_| {
+                        "/workspace/beagle/.beagle/context/current-context-packet.json"
+                            .to_string()
+                    }),
+                context_env_file: env::var("BEAGLE_WORKSPACE_HABITAT_ENV_FILE")
+                    .unwrap_or_else(|_| {
+                        "/workspace/beagle/.beagle/context/beagle-context.env".to_string()
+                    }),
+            },
         },
         consumers: model::ConsumerAccessConfig {
             policy_enabled: bool_env("BEAGLE_CONSUMER_POLICY_ENABLED", false),
@@ -724,6 +1054,7 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
             openai_api_key: override_cfg.llm.openai_api_key.or(base.llm.openai_api_key),
             deepseek_api_key: override_cfg.llm.deepseek_api_key.or(base.llm.deepseek_api_key),
             zai_api_key: override_cfg.llm.zai_api_key.or(base.llm.zai_api_key),
+            groq_api_key: override_cfg.llm.groq_api_key.or(base.llm.groq_api_key),
             minimax_api_key: override_cfg.llm.minimax_api_key.or(base.llm.minimax_api_key),
             vllm_url: override_cfg.llm.vllm_url.or(base.llm.vllm_url),
             deepseek_base_url: override_cfg
@@ -731,6 +1062,7 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
                 .deepseek_base_url
                 .or(base.llm.deepseek_base_url),
             zai_base_url: override_cfg.llm.zai_base_url.or(base.llm.zai_base_url),
+            groq_base_url: override_cfg.llm.groq_base_url.or(base.llm.groq_base_url),
             xai_base_url: override_cfg.llm.xai_base_url.or(base.llm.xai_base_url),
             minimax_base_url: override_cfg
                 .llm
@@ -740,6 +1072,11 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
                 override_cfg.llm.grok_model
             } else {
                 base.llm.grok_model
+            },
+            kimi_model: if override_cfg.llm.kimi_model != "moonshotai/kimi-k2-instruct-0905" {
+                override_cfg.llm.kimi_model
+            } else {
+                base.llm.kimi_model
             },
             routing: override_cfg.llm.routing.clone(),
         },
@@ -814,8 +1151,184 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
             } else {
                 base.workspace.promotion_scope
             },
+            cutover_workstream: if override_cfg.workspace.cutover_workstream
+                != model::WorkspacePlaneConfig::default().cutover_workstream
+            {
+                override_cfg.workspace.cutover_workstream
+            } else {
+                base.workspace.cutover_workstream
+            },
+            cutover_state: if override_cfg.workspace.cutover_state
+                != model::WorkspacePlaneConfig::default().cutover_state
+            {
+                override_cfg.workspace.cutover_state
+            } else {
+                base.workspace.cutover_state
+            },
+            cutover_last_transition: if override_cfg.workspace.cutover_last_transition
+                != model::WorkspacePlaneConfig::default().cutover_last_transition
+            {
+                override_cfg.workspace.cutover_last_transition
+            } else {
+                base.workspace.cutover_last_transition
+            },
+            cutover_branch_lineage: if override_cfg.workspace.cutover_branch_lineage
+                != model::WorkspacePlaneConfig::default().cutover_branch_lineage
+            {
+                override_cfg.workspace.cutover_branch_lineage
+            } else {
+                base.workspace.cutover_branch_lineage
+            },
+            cutover_default_profile: if override_cfg.workspace.cutover_default_profile
+                != model::WorkspacePlaneConfig::default().cutover_default_profile
+            {
+                override_cfg.workspace.cutover_default_profile
+            } else {
+                base.workspace.cutover_default_profile
+            },
+            cutover_batch_profile: if override_cfg.workspace.cutover_batch_profile
+                != model::WorkspacePlaneConfig::default().cutover_batch_profile
+            {
+                override_cfg.workspace.cutover_batch_profile
+            } else {
+                base.workspace.cutover_batch_profile
+            },
+            cutover_advanced_profile: if override_cfg.workspace.cutover_advanced_profile
+                != model::WorkspacePlaneConfig::default().cutover_advanced_profile
+            {
+                override_cfg.workspace.cutover_advanced_profile
+            } else {
+                base.workspace.cutover_advanced_profile
+            },
+            cutover_result_publication: if override_cfg.workspace.cutover_result_publication
+                != model::WorkspacePlaneConfig::default().cutover_result_publication
+            {
+                override_cfg.workspace.cutover_result_publication
+            } else {
+                base.workspace.cutover_result_publication
+            },
+            cutover_result_retrieval: if override_cfg.workspace.cutover_result_retrieval
+                != model::WorkspacePlaneConfig::default().cutover_result_retrieval
+            {
+                override_cfg.workspace.cutover_result_retrieval
+            } else {
+                base.workspace.cutover_result_retrieval
+            },
+            cutover_result_retention_policy: if override_cfg
+                .workspace
+                .cutover_result_retention_policy
+                != model::WorkspacePlaneConfig::default().cutover_result_retention_policy
+            {
+                override_cfg.workspace.cutover_result_retention_policy
+            } else {
+                base.workspace.cutover_result_retention_policy
+            },
+            cutover_operator_consumer_policy: if override_cfg
+                .workspace
+                .cutover_operator_consumer_policy
+                != model::WorkspacePlaneConfig::default().cutover_operator_consumer_policy
+            {
+                override_cfg.workspace.cutover_operator_consumer_policy
+            } else {
+                base.workspace.cutover_operator_consumer_policy
+            },
+            cutover_research_consumer_policy: if override_cfg
+                .workspace
+                .cutover_research_consumer_policy
+                != model::WorkspacePlaneConfig::default().cutover_research_consumer_policy
+            {
+                override_cfg.workspace.cutover_research_consumer_policy
+            } else {
+                base.workspace.cutover_research_consumer_policy
+            },
+            cutover_recovery_required: override_cfg.workspace.cutover_recovery_required
+                || base.workspace.cutover_recovery_required,
+            cutover_handoff_required: override_cfg.workspace.cutover_handoff_required
+                || base.workspace.cutover_handoff_required,
             bootstrap_enabled: override_cfg.workspace.bootstrap_enabled
                 || base.workspace.bootstrap_enabled,
+            habitat: model::WorkspaceHabitatConfig {
+                enabled: override_cfg.workspace.habitat.enabled || base.workspace.habitat.enabled,
+                ide_kind: if override_cfg.workspace.habitat.ide_kind
+                    != model::WorkspaceHabitatConfig::default().ide_kind
+                {
+                    override_cfg.workspace.habitat.ide_kind
+                } else {
+                    base.workspace.habitat.ide_kind
+                },
+                ssh_enabled: override_cfg.workspace.habitat.ssh_enabled
+                    || base.workspace.habitat.ssh_enabled,
+                namespace: if override_cfg.workspace.habitat.namespace
+                    != model::WorkspaceHabitatConfig::default().namespace
+                {
+                    override_cfg.workspace.habitat.namespace
+                } else {
+                    base.workspace.habitat.namespace
+                },
+                service_name: if override_cfg.workspace.habitat.service_name
+                    != model::WorkspaceHabitatConfig::default().service_name
+                {
+                    override_cfg.workspace.habitat.service_name
+                } else {
+                    base.workspace.habitat.service_name
+                },
+                internal_base_url: if override_cfg.workspace.habitat.internal_base_url
+                    != model::WorkspaceHabitatConfig::default().internal_base_url
+                {
+                    override_cfg.workspace.habitat.internal_base_url
+                } else {
+                    base.workspace.habitat.internal_base_url
+                },
+                health_path: if override_cfg.workspace.habitat.health_path
+                    != model::WorkspaceHabitatConfig::default().health_path
+                {
+                    override_cfg.workspace.habitat.health_path
+                } else {
+                    base.workspace.habitat.health_path
+                },
+                ssh_service_port: if override_cfg.workspace.habitat.ssh_service_port
+                    != model::WorkspaceHabitatConfig::default().ssh_service_port
+                {
+                    override_cfg.workspace.habitat.ssh_service_port
+                } else {
+                    base.workspace.habitat.ssh_service_port
+                },
+                ssh_user: if override_cfg.workspace.habitat.ssh_user
+                    != model::WorkspaceHabitatConfig::default().ssh_user
+                {
+                    override_cfg.workspace.habitat.ssh_user
+                } else {
+                    base.workspace.habitat.ssh_user
+                },
+                workspace_root: if override_cfg.workspace.habitat.workspace_root
+                    != model::WorkspaceHabitatConfig::default().workspace_root
+                {
+                    override_cfg.workspace.habitat.workspace_root
+                } else {
+                    base.workspace.habitat.workspace_root
+                },
+                context_dir: if override_cfg.workspace.habitat.context_dir
+                    != model::WorkspaceHabitatConfig::default().context_dir
+                {
+                    override_cfg.workspace.habitat.context_dir
+                } else {
+                    base.workspace.habitat.context_dir
+                },
+                context_packet_file: if override_cfg.workspace.habitat.context_packet_file
+                    != model::WorkspaceHabitatConfig::default().context_packet_file
+                {
+                    override_cfg.workspace.habitat.context_packet_file
+                } else {
+                    base.workspace.habitat.context_packet_file
+                },
+                context_env_file: if override_cfg.workspace.habitat.context_env_file
+                    != model::WorkspaceHabitatConfig::default().context_env_file
+                {
+                    override_cfg.workspace.habitat.context_env_file
+                } else {
+                    base.workspace.habitat.context_env_file
+                },
+            },
         },
         consumers: model::ConsumerAccessConfig {
             policy_enabled: override_cfg.consumers.policy_enabled || base.consumers.policy_enabled,

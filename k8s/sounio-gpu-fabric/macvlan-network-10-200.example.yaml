@@ -1,0 +1,18 @@
+apiVersion: mellanox.com/v1alpha1
+kind: MacvlanNetwork
+metadata:
+  name: sounio-gpu-fabric-10-200
+spec:
+  # This is an example only. The master device is not uniform across hosts today.
+  # Either standardize interface names first or create node-specific variants.
+  master: ens5f1np1
+  mode: bridge
+  mtu: 9000
+  ipam: |
+    {
+      "type": "whereabouts",
+      "range": "10.200.0.0/24",
+      "range_start": "10.200.0.100",
+      "range_end": "10.200.0.199",
+      "gateway": "10.200.0.1"
+    }

@@ -1,0 +1,94 @@
+type: object
+required:
+  - policy_version
+  - policy_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - source_execution_id
+  - policy_scope
+  - allowed_decision_classes
+  - auto_continue_task_families
+  - auto_continue_subagent_ids
+  - auto_continue_retrieval_query_types
+  - auto_continue_compiler_profile_ids
+  - auto_continue_graphrag_query_modes
+  - auto_continue_temporal_truth_views
+  - auto_continue_allowed_review_actions
+  - auto_continue_allowed_trajectory_qualities
+  - auto_continue_min_overall_quality_score
+  - blocked_max_overall_quality_score
+  - blocked_trajectory_qualities
+  - blocked_requested_operator_actions
+  - note
+properties:
+  policy_version:
+    type: string
+    const: beagle-autonomy-policy-v1
+  policy_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  source_execution_id:
+    type: string
+  policy_scope:
+    type: string
+    const: follow-on-plan-gating
+  allowed_decision_classes:
+    type: array
+    items:
+      type: string
+      enum:
+        - auto-continue
+        - review-required
+        - blocked
+  auto_continue_task_families:
+    type: array
+    items:
+      type: string
+  auto_continue_subagent_ids:
+    type: array
+    items:
+      type: string
+  auto_continue_retrieval_query_types:
+    type: array
+    items:
+      type: string
+  auto_continue_compiler_profile_ids:
+    type: array
+    items:
+      type: string
+  auto_continue_graphrag_query_modes:
+    type: array
+    items:
+      type: string
+  auto_continue_temporal_truth_views:
+    type: array
+    items:
+      type: string
+  auto_continue_allowed_review_actions:
+    type: array
+    items:
+      type: string
+  auto_continue_allowed_trajectory_qualities:
+    type: array
+    items:
+      type: string
+  auto_continue_min_overall_quality_score:
+    type: integer
+  blocked_max_overall_quality_score:
+    type: integer
+  blocked_trajectory_qualities:
+    type: array
+    items:
+      type: string
+  blocked_requested_operator_actions:
+    type: array
+    items:
+      type: string
+  note:
+    type: string

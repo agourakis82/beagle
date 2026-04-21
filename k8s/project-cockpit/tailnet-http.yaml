@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: project-cockpit-tailnet-http
+  namespace: beagle
+  annotations:
+    tailscale.com/proxy-group: sounio-workspace-ingress
+    tailscale.com/hostname: sounio-cockpit
+    tailscale.com/tags: tag:k8s,tag:sounio-workspace
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  selector:
+    app.kubernetes.io/name: project-cockpit
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

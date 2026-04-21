@@ -1,0 +1,49 @@
+id: beagle-physio-symbolic-exocortex
+title: Beagle Physio-Symbolic Exocortex
+status: canonical
+source_phase: B19.1
+program_kind: research-engineering-program
+
+north_star:
+  statement: >-
+    Turn Beagle from a governed Workstream OS into an exocortical Program OS
+    that unifies workstreams, memory, physiological context, experiments,
+    evidence, and manuscript targets.
+  target_outputs:
+    - governed workstreams
+    - live experiments
+    - evidence packs
+    - manuscript-ready result layers
+
+campaigns:
+  - id: darwin-hpc-governance
+    file: docs/darwin/hpc/campaigns/darwin-hpc-governance.yaml
+  - id: expedition-002-hrv-aware
+    file: docs/darwin/hpc/campaigns/expedition-002-hrv-aware.yaml
+
+workstreams:
+  - id: beagle-darwin-hpc-governance
+    role: canonical-governance-workstream
+  - id: beagle-darwin-hpc-wave1
+    role: secondary-cutover-workstream
+
+experiments:
+  - id: beagle_exp_002_hrv_aware_vs_blind
+    campaign_id: expedition-002-hrv-aware
+    spec_doc: docs/darwin/hpc/BEAGLE_EXPEDITION_002.md
+    results_doc: docs/darwin/hpc/BEAGLE_EXPEDITION_002_RESULTS.md
+
+planes:
+  workspace_plane: live
+  memory_spine: live
+  observer_plane: live
+  result_plane: live
+  provider_bridge: live
+
+evidence_targets:
+  - id: expedition-002-results
+    kind: manuscript-results-doc
+    path: docs/darwin/hpc/BEAGLE_EXPEDITION_002_RESULTS.md
+  - id: expedition-002-spec
+    kind: experiment-spec
+    path: docs/darwin/hpc/BEAGLE_EXPEDITION_002.md

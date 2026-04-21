@@ -1,0 +1,10 @@
+- op: add
+  path: /spec/template/spec/tolerations/-
+  value:
+    operator: Exists
+    effect: NoExecute
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: CNI_BIN_DIR
+    value: /host/opt/cni/bin

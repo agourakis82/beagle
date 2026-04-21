@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
     let mut ctx = BeagleContext::new(cfg).await?;
 
     // Run pipeline
-    let paths = run_beagle_pipeline(&mut ctx, &question, &run_id, None, None, None).await?;
+    let paths = run_beagle_pipeline(&mut ctx, &question, &run_id, None, None, None, None).await?;
 
     println!("\n=== BEAGLE PIPELINE v0.1 CONCLUÍDO ===");
     println!("Run ID:     {}", run_id);

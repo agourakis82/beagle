@@ -27,6 +27,7 @@ async fn test_pipeline_with_serendipity() -> anyhow::Result<()> {
         None,
         None,
         None,
+        None,
     )
     .await?;
 

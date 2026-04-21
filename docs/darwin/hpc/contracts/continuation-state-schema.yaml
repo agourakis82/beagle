@@ -1,0 +1,95 @@
+type: object
+required:
+  - state_version
+  - continuation_dispatch_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - source_execution_id
+  - source_plan_id
+  - review_inbox_item_id
+  - review_decision_id
+  - follow_on_plan_id
+  - review_action
+  - continuation_depth
+  - current_state
+  - dispatched_at
+  - continuation_state_path
+  - continuation_receipt_path
+  - chained_receipt_ids
+  - state_transitions
+  - next_execution_state
+  - note
+properties:
+  state_version:
+    type: string
+    const: beagle-continuation-state-v1
+  continuation_dispatch_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  source_execution_id:
+    type: string
+  source_plan_id:
+    type: string
+  source_receipt_id:
+    type:
+      - string
+      - "null"
+  review_inbox_item_id:
+    type: string
+  review_decision_id:
+    type: string
+  follow_on_plan_id:
+    type: string
+  review_action:
+    type: string
+    enum:
+      - approved
+      - edited
+  continuation_depth:
+    type: integer
+    minimum: 1
+  current_state:
+    type: string
+  dispatched_at:
+    type: string
+    format: date-time
+  latest_continuation_receipt_id:
+    type:
+      - string
+      - "null"
+  continuation_state_path:
+    type: string
+  continuation_receipt_path:
+    type: string
+  chained_receipt_ids:
+    type: array
+    items:
+      type: string
+  state_transitions:
+    type: array
+    items:
+      type: object
+      required:
+        - state
+        - transitioned_at
+        - note
+  next_execution_state:
+    type: object
+    required:
+      - state_version
+      - execution_id
+      - plan_id
+      - current_state
+      - selected_subagent_id
+      - retrieval_query_type
+      - compiler_profile_id
+      - graphrag_query_mode
+      - temporal_truth_view
+  note:
+    type: string

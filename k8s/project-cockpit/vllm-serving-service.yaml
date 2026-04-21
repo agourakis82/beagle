@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-serving
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: vllm-serving
+    app.kubernetes.io/part-of: beagle
+spec:
+  selector:
+    app.kubernetes.io/name: vllm-serving
+  ports:
+    - name: http
+      port: 8001
+      targetPort: 8000

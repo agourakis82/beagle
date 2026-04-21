@@ -1,0 +1,174 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Beagle Managed Workspace Attach Plane
+type: object
+required:
+  - status
+  - phase
+  - attach
+  - lane
+  - habitat
+  - context_packet
+properties:
+  status:
+    type: string
+    const: ok
+  phase:
+    type: string
+    const: B20.4
+  attach:
+    type: object
+    required:
+      - attach_version
+      - attach_kind
+      - workstream_id
+      - workspace_id
+      - session_id
+      - repo
+      - branch
+      - governance_state
+      - managed_attach_path
+      - attach_metadata
+      - helper_snippets
+    properties:
+      attach_version:
+        type: string
+      attach_kind:
+        type: string
+        const: workspace-attach
+      workstream_id:
+        type: string
+      workspace_id:
+        type: string
+      session_id:
+        type: string
+      repo:
+        type: string
+      branch:
+        type: string
+      governance_state:
+        type: string
+      managed_attach_path:
+        type: string
+      attach_metadata:
+        type: object
+        required:
+          - recommended_client
+          - attach_method
+          - attach_plane_kind
+          - managed_attach_state
+          - stable_attach_host_alias
+          - ssh_host
+          - ssh_port
+          - workspace_namespace
+          - workspace_service_name
+          - browser_url
+          - repo_root
+          - context_env_file
+          - context_packet_file
+          - managed_state_dir
+          - attach_snippet_ref
+          - attach_transport
+          - handoff_ref
+          - context_packet_ref
+        properties:
+          recommended_client:
+            type: string
+          attach_method:
+            type: string
+          attach_plane_kind:
+            type: string
+          managed_attach_state:
+            type: string
+          stable_attach_host_alias:
+            type: string
+          ssh_host:
+            type:
+              - string
+              - "null"
+          ssh_port:
+            type:
+              - integer
+              - "null"
+          workspace_namespace:
+            type: string
+          workspace_service_name:
+            type: string
+          browser_url:
+            type: string
+          browser_internal_url:
+            type: string
+          browser_health_url:
+            type: string
+          ssh_user:
+            type:
+              - string
+              - "null"
+          ssh_service_port:
+            type:
+              - integer
+              - "null"
+          internal_ssh_target:
+            type:
+              - string
+              - "null"
+          suggested_local_browser_port:
+            type: integer
+          suggested_local_ssh_port:
+            type:
+              - integer
+              - "null"
+          repo_root:
+            type: string
+          context_env_file:
+            type: string
+          context_packet_file:
+            type: string
+          managed_state_dir:
+            type: string
+          helper_state_dir:
+            type: string
+          attach_snippet_ref:
+            type: string
+          attach_transport:
+            type: string
+          proxy_command_template:
+            type:
+              - string
+              - "null"
+          handoff_ref:
+            type: string
+          context_packet_ref:
+            type: string
+      helper_snippets:
+        type: object
+        required:
+          - helper_script_repo_relative_path
+          - proxy_script_repo_relative_path
+          - helper_command
+          - ssh_config_host_alias
+          - ssh_config_snippet
+          - ssh_command
+          - cursor_remote_hint
+        properties:
+          helper_script_repo_relative_path:
+            type: string
+          helper_script_workspace_path:
+            type: string
+          proxy_script_repo_relative_path:
+            type: string
+          proxy_script_workspace_path:
+            type: string
+          helper_command:
+            type: string
+          browser_helper_command:
+            type: string
+          ssh_helper_command:
+            type: string
+          ssh_config_host_alias:
+            type: string
+          ssh_config_snippet:
+            type: string
+          ssh_command:
+            type: string
+          cursor_remote_hint:
+            type: string

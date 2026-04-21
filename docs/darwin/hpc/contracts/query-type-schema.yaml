@@ -1,0 +1,33 @@
+openapi: 3.1.0
+info:
+  title: Beagle Retrieval Query Type
+  version: beagle-query-type-v1
+components:
+  schemas:
+    RetrievalQueryType:
+      type: object
+      required:
+        - query_type_version
+        - router_version
+        - query_text
+        - selected_query_type
+        - classifier_source
+        - classifier_reason
+      properties:
+        query_type_version:
+          type: string
+        router_version:
+          type: string
+        query_text:
+          type: string
+        requested_hint:
+          type:
+            - string
+            - "null"
+        selected_query_type:
+          type: string
+          enum: [general, code, sovereign]
+        classifier_source:
+          type: string
+        classifier_reason:
+          type: string

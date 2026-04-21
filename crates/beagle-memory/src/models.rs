@@ -30,6 +30,27 @@ pub struct ConversationMetadata {
 
     /// Tags for categorization
     pub tags: Vec<String>,
+
+    /// Source lane for this conversation turn
+    pub source: Option<String>,
+
+    /// External conversation identifier
+    pub conversation_id: Option<String>,
+
+    /// Turn index inside the external conversation
+    pub turn_index: Option<usize>,
+
+    /// Canonical role of this turn
+    pub role: Option<String>,
+
+    /// Domain label preserved from the ingress request
+    pub domain_label: Option<String>,
+
+    /// Best-effort physiological snapshot attached at ingest time
+    pub physio_snapshot: Option<crate::engine::PhysioSnapshot>,
+
+    /// Best-effort experiment flags attached at ingest time
+    pub experiment_flags: Option<crate::engine::ExperimentFlags>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,6 +111,13 @@ impl ConversationTurn {
                     cost_usd: None,
                 },
                 tags: vec![],
+                source: None,
+                conversation_id: None,
+                turn_index: None,
+                role: None,
+                domain_label: None,
+                physio_snapshot: None,
+                experiment_flags: None,
             },
         }
     }

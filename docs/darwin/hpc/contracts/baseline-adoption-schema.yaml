@@ -1,0 +1,65 @@
+title: Baseline Adoption Schema (B26.6)
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - adoption_id
+  - promoted_variant_receipt_id
+  - study_promotion_execution_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - bounded_baseline_scope
+  - adopted_variant_id
+  - adopted_run_id
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  adoption_id:
+    type: string
+  promoted_variant_receipt_id:
+    type: string
+  study_promotion_execution_id:
+    type: string
+  study_closeout_summary_id:
+    type: string
+  variant_promotion_decision_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  generated_at:
+    type: string
+    format: date-time
+  bounded_baseline_scope:
+    type: string
+  adopted_variant_id:
+    type: string
+  adopted_run_id:
+    type: string
+  adopted_compute_profile_id:
+    type: string
+  prior_baseline_descriptor:
+    type: string
+  operator_acknowledgement_required:
+    type: boolean
+  evidence_refs:
+    type: array
+    items:
+      type: object
+  note:
+    type: string

@@ -1,0 +1,518 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: beagle-workspace-config
+data:
+  BEAGLE_WORKSPACE_ID: beagle-cluster-pilot
+  BEAGLE_SESSION_ID: ws-cluster-workspace-habitat
+  BEAGLE_WORKSTREAM_ID: beagle-darwin-hpc-governance
+  BEAGLE_WORKSPACE_REPO_URL: https://github.com/agourakis82/beagle.git
+  BEAGLE_WORKSPACE_BRANCH: feat/darwin-hpc-governance
+  BEAGLE_WORKSPACE_BEAGLE_BASE_URL: http://beagle-core.beagle.svc.cluster.local:8080
+  BEAGLE_WORKSPACE_BROWSER_URL: http://beagle-workspace.beagle.svc.cluster.local:8080
+  BEAGLE_WORKSPACE_ROOT: /workspace/beagle
+  BEAGLE_WORKSPACE_CONTEXT_DIR: /workspace/beagle/.beagle/context
+  BEAGLE_WORKSPACE_CONTEXT_PACKET_FILE: /workspace/beagle/.beagle/context/current-context-packet.json
+  BEAGLE_WORKSPACE_CONTEXT_ENV_FILE: /workspace/beagle/.beagle/context/beagle-context.env
+  BEAGLE_WORKSPACE_TEMPLATE_FILE: /workspace/beagle/.beagle/context/workspace-template.json
+  BEAGLE_EXTERNAL_WORKSPACE_REGISTRATION_FILE: /workspace/beagle/.beagle/context/external-workspace-registration.json
+  BEAGLE_WORKSPACE_HYDRATION_FILE: /workspace/beagle/.beagle/context/workspace-hydration.json
+  BEAGLE_WORKSPACE_SUBAGENTS_FILE: /workspace/beagle/.beagle/context/workspace-subagents.json
+  BEAGLE_WORKSPACE_SUBAGENTS_DIR: /workspace/beagle/.beagle/context/subagents
+  BEAGLE_WORKSPACE_DEVCONTAINER_DIR: /workspace/beagle/.devcontainer
+  BEAGLE_WORKSPACE_TEMPLATE_ID: beagle-template-beagle-cluster-pilot
+  BEAGLE_WORKSPACE_TEMPLATE_VERSION: beagle-template-backed-prebuilt-workspace-v1
+  BEAGLE_WORKSPACE_REPRODUCIBILITY_MODE: template-backed-prehydrated-pvc
+  BEAGLE_EXTERNAL_WORKSPACE_KIND: coder-compatible-external-workspace
+  BEAGLE_WORKSPACE_WARM_START_STRATEGY: template-backed-prehydrated-pvc
+  BEAGLE_WORKSPACE_SSH_ENABLED: "true"
+  BEAGLE_WORKSPACE_SSH_PORT: "2222"
+  BEAGLE_WORKSPACE_SSH_USER: openvscode-server
+  BEAGLE_WORKSPACE_SSH_AUTHORIZED_KEYS_FILE: /var/run/beagle-workspace-ssh/authorized_keys
+  BEAGLE_WORKSPACE_SSH_HOST_KEYS_DIR: /workspace/.beagle/ssh-host-keys
+  HOME: /workspace/.home/openvscode-server
+  BEAGLE_VSIX_PACK: beagle
+  BEAGLE_VSIX_PACK_VERSION: sov-v1
+  BEAGLE_VSIX_ENABLE_RECOMMENDED: "true"
+  BEAGLE_VSIX_ENABLE_EXPERIMENTAL: "false"
+  BEAGLE_VSIX_REQUIRED_EXTENSIONS: EditorConfig.EditorConfig,eamodio.gitlens,GitHub.vscode-pull-request-github,redhat.vscode-yaml,ms-python.python,ms-toolsai.jupyter,rust-lang.rust-analyzer,ms-kubernetes-tools.vscode-kubernetes-tools
+  BEAGLE_VSIX_RECOMMENDED_EXTENSIONS: tamasfe.even-better-toml,ms-vscode.makefile-tools,yzhang.markdown-all-in-one,hashicorp.terraform,ms-azuretools.vscode-docker
+  BEAGLE_VSIX_EXPERIMENTAL_EXTENSIONS: ""
+  bootstrap-workspace.sh: |
+    #!/bin/sh
+    set -eu
+
+    TOKEN="${BEAGLE_OPERATOR_API_TOKEN:-${BEAGLE_API_TOKEN:-}}"
+    WORKSPACE_ROOT="${BEAGLE_WORKSPACE_ROOT:-/workspace/beagle}"
+    WORKSPACE_PARENT="$(dirname "${WORKSPACE_ROOT}")"
+    CONTEXT_DIR="${BEAGLE_WORKSPACE_CONTEXT_DIR:-${WORKSPACE_ROOT}/.beagle/context}"
+    CONTEXT_PACKET_FILE="${BEAGLE_WORKSPACE_CONTEXT_PACKET_FILE:-${CONTEXT_DIR}/current-context-packet.json}"
+    CONTEXT_ENV_FILE="${BEAGLE_WORKSPACE_CONTEXT_ENV_FILE:-${CONTEXT_DIR}/beagle-context.env}"
+    TEMPLATE_FILE="${BEAGLE_WORKSPACE_TEMPLATE_FILE:-${CONTEXT_DIR}/workspace-template.json}"
+    REGISTRATION_FILE="${BEAGLE_EXTERNAL_WORKSPACE_REGISTRATION_FILE:-${CONTEXT_DIR}/external-workspace-registration.json}"
+    HYDRATION_FILE="${BEAGLE_WORKSPACE_HYDRATION_FILE:-${CONTEXT_DIR}/workspace-hydration.json}"
+    SUBAGENTS_FILE="${BEAGLE_WORKSPACE_SUBAGENTS_FILE:-${CONTEXT_DIR}/workspace-subagents.json}"
+    SUBAGENTS_DIR="${BEAGLE_WORKSPACE_SUBAGENTS_DIR:-${CONTEXT_DIR}/subagents}"
+    DEVCONTAINER_DIR="${BEAGLE_WORKSPACE_DEVCONTAINER_DIR:-${WORKSPACE_ROOT}/.devcontainer}"
+    CORE_ENV_FILE="${SUBAGENTS_DIR}/core.env"
+    EXPERIMENTS_ENV_FILE="${SUBAGENTS_DIR}/experiments.env"
+    MANUSCRIPT_ENV_FILE="${SUBAGENTS_DIR}/manuscript.env"
+    CORE_DEVCONTAINER_FILE="${DEVCONTAINER_DIR}/beagle-core/devcontainer.json"
+    EXPERIMENTS_DEVCONTAINER_FILE="${DEVCONTAINER_DIR}/beagle-experiments/devcontainer.json"
+    MANUSCRIPT_DEVCONTAINER_FILE="${DEVCONTAINER_DIR}/beagle-manuscript/devcontainer.json"
+    TEMPLATE_ID="${BEAGLE_WORKSPACE_TEMPLATE_ID:-beagle-template-${BEAGLE_WORKSPACE_ID}}"
+    TEMPLATE_VERSION="${BEAGLE_WORKSPACE_TEMPLATE_VERSION:-beagle-template-backed-prebuilt-workspace-v1}"
+    REPRODUCIBILITY_MODE="${BEAGLE_WORKSPACE_REPRODUCIBILITY_MODE:-template-backed-prehydrated-pvc}"
+    EXTERNAL_WORKSPACE_KIND="${BEAGLE_EXTERNAL_WORKSPACE_KIND:-coder-compatible-external-workspace}"
+    WARM_START_STRATEGY="${BEAGLE_WORKSPACE_WARM_START_STRATEGY:-template-backed-prehydrated-pvc}"
+    HOME_DIR="${HOME:-/workspace/.home/openvscode-server}"
+    VSIX_PACK="${BEAGLE_VSIX_PACK:-}"
+    VSIX_PACK_VERSION="${BEAGLE_VSIX_PACK_VERSION:-unversioned}"
+    VSIX_ENABLE_RECOMMENDED="${BEAGLE_VSIX_ENABLE_RECOMMENDED:-true}"
+    VSIX_ENABLE_EXPERIMENTAL="${BEAGLE_VSIX_ENABLE_EXPERIMENTAL:-false}"
+    VSIX_REQUIRED_EXTENSIONS="${BEAGLE_VSIX_REQUIRED_EXTENSIONS:-}"
+    VSIX_RECOMMENDED_EXTENSIONS="${BEAGLE_VSIX_RECOMMENDED_EXTENSIONS:-}"
+    VSIX_EXPERIMENTAL_EXTENSIONS="${BEAGLE_VSIX_EXPERIMENTAL_EXTENSIONS:-}"
+    VSIX_STATUS_FILE="${CONTEXT_DIR}/vsix-pack-status.json"
+    if [ -n "${BEAGLE_CORE_SERVICE_HOST:-}" ]; then
+      BASE_URL="http://${BEAGLE_CORE_SERVICE_HOST}:${BEAGLE_CORE_SERVICE_PORT:-8080}"
+    else
+      BASE_URL="${BEAGLE_WORKSPACE_BEAGLE_BASE_URL:-http://beagle-core.beagle.svc.cluster.local:8080}"
+    fi
+    WORKSPACE_BROWSER_URL="${BEAGLE_WORKSPACE_BROWSER_URL:-http://beagle-workspace.beagle.svc.cluster.local:8080}"
+    CONSUMER_HEADER="X-Beagle-Consumer: beagle-operator"
+    HYDRATION_MODE="unknown"
+    WARM_START_USED="false"
+    PREBUILT_SNAPSHOT_EXPECTED="false"
+    CONTEXT_SOURCE="local-only"
+
+    auth_args() {
+      if [ -n "${TOKEN}" ]; then
+        printf '%s\n' "-H" "Authorization: Bearer ${TOKEN}"
+      fi
+    }
+
+    BEAGLE_CURL_CONNECT_TIMEOUT="${BEAGLE_CURL_CONNECT_TIMEOUT:-2}"
+    BEAGLE_CURL_MAX_TIME="${BEAGLE_CURL_MAX_TIME:-2}"
+    BEAGLE_HEALTH_RETRY_COUNT="${BEAGLE_HEALTH_RETRY_COUNT:-15}"
+
+    curl_beagle() {
+      url="$1"
+      shift || true
+      if [ -n "${TOKEN}" ]; then
+        curl -fsS --connect-timeout "${BEAGLE_CURL_CONNECT_TIMEOUT}" --max-time "${BEAGLE_CURL_MAX_TIME}" \
+          -H "${CONSUMER_HEADER}" -H "Authorization: Bearer ${TOKEN}" "$@" "${url}"
+      else
+        curl -fsS --connect-timeout "${BEAGLE_CURL_CONNECT_TIMEOUT}" --max-time "${BEAGLE_CURL_MAX_TIME}" \
+          -H "${CONSUMER_HEADER}" "$@" "${url}"
+      fi
+    }
+
+    fetch_atomic() {
+      url="$1"
+      target="$2"
+      shift 2 || true
+      tmp="$(mktemp "${target}.tmp.XXXXXX")"
+      if curl_beagle "${url}" "$@" > "${tmp}"; then
+        mv "${tmp}" "${target}"
+        return 0
+      fi
+      rm -f "${tmp}"
+      return 1
+    }
+
+    write_atomic() {
+      target="$1"
+      tmp="$(mktemp "${target}.tmp.XXXXXX")"
+      cat > "${tmp}"
+      mv "${tmp}" "${target}"
+    }
+
+    write_local_bootstrap_fallback() {
+      write_atomic "${CONTEXT_DIR}/bootstrap.json" <<EOF
+    {
+      "status": "degraded",
+      "phase": "B20.6",
+      "bootstrap_mode": "local-only",
+      "workstream_id": "${BEAGLE_WORKSTREAM_ID}",
+      "workspace_id": "${BEAGLE_WORKSPACE_ID}",
+      "session_id": "${BEAGLE_SESSION_ID}",
+      "repo_url": "${BEAGLE_WORKSPACE_REPO_URL}",
+      "branch": "${BEAGLE_WORKSPACE_BRANCH}",
+      "workspace_root": "${WORKSPACE_ROOT}",
+      "reason": "beagle-api-unavailable-or-unauthorized"
+    }
+    EOF
+    }
+
+    write_local_context_packet_fallback() {
+      write_atomic "${CONTEXT_PACKET_FILE}" <<EOF
+    {
+      "status": "degraded",
+      "phase": "B20.6",
+      "context_mode": "local-only",
+      "workstream_id": "${BEAGLE_WORKSTREAM_ID}",
+      "workspace_id": "${BEAGLE_WORKSPACE_ID}",
+      "session_id": "${BEAGLE_SESSION_ID}",
+      "repo_url": "${BEAGLE_WORKSPACE_REPO_URL}",
+      "branch": "${BEAGLE_WORKSPACE_BRANCH}",
+      "workspace_root": "${WORKSPACE_ROOT}"
+    }
+    EOF
+    }
+
+    write_local_context_env_fallback() {
+      write_atomic "${CONTEXT_ENV_FILE}" <<EOF
+    export BEAGLE_WORKSTREAM_ID='${BEAGLE_WORKSTREAM_ID}'
+    export BEAGLE_WORKSPACE_ID='${BEAGLE_WORKSPACE_ID}'
+    export BEAGLE_SESSION_ID='${BEAGLE_SESSION_ID}'
+    export BEAGLE_WORKSPACE_ROOT='${WORKSPACE_ROOT}'
+    export BEAGLE_WORKSPACE_REPO_URL='${BEAGLE_WORKSPACE_REPO_URL}'
+    export BEAGLE_WORKSPACE_BRANCH='${BEAGLE_WORKSPACE_BRANCH}'
+    export BEAGLE_WORKSPACE_CONTEXT_MODE='local-only'
+    EOF
+    }
+
+    workspace_has_non_context_files() {
+      find "${WORKSPACE_ROOT}" -mindepth 1 -maxdepth 1 ! -name '.beagle' -print -quit | grep -q .
+    }
+
+    csv_to_lines() {
+      printf '%s' "$1" | tr ',' '\n' | sed '/^[[:space:]]*$/d'
+    }
+
+    install_vsix_list() {
+      label="$1"
+      csv="$2"
+      if [ -z "${csv}" ]; then
+        return 0
+      fi
+      csv_to_lines "${csv}" | while IFS= read -r extension_id; do
+        if [ -z "${extension_id}" ]; then
+          continue
+        fi
+        echo "[INFO] ensuring ${label} VSIX ${extension_id}" >&2
+        "${OPENVSCODE_SERVER_ROOT}/bin/openvscode-server" --install-extension "${extension_id}" >/dev/null 2>&1 || \
+          echo "[WARN] unable to install ${extension_id} in pack ${VSIX_PACK}" >&2
+      done
+    }
+
+    install_vsix_pack_if_enabled() {
+      if [ -z "${VSIX_PACK}" ]; then
+        return 0
+      fi
+      install_vsix_list "required" "${VSIX_REQUIRED_EXTENSIONS}"
+      if [ "${VSIX_ENABLE_RECOMMENDED}" = "true" ]; then
+        install_vsix_list "recommended" "${VSIX_RECOMMENDED_EXTENSIONS}"
+      fi
+      if [ "${VSIX_ENABLE_EXPERIMENTAL}" = "true" ]; then
+        install_vsix_list "experimental" "${VSIX_EXPERIMENTAL_EXTENSIONS}"
+      fi
+      cat > "${VSIX_STATUS_FILE}.tmp" <<EOF
+    {
+      "status": "ok",
+      "pack": "${VSIX_PACK}",
+      "packVersion": "${VSIX_PACK_VERSION}",
+      "required": "${VSIX_REQUIRED_EXTENSIONS}",
+      "recommended": "${VSIX_RECOMMENDED_EXTENSIONS}",
+      "experimental": "${VSIX_EXPERIMENTAL_EXTENSIONS}",
+      "recommendedEnabled": ${VSIX_ENABLE_RECOMMENDED},
+      "experimentalEnabled": ${VSIX_ENABLE_EXPERIMENTAL}
+    }
+    EOF
+      mv "${VSIX_STATUS_FILE}.tmp" "${VSIX_STATUS_FILE}"
+    }
+
+    mkdir -p "${HOME_DIR}" "${WORKSPACE_PARENT}"
+
+    if [ -d "${WORKSPACE_ROOT}/.git" ]; then
+      HYDRATION_MODE="git-sync"
+      WARM_START_USED="true"
+      PREBUILT_SNAPSHOT_EXPECTED="true"
+      git -C "${WORKSPACE_ROOT}" fetch --depth=1 origin "${BEAGLE_WORKSPACE_BRANCH}" || true
+      git -C "${WORKSPACE_ROOT}" checkout "${BEAGLE_WORKSPACE_BRANCH}" || true
+      git -C "${WORKSPACE_ROOT}" pull --ff-only origin "${BEAGLE_WORKSPACE_BRANCH}" || true
+    else
+      if [ ! -d "${WORKSPACE_ROOT}" ]; then
+        if ! git clone --branch "${BEAGLE_WORKSPACE_BRANCH}" --single-branch "${BEAGLE_WORKSPACE_REPO_URL}" "${WORKSPACE_ROOT}"; then
+          echo "[WARN] unable to clone ${BEAGLE_WORKSPACE_REPO_URL}; starting workspace with empty root" >&2
+          mkdir -p "${WORKSPACE_ROOT}"
+          HYDRATION_MODE="empty-root"
+        fi
+        if [ "${HYDRATION_MODE}" = "unknown" ]; then
+          HYDRATION_MODE="fresh-clone"
+        fi
+      elif workspace_has_non_context_files; then
+        echo "[WARN] workspace root exists without git metadata; preserving hydrated workspace snapshot at ${WORKSPACE_ROOT}" >&2
+        HYDRATION_MODE="prehydrated-snapshot"
+        WARM_START_USED="true"
+        PREBUILT_SNAPSHOT_EXPECTED="true"
+      else
+        TMP_CLONE_DIR="$(mktemp -d /tmp/beagle-workspace-clone.XXXXXX)"
+        if git clone --branch "${BEAGLE_WORKSPACE_BRANCH}" --single-branch "${BEAGLE_WORKSPACE_REPO_URL}" "${TMP_CLONE_DIR}/repo"; then
+          mkdir -p "${WORKSPACE_ROOT}"
+          find "${TMP_CLONE_DIR}/repo" -mindepth 1 -maxdepth 1 -exec mv {} "${WORKSPACE_ROOT}/" \;
+          HYDRATION_MODE="hydrated-clone"
+        else
+          echo "[WARN] unable to hydrate repo from ${BEAGLE_WORKSPACE_REPO_URL}; continuing with existing habitat-only directory" >&2
+          mkdir -p "${WORKSPACE_ROOT}"
+          HYDRATION_MODE="habitat-only"
+        fi
+        rm -rf "${TMP_CLONE_DIR}"
+      fi
+    fi
+
+    mkdir -p "${CONTEXT_DIR}" "${SUBAGENTS_DIR}" "$(dirname "${CORE_DEVCONTAINER_FILE}")" "$(dirname "${EXPERIMENTS_DEVCONTAINER_FILE}")" "$(dirname "${MANUSCRIPT_DEVCONTAINER_FILE}")"
+
+    for _ in $(seq 1 "${BEAGLE_HEALTH_RETRY_COUNT}"); do
+      if curl_beagle "${BASE_URL}/health" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 2
+    done
+
+    if fetch_atomic "${BASE_URL}/api/darwin/workspace/bootstrap?workstream_id=${BEAGLE_WORKSTREAM_ID}&workspace_id=${BEAGLE_WORKSPACE_ID}&session_id=${BEAGLE_SESSION_ID}" "${CONTEXT_DIR}/bootstrap.json"; then
+      CONTEXT_SOURCE="beagle-api"
+    else
+      echo "[WARN] unable to fetch bootstrap context for ${BEAGLE_WORKSPACE_ID}; continuing in local-only mode" >&2
+      write_local_bootstrap_fallback
+    fi
+    if ! fetch_atomic "${BASE_URL}/api/darwin/workstreams/${BEAGLE_WORKSTREAM_ID}/context-packet" "${CONTEXT_PACKET_FILE}"; then
+      echo "[WARN] unable to fetch context packet for ${BEAGLE_WORKSTREAM_ID}; continuing in local-only mode" >&2
+      write_local_context_packet_fallback
+    fi
+    if ! fetch_atomic "${BASE_URL}/api/darwin/workstreams/${BEAGLE_WORKSTREAM_ID}/workspace-habitat/context.env" "${CONTEXT_ENV_FILE}"; then
+      echo "[WARN] unable to fetch habitat context env for ${BEAGLE_WORKSTREAM_ID}; continuing in local-only mode" >&2
+      write_local_context_env_fallback
+    fi
+    cat > "${TEMPLATE_FILE}" <<EOF
+    {
+      "status": "ok",
+      "phase": "B20.6",
+      "template_id": "${TEMPLATE_ID}",
+      "template_version": "${TEMPLATE_VERSION}",
+      "context_source": "${CONTEXT_SOURCE}",
+      "workstream_id": "${BEAGLE_WORKSTREAM_ID}",
+      "workspace_id": "${BEAGLE_WORKSPACE_ID}",
+      "session_id": "${BEAGLE_SESSION_ID}",
+      "repo_url": "${BEAGLE_WORKSPACE_REPO_URL}",
+      "branch": "${BEAGLE_WORKSPACE_BRANCH}",
+      "workspace_root": "${WORKSPACE_ROOT}",
+      "context_packet_file": "${CONTEXT_PACKET_FILE}",
+      "context_env_file": "${CONTEXT_ENV_FILE}",
+      "template_contract_kind": "template-backed-external-workspace-contract",
+      "reproducibility_mode": "${REPRODUCIBILITY_MODE}",
+      "warm_start_strategy": "${WARM_START_STRATEGY}",
+      "managed_attach_alias": "${BEAGLE_WORKSPACE_ID}.coder",
+      "launch_resume_path": "/api/darwin/workstreams/${BEAGLE_WORKSTREAM_ID}/workspace-launch-resume",
+      "managed_attach_path": "/api/darwin/workstreams/${BEAGLE_WORKSTREAM_ID}/managed-attach"
+    }
+    EOF
+    cat > "${REGISTRATION_FILE}" <<EOF
+    {
+      "status": "ok",
+      "phase": "B20.6",
+      "registration_kind": "${EXTERNAL_WORKSPACE_KIND}",
+      "registration_state": "template-backed-registered",
+      "context_source": "${CONTEXT_SOURCE}",
+      "workstream_id": "${BEAGLE_WORKSTREAM_ID}",
+      "workspace_id": "${BEAGLE_WORKSPACE_ID}",
+      "session_id": "${BEAGLE_SESSION_ID}",
+      "stable_workspace_alias": "${BEAGLE_WORKSPACE_ID}.coder",
+      "browser_url": "${WORKSPACE_BROWSER_URL}",
+      "recommended_client": "cursor",
+      "registration_file": "${REGISTRATION_FILE}"
+    }
+    EOF
+    cat > "${HYDRATION_FILE}" <<EOF
+    {
+      "status": "ok",
+      "phase": "B20.6",
+      "context_source": "${CONTEXT_SOURCE}",
+      "workstream_id": "${BEAGLE_WORKSTREAM_ID}",
+      "workspace_id": "${BEAGLE_WORKSPACE_ID}",
+      "session_id": "${BEAGLE_SESSION_ID}",
+      "startup_mode": "${HYDRATION_MODE}",
+      "warm_start_used": ${WARM_START_USED},
+      "prebuilt_snapshot_expected": ${PREBUILT_SNAPSHOT_EXPECTED},
+      "warm_start_strategy": "${WARM_START_STRATEGY}",
+      "hydrated_startup_path": "pvc-hydrated-workspace-snapshot"
+    }
+    EOF
+    cat > "${CORE_ENV_FILE}" <<EOF
+    export BEAGLE_WORKSTREAM_ID='${BEAGLE_WORKSTREAM_ID}'
+    export BEAGLE_WORKSPACE_ID='${BEAGLE_WORKSPACE_ID}'
+    export BEAGLE_SESSION_ID='${BEAGLE_SESSION_ID}'
+    export BEAGLE_SUBAGENT_ID='core'
+    export BEAGLE_SUBAGENT_ROLE='core'
+    export BEAGLE_SUBAGENT_LABEL='Beagle Core'
+    export BEAGLE_SUBAGENT_ROLE_TAG='core-runtime'
+    export BEAGLE_SUBAGENT_SPECIALIZATION='runtime-and-control-plane'
+    export BEAGLE_SUBAGENT_WORKSPACE_FOLDER='${WORKSPACE_ROOT}'
+    export BEAGLE_SUBAGENT_DEVCONTAINER_FILE='${CORE_DEVCONTAINER_FILE}'
+    export BEAGLE_SUBAGENT_FOCUS_PATHS='apps/beagle-monorepo,crates/beagle-darwin,k8s/beagle,scripts/infrastructure/darwin-hpc'
+    export BEAGLE_SUBAGENT_WORK_MODES='core,runtime,implementation,control-plane,governance,interactive-editing'
+    export BEAGLE_SUBAGENT_DEFAULT_TOOLS='cursor,codex'
+    EOF
+    cat > "${EXPERIMENTS_ENV_FILE}" <<EOF
+    export BEAGLE_WORKSTREAM_ID='${BEAGLE_WORKSTREAM_ID}'
+    export BEAGLE_WORKSPACE_ID='${BEAGLE_WORKSPACE_ID}'
+    export BEAGLE_SESSION_ID='${BEAGLE_SESSION_ID}'
+    export BEAGLE_SUBAGENT_ID='experiments'
+    export BEAGLE_SUBAGENT_ROLE='experiments'
+    export BEAGLE_SUBAGENT_LABEL='Beagle Experiments'
+    export BEAGLE_SUBAGENT_ROLE_TAG='experiments-analysis'
+    export BEAGLE_SUBAGENT_SPECIALIZATION='experiments-analysis-and-paper'
+    export BEAGLE_SUBAGENT_WORKSPACE_FOLDER='${WORKSPACE_ROOT}/crates/beagle-experiments'
+    export BEAGLE_SUBAGENT_DEVCONTAINER_FILE='${EXPERIMENTS_DEVCONTAINER_FILE}'
+    export BEAGLE_SUBAGENT_FOCUS_PATHS='crates/beagle-experiments,crates/beagle-feedback,docs/darwin/hpc,.artifacts/darwin-hpc'
+    export BEAGLE_SUBAGENT_WORK_MODES='experiments,analysis,evaluation,evidence,results-synthesis'
+    export BEAGLE_SUBAGENT_DEFAULT_TOOLS='claude-code'
+    EOF
+    cat > "${MANUSCRIPT_ENV_FILE}" <<EOF
+    export BEAGLE_WORKSTREAM_ID='${BEAGLE_WORKSTREAM_ID}'
+    export BEAGLE_WORKSPACE_ID='${BEAGLE_WORKSPACE_ID}'
+    export BEAGLE_SESSION_ID='${BEAGLE_SESSION_ID}'
+    export BEAGLE_SUBAGENT_ID='manuscript'
+    export BEAGLE_SUBAGENT_ROLE='manuscript'
+    export BEAGLE_SUBAGENT_LABEL='Beagle Manuscript'
+    export BEAGLE_SUBAGENT_ROLE_TAG='manuscript-authoring'
+    export BEAGLE_SUBAGENT_SPECIALIZATION='claims-evidence-and-manuscript-assembly'
+    export BEAGLE_SUBAGENT_WORKSPACE_FOLDER='${WORKSPACE_ROOT}/docs/darwin/hpc'
+    export BEAGLE_SUBAGENT_DEVCONTAINER_FILE='${MANUSCRIPT_DEVCONTAINER_FILE}'
+    export BEAGLE_SUBAGENT_FOCUS_PATHS='docs/darwin/hpc,crates/beagle-darwin/src,.artifacts/darwin-hpc'
+    export BEAGLE_SUBAGENT_WORK_MODES='manuscript,paper,writing,editorial,claims,discussion'
+    export BEAGLE_SUBAGENT_DEFAULT_TOOLS='claude-code,cursor'
+    EOF
+    cat > "${CORE_DEVCONTAINER_FILE}" <<EOF
+    {
+      "name": "beagle-core",
+      "workspaceFolder": "${WORKSPACE_ROOT}",
+      "remoteEnv": {
+        "BEAGLE_WORKSTREAM_ID": "${BEAGLE_WORKSTREAM_ID}",
+        "BEAGLE_WORKSPACE_ID": "${BEAGLE_WORKSPACE_ID}",
+        "BEAGLE_SESSION_ID": "${BEAGLE_SESSION_ID}",
+        "BEAGLE_SUBAGENT_ID": "core",
+        "BEAGLE_SUBAGENT_ROLE": "core",
+        "BEAGLE_SUBAGENT_LABEL": "Beagle Core",
+        "BEAGLE_SUBAGENT_ROLE_TAG": "core-runtime"
+      },
+      "customizations": {
+        "vscode": {
+          "settings": {
+            "terminal.integrated.cwd": "${WORKSPACE_ROOT}"
+          }
+        }
+      },
+      "postStartCommand": "test -f ${CORE_ENV_FILE}"
+    }
+    EOF
+    cat > "${EXPERIMENTS_DEVCONTAINER_FILE}" <<EOF
+    {
+      "name": "beagle-experiments",
+      "workspaceFolder": "${WORKSPACE_ROOT}/crates/beagle-experiments",
+      "remoteEnv": {
+        "BEAGLE_WORKSTREAM_ID": "${BEAGLE_WORKSTREAM_ID}",
+        "BEAGLE_WORKSPACE_ID": "${BEAGLE_WORKSPACE_ID}",
+        "BEAGLE_SESSION_ID": "${BEAGLE_SESSION_ID}",
+        "BEAGLE_SUBAGENT_ID": "experiments",
+        "BEAGLE_SUBAGENT_ROLE": "experiments",
+        "BEAGLE_SUBAGENT_LABEL": "Beagle Experiments",
+        "BEAGLE_SUBAGENT_ROLE_TAG": "experiments-analysis"
+      },
+      "customizations": {
+        "vscode": {
+          "settings": {
+            "terminal.integrated.cwd": "${WORKSPACE_ROOT}/crates/beagle-experiments"
+          }
+        }
+      },
+      "postStartCommand": "test -f ${EXPERIMENTS_ENV_FILE}"
+    }
+    EOF
+    cat > "${MANUSCRIPT_DEVCONTAINER_FILE}" <<EOF
+    {
+      "name": "beagle-manuscript",
+      "workspaceFolder": "${WORKSPACE_ROOT}/docs/darwin/hpc",
+      "remoteEnv": {
+        "BEAGLE_WORKSTREAM_ID": "${BEAGLE_WORKSTREAM_ID}",
+        "BEAGLE_WORKSPACE_ID": "${BEAGLE_WORKSPACE_ID}",
+        "BEAGLE_SESSION_ID": "${BEAGLE_SESSION_ID}",
+        "BEAGLE_SUBAGENT_ID": "manuscript",
+        "BEAGLE_SUBAGENT_ROLE": "manuscript",
+        "BEAGLE_SUBAGENT_LABEL": "Beagle Manuscript",
+        "BEAGLE_SUBAGENT_ROLE_TAG": "manuscript-authoring"
+      },
+      "customizations": {
+        "vscode": {
+          "settings": {
+            "terminal.integrated.cwd": "${WORKSPACE_ROOT}/docs/darwin/hpc"
+          }
+        }
+      },
+      "postStartCommand": "test -f ${MANUSCRIPT_ENV_FILE}"
+    }
+    EOF
+    cat > "${SUBAGENTS_FILE}" <<EOF
+    {
+      "status": "ok",
+      "phase": "B20.7",
+      "context_source": "${CONTEXT_SOURCE}",
+      "workstream_id": "${BEAGLE_WORKSTREAM_ID}",
+      "workspace_id": "${BEAGLE_WORKSPACE_ID}",
+      "session_id": "${BEAGLE_SESSION_ID}",
+      "subagents_kind": "workspace-subagents",
+      "subagents_version": "beagle-workspace-devcontainer-subagents-v1",
+      "workspace_subagent_handoff_path": "/api/darwin/workstreams/${BEAGLE_WORKSTREAM_ID}/workspace-subagent-handoff",
+      "subagents_file": "${SUBAGENTS_FILE}",
+      "subagents_dir": "${SUBAGENTS_DIR}",
+      "devcontainer_dir": "${DEVCONTAINER_DIR}",
+      "roles": [
+        {
+          "subagent_id": "core",
+          "role": "core",
+          "role_tag": "core-runtime",
+          "label": "Beagle Core",
+          "work_modes": ["core", "runtime", "implementation", "control-plane", "governance", "interactive-editing"],
+          "default_tools": ["cursor", "codex"],
+          "env_file": "${CORE_ENV_FILE}",
+          "devcontainer_config_file": "${CORE_DEVCONTAINER_FILE}",
+          "workspace_folder": "${WORKSPACE_ROOT}",
+          "access_state": "live"
+        },
+        {
+          "subagent_id": "experiments",
+          "role": "experiments",
+          "role_tag": "experiments-analysis",
+          "label": "Beagle Experiments",
+          "work_modes": ["experiments", "analysis", "evaluation", "evidence", "results-synthesis"],
+          "default_tools": ["claude-code"],
+          "env_file": "${EXPERIMENTS_ENV_FILE}",
+          "devcontainer_config_file": "${EXPERIMENTS_DEVCONTAINER_FILE}",
+          "workspace_folder": "${WORKSPACE_ROOT}/crates/beagle-experiments",
+          "access_state": "live"
+        },
+        {
+          "subagent_id": "manuscript",
+          "role": "manuscript",
+          "role_tag": "manuscript-authoring",
+          "label": "Beagle Manuscript",
+          "work_modes": ["manuscript", "paper", "writing", "editorial", "claims", "discussion"],
+          "default_tools": ["claude-code", "cursor"],
+          "env_file": "${MANUSCRIPT_ENV_FILE}",
+          "devcontainer_config_file": "${MANUSCRIPT_DEVCONTAINER_FILE}",
+          "workspace_folder": "${WORKSPACE_ROOT}/docs/darwin/hpc",
+          "access_state": "live"
+        }
+      ]
+    }
+    EOF
+
+    chmod 600 "${CONTEXT_PACKET_FILE}" "${CONTEXT_ENV_FILE}" "${CONTEXT_DIR}/bootstrap.json" "${TEMPLATE_FILE}" "${REGISTRATION_FILE}" "${HYDRATION_FILE}" "${SUBAGENTS_FILE}" "${CORE_ENV_FILE}" "${EXPERIMENTS_ENV_FILE}" "${MANUSCRIPT_ENV_FILE}"
+    install_vsix_pack_if_enabled
+
+    exec "${OPENVSCODE_SERVER_ROOT}/bin/openvscode-server" \
+      --host 0.0.0.0 \
+      --port 8080 \
+      --without-connection-token \
+      "${WORKSPACE_ROOT}"

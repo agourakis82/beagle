@@ -1,0 +1,68 @@
+version: beagle-relevance-feedback-v1
+kind: relevance-feedback-loop
+description: >
+  B22.9 bounded relevance feedback contract layered on top of the routed and
+  optionally reranked retrieval spine.
+input:
+  feedback_version: string
+  query:
+    query_version: string
+    query_text: string
+    top_k: integer
+    dense_enabled: boolean
+    sparse_enabled: boolean
+    dense_weight: number
+    sparse_weight: number
+    query_type_hint: string
+    filters:
+      workstream_id: string
+      campaign_id: string
+      session_id: string
+      source: string
+      role: string
+      domain: string
+      repo_path: string
+      file_type: string
+      tags: [string]
+  feedback_round: integer
+  expected_memory_ids: [string]
+  judgments:
+    - memory_id: string
+      signal: positive|negative|neutral
+      score: number
+      rationale: string
+output:
+  result_version: string
+  profile_id: string
+  query_type: string
+  dense_backend: string
+  sparse_backend: string
+  reranker_backend: string
+  reranking_applied: boolean
+  feedback_strategy: string
+  feedback_applied: boolean
+  feedback_round: integer
+  candidate_count: integer
+  prerank_hit_count: integer
+  postfeedback_hit_count: integer
+  prerank_top_memory_ids: [string]
+  postfeedback_top_memory_ids: [string]
+  relevance_proxy_before: number
+  relevance_proxy_after: number
+  top_hit_changed: boolean
+  improvement_observed: boolean
+  latency:
+    prerank_latency_ms: integer
+    feedback_adjustment_latency_ms: integer
+    total_latency_ms: integer
+    latency_delta_ms: integer
+  hits:
+    - rank: integer
+      prerank_rank: integer
+      point: object
+      dense_score: number
+      sparse_score: number
+      hybrid_score: number
+      rerank_score: number
+      feedback_score: number
+      adjusted_score: number

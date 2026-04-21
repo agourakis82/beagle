@@ -24,3 +24,4 @@ beagle-quantum = { path = "../beagle-quantum" }
 
 [dev-dependencies]
 tokio = { version = "1.40", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

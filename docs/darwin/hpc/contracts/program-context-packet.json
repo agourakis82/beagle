@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Beagle Program Context Packet",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "status": { "type": "string" },
+    "phase": { "type": "string" },
+    "packet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "packet_version": { "type": "string" },
+        "program_id": { "type": "string" },
+        "program_title": { "type": "string" },
+        "program_kind": { "type": "string" },
+        "north_star": { "type": "string" },
+        "campaign_id": { "type": "string" },
+        "campaign_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "campaign_title": { "type": "string" },
+        "campaign_kind": { "type": "string" },
+        "campaign_status": { "type": "string" },
+        "objective": { "type": "string" },
+        "experiment_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "workstream_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "active_workstream_id": { "type": "string" },
+        "workspace_id": { "type": "string" },
+        "session_id": { "type": "string" },
+        "repo": { "type": "string" },
+        "branch": { "type": "string" },
+        "governance_state": { "type": "string" },
+        "latest_results": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "latest_memory_hits": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "latest_physio": {
+          "type": ["object", "null"],
+          "additionalProperties": true
+        },
+        "experiment_flags": {
+          "type": ["object", "null"],
+          "additionalProperties": true
+        },
+        "recommended_next_recipe": {
+          "type": ["object", "null"],
+          "additionalProperties": true
+        },
+        "evidence_targets": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": false }
+        },
+        "manuscript_targets": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": false }
+        }
+      },
+      "required": [
+        "packet_version",
+        "program_id",
+        "campaign_id",
+        "workstream_ids",
+        "active_workstream_id",
+        "workspace_id",
+        "session_id",
+        "repo",
+        "branch",
+        "governance_state",
+        "latest_results",
+        "latest_memory_hits",
+        "evidence_targets",
+        "manuscript_targets"
+      ]
+    }
+  },
+  "required": ["status", "phase", "packet"]
+}

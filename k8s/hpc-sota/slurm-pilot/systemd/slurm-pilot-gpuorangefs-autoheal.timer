@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic safe autoheal checks for admitted gpuorangefs Slurm workers
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+Unit=slurm-pilot-gpuorangefs-autoheal.service
+
+[Install]
+WantedBy=timers.target

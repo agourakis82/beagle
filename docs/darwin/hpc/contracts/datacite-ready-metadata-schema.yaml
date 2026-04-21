@@ -1,0 +1,21 @@
+profile: datacite-4.7-ready
+description: >
+  Citation-ready metadata export prepared for future DOI/publication work
+  without performing deposit in this phase.
+required:
+  - metadata_profile
+  - identifiers
+  - creators
+  - titles
+  - publisher
+  - publication_year
+  - types
+  - version
+  - subjects
+  - descriptions
+  - related_identifiers
+  - language
+  - readiness_state
+  - evidence_pack_ref
+  - review_bundle_ref
+  - jats_pack_ref

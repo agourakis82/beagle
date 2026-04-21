@@ -1,0 +1,99 @@
+version: 1
+kind: registry-submission-ledger
+description: >
+  B21.6 contract for the canonical ledger that freezes live sandbox registry
+  submission receipts for one Beagle-owned campaign package.
+required:
+  - ledger_profile
+  - ledger_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - campaign_id
+  - package_id
+  - readiness_state
+  - registry_handshake_state
+  - submission_count
+  - live_network_attempt_count
+  - live_registry_response_count
+  - accepted_submission_count
+  - auth_blocked_submission_count
+  - entries
+properties:
+  ledger_profile:
+    type: string
+    enum:
+      - registry-submission-ledger-v1
+  ledger_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  campaign_id:
+    type: string
+  package_id:
+    type: string
+  readiness_state:
+    type: string
+  registry_handshake_state:
+    type: string
+  submission_count:
+    type: integer
+  live_network_attempt_count:
+    type: integer
+  live_registry_response_count:
+    type: integer
+  accepted_submission_count:
+    type: integer
+  auth_blocked_submission_count:
+    type: integer
+  entries:
+    type: array
+    items:
+      type: object
+      required:
+        - registry
+        - receipt_ref
+        - performed_at
+        - target_url
+        - credential_state
+        - real_network_call_attempted
+        - transport_ok
+        - accepted
+        - registry_state
+        - response_summary
+      properties:
+        registry:
+          type: string
+        receipt_ref:
+          type: string
+        performed_at:
+          type: string
+          format: date-time
+        target_url:
+          type: string
+        credential_state:
+          type: string
+        real_network_call_attempted:
+          type: boolean
+        transport_ok:
+          type: boolean
+        accepted:
+          type: boolean
+        http_status:
+          type:
+            - integer
+            - "null"
+        registry_state:
+          type: string
+        response_identifier:
+          type:
+            - string
+            - "null"
+        response_summary:
+          type: string
+  note:
+    type: string

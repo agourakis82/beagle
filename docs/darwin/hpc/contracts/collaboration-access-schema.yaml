@@ -1,0 +1,53 @@
+version: beagle-workbench-collaboration-v1
+kind: workbench-collaboration-access
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - partner_access_state
+  - workspace_sharing_mode
+  - stable_workspace_alias
+  - collaboration_pattern
+  - direct_cluster_admin_grant
+  - direct_kubernetes_access_grant
+  - per_user_cluster_identity_live
+  - roles
+  - note
+properties:
+  phase:
+    type: string
+  contract_kind:
+    const: workbench-collaboration-access
+  contract_version:
+    const: beagle-workbench-collaboration-v1
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  partner_access_state:
+    type: string
+  workspace_sharing_mode:
+    type: string
+  stable_workspace_alias:
+    type: string
+  collaboration_pattern:
+    type: string
+  direct_cluster_admin_grant:
+    type: boolean
+  direct_kubernetes_access_grant:
+    type: boolean
+  per_user_cluster_identity_live:
+    type: boolean
+  roles:
+    type: array
+  note:
+    type: string

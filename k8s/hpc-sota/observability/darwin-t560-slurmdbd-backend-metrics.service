@@ -1,0 +1,8 @@
+[Unit]
+Description=Emit SlurmDBD host-local backend metrics for node exporter textfile collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/darwin-slurmdbd-backend-metrics.sh

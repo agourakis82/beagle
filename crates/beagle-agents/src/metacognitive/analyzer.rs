@@ -1,6 +1,6 @@
 use super::monitor::PerformanceMonitor;
+use crate::causal::AgentLlmClient;
 use anyhow::Result;
-use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::info;
@@ -35,12 +35,12 @@ pub enum ClusterPriority {
 }
 
 pub struct WeaknessAnalyzer {
-    llm: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
     pattern_history: Vec<FailurePattern>,
 }
 
 impl WeaknessAnalyzer {
-    pub fn new(llm: Arc<AnthropicClient>) -> Self {
+    pub fn new(llm: Arc<dyn AgentLlmClient>) -> Self {
         Self {
             llm,
             pattern_history: Vec::new(),
@@ -133,18 +133,11 @@ impl WeaknessAnalyzer {
             failure_summary
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeSonnet4,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 2000,
-            temperature: 0.3,
-            system: Some("You are an AI systems analyst identifying failure patterns.".to_string()),
-        };
-
-        let response = self.llm.complete(request).await?;
+        let system = "You are an AI systems analyst identifying failure patterns.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
         // Parse JSON
-        let content = response.content.trim();
+        let content = response.trim();
         let json_content = if content.contains("```json") {
             content
                 .lines()
@@ -251,15 +244,8 @@ impl WeaknessAnalyzer {
             pattern_summary
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeSonnet4,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 2000,
-            temperature: 0.4,
-            system: Some("You are an AI systems analyst identifying pattern clusters.".to_string()),
-        };
-
-        let response = self.llm.complete(request).await?;
+        let system = "You are an AI systems analyst identifying pattern clusters.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
         #[derive(Deserialize)]
         struct ClusterData {
@@ -268,7 +254,7 @@ impl WeaknessAnalyzer {
             pattern_types: Vec<String>,
         }
 
-        let content = response.content.trim();
+        let content = response.trim();
         let json_content = if content.contains("```json") {
             content
                 .lines()
@@ -338,17 +324,10 @@ impl WeaknessAnalyzer {
             patterns_summary
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeSonnet4,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 500,
-            temperature: 0.5,
-            system: Some("You are an AI architect designing specialized agents.".to_string()),
-        };
+        let system = "You are an AI architect designing specialized agents.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
-        let response = self.llm.complete(request).await?;
-
-        let capabilities: Vec<String> = serde_json::from_str(response.content.trim())
+        let capabilities: Vec<String> = serde_json::from_str(response.trim())
             .unwrap_or_else(|_| vec!["GeneralizedAgent".to_string()]);
 
         Ok(capabilities)

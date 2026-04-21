@@ -19,16 +19,61 @@ data:
   BEAGLE_WORKSPACE_OPERATOR: devsounio
   BEAGLE_WORKSPACE_DEFAULT_DEV_PLANE: beagle-cluster
   BEAGLE_WORKSPACE_VM_FALLBACK_ROLE: fallback-only
-  BEAGLE_WORKSPACE_PROMOTION_SCOPE: beagle-darwin-hpc-small-medium
+  BEAGLE_WORKSPACE_PROMOTION_SCOPE: beagle-darwin-hpc-general-noninfra
+  BEAGLE_WORKSPACE_CUTOVER_WORKSTREAM: beagle-darwin-hpc-governance
+  BEAGLE_WORKSPACE_CUTOVER_STATE: canonical
+  BEAGLE_WORKSTREAM_LAST_TRANSITION: resume
+  BEAGLE_WORKSPACE_CUTOVER_BRANCH_LINEAGE: feat/darwin-hpc-governance
+  BEAGLE_WORKSTREAM_DEFAULT_PROFILE: cpu-short-v1
+  BEAGLE_WORKSTREAM_BATCH_PROFILE: cpu-batch-v1
+  BEAGLE_WORKSTREAM_ADVANCED_PROFILE: gpu-single-v1
+  BEAGLE_WORKSTREAM_RESULT_PUBLICATION: object-backed
+  BEAGLE_WORKSTREAM_RESULT_RETRIEVAL: object-backed
+  BEAGLE_WORKSTREAM_RESULT_RETENTION_POLICY: active
+  BEAGLE_WORKSTREAM_OPERATOR_CONSUMER_POLICY: full
+  BEAGLE_WORKSTREAM_RESEARCH_CONSUMER_POLICY: bounded
+  BEAGLE_WORKSPACE_CUTOVER_RECOVERY_REQUIRED: "true"
+  BEAGLE_WORKSPACE_CUTOVER_HANDOFF_REQUIRED: "true"
+  BEAGLE_WORKSPACE_HABITAT_ENABLED: "true"
+  BEAGLE_WORKSPACE_HABITAT_IDE: openvscode-server
+  BEAGLE_WORKSPACE_HABITAT_NAMESPACE: beagle
+  BEAGLE_WORKSPACE_HABITAT_SERVICE_NAME: beagle-workspace
+  BEAGLE_WORKSPACE_HABITAT_INTERNAL_BASE_URL: http://beagle-workspace.beagle.svc.cluster.local:8080
+  BEAGLE_WORKSPACE_HABITAT_HEALTH_PATH: /
+  BEAGLE_WORKSPACE_HABITAT_SSH_ENABLED: "true"
+  BEAGLE_WORKSPACE_HABITAT_SSH_SERVICE_PORT: "2222"
+  BEAGLE_WORKSPACE_HABITAT_SSH_USER: openvscode-server
+  BEAGLE_WORKSPACE_HABITAT_WORKSPACE_ROOT: /workspace/beagle
+  BEAGLE_WORKSPACE_HABITAT_CONTEXT_DIR: /workspace/beagle/.beagle/context
+  BEAGLE_WORKSPACE_HABITAT_CONTEXT_PACKET_FILE: /workspace/beagle/.beagle/context/current-context-packet.json
+  BEAGLE_WORKSPACE_HABITAT_ENV_FILE: /workspace/beagle/.beagle/context/beagle-context.env
+  BEAGLE_WORKSPACE_HABITATS_JSON: >-
+    [{"workstream_id":"beagle-darwin-hpc-governance","workspace_id":"beagle-cluster-pilot","session_id":"ws-cluster-workspace-habitat","canonical_repo":"agourakis82/beagle","canonical_branch":"feat/darwin-hpc-governance","canonical_track":"darwin-hpc","branch_lineage":"feat/darwin-hpc-governance","governance_state":"canonical","governance_last_transition":"resume","default_dev_plane":"beagle-cluster","vm_fallback_role":"fallback-only","promotion_scope":"beagle-darwin-hpc-general-noninfra","ide_kind":"openvscode-server","ssh_enabled":true,"namespace":"beagle","service_name":"beagle-workspace","internal_base_url":"http://beagle-workspace.beagle.svc.cluster.local:8080","health_path":"/","ssh_service_port":2222,"ssh_user":"openvscode-server","workspace_root":"/workspace/beagle","context_dir":"/workspace/beagle/.beagle/context","context_packet_file":"/workspace/beagle/.beagle/context/current-context-packet.json","context_env_file":"/workspace/beagle/.beagle/context/beagle-context.env"},{"workstream_id":"sounio-lang-main","workspace_id":"sounio-cluster-pilot","session_id":"ws-cluster-sounio-habitat","canonical_repo":"sounio-lang/sounio","canonical_branch":"main","canonical_track":"sounio-cluster","branch_lineage":"main","governance_state":"canonical","governance_last_transition":"resume","default_dev_plane":"beagle-cluster","vm_fallback_role":"fallback-only","promotion_scope":"sounio-lang-compiler-mainline","ide_kind":"openvscode-server","ssh_enabled":true,"namespace":"beagle","service_name":"sounio-workspace","internal_base_url":"http://sounio-workspace.beagle.svc.cluster.local:8080","health_path":"/","ssh_service_port":2222,"ssh_user":"openvscode-server","workspace_root":"/workspace/sounio","context_dir":"/workspace/sounio/.beagle/context","context_packet_file":"/workspace/sounio/.beagle/context/current-context-packet.json","context_env_file":"/workspace/sounio/.beagle/context/beagle-context.env"}]
   BEAGLE_TOOL_BRIDGE_TIMEOUT_SECONDS: "60"
   BEAGLE_TOOL_BRIDGE_LEDGER_ENABLED: "true"
   BEAGLE_TOOL_BRIDGE_DRY_RUN: "false"
   BEAGLE_CONSUMER_POLICY_ENABLED: "true"
   BEAGLE_DEEPSEEK_BASE_URL: https://api.deepseek.com
-  BEAGLE_ZAI_BASE_URL: https://open.bigmodel.cn/api/paas/v4
+  BEAGLE_ZAI_BASE_URL: https://api.z.ai/api/coding/paas/v4
+  BEAGLE_GROQ_BASE_URL: https://api.groq.com/openai/v1
   BEAGLE_XAI_BASE_URL: https://api.x.ai/v1
-  BEAGLE_MINIMAX_BASE_URL: https://api.minimax.chat/v1
+  BEAGLE_GROK_MODEL: grok-4-1-fast-reasoning
+  BEAGLE_KIMI_MODEL: moonshotai/kimi-k2-instruct-0905
+  BEAGLE_MINIMAX_BASE_URL: https://api.minimax.io/anthropic
   BEAGLE_DARWIN_HPC_GATEWAY_BASE_URL: http://darwin-hpc-gateway.darwin-platform.svc.cluster.local
   BEAGLE_DARWIN_HPC_GATEWAY_TIMEOUT_SECONDS: "30"
+  BEAGLE_MEMORY_QDRANT_COLLECTION: beagle_memory_chat
+  BEAGLE_MEMORY_DENSE_BACKEND_ID: voyage-4-large
+  BEAGLE_MEMORY_DENSE_BACKEND_PROVIDER: voyage
+  BEAGLE_MEMORY_EMBEDDING_URL: https://api.voyageai.com/v1
+  BEAGLE_MEMORY_EMBEDDING_MODEL: voyage-4-large
+  BEAGLE_MEMORY_RERANKING_URL: https://api.voyageai.com/v1
+  BEAGLE_MEMORY_RERANKING_MODEL: rerank-2.5
+  BEAGLE_MEMORY_CODE_BACKEND_ID: voyage-code-3
+  BEAGLE_MEMORY_SOVEREIGN_BACKEND_ID: bge-m3
+  BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_URL: http://beagle-sovereign-embeddings.beagle.svc.cluster.local/v1
+  BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_MODEL: BAAI/bge-m3
+  BEAGLE_MEMORY_SOVEREIGN_RERANKING_URL: http://beagle-sovereign-reranker.beagle.svc.cluster.local
+  BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL: BAAI/bge-reranker-v2-m3
   RUST_LOG: beagle=info,beagle_monorepo=info,beagle_core=info,tower_http=info
   RUST_LOG_JSON: "1"

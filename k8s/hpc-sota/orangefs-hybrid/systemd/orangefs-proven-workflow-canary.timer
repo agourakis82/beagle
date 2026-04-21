@@ -1,0 +1,11 @@
+[Unit]
+Description=Run OrangeFS proven workflow canary periodically
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=orangefs-proven-workflow-canary.service
+
+[Install]
+WantedBy=timers.target
+

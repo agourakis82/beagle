@@ -1,0 +1,64 @@
+title: Next Study Seed Schema (B26.6)
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - seed_id
+  - parent_study_id
+  - baseline_adoption_id
+  - promoted_variant_receipt_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - seeded_baseline_variant_id
+  - seeded_baseline_run_id
+  - suggested_next_study_id
+  - auto_launch_new_study
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  seed_id:
+    type: string
+  parent_study_id:
+    type: string
+  baseline_adoption_id:
+    type: string
+  promoted_variant_receipt_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  seeded_baseline_variant_id:
+    type: string
+  seeded_baseline_run_id:
+    type: string
+  seeded_baseline_compute_profile_id:
+    type: string
+  suggested_next_study_id:
+    type: string
+  auto_launch_new_study:
+    type: boolean
+  deferred_launch_reason:
+    type: string
+  comparator_variant_ids_hint:
+    type: array
+    items:
+      type: string
+  generated_at:
+    type: string
+    format: date-time
+  scientific_readiness_limits_acknowledged:
+    type: boolean
+  note:
+    type: string

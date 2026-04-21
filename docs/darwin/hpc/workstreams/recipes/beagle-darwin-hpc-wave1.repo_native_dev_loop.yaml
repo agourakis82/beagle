@@ -1,0 +1,54 @@
+api_version: beagle.workstream.recipe/v1
+phase: B16.1
+id: beagle-darwin-hpc-wave1.repo_native_dev_loop
+workstream: beagle-darwin-hpc-wave1
+kind: repo_native_dev_loop
+summary: Repo-native edit/build/deploy/validate loop for the Darwin/HPC wave1 line.
+
+inputs:
+  repo: agourakis82/beagle
+  branch: feat/darwin-hpc-wave1
+  workspace_id: runtime-supplied
+  default_dev_plane: beagle-cluster
+  vm_fallback_role: fallback-only
+  promotion_scope: beagle-darwin-hpc-general-noninfra
+
+steps:
+  - id: edit
+    action: inspect_wave1_repo_native_delta
+    success_condition: changed_file_count >= 1
+    recovery_point: bootstrap_before
+  - id: build
+    action: build_core_server_image
+    success_condition: release build completes in live container path
+    recovery_point: image_loaded
+  - id: deploy
+    action: apply_k8s_and_rollout_restart
+    success_condition: beagle-core rollout completes
+    recovery_point: bootstrap_after_deploy
+  - id: validate
+    action: execute_wave1_repo_validation
+    success_condition: wave1 workspace state remains queryable from Beagle control room
+    recovery_point: session_after_loop
+  - id: handoff
+    action: persist_wave1_handoff_ready_state
+    success_condition: handoff remains available on the same workstream/session line
+    recovery_point: session_after_loop
+
+outputs:
+  primary_artifacts:
+    - build.log
+    - bootstrap-after-deploy.json
+    - session-after-loop.json
+    - repo-loop.json
+
+recovery_points:
+  - bootstrap_before
+  - image_loaded
+  - bootstrap_after_deploy
+  - session_after_loop
+
+success_criteria:
+  - repo-native delta is real
+  - build and deploy succeed
+  - wave1 session remains handoff-ready

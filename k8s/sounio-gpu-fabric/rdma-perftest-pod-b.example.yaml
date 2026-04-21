@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rdma-perftest-b
+  namespace: beagle
+  annotations:
+    k8s.v1.cni.cncf.io/networks: gpu-fabric-10-200-pilot
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: r740-proxmox
+  restartPolicy: OnFailure
+  tolerations:
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+  containers:
+    - image: mellanox/cuda-perftest
+      name: rdma-gpu-test
+      securityContext:
+        capabilities:
+          add: ["IPC_LOCK"]
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+          rdma/sounio_gpu_fabric: 1
+        requests:
+          nvidia.com/gpu: 1
+          rdma/sounio_gpu_fabric: 1

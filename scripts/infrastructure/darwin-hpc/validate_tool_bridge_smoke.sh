@@ -33,7 +33,7 @@ if health.get("status") != "ok":
     raise SystemExit("health.status is not ok")
 
 provider_names = {provider["provider"] for provider in providers}
-expected = {"deepseek", "glm5", "grok_fast", "minimax", "codex_human", "claude_human", "mcp_generic"}
+expected = {"deepseek", "glm5", "grok_fast", "minimax", "kimi", "codex_human", "claude_human", "mcp_generic"}
 missing = sorted(expected - provider_names)
 if missing:
     raise SystemExit(f"missing providers: {', '.join(missing)}")

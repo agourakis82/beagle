@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 const DEFAULT_EMBEDDING_URL: &str = "http://t560.local:8001/v1";
+const DEFAULT_EMBEDDING_MODEL: &str = "BAAI/bge-large-en-v1.5";
 
 /// Tipo para representar um vetor de embedding
 pub type Embedding = Vec<f64>;
@@ -16,6 +17,8 @@ pub type Embedding = Vec<f64>;
 pub struct EmbeddingClient {
     client: Client,
     base_url: String,
+    model: String,
+    api_key: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -38,9 +41,30 @@ struct EmbeddingData {
 
 impl EmbeddingClient {
     pub fn new(base_url: impl Into<String>) -> Self {
+        Self::new_with_options(base_url, None, None)
+    }
+
+    pub fn new_with_model(
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        Self::new_with_options(base_url, Some(model.into()), None)
+    }
+
+    pub fn new_with_options(
+        base_url: impl Into<String>,
+        model: Option<String>,
+        api_key: Option<String>,
+    ) -> Self {
         Self {
             client: Client::new(),
             base_url: base_url.into(),
+            model: model
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| DEFAULT_EMBEDDING_MODEL.to_string()),
+            api_key: api_key
+                .map(|value: String| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
         }
     }
 
@@ -53,7 +77,7 @@ impl EmbeddingClient {
         let url = format!("{}/embeddings", self.base_url);
 
         let request = EmbeddingRequest {
-            model: "BAAI/bge-large-en-v1.5".to_string(),
+            model: self.model.clone(),
             input: vec![text.to_string()],
         };
 
@@ -62,10 +86,11 @@ impl EmbeddingClient {
             &text[..text.len().min(50)]
         );
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&request)
+        let mut builder = self.client.post(&url).json(&request);
+        if let Some(api_key) = &self.api_key {
+            builder = builder.bearer_auth(api_key);
+        }
+        let response = builder
             .send()
             .await
             .context("Falha ao enviar requisição de embedding")?;
@@ -97,16 +122,17 @@ impl EmbeddingClient {
         let url = format!("{}/embeddings", self.base_url);
 
         let request = EmbeddingRequest {
-            model: "BAAI/bge-large-en-v1.5".to_string(),
+            model: self.model.clone(),
             input: texts.iter().map(|s| s.to_string()).collect(),
         };
 
         debug!("Gerando {} embeddings em batch", texts.len());
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&request)
+        let mut builder = self.client.post(&url).json(&request);
+        if let Some(api_key) = &self.api_key {
+            builder = builder.bearer_auth(api_key);
+        }
+        let response = builder
             .send()
             .await
             .context("Falha ao enviar requisição de embedding batch")?;

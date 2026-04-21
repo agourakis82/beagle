@@ -1,0 +1,52 @@
+api_version: beagle.workstream.recipe/v1
+phase: B26.7
+id: sounio-lang-main.repo_native_dev_loop
+workstream: sounio-lang-main
+kind: repo_native_dev_loop
+summary: Canonical repo-native edit/build/check loop for the Sounio compiler line on the cluster workspace.
+
+inputs:
+  repo: sounio-lang/sounio
+  branch: main
+  workspace_id: runtime-supplied
+  default_dev_plane: beagle-cluster
+  vm_fallback_role: fallback-only
+  promotion_scope: sounio-lang-compiler-mainline
+  worktree_delta_required: true
+
+steps:
+  - id: edit
+    action: inspect_repo_native_delta
+    success_condition: changed_file_count >= 1
+    recovery_point: bootstrap_before
+  - id: bootstrap
+    action: bootstrap_workspace_session
+    success_condition: sounio workspace session resolves on the same Beagle-owned identity line
+    recovery_point: session_before_loop
+  - id: check
+    action: execute_make_check_on_workspace
+    success_condition: make check succeeds or returns an explicit bounded readiness error
+    recovery_point: check_after
+  - id: persist_state
+    action: persist_workspace_session_state
+    success_condition: workspace session remains ready for follow-on editing and handoff
+    recovery_point: session_after_loop
+
+outputs:
+  primary_artifacts:
+    - workspace-bootstrap.json
+    - workspace-habitat.json
+    - make-check.log
+    - session-after-loop.json
+
+recovery_points:
+  - bootstrap_before
+  - session_before_loop
+  - check_after
+  - session_after_loop
+
+success_criteria:
+  - repo-native delta is real
+  - workspace session resolves on the Sounio line
+  - make check is runnable from the cluster workspace
+  - workspace remains handoff-ready on the same session line

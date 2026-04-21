@@ -1,0 +1,72 @@
+version: beagle-scholarly-release-pipeline-v1
+kind: workspace-scholarly-release
+phase: B21.3
+description: >
+  Bounded scholarly release pipeline emitted from the manuscript subagent while
+  preserving one Beagle-owned workstream/workspace/session identity.
+required:
+  - status
+  - phase
+  - release
+  - continuity
+  - source_role
+  - subagents
+  - context_packet
+  - program_context
+  - evidence_pack
+  - claims
+  - review_bundle
+  - jats_pack
+  - jats_qa_report
+  - ro_crate_export
+  - datacite_metadata
+  - crossref_article_stub
+  - release_bundle
+release:
+  required:
+    - release_version
+    - release_kind
+    - release_id
+    - workstream_id
+    - workspace_id
+    - session_id
+    - source_subagent_id
+    - source_role_tag
+    - release_goal
+    - summary
+    - release_notes
+    - upstream_assembly_id
+    - upstream_manuscript_handoff_id
+    - upstream_subagent_handoff_id
+    - jats_qa_report_ref
+    - ro_crate_export_ref
+    - datacite_metadata_ref
+    - crossref_article_stub_ref
+    - release_bundle_ref
+    - program_id
+    - campaign_id
+    - manuscript_pack_id
+    - jats_pack_id
+    - readiness_state
+    - section_profile
+    - article_type
+    - managed_attach_state
+    - stable_attach_alias
+continuity:
+  required:
+    - handoff_present
+    - claim_count
+    - supported_claim_count
+    - review_payload_count
+    - jats_section_count
+    - jats_profile
+    - jats_qa_status
+    - qa_warning_count
+    - qa_failure_count
+    - ro_crate_payload_count
+    - datacite_related_identifier_count
+    - crossref_related_item_count
+    - provenance_activity_count
+    - readiness_state
+allowed_source_subagents:
+  - manuscript

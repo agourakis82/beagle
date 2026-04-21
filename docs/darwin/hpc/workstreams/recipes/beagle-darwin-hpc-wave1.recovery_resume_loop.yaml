@@ -1,0 +1,42 @@
+api_version: beagle.workstream.recipe/v1
+phase: B16.1
+id: beagle-darwin-hpc-wave1.recovery_resume_loop
+workstream: beagle-darwin-hpc-wave1
+kind: recovery_resume_loop
+summary: Canonical restart/recovery loop for resuming the Darwin/HPC wave1 workstream.
+
+inputs:
+  repo: agourakis82/beagle
+  branch: feat/darwin-hpc-wave1
+  workspace_id: runtime-supplied
+  default_dev_plane: beagle-cluster
+  vm_fallback_role: fallback-only
+
+steps:
+  - id: restart
+    action: rollout_restart_beagle_core
+    success_condition: beagle-core rollout completes
+    recovery_point: before_restart
+  - id: bootstrap
+    action: bootstrap_workspace_session
+    success_condition: same workspace/session identity is recovered
+    recovery_point: session_after_restart
+  - id: validate
+    action: verify_last_successful_task_handoff_and_result_reference
+    success_condition: workstream state remains coherent after restart
+    recovery_point: session_after_restart
+
+outputs:
+  primary_artifacts:
+    - bootstrap-after-restart.json
+    - session-after-restart.json
+    - recovery.json
+
+recovery_points:
+  - before_restart
+  - session_after_restart
+
+success_criteria:
+  - the same wave1 session survives restart
+  - handoff remains present
+  - the last successful task and result reference remain queryable

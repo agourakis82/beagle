@@ -14,15 +14,20 @@ pub struct LlmConfig {
     pub openai_api_key: Option<String>,
     pub deepseek_api_key: Option<String>,
     pub zai_api_key: Option<String>,
+    pub groq_api_key: Option<String>,
     pub minimax_api_key: Option<String>,
     pub vllm_url: Option<String>,
     pub deepseek_base_url: Option<String>,
     pub zai_base_url: Option<String>,
+    pub groq_base_url: Option<String>,
     pub xai_base_url: Option<String>,
     pub minimax_base_url: Option<String>,
     /// Modelo Grok padrão (default: "grok-3")
     #[serde(default = "default_grok_model")]
     pub grok_model: String,
+    /// Modelo Kimi padrão no backend Groq
+    #[serde(default = "default_kimi_model")]
+    pub kimi_model: String,
     /// Configuração de roteamento e limites
     #[serde(default)]
     pub routing: LlmRoutingConfig,
@@ -133,6 +138,10 @@ fn default_grok_model() -> String {
     "grok-3".to_string()
 }
 
+fn default_kimi_model() -> String {
+    "moonshotai/kimi-k2-instruct-0905".to_string()
+}
+
 impl Default for LlmConfig {
     fn default() -> Self {
         Self {
@@ -141,13 +150,16 @@ impl Default for LlmConfig {
             openai_api_key: None,
             deepseek_api_key: None,
             zai_api_key: None,
+            groq_api_key: None,
             minimax_api_key: None,
             vllm_url: None,
             deepseek_base_url: None,
             zai_base_url: None,
+            groq_base_url: None,
             xai_base_url: None,
             minimax_base_url: None,
             grok_model: default_grok_model(),
+            kimi_model: default_kimi_model(),
             routing: LlmRoutingConfig::default(),
         }
     }
@@ -273,8 +285,201 @@ pub struct WorkspacePlaneConfig {
     pub default_dev_plane: String,
     pub vm_fallback_role: String,
     pub promotion_scope: String,
+    #[serde(default = "default_cutover_workstream")]
+    pub cutover_workstream: String,
+    #[serde(default = "default_cutover_state")]
+    pub cutover_state: String,
+    #[serde(default = "default_cutover_last_transition")]
+    pub cutover_last_transition: String,
+    #[serde(default = "default_cutover_branch_lineage")]
+    pub cutover_branch_lineage: String,
+    #[serde(default = "default_cutover_default_profile")]
+    pub cutover_default_profile: String,
+    #[serde(default = "default_cutover_batch_profile")]
+    pub cutover_batch_profile: String,
+    #[serde(default = "default_cutover_advanced_profile")]
+    pub cutover_advanced_profile: String,
+    #[serde(default = "default_cutover_result_publication")]
+    pub cutover_result_publication: String,
+    #[serde(default = "default_cutover_result_retrieval")]
+    pub cutover_result_retrieval: String,
+    #[serde(default = "default_cutover_result_retention_policy")]
+    pub cutover_result_retention_policy: String,
+    #[serde(default = "default_cutover_operator_consumer_policy")]
+    pub cutover_operator_consumer_policy: String,
+    #[serde(default = "default_cutover_research_consumer_policy")]
+    pub cutover_research_consumer_policy: String,
+    #[serde(default = "default_true")]
+    pub cutover_recovery_required: bool,
+    #[serde(default = "default_true")]
+    pub cutover_handoff_required: bool,
     #[serde(default = "default_true")]
     pub bootstrap_enabled: bool,
+    #[serde(default)]
+    pub habitat: WorkspaceHabitatConfig,
+}
+
+/// Configuração bounded do habitat de workspace remoto no cluster.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceHabitatConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_workspace_habitat_ide")]
+    pub ide_kind: String,
+    #[serde(default = "default_false")]
+    pub ssh_enabled: bool,
+    #[serde(default = "default_workspace_habitat_namespace")]
+    pub namespace: String,
+    #[serde(default = "default_workspace_habitat_service_name")]
+    pub service_name: String,
+    #[serde(default = "default_workspace_habitat_internal_base_url")]
+    pub internal_base_url: String,
+    #[serde(default = "default_workspace_habitat_health_path")]
+    pub health_path: String,
+    #[serde(default = "default_workspace_habitat_ssh_service_port")]
+    pub ssh_service_port: u16,
+    #[serde(default = "default_workspace_habitat_ssh_user")]
+    pub ssh_user: String,
+    #[serde(default = "default_workspace_habitat_workspace_root")]
+    pub workspace_root: String,
+    #[serde(default = "default_workspace_habitat_context_dir")]
+    pub context_dir: String,
+    #[serde(default = "default_workspace_habitat_context_packet_file")]
+    pub context_packet_file: String,
+    #[serde(default = "default_workspace_habitat_env_file")]
+    pub context_env_file: String,
+}
+
+/// Binding explícito entre um workstream e um habitat/workspace remoto dedicado.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceHabitatBindingConfig {
+    pub workstream_id: String,
+    #[serde(default)]
+    pub workspace_id: String,
+    #[serde(default)]
+    pub session_id: String,
+    #[serde(default)]
+    pub canonical_repo: String,
+    #[serde(default)]
+    pub canonical_branch: String,
+    #[serde(default)]
+    pub canonical_track: String,
+    #[serde(default)]
+    pub branch_lineage: String,
+    #[serde(default)]
+    pub governance_state: String,
+    #[serde(default)]
+    pub governance_last_transition: String,
+    #[serde(default)]
+    pub default_dev_plane: String,
+    #[serde(default)]
+    pub vm_fallback_role: String,
+    #[serde(default)]
+    pub promotion_scope: String,
+    #[serde(default)]
+    pub ide_kind: String,
+    #[serde(default)]
+    pub ssh_enabled: bool,
+    #[serde(default)]
+    pub namespace: String,
+    #[serde(default)]
+    pub service_name: String,
+    #[serde(default)]
+    pub internal_base_url: String,
+    #[serde(default)]
+    pub health_path: String,
+    #[serde(default)]
+    pub ssh_service_port: u16,
+    #[serde(default)]
+    pub ssh_user: String,
+    #[serde(default)]
+    pub workspace_root: String,
+    #[serde(default)]
+    pub context_dir: String,
+    #[serde(default)]
+    pub context_packet_file: String,
+    #[serde(default)]
+    pub context_env_file: String,
+}
+
+impl Default for WorkspaceHabitatBindingConfig {
+    fn default() -> Self {
+        Self {
+            workstream_id: String::new(),
+            workspace_id: String::new(),
+            session_id: String::new(),
+            canonical_repo: String::new(),
+            canonical_branch: String::new(),
+            canonical_track: String::new(),
+            branch_lineage: String::new(),
+            governance_state: String::new(),
+            governance_last_transition: String::new(),
+            default_dev_plane: String::new(),
+            vm_fallback_role: String::new(),
+            promotion_scope: String::new(),
+            ide_kind: String::new(),
+            ssh_enabled: false,
+            namespace: String::new(),
+            service_name: String::new(),
+            internal_base_url: String::new(),
+            health_path: String::new(),
+            ssh_service_port: 0,
+            ssh_user: String::new(),
+            workspace_root: String::new(),
+            context_dir: String::new(),
+            context_packet_file: String::new(),
+            context_env_file: String::new(),
+        }
+    }
+}
+
+/// Binding fully resolved for a workstream-specific habitat after merging defaults.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolvedWorkspaceHabitatBinding {
+    pub workstream_id: String,
+    pub workspace_id: String,
+    pub session_id: String,
+    pub canonical_repo: String,
+    pub canonical_branch: String,
+    pub canonical_track: String,
+    pub branch_lineage: String,
+    pub governance_state: String,
+    pub governance_last_transition: String,
+    pub default_dev_plane: String,
+    pub vm_fallback_role: String,
+    pub promotion_scope: String,
+    pub ide_kind: String,
+    pub ssh_enabled: bool,
+    pub namespace: String,
+    pub service_name: String,
+    pub internal_base_url: String,
+    pub health_path: String,
+    pub ssh_service_port: u16,
+    pub ssh_user: String,
+    pub workspace_root: String,
+    pub context_dir: String,
+    pub context_packet_file: String,
+    pub context_env_file: String,
+}
+
+impl Default for WorkspaceHabitatConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            ide_kind: default_workspace_habitat_ide(),
+            ssh_enabled: default_false(),
+            namespace: default_workspace_habitat_namespace(),
+            service_name: default_workspace_habitat_service_name(),
+            internal_base_url: default_workspace_habitat_internal_base_url(),
+            health_path: default_workspace_habitat_health_path(),
+            ssh_service_port: default_workspace_habitat_ssh_service_port(),
+            ssh_user: default_workspace_habitat_ssh_user(),
+            workspace_root: default_workspace_habitat_workspace_root(),
+            context_dir: default_workspace_habitat_context_dir(),
+            context_packet_file: default_workspace_habitat_context_packet_file(),
+            context_env_file: default_workspace_habitat_env_file(),
+        }
+    }
 }
 
 impl Default for WorkspacePlaneConfig {
@@ -287,10 +492,117 @@ impl Default for WorkspacePlaneConfig {
             operator_name: None,
             default_dev_plane: "beagle-cluster".to_string(),
             vm_fallback_role: "fallback-only".to_string(),
-            promotion_scope: "beagle-darwin-hpc-small-medium".to_string(),
+            promotion_scope: "beagle-darwin-hpc-general-noninfra".to_string(),
+            cutover_workstream: "beagle-darwin-hpc-governance".to_string(),
+            cutover_state: "canonical".to_string(),
+            cutover_last_transition: "resume".to_string(),
+            cutover_branch_lineage: "feat/darwin-hpc-governance".to_string(),
+            cutover_default_profile: "cpu-short-v1".to_string(),
+            cutover_batch_profile: "cpu-batch-v1".to_string(),
+            cutover_advanced_profile: "gpu-single-v1".to_string(),
+            cutover_result_publication: "object-backed".to_string(),
+            cutover_result_retrieval: "object-backed".to_string(),
+            cutover_result_retention_policy: "active".to_string(),
+            cutover_operator_consumer_policy: "full".to_string(),
+            cutover_research_consumer_policy: "bounded".to_string(),
+            cutover_recovery_required: true,
+            cutover_handoff_required: true,
             bootstrap_enabled: true,
+            habitat: WorkspaceHabitatConfig::default(),
         }
     }
+}
+
+fn default_cutover_workstream() -> String {
+    "beagle-darwin-hpc-governance".to_string()
+}
+
+fn default_cutover_state() -> String {
+    "canonical".to_string()
+}
+
+fn default_cutover_last_transition() -> String {
+    "resume".to_string()
+}
+
+fn default_cutover_branch_lineage() -> String {
+    "feat/darwin-hpc-governance".to_string()
+}
+
+fn default_cutover_default_profile() -> String {
+    "cpu-short-v1".to_string()
+}
+
+fn default_cutover_batch_profile() -> String {
+    "cpu-batch-v1".to_string()
+}
+
+fn default_cutover_advanced_profile() -> String {
+    "gpu-single-v1".to_string()
+}
+
+fn default_cutover_result_publication() -> String {
+    "object-backed".to_string()
+}
+
+fn default_cutover_result_retrieval() -> String {
+    "object-backed".to_string()
+}
+
+fn default_cutover_result_retention_policy() -> String {
+    "active".to_string()
+}
+
+fn default_cutover_operator_consumer_policy() -> String {
+    "full".to_string()
+}
+
+fn default_cutover_research_consumer_policy() -> String {
+    "bounded".to_string()
+}
+
+fn default_workspace_habitat_ide() -> String {
+    "openvscode-server".to_string()
+}
+
+fn default_workspace_habitat_namespace() -> String {
+    "beagle".to_string()
+}
+
+fn default_workspace_habitat_service_name() -> String {
+    "beagle-workspace".to_string()
+}
+
+fn default_workspace_habitat_internal_base_url() -> String {
+    "http://beagle-workspace.beagle.svc.cluster.local:8080".to_string()
+}
+
+fn default_workspace_habitat_health_path() -> String {
+    "/".to_string()
+}
+
+fn default_workspace_habitat_ssh_service_port() -> u16 {
+    2222
+}
+
+fn default_workspace_habitat_ssh_user() -> String {
+    "openvscode-server".to_string()
+}
+
+fn default_workspace_habitat_workspace_root() -> String {
+    "/workspace/beagle".to_string()
+}
+
+fn default_workspace_habitat_context_dir() -> String {
+    "/workspace/beagle/.beagle/context".to_string()
+}
+
+fn default_workspace_habitat_context_packet_file() -> String {
+    "/workspace/beagle/.beagle/context/current-context-packet.json".to_string()
+}
+
+fn default_workspace_habitat_env_file() -> String {
+    "/workspace/beagle/.beagle/context/beagle-context.env".to_string()
 }
 
 /// Configuração mínima da política de consumers do plano Darwin/HPC.

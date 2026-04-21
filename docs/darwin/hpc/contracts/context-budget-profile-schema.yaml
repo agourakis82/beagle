@@ -1,0 +1,22 @@
+version: beagle-context-budget-profile-v1
+kind: context-budget-profile
+description: >
+  B23.5 profile describing how a task lane allocates bounded context budget
+  across procedural, semantic, episodic, temporal, and graph-aware support.
+profile:
+  profile_version: string
+  profile_id: string
+  task_profile: implementation|analysis|interactive-editing|manuscript
+  default_tool_id: string
+  retrieval_query_type: general|code|sovereign
+  graphrag_query_mode_hint: local|global|drift
+  temporal_truth_view: current|historical|both
+  include_temporal_contradictions: boolean
+  selected_memory_tiers: [episodic|semantic|procedural]
+  max_context_items: integer
+  allocations:
+    - source_kind: procedural|semantic|episodic|temporal|graphrag
+      max_items: integer
+      budget_weight: float
+      note: string
+  note: string

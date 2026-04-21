@@ -1,0 +1,37 @@
+phase: B25.1
+kind: partner-access
+version: beagle-partner-access-v1
+
+identity:
+  required:
+    - workstream_id
+    - workspace_id
+    - session_id
+    - same_beagle_owned_identity
+
+partner_access:
+  required:
+    - partner_access_state
+    - workspace_sharing_mode
+    - direct_cluster_admin_grant
+    - direct_kubernetes_access_grant
+    - per_user_cluster_identity_live
+    - recommended_workspace_pattern
+    - workspace_template_path
+    - managed_attach_path
+    - stable_workspace_alias
+    - roles
+
+roles:
+  required:
+    - role_id
+    - role_kind
+    - access_state
+    - workspace_attach_allowed
+    - shared_workspace_allowed
+    - allowed_clients
+    - allowed_profile_ids
+    - cluster_admin_allowed
+    - direct_kubernetes_access_allowed
+    - activation_mode
+    - rollback_mode

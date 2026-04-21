@@ -1,0 +1,50 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - selected_subagent_id
+  - run_label
+  - submitted_job_id
+  - algorithm
+  - source_fingerprint
+  - capture_kind
+properties:
+  phase:
+    type: string
+    const: B25.6
+  contract_kind:
+    type: string
+    const: source-fingerprint
+  contract_version:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  selected_subagent_id:
+    type: string
+  run_label:
+    type: string
+  submitted_job_id:
+    type: integer
+  repo_root:
+    type: [string, "null"]
+  algorithm:
+    type: string
+  source_fingerprint:
+    type: string
+  lockfile_fingerprints:
+    type: array
+  capture_kind:
+    type: string
+  note:
+    type: string

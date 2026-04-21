@@ -1,0 +1,52 @@
+version: B20.8
+kind: workspace-subagent-route
+summary: >
+  Bounded role-aware routing contract for selecting a reproducible inner workspace
+  surface without minting a new Beagle-owned identity.
+
+required:
+  - status
+  - phase
+  - route
+  - selected_role
+  - subagents
+  - context_packet
+
+route:
+  required:
+    - route_version
+    - route_kind
+    - workstream_id
+    - workspace_id
+    - session_id
+    - workspace_subagent_route_path
+    - selection
+    - attach_metadata
+  selection:
+    required:
+      - requested_tool_id
+      - requested_work_mode
+      - selected_subagent_id
+      - selected_role_tag
+      - selection_source
+      - route_reason
+  attach_metadata:
+    required:
+      - attach_method
+      - managed_attach_state
+      - stable_attach_alias
+      - recommended_client
+      - workspace_folder
+      - env_file
+      - devcontainer_config_file
+      - shell_entry_hint
+      - browser_url
+      - managed_attach_path
+      - launch_resume_path
+      - subagent_list_path
+      - context_packet_ref
+
+identity_invariant:
+  description: >
+    workstream_id, workspace_id, and session_id must remain identical to the enclosing
+    Beagle-owned workspace and context packet.

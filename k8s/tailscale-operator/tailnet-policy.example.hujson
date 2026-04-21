@@ -1,0 +1,33 @@
+{
+  "tagOwners": {
+    "tag:k8s-operator": [],
+    "tag:k8s": ["tag:k8s-operator"],
+    "tag:sounio-workspace": ["tag:k8s-operator"]
+  },
+  "autoApprovers": {
+    "services": {
+      "tag:k8s": ["tag:k8s", "tag:sounio-workspace"],
+      "tag:sounio-workspace": ["tag:k8s", "tag:sounio-workspace"]
+    }
+  },
+  "grants": [
+    {
+      "src": ["group:workspace-users"],
+      "dst": ["tag:sounio-workspace"],
+      "ip": ["tcp:2222", "tcp:8080"]
+    },
+    {
+      "src": ["tag:k8s-operator"],
+      "dst": ["tag:k8s"],
+      "ip": ["tcp:443"]
+    }
+  ],
+  "ssh": [
+    {
+      "action": "accept",
+      "src": ["group:workspace-admins"],
+      "dst": ["tag:k8s-operator"],
+      "users": ["openvscode-server"]
+    }
+  ]
+}

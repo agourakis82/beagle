@@ -1,0 +1,16 @@
+version: beagle-memory-hierarchy-v1
+kind: memory-hierarchy
+description: >
+  B23.1 explicit memory hierarchy artifact for episodic, semantic, and
+  procedural storage policy.
+hierarchy:
+  hierarchy_version: string
+  policy_id: string
+  collection_name: string
+  buckets:
+    - memory_type: episodic|semantic|procedural
+      description: string
+      store_when: [string]
+      count: integer
+      memory_ids: [string]
+  note: string

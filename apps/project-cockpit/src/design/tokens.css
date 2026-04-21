@@ -1,0 +1,75 @@
+/* ═══════════════════════════════════════════════════════════════
+   Sovereign Dark — Design Token System
+   Project Cockpit · Sovereign Supercomputing Control Surface
+
+   Color = meaning, never decoration.
+   Every token maps to an operational semantic.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── TRUTH MODES ─────────────────────────────────────────────
+     The most important visual distinction in the system.
+     These map directly to WGSL shader uniforms for GPU glow. */
+  --truth-observed:     hsl(165, 60%, 58%);   /* teal — live, verified, luminous */
+  --truth-remembered:   hsl(214, 100%, 73%);  /* sky — cached, still valid */
+  --truth-declared:     hsl(215, 25%, 71%);   /* slate — policy fallback */
+  --truth-stale:        hsl(220, 10%, 45%);   /* gray — expired */
+
+  /* ── PROJECT POSTURE ─────────────────────────────────────── */
+  --posture-on:         hsl(165, 60%, 58%);   /* teal — always-on, pulsing */
+  --posture-warm:       hsl(42, 88%, 65%);    /* gold — warm standby */
+  --posture-cold:       hsl(215, 25%, 71%);   /* slate — cold dormant */
+
+  /* ── OPERATIONAL STATE ───────────────────────────────────── */
+  --state-ready:        hsl(165, 60%, 58%);
+  --state-starting:     hsl(42, 88%, 65%);
+  --state-error:        hsl(0, 84%, 60%);     /* red — only for real errors */
+  --state-planned:      hsl(215, 25%, 71%);
+
+  /* ── SURFACES ──────────────────────────────────────────────
+     Layered depth: surface-0 (deepest) → surface-3 (highest) */
+  --surface-0:          #050a12;
+  --surface-1:          #0a1628;
+  --surface-2:          #0f1f38;
+  --surface-3:          #162a4a;
+
+  /* ── GLASS PANELS ──────────────────────────────────────────
+     Glassmorphism over the GPU canvas */
+  --glass-bg:           rgba(8, 16, 32, 0.78);
+  --glass-border:       rgba(255, 255, 255, 0.06);
+  --glass-highlight:    rgba(255, 255, 255, 0.03);
+  --glass-blur:         20px;
+  --glass-radius:       12px;
+
+  /* ── TEXT ───────────────────────────────────────────────────
+     Hierarchy via opacity, not size */
+  --text-primary:       rgba(238, 245, 255, 0.94);
+  --text-secondary:     rgba(238, 245, 255, 0.58);
+  --text-tertiary:      rgba(238, 245, 255, 0.34);
+  --text-data:          rgba(200, 230, 255, 0.90);
+
+  /* ── SPACING ─────────────────────────────────────────────── */
+  --space-1:            4px;
+  --space-2:            8px;
+  --space-3:            12px;
+  --space-4:            16px;
+  --space-5:            20px;
+  --space-6:            24px;
+  --space-8:            32px;
+  --space-10:           40px;
+  --space-12:           48px;
+
+  /* ── BORDER RADIUS ───────────────────────────────────────── */
+  --radius-sm:          6px;
+  --radius-md:          10px;
+  --radius-lg:          14px;
+  --radius-xl:          20px;
+
+  /* ── TRANSITIONS ─────────────────────────────────────────── */
+  --ease-out:           cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring:        cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast:      120ms;
+  --duration-normal:    200ms;
+  --duration-slow:      400ms;
+  --duration-phase:     800ms;
+}

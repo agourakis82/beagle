@@ -1,0 +1,121 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - update_id
+  - proposal_dispatch_id
+  - study_decision_id
+  - next_run_proposal_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - previous_run_count
+  - updated_run_count
+  - previous_variant_count
+  - updated_variant_count
+  - previous_compared_run_count
+  - updated_compared_run_count
+  - dispatched_run_id
+  - dispatched_run_label
+  - dispatched_variant_id
+  - dispatched_variant_label
+  - approved_by
+  - approved_compute_profile_id
+  - proposal_state
+  - dispatch_state
+  - run_state
+  - study_state
+  - study_registry_id
+  - study_dag_id
+  - study_sweep_id
+  - comparative_result_summary_id
+  - result_binding_id
+  - run_result_identity_receipt_id
+  - run_scoped_publication_id
+  - deterministic_result_binding_id
+  - latest_run_diff_categories
+  - changed_categories_union
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  update_id:
+    type: string
+  proposal_dispatch_id:
+    type: string
+  study_decision_id:
+    type: string
+  next_run_proposal_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  previous_run_count:
+    type: integer
+  updated_run_count:
+    type: integer
+  previous_variant_count:
+    type: integer
+  updated_variant_count:
+    type: integer
+  previous_compared_run_count:
+    type: integer
+  updated_compared_run_count:
+    type: integer
+  dispatched_run_id:
+    type: string
+  dispatched_run_label:
+    type: string
+  dispatched_variant_id:
+    type: string
+  dispatched_variant_label:
+    type: string
+  approved_by:
+    type: string
+  approved_compute_profile_id:
+    type: string
+  proposal_state:
+    type: string
+  dispatch_state:
+    type: string
+  run_state:
+    type: string
+  study_state:
+    type: string
+  study_registry_id:
+    type: string
+  study_dag_id:
+    type: string
+  study_sweep_id:
+    type: string
+  comparative_result_summary_id:
+    type: string
+  result_binding_id:
+    type: string
+  run_result_identity_receipt_id:
+    type: string
+  run_scoped_publication_id:
+    type: string
+  deterministic_result_binding_id:
+    type: string
+  latest_run_diff_categories:
+    type: array
+  changed_categories_union:
+    type: array
+  evidence_refs:
+    type: array
+  note:
+    type: string

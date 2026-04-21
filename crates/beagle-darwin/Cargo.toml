@@ -11,9 +11,11 @@ tokio.workspace = true
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
 reqwest.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
+sha2 = "0.10"
 
 # Dependências internas do BEAGLE
 beagle-grok-api = { path = "../beagle-grok-api" }
@@ -22,3 +24,6 @@ beagle-agents = { path = "../beagle-agents" }
 beagle-llm = { path = "../beagle-llm" }
 beagle-core = { path = "../beagle-core" }
 beagle-config = { path = "../beagle-config" }
+
+[dev-dependencies]
+tempfile = "3.10"

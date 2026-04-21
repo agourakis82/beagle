@@ -1,0 +1,23 @@
+# ClusterIP service for each agent pod.
+# The cockpit server uses `kubectl exec` to attach to tmux — no direct port needed,
+# but this service allows optional direct HTTP/WS if agent exposes anything.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-${PROJECT_SLUG}-${AGENT_KIND}
+  namespace: beagle
+  labels:
+    app: beagle-agent
+    project: ${PROJECT_SLUG}
+    agent-kind: ${AGENT_KIND}
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless — identity via pod DNS
+  selector:
+    app: beagle-agent
+    project: ${PROJECT_SLUG}
+    agent-kind: ${AGENT_KIND}
+  ports:
+    - name: agent-rpc
+      port: 8080
+      targetPort: 8080

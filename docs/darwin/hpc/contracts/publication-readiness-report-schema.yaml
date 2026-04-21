@@ -1,0 +1,77 @@
+title: Publication Readiness Report
+type: object
+required:
+  - report_profile
+  - checked_at
+  - technical_deposit_state
+  - epistemic_readiness_state
+  - real_deposit_performed
+  - doi_staging_allowed
+  - crossref_staging_allowed
+  - findable_publication_allowed
+  - technical_blocker_count
+  - epistemic_blocker_count
+  - warning_count
+  - checks
+properties:
+  report_profile:
+    type: string
+    enum:
+      - deposit-ready-publication-readiness-v1
+  checked_at:
+    type: string
+    format: date-time
+  technical_deposit_state:
+    type: string
+    enum:
+      - ready-for-draft-deposit
+      - blocked
+  epistemic_readiness_state:
+    type: string
+  real_deposit_performed:
+    type: boolean
+  doi_staging_allowed:
+    type: boolean
+  crossref_staging_allowed:
+    type: boolean
+  findable_publication_allowed:
+    type: boolean
+  technical_blocker_count:
+    type: integer
+    minimum: 0
+  epistemic_blocker_count:
+    type: integer
+    minimum: 0
+  warning_count:
+    type: integer
+    minimum: 0
+  checks:
+    type: array
+    items:
+      type: object
+      required:
+        - check_id
+        - dimension
+        - description
+        - status
+        - detail
+      properties:
+        check_id:
+          type: string
+        dimension:
+          type: string
+          enum:
+            - technical
+            - epistemic
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+            - pass
+            - warning
+            - blocked
+        detail:
+          type: string
+  note:
+    type: string

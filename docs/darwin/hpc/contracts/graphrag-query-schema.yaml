@@ -1,0 +1,30 @@
+version: beagle-graphrag-query-v1
+kind: graphrag-query
+description: >
+  Request contract for bounded graph-aware retrieval on top of the canonical
+  routed retrieval spine.
+query:
+  query_version: string
+  query_text: string
+  top_k: integer
+  max_hops: integer
+  dense_enabled: boolean
+  sparse_enabled: boolean
+  dense_weight: number
+  sparse_weight: number
+  filters:
+    workstream_id: string|null
+    campaign_id: string|null
+    session_id: string|null
+    source: string|null
+    role: string|null
+    domain: string|null
+    repo_path: string|null
+    file_type: string|null
+    tags: [string]
+  root_entity_type: string|null
+  root_entity_id: string|null
+  program_id: string|null
+  include_memory_hierarchy: boolean
+  query_type_hint: string|null
+  rerank_hint: string|null

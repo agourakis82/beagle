@@ -1,14 +1,14 @@
 use super::{analyzer::FailurePattern, evolver::AgentSpecification};
+use crate::causal::AgentLlmClient;
 use anyhow::Result;
-use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
 use std::sync::Arc;
 
 pub struct SpecializedAgentFactory {
-    llm: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
 }
 
 impl SpecializedAgentFactory {
-    pub fn new(llm: Arc<AnthropicClient>) -> Self {
+    pub fn new(llm: Arc<dyn AgentLlmClient>) -> Self {
         Self { llm }
     }
 
@@ -33,15 +33,8 @@ impl SpecializedAgentFactory {
             pattern.pattern_type, pattern.description, pattern.recommended_fix
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeSonnet4,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 1500,
-            temperature: 0.6,
-            system: Some("You are an expert at designing specialized AI agents.".to_string()),
-        };
-
-        let response = self.llm.complete(request).await?;
+        let system = "You are an expert at designing specialized AI agents.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
         #[derive(serde::Deserialize)]
         struct AgentData {
@@ -51,7 +44,7 @@ impl SpecializedAgentFactory {
             model_type: String,
         }
 
-        let data: AgentData = serde_json::from_str(response.content.trim()).unwrap_or(AgentData {
+        let data: AgentData = serde_json::from_str(response.trim()).unwrap_or(AgentData {
             name: "GeneralAgent".to_string(),
             capability: "General purpose reasoning".to_string(),
             system_prompt: "You are a helpful AI assistant.".to_string(),

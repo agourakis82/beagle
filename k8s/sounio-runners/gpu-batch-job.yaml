@@ -1,0 +1,97 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sounio-gpu-batch-template
+  namespace: beagle
+  annotations:
+    sounio.dev/template: "true"
+spec:
+  suspend: true
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sounio-gpu-batch
+    spec:
+      restartPolicy: Never
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: sounio.dev/accelerator
+                    operator: Exists
+              - matchExpressions:
+                  - key: sounio.dev/pool
+                    operator: In
+                    values:
+                      - gpu-batch
+                  - key: sounio.dev/accelerator
+                    operator: Exists
+      initContainers:
+        - name: fetch-source
+          image: alpine/git:2.47.2
+          command:
+            - /bin/sh
+            - -lc
+            - git clone --branch "${GIT_BRANCH}" --single-branch "${GIT_REPO}" /work
+          env:
+            - name: GIT_REPO
+              value: https://github.com/Sounio-lang/sounio.git
+            - name: GIT_BRANCH
+              value: main
+          volumeMounts:
+            - name: workdir
+              mountPath: /work
+      containers:
+        - name: gpu-runner
+          image: nvidia/cuda:12.4.1-base-ubuntu22.04
+          securityContext:
+            privileged: true
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euo pipefail
+              cd /workspace
+              echo "GPU batch runner placeholder"
+              echo "Requires NVIDIA device plugin and nvidia.com/gpu resources."
+              nvidia-smi || true
+          volumeMounts:
+            - name: workdir
+              mountPath: /workspace
+            - name: libcuda1
+              mountPath: /usr/lib/x86_64-linux-gnu/libcuda.so.1
+              readOnly: true
+            - name: libnvidia-ml1
+              mountPath: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+              readOnly: true
+          resources:
+            limits:
+              cpu: "32"
+              memory: 64Gi
+              nvidia.com/gpu: "1"
+      volumes:
+        - name: workdir
+          emptyDir: {}
+        - name: libcuda1
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libcuda.so.1
+            type: File
+        - name: libnvidia-ml1
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+            type: File

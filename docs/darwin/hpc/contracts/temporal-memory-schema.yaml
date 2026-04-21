@@ -1,0 +1,36 @@
+version: beagle-temporal-memory-v1
+kind: temporal-memory-schema
+description: >
+  B23.4 contract describing how Beagle preserves current truth, historical
+  truth, and validity markers over canonical memory subjects.
+schema:
+  schema_version: string
+  policy_id: string
+  current_truth_rule: string
+  historical_truth_rule: string
+  contradiction_rule: string
+  validity_markers:
+    - observed_at
+    - valid_from
+    - valid_until
+    - version_index
+    - truth_status
+  bounded_entity_types:
+    - Program|Campaign|Workstream|Session|Experiment|Result|Claim|Manuscript|Procedure
+track:
+  temporal_version: string
+  truth_key: string
+  entity_refs: [string]
+  current_memory_id: string
+  historical_memory_ids: [string]
+  version_count: integer
+  contradiction_count: integer
+  current_memory_type: episodic|semantic|procedural
+  latest_observed_at: string|null
+  versions:
+    - memory_id: string
+      truth_status: current|historical
+      version_index: integer
+      observed_at: string
+      valid_from: string
+      valid_until: string|null

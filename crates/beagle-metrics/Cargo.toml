@@ -1,0 +1,39 @@
+[package]
+name = "beagle-metrics"
+version = "0.10.0"
+edition = "2021"
+authors = ["Dr. Demetrios Agourakis <contact@darwin-cluster.ai>"]
+license = "MIT OR Apache-2.0"
+description = "Prometheus metrics export for BEAGLE observability"
+
+[dependencies]
+# Core dependencies
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+# Metrics and Prometheus
+prometheus = { version = "0.13", features = ["process"] }
+lazy_static = "1.4"
+once_cell = "1.19"
+
+# HTTP server (axum)
+axum = { version = "0.7", features = ["macros"] }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# System metrics
+sys-info = "0.9"
+
+# Time
+chrono = { workspace = true }
+
+# Async utilities
+tokio-util = "0.7"
+parking_lot = "0.12"
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+tempfile = "3.8"

@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ceph-mgr-prometheus
+  namespace: darwin-observability-system
+  labels:
+    app.kubernetes.io/name: ceph-mgr-prometheus
+    app.kubernetes.io/part-of: darwin-observability
+spec:
+  ports:
+    - name: metrics
+      port: 9283
+      protocol: TCP
+      targetPort: 9283
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: ceph-mgr-prometheus
+  namespace: darwin-observability-system
+  labels:
+    app.kubernetes.io/name: ceph-mgr-prometheus
+    app.kubernetes.io/part-of: darwin-observability
+subsets:
+  - addresses:
+      - ip: 10.100.100.2
+    ports:
+      - name: metrics
+        port: 9283
+        protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ceph-mgr-prometheus
+  namespace: darwin-observability-system
+  labels:
+    release: darwin-observability
+    app.kubernetes.io/part-of: darwin-observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - darwin-observability-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ceph-mgr-prometheus
+  endpoints:
+    - port: metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      honorLabels: true

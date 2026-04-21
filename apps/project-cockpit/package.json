@@ -1,0 +1,31 @@
+{
+  "name": "project-cockpit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Low-friction project cockpit for persistent terminal, planning, GitHub, and cluster ops.",
+  "scripts": {
+    "dev": "vite",
+    "dev:client": "vite",
+    "dev:server": "node server/index.mjs",
+    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "NODE_ENV=production node server/index.mjs"
+  },
+  "dependencies": {
+    "@solidjs/router": "^0.16.1",
+    "express": "^4.21.1",
+    "node-pty": "^1.0.0",
+    "solid-js": "^1.9.12",
+    "three": "^0.183.2",
+    "tone": "^15.1.22",
+    "ws": "^8.18.0",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1",
+    "vite": "^5.4.8",
+    "vite-plugin-solid": "^2.11.12"
+  }
+}

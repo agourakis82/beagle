@@ -1,0 +1,74 @@
+id: beagle-darwin-hpc-wave1
+repo: agourakis82/beagle
+default_branch: feat/darwin-hpc-wave1
+branch_lineage: feat/darwin-hpc-wave1
+scope: beagle-darwin-hpc-general-noninfra
+default_dev_plane: beagle-cluster
+vm_fallback_role: fallback-only
+
+compute_profiles:
+  default: cpu-short-v1
+  batch: cpu-batch-v1
+  advanced: gpu-single-v1
+
+result_plane:
+  publication: object-backed
+  retrieval: object-backed
+  retention_policy: active
+
+consumer_policy:
+  operator: full
+  darwin_research: bounded
+
+recovery_policy:
+  handoff_required: true
+  recovery_required: true
+
+recipes:
+  registry_root: docs/darwin/hpc/workstreams/recipes
+  validation_state: canonical-live
+  repo_native_dev_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-wave1.repo_native_dev_loop.yaml
+  operator_cpu_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-wave1.operator_cpu_loop.yaml
+  recovery_resume_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-wave1.recovery_resume_loop.yaml
+  latest_validation_phase: B16.1
+  latest_validation_workspace_id: b161-wave1-0322082253
+  latest_validation_session_id: ws-20260322112605
+
+promotion_state:
+  state: canonical
+  last_transition: resume
+  allowed_states:
+    - staged
+    - pilot
+    - canonical
+    - held
+    - rollback
+    - recovery
+  allowed_transitions:
+    - name: promote
+      from: staged
+      to: pilot
+    - name: promote
+      from: pilot
+      to: canonical
+    - name: hold
+      from: canonical
+      to: held
+    - name: resume
+      from: held
+      to: canonical
+    - name: rollback
+      from: canonical
+      to: rollback
+    - name: recover
+      from: rollback
+      to: recovery
+    - name: resume
+      from: recovery
+      to: canonical
+  source_phase: B16.1
+  canonical_workspace_id: b161-wave1-0322082253
+  canonical_session_id: ws-20260322112605
+  latest_validation_phase: B16.1
+  latest_validation_workspace_id: b161-wave1-0322082253
+  latest_validation_session_id: ws-20260322112605

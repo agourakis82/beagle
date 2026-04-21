@@ -4,12 +4,13 @@
 //! Enables understanding causality from fast events to slow outcomes
 
 use anyhow::Result;
-use beagle_llm::AnthropicClient;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
+
+use crate::causal::AgentLlmClient;
 
 #[cfg(test)]
 mod tests;
@@ -219,11 +220,11 @@ impl CrossScaleCausality {
 
 pub struct CrossScaleCausalityDetector {
     #[allow(dead_code)]
-    llm: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
 }
 
 impl CrossScaleCausalityDetector {
-    pub fn new(llm: Arc<AnthropicClient>) -> Self {
+    pub fn new(llm: Arc<dyn AgentLlmClient>) -> Self {
         Self { llm }
     }
 
@@ -442,13 +443,13 @@ impl TemporalPatternMiner {
 
 pub struct TemporalReasoner {
     #[allow(dead_code)]
-    llm: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
     causality_detector: CrossScaleCausalityDetector,
     pattern_miner: TemporalPatternMiner,
 }
 
 impl TemporalReasoner {
-    pub fn new(llm: Arc<AnthropicClient>) -> Self {
+    pub fn new(llm: Arc<dyn AgentLlmClient>) -> Self {
         Self {
             causality_detector: CrossScaleCausalityDetector::new(llm.clone()),
             pattern_miner: TemporalPatternMiner::new(3, 0.7),

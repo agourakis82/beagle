@@ -1,0 +1,48 @@
+phase: B25.1
+kind: compute-tenancy
+version: beagle-compute-tenancy-v1
+
+identity:
+  required:
+    - workstream_id
+    - workspace_id
+    - session_id
+    - same_beagle_owned_identity
+
+compute:
+  required:
+    - scheduler_kind
+    - scheduler_control_plane
+    - scheduler_policy_state
+    - quota_policy_kind
+    - default_profile_id
+    - batch_profile_id
+    - advanced_profile_id
+    - live_gpu_access_mode
+    - shared_gpu_access_state
+    - typed_gpu_required
+    - compute_classes
+    - role_scopes
+
+compute_classes:
+  required:
+    - profile_id
+    - kind
+    - partition
+    - gpu
+    - single_node
+    - max_walltime
+    - artifact_mode
+    - access_lane
+    - quota_boundary
+    - gpu_isolation_mode
+    - shared_access_state
+    - live_enablement_state
+
+role_scopes:
+  required:
+    - role_id
+    - allowed_profile_ids
+    - submit_mode
+    - gpu_access_mode
+    - quota_boundary

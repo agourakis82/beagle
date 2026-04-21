@@ -1,0 +1,46 @@
+version: 1
+kind: datacite-test-staging-payload
+description: >
+  B21.5 contract for a DataCite REST API test-system staging payload. The
+  payload is shaped for draft DOI staging but does not execute a real network
+  call or mint a DOI.
+required:
+  - staging_profile
+  - api_base_url
+  - request_path
+  - request_method
+  - auth_mode
+  - target_state
+  - real_network_call_performed
+  - doi_candidate
+  - payload
+  - readiness_state
+properties:
+  staging_profile:
+    type: string
+    enum:
+      - datacite-test-api-staging-v1
+  api_base_url:
+    type: string
+  request_path:
+    type: string
+  request_method:
+    type: string
+    enum:
+      - POST
+  auth_mode:
+    type: string
+  target_state:
+    type: string
+    enum:
+      - draft
+  real_network_call_performed:
+    type: boolean
+  doi_candidate:
+    type: string
+  payload:
+    type: object
+  readiness_state:
+    type: string
+  note:
+    type: string

@@ -1,0 +1,409 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: orangefs-train-rdzv
+  namespace: beagle
+spec:
+  publishNotReadyAddresses: true
+  selector:
+    jobset.sigs.k8s.io/jobset-name: orangefs-train
+    jobset.sigs.k8s.io/replicatedjob-name: leader
+    jobset.sigs.k8s.io/job-index: "0"
+  ports:
+    - name: rendezvous
+      port: 29500
+      targetPort: 29500
+---
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: orangefs-train
+  namespace: beagle
+  annotations:
+    alpha.jobset.sigs.k8s.io/exclusive-topology: kubernetes.io/hostname
+  labels:
+    kueue.x-k8s.io/queue-name: hpc-training
+spec:
+  coordinator:
+    replicatedJob: leader
+    jobIndex: 0
+    podIndex: 0
+  network:
+    enableDNSHostnames: true
+    subdomain: orangefs-train
+    publishNotReadyAddresses: true
+  replicatedJobs:
+    - name: leader
+      replicas: 1
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            metadata:
+              labels:
+                sounio.dev/distributed-group: orangefs-train
+              annotations:
+                k8s.v1.cni.cncf.io/networks: beagle/gpu-fabric-10-200-pilot
+            spec:
+              serviceAccountName: sounio-train-canary
+              priorityClassName: hpc-training
+              runtimeClassName: nvidia
+              restartPolicy: Never
+              securityContext:
+                seccompProfile:
+                  type: Unconfined
+              tolerations:
+                - key: sounio.dev/pool
+                  operator: Equal
+                  value: gpu-batch
+                  effect: NoSchedule
+                - key: sounio.dev/compute
+                  operator: Equal
+                  value: heavy
+                  effect: NoSchedule
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: sounio.dev/accelerator-class
+                            operator: In
+                            values:
+                              - gpu
+                          - key: sounio.dev/compute
+                            operator: In
+                            values:
+                              - heavy
+                          - key: sounio.dev/orangefs-client
+                            operator: In
+                            values:
+                              - "true"
+                          - key: kubernetes.io/hostname
+                            operator: In
+                            values:
+                              - r770-proxmox
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - labelSelector:
+                        matchExpressions:
+                          - key: sounio.dev/distributed-group
+                            operator: In
+                            values:
+                              - orangefs-train
+                      topologyKey: kubernetes.io/hostname
+              containers:
+                - name: trainer
+                  image: sounio/pytorch-rdma:2.7.1-cuda12.8-rdma
+                  imagePullPolicy: Never
+                  ports:
+                    - containerPort: 29500
+                      name: rendezvous
+                  securityContext:
+                    privileged: true
+                  env:
+                    - name: MASTER_HOST
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['jobset.sigs.k8s.io/coordinator']
+                    - name: POD_NAMESPACE
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.namespace
+                    - name: POD_IP
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: status.podIP
+                    - name: JOBSET_SUBDOMAIN
+                      value: orangefs-train
+                    - name: JOBSET_NAME
+                      value: orangefs-train
+                    - name: FABRIC_INTERFACE
+                      value: net1
+                    - name: MASTER_PORT
+                      value: "29500"
+                    - name: NODE_RANK
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.labels['jobset.sigs.k8s.io/job-global-index']
+                    - name: WORLD_SIZE
+                      value: "2"
+                    - name: NCCL_SOCKET_IFNAME
+                      value: net1
+                    - name: GLOO_SOCKET_IFNAME
+                      value: net1
+                    - name: FORCE_BACKEND
+                      value: ""
+                    - name: INIT_METHOD_MODE
+                      value: "tcp"
+                    - name: NCCL_IB_DISABLE
+                      value: "1"
+                    - name: NCCL_DEBUG
+                      value: INFO
+                    - name: TORCH_DISTRIBUTED_DEBUG
+                      value: DETAIL
+                    - name: NCCL_ASYNC_ERROR_HANDLING
+                      value: "1"
+                    - name: LD_LIBRARY_PATH
+                      value: /nvidia-host
+                    - name: NETWORK_STATUS
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['k8s.v1.cni.cncf.io/network-status']
+                    - name: PYTHONUNBUFFERED
+                      value: "1"
+                    - name: WRITE_DATASET
+                      value: "1"
+                    - name: WRITE_CHECKPOINT
+                      value: "1"
+                    - name: WRITE_SCRATCH
+                      value: "1"
+                    - name: SERIALIZE_ARTIFACT_WRITES
+                      value: "1"
+                    - name: SCRATCH_MB
+                      value: "16"
+                    - name: DIST_TIMEOUT_SECONDS
+                      value: "90"
+                    - name: RUN_ID
+                      value: "manual"
+                  command:
+                    - /bin/bash
+                    - -lc
+                    - |
+                      python /config/train_canary.py
+                  resources:
+                    limits:
+                      cpu: "6"
+                      memory: 16Gi
+                      nvidia.com/gpu: "1"
+                      rdma/sounio_gpu_fabric: "1"
+                    requests:
+                      cpu: "4"
+                      memory: 12Gi
+                      rdma/sounio_gpu_fabric: "1"
+                  volumeMounts:
+                    - name: host-libcuda
+                      mountPath: /nvidia-host/libcuda.so.1
+                      readOnly: true
+                    - name: host-libnvidia-ml
+                      mountPath: /nvidia-host/libnvidia-ml.so.1
+                      readOnly: true
+                    - name: config
+                      mountPath: /config
+                      readOnly: true
+                    - name: datasets
+                      mountPath: /datasets
+                    - name: checkpoints
+                      mountPath: /checkpoints
+                    - name: scratch
+                      mountPath: /scratch
+              volumes:
+                - name: host-libcuda
+                  hostPath:
+                    path: /lib/x86_64-linux-gnu/libcuda.so.1
+                    type: File
+                - name: host-libnvidia-ml
+                  hostPath:
+                    path: /lib/x86_64-linux-gnu/libnvidia-ml.so.1
+                    type: File
+                - name: config
+                  configMap:
+                    name: sounio-train-canary-script
+                - name: datasets
+                  hostPath:
+                    path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/datasets
+                    type: DirectoryOrCreate
+                - name: checkpoints
+                  hostPath:
+                    path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/checkpoints
+                    type: DirectoryOrCreate
+                - name: scratch
+                  emptyDir: {}
+    - name: worker
+      replicas: 1
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            metadata:
+              labels:
+                sounio.dev/distributed-group: orangefs-train
+              annotations:
+                k8s.v1.cni.cncf.io/networks: beagle/gpu-fabric-10-200-pilot
+            spec:
+              serviceAccountName: sounio-train-canary
+              priorityClassName: hpc-training
+              runtimeClassName: nvidia
+              restartPolicy: Never
+              securityContext:
+                seccompProfile:
+                  type: Unconfined
+              tolerations:
+                - key: sounio.dev/pool
+                  operator: Equal
+                  value: gpu-batch
+                  effect: NoSchedule
+                - key: sounio.dev/compute
+                  operator: Equal
+                  value: heavy
+                  effect: NoSchedule
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: sounio.dev/accelerator-class
+                            operator: In
+                            values:
+                              - gpu
+                          - key: sounio.dev/compute
+                            operator: In
+                            values:
+                              - heavy
+                          - key: sounio.dev/orangefs-client
+                            operator: In
+                            values:
+                              - "true"
+                          - key: kubernetes.io/hostname
+                            operator: In
+                            values:
+                              - r740-proxmox
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - labelSelector:
+                        matchExpressions:
+                          - key: sounio.dev/distributed-group
+                            operator: In
+                            values:
+                              - orangefs-train
+                      topologyKey: kubernetes.io/hostname
+              containers:
+                - name: trainer
+                  image: sounio/pytorch-rdma:2.7.1-cuda12.8-rdma
+                  imagePullPolicy: Never
+                  ports:
+                    - containerPort: 29500
+                      name: rendezvous
+                  securityContext:
+                    privileged: true
+                  env:
+                    - name: MASTER_HOST
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['jobset.sigs.k8s.io/coordinator']
+                    - name: POD_NAMESPACE
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.namespace
+                    - name: POD_IP
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: status.podIP
+                    - name: JOBSET_SUBDOMAIN
+                      value: orangefs-train
+                    - name: JOBSET_NAME
+                      value: orangefs-train
+                    - name: FABRIC_INTERFACE
+                      value: net1
+                    - name: MASTER_PORT
+                      value: "29500"
+                    - name: NODE_RANK
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.labels['jobset.sigs.k8s.io/job-global-index']
+                    - name: WORLD_SIZE
+                      value: "2"
+                    - name: NCCL_SOCKET_IFNAME
+                      value: net1
+                    - name: GLOO_SOCKET_IFNAME
+                      value: net1
+                    - name: FORCE_BACKEND
+                      value: ""
+                    - name: INIT_METHOD_MODE
+                      value: "tcp"
+                    - name: NCCL_IB_DISABLE
+                      value: "1"
+                    - name: NCCL_DEBUG
+                      value: INFO
+                    - name: TORCH_DISTRIBUTED_DEBUG
+                      value: DETAIL
+                    - name: NCCL_ASYNC_ERROR_HANDLING
+                      value: "1"
+                    - name: LD_LIBRARY_PATH
+                      value: /nvidia-host
+                    - name: NETWORK_STATUS
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['k8s.v1.cni.cncf.io/network-status']
+                    - name: PYTHONUNBUFFERED
+                      value: "1"
+                    - name: WRITE_DATASET
+                      value: "1"
+                    - name: WRITE_CHECKPOINT
+                      value: "1"
+                    - name: WRITE_SCRATCH
+                      value: "1"
+                    - name: SERIALIZE_ARTIFACT_WRITES
+                      value: "1"
+                    - name: SCRATCH_MB
+                      value: "16"
+                    - name: DIST_TIMEOUT_SECONDS
+                      value: "90"
+                    - name: RUN_ID
+                      value: "manual"
+                  command:
+                    - /bin/bash
+                    - -lc
+                    - |
+                      python /config/train_canary.py
+                  resources:
+                    limits:
+                      cpu: "6"
+                      memory: 16Gi
+                      nvidia.com/gpu: "1"
+                      rdma/sounio_gpu_fabric: "1"
+                    requests:
+                      cpu: "4"
+                      memory: 12Gi
+                      rdma/sounio_gpu_fabric: "1"
+                  volumeMounts:
+                    - name: host-libcuda
+                      mountPath: /nvidia-host/libcuda.so.1
+                      readOnly: true
+                    - name: host-libnvidia-ml
+                      mountPath: /nvidia-host/libnvidia-ml.so.1
+                      readOnly: true
+                    - name: config
+                      mountPath: /config
+                      readOnly: true
+                    - name: datasets
+                      mountPath: /datasets
+                    - name: checkpoints
+                      mountPath: /checkpoints
+                    - name: scratch
+                      mountPath: /scratch
+              volumes:
+                - name: host-libcuda
+                  hostPath:
+                    path: /lib/x86_64-linux-gnu/libcuda.so.1
+                    type: File
+                - name: host-libnvidia-ml
+                  hostPath:
+                    path: /lib/x86_64-linux-gnu/libnvidia-ml.so.1
+                    type: File
+                - name: config
+                  configMap:
+                    name: sounio-train-canary-script
+                - name: datasets
+                  hostPath:
+                    path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/datasets
+                    type: DirectoryOrCreate
+                - name: checkpoints
+                  hostPath:
+                    path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/checkpoints
+                    type: DirectoryOrCreate
+                - name: scratch
+                  emptyDir: {}

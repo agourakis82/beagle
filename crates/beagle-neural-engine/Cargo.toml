@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 version.workspace = true
 
+[features]
+default = []
+whisper = ["dep:beagle-whisper"]
+
 [dependencies]
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }

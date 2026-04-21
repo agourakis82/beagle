@@ -88,6 +88,9 @@ fn main() -> Result<()> {
     if args.experiment_id.starts_with("beagle_exp_001") {
         print_expedition_001_analysis(&metrics);
     }
+    if args.experiment_id.starts_with("beagle_exp_002") {
+        print_expedition_002_analysis(&metrics);
+    }
 
     // Exporta se solicitado
     match args.output_format.as_str() {
@@ -204,8 +207,6 @@ fn format_severity_counts(counts: &HashMap<String, usize>) -> String {
 
 /// Análise específica para Expedition 001
 fn print_expedition_001_analysis(metrics: &beagle_experiments::analysis::ExperimentMetrics) {
-    use beagle_experiments::analysis::ConditionMetrics;
-
     println!("\n{}", "=".repeat(70));
     println!("Expedition 001 – Detailed Analysis");
     println!("{}", "=".repeat(70));
@@ -357,6 +358,146 @@ fn print_expedition_001_analysis(metrics: &beagle_experiments::analysis::Experim
     println!("Note: Statistical significance and deeper analysis (t-tests, Mann-Whitney U,");
     println!("      effect size calculations, confidence intervals) to be done in");
     println!("      Julia/Python notebooks using the exported CSV/JSON data.");
+    println!("{}", "=".repeat(70));
+    println!();
+}
+
+/// Análise específica para Expedition 002
+fn print_expedition_002_analysis(metrics: &beagle_experiments::analysis::ExperimentMetrics) {
+    println!("\n{}", "=".repeat(70));
+    println!("Expedition 002 – HRV-aware vs blind");
+    println!("{}", "=".repeat(70));
+
+    let hrv_aware = metrics.conditions.get("hrv_aware");
+    let hrv_blind = metrics.conditions.get("hrv_blind");
+
+    if hrv_aware.is_none() || hrv_blind.is_none() {
+        println!("⚠️  Expedition 002 espera condições 'hrv_aware' e 'hrv_blind'.");
+        return;
+    }
+
+    let hrv_aware = hrv_aware.unwrap();
+    let hrv_blind = hrv_blind.unwrap();
+
+    println!("\n🧪 Condition Coverage:");
+    println!(
+        "  hrv_aware: runs={} | feedback={}",
+        hrv_aware.n_runs, hrv_aware.n_with_feedback
+    );
+    println!(
+        "  hrv_blind: runs={} | feedback={}",
+        hrv_blind.n_runs, hrv_blind.n_with_feedback
+    );
+
+    println!("\n🏥 Pipeline Physio:");
+    println!(
+        "  hrv_aware: snapshot_available={} | used_in_pipeline={}",
+        hrv_aware.physio_snapshot_available_count, hrv_aware.pipeline_physio_used_count
+    );
+    println!(
+        "  hrv_blind: snapshot_available={} | used_in_pipeline={}",
+        hrv_blind.physio_snapshot_available_count, hrv_blind.pipeline_physio_used_count
+    );
+
+    if !hrv_aware.pipeline_physio_hrv_level_counts.is_empty() {
+        println!(
+            "  hrv_aware hrv_levels: {}",
+            format_severity_counts_detailed(&hrv_aware.pipeline_physio_hrv_level_counts)
+        );
+    }
+    if !hrv_blind.pipeline_physio_hrv_level_counts.is_empty() {
+        println!(
+            "  hrv_blind hrv_levels: {}",
+            format_severity_counts_detailed(&hrv_blind.pipeline_physio_hrv_level_counts)
+        );
+    }
+
+    if let (Some(hr_aware_hr), Some(hr_blind_hr)) = (hrv_aware.physio_hr_mean, hrv_blind.physio_hr_mean) {
+        println!("\n❤️  Average HR:");
+        println!("  hrv_aware: {:.1}", hr_aware_hr);
+        println!("  hrv_blind: {:.1}", hr_blind_hr);
+        println!("  Δ: {:.1}", hr_aware_hr - hr_blind_hr);
+    }
+
+    if let (Some(hr_aware_spo2), Some(hr_blind_spo2)) =
+        (hrv_aware.physio_spo2_mean, hrv_blind.physio_spo2_mean)
+    {
+        println!("\n🫁 Average SpO2:");
+        println!("  hrv_aware: {:.1}", hr_aware_spo2);
+        println!("  hrv_blind: {:.1}", hr_blind_spo2);
+        println!("  Δ: {:.1}", hr_aware_spo2 - hr_blind_spo2);
+    }
+
+    if let (Some(aware_stress), Some(blind_stress)) =
+        (hrv_aware.stress_index_mean, hrv_blind.stress_index_mean)
+    {
+        println!("\n📈 Stress Index:");
+        println!("  hrv_aware: {:.3}", aware_stress);
+        println!("  hrv_blind: {:.3}", blind_stress);
+        println!("  Δ: {:.3}", aware_stress - blind_stress);
+    }
+
+    if let (Some(aware_tokens), Some(blind_tokens)) = (hrv_aware.avg_tokens, hrv_blind.avg_tokens)
+    {
+        println!("\n💻 Token Usage:");
+        println!("  hrv_aware avg_tokens: {:.0}", aware_tokens);
+        println!("  hrv_blind avg_tokens: {:.0}", blind_tokens);
+        println!("  Δ: {:.0}", aware_tokens - blind_tokens);
+    }
+
+    println!("\n🧾 Human Feedback:");
+    if hrv_aware.n_with_feedback == 0 && hrv_blind.n_with_feedback == 0 {
+        println!("  No human ratings captured in this batch yet; current analysis is run-report-first.");
+    } else {
+        if let (Some(aware_mean), Some(blind_mean)) = (hrv_aware.rating_mean, hrv_blind.rating_mean)
+        {
+            println!("  rating mean hrv_aware: {:.2}", aware_mean);
+            println!("  rating mean hrv_blind: {:.2}", blind_mean);
+            println!("  Δ: {:.2}", aware_mean - blind_mean);
+        }
+        if let (Some(aware_ratio), Some(blind_ratio)) =
+            (hrv_aware.accepted_ratio, hrv_blind.accepted_ratio)
+        {
+            println!("  accepted hrv_aware: {:.1}%", aware_ratio * 100.0);
+            println!("  accepted hrv_blind: {:.1}%", blind_ratio * 100.0);
+            println!("  Δ: {:.1}%", (aware_ratio - blind_ratio) * 100.0);
+        }
+        if let (Some(aware_clarity), Some(blind_clarity)) =
+            (hrv_aware.clarity_mean, hrv_blind.clarity_mean)
+        {
+            println!("  clarity mean hrv_aware: {:.2}", aware_clarity);
+            println!("  clarity mean hrv_blind: {:.2}", blind_clarity);
+            println!("  Δ: {:.2}", aware_clarity - blind_clarity);
+        }
+        if let (Some(aware_tone), Some(blind_tone)) = (
+            hrv_aware.adequacy_of_tone_mean,
+            hrv_blind.adequacy_of_tone_mean,
+        ) {
+            println!("  tone adequacy mean hrv_aware: {:.2}", aware_tone);
+            println!("  tone adequacy mean hrv_blind: {:.2}", blind_tone);
+            println!("  Δ: {:.2}", aware_tone - blind_tone);
+        }
+        if let (Some(aware_usefulness), Some(blind_usefulness)) =
+            (hrv_aware.usefulness_mean, hrv_blind.usefulness_mean)
+        {
+            println!("  usefulness mean hrv_aware: {:.2}", aware_usefulness);
+            println!("  usefulness mean hrv_blind: {:.2}", blind_usefulness);
+            println!("  Δ: {:.2}", aware_usefulness - blind_usefulness);
+        }
+        if let (Some(aware_safety), Some(blind_safety)) = (
+            hrv_aware.safety_or_emotional_fit_mean,
+            hrv_blind.safety_or_emotional_fit_mean,
+        ) {
+            println!("  safety/emotional fit mean hrv_aware: {:.2}", aware_safety);
+            println!("  safety/emotional fit mean hrv_blind: {:.2}", blind_safety);
+            println!("  Δ: {:.2}", aware_safety - blind_safety);
+        }
+    }
+
+    println!("\n{}", "=".repeat(70));
+    println!("Note: Expedition 002 baseline is expected to be analyzed primarily through");
+    println!("      run metadata, pipeline physio usage, bounded events, and later human");
+    println!("      feedback capture when available.");
     println!("{}", "=".repeat(70));
     println!();
 }

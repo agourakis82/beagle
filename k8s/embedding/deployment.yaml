@@ -1,0 +1,118 @@
+# k8s/embedding/deployment.yaml
+#
+# HuggingFace Text Embeddings Inference (TEI) — OpenAI-compatible
+# /embeddings endpoint. Serves a small BGE model on CPU so the cognitive
+# substrate can build semantic TPMs instead of token-overlap ones.
+#
+# Why BGE-small: 384-dim, <500MB on disk, ~20ms/query on a modest CPU.
+# Good enough to distinguish "compiler" from "cognitive" from "sounio",
+# which is all the IIT math needs. Upgrade to bge-large if CPU allows.
+#
+# Service exposes OpenAI-compat at port 8001 (matches the default
+# EMBEDDING_URL in http_exocortex.rs / http_deep_think.rs).
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: beagle
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedding-service
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: embedding-service
+    app.kubernetes.io/part-of: beagle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: embedding-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: embedding-service
+        app.kubernetes.io/part-of: beagle
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      # TEI's Tokio signal handler creates a socketpair in /tmp; the
+      # default AppArmor profile on this cluster blocks it and the
+      # container panics at startup. Unconfined is the accepted workaround
+      # (same pattern used by the workspace pods).
+      securityContext:
+        appArmorProfile:
+          type: Unconfined
+        fsGroup: 1000
+      containers:
+        - name: tei
+          image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.7
+          # bge-large: 1024-dim embeddings, ~1.3GB model, higher semantic
+          # resolution than bge-small. Better suited for IIT Φ over
+          # close-but-distinct concepts (consciousness vs phenomenology).
+          args:
+            - --model-id=BAAI/bge-large-en-v1.5
+            - --port=80
+            - --max-concurrent-requests=16
+            - --max-batch-tokens=16384
+            - --pooling=cls
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "6Gi"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /data
+          env:
+            - name: HUGGINGFACE_HUB_CACHE
+              value: /data
+            # Defensive: set the canonical HF endpoint so the hub
+            # client never constructs a relative URL from a partial env.
+            - name: HF_HUB_ENDPOINT
+              value: https://huggingface.co
+            - name: HF_ENDPOINT
+              value: https://huggingface.co
+      volumes:
+        - name: hf-cache
+          emptyDir:
+            sizeLimit: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: embedding-service
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: embedding-service
+    app.kubernetes.io/part-of: beagle
+spec:
+  type: ClusterIP
+  ports:
+    # Port 8001 matches the default EMBEDDING_URL so in-cluster callers
+    # don't need config changes. TEI listens on 80 internally; we remap.
+    - name: http
+      port: 8001
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: embedding-service

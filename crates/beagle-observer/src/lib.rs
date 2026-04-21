@@ -90,6 +90,27 @@ pub enum PhysioEventType {
     RecoveryDetected,
 }
 
+/// Canonical observer physiological snapshot for bounded ingestion/retrieval.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PhysioSnapshot {
+    pub source: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    #[serde(default)]
+    pub hr: Option<f64>,
+    #[serde(default)]
+    pub hrv_ms: Option<f64>,
+    #[serde(default)]
+    pub hrv_level: Option<String>,
+    #[serde(default)]
+    pub spo2: Option<f64>,
+    #[serde(default)]
+    pub stress_index: Option<f64>,
+    #[serde(default)]
+    pub severity: Option<String>,
+}
+
 /// Environmental event
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvEvent {
@@ -162,6 +183,8 @@ pub struct UserContext {
     pub stress_threshold: Option<f64>,
     pub preferences: HashMap<String, String>,
     pub current_state: UserState,
+    #[serde(default)]
+    pub latest_physio_snapshot: Option<PhysioSnapshot>,
     /// Physiological state
     pub physio: PhysioState,
     /// Environmental state
@@ -321,6 +344,11 @@ impl UniversalObserver {
         self.user_context.read().await.clone()
     }
 
+    /// Get latest canonical physiological snapshot.
+    pub async fn latest_physio_snapshot(&self) -> Option<PhysioSnapshot> {
+        self.user_context.read().await.latest_physio_snapshot.clone()
+    }
+
     /// Update user context
     pub async fn update_user_context(&self, ctx: UserContext) {
         *self.user_context.write().await = ctx;
@@ -340,27 +368,44 @@ impl UniversalObserver {
     /// Returns the computed severity level
     pub async fn record_physio_event(
         &self,
-        event: PhysioEvent,
+        mut event: PhysioEvent,
         _session: Option<&str>,
     ) -> Result<ContextSeverity> {
-        // Update user state if HRV level present
-        if let Some(ref hrv) = event.hrv_level {
-            let mut ctx = self.user_context.write().await;
-            ctx.current_state.hrv_level = Some(hrv.clone());
-            ctx.current_state.last_updated = Some(chrono::Utc::now());
-        }
+        let canonical_hrv_level = event
+            .hrv_level
+            .clone()
+            .or_else(|| event.hrv_ms.map(classify_hrv_level));
+        event.hrv_level = canonical_hrv_level.clone();
+        let canonical_stress_index =
+            event.stress_index.or_else(|| derive_stress_index(event.hrv_ms, event.heart_rate_bpm));
 
         // Compute severity based on readings
         let severity = self.compute_physio_severity(&event);
+        let snapshot = PhysioSnapshot {
+            source: event.source.clone(),
+            session_id: event.session_id.clone(),
+            timestamp: event.timestamp,
+            hr: event.heart_rate_bpm,
+            hrv_ms: event.hrv_ms,
+            hrv_level: canonical_hrv_level.clone(),
+            spo2: event.spo2_percent,
+            stress_index: canonical_stress_index,
+            severity: Some(severity.as_str().to_string()),
+        };
 
         // Update physio state
         {
             let mut ctx = self.user_context.write().await;
+            ctx.session_id = event.session_id.clone();
+            ctx.current_state.hrv_level = canonical_hrv_level.clone();
+            ctx.current_state.stress_level = canonical_stress_index;
+            ctx.current_state.last_updated = Some(event.timestamp);
+            ctx.latest_physio_snapshot = Some(snapshot.clone());
             ctx.physio.severity = severity.clone();
-            ctx.physio.hrv_level = event.hrv_level.clone();
+            ctx.physio.hrv_level = canonical_hrv_level;
             ctx.physio.heart_rate_bpm = event.heart_rate_bpm;
             ctx.physio.spo2_percent = event.spo2_percent;
-            ctx.physio.stress_index = event.stress_index;
+            ctx.physio.stress_index = canonical_stress_index;
         }
 
         self.physio_events.write().await.push(event.clone());
@@ -381,8 +426,46 @@ impl UniversalObserver {
         Ok(severity)
     }
 
+    /// Record a canonical physiological snapshot through the observer path.
+    pub async fn record_physio_snapshot(&self, snapshot: PhysioSnapshot) -> Result<PhysioSnapshot> {
+        let event = PhysioEvent {
+            timestamp: snapshot.timestamp,
+            source: snapshot.source.clone(),
+            session_id: snapshot.session_id.clone(),
+            hrv_ms: snapshot.hrv_ms,
+            heart_rate_bpm: snapshot.hr,
+            spo2_percent: snapshot.spo2,
+            resp_rate_bpm: None,
+            skin_temp_c: None,
+            body_temp_c: None,
+            steps: None,
+            energy_burned_kcal: None,
+            vo2max_ml_kg_min: None,
+            event_type: Some(PhysioEventType::HrvReading),
+            hrv_level: snapshot.hrv_level.clone(),
+            stress_index: snapshot.stress_index,
+            coherence_score: None,
+            metadata: HashMap::new(),
+        };
+
+        self.record_physio_event(event, snapshot.session_id.as_deref())
+            .await?;
+
+        self.latest_physio_snapshot()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("latest physiological snapshot unavailable after ingest"))
+    }
+
     /// Compute severity from physiological readings
     fn compute_physio_severity(&self, event: &PhysioEvent) -> ContextSeverity {
+        if let Some(hrv) = event.hrv_ms {
+            if hrv < 20.0 {
+                return ContextSeverity::High;
+            }
+            if hrv < 30.0 {
+                return ContextSeverity::Medium;
+            }
+        }
         if let Some(hr) = event.heart_rate_bpm {
             if hr > 120.0 || hr < 50.0 {
                 return ContextSeverity::High;
@@ -519,6 +602,27 @@ impl UniversalObserver {
     pub async fn get_space_weather_events(&self, limit: usize) -> Vec<SpaceWeatherEvent> {
         let events = self.space_weather_events.read().await;
         events.iter().rev().take(limit).cloned().collect()
+    }
+}
+
+fn classify_hrv_level(hrv_ms: f64) -> String {
+    if hrv_ms < 30.0 {
+        "low".to_string()
+    } else if hrv_ms > 70.0 {
+        "high".to_string()
+    } else {
+        "normal".to_string()
+    }
+}
+
+fn derive_stress_index(hrv_ms: Option<f64>, hr_bpm: Option<f64>) -> Option<f64> {
+    match (hrv_ms, hr_bpm) {
+        (Some(hrv), Some(hr)) => {
+            let hrv_norm = (hrv / 100.0).clamp(0.0, 1.0);
+            let hr_norm = ((hr - 60.0) / 60.0).clamp(0.0, 1.0);
+            Some((1.0 - hrv_norm * 0.6 + hr_norm * 0.4).clamp(0.0, 1.0))
+        }
+        _ => None,
     }
 }
 
@@ -682,5 +786,41 @@ mod tests {
         // Check health
         let health = observer.check_health().await;
         assert!(health.is_operational());
+    }
+
+    #[tokio::test]
+    async fn physio_snapshot_updates_latest_state() {
+        let observer = UniversalObserver::new_async().await.unwrap();
+        let timestamp = chrono::Utc::now();
+        let snapshot = PhysioSnapshot {
+            source: "observer-smoke".to_string(),
+            session_id: Some("session-1".to_string()),
+            timestamp,
+            hr: Some(63.0),
+            hrv_ms: Some(82.0),
+            hrv_level: None,
+            spo2: Some(98.0),
+            stress_index: None,
+            severity: None,
+        };
+
+        let stored = observer.record_physio_snapshot(snapshot).await.unwrap();
+        let latest = observer.latest_physio_snapshot().await.unwrap();
+        let ctx = observer.current_user_context().await;
+
+        assert_eq!(stored, latest);
+        assert_eq!(latest.hrv_level.as_deref(), Some("high"));
+        assert_eq!(latest.session_id.as_deref(), Some("session-1"));
+        assert_eq!(ctx.latest_physio_snapshot, Some(latest.clone()));
+        assert_eq!(ctx.physio.heart_rate_bpm, Some(63.0));
+        assert_eq!(ctx.current_state.hrv_level.as_deref(), Some("high"));
+        assert!(ctx.current_state.stress_level.is_some());
+    }
+
+    #[test]
+    fn derive_stress_index_is_bounded() {
+        let stress = derive_stress_index(Some(82.0), Some(63.0)).unwrap();
+        assert!(stress >= 0.0);
+        assert!(stress <= 1.0);
     }
 }

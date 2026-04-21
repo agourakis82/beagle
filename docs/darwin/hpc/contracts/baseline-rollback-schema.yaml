@@ -1,0 +1,59 @@
+title: Baseline Rollback Plan Schema (B26.6)
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - rollback_plan_id
+  - baseline_adoption_id
+  - promoted_variant_receipt_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - steps
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  rollback_plan_id:
+    type: string
+  baseline_adoption_id:
+    type: string
+  promoted_variant_receipt_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  generated_at:
+    type: string
+    format: date-time
+  steps:
+    type: array
+    items:
+      type: object
+      required:
+        - step_order
+        - action
+        - target_artifact
+        - requires_operator
+        - description
+  restores_archived_variant_ids:
+    type: array
+    items:
+      type: string
+  identity_preservation_note:
+    type: string
+  note:
+    type: string

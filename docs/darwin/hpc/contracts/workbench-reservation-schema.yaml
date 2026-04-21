@@ -1,0 +1,100 @@
+version: beagle-workbench-reservation-v1
+kind: workbench-reservation
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - reservation_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - reservation_state
+  - requested_by
+  - requester_role_id
+  - compute_profile_id
+  - compute_kind
+  - compute_partition
+  - gpu_requested
+  - scheduler_kind
+  - quota_policy_kind
+  - submit_mode
+  - gpu_access_mode
+  - bounded_partner_access
+  - selected_subagent_id
+  - task_family
+  - intent_text
+  - reserved_at
+  - reservation_note
+  - workspace_tenancy_path
+  - compute_selection_path
+  - collaboration_access_path
+  - workbench_reservation_path
+  - note
+properties:
+  phase:
+    const: B25.3
+  contract_kind:
+    const: workbench-reservation
+  contract_version:
+    const: beagle-workbench-reservation-v1
+  reservation_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  reservation_state:
+    type: string
+  requested_by:
+    type: string
+  requester_role_id:
+    type: string
+  compute_profile_id:
+    type: string
+  compute_kind:
+    type: string
+  compute_partition:
+    type: string
+  gpu_requested:
+    type: boolean
+  scheduler_kind:
+    type: string
+  quota_policy_kind:
+    type: string
+  submit_mode:
+    type: string
+  gpu_access_mode:
+    type: string
+  bounded_partner_access:
+    type: boolean
+  selected_subagent_id:
+    type: string
+  task_family:
+    type: string
+  intent_text:
+    type: string
+  recipe_kind:
+    type: [string, "null"]
+  experiment_id:
+    type: [string, "null"]
+  reserved_at:
+    type: string
+    format: date-time
+  reservation_note:
+    type: string
+  workspace_tenancy_path:
+    type: string
+  compute_selection_path:
+    type: string
+  collaboration_access_path:
+    type: string
+  workbench_reservation_path:
+    type: string
+  note:
+    type: string

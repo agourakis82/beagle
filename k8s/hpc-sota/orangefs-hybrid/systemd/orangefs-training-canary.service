@@ -1,0 +1,21 @@
+[Unit]
+Description=OrangeFS DDP training canary
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/devsounio/beagle
+Environment=LAUNCHER_MODE=torchrun
+Environment=FORCE_BACKEND=gloo
+Environment=WRITE_DATASET=1
+Environment=WRITE_CHECKPOINT=1
+Environment=WRITE_SCRATCH=1
+Environment=SERIALIZE_ARTIFACT_WRITES=1
+Environment=DIST_TIMEOUT_SECONDS=90
+ExecStart=/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-orangefs-training-canary.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

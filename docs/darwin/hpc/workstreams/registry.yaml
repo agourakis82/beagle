@@ -1,0 +1,83 @@
+phase: B16.1
+mode: beagle-workstream-os-foundation
+status: canonical-live
+
+registry:
+  root: docs/darwin/hpc/workstreams
+  canonical_format: yaml
+  recipe_root: docs/darwin/hpc/workstreams/recipes
+  governance_model: workstream-promotion-state-v1
+  current_canonical_workstreams:
+    - beagle-darwin-hpc-governance
+    - beagle-darwin-hpc-wave1
+    - sounio-lang-main
+
+workstreams:
+  - id: beagle-darwin-hpc-governance
+    spec_file: docs/darwin/hpc/workstreams/beagle-darwin-hpc-governance.yaml
+    promotion_state: canonical
+    source_phase: B14.1
+    cutover_workspace_id: b141-0321174602
+    canonical_session_id: ws-20260321204603
+    latest_validation_phase: B14.4
+    latest_validation_workspace_id: b144-0321204218
+    latest_validation_session_id: ws-20260321234559
+    recipe_set_state: canonical-live
+    latest_recipe_validation_phase: B14.3
+    latest_recipe_validation_workspace_id: b143-0321200310
+    latest_recipe_validation_session_id: ws-20260321230311
+    governance_state: canonical
+    governance_last_transition: resume
+    latest_governance_validation_phase: B14.4
+    latest_governance_validation_workspace_id: b144-0321204218
+    latest_governance_validation_session_id: ws-20260321234559
+    recipe_files:
+      repo_native_dev_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-governance.repo_native_dev_loop.yaml
+      operator_cpu_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-governance.operator_cpu_loop.yaml
+      operator_gpu_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-governance.operator_gpu_loop.yaml
+      recovery_resume_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-governance.recovery_resume_loop.yaml
+  - id: beagle-darwin-hpc-wave1
+    spec_file: docs/darwin/hpc/workstreams/beagle-darwin-hpc-wave1.yaml
+    promotion_state: canonical
+    source_phase: B16.1
+    cutover_workspace_id: b161-wave1-0322082253
+    canonical_session_id: ws-20260322112605
+    latest_validation_phase: B16.1
+    latest_validation_workspace_id: b161-wave1-0322082253
+    latest_validation_session_id: ws-20260322112605
+    recipe_set_state: canonical-live
+    latest_recipe_validation_phase: B16.1
+    latest_recipe_validation_workspace_id: b161-wave1-0322082253
+    latest_recipe_validation_session_id: ws-20260322112605
+    governance_state: canonical
+    governance_last_transition: resume
+    latest_governance_validation_phase: B16.1
+    latest_governance_validation_workspace_id: b161-wave1-0322082253
+    latest_governance_validation_session_id: ws-20260322112605
+    recipe_files:
+      repo_native_dev_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-wave1.repo_native_dev_loop.yaml
+      operator_cpu_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-wave1.operator_cpu_loop.yaml
+      recovery_resume_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-wave1.recovery_resume_loop.yaml
+  - id: sounio-lang-main
+    spec_file: docs/darwin/hpc/workstreams/sounio-lang-main.yaml
+    promotion_state: canonical
+    source_phase: B26.7
+    cutover_workspace_id: sounio-cluster-pilot
+    canonical_session_id: ws-cluster-sounio-habitat
+    latest_validation_phase: B26.7
+    latest_validation_workspace_id: sounio-cluster-pilot
+    latest_validation_session_id: ws-cluster-sounio-habitat
+    recipe_set_state: canonical-live
+    latest_recipe_validation_phase: B26.7
+    latest_recipe_validation_workspace_id: sounio-cluster-pilot
+    latest_recipe_validation_session_id: ws-cluster-sounio-habitat
+    governance_state: canonical
+    governance_last_transition: resume
+    latest_governance_validation_phase: B26.7
+    latest_governance_validation_workspace_id: sounio-cluster-pilot
+    latest_governance_validation_session_id: ws-cluster-sounio-habitat
+    recipe_files:
+      repo_native_dev_loop: docs/darwin/hpc/workstreams/recipes/sounio-lang-main.repo_native_dev_loop.yaml
+      operator_cpu_loop: docs/darwin/hpc/workstreams/recipes/sounio-lang-main.operator_cpu_loop.yaml
+      operator_gpu_loop: docs/darwin/hpc/workstreams/recipes/sounio-lang-main.operator_gpu_loop.yaml
+      recovery_resume_loop: docs/darwin/hpc/workstreams/recipes/sounio-lang-main.recovery_resume_loop.yaml

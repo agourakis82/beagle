@@ -1,0 +1,14 @@
+[Unit]
+Description=OrangeFS single-node CUDA pilot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/devsounio/beagle
+ExecStart=/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-orangefs-cuda-pilot.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

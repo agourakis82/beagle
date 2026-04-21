@@ -1,0 +1,121 @@
+type: object
+required:
+  - decision_version
+  - guarded_rollout_decision_id
+  - current_shadow_threshold_id
+  - candidate_shadow_threshold_id
+  - rollout_metrics_id
+  - shadow_policy_comparison_id
+  - updated_policy_recommendation_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - generated_at
+  - rollout_stage
+  - recommended_action
+  - current_policy_preserved_as_control
+  - candidate_policy_shadow_mode
+  - guarded_enablement_permitted
+  - guarded_enablement_live
+  - global_policy_update_permitted
+  - safe_task_families_to_move_first
+  - current_control_task_families
+  - staged_guarded_task_families
+  - blocked_or_hold_task_families
+  - regression_detected
+  - rollback_required
+  - rollback_trigger
+  - rollback_action
+  - family_decisions
+  - same_beagle_owned_identity
+  - note
+properties:
+  decision_version:
+    type: string
+    const: beagle-guarded-rollout-decision-v1
+  guarded_rollout_decision_id:
+    type: string
+  current_shadow_threshold_id:
+    type: string
+  candidate_shadow_threshold_id:
+    type: string
+  rollout_metrics_id:
+    type: string
+  shadow_policy_comparison_id:
+    type: string
+  updated_policy_recommendation_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+  recommended_action:
+    type: string
+  current_policy_preserved_as_control:
+    type: boolean
+  candidate_policy_shadow_mode:
+    type: boolean
+  guarded_enablement_permitted:
+    type: boolean
+  guarded_enablement_live:
+    type: boolean
+  global_policy_update_permitted:
+    type: boolean
+  safe_task_families_to_move_first:
+    type: array
+    items:
+      type: string
+  current_control_task_families:
+    type: array
+    items:
+      type: string
+  staged_guarded_task_families:
+    type: array
+    items:
+      type: string
+  blocked_or_hold_task_families:
+    type: array
+    items:
+      type: string
+  regression_detected:
+    type: boolean
+  rollback_required:
+    type: boolean
+  rollback_trigger:
+    type: string
+  rollback_action:
+    type: string
+  family_decisions:
+    type: array
+    items:
+      type: object
+      required:
+        - task_family
+        - rollout_state
+        - can_move_first
+        - regression_detected
+        - rollback_ready
+        - rationale
+      properties:
+        task_family:
+          type: string
+        rollout_state:
+          type: string
+        can_move_first:
+          type: boolean
+        regression_detected:
+          type: boolean
+        rollback_ready:
+          type: boolean
+        rationale:
+          type: string
+  same_beagle_owned_identity:
+    type: boolean
+  note:
+    type: string

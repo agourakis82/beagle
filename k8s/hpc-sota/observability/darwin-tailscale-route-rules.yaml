@@ -1,0 +1,69 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: darwin-tailscale-route-rules
+  namespace: darwin-platform
+  labels:
+    app.kubernetes.io/part-of: darwin-observability
+    darwin.phase: B8
+    release: darwin-observability
+spec:
+  groups:
+    - name: darwin.tailscale-route
+      rules:
+        - alert: DarwinT560TailscaleAcceptRoutesEnabled
+          expr: darwin_tailscale_routeall_enabled{instance="10.100.100.2:9100"} > 0
+          for: 2m
+          labels:
+            domain: networking
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: critical
+          annotations:
+            summary: t560 is accepting Tailscale subnet routes
+            description: RouteAll/accept-routes is enabled on t560. This can hijack replies for the management LAN away from vmbr0 and break worker-to-control-plane traffic.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinT560ManagementSubnetImportedViaTailscale
+          expr: darwin_tailscale_overlapping_subnet_imported{instance="10.100.100.2:9100",cidr="192.168.3.0/24"} > 0
+          for: 2m
+          labels:
+            domain: networking
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: critical
+          annotations:
+            summary: t560 imported the management subnet through Tailscale
+            description: The overlapping 192.168.3.0/24 route is present in Tailscale table 52 on t560. This is the known trigger for the Kubernetes worker outage pattern.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinT560ManagementRouteNotViaVmbr0
+          expr: darwin_tailscale_management_route_via_vmbr0{instance="10.100.100.2:9100"} < 1
+          for: 2m
+          labels:
+            domain: networking
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: critical
+          annotations:
+            summary: t560 management replies are not returning through vmbr0
+            description: Route probing from t560 no longer returns the management LAN through vmbr0. The node is at risk of repeating the 192.168.3.169 control-plane reachability failure.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinT560TailscaleRouteDoctorUnhealthy
+          expr: darwin_tailscale_route_doctor_healthy{instance="10.100.100.2:9100"} < 1
+          for: 5m
+          labels:
+            domain: networking
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: t560 route doctor reports an unhealthy state
+            description: The t560 Tailscale/management-LAN route doctor metric is unhealthy. Inspect ./ops/hpc-route-doctor.sh and the host route state.
+            dashboard: Darwin HPC Control Room
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh

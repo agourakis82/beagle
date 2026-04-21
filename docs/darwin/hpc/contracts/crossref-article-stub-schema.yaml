@@ -1,0 +1,18 @@
+profile: crossref-journal-article-stub-v1
+description: >
+  Crossref-compatible article stub export for review and packaging purposes.
+  This phase does not perform DOI registration or submission.
+required:
+  - export_profile
+  - stub_id
+  - journal_title
+  - publisher_name
+  - article_title
+  - article_type
+  - abstract_text
+  - contributors
+  - publication_year
+  - language
+  - readiness_state
+  - related_items
+  - xml_stub

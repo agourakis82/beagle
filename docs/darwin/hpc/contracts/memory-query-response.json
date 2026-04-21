@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Beagle Memory Query Response",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "summary": { "type": "string" },
+    "recent_physio": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "hr": { "type": ["number", "null"] },
+        "hrv_level": { "type": ["string", "null"] },
+        "spo2": { "type": ["number", "null"] },
+        "timestamp": { "type": ["string", "null"] },
+        "source": { "type": ["string", "null"] }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "memory_id": { "type": "string" },
+          "source": { "type": "string" },
+          "conversation_id": { "type": "string" },
+          "turn_index": { "type": "integer" },
+          "role": { "type": "string" },
+          "text": { "type": "string" },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "domain": { "type": ["string", "null"] },
+          "timestamp": { "type": "string" },
+          "score": { "type": ["number", "null"] }
+        },
+        "required": [
+          "memory_id",
+          "source",
+          "conversation_id",
+          "turn_index",
+          "role",
+          "text",
+          "tags",
+          "timestamp"
+        ]
+      }
+    }
+  },
+  "required": ["summary", "results"]
+}

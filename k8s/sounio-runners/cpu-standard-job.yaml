@@ -1,0 +1,99 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sounio-cpu-standard-template
+  namespace: beagle
+  annotations:
+    sounio.dev/template: "true"
+spec:
+  suspend: true
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sounio-cpu-standard
+    spec:
+      restartPolicy: Never
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: cpu-batch
+          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: sounio.dev/compute
+                    operator: In
+                    values:
+                      - heavy
+              - matchExpressions:
+                  - key: sounio.dev/pool
+                    operator: In
+                    values:
+                      - cpu-batch
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - r770-proxmox
+            - weight: 80
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - r740-proxmox
+      initContainers:
+        - name: fetch-source
+          image: alpine/git:2.47.2
+          command:
+            - /bin/sh
+            - -lc
+            - git clone --branch "${GIT_BRANCH}" --single-branch "${GIT_REPO}" /work
+          env:
+            - name: GIT_REPO
+              value: https://github.com/Sounio-lang/sounio.git
+            - name: GIT_BRANCH
+              value: main
+          volumeMounts:
+            - name: workdir
+              mountPath: /work
+      containers:
+        - name: cpu-runner
+          image: rust:1.89-bookworm
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euo pipefail
+              cd /workspace
+              echo "CPU standard runner placeholder"
+              echo "Replace this command with a lighter verification, build, or test loop."
+              git rev-parse --short HEAD
+          volumeMounts:
+            - name: workdir
+              mountPath: /workspace
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "6"
+              memory: 24Gi
+      volumes:
+        - name: workdir
+          emptyDir: {}

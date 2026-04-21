@@ -1,0 +1,117 @@
+version: beagle-compiler-eval-report-v1
+title: Compiler Eval Report
+type: object
+required:
+  - report_version
+  - compiler_id
+  - generated_at
+  - comparisons
+properties:
+  report_version:
+    type: string
+  compiler_id:
+    type: string
+  generated_at:
+    type: string
+  comparisons:
+    type: array
+    items:
+      type: object
+      required:
+        - case_id
+        - task_profile
+        - selected_variant_id
+        - selected_budget_profile_id
+        - recommendation
+        - variants
+      properties:
+        case_id:
+          type: string
+        task_profile:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        selected_variant_id:
+          type: string
+        selected_budget_profile_id:
+          type: string
+        recommendation:
+          type: string
+        variants:
+          type: array
+          items:
+            type: object
+            required:
+              - variant_id
+              - budget_profile_id
+              - task_profile
+              - retrieval_query_type
+              - dense_backend
+              - sparse_backend
+              - graphrag_query_mode
+              - temporal_truth_view
+              - selected_memory_tiers
+              - top_memory_ids
+              - relevance_proxy_score
+              - task_fit_score
+              - context_usefulness_score
+              - budget_efficiency_score
+              - top_k_stable
+              - truth_view_appropriate
+              - graphrag_mode_appropriate
+              - route_appropriate
+              - overall_score
+              - latency_ms
+            properties:
+              variant_id:
+                type: string
+              budget_profile_id:
+                type: string
+              task_profile:
+                type: string
+              retrieval_query_type:
+                type: string
+              dense_backend:
+                type: string
+              sparse_backend:
+                type: string
+              graphrag_query_mode:
+                type: string
+              temporal_truth_view:
+                type: string
+              selected_memory_tiers:
+                type: array
+                items:
+                  type: string
+              top_memory_ids:
+                type: array
+                items:
+                  type: string
+              relevance_proxy_score:
+                type: number
+              task_fit_score:
+                type: number
+              context_usefulness_score:
+                type: number
+              budget_efficiency_score:
+                type: number
+              top_k_stable:
+                type: boolean
+              truth_view_appropriate:
+                type: boolean
+              graphrag_mode_appropriate:
+                type: boolean
+              route_appropriate:
+                type: boolean
+              overall_score:
+                type: number
+              latency_ms:
+                type: integer
+              note:
+                type: string
+        note:
+          type: string
+  note:
+    type: string

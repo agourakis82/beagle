@@ -1,0 +1,42 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sounio-workspace-habitat-seed
+  namespace: beagle
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: seed-workspace-data
+          image: alpine:3.21
+          command:
+            - /bin/sh
+            - -lc
+            - |
+              set -euo pipefail
+              echo "Seeding /target from /source"
+              cd /source
+              tar -cf - . | tar -C /target -xf -
+              sync
+              echo "Seed completed"
+          volumeMounts:
+            - name: source-workspace-data
+              mountPath: /source
+              readOnly: true
+            - name: target-workspace-data
+              mountPath: /target
+      volumes:
+        - name: source-workspace-data
+          persistentVolumeClaim:
+            claimName: sounio-workspace-data
+            readOnly: true
+        - name: target-workspace-data
+          persistentVolumeClaim:
+            claimName: workspace-data-sounio-workspace-habitat-0
+
+# Preconditions:
+# - The old Deployment has been scaled to zero so the source PVC is not mounted.
+# - The habitat StatefulSet has already created workspace-data-sounio-workspace-habitat-0.
+# - The habitat StatefulSet has been scaled to zero so the target PVC is not mounted.

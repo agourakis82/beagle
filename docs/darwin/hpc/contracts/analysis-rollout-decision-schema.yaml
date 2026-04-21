@@ -1,0 +1,74 @@
+type: object
+required:
+  - decision_version
+  - analysis_rollout_decision_id
+  - control_policy_id
+  - analysis_candidate_policy_id
+  - analysis_shadow_calibration_id
+  - analysis_rollout_metrics_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - decision_output
+  - analysis_shadow_active
+  - implementation_canary_retained
+  - manuscript_control_retained
+  - regression_detected
+  - rollback_required
+  - rollback_trigger
+  - rollback_action
+  - same_beagle_owned_identity
+properties:
+  decision_version:
+    type: string
+    enum:
+      - beagle-analysis-rollout-decision-v1
+  analysis_rollout_decision_id:
+    type: string
+  control_policy_id:
+    type: string
+  analysis_candidate_policy_id:
+    type: string
+  analysis_shadow_calibration_id:
+    type: string
+  analysis_rollout_metrics_id:
+    type: string
+  source_canary_rollout_metrics_id:
+    type: string
+  source_canary_rollback_decision_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+  decision_output:
+    type: string
+    enum:
+      - keep-shadow
+      - stage-analysis-canary
+      - rollback-shadow
+  analysis_shadow_active:
+    type: boolean
+  implementation_canary_retained:
+    type: boolean
+  manuscript_control_retained:
+    type: boolean
+  regression_detected:
+    type: boolean
+  rollback_required:
+    type: boolean
+  rollback_trigger:
+    type: string
+  rollback_action:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  note:
+    type: string

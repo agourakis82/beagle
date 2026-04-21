@@ -1,0 +1,768 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sounio-train-canary
+  namespace: beagle
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sounio-train-canary-pod-reader
+  namespace: beagle
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "endpoints"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sounio-train-canary-pod-reader
+  namespace: beagle
+subjects:
+  - kind: ServiceAccount
+    name: sounio-train-canary
+    namespace: beagle
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sounio-train-canary-pod-reader
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sounio-train-canary-script
+  namespace: beagle
+data:
+  train_canary.py: |
+    import errno
+    import builtins
+    import faulthandler
+    import io
+    import json
+    import os
+    import socket
+    import ssl
+    import sys
+    import time
+    import traceback
+    import urllib.parse
+    import urllib.request
+    from datetime import timedelta
+    from pathlib import Path
+
+    faulthandler.enable()
+    faulthandler.dump_traceback_later(60, repeat=True, file=sys.stderr)
+    print("phase=python_start", flush=True)
+
+    import torch
+    import torch.distributed as dist
+    import torch.nn as nn
+    import torch.optim as optim
+
+    print("phase=torch_import_done", flush=True)
+
+    master_host = os.environ["MASTER_HOST"]
+    namespace = os.environ["POD_NAMESPACE"]
+    subdomain = os.environ["JOBSET_SUBDOMAIN"]
+    jobset_name = os.environ["JOBSET_NAME"]
+    network_status_raw = os.environ.get("NETWORK_STATUS", "")
+    fabric_interface = os.environ["FABRIC_INTERFACE"]
+    port = os.environ["MASTER_PORT"]
+    node_rank = int(os.environ.get("NODE_RANK", "0"))
+    rank = int(os.environ.get("RANK", str(node_rank)))
+    world = int(os.environ["WORLD_SIZE"])
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    force_backend = os.environ.get("FORCE_BACKEND", "").strip().lower()
+    init_method_mode = os.environ.get("INIT_METHOD_MODE", "tcp").strip().lower()
+    write_dataset = os.environ.get("WRITE_DATASET", "1") == "1"
+    write_checkpoint = os.environ.get("WRITE_CHECKPOINT", "1") == "1"
+    write_scratch = os.environ.get("WRITE_SCRATCH", "1") == "1"
+    serialize_artifact_writes = os.environ.get("SERIALIZE_ARTIFACT_WRITES", "1") == "1"
+    scratch_mb = int(os.environ.get("SCRATCH_MB", "16"))
+    dist_timeout_seconds = int(os.environ.get("DIST_TIMEOUT_SECONDS", "90"))
+    run_id = os.environ.get("RUN_ID", "default")
+    backend = force_backend or ("nccl" if torch.cuda.is_available() else "gloo")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    checkpoints_dir = Path("/checkpoints")
+    datasets_dir = Path("/datasets")
+    scratch_dir = Path("/scratch")
+    phase_log_dir = checkpoints_dir / "_phase_logs" / run_id
+    phase_log_path = phase_log_dir / f"rank-{rank}.log"
+
+    _builtin_print = builtins.print
+
+    def durable_print(*args, **kwargs):
+        if "flush" not in kwargs:
+            kwargs["flush"] = True
+        _builtin_print(*args, **kwargs)
+        try:
+            phase_log_dir.mkdir(parents=True, exist_ok=True)
+            sep = kwargs.get("sep", " ")
+            end = kwargs.get("end", "\n")
+            with phase_log_path.open("a", encoding="utf-8") as handle:
+                handle.write(sep.join(str(arg) for arg in args) + end)
+        except Exception:
+            pass
+
+    builtins.print = durable_print
+
+    def durable_excepthook(exc_type, exc_value, exc_tb):
+        try:
+            phase_log_dir.mkdir(parents=True, exist_ok=True)
+            with phase_log_path.open("a", encoding="utf-8") as handle:
+                handle.write("===UNCAUGHT_EXCEPTION===\n")
+                handle.write("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
+        except Exception:
+            pass
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = durable_excepthook
+    print(f"phase=durable_logging_ready path={phase_log_path}")
+
+    def write_random_blob(path: Path, size_bytes: int, chunk_bytes: int = 1024 * 1024):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        last_exc = None
+        for _ in range(10):
+            try:
+                with path.open("wb") as handle:
+                    remaining = size_bytes
+                    while remaining > 0:
+                        write_now = min(chunk_bytes, remaining)
+                        handle.write(os.urandom(write_now))
+                        remaining -= write_now
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                return
+            except FileNotFoundError as exc:
+                last_exc = exc
+                time.sleep(0.2)
+        if last_exc is not None:
+            raise last_exc
+
+    def atomic_write_bytes(path: Path, payload: bytes):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_dir = checkpoints_dir / "_tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        tmp_path = tmp_dir / f"rank-{rank}-{path.name}.tmp"
+        with tmp_path.open("wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError as exc:
+                if exc.errno not in (
+                    errno.ENOENT,
+                    errno.EINVAL,
+                    errno.ENOTSUP,
+                    errno.EOPNOTSUPP,
+                ):
+                    raise
+        os.replace(tmp_path, path)
+        dir_fd = os.open(str(path.parent), os.O_DIRECTORY)
+        try:
+            try:
+                os.fsync(dir_fd)
+            except OSError as exc:
+                if exc.errno not in (errno.EINVAL, errno.ENOTSUP, errno.EOPNOTSUPP):
+                    raise
+        finally:
+            os.close(dir_fd)
+
+    def serialized_phase(enabled: bool, work):
+        if not enabled:
+            return None
+        if serialize_artifact_writes and world > 1:
+            result = None
+            for current_rank in range(world):
+                dist.barrier(**barrier_kwargs)
+                if rank == current_rank:
+                    result = work()
+            dist.barrier(**barrier_kwargs)
+            return result
+        return work()
+
+    def resolve_master_dns(host: str, namespace: str, subdomain: str):
+        candidates = []
+
+        def add(candidate: str):
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+
+        add(host)
+        if host.endswith(f".{subdomain}"):
+            add(f"{host}.{namespace}.svc")
+            add(f"{host}.{namespace}.svc.cluster.local")
+        elif "." not in host:
+            add(f"{host}.{subdomain}")
+            add(f"{host}.{subdomain}.{namespace}.svc")
+            add(f"{host}.{subdomain}.{namespace}.svc.cluster.local")
+            add(f"{host}.{namespace}.svc")
+            add(f"{host}.{namespace}.svc.cluster.local")
+
+        deadline = time.time() + 60
+        last_error = None
+        while time.time() < deadline:
+            for candidate in candidates:
+                try:
+                    infos = socket.getaddrinfo(
+                        candidate,
+                        int(port),
+                        family=socket.AF_INET,
+                        type=socket.SOCK_STREAM,
+                    )
+                    return candidate, infos[0][4][0]
+                except OSError as exc:
+                    last_error = exc
+            time.sleep(1)
+
+        raise RuntimeError(
+            f"unable to resolve coordinator from host={host!r} candidates={candidates!r}"
+        ) from last_error
+
+    def coordinator_hostname(host: str):
+        return host.split(".", 1)[0]
+
+    def kube_request(path: str):
+        token = Path(
+            "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        ).read_text(encoding="utf-8").strip()
+        ca_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        api_host = os.environ["KUBERNETES_SERVICE_HOST"]
+        api_port = os.environ["KUBERNETES_SERVICE_PORT_HTTPS"]
+        url = f"https://{api_host}:{api_port}{path}"
+        req = urllib.request.Request(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        ctx = ssl.create_default_context(cafile=ca_path)
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+            return json.load(resp)
+
+    def fetch_coordinator_pod(hostname: str, namespace: str, jobset_name: str):
+        selector = urllib.parse.quote(f"jobset.sigs.k8s.io/jobset-name={jobset_name}")
+        path = (
+            f"/api/v1/namespaces/{urllib.parse.quote(namespace)}/pods"
+            f"?labelSelector={selector}"
+        )
+        payload = kube_request(path)
+        items = payload.get("items", [])
+        for pod in items:
+            if pod.get("spec", {}).get("hostname") != hostname:
+                continue
+            phase = pod.get("status", {}).get("phase")
+            if phase in {"Succeeded", "Failed"}:
+                continue
+            return pod
+        raise RuntimeError(
+            f"coordinator pod not found for hostname={hostname!r} in jobset={jobset_name!r}"
+        )
+
+    def fetch_endpoint_ip(name: str, namespace: str):
+        path = f"/api/v1/namespaces/{urllib.parse.quote(namespace)}/endpoints/{urllib.parse.quote(name)}"
+        payload = kube_request(path)
+        for subset in payload.get("subsets", []):
+            for address in subset.get("addresses", []):
+                ip = address.get("ip")
+                if ip:
+                    return ip
+        raise RuntimeError(f"endpoint {name!r} in namespace {namespace!r} has no ready addresses")
+
+    def network_ip_from_status_json(raw: str, interface: str):
+        if not raw:
+            return None
+        try:
+            entries = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        for entry in entries:
+            if entry.get("interface") == interface:
+                ips = entry.get("ips") or []
+                if ips:
+                    return ips[0]
+        return None
+
+    def local_ipv4_for_interface(interface: str):
+        try:
+            import fcntl
+            import struct
+
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            ifreq = struct.pack("256s", interface[:15].encode("utf-8"))
+            result = fcntl.ioctl(probe.fileno(), 0x8915, ifreq)
+            return socket.inet_ntoa(result[20:24])
+        except OSError:
+            return None
+
+    def network_ip_from_annotation(pod: dict, interface: str):
+        annotations = pod.get("metadata", {}).get("annotations", {})
+        raw = annotations.get("k8s.v1.cni.cncf.io/network-status")
+        return network_ip_from_status_json(raw, interface)
+
+    def resolve_coordinator_fabric_ip(
+        host: str,
+        namespace: str,
+        subdomain: str,
+        jobset_name: str,
+        interface: str,
+        rank: int,
+    ):
+        pod_hostname = coordinator_hostname(host)
+        dns_name = host
+        dns_ip = None
+        dns_error = None
+        if rank == 0:
+            local_fabric_ip = network_ip_from_status_json(
+                network_status_raw, interface
+            ) or local_ipv4_for_interface(interface)
+            if local_fabric_ip:
+                dns_name = host
+                return dns_name, local_fabric_ip
+            try:
+                dns_name, dns_ip = resolve_master_dns(host, namespace, subdomain)
+            except Exception as exc:
+                dns_error = exc
+            if dns_ip:
+                return dns_name, dns_ip
+        else:
+            try:
+                dns_name, dns_ip = resolve_master_dns(host, namespace, subdomain)
+            except Exception as exc:
+                dns_error = exc
+            if dns_ip:
+                return dns_name, dns_ip
+
+        deadline = time.time() + 60
+        last_error = None
+        while time.time() < deadline:
+            try:
+                pod = fetch_coordinator_pod(pod_hostname, namespace, jobset_name)
+                fabric_ip = network_ip_from_annotation(pod, interface)
+                if fabric_ip:
+                    return dns_name, fabric_ip
+                last_error = RuntimeError(
+                    f"fabric interface {interface!r} missing from coordinator pod annotation"
+                )
+            except Exception as exc:
+                last_error = exc
+            time.sleep(1)
+
+        if dns_ip:
+            return dns_name, dns_ip
+
+        raise RuntimeError(
+            f"unable to resolve coordinator fabric IP for host={host!r} "
+            f"jobset={jobset_name!r} interface={interface!r}"
+        ) from (last_error or dns_error)
+
+    print("phase=resolve_coordinator_start", flush=True)
+    if init_method_mode == "torchrun":
+        master_name = os.environ.get("MASTER_ADDR", master_host)
+        port = os.environ.get("MASTER_PORT", port)
+        master_ip = master_name
+        store_name, store_ip = master_name, master_name
+    elif init_method_mode == "file":
+        master_name = "file-rendezvous"
+        master_ip = (
+            network_ip_from_status_json(network_status_raw, fabric_interface)
+            or local_ipv4_for_interface(fabric_interface)
+            or "unknown"
+        )
+        rendezvous_dir = checkpoints_dir / ".rdzv"
+        rendezvous_dir.mkdir(parents=True, exist_ok=True)
+        store_name = "file-store"
+        store_ip = str(rendezvous_dir / f"{jobset_name}-{run_id}.store")
+        if rank == 0:
+            try:
+                os.remove(store_ip)
+            except FileNotFoundError:
+                pass
+            Path(store_ip).touch()
+        else:
+            deadline = time.time() + 30
+            while time.time() < deadline:
+                if Path(store_ip).exists():
+                    break
+                time.sleep(0.2)
+    elif init_method_mode == "env":
+        master_name = master_host
+        master_ip = (
+            network_ip_from_status_json(network_status_raw, fabric_interface)
+            or local_ipv4_for_interface(fabric_interface)
+            or master_host
+        )
+        store_name, store_ip = master_host, master_host
+        if rank == 0:
+            store_ip = (
+                network_ip_from_status_json(network_status_raw, "eth0")
+                or local_ipv4_for_interface("eth0")
+                or store_ip
+            )
+        else:
+            try:
+                store_name, store_ip = resolve_master_dns(master_host, namespace, subdomain)
+            except Exception:
+                try:
+                    service_name = coordinator_hostname(master_host)
+                    store_ip = fetch_endpoint_ip(service_name, namespace)
+                except Exception:
+                    pass
+    else:
+        master_name, master_ip = resolve_coordinator_fabric_ip(
+            master_host,
+            namespace,
+            subdomain,
+            jobset_name,
+            fabric_interface,
+            rank,
+        )
+        store_name, store_ip = master_name, master_ip
+        try:
+            store_name, store_ip = resolve_master_dns(master_host, namespace, subdomain)
+        except Exception:
+            pass
+    print("phase=resolve_coordinator_done", flush=True)
+
+    if torch.cuda.is_available():
+        print("phase=cuda_set_device_start", flush=True)
+        torch.cuda.set_device(local_rank)
+        print("phase=cuda_set_device_done", flush=True)
+
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+    datasets_dir.mkdir(parents=True, exist_ok=True)
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    (checkpoints_dir / f"rank-{rank}").mkdir(parents=True, exist_ok=True)
+    (datasets_dir / f"rank-{rank}").mkdir(parents=True, exist_ok=True)
+    (scratch_dir / f"rank-{rank}").mkdir(parents=True, exist_ok=True)
+
+    print(
+        f"hostname={socket.gethostname()} "
+        f"rank={rank}/{world} "
+        f"backend={backend} "
+        f"cuda={torch.cuda.is_available()} "
+        f"gpus={torch.cuda.device_count()} "
+        f"master={master_name}:{port} "
+        f"master_ip={master_ip} "
+        f"store={store_name}:{port} "
+        f"store_ip={store_ip} "
+        f"init_method_mode={init_method_mode} "
+        f"write_dataset={write_dataset} "
+        f"write_checkpoint={write_checkpoint} "
+        f"write_scratch={write_scratch} "
+        f"serialize_artifacts={serialize_artifact_writes}",
+        flush=True,
+    )
+    print(f"rank={rank} phase=init_process_group_start timeout={dist_timeout_seconds}s", flush=True)
+
+    init_kwargs = {
+        "backend": backend,
+        "timeout": timedelta(seconds=dist_timeout_seconds),
+    }
+    if init_method_mode == "torchrun":
+        init_kwargs["init_method"] = "env://"
+    elif init_method_mode == "env":
+        os.environ["MASTER_ADDR"] = store_ip
+        os.environ["MASTER_PORT"] = port
+        os.environ["RANK"] = str(rank)
+        os.environ["WORLD_SIZE"] = str(world)
+        init_kwargs["init_method"] = "env://"
+    elif init_method_mode == "file":
+        init_kwargs["init_method"] = f"file://{store_ip}"
+    else:
+        init_kwargs["init_method"] = f"tcp://{store_ip}:{port}"
+    if init_method_mode != "torchrun":
+        init_kwargs["rank"] = rank
+        init_kwargs["world_size"] = world
+    if backend == "nccl":
+        init_kwargs["device_id"] = torch.device("cuda", local_rank)
+
+    dist.init_process_group(**init_kwargs)
+    print(f"rank={rank} phase=init_process_group_done", flush=True)
+
+    try:
+        model = nn.Sequential(nn.Linear(128, 256), nn.ReLU(), nn.Linear(256, 16)).to(device)
+        optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+        criterion = nn.MSELoss()
+
+        losses = []
+        for step in range(5):
+            torch.manual_seed(1000 + rank * 100 + step)
+            features = torch.randn(64, 128, device=device)
+            targets = torch.randn(64, 16, device=device)
+            optimizer.zero_grad(set_to_none=True)
+            outputs = model(features)
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
+            reduced = loss.detach().clone()
+            dist.all_reduce(reduced, op=dist.ReduceOp.SUM)
+            reduced = reduced / world
+            losses.append(float(reduced.item()))
+            print(
+                f"rank={rank} step={step} reduced_loss={reduced.item():.6f}",
+                flush=True,
+            )
+
+        barrier_kwargs = {}
+        if backend == "nccl":
+            barrier_kwargs["device_ids"] = [0]
+        print(f"rank={rank} phase=post_training_barrier_start", flush=True)
+        dist.barrier(**barrier_kwargs)
+        print(f"rank={rank} phase=post_training_barrier_done", flush=True)
+
+        dataset_marker = None
+        def write_dataset_phase():
+            print(f"rank={rank} phase=dataset_write_start", flush=True)
+            dataset_rank_dir = datasets_dir / f"rank-{rank}"
+            dataset_rank_dir.mkdir(parents=True, exist_ok=True)
+            marker = dataset_rank_dir / "dataset.json"
+            marker.write_text(
+                json.dumps({"rank": rank, "world": world, "losses": losses}, indent=2),
+                encoding="utf-8",
+            )
+            print(f"rank={rank} phase=dataset_write_done path={marker}", flush=True)
+            return marker
+        dataset_marker = serialized_phase(write_dataset, write_dataset_phase)
+
+        checkpoint_path = None
+        def write_checkpoint_phase():
+            print(f"rank={rank} phase=checkpoint_write_start", flush=True)
+            checkpoint_rank_dir = checkpoints_dir / f"rank-{rank}"
+            checkpoint_rank_dir.mkdir(parents=True, exist_ok=True)
+            path = checkpoint_rank_dir / "checkpoint.pt"
+            checkpoint_buffer = io.BytesIO()
+            torch.save(
+                {
+                    "rank": rank,
+                    "world": world,
+                    "losses": losses,
+                    "state_dict": model.state_dict(),
+                },
+                checkpoint_buffer,
+            )
+            atomic_write_bytes(path, checkpoint_buffer.getvalue())
+            print(f"rank={rank} phase=checkpoint_write_done path={path}", flush=True)
+            return path
+        checkpoint_path = serialized_phase(write_checkpoint, write_checkpoint_phase)
+
+        scratch_blob = None
+        def write_scratch_phase():
+            print(f"rank={rank} phase=scratch_write_start size_mb={scratch_mb}", flush=True)
+            scratch_rank_dir = scratch_dir / f"rank-{rank}"
+            scratch_rank_dir.mkdir(parents=True, exist_ok=True)
+            blob = scratch_rank_dir / "throughput.bin"
+            write_random_blob(blob, scratch_mb * 1024 * 1024)
+            print(f"rank={rank} phase=scratch_write_done path={blob}", flush=True)
+            return blob
+        scratch_blob = serialized_phase(write_scratch, write_scratch_phase)
+
+        print(
+            f"rank={rank} checkpoint={checkpoint_path} dataset={dataset_marker} scratch={scratch_blob}",
+            flush=True,
+        )
+    finally:
+        if dist.is_initialized():
+            print(f"rank={rank} phase=destroy_process_group", flush=True)
+            dist.destroy_process_group()
+        faulthandler.cancel_dump_traceback_later()
+---
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: sounio-train-canary
+  namespace: beagle
+  annotations:
+    alpha.jobset.sigs.k8s.io/exclusive-topology: kubernetes.io/hostname
+  labels:
+    kueue.x-k8s.io/queue-name: hpc-training
+spec:
+  coordinator:
+    replicatedJob: workers
+    jobIndex: 0
+    podIndex: 0
+  network:
+    enableDNSHostnames: true
+    subdomain: sounio-train-canary
+    publishNotReadyAddresses: true
+  replicatedJobs:
+    - name: workers
+      replicas: 2
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            metadata:
+              labels:
+                sounio.dev/distributed-group: sounio-train-canary
+              annotations:
+                k8s.v1.cni.cncf.io/networks: beagle/gpu-fabric-10-200-pilot
+            spec:
+              serviceAccountName: sounio-train-canary
+              priorityClassName: hpc-training
+              runtimeClassName: nvidia
+              restartPolicy: Never
+              securityContext:
+                seccompProfile:
+                  type: Unconfined
+              tolerations:
+                - key: sounio.dev/pool
+                  operator: Equal
+                  value: gpu-batch
+                  effect: NoSchedule
+                - key: sounio.dev/compute
+                  operator: Equal
+                  value: heavy
+                  effect: NoSchedule
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: sounio.dev/accelerator-class
+                            operator: In
+                            values:
+                              - gpu
+                          - key: sounio.dev/compute
+                            operator: In
+                            values:
+                              - heavy
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - labelSelector:
+                        matchExpressions:
+                          - key: sounio.dev/distributed-group
+                            operator: In
+                            values:
+                              - sounio-train-canary
+                      topologyKey: kubernetes.io/hostname
+              containers:
+                - name: trainer
+                  image: sounio/pytorch-rdma:2.7.1-cuda12.8-rdma
+                  imagePullPolicy: Never
+                  securityContext:
+                    privileged: true
+                  env:
+                    - name: MASTER_HOST
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['jobset.sigs.k8s.io/coordinator']
+                    - name: POD_NAMESPACE
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.namespace
+                    - name: JOBSET_SUBDOMAIN
+                      value: sounio-train-canary
+                    - name: JOBSET_NAME
+                      value: sounio-train-canary
+                    - name: FABRIC_INTERFACE
+                      value: net1
+                    - name: MASTER_PORT
+                      value: "29500"
+                    - name: NODE_RANK
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.labels['jobset.sigs.k8s.io/job-index']
+                    - name: WORLD_SIZE
+                      value: "2"
+                    - name: NCCL_SOCKET_IFNAME
+                      value: net1
+                    - name: GLOO_SOCKET_IFNAME
+                      value: net1
+                    - name: NCCL_IB_DISABLE
+                      value: "0"
+                    - name: NCCL_DEBUG
+                      value: INFO
+                    - name: TORCH_DISTRIBUTED_DEBUG
+                      value: DETAIL
+                    - name: LD_LIBRARY_PATH
+                      value: /nvidia-host
+                    - name: NETWORK_STATUS
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['k8s.v1.cni.cncf.io/network-status']
+                    - name: PYTHONUNBUFFERED
+                      value: "1"
+                  command:
+                    - /bin/bash
+                    - -lc
+                    - |
+                      python /config/train_canary.py
+                  resources:
+                    limits:
+                      cpu: "6"
+                      memory: 16Gi
+                      nvidia.com/gpu: "1"
+                      rdma/sounio_gpu_fabric: "1"
+                    requests:
+                      cpu: "4"
+                      memory: 12Gi
+                      rdma/sounio_gpu_fabric: "1"
+                  volumeMounts:
+                    - name: host-libcuda
+                      mountPath: /nvidia-host/libcuda.so.1
+                      readOnly: true
+                    - name: host-libnvidia-ml
+                      mountPath: /nvidia-host/libnvidia-ml.so.1
+                      readOnly: true
+                    - name: config
+                      mountPath: /config
+                      readOnly: true
+                    - name: datasets
+                      mountPath: /datasets
+                    - name: checkpoints
+                      mountPath: /checkpoints
+                    - name: scratch
+                      mountPath: /scratch
+              volumes:
+                - name: host-libcuda
+                  hostPath:
+                    path: /lib/x86_64-linux-gnu/libcuda.so.1
+                    type: File
+                - name: host-libnvidia-ml
+                  hostPath:
+                    path: /lib/x86_64-linux-gnu/libnvidia-ml.so.1
+                    type: File
+                - name: config
+                  configMap:
+                    name: sounio-train-canary-script
+                - name: datasets
+                  ephemeral:
+                    volumeClaimTemplate:
+                      metadata:
+                        labels:
+                          sounio.dev/storage-role: datasets
+                      spec:
+                        accessModes:
+                          - ReadWriteOnce
+                        storageClassName: ceph-rbd-ssd-datasets
+                        resources:
+                          requests:
+                            storage: 8Gi
+                - name: checkpoints
+                  ephemeral:
+                    volumeClaimTemplate:
+                      metadata:
+                        labels:
+                          sounio.dev/storage-role: checkpoints
+                      spec:
+                        accessModes:
+                          - ReadWriteOnce
+                        storageClassName: ceph-rbd-ssd-checkpoints
+                        resources:
+                          requests:
+                            storage: 8Gi
+                - name: scratch
+                  ephemeral:
+                    volumeClaimTemplate:
+                      metadata:
+                        labels:
+                          sounio.dev/storage-role: scratch
+                      spec:
+                        accessModes:
+                          - ReadWriteOnce
+                        storageClassName: ceph-rbd-ssd-scratch
+                        resources:
+                          requests:
+                            storage: 12Gi

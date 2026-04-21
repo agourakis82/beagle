@@ -1,0 +1,31 @@
+{
+  "projectSlug": "core-sovereign",
+  "packVersion": "sov-v1",
+  "aiIdeAgents": [
+    {
+      "name": "codex",
+      "mode": "vsix-first",
+      "status": "planned"
+    },
+    {
+      "name": "claude-code",
+      "mode": "hybrid",
+      "status": "planned"
+    }
+  ],
+  "required": [
+    "eamodio.gitlens",
+    "GitHub.vscode-pull-request-github",
+    "redhat.vscode-yaml",
+    "ms-python.python",
+    "ms-toolsai.jupyter"
+  ],
+  "recommended": [
+    "EditorConfig.EditorConfig",
+    "tamasfe.even-better-toml",
+    "rust-lang.rust-analyzer",
+    "ms-vscode.makefile-tools",
+    "yzhang.markdown-all-in-one"
+  ],
+  "experimental": []
+}

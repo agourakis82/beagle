@@ -1,0 +1,153 @@
+type: object
+required:
+  - metrics_version
+  - rollout_metrics_id
+  - current_shadow_threshold_id
+  - candidate_shadow_threshold_id
+  - dataset_id
+  - shadow_policy_comparison_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - generated_at
+  - rollout_stage
+  - sample_count
+  - current_false_auto_continue_rate_basis_points
+  - candidate_false_auto_continue_rate_basis_points
+  - current_false_review_required_rate_basis_points
+  - candidate_false_review_required_rate_basis_points
+  - current_false_blocked_rate_basis_points
+  - candidate_false_blocked_rate_basis_points
+  - current_alignment_with_operator_decision_basis_points
+  - candidate_alignment_with_operator_decision_basis_points
+  - current_alignment_with_execution_outcome_basis_points
+  - candidate_alignment_with_execution_outcome_basis_points
+  - improved_alignment_count
+  - regression_count
+  - family_metrics
+  - note
+properties:
+  metrics_version:
+    type: string
+    const: beagle-policy-rollout-metrics-v1
+  rollout_metrics_id:
+    type: string
+  current_shadow_threshold_id:
+    type: string
+  candidate_shadow_threshold_id:
+    type: string
+  dataset_id:
+    type: string
+  shadow_policy_comparison_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+    const: shadow-compared
+  sample_count:
+    type: integer
+  current_false_auto_continue_rate_basis_points:
+    type: integer
+  candidate_false_auto_continue_rate_basis_points:
+    type: integer
+  current_false_review_required_rate_basis_points:
+    type: integer
+  candidate_false_review_required_rate_basis_points:
+    type: integer
+  current_false_blocked_rate_basis_points:
+    type: integer
+  candidate_false_blocked_rate_basis_points:
+    type: integer
+  current_alignment_with_operator_decision_basis_points:
+    type: integer
+  candidate_alignment_with_operator_decision_basis_points:
+    type: integer
+  current_alignment_with_execution_outcome_basis_points:
+    type: integer
+  candidate_alignment_with_execution_outcome_basis_points:
+    type: integer
+  improved_alignment_count:
+    type: integer
+  regression_count:
+    type: integer
+  family_metrics:
+    type: array
+    items:
+      type: object
+      required:
+        - task_family
+        - sample_count
+        - current_auto_continue_count
+        - current_review_required_count
+        - current_blocked_count
+        - candidate_auto_continue_count
+        - candidate_review_required_count
+        - candidate_blocked_count
+        - current_false_auto_continue_rate_basis_points
+        - candidate_false_auto_continue_rate_basis_points
+        - current_false_review_required_rate_basis_points
+        - candidate_false_review_required_rate_basis_points
+        - current_false_blocked_rate_basis_points
+        - candidate_false_blocked_rate_basis_points
+        - current_alignment_with_operator_decision_basis_points
+        - candidate_alignment_with_operator_decision_basis_points
+        - current_alignment_with_execution_outcome_basis_points
+        - candidate_alignment_with_execution_outcome_basis_points
+        - improved_alignment_count
+        - regression_count
+        - rollout_readiness
+        - note
+      properties:
+        task_family:
+          type: string
+        sample_count:
+          type: integer
+        current_auto_continue_count:
+          type: integer
+        current_review_required_count:
+          type: integer
+        current_blocked_count:
+          type: integer
+        candidate_auto_continue_count:
+          type: integer
+        candidate_review_required_count:
+          type: integer
+        candidate_blocked_count:
+          type: integer
+        current_false_auto_continue_rate_basis_points:
+          type: integer
+        candidate_false_auto_continue_rate_basis_points:
+          type: integer
+        current_false_review_required_rate_basis_points:
+          type: integer
+        candidate_false_review_required_rate_basis_points:
+          type: integer
+        current_false_blocked_rate_basis_points:
+          type: integer
+        candidate_false_blocked_rate_basis_points:
+          type: integer
+        current_alignment_with_operator_decision_basis_points:
+          type: integer
+        candidate_alignment_with_operator_decision_basis_points:
+          type: integer
+        current_alignment_with_execution_outcome_basis_points:
+          type: integer
+        candidate_alignment_with_execution_outcome_basis_points:
+          type: integer
+        improved_alignment_count:
+          type: integer
+        regression_count:
+          type: integer
+        rollout_readiness:
+          type: string
+        note:
+          type: string
+  note:
+    type: string

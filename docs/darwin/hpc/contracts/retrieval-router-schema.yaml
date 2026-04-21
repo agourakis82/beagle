@@ -1,0 +1,34 @@
+openapi: 3.1.0
+info:
+  title: Beagle Retrieval Router
+  version: beagle-retrieval-router-v1
+components:
+  schemas:
+    RetrievalRouter:
+      type: object
+      required:
+        - router_version
+        - general_backend
+        - code_backend
+        - sovereign_backend
+        - sparse_backend
+        - supported_query_types
+        - note
+      properties:
+        router_version:
+          type: string
+        general_backend:
+          type: string
+        code_backend:
+          type: string
+        sovereign_backend:
+          type: string
+        sparse_backend:
+          type: string
+        supported_query_types:
+          type: array
+          items:
+            type: string
+            enum: [general, code, sovereign]
+        note:
+          type: string

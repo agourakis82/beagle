@@ -1,0 +1,55 @@
+nodeSelector:
+  kubernetes.io/os: linux
+  kubernetes.io/hostname: r770-proxmox
+
+tolerations:
+  - key: sounio.dev/pool
+    operator: Equal
+    value: gpu-batch
+    effect: NoSchedule
+  - key: sounio.dev/compute
+    operator: Equal
+    value: heavy
+    effect: NoSchedule
+
+webhook:
+  nodeSelector:
+    kubernetes.io/os: linux
+    kubernetes.io/hostname: r770-proxmox
+  tolerations:
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule
+
+cainjector:
+  nodeSelector:
+    kubernetes.io/os: linux
+    kubernetes.io/hostname: r770-proxmox
+  tolerations:
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule
+
+startupapicheck:
+  nodeSelector:
+    kubernetes.io/os: linux
+    kubernetes.io/hostname: r770-proxmox
+  tolerations:
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule

@@ -1,0 +1,19 @@
+profile_id: datacite-4.7-ready
+kind: citation-ready-metadata
+required_fields:
+  - title
+  - creators
+  - publisher
+  - publication_year
+  - resource_type_general
+  - version
+  - subjects
+  - descriptions
+  - related_identifiers
+expected_related_identifier_kinds:
+  - HasMetadata
+  - IsSupplementTo
+  - HasPart
+non_goals:
+  - doi-registration
+  - repository-deposit

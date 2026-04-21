@@ -1,0 +1,5 @@
+server = "https://ghcr.io"
+
+[host."http://10.100.100.3:5001"]
+  capabilities = ["pull", "resolve"]
+  skip_verify = true

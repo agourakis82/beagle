@@ -1,0 +1,60 @@
+type: object
+required:
+  - result_version
+  - retrieval_mode
+  - collection_name
+  - dense_backend
+  - sparse_backend
+  - top_k
+  - applied_filters
+  - dense_hit_count
+  - sparse_hit_count
+  - hits
+properties:
+  result_version:
+    type: string
+    enum:
+      - beagle-retrieval-result-v1
+  retrieval_mode:
+    type: string
+    enum:
+      - dense+sparse-hybrid
+  collection_name:
+    type: string
+  dense_backend:
+    type: string
+  sparse_backend:
+    type: string
+  top_k:
+    type: integer
+  applied_filters:
+    type: object
+  dense_hit_count:
+    type: integer
+  sparse_hit_count:
+    type: integer
+  hits:
+    type: array
+    items:
+      type: object
+      required:
+        - rank
+        - point
+        - hybrid_score
+      properties:
+        rank:
+          type: integer
+        point:
+          type: object
+        dense_score:
+          type:
+            - number
+            - "null"
+        sparse_score:
+          type:
+            - number
+            - "null"
+        hybrid_score:
+          type: number
+  note:
+    type: string

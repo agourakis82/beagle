@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: beagle
+resources:
+  - serviceaccount.yaml
+  - clusterrole.yaml
+  - clusterrolebinding.yaml
+  - role.yaml
+  - rolebinding.yaml
+  - remembered-state-configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - cloudflared-beagle-mobile.yaml
+  - tailnet-http.yaml
+  - sglang-serving-deployment.yaml
+  - sglang-serving-service.yaml
+  - dynamo-control-plane-deployment.yaml
+  - dynamo-control-plane-service.yaml

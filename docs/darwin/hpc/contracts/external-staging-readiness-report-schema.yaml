@@ -1,0 +1,51 @@
+version: 1
+kind: external-staging-readiness-report
+description: >
+  B21.5 contract for separating technical external-registry dry-run readiness
+  from epistemic publication maturity.
+required:
+  - report_profile
+  - checked_at
+  - technical_external_staging_state
+  - epistemic_readiness_state
+  - real_registry_call_performed
+  - datacite_test_staging_allowed
+  - crossref_dry_run_allowed
+  - findable_publication_allowed
+  - technical_blocker_count
+  - epistemic_blocker_count
+  - warning_count
+  - checks
+properties:
+  report_profile:
+    type: string
+    enum:
+      - external-registry-dry-run-readiness-v1
+  technical_external_staging_state:
+    type: string
+    enum:
+      - ready-for-external-test-staging
+      - blocked
+  epistemic_readiness_state:
+    type: string
+  real_registry_call_performed:
+    type: boolean
+  datacite_test_staging_allowed:
+    type: boolean
+  crossref_dry_run_allowed:
+    type: boolean
+  findable_publication_allowed:
+    type: boolean
+  technical_blocker_count:
+    type: integer
+    minimum: 0
+  epistemic_blocker_count:
+    type: integer
+    minimum: 0
+  warning_count:
+    type: integer
+    minimum: 0
+  checks:
+    type: array
+  note:
+    type: string

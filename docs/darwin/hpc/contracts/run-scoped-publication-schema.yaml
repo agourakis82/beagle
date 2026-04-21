@@ -1,0 +1,96 @@
+version: beagle-run-scoped-publication-v1
+kind: run-scoped-publication
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - publication_id
+  - reservation_id
+  - run_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - compute_profile_id
+  - selected_subagent_id
+  - task_family
+  - submitted_job_id
+  - requested_run_label
+  - published_result_job_id
+  - published_result_run_label
+  - published_result_profile_id
+  - final_job_state
+  - publication_state
+  - result_lookup_scope
+  - catalog_before_matching_run_count
+  - catalog_after_matching_run_count
+  - no_profile_latest_ambiguity
+  - published_result_manifest_key
+  - published_at
+  - result_catalog_lookup_path
+  - run_result_identity_receipt_path
+  - deterministic_result_binding_path
+  - note
+properties:
+  phase:
+    const: B25.4
+  contract_kind:
+    const: run-scoped-publication
+  contract_version:
+    const: beagle-run-scoped-publication-v1
+  publication_id:
+    type: string
+  reservation_id:
+    type: string
+  run_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  compute_profile_id:
+    type: string
+  selected_subagent_id:
+    type: string
+  task_family:
+    type: string
+  submitted_job_id:
+    type: integer
+  requested_run_label:
+    type: string
+  published_result_job_id:
+    type: integer
+  published_result_run_label:
+    type: string
+  published_result_profile_id:
+    type: string
+  final_job_state:
+    type: string
+  publication_state:
+    type: string
+  result_lookup_scope:
+    type: string
+  catalog_before_matching_run_count:
+    type: integer
+  catalog_after_matching_run_count:
+    type: integer
+  no_profile_latest_ambiguity:
+    type: boolean
+  published_result_manifest_key:
+    type: string
+  published_at:
+    type: string
+    format: date-time
+  result_catalog_lookup_path:
+    type: string
+  run_result_identity_receipt_path:
+    type: string
+  deterministic_result_binding_path:
+    type: string
+  note:
+    type: string

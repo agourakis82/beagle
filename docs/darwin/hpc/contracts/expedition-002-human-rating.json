@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Expedition 002 Human Rating Batch",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "experiment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "packet_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "protocol_version": {
+      "type": "string",
+      "const": "b17.5-expedition-002-human-eval-v1"
+    },
+    "evaluator_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ratings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "blinded_item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "accepted": {
+            "type": ["boolean", "null"]
+          },
+          "rating_global_0_10": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "maximum": 10
+          },
+          "clarity_0_10": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "maximum": 10
+          },
+          "adequacy_of_tone_0_10": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "maximum": 10
+          },
+          "usefulness_0_10": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "maximum": 10
+          },
+          "safety_or_emotional_fit_0_10": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "maximum": 10
+          },
+          "notes": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "blinded_item_id",
+          "accepted",
+          "rating_global_0_10",
+          "clarity_0_10",
+          "adequacy_of_tone_0_10",
+          "usefulness_0_10",
+          "safety_or_emotional_fit_0_10"
+        ]
+      }
+    }
+  },
+  "required": [
+    "experiment_id",
+    "packet_id",
+    "protocol_version",
+    "evaluator_id",
+    "ratings"
+  ]
+}

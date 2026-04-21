@@ -1,0 +1,107 @@
+type: object
+required:
+  - retest_version
+  - manuscript_shadow_retest_id
+  - manuscript_tuning_recommendation_id
+  - manuscript_context_adequacy_id
+  - manuscript_trajectory_quality_id
+  - manuscript_promotion_gate_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - candidate_policy_mode
+  - candidate_task_family
+  - candidate_selected_subagent_id
+  - candidate_compiler_profile_id
+  - candidate_graphrag_query_mode
+  - candidate_temporal_truth_view
+  - candidate_context_task_profile
+  - observed_task_family
+  - observed_selected_subagent_id
+  - observed_compiler_profile_id
+  - observed_graphrag_query_mode
+  - observed_temporal_truth_view
+  - observed_context_task_profile
+  - mismatch_dimensions
+  - mismatch_count
+  - retest_applied
+  - trajectory_quality
+  - context_sufficiency
+  - review_quality_label
+  - editorial_acceptance_fit
+  - same_beagle_owned_identity
+properties:
+  retest_version:
+    type: string
+    enum:
+      - beagle-manuscript-shadow-retest-v1
+  manuscript_shadow_retest_id:
+    type: string
+  manuscript_tuning_recommendation_id:
+    type: string
+  manuscript_context_adequacy_id:
+    type: string
+  manuscript_trajectory_quality_id:
+    type: string
+  manuscript_promotion_gate_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+    enum:
+      - implementation-and-analysis-canary-live-manuscript-tuned-shadow-retest
+  candidate_policy_mode:
+    type: string
+  candidate_task_family:
+    type: string
+  candidate_selected_subagent_id:
+    type: string
+  candidate_compiler_profile_id:
+    type: string
+  candidate_graphrag_query_mode:
+    type: string
+  candidate_temporal_truth_view:
+    type: string
+  candidate_context_task_profile:
+    type: string
+  observed_task_family:
+    type: string
+  observed_selected_subagent_id:
+    type: string
+  observed_compiler_profile_id:
+    type: string
+  observed_graphrag_query_mode:
+    type: string
+  observed_temporal_truth_view:
+    type: string
+  observed_context_task_profile:
+    type: string
+  mismatch_dimensions:
+    type: array
+    items:
+      type: string
+  mismatch_count:
+    type: integer
+    minimum: 0
+  retest_applied:
+    type: boolean
+  trajectory_quality:
+    type: string
+  context_sufficiency:
+    type: string
+  review_quality_label:
+    type: string
+  editorial_acceptance_fit:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  note:
+    type: string

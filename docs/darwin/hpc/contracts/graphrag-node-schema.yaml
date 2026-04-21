@@ -1,0 +1,11 @@
+version: beagle-graphrag-node-v1
+kind: graphrag-node
+description: >
+  Canonical node shape for the bounded B23.1 graph-aware retrieval pilot.
+node:
+  node_version: string
+  node_id: string
+  node_type: Program|Campaign|Workstream|Session|Experiment|Result|Claim|Manuscript
+  display_name: string
+  support_memory_ids: [string]
+  properties: object

@@ -4,15 +4,16 @@ use super::{
     simulation::{SimulationEngine, SimulationResult},
 };
 use anyhow::Result;
-use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
 use serde_json;
 use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
 
+use crate::causal::AgentLlmClient;
+
 /// Monte Carlo Tree Search engine for hypothesis discovery
 pub struct MCTSEngine {
-    llm: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
     simulator: Arc<SimulationEngine>,
     puct: PUCTSelector,
 
@@ -25,7 +26,7 @@ pub struct MCTSEngine {
 
 impl MCTSEngine {
     pub fn new(
-        llm: Arc<AnthropicClient>,
+        llm: Arc<dyn AgentLlmClient>,
         simulator: Arc<SimulationEngine>,
         iterations: usize,
     ) -> Self {
@@ -140,20 +141,11 @@ impl MCTSEngine {
             parent_content
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeSonnet4,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 1000,
-            temperature: 0.9, // High temp for creativity
-            system: Some(
-                "You are a creative scientific researcher generating novel hypotheses.".to_string(),
-            ),
-        };
-
-        let response = self.llm.complete(request).await?;
+        let system = "You are a creative scientific researcher generating novel hypotheses.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
         // Parse JSON
-        let content = response.content.trim();
+        let content = response.trim();
         let hypotheses_text: Vec<String> = serde_json::from_str(content).unwrap_or_else(|_| {
             vec![
                 format!("Extension 1 of {}", parent_content),

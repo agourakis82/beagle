@@ -1,0 +1,38 @@
+version: beagle-workspace-devcontainer-subagents-v1
+kind: workspace-subagents
+description: >
+  Canonical Beagle contract for multiple specialized inner work surfaces inside
+  the same Beagle-owned workspace/session identity.
+
+required:
+  - workstream_id
+  - workspace_id
+  - session_id
+  - workspace_subagents_path
+  - workspace_subagent_handoff_path
+  - subagents_file
+  - subagents_dir
+  - devcontainer_dir
+  - attach_method
+  - managed_attach_state
+  - stable_attach_alias
+  - roles
+
+roles:
+  minItems: 2
+  required:
+    - subagent_id
+    - role
+    - role_tag
+    - access_state
+    - recommended_work_modes
+    - default_tools
+    - devcontainer_config_file
+    - env_file
+    - workspace_folder
+    - attach_method
+    - managed_attach_state
+  allowed_examples:
+    - core
+    - experiments
+    - manuscript

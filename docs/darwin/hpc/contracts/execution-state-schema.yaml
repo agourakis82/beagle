@@ -1,0 +1,39 @@
+version: beagle-plan-execution-state-v1
+type: object
+required:
+  - state_version
+  - execution_id
+  - planner_policy_id
+  - plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - task_family
+  - tool_id
+  - work_mode
+  - current_state
+  - selected_subagent_id
+  - retrieval_query_type
+  - dense_backend
+  - sparse_backend
+  - compiler_profile_id
+  - graphrag_query_mode
+  - temporal_truth_view
+  - approved_by
+  - approved_at
+  - tool_launch_path
+  - workspace_subagent_route_path
+  - workspace_subagent_handoff_path
+  - execution_state_path
+  - execution_receipt_path
+  - execution_result_links_path
+  - state_transitions
+  - operator_execution_state
+properties:
+  current_state:
+    enum: [planned, approved, running, succeeded, failed, stopped]
+  state_transitions:
+    type: array
+    items:
+      type: object
+      required: [state, transitioned_at, note]

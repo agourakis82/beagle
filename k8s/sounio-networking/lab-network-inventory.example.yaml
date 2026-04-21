@@ -1,0 +1,95 @@
+fabrics:
+  management:
+    cidr: 192.168.3.0/24
+    role: proxmox-admin
+    gateway:
+      current: 192.168.3.1
+      preferred: 192.168.3.254
+    mtu: 1500
+    vlan:
+      status: proposed
+      id: 3
+  k8s-underlay:
+    cidr: 10.100.100.0/24
+    role: kubernetes-east-west
+    gateway:
+      preferred: 10.100.100.254
+    mtu: 9000
+    vlan:
+      status: proposed
+      id: 100
+    status: live
+  storage-migration:
+    cidr: 10.200.0.0/24
+    role: ceph-replication-backups-migration
+    gateway:
+      preferred: 10.200.0.254
+    mtu: 9000
+    vlan:
+      status: proposed
+      id: 200
+    status: live
+  gpu-rdma:
+    cidr: 10.210.0.0/24
+    role: roce-gpudirect-nccl
+    gateway:
+      preferred: 10.210.0.254
+    mtu: 9000
+    vlan:
+      status: proposed
+      id: 210
+    status: planned
+
+dns:
+  kubernetes_zone: cluster.local
+  lab_zone: lab.sounio
+  tailnet_mode: magicdns
+  records:
+    - name: t560.lab.sounio
+      ip: 10.100.100.2
+      role: control-plane
+    - name: r770.lab.sounio
+      ip: 10.100.100.1
+      role: gpu-node
+    - name: r740.lab.sounio
+      ip: 10.100.100.4
+      role: gpu-node
+    - name: pve-5860.lab.sounio
+      ip: 10.100.100.3
+      role: gpu-node
+    - name: workspace.lab.sounio
+      target: sounio-workspace.beagle.svc.cluster.local
+      role: stable-workspace-entry
+
+nodes:
+  t560-proxmox:
+    kubernetes_internal_ip: 10.100.100.2
+    management_ip: 192.168.3.169
+    primary_fabric_ip: 10.100.100.2
+    secondary_fabric_ip: 10.200.0.2
+    gpu: none
+  r770-proxmox:
+    kubernetes_internal_ip: 10.100.100.1
+    management_ip: 192.168.3.228
+    primary_fabric_ip: 10.100.100.1
+    secondary_fabric_ip: 10.200.0.1
+    accelerator: nvidia-l4
+  r740-proxmox:
+    kubernetes_internal_ip: 10.100.100.4
+    management_ip: 192.168.3.168
+    primary_fabric_ip: 10.100.100.4
+    secondary_fabric_ip: 10.200.0.4
+    accelerator: nvidia-rtx-a5000
+  5860-proxmox:
+    kubernetes_internal_ip: 10.100.100.3
+    management_ip: 192.168.3.207
+    primary_fabric_ip: 10.100.100.3
+    secondary_fabric_ip: 10.200.0.3
+    accelerator: nvidia-rtx-4000-ada
+
+policies:
+  - name: humans-enter-via-tailnet
+  - name: kubernetes-uses-10-100-as-underlay
+  - name: storage-migration-stays-on-10-200
+  - name: rdma-gets-a-dedicated-fabric-before-production-use
+

@@ -1,0 +1,50 @@
+title: Workbench Context After Baseline Schema (B26.6)
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - context_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - bounded_study_baseline
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  context_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  generated_at:
+    type: string
+    format: date-time
+  bounded_study_baseline:
+    type: object
+  study_convergence_plane_path:
+    type: string
+  study_promotion_execution_plane_path:
+    type: string
+  baseline_adoption_plane_path:
+    type: string
+  baseline_rollback_plane_path:
+    type: string
+  next_study_seed_plane_path:
+    type: string
+  context_packet_api_path:
+    type: string
+  intent_planner_api_path:
+    type: string
+  note:
+    type: string

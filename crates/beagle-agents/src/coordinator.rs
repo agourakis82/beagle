@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
 use beagle_memory::{ContextBridge, ConversationTurn, PerformanceMetrics};
 use beagle_personality::PersonalityEngine;
 use serde_json::json;
@@ -11,11 +10,12 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::agent_trait::{Agent, AgentCapability, AgentInput, AgentOutput};
+use crate::causal::AgentLlmClient;
 use crate::models::{ResearchMetrics, ResearchResult, ResearchStep};
 
 /// Orquestra múltiplos agentes especializados em paralelo real usando Tokio.
 pub struct CoordinatorAgent {
-    anthropic: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
     personality: Arc<PersonalityEngine>,
     context_bridge: Arc<ContextBridge>,
     agents: Vec<Arc<dyn Agent>>,
@@ -23,12 +23,12 @@ pub struct CoordinatorAgent {
 
 impl CoordinatorAgent {
     pub fn new(
-        anthropic: Arc<AnthropicClient>,
+        llm: Arc<dyn AgentLlmClient>,
         personality: Arc<PersonalityEngine>,
         context_bridge: Arc<ContextBridge>,
     ) -> Self {
         Self {
-            anthropic,
+            llm,
             personality,
             context_bridge,
             agents: Vec::new(),
@@ -127,20 +127,14 @@ impl CoordinatorAgent {
 
         let llm_start = Instant::now();
         let completion = self
-            .anthropic
-            .complete(CompletionRequest {
-                model: ModelType::ClaudeHaiku45,
-                messages: vec![Message::user(query)],
-                max_tokens: 1400,
-                temperature: 0.7,
-                system: Some(system_prompt.clone()),
-            })
+            .llm
+            .complete_with_system(query, &system_prompt)
             .await
-            .context("Anthropic completion failed")?;
+            .context("LLM completion failed")?;
         steps.push(ResearchStep {
             step_number,
             action: "Generate answer".to_string(),
-            result: format!("{} chars", completion.content.len()),
+            result: format!("{} chars", completion.len()),
             duration_ms: llm_start.elapsed().as_millis() as u64,
         });
         step_number += 1;
@@ -158,7 +152,7 @@ impl CoordinatorAgent {
                     let capability_clone = capability.clone();
                     let query_text = query.to_string();
                     let chunks = context_chunks.clone();
-                    let answer = completion.content.clone();
+                    let answer = completion.clone();
                     join_set.spawn(async move {
                         let start = Instant::now();
                         let input = match capability_clone {
@@ -251,9 +245,9 @@ impl CoordinatorAgent {
         let mut turn = ConversationTurn::new(
             session_id,
             query.to_string(),
-            completion.content.clone(),
+            completion.clone(),
             domain,
-            completion.model.clone(),
+            "claude".to_string(),
         );
         turn.metadata.metrics = PerformanceMetrics {
             latency_ms: llm_start.elapsed().as_millis() as u64,
@@ -293,7 +287,7 @@ impl CoordinatorAgent {
         );
 
         Ok(ResearchResult {
-            answer: completion.content,
+            answer: completion,
             domain,
             steps,
             metrics,

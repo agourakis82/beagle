@@ -5,13 +5,12 @@ use beagle_agents::{
     CompetitionArena, MetaLearner, ResearchPlayer, Strategy, StrategyEvolution, TournamentFormat,
     TournamentResult,
 };
-use beagle_llm::AnthropicClient;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{info, warn};
 
-use crate::state::AppState;
+use crate::state::{AnthropicAgentClient, AppState};
 
 /// Request for adversarial competition
 #[derive(Debug, Deserialize)]
@@ -123,7 +122,8 @@ pub async fn adversarial_compete(
     };
 
     // Create competition arena
-    let arena = CompetitionArena::with_format(Arc::clone(&llm), format);
+    let agent_client = Arc::new(AnthropicAgentClient::new(llm));
+    let arena = CompetitionArena::with_format(agent_client, format);
 
     // Create diverse initial strategies
     let initial_strategies = create_diverse_strategies(req.player_count);

@@ -1,0 +1,99 @@
+type: object
+required:
+  - result_version
+  - retrieval_mode
+  - collection_name
+  - sovereign_dense_backend
+  - general_dense_backend
+  - sparse_backend
+  - top_k
+  - applied_filters
+  - dense_hit_count
+  - sparse_hit_count
+  - hits
+  - backend_profile
+  - note
+properties:
+  result_version:
+    type: string
+  retrieval_mode:
+    type: string
+    enum:
+      - sovereign-dense+sparse-hybrid
+  collection_name:
+    type: string
+  sovereign_dense_backend:
+    type: string
+    enum:
+      - bge-m3
+  general_dense_backend:
+    type: string
+  sparse_backend:
+    type: string
+  top_k:
+    type: integer
+    minimum: 1
+  applied_filters:
+    type: object
+  dense_hit_count:
+    type: integer
+    minimum: 0
+  sparse_hit_count:
+    type: integer
+    minimum: 0
+  hits:
+    type: array
+  backend_profile:
+    type: object
+    required:
+      - profile_version
+      - backend_id
+      - provider
+      - model
+      - runtime_state
+      - store_direction
+      - note
+    properties:
+      profile_version:
+        type: string
+      backend_id:
+        type: string
+      provider:
+        type: string
+      model:
+        type: string
+      runtime_state:
+        type: string
+        enum:
+          - sovereign-active
+          - sovereign-endpoint-configured-fallback
+          - sovereign-endpoint-missing-fallback
+      endpoint_ref:
+        type:
+          - string
+          - "null"
+      store_direction:
+        type: string
+      note:
+        type: string
+  comparison:
+    type:
+      - object
+      - "null"
+    properties:
+      general_dense_backend:
+        type: string
+      sovereign_dense_backend:
+        type: string
+      general_top_memory_ids:
+        type: array
+      sovereign_top_memory_ids:
+        type: array
+      overlap_memory_ids:
+        type: array
+      top_hit_changed:
+        type: boolean
+      note:
+        type: string
+  note:
+    type: string

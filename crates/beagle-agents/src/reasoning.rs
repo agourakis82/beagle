@@ -1,12 +1,13 @@
 use anyhow::Result;
-use beagle_hypergraph::{CachedPostgresStorage, ContentType, Node, StorageRepository};
-use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
+use beagle_hypergraph::{ContentType, Node, StorageRepository};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
+
+use crate::causal::AgentLlmClient;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReasoningPath {
@@ -32,13 +33,14 @@ pub enum ReasoningType {
     Compositional,
 }
 
-pub struct HypergraphReasoner {
-    storage: Arc<CachedPostgresStorage>,
-    llm: Arc<AnthropicClient>,
+/// Generic hypergraph reasoner that works with any storage backend
+pub struct HypergraphReasoner<S: StorageRepository> {
+    storage: Arc<S>,
+    llm: Arc<dyn AgentLlmClient>,
 }
 
-impl HypergraphReasoner {
-    pub fn new(storage: Arc<CachedPostgresStorage>, llm: Arc<AnthropicClient>) -> Self {
+impl<S: StorageRepository> HypergraphReasoner<S> {
+    pub fn new(storage: Arc<S>, llm: Arc<dyn AgentLlmClient>) -> Self {
         Self { storage, llm }
     }
 
@@ -204,19 +206,10 @@ impl HypergraphReasoner {
             source, target, path_description, path.reasoning_type, path.confidence
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeHaiku45,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 200,
-            temperature: 0.5,
-            system: Some(
-                "You are an expert at explaining scientific reasoning chains.".to_string(),
-            ),
-        };
+        let system = "You are an expert at explaining scientific reasoning chains.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
-        let response = self.llm.complete(request).await?;
-
-        Ok(response.content)
+        Ok(response)
     }
 
     /// Render reasoning paths as ASCII visualization.

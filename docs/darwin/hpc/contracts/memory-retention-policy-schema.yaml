@@ -1,0 +1,15 @@
+version: beagle-memory-retention-policy-v1
+kind: memory-retention-policy
+description: >
+  B23.2 bounded forgetting and compaction policy for episodic, semantic, and
+  procedural memory.
+policy:
+  policy_version: string
+  policy_id: string
+  rules:
+    - memory_type: episodic|semantic|procedural
+      retention_action: string
+      expires_after_days: integer|null
+      compaction_rule: string
+      note: string
+  note: string

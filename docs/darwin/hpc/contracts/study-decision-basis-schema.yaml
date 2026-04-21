@@ -1,0 +1,95 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - basis_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - generated_at
+  - study_decision_id
+  - baseline_run_id
+  - latest_run_id
+  - registry_run_count
+  - sweep_variant_count
+  - compared_run_count
+  - successful_run_count
+  - failed_run_count
+  - latest_run_diff_categories
+  - changed_categories_union
+  - best_run_id
+  - best_variant_id
+  - best_run_label
+  - best_variant_label
+  - best_run_score
+  - best_run_reason
+  - recommended_action
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  basis_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  generated_at:
+    type: string
+  study_decision_id:
+    type: string
+  baseline_run_id:
+    type: string
+  latest_run_id:
+    type: string
+  registry_run_count:
+    type: integer
+  sweep_variant_count:
+    type: integer
+  compared_run_count:
+    type: integer
+  successful_run_count:
+    type: integer
+  failed_run_count:
+    type: integer
+  latest_run_diff_categories:
+    type: array
+    items:
+      type: string
+  changed_categories_union:
+    type: array
+    items:
+      type: string
+  best_run_id:
+    type: string
+  best_variant_id:
+    type: string
+  best_run_label:
+    type: string
+  best_variant_label:
+    type: string
+  best_run_score:
+    type: integer
+  best_run_reason:
+    type: string
+  recommended_action:
+    type: string
+  evidence_refs:
+    type: array
+    items:
+      type: object
+  note:
+    type: string
+

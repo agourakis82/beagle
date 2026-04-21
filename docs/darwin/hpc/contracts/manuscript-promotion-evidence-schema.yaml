@@ -1,0 +1,143 @@
+type: object
+required:
+  - evidence_version
+  - manuscript_promotion_evidence_id
+  - manuscript_alignment_labels_id
+  - manuscript_shadow_history_id
+  - manuscript_soak_metrics_id
+  - control_policy_id
+  - manuscript_candidate_policy_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - shadow_sample_count
+  - operator_alignment_aligned_count
+  - operator_alignment_misaligned_count
+  - operator_alignment_insufficient_evidence_count
+  - execution_outcome_alignment_aligned_count
+  - execution_outcome_alignment_misaligned_count
+  - execution_outcome_alignment_insufficient_evidence_count
+  - review_quality_operator_ready_count
+  - review_quality_needs_edit_count
+  - review_quality_replan_required_count
+  - promotion_ready_count
+  - promotion_hold_count
+  - promotion_block_count
+  - operator_alignment_labeled_count
+  - execution_outcome_alignment_labeled_count
+  - operator_alignment_label_coverage_basis_points
+  - execution_outcome_alignment_label_coverage_basis_points
+  - operator_alignment_basis_points
+  - execution_outcome_alignment_basis_points
+  - review_quality_label
+  - promotion_readiness_label
+  - same_beagle_owned_identity
+properties:
+  evidence_version:
+    type: string
+    enum:
+      - beagle-manuscript-promotion-evidence-v1
+  manuscript_promotion_evidence_id:
+    type: string
+  manuscript_alignment_labels_id:
+    type: string
+  manuscript_shadow_history_id:
+    type: string
+  manuscript_soak_metrics_id:
+    type: string
+  control_policy_id:
+    type: string
+  manuscript_candidate_policy_id:
+    type: string
+  source_review_decision_id:
+    type: [string, "null"]
+  source_execution_reflection_id:
+    type: [string, "null"]
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+    enum:
+      - implementation-and-analysis-canary-live-manuscript-alignment-labeled
+      - implementation-and-analysis-canary-live-manuscript-alignment-signal
+  shadow_sample_count:
+    type: integer
+    minimum: 1
+  operator_alignment_aligned_count:
+    type: integer
+    minimum: 0
+  operator_alignment_misaligned_count:
+    type: integer
+    minimum: 0
+  operator_alignment_insufficient_evidence_count:
+    type: integer
+    minimum: 0
+  execution_outcome_alignment_aligned_count:
+    type: integer
+    minimum: 0
+  execution_outcome_alignment_misaligned_count:
+    type: integer
+    minimum: 0
+  execution_outcome_alignment_insufficient_evidence_count:
+    type: integer
+    minimum: 0
+  review_quality_operator_ready_count:
+    type: integer
+    minimum: 0
+  review_quality_needs_edit_count:
+    type: integer
+    minimum: 0
+  review_quality_replan_required_count:
+    type: integer
+    minimum: 0
+  promotion_ready_count:
+    type: integer
+    minimum: 0
+  promotion_hold_count:
+    type: integer
+    minimum: 0
+  promotion_block_count:
+    type: integer
+    minimum: 0
+  operator_alignment_labeled_count:
+    type: integer
+    minimum: 0
+  execution_outcome_alignment_labeled_count:
+    type: integer
+    minimum: 0
+  operator_alignment_label_coverage_basis_points:
+    type: integer
+    minimum: 0
+  execution_outcome_alignment_label_coverage_basis_points:
+    type: integer
+    minimum: 0
+  operator_alignment_basis_points:
+    type: integer
+    minimum: 0
+  execution_outcome_alignment_basis_points:
+    type: integer
+    minimum: 0
+  review_quality_label:
+    type: string
+    enum:
+      - operator-ready
+      - needs-edit
+      - replan-required
+  promotion_readiness_label:
+    type: string
+    enum:
+      - supports-stage-manuscript-canary
+      - keep-shadow
+      - rollback-shadow
+  same_beagle_owned_identity:
+    type: boolean
+  note:
+    type: string
+    description: B24.16/B24.17 bounded rationale describing whether explicit manuscript promotion evidence is merely labeled or has been refreshed with acquired alignment signals.

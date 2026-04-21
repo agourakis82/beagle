@@ -458,6 +458,9 @@ impl MemoryBridge {
                 query: query.to_string(),
                 scope: None,
                 max_items: Some(max_results),
+                domain: None,
+                tags: vec![],
+                include_recent_physio: false,
             };
 
             match engine.query(memory_query).await {
@@ -522,6 +525,9 @@ impl MemoryBridge {
                 query: query.to_string(),
                 scope: scope.map(|s| s.to_string()),
                 max_items: Some(max_items),
+                domain: None,
+                tags: vec![],
+                include_recent_physio: false,
             };
 
             match engine.query(memory_query).await {

@@ -7,6 +7,10 @@ resources:
   - pvc.yaml
   - deployment.yaml
   - service.yaml
+  - sovereign-embeddings-deployment.yaml
+  - sovereign-embeddings-service.yaml
+  - sovereign-reranker-deployment.yaml
+  - sovereign-reranker-service.yaml
 labels:
   - pairs:
       app.kubernetes.io/part-of: beagle

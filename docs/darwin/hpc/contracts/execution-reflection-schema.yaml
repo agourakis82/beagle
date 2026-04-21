@@ -1,0 +1,70 @@
+type: object
+required:
+  - reflection_version
+  - reflection_id
+  - trajectory_eval_id
+  - execution_id
+  - plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - task_family
+  - selected_subagent_id
+  - expected_subagent_id
+  - subagent_selection_ok
+  - compiled_context_sufficient
+  - compiled_context_reason
+  - acceptance_criteria_met_count
+  - acceptance_criteria_total
+  - acceptance_criteria_passed
+  - evaluation_mode
+  - overall_quality_score
+  - operator_followup_action
+  - note
+properties:
+  reflection_version:
+    type: string
+  reflection_id:
+    type: string
+  trajectory_eval_id:
+    type: string
+  execution_id:
+    type: string
+  plan_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  task_family:
+    type: string
+  selected_subagent_id:
+    type: string
+  expected_subagent_id:
+    type: string
+  subagent_selection_ok:
+    type: boolean
+  compiled_context_sufficient:
+    type: boolean
+  compiled_context_reason:
+    type: string
+  acceptance_criteria_met_count:
+    type: integer
+    minimum: 0
+  acceptance_criteria_total:
+    type: integer
+    minimum: 0
+  acceptance_criteria_passed:
+    type: boolean
+  evaluation_mode:
+    type: string
+  overall_quality_score:
+    type: integer
+    minimum: 0
+    maximum: 100
+  operator_followup_action:
+    type: string
+  note:
+    type: string

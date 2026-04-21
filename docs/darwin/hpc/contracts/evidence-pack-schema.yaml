@@ -1,0 +1,116 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Beagle Evidence Pack
+type: object
+additionalProperties: false
+properties:
+  status:
+    type: string
+  phase:
+    type: string
+  pack:
+    type: object
+    additionalProperties: false
+    properties:
+      pack_version:
+        type: string
+      crate_profile:
+        type: string
+      pack_id:
+        type: string
+      program_id:
+        type: string
+      campaign_id:
+        type: string
+      workstream_ids:
+        type: array
+        items:
+          type: string
+      active_workstream_id:
+        type: string
+      workspace_id:
+        type: string
+      session_id:
+        type: string
+      repo:
+        type: string
+      branch:
+        type: string
+      governance_state:
+        type: string
+      experiment_refs:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+      dataset_refs:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+      result_refs:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+      memory_refs:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+      physio_refs:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+      recipe_refs:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+      evidence_targets:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+      manuscript_target:
+        type:
+          - object
+          - "null"
+      decision_notes:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+      provenance:
+        type: object
+        additionalProperties: false
+      citation:
+        type: object
+        additionalProperties: false
+    required:
+      - pack_version
+      - crate_profile
+      - pack_id
+      - program_id
+      - campaign_id
+      - workstream_ids
+      - active_workstream_id
+      - workspace_id
+      - session_id
+      - repo
+      - branch
+      - governance_state
+      - experiment_refs
+      - dataset_refs
+      - result_refs
+      - memory_refs
+      - physio_refs
+      - recipe_refs
+      - evidence_targets
+      - decision_notes
+      - provenance
+      - citation
+required:
+  - status
+  - phase
+  - pack

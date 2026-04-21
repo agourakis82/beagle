@@ -1,0 +1,55 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: darwin-slurmdbd-backend-rules
+  namespace: darwin-platform
+  labels:
+    app.kubernetes.io/part-of: darwin-observability
+    darwin.phase: B8
+    release: darwin-observability
+spec:
+  groups:
+    - name: darwin.slurmdbd-backend
+      rules:
+        - alert: DarwinSlurmDBDHostLocalBackendUnhealthy
+          expr: darwin_slurmdbd_current_backend_healthy{instance="10.100.100.2:9100"} < 1
+          for: 5m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: real-incident
+            severity: critical
+          annotations:
+            summary: SlurmDBD current backend is unhealthy
+            description: The current live MariaDB path backing slurmdbd is unhealthy. Inspect ./ops/slurmdbd-backend-doctor.sh before changing the accounting backend again.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/ops/slurmdbd-backend-doctor.sh
+        - alert: DarwinSlurmDBDLatestDumpStale
+          expr: darwin_slurmdbd_latest_dump_age_hours{instance="10.100.100.2:9100"} > 36
+          for: 30m
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: SlurmDBD logical dump is stale
+            description: The latest top-level Slurm accounting logical dump is older than 36 hours on t560.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/ops/slurmdbd-backend-doctor.sh
+        - alert: DarwinSlurmDBDMigrationSnapshotStale
+          expr: darwin_slurmdbd_latest_snapshot_age_hours{instance="10.100.100.2:9100"} > 168 or darwin_slurmdbd_latest_snapshot_complete{instance="10.100.100.2:9100"} < 1
+          for: 1h
+          labels:
+            domain: slurm
+            namespace: darwin-platform
+            notification_tier: dev-noise
+            severity: warning
+          annotations:
+            summary: SlurmDBD migration snapshot is stale or incomplete
+            description: The latest migration-grade slurmdbd snapshot is older than 7 days or missing required metadata, SQL dump, or row counts.
+            dashboard: Darwin Slurm Ops
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/ops/slurmdbd-backend-doctor.sh

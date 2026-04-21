@@ -1,0 +1,225 @@
+api_version: beagle-project-constitution/v1
+phase: B15.2
+mode: aspirational-beagle-charter
+status: canonical
+
+north_star:
+  statement: >-
+    Beagle becomes the canonical operating system for governed, repo-native,
+    cluster-backed workstreams, with explicit session, result, provider and
+    governance semantics.
+  operating_principle: governed-workstream-os
+  success_test: >-
+    Real workstreams can live, run, recover and be governed inside Beagle
+    without VM recentering, hidden fallback magic or parallel architecture.
+
+identity:
+  operational_beagle:
+    status: proven
+    definition: >-
+      The already-proven Beagle kernel: cluster-first, workstream-aware,
+      control-room-visible, provider-bounded and governance-backed.
+    authorities:
+      runtime_entrypoint: apps/beagle-monorepo/src/bin/core_server.rs
+      runtime_router: apps/beagle-monorepo/src/http.rs
+      darwin_hpc_surface: apps/beagle-monorepo/src/http_darwin_hpc.rs
+      darwin_hpc_kernel: crates/beagle-darwin/src
+      configuration: crates/beagle-config/src
+      deployment: k8s/beagle
+    proof_anchor_phases:
+      - B14.1
+      - B14.2
+      - B14.3
+      - B14.4
+      - B15.1
+  aspirational_beagle:
+    status: declared
+    definition: >-
+      The intended Beagle: a Workstream OS that scales the same constitutional
+      rules to a governed portfolio of real workstreams.
+    authorities:
+      charter: docs/darwin/hpc/B152_ASPIRATIONAL_BEAGLE_CHARTER.md
+      lineage: docs/darwin/hpc/PROGRAM_LINEAGE.md
+      constitution: docs/darwin/hpc/contracts/project-constitution.yaml
+
+canonical_planes:
+  workspace_session:
+    status: live
+    authority: crates/beagle-darwin/src/workspace_plane.rs
+    role: session, handoff, fallback and workstream cutover continuity
+  workstream_contract:
+    status: live
+    authority: docs/darwin/hpc/workstreams
+    role: registry, spec and recipe identity
+  control_room:
+    status: live
+    authority: crates/beagle-darwin/src/workstream_control_room.rs
+    role: internal workstream visibility and query consolidation
+  compute:
+    status: live
+    authority: apps/beagle-monorepo/src/http_darwin_hpc.rs
+    role: CPU/GPU workflow dispatch and result lookup through the Darwin HPC gateway
+  truth:
+    status: live
+    authority: crates/beagle-darwin/src/object_results.rs
+    role: object-backed publication, retrieval and result catalog semantics
+  provider_bridge:
+    status: live
+    authority: crates/beagle-darwin/src/tool_bridge.rs
+    role: bounded provider execution lanes with ledger
+  governance:
+    status: live
+    authority: docs/darwin/hpc/workstreams/beagle-darwin-hpc-governance.yaml
+    role: workstream promotion, hold, rollback and recovery semantics
+
+lanes:
+  dev_plane:
+    default: beagle-cluster
+    fallback_role: fallback-only
+    status: canonical
+  provider:
+    cheap_api:
+      status: live
+      providers:
+        - deepseek
+        - glm5
+        - minimax
+        - grok_fast
+        - kimi
+    human_premium:
+      status: represented
+      providers:
+        - codex_human
+        - claude_human
+    mcp_connector:
+      status: bounded
+      providers:
+        - mcp_generic
+  consumer:
+    operator:
+      status: full
+    darwin_research:
+      status: bounded
+
+workstream_model:
+  registry_root: docs/darwin/hpc/workstreams
+  recipe_root: docs/darwin/hpc/workstreams/recipes
+  governance_model: workstream-promotion-state-v1
+  canonical_workstreams:
+    - id: beagle-darwin-hpc-governance
+      repo: agourakis82/beagle
+      default_branch: feat/darwin-hpc-governance
+      scope: beagle-darwin-hpc-general-noninfra
+      default_dev_plane: beagle-cluster
+      vm_fallback_role: fallback-only
+      recipe_set_state: canonical-live
+
+governance_states:
+  allowed_states:
+    - staged
+    - pilot
+    - canonical
+    - held
+    - rollback
+    - recovery
+  allowed_transitions:
+    - name: promote
+      from: staged
+      to: pilot
+    - name: promote
+      from: pilot
+      to: canonical
+    - name: hold
+      from: canonical
+      to: held
+    - name: resume
+      from: held
+      to: canonical
+    - name: rollback
+      from: canonical
+      to: rollback
+    - name: recover
+      from: rollback
+      to: recovery
+    - name: resume
+      from: recovery
+      to: canonical
+  mutation_boundary: explicit-bounded-governance-drill
+
+non_negotiables:
+  - beagle-cluster remains the canonical default dev plane
+  - vm remains fallback-only
+  - fallback remains explicit, bounded and recorded
+  - workstreams remain repo-native, recipe-backed and governance-backed
+  - result publication and retrieval remain object-backed
+  - provider bridge remains bounded and ledgered
+  - no hidden premium-lane recentering
+  - no hidden multi-agent or magic fallback behavior
+  - no ingress, edge, HA or backplane redesign on this constitutional line
+
+current_canonical_state:
+  proven_phases:
+    B14.1: GO
+    B14.2: GO
+    B14.3: GO
+    B14.4: GO
+    B15.1: GO
+  live_service:
+    deployment: beagle-core
+    service: beagle-core
+    binary: core_server
+    bind_addr: 0.0.0.0:8080
+    profile: cluster
+  canonical_defaults:
+    default_dev_plane: beagle-cluster
+    vm_fallback_role: fallback-only
+    promotion_scope: beagle-darwin-hpc-general-noninfra
+    canonical_workstream: beagle-darwin-hpc-governance
+    governance_state: canonical
+    governance_last_transition: resume
+  compute_profiles:
+    default: cpu-short-v1
+    batch: cpu-batch-v1
+    advanced: gpu-single-v1
+  result_plane:
+    publication: object-backed
+    retrieval: object-backed
+    retention_policy: active
+  cheap_lane:
+    status: effectively_closed
+    live_providers:
+      - deepseek
+      - glm5
+      - minimax
+      - grok_fast
+      - kimi
+    canonical_defaults:
+      deepseek: deepseek-chat
+      glm5: glm-5
+      minimax: MiniMax-M2.7
+      grok_fast: grok-4-1-fast-reasoning
+      kimi: moonshotai/kimi-k2-instruct-0905
+
+forbidden_regressions:
+  - do not recenter the VM as the normal development plane
+  - do not bypass the repo-native workstream registry, spec or recipes
+  - do not replace the canonical live service with legacy parallel server paths
+  - do not reopen provider expansion as the center of the roadmap
+  - do not widen into public UI, ingress, edge or HA on this line
+  - do not hide governance or fallback transitions
+
+forward_map:
+  immediate:
+    - strengthen governed internal operation before widening scope
+    - add only bounded internal control-room mutation after governance remains explicit
+    - widen from one canonical workstream to a governed portfolio only under the same constitutional rules
+  later:
+    - multi-workstream portfolio control
+    - richer promotion / rollback / recovery tooling
+    - stronger operator-facing internal mission-control workflows
+  explicitly_not_yet:
+    - public UI
+    - ingress or edge
+    - HA
+    - provider expansion
+    - backplane redesign

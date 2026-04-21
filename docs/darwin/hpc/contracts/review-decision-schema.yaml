@@ -1,0 +1,83 @@
+type: object
+required:
+  - decision_version
+  - decision_id
+  - inbox_item_id
+  - execution_id
+  - plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - decision_action
+  - decided_by
+  - decision_note
+  - decided_at
+  - operator_visibility_confirmed
+  - edited_fields
+  - follow_on_plan_materialized
+  - note
+properties:
+  decision_version:
+    type: string
+    const: beagle-review-decision-v1
+  decision_id:
+    type: string
+  inbox_item_id:
+    type: string
+  execution_id:
+    type: string
+  plan_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  decision_action:
+    type: string
+    enum:
+      - approved
+      - edited
+      - rejected
+  decided_by:
+    type: string
+  decision_note:
+    type: string
+  decided_at:
+    type: string
+    format: date-time
+  operator_visibility_confirmed:
+    type: boolean
+  edited_fields:
+    type: array
+    items:
+      type: string
+  follow_on_plan_materialized:
+    type: boolean
+  follow_on_plan_id:
+    type:
+      - string
+      - "null"
+  autonomy_policy_id:
+    type:
+      - string
+      - "null"
+  risk_evaluation_id:
+    type:
+      - string
+      - "null"
+  approval_gating_decision_id:
+    type:
+      - string
+      - "null"
+  approval_gating_decision_class:
+    type:
+      - string
+      - "null"
+  auto_continue_eligible:
+    type: boolean
+  dispatch_blocked:
+    type: boolean
+  note:
+    type: string

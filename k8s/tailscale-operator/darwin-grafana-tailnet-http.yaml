@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: darwin-grafana-tailnet-http
+  namespace: darwin-platform
+  annotations:
+    tailscale.com/proxy-group: sounio-workspace-ingress
+    tailscale.com/hostname: darwin-grafana
+    tailscale.com/tags: tag:k8s
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  selector:
+    app.kubernetes.io/instance: darwin-observability
+    app.kubernetes.io/name: grafana
+  ports:
+    - name: http
+      port: 80
+      targetPort: grafana
+      protocol: TCP

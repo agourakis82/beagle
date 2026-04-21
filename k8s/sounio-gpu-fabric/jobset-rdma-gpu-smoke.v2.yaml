@@ -1,0 +1,504 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sounio-rdma-ddp-smoke
+  namespace: beagle
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sounio-rdma-ddp-smoke-pod-reader
+  namespace: beagle
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sounio-rdma-ddp-smoke-pod-reader
+  namespace: beagle
+subjects:
+  - kind: ServiceAccount
+    name: sounio-rdma-ddp-smoke
+    namespace: beagle
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sounio-rdma-ddp-smoke-pod-reader
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sounio-rdma-ddp-smoke-script
+  namespace: beagle
+data:
+  rdma_smoke.py: |
+    import json
+    import os
+    import re
+    import socket
+    import ssl
+    import struct
+    import subprocess
+    import time
+    import urllib.parse
+    import urllib.request
+    from datetime import timedelta
+    import fcntl
+
+    import torch
+    import torch.distributed as dist
+
+    master_host = os.environ["MASTER_HOST"]
+    namespace = os.environ["POD_NAMESPACE"]
+    pod_name = os.environ["POD_NAME"]
+    pod_ip = os.environ["POD_IP"]
+    network_status_raw = os.environ.get("NETWORK_STATUS", "")
+    subdomain = os.environ["JOBSET_SUBDOMAIN"]
+    jobset_name = os.environ["JOBSET_NAME"]
+    fabric_interface = os.environ["FABRIC_INTERFACE"]
+    port = os.environ["MASTER_PORT"]
+    rank = int(os.environ["NODE_RANK"])
+    world = int(os.environ["NNODES"])
+    backend = "nccl" if torch.cuda.is_available() else "gloo"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    def resolve_master_dns(host: str, namespace: str, subdomain: str):
+        candidates = []
+
+        def add(candidate: str):
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+
+        add(host)
+        if host.endswith(f".{subdomain}"):
+            add(f"{host}.{namespace}.svc")
+            add(f"{host}.{namespace}.svc.cluster.local")
+        elif "." not in host:
+            add(f"{host}.{subdomain}")
+            add(f"{host}.{subdomain}.{namespace}.svc")
+            add(f"{host}.{subdomain}.{namespace}.svc.cluster.local")
+            add(f"{host}.{namespace}.svc")
+            add(f"{host}.{namespace}.svc.cluster.local")
+
+        deadline = time.time() + 60
+        last_error = None
+        while time.time() < deadline:
+            for candidate in candidates:
+                try:
+                    infos = socket.getaddrinfo(
+                        candidate,
+                        int(port),
+                        family=socket.AF_INET,
+                        type=socket.SOCK_STREAM,
+                    )
+                    return candidate, infos[0][4][0]
+                except OSError as exc:
+                    last_error = exc
+            time.sleep(1)
+
+        raise RuntimeError(
+            f"unable to resolve coordinator from host={host!r} candidates={candidates!r}"
+        ) from last_error
+
+    def coordinator_hostname(host: str):
+        return host.split(".", 1)[0]
+
+    def kube_request(path: str):
+        token = open(
+            "/var/run/secrets/kubernetes.io/serviceaccount/token",
+            "r",
+            encoding="utf-8",
+        ).read().strip()
+        ca_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        api_host = os.environ["KUBERNETES_SERVICE_HOST"]
+        api_port = os.environ["KUBERNETES_SERVICE_PORT_HTTPS"]
+        url = f"https://{api_host}:{api_port}{path}"
+        req = urllib.request.Request(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        ctx = ssl.create_default_context(cafile=ca_path)
+        with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+            return json.load(resp)
+
+    def fetch_coordinator_pod(hostname: str, namespace: str, jobset_name: str):
+        selector = urllib.parse.quote(f"jobset.sigs.k8s.io/jobset-name={jobset_name}")
+        path = (
+            f"/api/v1/namespaces/{urllib.parse.quote(namespace)}/pods"
+            f"?labelSelector={selector}"
+        )
+        payload = kube_request(path)
+        items = payload.get("items", [])
+        for pod in items:
+            if pod.get("spec", {}).get("hostname") != hostname:
+                continue
+            phase = pod.get("status", {}).get("phase")
+            if phase in {"Succeeded", "Failed"}:
+                continue
+            return pod
+        raise RuntimeError(
+            f"coordinator pod not found for hostname={hostname!r} in jobset={jobset_name!r}"
+        )
+
+    def fetch_pod(name: str, namespace: str):
+        path = f"/api/v1/namespaces/{urllib.parse.quote(namespace)}/pods/{urllib.parse.quote(name)}"
+        return kube_request(path)
+
+    def network_ip_from_status_json(raw: str, interface: str):
+        if not raw:
+            return None
+        try:
+            entries = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        for entry in entries:
+            if entry.get("interface") == interface:
+                ips = entry.get("ips") or []
+                if ips:
+                    return ips[0]
+        return None
+
+    def network_ip_from_annotation(pod: dict, interface: str):
+        annotations = pod.get("metadata", {}).get("annotations", {})
+        raw = annotations.get("k8s.v1.cni.cncf.io/network-status")
+        return network_ip_from_status_json(raw, interface)
+
+    def local_interface_ipv4(interface: str):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            packed = struct.pack("256s", interface.encode("utf-8")[:15])
+            data = fcntl.ioctl(sock.fileno(), 0x8915, packed)
+            return socket.inet_ntoa(data[20:24])
+        except OSError:
+            return None
+        finally:
+            sock.close()
+
+    def select_hcas_for_fabric_ip(fabric_ip: str):
+        try:
+            output = subprocess.check_output(
+                ["ibv_devinfo", "-v"],
+                text=True,
+                stderr=subprocess.STDOUT,
+            )
+        except Exception:
+            return []
+
+        selected = []
+        current_hca = None
+        target_patterns = (
+            f"::ffff:{fabric_ip}",
+            f"{fabric_ip}, RoCE v1",
+            f"{fabric_ip}, RoCE v2",
+        )
+
+        for raw_line in output.splitlines():
+            line = raw_line.strip()
+            match = re.match(r"hca_id:\s*(\S+)", line)
+            if match:
+                current_hca = match.group(1)
+                continue
+            if not current_hca:
+                continue
+            if "GID[" not in line:
+                continue
+            if any(pattern in line for pattern in target_patterns):
+                if current_hca not in selected:
+                    selected.append(current_hca)
+
+        return selected
+
+    def resolve_coordinator_ips(
+        host: str,
+        namespace: str,
+        subdomain: str,
+        jobset_name: str,
+        interface: str,
+        rank: int,
+        pod_name: str,
+        pod_ip: str,
+    ):
+        pod_hostname = coordinator_hostname(host)
+        dns_name = host
+
+        if rank == 0:
+            local_fabric_ip = network_ip_from_status_json(network_status_raw, interface)
+            if local_fabric_ip:
+                return dns_name, pod_ip, local_fabric_ip
+            local_fabric_ip = local_interface_ipv4(interface)
+            if local_fabric_ip:
+                return dns_name, pod_ip, local_fabric_ip
+
+        deadline = time.time() + 120
+        last_error = None
+        while time.time() < deadline:
+            try:
+                if rank == 0:
+                    local_pod = fetch_pod(pod_name, namespace)
+                    fabric_ip = network_ip_from_annotation(local_pod, interface)
+                    if fabric_ip:
+                        return dns_name, pod_ip, fabric_ip
+                pod = fetch_coordinator_pod(pod_hostname, namespace, jobset_name)
+                store_ip = pod.get("status", {}).get("podIP")
+                fabric_ip = network_ip_from_annotation(pod, interface)
+                if store_ip and fabric_ip:
+                    return dns_name, store_ip, fabric_ip
+                if store_ip:
+                    return dns_name, store_ip, None
+                last_error = RuntimeError(
+                    f"coordinator pod found but missing podIP/interface={interface!r}"
+                )
+            except Exception as exc:
+                last_error = exc
+            time.sleep(1)
+
+        dns_name, dns_ip = resolve_master_dns(host, namespace, subdomain)
+        if dns_ip:
+            return dns_name, dns_ip, None
+        raise RuntimeError(
+            f"unable to resolve coordinator ips from hostname={pod_hostname!r} interface={interface!r}"
+        ) from last_error
+
+    master_name, master_ip, master_fabric_ip = resolve_coordinator_ips(
+        master_host,
+        namespace,
+        subdomain,
+        jobset_name,
+        fabric_interface,
+        rank,
+        pod_name,
+        pod_ip,
+    )
+
+    local_fabric_ip = network_ip_from_status_json(network_status_raw, fabric_interface)
+    if not local_fabric_ip:
+        local_fabric_ip = local_interface_ipv4(fabric_interface)
+
+    selected_hcas = []
+    if backend == "nccl" and local_fabric_ip:
+        selected_hcas = select_hcas_for_fabric_ip(local_fabric_ip)
+        if selected_hcas:
+            os.environ["NCCL_IB_HCA"] = ",".join(selected_hcas)
+
+    if torch.cuda.is_available():
+        torch.cuda.set_device(0)
+
+    print(
+        f"hostname={socket.gethostname()} "
+        f"rank={rank}/{world} "
+        f"backend={backend} "
+        f"cuda={torch.cuda.is_available()} "
+        f"gpus={torch.cuda.device_count()} "
+        f"master={master_name}:{port} "
+        f"pod_ip={pod_ip} "
+        f"master_ip={master_ip} "
+        f"master_fabric_ip={master_fabric_ip!r} "
+        f"local_fabric_ip={local_fabric_ip!r} "
+        f"nccl_ib_hca={os.environ.get('NCCL_IB_HCA')!r}",
+        flush=True,
+    )
+
+    print("starting init_process_group", flush=True)
+    init_kwargs = {
+        "backend": backend,
+        "init_method": f"tcp://{master_ip}:{port}",
+        "rank": rank,
+        "world_size": world,
+        "timeout": timedelta(seconds=90),
+    }
+    if backend == "nccl":
+        init_kwargs["device_id"] = torch.device("cuda", 0)
+
+    dist.init_process_group(**init_kwargs)
+    print("init_process_group ok", flush=True)
+    try:
+        tensor = torch.tensor([rank + 1], device=device)
+        dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+        print(f"rank={rank} allreduce={tensor.item()}", flush=True)
+        barrier_kwargs = {}
+        if backend == "nccl":
+            barrier_kwargs["device_ids"] = [0]
+        dist.barrier(**barrier_kwargs)
+    finally:
+        if dist.is_initialized():
+            dist.destroy_process_group()
+---
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: sounio-rdma-ddp-smoke
+  namespace: beagle
+  labels:
+    kueue.x-k8s.io/queue-name: hpc-training
+  annotations:
+    alpha.jobset.sigs.k8s.io/exclusive-topology: kubernetes.io/hostname
+spec:
+  coordinator:
+    replicatedJob: workers
+    jobIndex: 0
+    podIndex: 0
+  network:
+    enableDNSHostnames: true
+    subdomain: sounio-rdma-ddp-smoke
+    publishNotReadyAddresses: true
+  replicatedJobs:
+    - name: workers
+      replicas: 2
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            metadata:
+              labels:
+                sounio.dev/distributed-group: sounio-rdma-ddp-smoke
+              annotations:
+                k8s.v1.cni.cncf.io/networks: beagle/gpu-fabric-10-200-pilot
+            spec:
+              serviceAccountName: sounio-rdma-ddp-smoke
+              priorityClassName: hpc-training
+              runtimeClassName: nvidia
+              restartPolicy: Never
+              securityContext:
+                seccompProfile:
+                  type: Unconfined
+              tolerations:
+                - key: sounio.dev/compute
+                  operator: Equal
+                  value: heavy
+                  effect: NoSchedule
+                - key: sounio.dev/pool
+                  operator: Equal
+                  value: gpu-batch
+                  effect: NoSchedule
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: sounio.dev/accelerator-class
+                            operator: In
+                            values:
+                              - gpu
+                          - key: sounio.dev/pool
+                            operator: In
+                            values:
+                              - gpu-batch
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - labelSelector:
+                        matchExpressions:
+                          - key: sounio.dev/distributed-group
+                            operator: In
+                            values:
+                              - sounio-rdma-ddp-smoke
+                      topologyKey: kubernetes.io/hostname
+              containers:
+                - name: trainer
+                  image: sounio/pytorch-rdma:2.7.1-cuda12.8-rdma
+                  imagePullPolicy: Never
+                  securityContext:
+                    privileged: true
+                  env:
+                    - name: MASTER_HOST
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['jobset.sigs.k8s.io/coordinator']
+                    - name: POD_NAMESPACE
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.namespace
+                    - name: NETWORK_STATUS
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['k8s.v1.cni.cncf.io/network-status']
+                    - name: POD_NAME
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.name
+                    - name: POD_IP
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: status.podIP
+                    - name: JOBSET_SUBDOMAIN
+                      value: sounio-rdma-ddp-smoke
+                    - name: JOBSET_NAME
+                      value: sounio-rdma-ddp-smoke
+                    - name: FABRIC_INTERFACE
+                      value: net1
+                    - name: MASTER_PORT
+                      value: "29500"
+                    - name: NODE_RANK
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.labels['jobset.sigs.k8s.io/job-index']
+                    - name: NNODES
+                      value: "2"
+                    - name: NPROC_PER_NODE
+                      value: "1"
+                    - name: NCCL_SOCKET_IFNAME
+                      value: net1
+                    - name: GLOO_SOCKET_IFNAME
+                      value: net1
+                    - name: NCCL_IB_DISABLE
+                      value: "1"
+                    - name: NCCL_IB_GID_INDEX
+                      value: "3"
+                    - name: NCCL_IB_ADDR_FAMILY
+                      value: AF_INET
+                    - name: LD_LIBRARY_PATH
+                      value: /nvidia-host
+                    - name: NCCL_DEBUG
+                      value: INFO
+                    - name: NCCL_DEBUG_SUBSYS
+                      value: INIT,NET
+                    - name: TORCH_DISTRIBUTED_DEBUG
+                      value: DETAIL
+                    - name: TORCH_NCCL_ASYNC_ERROR_HANDLING
+                      value: "1"
+                    - name: PYTHONUNBUFFERED
+                      value: "1"
+                  command:
+                    - /bin/bash
+                    - -lc
+                    - |
+                      python -c "import ctypes; ctypes.CDLL('libcuda.so.1'); print('libcuda_load ok', flush=True)"
+                      python /opt/rdma/rdma_smoke.py
+                  resources:
+                    limits:
+                      nvidia.com/gpu: "1"
+                      rdma/sounio_gpu_fabric: "1"
+                      cpu: "4"
+                      memory: 16Gi
+                    requests:
+                      nvidia.com/gpu: "1"
+                      rdma/sounio_gpu_fabric: "1"
+                      cpu: "4"
+                      memory: 16Gi
+                  volumeMounts:
+                    - name: host-libcuda
+                      mountPath: /nvidia-host/libcuda.so.1
+                      readOnly: true
+                    - name: host-libnvidia-ml
+                      mountPath: /nvidia-host/libnvidia-ml.so.1
+                      readOnly: true
+                    - name: rdma-smoke-script
+                      mountPath: /opt/rdma/rdma_smoke.py
+                      subPath: rdma_smoke.py
+                      readOnly: true
+              volumes:
+                - name: host-libcuda
+                  hostPath:
+                    path: /lib/x86_64-linux-gnu/libcuda.so.1
+                    type: File
+                - name: host-libnvidia-ml
+                  hostPath:
+                    path: /lib/x86_64-linux-gnu/libnvidia-ml.so.1
+                    type: File
+                - name: rdma-smoke-script
+                  configMap:
+                    name: sounio-rdma-ddp-smoke-script

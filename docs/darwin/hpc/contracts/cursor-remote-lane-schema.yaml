@@ -1,0 +1,44 @@
+version: beagle-cursor-remote-lane-v1
+kind: cursor-remote-lane
+required:
+  - status
+  - phase
+  - lane
+  - habitat
+  - context_packet
+lane:
+  required:
+    - lane_version
+    - lane_kind
+    - workstream_id
+    - workspace_id
+    - session_id
+    - repo
+    - branch
+    - governance_state
+    - workspace_habitat_path
+    - workspace_habitat_env_path
+    - context_packet_path
+    - tool_launch_path
+    - tool_return_path
+    - connection_metadata
+connection_metadata:
+  required:
+    - remote_client
+    - connection_mode
+    - recommended_transport
+    - ssh_transport_ready
+    - workspace_namespace
+    - workspace_service_name
+    - internal_base_url
+    - browser_url
+    - health_url
+    - workspace_root
+    - context_dir
+    - context_packet_file
+    - context_env_file
+    - context_packet_path
+    - context_env_path
+    - suggested_port_forward_host
+    - suggested_local_port
+    - suggested_port_forward_command

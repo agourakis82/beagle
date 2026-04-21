@@ -3,13 +3,13 @@ use std::time::Instant;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
 use beagle_memory::ContextBridge;
 use serde_json::json;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::agent_trait::{Agent, AgentCapability, AgentInput, AgentOutput};
+use crate::causal::AgentLlmClient;
 
 /// Agente dedicado à recuperação de contexto da memória conversacional.
 pub struct RetrievalAgent {
@@ -78,11 +78,11 @@ impl Agent for RetrievalAgent {
 /// Agente responsável por validação factual.
 pub struct ValidationAgent {
     id: String,
-    llm: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
 }
 
 impl ValidationAgent {
-    pub fn new(llm: Arc<AnthropicClient>) -> Self {
+    pub fn new(llm: Arc<dyn AgentLlmClient>) -> Self {
         Self {
             id: format!("validation-{}", Uuid::new_v4()),
             llm,
@@ -130,16 +130,9 @@ impl Agent for ValidationAgent {
             context_text, response
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeHaiku45,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 16,
-            temperature: 0.0,
-            system: Some("You are an expert fact-checker.".to_string()),
-        };
-
-        let llm_response = self.llm.complete(request).await?;
-        let normalized = llm_response.content.trim().to_ascii_uppercase();
+        let system = "You are an expert fact-checker.";
+        let llm_response = self.llm.complete_with_system(&prompt, system).await?;
+        let normalized = llm_response.trim().to_ascii_uppercase();
         let is_supported = normalized.contains("YES");
 
         info!("🛡️ ValidationAgent: supported={}", is_supported);
@@ -148,7 +141,7 @@ impl Agent for ValidationAgent {
             agent_id: self.id.clone(),
             result: json!({
                 "is_supported": is_supported,
-                "raw_response": llm_response.content,
+                "raw_response": llm_response,
             }),
             confidence: 0.85,
             duration_ms: start.elapsed().as_millis() as u64,
@@ -160,11 +153,11 @@ impl Agent for ValidationAgent {
 /// Agente que avalia a qualidade da resposta.
 pub struct QualityAgent {
     id: String,
-    llm: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
 }
 
 impl QualityAgent {
-    pub fn new(llm: Arc<AnthropicClient>) -> Self {
+    pub fn new(llm: Arc<dyn AgentLlmClient>) -> Self {
         Self {
             id: format!("quality-{}", Uuid::new_v4()),
             llm,
@@ -208,17 +201,9 @@ impl Agent for QualityAgent {
             response
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeHaiku45,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 16,
-            temperature: 0.0,
-            system: Some("You are an expert quality evaluator.".to_string()),
-        };
-
-        let llm_response = self.llm.complete(request).await?;
+        let system = "You are an expert quality evaluator.";
+        let llm_response = self.llm.complete_with_system(&prompt, system).await?;
         let score = llm_response
-            .content
             .trim()
             .parse::<f32>()
             .unwrap_or(0.7)

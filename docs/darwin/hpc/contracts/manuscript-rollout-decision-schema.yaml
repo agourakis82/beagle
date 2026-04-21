@@ -1,0 +1,74 @@
+type: object
+required:
+  - decision_version
+  - manuscript_rollout_decision_id
+  - control_policy_id
+  - manuscript_candidate_policy_id
+  - manuscript_shadow_calibration_id
+  - manuscript_rollout_metrics_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - decision_output
+  - manuscript_shadow_active
+  - implementation_canary_retained
+  - analysis_canary_retained
+  - regression_detected
+  - rollback_required
+  - rollback_trigger
+  - rollback_action
+  - same_beagle_owned_identity
+properties:
+  decision_version:
+    type: string
+    enum:
+      - beagle-manuscript-rollout-decision-v1
+  manuscript_rollout_decision_id:
+    type: string
+  control_policy_id:
+    type: string
+  manuscript_candidate_policy_id:
+    type: string
+  manuscript_shadow_calibration_id:
+    type: string
+  manuscript_rollout_metrics_id:
+    type: string
+  source_analysis_canary_metrics_id:
+    type: string
+  source_analysis_canary_rollback_decision_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+  decision_output:
+    type: string
+    enum:
+      - keep-shadow
+      - stage-manuscript-canary
+      - rollback-shadow
+  manuscript_shadow_active:
+    type: boolean
+  implementation_canary_retained:
+    type: boolean
+  analysis_canary_retained:
+    type: boolean
+  regression_detected:
+    type: boolean
+  rollback_required:
+    type: boolean
+  rollback_trigger:
+    type: string
+  rollback_action:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  note:
+    type: string

@@ -1,0 +1,107 @@
+type: object
+required:
+  - metrics_version
+  - canary_rollout_metrics_id
+  - control_policy_id
+  - canary_policy_id
+  - source_rollout_metrics_id
+  - source_rollout_decision_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - generated_at
+  - canary_stage
+  - false_auto_continue_rate_basis_points
+  - false_review_required_rate_basis_points
+  - false_blocked_rate_basis_points
+  - alignment_with_operator_decision_basis_points
+  - alignment_with_execution_outcome_basis_points
+  - rollback_triggered
+  - implementation_canary_enabled
+  - analysis_control_retained
+  - manuscript_control_retained
+  - family_metrics
+  - note
+properties:
+  metrics_version:
+    type: string
+    const: beagle-canary-rollout-metrics-v1
+  canary_rollout_metrics_id:
+    type: string
+  control_policy_id:
+    type: string
+  canary_policy_id:
+    type: string
+  source_rollout_metrics_id:
+    type: string
+  source_rollout_decision_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  canary_stage:
+    type: string
+  false_auto_continue_rate_basis_points:
+    type: integer
+  false_review_required_rate_basis_points:
+    type: integer
+  false_blocked_rate_basis_points:
+    type: integer
+  alignment_with_operator_decision_basis_points:
+    type: integer
+  alignment_with_execution_outcome_basis_points:
+    type: integer
+  rollback_triggered:
+    type: boolean
+  implementation_canary_enabled:
+    type: boolean
+  analysis_control_retained:
+    type: boolean
+  manuscript_control_retained:
+    type: boolean
+  family_metrics:
+    type: array
+    items:
+      type: object
+      required:
+        - task_family
+        - live_policy_role
+        - canary_enabled
+        - control_retained
+        - false_auto_continue_rate_basis_points
+        - false_review_required_rate_basis_points
+        - false_blocked_rate_basis_points
+        - alignment_with_operator_decision_basis_points
+        - alignment_with_execution_outcome_basis_points
+        - rollback_triggered
+        - rationale
+      properties:
+        task_family:
+          type: string
+        live_policy_role:
+          type: string
+        canary_enabled:
+          type: boolean
+        control_retained:
+          type: boolean
+        false_auto_continue_rate_basis_points:
+          type: integer
+        false_review_required_rate_basis_points:
+          type: integer
+        false_blocked_rate_basis_points:
+          type: integer
+        alignment_with_operator_decision_basis_points:
+          type: integer
+        alignment_with_execution_outcome_basis_points:
+          type: integer
+        rollback_triggered:
+          type: boolean
+        rationale:
+          type: string
+  note:
+    type: string

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: project-cockpit
+  namespace: beagle
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: project-cockpit
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

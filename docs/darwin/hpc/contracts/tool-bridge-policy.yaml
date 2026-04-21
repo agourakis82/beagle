@@ -1,6 +1,6 @@
-phase: B12.2b
+phase: B12.2c.4
 mode: beagle-tool-provider-bridge-foundation
-status: in-progress
+status: cheap-lane-matrix-live
 
 lanes:
   human_premium:
@@ -14,6 +14,7 @@ lanes:
       - glm5
       - grok_fast
       - minimax
+      - kimi
     cluster_backend_allowed: true
   mcp_connector:
     providers:
@@ -31,3 +32,27 @@ runtime:
   ledger_mode: append_only_jsonl
   ledger_path_family: BEAGLE_DATA_DIR/tool-bridge/
   first_live_provider: deepseek
+  cheap_lane_matrix_status: effectively_closed
+  live_providers:
+    - deepseek
+    - glm5
+    - minimax
+    - grok_fast
+    - kimi
+  canonical_defaults:
+    deepseek: deepseek-chat
+    glm5: glm-5
+    minimax: MiniMax-M2.7
+    grok_fast: grok-4-1-fast-reasoning
+    kimi: moonshotai/kimi-k2-instruct-0905
+  canonical_smoke_request_ids:
+    deepseek: b122b-cheap-smoke
+    glm5: b122c1-glm5-0321135832
+    minimax: b122c2-minimax-0321141230
+    grok_fast: b122c3-grok-0321150205
+    kimi: b122c4-kimi-0321152244
+  superseded_evidence:
+    grok_fast:
+      request_id: b122c3-grok-0321144918
+      model: grok-4-1-fast-non-reasoning
+      status: superseded

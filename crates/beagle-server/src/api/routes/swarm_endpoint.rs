@@ -1,8 +1,9 @@
 use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tracing::info;
 
-use crate::state::AppState;
+use crate::state::{AnthropicAgentClient, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct SwarmRequest {
@@ -30,7 +31,8 @@ pub async fn swarm_explore(
         "Anthropic client not available".to_string(),
     ))?;
 
-    let mut orchestrator = beagle_agents::SwarmOrchestrator::new(20, llm);
+    let agent_client = Arc::new(AnthropicAgentClient::new(llm));
+    let mut orchestrator = beagle_agents::SwarmOrchestrator::new(20, agent_client);
 
     let result = orchestrator
         .explore(&req.query)

@@ -1,0 +1,61 @@
+title: Promoted Variant Receipt Schema (B26.6)
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - receipt_id
+  - study_promotion_execution_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - promoted_variant_id
+  - promoted_run_id
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  receipt_id:
+    type: string
+  study_promotion_execution_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  generated_at:
+    type: string
+    format: date-time
+  promoted_variant_id:
+    type: string
+  promoted_variant_label:
+    type: string
+  promoted_variant_kind:
+    type: string
+  promoted_run_id:
+    type: string
+  promoted_run_label:
+    type: string
+  promoted_compute_profile_id:
+    type: string
+  workbench_run_id:
+    type: string
+  result_binding_id:
+    type: string
+  study_closeout_summary_id:
+    type: string
+  variant_promotion_decision_id:
+    type: string
+  note:
+    type: string

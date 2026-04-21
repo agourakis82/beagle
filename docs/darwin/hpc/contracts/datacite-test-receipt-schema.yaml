@@ -1,0 +1,69 @@
+version: 1
+kind: datacite-test-receipt
+description: >
+  B21.6 contract for the live receipt recorded after a sandbox POST to the
+  DataCite test REST API.
+required:
+  - receipt_profile
+  - registry
+  - receipt_id
+  - target_url
+  - request_method
+  - performed_at
+  - credential_state
+  - real_network_call_attempted
+  - transport_ok
+  - accepted
+  - registry_state
+  - response_summary
+  - readiness_state
+properties:
+  receipt_profile:
+    type: string
+    enum:
+      - datacite-test-receipt-v1
+  registry:
+    type: string
+    enum:
+      - datacite-test
+  receipt_id:
+    type: string
+  target_url:
+    type: string
+  request_method:
+    type: string
+    enum:
+      - POST
+  performed_at:
+    type: string
+    format: date-time
+  credential_state:
+    type: string
+  real_network_call_attempted:
+    type: boolean
+  transport_ok:
+    type: boolean
+  accepted:
+    type: boolean
+  http_status:
+    type:
+      - integer
+      - "null"
+  registry_state:
+    type: string
+  response_content_type:
+    type:
+      - string
+      - "null"
+  response_identifier:
+    type:
+      - string
+      - "null"
+  response_summary:
+    type: string
+  response_body_excerpt:
+    type: string
+  readiness_state:
+    type: string
+  note:
+    type: string

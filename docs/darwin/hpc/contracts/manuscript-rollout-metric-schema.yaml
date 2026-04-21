@@ -1,0 +1,163 @@
+type: object
+required:
+  - metrics_version
+  - manuscript_rollout_metrics_id
+  - control_policy_id
+  - manuscript_candidate_policy_id
+  - implementation_canary_policy_id
+  - analysis_canary_policy_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - manuscript_sample_count
+  - current_false_auto_continue_rate_basis_points
+  - shadow_false_auto_continue_rate_basis_points
+  - current_false_review_required_rate_basis_points
+  - shadow_false_review_required_rate_basis_points
+  - current_alignment_with_operator_decision_basis_points
+  - shadow_alignment_with_operator_decision_basis_points
+  - current_alignment_with_execution_outcome_basis_points
+  - shadow_alignment_with_execution_outcome_basis_points
+  - regression_count
+  - implementation_canary_retained
+  - analysis_canary_retained
+  - recommendation_for_manuscript
+  - family_metrics
+properties:
+  metrics_version:
+    type: string
+    enum:
+      - beagle-manuscript-rollout-metrics-v1
+  manuscript_rollout_metrics_id:
+    type: string
+  control_policy_id:
+    type: string
+  manuscript_candidate_policy_id:
+    type: string
+  implementation_canary_policy_id:
+    type: string
+  analysis_canary_policy_id:
+    type: string
+  source_dataset_id:
+    type: string
+  source_analysis_canary_metrics_id:
+    type: string
+  source_analysis_canary_rollback_decision_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+  manuscript_sample_count:
+    type: integer
+    minimum: 0
+  current_false_auto_continue_rate_basis_points:
+    type: integer
+    minimum: 0
+  shadow_false_auto_continue_rate_basis_points:
+    type: integer
+    minimum: 0
+  current_false_review_required_rate_basis_points:
+    type: integer
+    minimum: 0
+  shadow_false_review_required_rate_basis_points:
+    type: integer
+    minimum: 0
+  current_alignment_with_operator_decision_basis_points:
+    type: integer
+    minimum: 0
+  shadow_alignment_with_operator_decision_basis_points:
+    type: integer
+    minimum: 0
+  current_alignment_with_execution_outcome_basis_points:
+    type: integer
+    minimum: 0
+  shadow_alignment_with_execution_outcome_basis_points:
+    type: integer
+    minimum: 0
+  regression_count:
+    type: integer
+    minimum: 0
+  implementation_canary_retained:
+    type: boolean
+  analysis_canary_retained:
+    type: boolean
+  recommendation_for_manuscript:
+    type: string
+    enum:
+      - keep-shadow
+      - stage-manuscript-canary
+      - rollback-shadow
+  family_metrics:
+    type: array
+    items:
+      type: object
+      required:
+        - task_family
+        - live_policy_role
+        - canary_retained
+        - control_retained
+        - shadow_evaluated
+        - current_false_auto_continue_rate_basis_points
+        - shadow_false_auto_continue_rate_basis_points
+        - current_false_review_required_rate_basis_points
+        - shadow_false_review_required_rate_basis_points
+        - current_alignment_with_operator_decision_basis_points
+        - shadow_alignment_with_operator_decision_basis_points
+        - current_alignment_with_execution_outcome_basis_points
+        - shadow_alignment_with_execution_outcome_basis_points
+        - regression_count
+        - recommendation_for_manuscript
+      properties:
+        task_family:
+          type: string
+        live_policy_role:
+          type: string
+        shadow_policy_role:
+          type: string
+        canary_retained:
+          type: boolean
+        control_retained:
+          type: boolean
+        shadow_evaluated:
+          type: boolean
+        current_false_auto_continue_rate_basis_points:
+          type: integer
+          minimum: 0
+        shadow_false_auto_continue_rate_basis_points:
+          type: integer
+          minimum: 0
+        current_false_review_required_rate_basis_points:
+          type: integer
+          minimum: 0
+        shadow_false_review_required_rate_basis_points:
+          type: integer
+          minimum: 0
+        current_alignment_with_operator_decision_basis_points:
+          type: integer
+          minimum: 0
+        shadow_alignment_with_operator_decision_basis_points:
+          type: integer
+          minimum: 0
+        current_alignment_with_execution_outcome_basis_points:
+          type: integer
+          minimum: 0
+        shadow_alignment_with_execution_outcome_basis_points:
+          type: integer
+          minimum: 0
+        regression_count:
+          type: integer
+          minimum: 0
+        recommendation_for_manuscript:
+          type: string
+        rationale:
+          type: string
+  note:
+    type: string

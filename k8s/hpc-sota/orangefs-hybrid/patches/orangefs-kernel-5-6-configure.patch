@@ -1,0 +1,15 @@
+diff --git a/configure.ac b/configure.ac
+--- a/configure.ac
++++ b/configure.ac
+@@ -788,10 +788,11 @@ AC_ARG_WITH(kernel,
+      elif test -r  $withval/include/generated/utsrelease.h && grep -qE UTS_RELEASE..4\\. $withval/include/generated/utsrelease.h; then
+          vers=`sed -n '/UTS_RELEASE/{; s/.*"\([0-9]\.[0-9]\).*".*/\1/; p; }' $withval/include/generated/utsrelease.h`
++    elif test -r  $withval/include/generated/utsrelease.h && grep -qE UTS_RELEASE..[56]\\. $withval/include/generated/utsrelease.h; then
++        vers=`sed -n '/UTS_RELEASE/{; s/.*"\([0-9]\.[0-9]\).*".*/\1/; p; }' $withval/include/generated/utsrelease.h`
+      else
+-        AC_MSG_ERROR(The kernel source tree does not appear to be 2.6 or 3.X or 4.X)
+-        
++        AC_MSG_ERROR(The kernel source tree does not appear to be 2.6 or 3.X or 4.X or 5.X or 6.X)
+      fi
+ 
+      # At least up through 2.6.3 needed to write .__modpost.cmd; this changed

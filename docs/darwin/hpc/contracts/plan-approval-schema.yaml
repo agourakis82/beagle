@@ -1,0 +1,18 @@
+version: beagle-plan-approval-v1
+type: object
+required:
+  - approval_version
+  - approval_id
+  - plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - approved_by
+  - approval_note
+  - approval_state
+  - operator_visibility_confirmed
+  - approved_at
+  - operator_execution_state
+properties:
+  approval_state:
+    enum: [approved]

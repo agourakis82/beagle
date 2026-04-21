@@ -1,0 +1,16 @@
+version: beagle-graphrag-query-mode-v1
+kind: graphrag-query-mode-decision
+description: >
+  B23.2 bounded GraphRAG mode-routing decision for local, global, and drift
+  queries.
+decision:
+  mode_version: string
+  policy_id: string
+  query_mode: local|global|drift
+  classifier_source: string
+  classifier_reason: string
+  effective_top_k: integer
+  effective_max_hops: integer
+  effective_root_entity_type: string|null
+  effective_root_entity_id: string|null
+  note: string

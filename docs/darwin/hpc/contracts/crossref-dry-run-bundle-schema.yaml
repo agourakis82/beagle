@@ -1,0 +1,52 @@
+version: 1
+kind: crossref-dry-run-bundle
+description: >
+  B21.5 contract for a Crossref-compatible journal/article dry-run bundle. The
+  XML remains deposit-compatible, but submission stays explicitly disabled.
+required:
+  - dry_run_profile
+  - bundle_id
+  - submission_mode
+  - request_method
+  - content_type
+  - transport_target
+  - schema_hint
+  - real_network_call_performed
+  - batch_id
+  - journal_title
+  - article_title
+  - related_item_count
+  - readiness_state
+  - xml_bundle
+properties:
+  dry_run_profile:
+    type: string
+    enum:
+      - crossref-journal-article-dry-run-v1
+  submission_mode:
+    type: string
+    enum:
+      - dry-run-no-submit
+  request_method:
+    type: string
+    enum:
+      - POST
+  content_type:
+    type: string
+    enum:
+      - application/xml
+  transport_target:
+    type: string
+  schema_hint:
+    type: string
+  real_network_call_performed:
+    type: boolean
+  related_item_count:
+    type: integer
+    minimum: 0
+  xml_bundle:
+    type: string
+  readiness_state:
+    type: string
+  note:
+    type: string

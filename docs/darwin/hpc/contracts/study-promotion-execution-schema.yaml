@@ -1,0 +1,104 @@
+title: Study Promotion Execution Schema
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - execution_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - study_convergence_id
+  - variant_promotion_decision_id
+  - study_closeout_summary_id
+  - promoted_variant_id
+  - promoted_run_id
+  - promoted_run_score
+  - workbench_run_id
+  - result_binding_id
+  - run_result_identity_receipt_id
+  - deterministic_result_binding_id
+  - run_lineage_relation
+  - archived_variant_count
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  execution_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  generated_at:
+    type: string
+    format: date-time
+  study_convergence_id:
+    type: string
+  variant_promotion_decision_id:
+    type: string
+  study_closeout_summary_id:
+    type: string
+  promoted_variant_id:
+    type: string
+  promoted_variant_label:
+    type: string
+  promoted_variant_kind:
+    type: string
+  promoted_run_id:
+    type: string
+  promoted_run_label:
+    type: string
+  promoted_compute_profile_id:
+    type: string
+  promoted_run_score:
+    type: integer
+  promoted_run_reason:
+    type: string
+  workbench_run_id:
+    type: string
+  result_binding_id:
+    type: string
+  run_result_identity_receipt_id:
+    type: string
+  deterministic_result_binding_id:
+    type: string
+  run_lineage_relation:
+    type: string
+  run_diff_changed_categories:
+    type: array
+    items:
+      type: string
+  archived_variant_count:
+    type: integer
+  archived_variant_ids:
+    type: array
+    items:
+      type: string
+  archived_variant_labels:
+    type: array
+    items:
+      type: string
+  archived_variant_kinds:
+    type: array
+    items:
+      type: string
+  decision_basis_summary:
+    type: string
+  evidence_refs:
+    type: array
+    items:
+      type: object
+  note:
+    type: string

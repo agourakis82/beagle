@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: __NAME__
+  namespace: beagle
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: __NODE__
+  tolerations:
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+  containers:
+    - name: workflow
+      image: docker.io/library/python:3.11-slim
+      env:
+        - name: RUN_ID
+          value: "__RUN_ID__"
+        - name: SIZE_MB
+          value: "__SIZE_MB__"
+        - name: MODE
+          value: "__MODE__"
+        - name: EXPECTED_DIGEST
+          value: "__EXPECTED_DIGEST__"
+      command:
+        - /bin/bash
+        - -lc
+        - |
+          echo "CephFS comparison template placeholder."
+          echo "Use the Orange proven workflow logic here once a real cephfs-shared StorageClass exists."
+          python3 - <<'PY'
+          import os
+          print("run_id=", os.environ.get("RUN_ID"))
+          print("size_mb=", os.environ.get("SIZE_MB"))
+          print("mode=", os.environ.get("MODE"))
+          print("expected_digest=", os.environ.get("EXPECTED_DIGEST"))
+          PY
+      volumeMounts:
+        - name: cephfs
+          mountPath: /cephfs
+  volumes:
+    - name: cephfs
+      persistentVolumeClaim:
+        claimName: orangefs-cephfs-shared-compare

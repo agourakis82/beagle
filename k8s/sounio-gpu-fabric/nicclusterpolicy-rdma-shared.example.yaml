@@ -1,0 +1,23 @@
+apiVersion: mellanox.com/v1alpha1
+kind: NicClusterPolicy
+metadata:
+  name: rdma-shared-policy
+spec:
+  # Example only. Keep this aligned with the current live pilot:
+  # - secondary bridge altname: gpufabricbr0
+  # - shared RDMA resource name: sounio_gpu_fabric
+  #
+  # On the current Debian/PVE cluster, treat this as an unsupported /
+  # experimental follow-up object, not a first-pass install step.
+  ofedDriver:
+    deploy: false
+  rdmaSharedDevicePlugin:
+    deploy: true
+    resources:
+      - name: sounio_gpu_fabric
+        vendors:
+          - "15b3"
+        linkTypes:
+          - ethernet
+        ifNames:
+          - gpufabricbr0

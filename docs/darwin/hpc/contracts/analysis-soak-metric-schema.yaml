@@ -1,0 +1,106 @@
+type: object
+required:
+  - metrics_version
+  - analysis_soak_metrics_id
+  - analysis_shadow_soak_id
+  - control_policy_id
+  - analysis_candidate_policy_id
+  - source_analysis_shadow_calibration_id
+  - source_analysis_rollout_metrics_id
+  - source_analysis_rollout_decision_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - shadow_sample_count
+  - rolling_window_size
+  - false_auto_continue_rate_basis_points
+  - false_review_required_rate_basis_points
+  - alignment_with_operator_decision_basis_points
+  - alignment_with_execution_outcome_basis_points
+  - control_false_auto_continue_rate_basis_points
+  - control_false_review_required_rate_basis_points
+  - control_alignment_with_operator_decision_basis_points
+  - control_alignment_with_execution_outcome_basis_points
+  - improved_alignment_count
+  - regression_count
+  - implementation_canary_retained
+  - manuscript_control_retained
+  - promotion_gate_decision_preview
+properties:
+  metrics_version:
+    type: string
+    enum:
+      - beagle-analysis-soak-metrics-v1
+  analysis_soak_metrics_id:
+    type: string
+  analysis_shadow_soak_id:
+    type: string
+  control_policy_id:
+    type: string
+  analysis_candidate_policy_id:
+    type: string
+  source_analysis_shadow_calibration_id:
+    type: string
+  source_analysis_rollout_metrics_id:
+    type: string
+  source_analysis_rollout_decision_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+  shadow_sample_count:
+    type: integer
+    minimum: 0
+  rolling_window_size:
+    type: integer
+    minimum: 1
+  false_auto_continue_rate_basis_points:
+    type: integer
+    minimum: 0
+  false_review_required_rate_basis_points:
+    type: integer
+    minimum: 0
+  alignment_with_operator_decision_basis_points:
+    type: integer
+    minimum: 0
+  alignment_with_execution_outcome_basis_points:
+    type: integer
+    minimum: 0
+  control_false_auto_continue_rate_basis_points:
+    type: integer
+    minimum: 0
+  control_false_review_required_rate_basis_points:
+    type: integer
+    minimum: 0
+  control_alignment_with_operator_decision_basis_points:
+    type: integer
+    minimum: 0
+  control_alignment_with_execution_outcome_basis_points:
+    type: integer
+    minimum: 0
+  improved_alignment_count:
+    type: integer
+    minimum: 0
+  regression_count:
+    type: integer
+    minimum: 0
+  implementation_canary_retained:
+    type: boolean
+  manuscript_control_retained:
+    type: boolean
+  promotion_gate_decision_preview:
+    type: string
+    enum:
+      - keep-shadow
+      - stage-analysis-canary
+      - rollback-shadow
+  note:
+    type: string

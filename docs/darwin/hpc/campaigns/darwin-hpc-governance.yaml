@@ -1,0 +1,34 @@
+id: darwin-hpc-governance
+program_id: beagle-physio-symbolic-exocortex
+title: Darwin HPC Governance Campaign
+status: canonical
+campaign_kind: platform-governance
+source_phase: B19.1
+
+objective: >-
+  Sustain the canonical Darwin/HPC operational kernel, keep governed
+  workstreams healthy, and preserve the repo-native control/result/recovery
+  model that later campaigns depend on.
+
+workstreams:
+  - id: beagle-darwin-hpc-governance
+    role: canonical-governance-workstream
+  - id: beagle-darwin-hpc-wave1
+    role: secondary-cutover-workstream
+
+results:
+  - id: portfolio-control-room
+    kind: internal-operating-surface
+    phase: B16.2
+    path_hint: .artifacts/darwin-hpc/portfolio-control-room/
+
+decisions:
+  - id: default-dev-plane-canonical
+    phase: B13.6
+  - id: repo-aware-tool-loop-live
+    phase: B18.4
+
+evidence_targets:
+  - id: program-lineage
+    kind: lineage-doc
+    path: docs/darwin/hpc/PROGRAM_LINEAGE.md

@@ -3,13 +3,13 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use beagle_core::BeagleContext;
-use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
 use beagle_memory::{ContextBridge, ConversationTurn, PerformanceMetrics, RetrievedContext};
 use beagle_personality::PersonalityEngine;
 use beagle_search::{ArxivClient, Paper, PubMedClient, SearchClient, SearchQuery};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::causal::AgentLlmClient;
 use crate::models::{ResearchMetrics, ResearchResult, ResearchStep};
 
 /// Quality threshold for accepting answers without refinement
@@ -22,7 +22,7 @@ const MAX_REFINEMENTS: usize = 3;
 ///
 /// Now enhanced with live paper search capabilities (PubMed, arXiv)
 pub struct ResearcherAgent {
-    anthropic: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
     personality: Arc<PersonalityEngine>,
     context_bridge: Arc<ContextBridge>,
     /// Optional: BeagleContext for Neo4j graph storage
@@ -35,12 +35,12 @@ pub struct ResearcherAgent {
 
 impl ResearcherAgent {
     pub fn new(
-        anthropic: Arc<AnthropicClient>,
+        llm: Arc<dyn AgentLlmClient>,
         personality: Arc<PersonalityEngine>,
         context_bridge: Arc<ContextBridge>,
     ) -> Self {
         Self {
-            anthropic,
+            llm,
             personality,
             context_bridge,
             beagle_ctx: None,
@@ -78,20 +78,14 @@ Then provide detailed critique."#,
             query, answer
         );
 
+        let system = "You are a rigorous academic reviewer.";
         let critique_response = self
-            .anthropic
-            .complete(CompletionRequest {
-                model: ModelType::ClaudeHaiku45,
-                messages: vec![Message::user(&critique_prompt)],
-                max_tokens: 800,
-                temperature: 0.3, // Lower temp for more consistent critique
-                system: Some("You are a rigorous academic reviewer.".to_string()),
-            })
+            .llm
+            .complete_with_system(&critique_prompt, system)
             .await?;
 
         // Parse score from response
         let score = if let Some(score_line) = critique_response
-            .content
             .lines()
             .find(|line| line.to_uppercase().starts_with("SCORE:"))
         {
@@ -105,7 +99,7 @@ Then provide detailed critique."#,
             let positive_words = ["excellent", "good", "accurate", "comprehensive", "clear"];
             let negative_words = ["poor", "incomplete", "unclear", "missing", "incorrect"];
 
-            let text_lower = critique_response.content.to_lowercase();
+            let text_lower = critique_response.to_lowercase();
             let pos_count = positive_words
                 .iter()
                 .filter(|w| text_lower.contains(*w))
@@ -118,7 +112,7 @@ Then provide detailed critique."#,
             ((pos_count as f32 - neg_count as f32) / 10.0 + 0.5).clamp(0.0, 1.0)
         };
 
-        Ok((score, critique_response.content))
+        Ok((score, critique_response))
     }
 
     /// Refine answer based on critique
@@ -144,17 +138,11 @@ Focus on accuracy, completeness, and proper citation of sources."#,
         );
 
         let refined = self
-            .anthropic
-            .complete(CompletionRequest {
-                model: ModelType::ClaudeHaiku45,
-                messages: vec![Message::user(&refinement_prompt)],
-                max_tokens: 1500,
-                temperature: 0.8,
-                system: Some(system_prompt.to_string()),
-            })
+            .llm
+            .complete_with_system(&refinement_prompt, system_prompt)
             .await?;
 
-        Ok(refined.content)
+        Ok(refined)
     }
 
     /// Search for scientific papers and store in Neo4j
@@ -418,26 +406,20 @@ Focus on accuracy, completeness, and proper citation of sources."#,
         // 6) Geração
         let llm_start = Instant::now();
         let completion = self
-            .anthropic
-            .complete(CompletionRequest {
-                model: ModelType::ClaudeHaiku45,
-                messages: vec![Message::user(query)],
-                max_tokens: 1200,
-                temperature: 0.8,
-                system: Some(system_prompt.clone()),
-            })
+            .llm
+            .complete_with_system(query, &system_prompt)
             .await
-            .context("Anthropic completion failed")?;
+            .context("LLM completion failed")?;
         steps.push(ResearchStep {
             step_number,
             action: "Generate answer".to_string(),
-            result: format!("{} chars", completion.content.len()),
+            result: format!("{} chars", completion.len()),
             duration_ms: llm_start.elapsed().as_millis() as u64,
         });
         step_number += 1;
 
         // 7) Reflexion loop - critique and refine if quality is low
-        let mut final_answer = completion.content.clone();
+        let mut final_answer = completion;
         let mut refinement_iterations = 0;
         let mut quality_score;
 
@@ -513,7 +495,7 @@ Focus on accuracy, completeness, and proper citation of sources."#,
             query.to_string(),
             final_answer.clone(),
             domain,
-            completion.model.clone(),
+            "claude".to_string(), // Model type (simplified since we use trait)
         );
         turn.metadata.metrics = PerformanceMetrics {
             latency_ms: llm_start.elapsed().as_millis() as u64,

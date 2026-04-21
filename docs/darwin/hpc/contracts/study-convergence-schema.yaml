@@ -1,0 +1,113 @@
+title: Study Convergence Schema
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - convergence_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - convergence_state
+  - enough_evidence_to_stop
+  - recommended_action
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  convergence_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  generated_at:
+    type: string
+    format: date-time
+  study_registry_id:
+    type: string
+  study_dag_id:
+    type: string
+  study_sweep_id:
+    type: string
+  comparative_result_summary_id:
+    type: string
+  study_decision_id:
+    type: string
+  study_decision_basis_id:
+    type: string
+  study_proposal_dispatch_id:
+    type: string
+  study_run_update_id:
+    type: string
+  study_continuation_state_id:
+    type: string
+  next_run_proposal_id:
+    type: string
+  registry_run_count:
+    type: integer
+  registry_variant_count:
+    type: integer
+  decision_basis_compared_run_count:
+    type: integer
+  updated_run_count:
+    type: integer
+  updated_variant_count:
+    type: integer
+  updated_compared_run_count:
+    type: integer
+  successful_run_count:
+    type: integer
+  failed_run_count:
+    type: integer
+  latest_run_diff_categories:
+    type: array
+    items:
+      type: string
+  changed_categories_union:
+    type: array
+    items:
+      type: string
+  best_run_id:
+    type: string
+  best_variant_id:
+    type: string
+  best_run_label:
+    type: string
+  best_variant_label:
+    type: string
+  best_variant_kind:
+    type: string
+  best_compute_profile_id:
+    type: string
+  best_run_score:
+    type: integer
+  best_run_reason:
+    type: string
+  prior_recommended_action:
+    type: string
+  convergence_state:
+    type: string
+  enough_evidence_to_stop:
+    type: boolean
+  recommended_action:
+    type: string
+  decision_basis_summary:
+    type: string
+  evidence_refs:
+    type: array
+    items:
+      type: object
+  note:
+    type: string

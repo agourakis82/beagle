@@ -1,0 +1,27 @@
+version: 1
+kind: physio-event-thresholds
+status: canonical
+
+source_of_truth:
+  runtime_config: crates/beagle-config/src/model.rs
+  pipeline_runtime: apps/beagle-monorepo/src/pipeline.rs
+
+thresholds:
+  hrv_low_ms: 30.0
+  hr_tachy_bpm: 110.0
+  hr_brady_bpm: 45.0
+  spo2_warning: 94.0
+  spo2_critical: 90.0
+
+event_contract:
+  kind: physio_severity_event
+  recording_mode: bounded
+  emits_when_snapshot_available: true
+  condition_labels:
+    - hrv_aware
+    - hrv_blind
+  trigger_rules:
+    - hrv_ms <= hrv_low_ms
+    - hr >= hr_tachy_bpm
+    - hr <= hr_brady_bpm
+    - spo2 <= spo2_warning

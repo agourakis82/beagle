@@ -1,0 +1,143 @@
+# StatefulSet template — rendered per (projectSlug, agentKind).
+# Substitutions: ${PROJECT_SLUG}, ${AGENT_KIND}, ${AGENT_IMAGE}
+#
+# Apply via:
+#   envsubst < statefulset.yaml | kubectl -n beagle apply -f -
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: agent-${PROJECT_SLUG}-${AGENT_KIND}
+  namespace: beagle
+  labels:
+    app: beagle-agent
+    project: ${PROJECT_SLUG}
+    agent-kind: ${AGENT_KIND}
+    app.kubernetes.io/name: beagle-agent
+    app.kubernetes.io/component: ${AGENT_KIND}
+spec:
+  replicas: 1
+  serviceName: agent-${PROJECT_SLUG}-${AGENT_KIND}
+  selector:
+    matchLabels:
+      app: beagle-agent
+      project: ${PROJECT_SLUG}
+      agent-kind: ${AGENT_KIND}
+  template:
+    metadata:
+      labels:
+        app: beagle-agent
+        project: ${PROJECT_SLUG}
+        agent-kind: ${AGENT_KIND}
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      # Tolerate the same taints as workspace habitats so agents can land
+      # on any of the GPU-pool or control-plane nodes.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+          operator: Exists
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: agent
+          image: ${AGENT_IMAGE}
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/local/bin/entrypoint.sh"]
+          env:
+            - name: AGENT_KIND
+              value: "${AGENT_KIND}"
+            - name: PROJECT_SLUG
+              value: "${PROJECT_SLUG}"
+            - name: TMUX_SESSION
+              value: "agent-${AGENT_KIND}"
+            - name: WORKSPACE_DIR
+              value: "/workspace"
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-credentials
+                  key: anthropic-api-key
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-credentials
+                  key: openai-api-key
+                  optional: true
+            - name: XAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-credentials
+                  key: xai-api-key
+                  optional: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 2
+              memory: 4Gi
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: mcp-config
+              mountPath: /home/agent/.config/claude-code
+            - name: tmp
+              mountPath: /tmp
+            - name: agent-home
+              mountPath: /home/agent/.cache
+            # Claude Code OAuth auth — reused from Sounio workspace session.
+            # Projected into ~/.claude/ at pod start via entrypoint.sh (symlink
+            # from read-only mount → writable PVC location, so Claude CLI can
+            # refresh tokens without failing on read-only filesystem).
+            - name: claude-auth
+              mountPath: /etc/claude-auth
+              readOnly: true
+          tty: true
+          stdin: true
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: mcp-config
+          configMap:
+            name: ${MCP_CONFIGMAP_NAME}
+            optional: true
+        - name: tmp
+          emptyDir:
+            sizeLimit: 512Mi
+        - name: agent-home
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: claude-auth
+          secret:
+            secretName: agent-claude-auth
+            optional: true
+            defaultMode: 0400
+            items:
+              - key: credentials.json
+                path: credentials.json
+              - key: claude-config.json
+                path: claude-config.json
+  volumeClaimTemplates:
+    - metadata:
+        name: workspace
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: ceph-rbd-ssd-rwop
+        resources:
+          requests:
+            storage: 20Gi

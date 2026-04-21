@@ -1,0 +1,39 @@
+# Agregado canónico devolvido por `orchestrate_workbench_run` / resposta HTTP de dispatch
+# (campos aninhados seguem workbench-reservation, workbench-run-orchestration,
+# workbench-result-binding e artefactos B25.4 associados).
+version: beagle-workbench-orchestration-bundle-v1
+kind: workbench-run-orchestration-bundle
+type: object
+required:
+  - status
+  - phase
+  - reservation
+  - run
+  - result_binding
+  - run_result_identity_receipt
+  - run_scoped_publication
+  - deterministic_result_binding
+properties:
+  status:
+    type: string
+    description: Estado agregado do bundle (ex. ok / erro operacional).
+  phase:
+    const: B25.3
+  reservation:
+    type: object
+    description: Contrato workbench-reservation-v1 (ver workbench-reservation-schema.yaml).
+  run:
+    type: object
+    description: Contrato workbench-run-orchestration-v1 (ver workbench-run-schema.yaml).
+  result_binding:
+    type: object
+    description: Contrato workbench-result-binding-v1 (ver workbench-result-binding-schema.yaml).
+  run_result_identity_receipt:
+    type: object
+    description: Recibo de identidade run-result (fase B25.4).
+  run_scoped_publication:
+    type: object
+    description: Publicação scoped ao run (fase B25.4).
+  deterministic_result_binding:
+    type: object
+    description: Binding determinístico (fase B25.4).

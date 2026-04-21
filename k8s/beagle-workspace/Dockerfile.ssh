@@ -1,0 +1,47 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        build-essential \
+        ca-certificates \
+        clang \
+        cmake \
+        curl \
+        dropbear \
+        docker.io \
+        file \
+        git \
+        gh \
+        jq \
+        lld \
+        llvm \
+        make \
+        netcat-openbsd \
+        ninja-build \
+        openssh-sftp-server \
+        pkg-config \
+        python3 \
+        python3-pip \
+        ripgrep \
+        sudo \
+        tmux \
+        zsh \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -u 1000 -s /usr/bin/zsh openvscode-server \
+    && mkdir -p /var/run/sshd /workspace /home/openvscode-server/.ssh \
+    && chown -R openvscode-server:openvscode-server /workspace /home/openvscode-server \
+    && mkdir -p /etc/sudoers.d \
+    && printf 'openvscode-server ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/openvscode-server \
+    && chmod 0440 /etc/sudoers.d/openvscode-server
+
+COPY ssh-entrypoint.sh /usr/local/bin/ssh-entrypoint.sh
+
+RUN chmod 0755 /usr/local/bin/ssh-entrypoint.sh
+
+EXPOSE 2222
+
+ENTRYPOINT ["/usr/local/bin/ssh-entrypoint.sh"]

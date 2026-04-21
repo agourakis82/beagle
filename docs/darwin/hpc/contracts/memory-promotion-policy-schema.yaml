@@ -1,0 +1,30 @@
+version: beagle-memory-promotion-policy-v1
+kind: memory-promotion-policy
+description: >
+  B23.2 policy artifact describing when bounded episodic memories can harden
+  into semantic or procedural memory.
+policy:
+  policy_version: string
+  policy_id: string
+  rules:
+    - source_memory_type: episodic
+      target_memory_type: semantic|procedural
+      triggers: [string]
+      bounded_requirements: [string]
+      note: string
+  note: string
+promotion_event:
+  promotion_version: string
+  policy_id: string
+  source_memory_id: string
+  source_memory_type: episodic
+  target_memory_type: semantic|procedural
+  trigger: string
+  reason: string
+  workstream_id: string|null
+  campaign_id: string|null
+  session_id: string|null
+  supporting_refs: [string]
+  retention_action: string
+  promoted_at: date-time
+  note: string

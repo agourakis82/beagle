@@ -1,0 +1,79 @@
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: mn2
+  namespace: beagle
+spec:
+  network:
+    enableDNSHostnames: true
+    publishNotReadyAddresses: true
+    subdomain: mn
+  coordinator:
+    replicatedJob: w
+    jobIndex: 0
+    podIndex: 0
+  replicatedJobs:
+    - name: w
+      template:
+        spec:
+          completionMode: Indexed
+          parallelism: 2
+          completions: 2
+          backoffLimit: 0
+          template:
+            metadata:
+              labels:
+                app.kubernetes.io/name: sounio-pytorch-mnist-smoke
+            spec:
+              restartPolicy: Never
+              tolerations:
+                - key: sounio.dev/pool
+                  operator: Equal
+                  value: gpu-batch
+                  effect: NoSchedule
+                - key: sounio.dev/compute
+                  operator: Equal
+                  value: heavy
+                  effect: NoSchedule
+              affinity:
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - labelSelector:
+                        matchExpressions:
+                          - key: app.kubernetes.io/name
+                            operator: In
+                            values:
+                              - sounio-pytorch-mnist-smoke
+                      topologyKey: kubernetes.io/hostname
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: kubernetes.io/hostname
+                            operator: In
+                            values:
+                              - r770-proxmox
+                              - r740-proxmox
+              containers:
+                - name: pytorch
+                  image: gcr.io/k8s-staging-jobset/pytorch-mnist:latest
+                  env:
+                    - name: MASTER_ADDR
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['jobset.sigs.k8s.io/coordinator']
+                    - name: MASTER_PORT
+                      value: "3389"
+                    - name: RANK
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+                    - name: PYTHONUNBUFFERED
+                      value: "0"
+                  command:
+                    - bash
+                    - -lc
+                    - |
+                      torchrun --rdzv_id=sounio-mnist --nnodes=2 --nproc_per_node=1 \
+                        --master_addr="$MASTER_ADDR" --master_port="$MASTER_PORT" \
+                        --node_rank="$RANK" mnist.py --epochs=1 --log-interval=1

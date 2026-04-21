@@ -1,0 +1,50 @@
+version: beagle-context-eval-case-v1
+title: Context Eval Case
+type: object
+required:
+  - case_id
+  - task_profile
+  - request
+  - preferred_truth_view
+  - preferred_graphrag_mode
+properties:
+  case_id:
+    type: string
+  task_profile:
+    type: string
+    enum:
+      - implementation
+      - analysis
+      - interactive-editing
+      - manuscript
+  description:
+    type:
+      - string
+      - "null"
+  request:
+    type: object
+    description: Canonical compiled-context request used for the eval case.
+  expected_memory_ids:
+    type: array
+    items:
+      type: string
+  preferred_truth_view:
+    type: string
+    enum:
+      - current
+      - historical
+      - both
+  preferred_graphrag_mode:
+    type: string
+    enum:
+      - local
+      - global
+      - drift
+  preferred_memory_tiers:
+    type: array
+    items:
+      type: string
+  expected_retrieval_query_type:
+    type:
+      - string
+      - "null"

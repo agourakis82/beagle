@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: beagle-sovereign-reranker
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: beagle-sovereign-reranker
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

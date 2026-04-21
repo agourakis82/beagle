@@ -1,0 +1,97 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - continuation_state_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - proposal_id
+  - proposal_state
+  - proposal_dispatch_id
+  - run_update_id
+  - study_decision_id
+  - next_run_proposal_id
+  - study_registry_id
+  - study_dag_id
+  - study_sweep_id
+  - comparative_result_summary_id
+  - dispatched_run_id
+  - dispatched_run_label
+  - approved_by
+  - approved_compute_profile_id
+  - dispatch_state
+  - run_state
+  - study_state
+  - updated_run_count
+  - updated_variant_count
+  - updated_compared_run_count
+  - operator_review_required
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  continuation_state_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  proposal_id:
+    type: string
+  proposal_state:
+    type: string
+  proposal_dispatch_id:
+    type: string
+  run_update_id:
+    type: string
+  study_decision_id:
+    type: string
+  next_run_proposal_id:
+    type: string
+  study_registry_id:
+    type: string
+  study_dag_id:
+    type: string
+  study_sweep_id:
+    type: string
+  comparative_result_summary_id:
+    type: string
+  dispatched_run_id:
+    type: string
+  dispatched_run_label:
+    type: string
+  approved_by:
+    type: string
+  approved_compute_profile_id:
+    type: string
+  dispatch_state:
+    type: string
+  run_state:
+    type: string
+  study_state:
+    type: string
+  updated_run_count:
+    type: integer
+  updated_variant_count:
+    type: integer
+  updated_compared_run_count:
+    type: integer
+  operator_review_required:
+    type: boolean
+  evidence_refs:
+    type: array
+  note:
+    type: string

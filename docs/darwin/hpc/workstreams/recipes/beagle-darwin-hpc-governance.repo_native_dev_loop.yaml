@@ -1,0 +1,57 @@
+api_version: beagle.workstream.recipe/v1
+phase: B14.3
+id: beagle-darwin-hpc-governance.repo_native_dev_loop
+workstream: beagle-darwin-hpc-governance
+kind: repo_native_dev_loop
+summary: Canonical repo-native edit/build/deploy/validate/handoff loop.
+
+inputs:
+  repo: agourakis82/beagle
+  branch: feat/darwin-hpc-governance
+  workspace_id: runtime-supplied
+  default_dev_plane: beagle-cluster
+  vm_fallback_role: fallback-only
+  worktree_delta_required: true
+  promotion_scope: beagle-darwin-hpc-general-noninfra
+
+steps:
+  - id: edit
+    action: inspect_repo_native_delta
+    success_condition: changed_file_count >= 1
+    recovery_point: bootstrap_before
+  - id: build
+    action: build_core_server_image
+    success_condition: release build completes in live container path
+    recovery_point: image_loaded
+  - id: deploy
+    action: apply_k8s_and_rollout_restart
+    success_condition: beagle-core rollout completes
+    recovery_point: bootstrap_after_deploy
+  - id: validate
+    action: execute_repo_native_bridge_validation
+    success_condition: bridge execute succeeds on canonical workspace
+    recovery_point: session_after_loop
+  - id: handoff
+    action: preserve_handoff_ready_workspace_state
+    success_condition: workspace session remains ready for downstream handoff
+    recovery_point: session_after_loop
+
+outputs:
+  primary_artifacts:
+    - build.log
+    - bootstrap-after-deploy.json
+    - session-after-loop1.json
+    - loop1.json
+    - loop1-bridge-ledger-tail.jsonl
+
+recovery_points:
+  - bootstrap_before
+  - image_loaded
+  - bootstrap_after_deploy
+  - session_after_loop
+
+success_criteria:
+  - repo-native delta is real
+  - build and deploy succeed
+  - bridge validation succeeds
+  - workspace state remains handoff-ready on the same session line

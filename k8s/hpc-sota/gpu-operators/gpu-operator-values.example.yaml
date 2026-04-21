@@ -1,0 +1,49 @@
+# Staging-only values for NVIDIA GPU Operator on this cluster.
+#
+# This file is intentionally conservative:
+# - it assumes Kubernetes 1.35.2 is within the current vendor support window
+# - it also assumes THIS cluster remains unsupported/experimental because the
+#   nodes run Debian 13 + Proxmox kernels and already have a live manual GPU
+#   stack
+#
+# Goal: let the controller/chart install without taking over the current
+# driver/toolkit/device-plugin path on first contact.
+
+nfd:
+  enabled: false
+
+driver:
+  enabled: false
+
+toolkit:
+  enabled: false
+
+devicePlugin:
+  enabled: false
+
+dcgmExporter:
+  enabled: false
+
+gfd:
+  enabled: false
+
+operator:
+  defaultRuntime: containerd
+
+gdrcopy:
+  enabled: false
+
+kataManager:
+  enabled: false
+
+migManager:
+  enabled: false
+
+sandboxWorkloads:
+  enabled: false
+
+vfioManager:
+  enabled: false
+
+ccManager:
+  enabled: false

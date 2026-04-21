@@ -1,0 +1,708 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Node
+  metadata:
+    annotations:
+      csi.volume.kubernetes.io/nodeid: '{"rbd.csi.ceph.com":"5860-proxmox"}'
+      node.alpha.kubernetes.io/ttl: "0"
+      volumes.kubernetes.io/controller-managed-attach-detach: "true"
+    creationTimestamp: "2026-03-18T00:23:01Z"
+    labels:
+      beta.kubernetes.io/arch: amd64
+      beta.kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+      kubernetes.io/hostname: 5860-proxmox
+      kubernetes.io/os: linux
+      sounio.dev/accelerator: nvidia-rtx-4000-ada
+      sounio.dev/pool: gpu-batch
+    name: 5860-proxmox
+    resourceVersion: "4759171"
+    uid: 92148b9a-361b-4469-a690-b56bb5d66052
+  spec:
+    taints:
+    - effect: NoSchedule
+      key: sounio.dev/pool
+      value: gpu-batch
+  status:
+    addresses:
+    - address: 192.168.3.207
+      type: InternalIP
+    - address: 5860-proxmox
+      type: Hostname
+    allocatable:
+      cpu: "12"
+      ephemeral-storage: "90775553898"
+      hugepages-1Gi: "0"
+      hugepages-2Mi: "0"
+      memory: 131024844Ki
+      nvidia.com/gpu: "1"
+      pods: "110"
+    capacity:
+      cpu: "12"
+      ephemeral-storage: 98497780Ki
+      hugepages-1Gi: "0"
+      hugepages-2Mi: "0"
+      memory: 131127244Ki
+      nvidia.com/gpu: "1"
+      pods: "110"
+    conditions:
+    - lastHeartbeatTime: "2026-03-18T02:50:35Z"
+      lastTransitionTime: "2026-03-18T02:50:35Z"
+      message: Cilium is running on this node
+      reason: CiliumIsUp
+      status: "False"
+      type: NetworkUnavailable
+    - lastHeartbeatTime: "2026-04-04T09:31:58Z"
+      lastTransitionTime: "2026-04-04T09:18:15Z"
+      message: kubelet has sufficient memory available
+      reason: KubeletHasSufficientMemory
+      status: "False"
+      type: MemoryPressure
+    - lastHeartbeatTime: "2026-04-04T09:31:58Z"
+      lastTransitionTime: "2026-04-04T09:18:15Z"
+      message: kubelet has no disk pressure
+      reason: KubeletHasNoDiskPressure
+      status: "False"
+      type: DiskPressure
+    - lastHeartbeatTime: "2026-04-04T09:31:58Z"
+      lastTransitionTime: "2026-04-04T09:18:15Z"
+      message: kubelet has sufficient PID available
+      reason: KubeletHasSufficientPID
+      status: "False"
+      type: PIDPressure
+    - lastHeartbeatTime: "2026-04-04T09:31:58Z"
+      lastTransitionTime: "2026-04-04T09:18:15Z"
+      message: kubelet is posting ready status
+      reason: KubeletReady
+      status: "True"
+      type: Ready
+    daemonEndpoints:
+      kubeletEndpoint:
+        Port: 10250
+    images:
+    - names:
+      - quay.io/cephcsi/cephcsi@sha256:f064d74506570613c9f70e670d0069297d851a79e42c1366e6a085c5167abfda
+      - quay.io/cephcsi/cephcsi:v3.15.1
+      sizeBytes: 1024918467
+    - names:
+      - docker.io/library/rust@sha256:948f9b08a66e7fe01b03a98ef1c7568292e07ec2e4fe90d88c07bb14563c84ff
+      - docker.io/library/rust:1.89-bookworm
+      sizeBytes: 557767360
+    - names:
+      - ghcr.io/coder/code-server@sha256:ddd9b0b854fec5a3c65ec0095b5c59fb8505ad44d8a18d00d6fcf6a3179692dd
+      - ghcr.io/coder/code-server:4.112.0
+      sizeBytes: 261049531
+    - names:
+      - quay.io/cilium/cilium@sha256:41f1f74a0000de8656f1de4088ea00c8f2d49d6edea579034c73c5fd5fe01792
+      sizeBytes: 257779811
+    - names:
+      - nvcr.io/nvidia/k8s-device-plugin@sha256:af31e2b7c7f89834c4e5219860def7ac2e49a207b3d4e8610d5a26772b7738e5
+      - nvcr.io/nvidia/k8s-device-plugin:v0.17.1
+      sizeBytes: 198670519
+    - names:
+      - docker.io/nvidia/cuda@sha256:0f6bfcbf267e65123bcc2287e2153dedfc0f24772fb5ce84afe16ac4b2fada95
+      - docker.io/nvidia/cuda:12.4.1-base-ubuntu22.04
+      sizeBytes: 91769375
+    - names:
+      - docker.io/velero/velero@sha256:e4d1e79be2ee1d51056734ada5e51c78a29b924e4d055cd28e0b4103ae2268ad
+      - docker.io/velero/velero:v1.18.0
+      sizeBytes: 78724238
+    - names:
+      - quay.io/cilium/cilium-envoy@sha256:8188114a2768b5f49d6ce58e168b20d765e0fbc64eee0d83241aa2b150ccd788
+      sizeBytes: 77143869
+    - names:
+      - docker.io/velero/velero-plugin-for-aws@sha256:472d0e486d5d5c23c782b1b123530c7df8645784523ec36ca661a326d47885ff
+      - docker.io/velero/velero-plugin-for-aws:v1.13.1
+      sizeBytes: 41505315
+    - names:
+      - docker.io/alpine/git@sha256:062a01ad7a0eb17cff382bc5e26086b4d710e56dfdfdf001109a49b6d9bd378c
+      - docker.io/alpine/git:2.47.2
+      sizeBytes: 34874028
+    - names:
+      - registry.k8s.io/kube-proxy@sha256:015265214cc874b593a7adccdcfe4ac15d2b8e9ae89881bdcd5bcb99d42e1862
+      - registry.k8s.io/kube-proxy:v1.35.2
+      sizeBytes: 25684331
+    - names:
+      - registry.k8s.io/sig-storage/csi-node-driver-registrar@sha256:d7138bcc3aa5f267403d45ad4292c95397e421ea17a0035888850f424c7de25d
+      - registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
+      sizeBytes: 14781503
+    - names:
+      - quay.io/prometheus/node-exporter@sha256:337ff1d356b68d39cef853e8c6345de11ce7556bb34cda8bd205bcf2ed30b565
+      - quay.io/prometheus/node-exporter:v1.10.2
+      sizeBytes: 13054407
+    - names:
+      - docker.io/library/alpine@sha256:c3f8e73fdb79deaebaa2037150150191b9dcbfba68b4a46d70103204c53f4709
+      - docker.io/library/alpine:3.21
+      sizeBytes: 3654593
+    - names:
+      - docker.io/library/busybox@sha256:b9598f8c98e24d0ad42c1742c32516772c3aa2151011ebaf639089bd18c605b8
+      - docker.io/library/busybox:1.36.1
+      sizeBytes: 2217150
+    - names:
+      - registry.k8s.io/pause@sha256:9001185023633d17a2f98ff69b6ff2615b8ea02a825adffa40422f51dfdcde9d
+      - registry.k8s.io/pause:3.8
+      sizeBytes: 311286
+    nodeInfo:
+      architecture: amd64
+      bootID: aefc64b7-7889-474d-8711-c2f122c5ec8f
+      containerRuntimeVersion: containerd://1.7.24
+      kernelVersion: 6.17.4-2-pve
+      kubeProxyVersion: ""
+      kubeletVersion: v1.35.2
+      machineID: 520c47f48b7c40b293b6a0182d96a548
+      operatingSystem: linux
+      osImage: Debian GNU/Linux 13 (trixie)
+      systemUUID: 4c4c4544-0046-4310-8037-c7c04f323934
+- apiVersion: v1
+  kind: Node
+  metadata:
+    annotations:
+      csi.volume.kubernetes.io/nodeid: '{"rbd.csi.ceph.com":"r740-proxmox"}'
+      node.alpha.kubernetes.io/ttl: "0"
+      volumes.kubernetes.io/controller-managed-attach-detach: "true"
+    creationTimestamp: "2026-04-04T02:00:19Z"
+    labels:
+      beta.kubernetes.io/arch: amd64
+      beta.kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+      kubernetes.io/hostname: r740-proxmox
+      kubernetes.io/os: linux
+      sounio.dev/accelerator: nvidia-rtx-a5000
+      sounio.dev/compute: heavy
+      sounio.dev/pool: gpu-batch
+    name: r740-proxmox
+    resourceVersion: "4759916"
+    uid: f29eed58-4c29-49ab-b802-4222660d02de
+  spec:
+    taints:
+    - effect: NoSchedule
+      key: sounio.dev/compute
+      value: heavy
+    - effect: NoSchedule
+      key: sounio.dev/pool
+      value: gpu-batch
+  status:
+    addresses:
+    - address: 192.168.3.168
+      type: InternalIP
+    - address: r740-proxmox
+      type: Hostname
+    allocatable:
+      cpu: "80"
+      ephemeral-storage: "105996780574"
+      hugepages-1Gi: "0"
+      hugepages-2Mi: "0"
+      memory: 527589716Ki
+      nvidia.com/gpu: "1"
+      pods: "110"
+    capacity:
+      cpu: "80"
+      ephemeral-storage: 115013868Ki
+      hugepages-1Gi: "0"
+      hugepages-2Mi: "0"
+      memory: 527692116Ki
+      nvidia.com/gpu: "1"
+      pods: "110"
+    conditions:
+    - lastHeartbeatTime: "2026-04-04T02:06:16Z"
+      lastTransitionTime: "2026-04-04T02:06:16Z"
+      message: Cilium is running on this node
+      reason: CiliumIsUp
+      status: "False"
+      type: NetworkUnavailable
+    - lastHeartbeatTime: "2026-04-04T09:35:35Z"
+      lastTransitionTime: "2026-04-04T02:00:19Z"
+      message: kubelet has sufficient memory available
+      reason: KubeletHasSufficientMemory
+      status: "False"
+      type: MemoryPressure
+    - lastHeartbeatTime: "2026-04-04T09:35:35Z"
+      lastTransitionTime: "2026-04-04T02:00:19Z"
+      message: kubelet has no disk pressure
+      reason: KubeletHasNoDiskPressure
+      status: "False"
+      type: DiskPressure
+    - lastHeartbeatTime: "2026-04-04T09:35:35Z"
+      lastTransitionTime: "2026-04-04T02:00:19Z"
+      message: kubelet has sufficient PID available
+      reason: KubeletHasSufficientPID
+      status: "False"
+      type: PIDPressure
+    - lastHeartbeatTime: "2026-04-04T09:35:35Z"
+      lastTransitionTime: "2026-04-04T02:06:11Z"
+      message: kubelet is posting ready status
+      reason: KubeletReady
+      status: "True"
+      type: Ready
+    daemonEndpoints:
+      kubeletEndpoint:
+        Port: 10250
+    images:
+    - names:
+      - docker.io/nvidia/cuda@sha256:da6791294b0b04d7e65d87b7451d6f2390b4d36225ab0701ee7dfec5769829f5
+      - docker.io/nvidia/cuda:12.4.1-devel-ubuntu22.04
+      sizeBytes: 4112402589
+    - names:
+      - quay.io/cephcsi/cephcsi@sha256:f064d74506570613c9f70e670d0069297d851a79e42c1366e6a085c5167abfda
+      - quay.io/cephcsi/cephcsi:v3.15.1
+      sizeBytes: 1024918467
+    - names:
+      - quay.io/cilium/cilium@sha256:41f1f74a0000de8656f1de4088ea00c8f2d49d6edea579034c73c5fd5fe01792
+      sizeBytes: 257779811
+    - names:
+      - nvcr.io/nvidia/k8s-device-plugin@sha256:af31e2b7c7f89834c4e5219860def7ac2e49a207b3d4e8610d5a26772b7738e5
+      - nvcr.io/nvidia/k8s-device-plugin:v0.17.1
+      sizeBytes: 198670519
+    - names:
+      - docker.io/nvidia/cuda@sha256:0f6bfcbf267e65123bcc2287e2153dedfc0f24772fb5ce84afe16ac4b2fada95
+      - docker.io/nvidia/cuda:12.4.1-base-ubuntu22.04
+      sizeBytes: 91769375
+    - names:
+      - quay.io/cilium/cilium-envoy@sha256:8188114a2768b5f49d6ce58e168b20d765e0fbc64eee0d83241aa2b150ccd788
+      sizeBytes: 77143869
+    - names:
+      - docker.io/alpine/git@sha256:062a01ad7a0eb17cff382bc5e26086b4d710e56dfdfdf001109a49b6d9bd378c
+      - docker.io/alpine/git:2.47.2
+      sizeBytes: 34874028
+    - names:
+      - registry.k8s.io/kube-proxy@sha256:015265214cc874b593a7adccdcfe4ac15d2b8e9ae89881bdcd5bcb99d42e1862
+      - registry.k8s.io/kube-proxy:v1.35.2
+      sizeBytes: 25684331
+    - names:
+      - registry.k8s.io/sig-storage/csi-node-driver-registrar@sha256:d7138bcc3aa5f267403d45ad4292c95397e421ea17a0035888850f424c7de25d
+      - registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
+      sizeBytes: 14781503
+    - names:
+      - quay.io/prometheus/node-exporter@sha256:337ff1d356b68d39cef853e8c6345de11ce7556bb34cda8bd205bcf2ed30b565
+      - quay.io/prometheus/node-exporter:v1.10.2
+      sizeBytes: 13054407
+    - names:
+      - registry.k8s.io/pause@sha256:9001185023633d17a2f98ff69b6ff2615b8ea02a825adffa40422f51dfdcde9d
+      - registry.k8s.io/pause:3.8
+      sizeBytes: 311286
+    nodeInfo:
+      architecture: amd64
+      bootID: f1a92325-1da4-44c8-8825-7d7a624f83a5
+      containerRuntimeVersion: containerd://1.7.24
+      kernelVersion: 6.17.13-2-pve
+      kubeProxyVersion: ""
+      kubeletVersion: v1.35.2
+      machineID: aeaff171ce804e9ab708cb2136762039
+      operatingSystem: linux
+      osImage: Debian GNU/Linux 13 (trixie)
+      systemUUID: 4c4c4544-0051-3410-8059-cac04f5a5632
+- apiVersion: v1
+  kind: Node
+  metadata:
+    annotations:
+      csi.volume.kubernetes.io/nodeid: '{"rbd.csi.ceph.com":"r770-proxmox"}'
+      node.alpha.kubernetes.io/ttl: "0"
+      volumes.kubernetes.io/controller-managed-attach-detach: "true"
+    creationTimestamp: "2026-03-18T00:20:16Z"
+    labels:
+      beta.kubernetes.io/arch: amd64
+      beta.kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+      kubernetes.io/hostname: r770-proxmox
+      kubernetes.io/os: linux
+      sounio.dev/accelerator: nvidia-l4
+      sounio.dev/compute: heavy
+      sounio.dev/pool: gpu-batch
+    name: r770-proxmox
+    resourceVersion: "4759100"
+    uid: 81d01d33-e08c-4784-8528-0ca3d44d55b0
+  spec:
+    taints:
+    - effect: NoSchedule
+      key: sounio.dev/pool
+      value: gpu-batch
+    - effect: NoSchedule
+      key: sounio.dev/compute
+      value: heavy
+  status:
+    addresses:
+    - address: 192.168.3.228
+      type: InternalIP
+    - address: r770-proxmox
+      type: Hostname
+    allocatable:
+      cpu: "128"
+      ephemeral-storage: "90775553898"
+      hugepages-1Gi: "0"
+      hugepages-2Mi: "0"
+      memory: 131518880Ki
+      nvidia.com/gpu: "1"
+      pods: "110"
+    capacity:
+      cpu: "128"
+      ephemeral-storage: 98497780Ki
+      hugepages-1Gi: "0"
+      hugepages-2Mi: "0"
+      memory: 131621280Ki
+      nvidia.com/gpu: "1"
+      pods: "110"
+    conditions:
+    - lastHeartbeatTime: "2026-03-18T00:20:46Z"
+      lastTransitionTime: "2026-03-18T00:20:46Z"
+      message: Cilium is running on this node
+      reason: CiliumIsUp
+      status: "False"
+      type: NetworkUnavailable
+    - lastHeartbeatTime: "2026-04-04T09:31:36Z"
+      lastTransitionTime: "2026-03-18T00:20:16Z"
+      message: kubelet has sufficient memory available
+      reason: KubeletHasSufficientMemory
+      status: "False"
+      type: MemoryPressure
+    - lastHeartbeatTime: "2026-04-04T09:31:36Z"
+      lastTransitionTime: "2026-03-18T00:20:16Z"
+      message: kubelet has no disk pressure
+      reason: KubeletHasNoDiskPressure
+      status: "False"
+      type: DiskPressure
+    - lastHeartbeatTime: "2026-04-04T09:31:36Z"
+      lastTransitionTime: "2026-03-18T00:20:16Z"
+      message: kubelet has sufficient PID available
+      reason: KubeletHasSufficientPID
+      status: "False"
+      type: PIDPressure
+    - lastHeartbeatTime: "2026-04-04T09:31:36Z"
+      lastTransitionTime: "2026-03-18T00:20:41Z"
+      message: kubelet is posting ready status
+      reason: KubeletReady
+      status: "True"
+      type: Ready
+    daemonEndpoints:
+      kubeletEndpoint:
+        Port: 10250
+    features:
+      supplementalGroupsPolicy: true
+    images:
+    - names:
+      - docker.io/nvidia/cuda@sha256:da6791294b0b04d7e65d87b7451d6f2390b4d36225ab0701ee7dfec5769829f5
+      - docker.io/nvidia/cuda:12.4.1-devel-ubuntu22.04
+      sizeBytes: 4112402589
+    - names:
+      - quay.io/cephcsi/cephcsi@sha256:f064d74506570613c9f70e670d0069297d851a79e42c1366e6a085c5167abfda
+      - quay.io/cephcsi/cephcsi:v3.15.1
+      sizeBytes: 1024918467
+    - names:
+      - docker.io/library/rust@sha256:948f9b08a66e7fe01b03a98ef1c7568292e07ec2e4fe90d88c07bb14563c84ff
+      - docker.io/library/rust:1.89-bookworm
+      sizeBytes: 557767360
+    - names:
+      - ghcr.io/coder/code-server@sha256:ddd9b0b854fec5a3c65ec0095b5c59fb8505ad44d8a18d00d6fcf6a3179692dd
+      - ghcr.io/coder/code-server:4.112.0
+      sizeBytes: 261049531
+    - names:
+      - quay.io/cilium/cilium@sha256:41f1f74a0000de8656f1de4088ea00c8f2d49d6edea579034c73c5fd5fe01792
+      sizeBytes: 257779811
+    - names:
+      - docker.io/grafana/grafana@sha256:e932bd6ed0e026595b08483cd0141e5103e1ab7ff8604839ff899b8dc54cabcb
+      - docker.io/grafana/grafana:12.4.1
+      sizeBytes: 213718421
+    - names:
+      - nvcr.io/nvidia/k8s-device-plugin@sha256:af31e2b7c7f89834c4e5219860def7ac2e49a207b3d4e8610d5a26772b7738e5
+      - nvcr.io/nvidia/k8s-device-plugin:v0.17.1
+      sizeBytes: 198670519
+    - names:
+      - quay.io/prometheus/prometheus@sha256:7571a304e67fbd794be02422b13627dc7de822152f74e99e2bef95d29eceecde
+      - quay.io/prometheus/prometheus:v3.10.0
+      sizeBytes: 143646693
+    - names:
+      - docker.io/nvidia/cuda@sha256:0f6bfcbf267e65123bcc2287e2153dedfc0f24772fb5ce84afe16ac4b2fada95
+      - docker.io/nvidia/cuda:12.4.1-base-ubuntu22.04
+      sizeBytes: 91769375
+    - names:
+      - docker.io/velero/velero@sha256:e4d1e79be2ee1d51056734ada5e51c78a29b924e4d055cd28e0b4103ae2268ad
+      - docker.io/velero/velero:v1.18.0
+      sizeBytes: 78724238
+    - names:
+      - quay.io/cilium/cilium-envoy@sha256:8188114a2768b5f49d6ce58e168b20d765e0fbc64eee0d83241aa2b150ccd788
+      sizeBytes: 77143869
+    - names:
+      - docker.io/library/python@sha256:5a7bc62572092e849a3de833858cd2e5542fe24bc49e3fc54948c8b0d8ca4b29
+      - docker.io/library/python:3.13-slim
+      sizeBytes: 42883375
+    - names:
+      - docker.io/velero/velero-plugin-for-aws@sha256:472d0e486d5d5c23c782b1b123530c7df8645784523ec36ca661a326d47885ff
+      - docker.io/velero/velero-plugin-for-aws:v1.13.1
+      sizeBytes: 41505315
+    - names:
+      - quay.io/prometheus/alertmanager@sha256:88b605de9aba0410775c1eb3438f951115054e0d307f23f274a4c705f51630c1
+      - quay.io/prometheus/alertmanager:v0.31.1
+      sizeBytes: 39120596
+    - names:
+      - docker.io/alpine/git@sha256:062a01ad7a0eb17cff382bc5e26086b4d710e56dfdfdf001109a49b6d9bd378c
+      - docker.io/alpine/git:2.47.2
+      sizeBytes: 34874028
+    - names:
+      - registry.k8s.io/sig-storage/csi-resizer@sha256:2a0b297cc7c4cd376ac7413df339ff2fdaa1ec9d099aed92b5ea1f031ef7f639
+      - registry.k8s.io/sig-storage/csi-resizer:v1.13.1
+      sizeBytes: 32400950
+    - names:
+      - registry.k8s.io/sig-storage/csi-attacher@sha256:a399393ff5bd156277c56bae0c08389b1a1b95b7fd6ea44a316ce55e0dd559d7
+      - registry.k8s.io/sig-storage/csi-attacher:v4.8.0
+      sizeBytes: 32231444
+    - names:
+      - registry.k8s.io/sig-storage/csi-provisioner@sha256:672e45d6a55678abc1d102de665b5cbd63848e75dc7896f238c8eaaf3c7d322f
+      - registry.k8s.io/sig-storage/csi-provisioner:v5.1.0
+      sizeBytes: 32167411
+    - names:
+      - registry.k8s.io/sig-storage/csi-snapshotter@sha256:dd788d79cf4c1b8edee6d9b80b8a1ebfc51a38a365c5be656986b129be9ac784
+      - registry.k8s.io/sig-storage/csi-snapshotter:v8.2.0
+      sizeBytes: 31143055
+    - names:
+      - registry.k8s.io/kube-proxy@sha256:015265214cc874b593a7adccdcfe4ac15d2b8e9ae89881bdcd5bcb99d42e1862
+      - registry.k8s.io/kube-proxy:v1.35.2
+      sizeBytes: 25684331
+    - names:
+      - quay.io/kiwigrid/k8s-sidecar@sha256:a6b3f707f883108376514489a94d6629109a327b2978e1d826cd104c4ca436df
+      - quay.io/kiwigrid/k8s-sidecar:2.5.0
+      sizeBytes: 23422974
+    - names:
+      - docker.io/library/nginx@sha256:4ff102c5d78d254a6f0da062b3cf39eaf07f01eec0927fd21e219d0af8bc0591
+      - docker.io/library/nginx:1.27.4-alpine
+      sizeBytes: 20834790
+    - names:
+      - quay.io/prometheus-operator/prometheus-operator@sha256:fea93ca9be807eee2f51f4d997b7a2bf073d4051d9012b45b3c84a7b9e8b3f25
+      - quay.io/prometheus-operator/prometheus-operator:v0.89.0
+      sizeBytes: 20004593
+    - names:
+      - registry.k8s.io/kube-state-metrics/kube-state-metrics@sha256:1545919b72e3ae035454fc054131e8d0f14b42ef6fc5b2ad5c751cafa6b2130e
+      - registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.18.0
+      sizeBytes: 19306162
+    - names:
+      - docker.io/library/python@sha256:7747d47f92cfca63a6e2b50275e23dba8407c30d8ae929a88ddd49a5d3f2d331
+      - docker.io/library/python:3.12-alpine
+      sizeBytes: 18084913
+    - names:
+      - quay.io/prometheus-operator/prometheus-config-reloader@sha256:cb4ac6a56555bef0e202bec11e367dfe07ffb241cf4d30566b12b864692607a8
+      - quay.io/prometheus-operator/prometheus-config-reloader:v0.89.0
+      sizeBytes: 15134211
+    - names:
+      - registry.k8s.io/sig-storage/csi-node-driver-registrar@sha256:d7138bcc3aa5f267403d45ad4292c95397e421ea17a0035888850f424c7de25d
+      - registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
+      sizeBytes: 14781503
+    - names:
+      - quay.io/prometheus/node-exporter@sha256:337ff1d356b68d39cef853e8c6345de11ce7556bb34cda8bd205bcf2ed30b565
+      - quay.io/prometheus/node-exporter:v1.10.2
+      sizeBytes: 13054407
+    - names:
+      - docker.io/curlimages/curl@sha256:73e4d532ea62d7505c5865b517d3704966ffe916609bedc22af6833dc9969bcd
+      - docker.io/curlimages/curl:8.8.0
+      sizeBytes: 10522720
+    - names:
+      - registry.k8s.io/e2e-test-images/echoserver@sha256:dfea63b61ff846270f5c678365423c0c47735825bb6bc96427e58d60dae3b9b4
+      - registry.k8s.io/e2e-test-images/echoserver:2.5
+      sizeBytes: 8477746
+    - names:
+      - docker.io/hashicorp/http-echo@sha256:fcb75f691c8b0414d670ae570240cbf95502cc18a9ba57e982ecac589760a186
+      - docker.io/hashicorp/http-echo:1.0.0
+      sizeBytes: 4631705
+    - names:
+      - docker.io/library/busybox@sha256:b9598f8c98e24d0ad42c1742c32516772c3aa2151011ebaf639089bd18c605b8
+      - docker.io/library/busybox:1.36.1
+      sizeBytes: 2217150
+    - names:
+      - registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c
+      - registry.k8s.io/pause:3.10.1
+      sizeBytes: 320448
+    nodeInfo:
+      architecture: amd64
+      bootID: fd71ecc4-96d7-4778-ab29-025315aa3d2a
+      containerRuntimeVersion: containerd://2.2.2
+      kernelVersion: 6.17.13-2-pve
+      kubeProxyVersion: ""
+      kubeletVersion: v1.35.2
+      machineID: ee2478decea3470492df0f7b89e67511
+      operatingSystem: linux
+      osImage: Debian GNU/Linux 13 (trixie)
+      systemUUID: 4c4c4544-0057-4210-8057-c4c04f564634
+    runtimeHandlers:
+    - features:
+        recursiveReadOnlyMounts: true
+        userNamespaces: true
+      name: ""
+    - features:
+        recursiveReadOnlyMounts: true
+        userNamespaces: true
+      name: nvidia
+    - features:
+        recursiveReadOnlyMounts: true
+        userNamespaces: true
+      name: runc
+- apiVersion: v1
+  kind: Node
+  metadata:
+    annotations:
+      csi.volume.kubernetes.io/nodeid: '{"rbd.csi.ceph.com":"t560-proxmox"}'
+      node.alpha.kubernetes.io/ttl: "0"
+      volumes.kubernetes.io/controller-managed-attach-detach: "true"
+    creationTimestamp: "2026-03-17T21:42:22Z"
+    labels:
+      beta.kubernetes.io/arch: amd64
+      beta.kubernetes.io/os: linux
+      kubernetes.io/arch: amd64
+      kubernetes.io/hostname: t560-proxmox
+      kubernetes.io/os: linux
+      node-role.kubernetes.io/control-plane: ""
+      node.kubernetes.io/exclude-from-external-load-balancers: ""
+    name: t560-proxmox
+    resourceVersion: "4759545"
+    uid: d741595b-9f43-4087-aea3-a8929dc175f0
+  spec:
+    taints:
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/control-plane
+  status:
+    addresses:
+    - address: 192.168.3.169
+      type: InternalIP
+    - address: t560-proxmox
+      type: Hostname
+    allocatable:
+      cpu: "64"
+      ephemeral-storage: "189217404206"
+      hugepages-1Gi: "0"
+      hugepages-2Mi: "0"
+      memory: 197314596Ki
+      pods: "110"
+    capacity:
+      cpu: "64"
+      ephemeral-storage: 205314024Ki
+      hugepages-1Gi: "0"
+      hugepages-2Mi: "0"
+      memory: 197416996Ki
+      pods: "110"
+    conditions:
+    - lastHeartbeatTime: "2026-03-17T22:18:10Z"
+      lastTransitionTime: "2026-03-17T22:18:10Z"
+      message: Cilium is running on this node
+      reason: CiliumIsUp
+      status: "False"
+      type: NetworkUnavailable
+    - lastHeartbeatTime: "2026-04-04T09:33:47Z"
+      lastTransitionTime: "2026-03-17T21:42:21Z"
+      message: kubelet has sufficient memory available
+      reason: KubeletHasSufficientMemory
+      status: "False"
+      type: MemoryPressure
+    - lastHeartbeatTime: "2026-04-04T09:33:47Z"
+      lastTransitionTime: "2026-04-03T22:26:55Z"
+      message: kubelet has no disk pressure
+      reason: KubeletHasNoDiskPressure
+      status: "False"
+      type: DiskPressure
+    - lastHeartbeatTime: "2026-04-04T09:33:47Z"
+      lastTransitionTime: "2026-03-17T21:42:21Z"
+      message: kubelet has sufficient PID available
+      reason: KubeletHasSufficientPID
+      status: "False"
+      type: PIDPressure
+    - lastHeartbeatTime: "2026-04-04T09:33:47Z"
+      lastTransitionTime: "2026-03-17T22:18:19Z"
+      message: kubelet is posting ready status
+      reason: KubeletReady
+      status: "True"
+      type: Ready
+    daemonEndpoints:
+      kubeletEndpoint:
+        Port: 10250
+    images:
+    - names:
+      - localhost/sounio-workspace-ide:0403222500
+      sizeBytes: 1277409463
+    - names:
+      - quay.io/cephcsi/cephcsi@sha256:f064d74506570613c9f70e670d0069297d851a79e42c1366e6a085c5167abfda
+      - quay.io/cephcsi/cephcsi:v3.15.1
+      sizeBytes: 1024918467
+    - names:
+      - localhost/sounio-workspace-ide:0403184624
+      sizeBytes: 577977660
+    - names:
+      - localhost/beagle-workspace-ssh:b216
+      sizeBytes: 418618577
+    - names:
+      - quay.io/cilium/cilium@sha256:41f1f74a0000de8656f1de4088ea00c8f2d49d6edea579034c73c5fd5fe01792
+      sizeBytes: 257779811
+    - names:
+      - ghcr.io/huggingface/text-embeddings-inference@sha256:ad950d30878eceb72aaf32024d26fa2b1d04a75304fa0b4776b49aa1941fea07
+      - ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+      sizeBytes: 239404017
+    - names:
+      - docker.io/gitpod/openvscode-server@sha256:236821ee7c8f9284b7f94799d4b66bc465926f435ac323af03e50bfb503c1ca1
+      sizeBytes: 201262165
+    - names:
+      - quay.io/cilium/cilium-envoy@sha256:8188114a2768b5f49d6ce58e168b20d765e0fbc64eee0d83241aa2b150ccd788
+      sizeBytes: 77143869
+    - names:
+      - localhost/beagle-workspace-ssh:b204
+      sizeBytes: 54847274
+    - names:
+      - localhost/beagle-core:sounio-workspace-0402165128
+      - localhost/beagle-core:sounio-workspace-0402170218
+      - localhost/beagle-core:sounio-workspace-0402170632
+      sizeBytes: 44930014
+    - names:
+      - quay.io/cilium/operator-generic@sha256:e7278d763e448bf6c184b0682cf98cdca078d58a27e1b2f3c906792670aa211a
+      sizeBytes: 33401975
+    - names:
+      - registry.k8s.io/kube-apiserver@sha256:68cdc586f13b13edb7aa30a18155be530136a39cfd5ef8672aad8ccc98f0a7f7
+      - registry.k8s.io/kube-apiserver:v1.35.2
+      sizeBytes: 27693066
+    - names:
+      - registry.k8s.io/kube-proxy@sha256:015265214cc874b593a7adccdcfe4ac15d2b8e9ae89881bdcd5bcb99d42e1862
+      - registry.k8s.io/kube-proxy:v1.35.2
+      sizeBytes: 25684331
+    - names:
+      - registry.k8s.io/etcd@sha256:60a30b5d81b2217555e2cfb9537f655b7ba97220b99c39ee2e162a7127225890
+      - registry.k8s.io/etcd:3.6.6-0
+      sizeBytes: 23641797
+    - names:
+      - registry.k8s.io/coredns/coredns@sha256:9b9128672209474da07c91439bf15ed704ae05ad918dd6454e5b6ae14e35fee6
+      - registry.k8s.io/coredns/coredns:v1.13.1
+      sizeBytes: 23553139
+    - names:
+      - registry.k8s.io/kube-controller-manager@sha256:d9784320a41dd1b155c0ad8fdb5823d60c475870f3dd23865edde36b585748f2
+      - registry.k8s.io/kube-controller-manager:v1.35.2
+      sizeBytes: 23142311
+    - names:
+      - registry.k8s.io/kube-scheduler@sha256:5833e2c4b779215efe7a48126c067de199e86aa5a86518693adeef16db0ff943
+      - registry.k8s.io/kube-scheduler:v1.35.2
+      sizeBytes: 17240058
+    - names:
+      - registry.k8s.io/sig-storage/csi-node-driver-registrar@sha256:d7138bcc3aa5f267403d45ad4292c95397e421ea17a0035888850f424c7de25d
+      - registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
+      sizeBytes: 14781503
+    - names:
+      - quay.io/prometheus/node-exporter@sha256:337ff1d356b68d39cef853e8c6345de11ce7556bb34cda8bd205bcf2ed30b565
+      - quay.io/prometheus/node-exporter:v1.10.2
+      sizeBytes: 13054407
+    - names:
+      - registry.k8s.io/pause@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c
+      - registry.k8s.io/pause:3.10.1
+      sizeBytes: 320448
+    nodeInfo:
+      architecture: amd64
+      bootID: 4d925a88-d6f1-4e1e-9243-4a1bac76a659
+      containerRuntimeVersion: containerd://1.7.24
+      kernelVersion: 6.17.13-2-pve
+      kubeProxyVersion: ""
+      kubeletVersion: v1.35.2
+      machineID: 77c9189e597a43c2be8b932cb77d09be
+      operatingSystem: linux
+      osImage: Debian GNU/Linux 13 (trixie)
+      systemUUID: 4c4c4544-0048-4b10-8033-b3c04f444434
+    volumesAttached:
+    - devicePath: ""
+      name: kubernetes.io/csi/rbd.csi.ceph.com^0001-0024-f591bae9-eec5-4ae0-abfe-466ed7528c9e-0000000000000005-951d6982-8ed4-46a0-8e28-24af3ab91db6
+    - devicePath: ""
+      name: kubernetes.io/csi/rbd.csi.ceph.com^0001-0024-f591bae9-eec5-4ae0-abfe-466ed7528c9e-0000000000000005-51140ecf-beb6-4283-9a18-d502bd806fd5
+    volumesInUse:
+    - kubernetes.io/csi/rbd.csi.ceph.com^0001-0024-f591bae9-eec5-4ae0-abfe-466ed7528c9e-0000000000000005-51140ecf-beb6-4283-9a18-d502bd806fd5
+    - kubernetes.io/csi/rbd.csi.ceph.com^0001-0024-f591bae9-eec5-4ae0-abfe-466ed7528c9e-0000000000000005-951d6982-8ed4-46a0-8e28-24af3ab91db6
+kind: List
+metadata:
+  resourceVersion: ""

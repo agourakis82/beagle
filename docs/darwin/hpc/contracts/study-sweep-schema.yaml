@@ -1,0 +1,92 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - study_sweep_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - generated_at
+  - baseline_variant_id
+  - variant_count
+  - run_count
+  - variants
+  - note
+properties:
+  phase:
+    type: string
+    const: B26.1
+  contract_kind:
+    type: string
+    const: study-sweep
+  contract_version:
+    type: string
+  study_sweep_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  generated_at:
+    type: string
+  baseline_variant_id:
+    type: string
+  variant_count:
+    type: integer
+  run_count:
+    type: integer
+  variants:
+    type: array
+    items:
+      type: object
+      required:
+        - variant_id
+        - variant_label
+        - variant_kind
+        - run_id
+        - run_label
+        - selected_subagent_id
+        - task_family
+        - compute_profile_id
+      properties:
+        variant_id:
+          type: string
+        variant_label:
+          type: string
+        variant_kind:
+          type: string
+        source_run_id:
+          type: [string, "null"]
+        run_id:
+          type: string
+        run_label:
+          type: string
+        selected_subagent_id:
+          type: string
+        task_family:
+          type: string
+        compute_profile_id:
+          type: string
+        replay_mode:
+          type: [string, "null"]
+        compiler_profile_id:
+          type: [string, "null"]
+        graphrag_query_mode:
+          type: [string, "null"]
+        temporal_truth_view:
+          type: [string, "null"]
+        recipe_kind:
+          type: [string, "null"]
+        experiment_id:
+          type: [string, "null"]
+  note:
+    type: string

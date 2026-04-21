@@ -2,12 +2,14 @@
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
+use async_trait::async_trait;
 use anyhow::Context;
+
 use beagle_agents::{
     ArchitectureEvolver,
     // Existing
     CausalReasoner,
+    AgentLlmClient,
     // NEW - Adversarial
     CompetitionArena,
     CoordinatorAgent,
@@ -37,11 +39,60 @@ use beagle_agents::{
 };
 use beagle_events::{BeaglePulsar, EventPublisher};
 use beagle_hypergraph::storage::CachedPostgresStorage;
-use beagle_llm::{AnthropicClient, GeminiClient, LLMOrchestrator, VertexAIClient};
+use beagle_llm::{AnthropicClient, GeminiClient, LLMOrchestrator, VertexAIClient, ModelType, Message, CompletionRequest};
 use beagle_memory::ContextBridge;
 use tracing::{info, warn};
 
 use crate::config::Config;
+
+// ============================================================================
+// WRAPPER: AnthropicClient implementando AgentLlmClient
+// ============================================================================
+
+/// Wrapper que implementa AgentLlmClient para AnthropicClient
+#[derive(Clone)]
+pub struct AnthropicAgentClient {
+    inner: Arc<AnthropicClient>,
+}
+
+impl AnthropicAgentClient {
+    pub fn new(client: Arc<AnthropicClient>) -> Self {
+        Self { inner: client }
+    }
+}
+
+#[async_trait]
+impl AgentLlmClient for AnthropicAgentClient {
+    async fn complete(&self, prompt: &str) -> anyhow::Result<String> {
+        let request = CompletionRequest {
+            model: ModelType::ClaudeSonnet45,
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: prompt.to_string(),
+            }],
+            max_tokens: 4096,
+            temperature: 0.7,
+            system: None,
+        };
+        let response = self.inner.complete(request).await?;
+        Ok(response.content)
+    }
+
+    async fn complete_with_system(&self, prompt: &str, system: &str) -> anyhow::Result<String> {
+        let request = CompletionRequest {
+            model: ModelType::ClaudeSonnet45,
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: prompt.to_string(),
+            }],
+            max_tokens: 4096,
+            temperature: 0.7,
+            system: Some(system.to_string()),
+        };
+        let response = self.inner.complete(request).await?;
+        Ok(response.content)
+    }
+}
 
 /// Estado imutável compartilhado entre os handlers.
 #[derive(Clone)]
@@ -59,7 +110,7 @@ pub struct AppState {
     researcher_agent: Option<Arc<ResearcherAgent>>,
     coordinator_agent: Option<Arc<CoordinatorAgent>>,
     debate_orchestrator: Option<Arc<DebateOrchestrator>>,
-    hypergraph_reasoner: Option<Arc<HypergraphReasoner>>,
+    hypergraph_reasoner: Option<Arc<HypergraphReasoner<CachedPostgresStorage>>>,
     causal_reasoner: Option<Arc<CausalReasoner>>,
     // Revolutionary techniques (v2.0)
     deep_research_engine: Option<Arc<MCTSEngine>>,
@@ -139,11 +190,12 @@ impl AppState {
             orchestrator.available_providers().len()
         );
 
-        // Initialize Researcher Agent (sequencial) if Anthropic available
+        // Initialize Researcher Agent (sequential) if Anthropic available
         let researcher_agent = anthropic_client.as_ref().map(|anthropic| {
             let personality = Arc::new(beagle_personality::PersonalityEngine::new());
+            let agent_client = Arc::new(AnthropicAgentClient::new(anthropic.clone()));
             let agent = ResearcherAgent::new(
-                anthropic.clone(),
+                agent_client,
                 personality.clone(),
                 context_bridge.clone(),
             );
@@ -154,14 +206,17 @@ impl AppState {
         // Initialize Coordinator Agent (parallel multi-agent) if Anthropic available
         let coordinator_agent = anthropic_client.as_ref().map(|anthropic| {
             let personality = Arc::new(beagle_personality::PersonalityEngine::new());
+            let agent_client = Arc::new(AnthropicAgentClient::new(anthropic.clone()));
+            let validation_client = Arc::new(AnthropicAgentClient::new(anthropic.clone()));
+            let quality_client = Arc::new(AnthropicAgentClient::new(anthropic.clone()));
             let coordinator = CoordinatorAgent::new(
-                anthropic.clone(),
+                agent_client,
                 personality.clone(),
                 context_bridge.clone(),
             )
             .register_agent(Arc::new(RetrievalAgent::new(context_bridge.clone())))
-            .register_agent(Arc::new(ValidationAgent::new(anthropic.clone())))
-            .register_agent(Arc::new(QualityAgent::new(anthropic.clone())));
+            .register_agent(Arc::new(ValidationAgent::new(validation_client)))
+            .register_agent(Arc::new(QualityAgent::new(quality_client)));
 
             info!(
                 "⚡ CoordinatorAgent (parallel) initialized with Retrieval + Validation + Quality"
@@ -171,17 +226,20 @@ impl AppState {
 
         let debate_orchestrator = anthropic_client.as_ref().map(|llm| {
             info!("🥊 DebateOrchestrator initialized");
-            Arc::new(DebateOrchestrator::new(llm.clone()))
+            let agent_client = Arc::new(AnthropicAgentClient::new(llm.clone()));
+            Arc::new(DebateOrchestrator::new(agent_client))
         });
 
         let hypergraph_reasoner = anthropic_client.as_ref().map(|llm| {
             info!("🕸️ HypergraphReasoner initialized");
-            Arc::new(HypergraphReasoner::new(storage.clone(), llm.clone()))
+            let agent_client = Arc::new(AnthropicAgentClient::new(llm.clone()));
+            Arc::new(HypergraphReasoner::new(storage.clone(), agent_client))
         });
 
         let causal_reasoner = anthropic_client.as_ref().map(|llm| {
             info!("🔗 CausalReasoner initialized");
-            Arc::new(CausalReasoner::new(llm.clone()))
+            let agent_client = Arc::new(AnthropicAgentClient::new(llm.clone()));
+            Arc::new(CausalReasoner::new(agent_client))
         });
 
         // Performance monitoring (always active)
@@ -207,11 +265,11 @@ impl AppState {
         ) {
             let simulator = Arc::new(SimulationEngine::new(
                 debate.clone(),
-                reasoning.clone(),
                 causal.clone(),
             ));
+            let agent_client = Arc::new(AnthropicAgentClient::new(anthropic.clone()));
             let engine = MCTSEngine::new(
-                anthropic.clone(),
+                agent_client,
                 simulator,
                 20, // iterations
             );
@@ -224,14 +282,16 @@ impl AppState {
 
         // Swarm Intelligence
         let swarm_orchestrator = anthropic_client.as_ref().map(|llm| {
-            let swarm = SwarmOrchestrator::new(20, llm.clone()); // 20 agents
+            let agent_client = Arc::new(AnthropicAgentClient::new(llm.clone()));
+            let swarm = SwarmOrchestrator::new(20, agent_client); // 20 agents
             info!("✅ Swarm Intelligence initialized (20 agents)");
             Arc::new(swarm)
         });
 
         // Temporal Multi-Scale
         let temporal_reasoner = anthropic_client.as_ref().map(|llm| {
-            let reasoner = TemporalReasoner::new(llm.clone());
+            let agent_client = Arc::new(AnthropicAgentClient::new(llm.clone()));
+            let reasoner = TemporalReasoner::new(agent_client);
             info!("✅ Temporal Multi-Scale Reasoner initialized");
             Arc::new(reasoner)
         });
@@ -239,8 +299,9 @@ impl AppState {
         // Meta-Cognitive
         let (weakness_analyzer, architecture_evolver) =
             if let Some(ref anthropic) = anthropic_client {
-                let analyzer = Arc::new(WeaknessAnalyzer::new(anthropic.clone()));
-                let factory = SpecializedAgentFactory::new(anthropic.clone());
+                let agent_client = Arc::new(AnthropicAgentClient::new(anthropic.clone()));
+                let analyzer = Arc::new(WeaknessAnalyzer::new(agent_client.clone()));
+                let factory = SpecializedAgentFactory::new(agent_client);
                 let evolver = Arc::new(Mutex::new(ArchitectureEvolver::new(factory)));
                 info!("✅ Meta-Cognitive System initialized");
                 (Some(analyzer), Some(evolver))
@@ -250,7 +311,8 @@ impl AppState {
 
         // Neuro-Symbolic
         let (neural_extractor, hybrid_reasoner) = if let Some(ref anthropic) = anthropic_client {
-            let extractor = Arc::new(NeuralExtractor::new(anthropic.clone()));
+            let agent_client = Arc::new(AnthropicAgentClient::new(anthropic.clone()));
+            let extractor = Arc::new(NeuralExtractor::new(agent_client));
             let hybrid = Arc::new(Mutex::new(HybridReasoner::new(extractor.clone())));
             info!("✅ Neuro-Symbolic Hybrid initialized");
             (Some(extractor), Some(hybrid))
@@ -260,7 +322,8 @@ impl AppState {
 
         // Adversarial Self-Play
         let competition_arena = anthropic_client.as_ref().map(|llm| {
-            let arena = CompetitionArena::new(llm.clone());
+            let agent_client = Arc::new(AnthropicAgentClient::new(llm.clone()));
+            let arena = CompetitionArena::new(agent_client);
             info!("✅ Adversarial Competition Arena initialized");
             Arc::new(arena)
         });
@@ -370,7 +433,7 @@ impl AppState {
         self.debate_orchestrator.clone()
     }
 
-    pub fn hypergraph_reasoner(&self) -> Option<Arc<HypergraphReasoner>> {
+    pub fn hypergraph_reasoner(&self) -> Option<Arc<HypergraphReasoner<CachedPostgresStorage>>> {
         self.hypergraph_reasoner.clone()
     }
 

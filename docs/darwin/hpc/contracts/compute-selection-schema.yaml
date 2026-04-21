@@ -1,0 +1,70 @@
+version: beagle-workbench-compute-selection-v1
+kind: workbench-compute-selection
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - scheduler_kind
+  - quota_policy_kind
+  - selection_mode
+  - default_profile_id
+  - batch_profile_id
+  - gpu_ready_profile_id
+  - last_used_profile_source
+  - suggested_profile_id
+  - suggested_profile_reason
+  - live_gpu_access_mode
+  - shared_gpu_access_state
+  - compute_classes
+  - role_scopes
+  - note
+properties:
+  phase:
+    type: string
+  contract_kind:
+    const: workbench-compute-selection
+  contract_version:
+    const: beagle-workbench-compute-selection-v1
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  scheduler_kind:
+    type: string
+  quota_policy_kind:
+    type: string
+  selection_mode:
+    type: string
+  default_profile_id:
+    type: string
+  batch_profile_id:
+    type: string
+  gpu_ready_profile_id:
+    type: string
+  last_used_profile_id:
+    type: [string, "null"]
+  last_used_profile_source:
+    type: string
+  suggested_profile_id:
+    type: string
+  suggested_profile_reason:
+    type: string
+  live_gpu_access_mode:
+    type: string
+  shared_gpu_access_state:
+    type: string
+  compute_classes:
+    type: array
+  role_scopes:
+    type: array
+  note:
+    type: string

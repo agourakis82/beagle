@@ -1,0 +1,39 @@
+version: beagle-manuscript-section-map-v1
+profile: jats-1.4-ready
+sections:
+  - section_id: abstract
+    section_type: abstract
+    sources:
+      - manuscript.hypothesis
+      - evidence.physio_refs
+      - packet.experiment_flags
+  - section_id: introduction
+    section_type: introduction
+    sources:
+      - program.north_star
+      - campaign.objective
+      - manuscript.title
+  - section_id: methods
+    section_type: methods
+    sources:
+      - evidence.recipe_refs
+      - evidence.experiment_refs
+      - packet.latest_physio
+  - section_id: results
+    section_type: results
+    sources:
+      - claims
+      - evidence.result_refs
+      - evidence.memory_refs
+      - evidence.physio_refs
+  - section_id: discussion
+    section_type: discussion
+    sources:
+      - manuscript.interpretive_notes
+      - manuscript.gaps
+      - claim.confidence_mode
+  - section_id: references
+    section_type: references
+    sources:
+      - citation.related_identifiers
+      - provenance.activities

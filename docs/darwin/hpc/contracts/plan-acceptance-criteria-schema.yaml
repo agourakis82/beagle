@@ -1,0 +1,23 @@
+version: beagle-plan-acceptance-criteria-v1
+title: Plan Acceptance Criterion
+type: object
+required:
+  - criteria_version
+  - criterion_id
+  - description
+  - success_signal
+  - stop_condition
+  - operator_visibility_required
+properties:
+  criteria_version:
+    type: string
+  criterion_id:
+    type: string
+  description:
+    type: string
+  success_signal:
+    type: string
+  stop_condition:
+    type: string
+  operator_visibility_required:
+    type: boolean

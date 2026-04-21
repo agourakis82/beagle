@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: infra
+resources:
+  - namespace.yaml
+  - service.yaml
+  - deployment.yaml
+configMapGenerator:
+  - name: lab-dns-config
+    files:
+      - Corefile=Corefile
+      - db.lab.sounio=db.lab.sounio
+generatorOptions:
+  disableNameSuffixHash: true

@@ -1,0 +1,48 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: darwin-alert-routing
+  namespace: darwin-platform
+  labels:
+    app.kubernetes.io/part-of: darwin-observability
+    darwin.phase: B8
+    release: darwin-observability
+spec:
+  route:
+    receiver: darwin-dev-noise
+    groupBy:
+      - alertname
+      - notification_tier
+      - domain
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 6h
+    routes:
+      - receiver: darwin-real-incident
+        matchers:
+          - name: notification_tier
+            matchType: "="
+            value: real-incident
+        groupWait: 10s
+        groupInterval: 2m
+        repeatInterval: 1h
+      - receiver: darwin-dev-noise
+        matchers:
+          - name: notification_tier
+            matchType: "="
+            value: dev-noise
+        groupWait: 30s
+        groupInterval: 10m
+        repeatInterval: 12h
+  receivers:
+    - name: darwin-dev-noise
+      webhookConfigs:
+        - url: http://darwin-alert-sink.darwin-platform.svc.cluster.local:8080/dev-noise
+          sendResolved: true
+          maxAlerts: 0
+    - name: darwin-real-incident
+      webhookConfigs:
+        - url: http://darwin-alert-sink.darwin-platform.svc.cluster.local:8080/real-incident
+          sendResolved: true
+          maxAlerts: 0
+

@@ -1,0 +1,70 @@
+phase: B20.6
+kind: workspace-template
+version: beagle-template-backed-prebuilt-workspace-v1
+
+identity:
+  required:
+    - workstream_id
+    - workspace_id
+    - session_id
+
+template:
+  required:
+    - template_version
+    - template_kind
+    - workspace_template_path
+    - workspace_launch_resume_path
+    - managed_attach_path
+    - workspace_habitat_path
+    - context_packet_path
+    - metadata
+    - hydration
+    - external_registration
+
+metadata:
+  required:
+    - template_id
+    - template_version
+    - template_contract_kind
+    - reproducibility_mode
+    - external_workspace_compatible
+    - attach_method
+    - managed_attach_state
+    - stable_attach_alias
+    - template_file
+    - registration_file
+    - hydration_file
+    - context_packet_file
+    - context_env_file
+    - handoff_ref
+    - context_packet_ref
+    - launch_resume_path
+
+hydration:
+  required:
+    - warm_start_strategy
+    - startup_mode
+    - warm_start_ready
+    - reproducible_ready
+    - prebuilt_snapshot_expected
+    - hydrated_startup_path
+    - workspace_root
+    - context_dir
+    - repo_root
+    - repo_remote_url
+    - repo_branch
+    - template_file
+    - registration_file
+    - hydration_file
+
+external_registration:
+  required:
+    - registration_kind
+    - registration_state
+    - external_workspace_kind
+    - stable_workspace_alias
+    - recommended_client
+    - browser_url
+    - launch_resume_path
+    - managed_attach_path
+    - registration_file

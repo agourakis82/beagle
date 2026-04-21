@@ -1,0 +1,21 @@
+{
+  "workstream_id": "beagle-darwin-hpc-governance",
+  "workspace_id": "b181-context-packet-0322165047",
+  "session_id": "ws-20260322195402",
+  "tool": "codex",
+  "action_type": "implementation",
+  "summary": "Implemented the bounded writeback path for the canonical workstream.",
+  "memory_text": "Implemented the bounded writeback path and updated the canonical handoff for the shared Beagle-owned session.",
+  "handoff_patch": "Resume from the bounded tool return path and validate the writeback ledger.",
+  "result_refs": [
+    "result:31"
+  ],
+  "repo_refs": {
+    "branch": "feat/darwin-hpc-governance",
+    "commit": "abc123def456",
+    "paths": [
+      "crates/beagle-darwin/src/workstream_tool_return.rs",
+      "apps/beagle-monorepo/src/http_darwin_hpc.rs"
+    ]
+  }
+}

@@ -1,0 +1,60 @@
+type: object
+required:
+  - collection_version
+  - collection_kind
+  - collection_name
+  - dense_backend
+  - sparse_backend
+  - supports_payload_filters
+  - supports_hybrid_query
+  - payload_fields
+  - filter_fields
+properties:
+  collection_version:
+    type: string
+    enum:
+      - beagle-retrieval-collection-v1
+  collection_kind:
+    type: string
+    enum:
+      - hybrid-memory-retrieval-collection
+  collection_name:
+    type: string
+  dense_backend:
+    type: string
+  sparse_backend:
+    type: string
+  dense_vector_name:
+    type:
+      - string
+      - "null"
+  supports_named_vectors:
+    type: boolean
+  supports_payload_filters:
+    type: boolean
+  supports_hybrid_query:
+    type: boolean
+  payload_fields:
+    type: array
+    items:
+      type: object
+      required:
+        - name
+        - field_type
+        - filterable
+        - indexed_hint
+      properties:
+        name:
+          type: string
+        field_type:
+          type: string
+        filterable:
+          type: boolean
+        indexed_hint:
+          type: boolean
+  filter_fields:
+    type: array
+    items:
+      type: string
+  note:
+    type: string

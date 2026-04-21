@@ -1,0 +1,70 @@
+version: beagle-code-retrieval-result-v1
+kind: code-retrieval-result
+required:
+  - result_version
+  - retrieval_mode
+  - collection_name
+  - code_dense_backend
+  - general_dense_backend
+  - sparse_backend
+  - top_k
+  - applied_filters
+  - dense_hit_count
+  - sparse_hit_count
+  - hits
+  - backend_profile
+properties:
+  result_version:
+    type: string
+  retrieval_mode:
+    type: string
+  collection_name:
+    type: string
+  code_dense_backend:
+    type: string
+  general_dense_backend:
+    type: string
+  sparse_backend:
+    type: string
+  top_k:
+    type: integer
+  applied_filters:
+    type: object
+  dense_hit_count:
+    type: integer
+  sparse_hit_count:
+    type: integer
+  hits:
+    type: array
+    items:
+      type: object
+  backend_profile:
+    type: object
+    required:
+      - profile_version
+      - backend_id
+      - provider
+      - model
+      - runtime_state
+      - store_direction
+  comparison:
+    type: [object, "null"]
+    properties:
+      general_dense_backend:
+        type: string
+      code_dense_backend:
+        type: string
+      general_top_memory_ids:
+        type: array
+        items:
+          type: string
+      code_top_memory_ids:
+        type: array
+        items:
+          type: string
+      overlap_memory_ids:
+        type: array
+        items:
+          type: string
+      top_hit_changed:
+        type: boolean

@@ -1,0 +1,152 @@
+type: object
+required:
+  - status
+  - phase
+  - launch
+  - managed_attach
+  - habitat
+  - context_packet
+properties:
+  status:
+    type: string
+    enum: [ok]
+  phase:
+    type: string
+    enum: [B20.5]
+  launch:
+    type: object
+    required:
+      - launch_version
+      - launch_kind
+      - workstream_id
+      - workspace_id
+      - session_id
+      - repo
+      - branch
+      - governance_state
+      - workspace_launch_resume_path
+      - workspace_habitat_path
+      - workspace_habitat_env_path
+      - context_packet_path
+      - managed_attach_path
+      - cursor_remote_lane_path
+      - cursor_native_attach_path
+      - browser_url
+      - launch_metadata
+      - helper_snippets
+    properties:
+      launch_version:
+        type: string
+      launch_kind:
+        type: string
+        enum: [workspace-launch-resume]
+      workstream_id:
+        type: string
+      workspace_id:
+        type: string
+      session_id:
+        type: string
+      repo:
+        type: string
+      branch:
+        type: string
+      governance_state:
+        type: string
+      workspace_launch_resume_path:
+        type: string
+      workspace_habitat_path:
+        type: string
+      workspace_habitat_env_path:
+        type: string
+      context_packet_path:
+        type: string
+      managed_attach_path:
+        type: string
+      cursor_remote_lane_path:
+        type: string
+      cursor_native_attach_path:
+        type: string
+      browser_url:
+        type: string
+      launch_metadata:
+        type: object
+        required:
+          - recommended_client
+          - launch_method
+          - launch_state
+          - attach_method
+          - managed_attach_state
+          - browser_fallback_ready
+          - cursor_managed_attach_ready
+          - stable_launch_alias
+          - attach_transport
+          - launch_state_dir
+          - handoff_ref
+          - context_packet_ref
+          - attach_snippet_ref
+          - launch_helper_ref
+        properties:
+          recommended_client:
+            type: string
+          launch_method:
+            type: string
+          launch_state:
+            type: string
+          attach_method:
+            type: string
+          managed_attach_state:
+            type: string
+          browser_fallback_ready:
+            type: boolean
+          cursor_managed_attach_ready:
+            type: boolean
+          stable_launch_alias:
+            type: string
+          attach_transport:
+            type: string
+          repo_root:
+            type: string
+          launch_state_dir:
+            type: string
+          workspace_habitat_env_path:
+            type: string
+          handoff_ref:
+            type: string
+          context_packet_ref:
+            type: string
+          attach_snippet_ref:
+            type: string
+          launch_helper_ref:
+            type: string
+      helper_snippets:
+        type: object
+        required:
+          - helper_script_repo_relative_path
+          - helper_script_workspace_path
+          - cursor_resume_command
+          - browser_resume_command
+          - ssh_resume_command
+          - ssh_config_host_alias
+        properties:
+          helper_script_repo_relative_path:
+            type: string
+          helper_script_workspace_path:
+            type: string
+          cursor_resume_command:
+            type: string
+          browser_resume_command:
+            type: string
+          ssh_resume_command:
+            type: string
+          ssh_config_host_alias:
+            type: string
+          ssh_command:
+            type: string
+          cursor_remote_hint:
+            type: string
+  managed_attach:
+    type: object
+  habitat:
+    type: object
+  context_packet:
+    type: object

@@ -5,7 +5,7 @@
 //! - ide      : orientação para abrir a IDE Tauri
 
 use anyhow::{Context, Result};
-use beagle_config::{beagle_data_dir, bootstrap, ensure_dirs, load as load_config};
+use beagle_config::{beagle_data_dir, bootstrap, load as load_config};
 use beagle_health::check_all;
 // init_tracing removido - usar função local
 use beagle_observability::{init_observability, shutdown_observability};

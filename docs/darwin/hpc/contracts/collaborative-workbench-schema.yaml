@@ -1,0 +1,54 @@
+# Umbrella schema for the B25.2 collaborative workbench API response.
+# Nested contracts are defined in:
+#   - workbench-session-schema.yaml
+#   - compute-selection-schema.yaml
+#   - collaboration-access-schema.yaml
+#   - workbench-run-schema.yaml
+version: beagle-collaborative-compute-experiment-workbench-v1
+kind: collaborative-compute-experiment-workbench
+type: object
+required:
+  - status
+  - phase
+  - contract_kind
+  - contract_version
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - session
+  - compute_selection
+  - collaboration_access
+  - run
+  - note
+properties:
+  status:
+    type: string
+  phase:
+    const: B25.2
+  contract_kind:
+    const: collaborative-compute-experiment-workbench
+  contract_version:
+    const: beagle-collaborative-compute-experiment-workbench-v1
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  session:
+    description: Workbench session contract (see workbench-session-schema.yaml)
+    type: object
+  compute_selection:
+    description: Compute selection contract (see compute-selection-schema.yaml)
+    type: object
+  collaboration_access:
+    description: Collaboration access contract (see collaboration-access-schema.yaml)
+    type: object
+  run:
+    description: Workbench run / execution surface (see workbench-run-schema.yaml)
+    type: object
+  note:
+    type: string

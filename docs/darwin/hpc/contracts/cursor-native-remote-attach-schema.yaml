@@ -1,0 +1,77 @@
+type: object
+title: CursorNativeRemoteAttach
+required:
+  - status
+  - phase
+  - lane
+properties:
+  status:
+    type: string
+    enum: [ok]
+  phase:
+    type: string
+    enum: [B20.2a]
+  lane:
+    type: object
+    required:
+      - lane_kind
+      - workstream_id
+      - workspace_id
+      - session_id
+      - connection_metadata
+    properties:
+      lane_kind:
+        type: string
+        enum: [cursor-remote-lane]
+      workstream_id:
+        type: string
+      workspace_id:
+        type: string
+      session_id:
+        type: string
+      repo:
+        type: string
+      branch:
+        type: string
+      governance_state:
+        type: string
+      context_packet_path:
+        type: string
+      tool_launch_path:
+        type: string
+      tool_return_path:
+        type: string
+      workspace_habitat_path:
+        type: string
+      workspace_habitat_env_path:
+        type: string
+      connection_metadata:
+        type: object
+        required:
+          - remote_client
+          - connection_mode
+          - recommended_transport
+          - ssh_transport_ready
+        properties:
+          remote_client:
+            type: string
+            enum: [cursor]
+          connection_mode:
+            type: string
+            enum: [same-workspace-remote-ssh]
+          recommended_transport:
+            type: string
+            enum: [kubernetes-port-forward+ssh]
+          ssh_transport_ready:
+            type: boolean
+            enum: [true]
+          ssh_user:
+            type: string
+          ssh_service_port:
+            type: integer
+          ssh_target:
+            type: string
+          suggested_ssh_port_forward_command:
+            type: string
+          suggested_ssh_command:
+            type: string

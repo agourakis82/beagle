@@ -1,0 +1,11 @@
+lab.sounio:53 {
+    file /etc/coredns/db.lab.sounio
+    log
+    errors
+}
+
+.:53 {
+    forward . /etc/resolv.conf
+    log
+    errors
+}

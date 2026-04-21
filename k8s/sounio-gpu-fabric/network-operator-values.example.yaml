@@ -1,0 +1,24 @@
+# Example Network Operator values aligned with the current Sounio GPU fabric.
+#
+# This file is intentionally conservative and should be treated as staging-only
+# on the current Debian/PVE cluster. It assumes:
+# - the live manual substrate remains the source of truth for now
+# - the first operator attempt should be controller-only
+
+deployCR: false
+
+nfd:
+  enabled: false
+
+sriovNetworkOperator:
+  enabled: false
+
+operator:
+  ofedDriver:
+    deploy: false
+  rdmaSharedDevicePlugin:
+    deploy: false
+  secondaryNetwork:
+    deploy: false
+    multus:
+      deploy: false

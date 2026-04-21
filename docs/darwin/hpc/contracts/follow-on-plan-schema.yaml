@@ -1,0 +1,82 @@
+type: object
+required:
+  - follow_on_plan_version
+  - follow_on_plan_id
+  - source_execution_id
+  - source_plan_id
+  - review_inbox_item_id
+  - replan_suggestion_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - review_action
+  - follow_on_state
+  - materialized_at
+  - materialized_by
+  - execution_plan
+  - note
+properties:
+  follow_on_plan_version:
+    type: string
+    const: beagle-follow-on-plan-v1
+  follow_on_plan_id:
+    type: string
+  source_execution_id:
+    type: string
+  source_plan_id:
+    type: string
+  review_inbox_item_id:
+    type: string
+  replan_suggestion_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  review_action:
+    type: string
+    enum:
+      - approved
+      - edited
+  follow_on_state:
+    type: string
+  materialized_at:
+    type: string
+    format: date-time
+  materialized_by:
+    type: string
+  autonomy_policy_id:
+    type:
+      - string
+      - "null"
+  risk_evaluation_id:
+    type:
+      - string
+      - "null"
+  approval_gating_decision_id:
+    type:
+      - string
+      - "null"
+  approval_gating_decision_class:
+    type:
+      - string
+      - "null"
+  approval_gating_decision_path:
+    type:
+      - string
+      - "null"
+  execution_plan:
+    type: object
+    required:
+      - plan_version
+      - plan_id
+      - task_family
+      - selected_subagent_id
+      - retrieval_query_type
+      - compiler_profile_id
+      - graphrag_query_mode
+      - temporal_truth_view
+  note:
+    type: string

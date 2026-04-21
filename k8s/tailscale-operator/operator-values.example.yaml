@@ -1,0 +1,21 @@
+oauth:
+  clientId: "tskey-client-your-oauth-client-id"
+  clientSecret: "tskey-client-your-oauth-client-secret"
+
+proxyConfig:
+  defaultTags:
+    - tag:k8s
+
+# Optional: enable the API server proxy only if you want Tailscale-based
+# kubectl access to the cluster control plane.
+# apiServerProxyConfig:
+#   mode: auth
+
+# Install example:
+# helm repo add tailscale https://pkgs.tailscale.com/helmcharts
+# helm repo update
+# helm upgrade --install tailscale-operator tailscale/tailscale-operator \
+#   --namespace tailscale \
+#   --create-namespace \
+#   --values operator-values.example.yaml \
+#   --wait

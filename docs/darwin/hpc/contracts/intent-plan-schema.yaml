@@ -1,0 +1,45 @@
+version: beagle-intent-plan-v1
+title: Intent Plan
+type: object
+required:
+  - intent_version
+  - intent_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - task_family
+  - tool_id
+  - work_mode
+  - intent_text
+  - query_text
+  - operator_execution_state
+  - note
+properties:
+  intent_version:
+    type: string
+  intent_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  program_id:
+    type: string
+  campaign_id:
+    type: string
+  task_family:
+    type: string
+  tool_id:
+    type: string
+  work_mode:
+    type: string
+  intent_text:
+    type: string
+  query_text:
+    type: string
+  operator_execution_state:
+    type: string
+  note:
+    type: string

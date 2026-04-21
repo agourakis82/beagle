@@ -52,6 +52,14 @@ MCP_ENABLE_SERENDIPITY=false
 MCP_ENABLE_VOID=false
 ```
 
+### Memória e Qdrant (Core HTTP)
+
+O MCP fala com o **core** em `BEAGLE_CORE_URL`. Para observabilidade do plano vectorial da memória:
+
+- **GET** `http://<core>/api/memory/qdrant/health` — JSON com `configured`, `status` (`up`, `collection_missing`, `qdrant_error`, `unreachable`, `not_configured`, `memory_engine_disabled`), `collection`, `base_url`, `http_status`, `error`. Pedidos internos ao Qdrant (describe/health/create) repetem até **3** vezes em falhas de **transporte** (`connect` / `timeout`) com backoff exponencial curto.
+- Requer compilar o core com feature **`memory`** (ex.: `cargo run -p beagle-monorepo --bin core_server --features memory`).
+- Variáveis relevantes (além de `DATABASE_URL` / `REDIS_URL` para o bridge): URL de Qdrant usada pelo core costuma vir de `QDRANT_URL` na config Beagle; a coleção da memória pode ser `BEAGLE_MEMORY_QDRANT_COLLECTION` (default `beagle_memory_chat`). Ver `MemoryEngineConfig::from_runtime` em `beagle-memory`.
+
 ## Executando
 
 ### Desenvolvimento

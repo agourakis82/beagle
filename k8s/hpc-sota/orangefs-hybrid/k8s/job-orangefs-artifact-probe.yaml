@@ -1,0 +1,110 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: orangefs-artifact-probe
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: orangefs-artifact-probe
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orangefs-artifact-probe
+      annotations:
+        k8s.v1.cni.cncf.io/networks: beagle/gpu-fabric-10-200-pilot
+    spec:
+      restartPolicy: Never
+      runtimeClassName: nvidia
+      priorityClassName: hpc-training
+      nodeSelector:
+        sounio.dev/accelerator-class: gpu
+        sounio.dev/compute: heavy
+        sounio.dev/pool: gpu-batch
+        sounio.dev/orangefs-client: "true"
+      tolerations:
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+      containers:
+        - name: probe
+          image: sounio/pytorch-rdma:2.7.1-cuda12.8-rdma
+          imagePullPolicy: Never
+          securityContext:
+            privileged: true
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: LD_LIBRARY_PATH
+              value: /nvidia-host
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euo pipefail
+              mkdir -p /datasets/probe /checkpoints/probe /scratch/probe
+              python - <<'PY'
+              import json, os, socket
+              from pathlib import Path
+              import torch
+
+              ds = Path("/datasets/probe")
+              ck = Path("/checkpoints/probe")
+              sc = Path("/scratch/probe")
+              payload = {
+                  "hostname": socket.gethostname(),
+                  "cuda": torch.cuda.is_available(),
+                  "gpu_count": torch.cuda.device_count(),
+              }
+              (ds / "dataset.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+              torch.save({"payload": payload}, ck / "checkpoint.pt")
+              (sc / "throughput.bin").write_bytes(os.urandom(16 * 1024 * 1024))
+              print(json.dumps(payload), flush=True)
+              PY
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              rdma/sounio_gpu_fabric: "1"
+            limits:
+              cpu: "4"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+              rdma/sounio_gpu_fabric: "1"
+          volumeMounts:
+            - name: host-libcuda
+              mountPath: /nvidia-host/libcuda.so.1
+              readOnly: true
+            - name: host-libnvidia-ml
+              mountPath: /nvidia-host/libnvidia-ml.so.1
+              readOnly: true
+            - name: datasets
+              mountPath: /datasets
+            - name: checkpoints
+              mountPath: /checkpoints
+            - name: scratch
+              mountPath: /scratch
+      volumes:
+        - name: host-libcuda
+          hostPath:
+            path: /lib/x86_64-linux-gnu/libcuda.so.1
+            type: File
+        - name: host-libnvidia-ml
+          hostPath:
+            path: /lib/x86_64-linux-gnu/libnvidia-ml.so.1
+            type: File
+        - name: datasets
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/datasets
+            type: DirectoryOrCreate
+        - name: checkpoints
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/checkpoints
+            type: DirectoryOrCreate
+        - name: scratch
+          emptyDir: {}

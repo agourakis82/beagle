@@ -1,0 +1,55 @@
+version: beagle-code-retrieval-query-v1
+kind: code-retrieval-query
+required:
+  - query_version
+  - query_text
+  - top_k
+  - dense_enabled
+  - sparse_enabled
+  - dense_weight
+  - sparse_weight
+  - filters
+properties:
+  query_version:
+    type: string
+  query_text:
+    type: string
+  top_k:
+    type: integer
+    minimum: 1
+    maximum: 10
+  dense_enabled:
+    type: boolean
+  sparse_enabled:
+    type: boolean
+  dense_weight:
+    type: number
+  sparse_weight:
+    type: number
+  compare_against_general:
+    type: boolean
+  rerank_hint:
+    type: [string, "null"]
+  filters:
+    type: object
+    properties:
+      workstream_id:
+        type: [string, "null"]
+      campaign_id:
+        type: [string, "null"]
+      session_id:
+        type: [string, "null"]
+      source:
+        type: [string, "null"]
+      role:
+        type: [string, "null"]
+      domain:
+        type: [string, "null"]
+      repo_path:
+        type: [string, "null"]
+      file_type:
+        type: [string, "null"]
+      tags:
+        type: array
+        items:
+          type: string

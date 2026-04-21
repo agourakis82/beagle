@@ -1,0 +1,43 @@
+version: beagle-retrieval-eval-report-v1
+kind: retrieval-evaluation-report
+description: >
+  B22.9 live evaluation report over the routed retrieval lanes.
+report:
+  report_version: string
+  collection_name: string
+  sparse_backend: string
+  reranking_profile_id: string
+  generated_at: date-time
+  cases:
+    - case_id: string
+      query_type: general|code|sovereign
+      description: string
+      selected_route: string
+      dense_backend: string
+      sparse_backend: string
+      reranker_backend: string
+      reranking_applied: boolean
+      latency_ms: integer
+      relevance_proxy_score: number
+      payload_filter_correctness: number
+      top_k_stable: boolean
+      route_appropriate: boolean
+      context_packet_usable_hit_count: integer
+      top_hit_memory_id: string
+      expected_memory_ids: [string]
+      note: string
+  lanes:
+    - query_type: general|code|sovereign
+      selected_route: string
+      dense_backend: string
+      sparse_backend: string
+      reranker_backend: string
+      case_count: integer
+      average_latency_ms: number
+      average_relevance_proxy: number
+      average_filter_correctness: number
+      top_k_stability_pass_rate: number
+      route_appropriateness_rate: number
+      average_context_packet_usable_hits: number
+      recommended_when: string
+      note: string

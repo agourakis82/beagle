@@ -77,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Usa função do beagle-monorepo
             let res = beagle_monorepo::pipeline::run_beagle_pipeline(
-                &mut ctx, &question, &run_id, None, None, None,
+                &mut ctx, &question, &run_id, None, None, None, None,
             )
             .await;
 

@@ -1,0 +1,89 @@
+title: Study Closeout Summary Schema
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - closeout_summary_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - final_study_state
+  - final_comparative_decision
+  - final_variant_promotion_state
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  closeout_summary_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  generated_at:
+    type: string
+    format: date-time
+  study_convergence_id:
+    type: string
+  variant_promotion_decision_id:
+    type: string
+  final_study_state:
+    type: string
+  final_comparative_decision:
+    type: string
+  final_variant_promotion_state:
+    type: string
+  total_runs:
+    type: integer
+  total_variants:
+    type: integer
+  compared_run_count:
+    type: integer
+  successful_run_count:
+    type: integer
+  failed_run_count:
+    type: integer
+  promoted_variant_id:
+    type: string
+  promoted_variant_label:
+    type: string
+  promoted_run_id:
+    type: string
+  promoted_run_label:
+    type: string
+  archived_variant_count:
+    type: integer
+  archived_variant_ids:
+    type: array
+    items:
+      type: string
+  archived_variant_labels:
+    type: array
+    items:
+      type: string
+  archived_variant_kinds:
+    type: array
+    items:
+      type: string
+  operator_review_required:
+    type: boolean
+  final_decision_basis_summary:
+    type: string
+  evidence_refs:
+    type: array
+    items:
+      type: object
+  note:
+    type: string

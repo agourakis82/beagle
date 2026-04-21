@@ -1,0 +1,144 @@
+type: object
+required:
+  - context_adequacy_version
+  - manuscript_context_adequacy_id
+  - manuscript_trajectory_quality_id
+  - manuscript_promotion_gate_id
+  - source_trajectory_eval_id
+  - source_execution_reflection_id
+  - source_plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - task_family
+  - selected_subagent_id
+  - expected_subagent_id
+  - active_retrieval_query_type
+  - active_retrieval_mode
+  - compiled_context_sufficient
+  - context_sufficiency
+  - retrieval_lane_fit
+  - graphrag_mode_fit
+  - truth_view_fit
+  - compiler_profile_fit
+  - task_profile_fit
+  - subagent_fit
+  - handoff_quality
+  - editorial_acceptance_fit
+  - same_beagle_owned_identity
+properties:
+  context_adequacy_version:
+    type: string
+    enum:
+      - beagle-manuscript-context-adequacy-v1
+  manuscript_context_adequacy_id:
+    type: string
+  manuscript_trajectory_quality_id:
+    type: string
+  manuscript_promotion_gate_id:
+    type: string
+  source_trajectory_eval_id:
+    type: string
+  source_execution_reflection_id:
+    type: string
+  source_plan_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+    enum:
+      - implementation-and-analysis-canary-live-manuscript-quality-uplift
+  task_family:
+    type: string
+  selected_subagent_id:
+    type: string
+  expected_subagent_id:
+    type: string
+  suggested_subagent_id:
+    type: [string, "null"]
+  suggested_work_mode:
+    type: [string, "null"]
+  active_retrieval_query_type:
+    type: string
+  active_retrieval_mode:
+    type: string
+  compiled_context_retrieval_query_type:
+    type: [string, "null"]
+  compiled_context_task_profile:
+    type: [string, "null"]
+  compiled_context_budget_profile_id:
+    type: [string, "null"]
+  active_graphrag_query_mode:
+    type: [string, "null"]
+  compiled_context_graphrag_query_mode:
+    type: [string, "null"]
+  temporal_truth_view:
+    type: [string, "null"]
+  compiled_context_sufficient:
+    type: boolean
+  context_sufficiency:
+    type: string
+    enum:
+      - adequate
+      - adequate-but-misaligned
+      - insufficient
+  retrieval_lane_fit:
+    type: string
+    enum:
+      - good-fit
+      - partial-fit
+      - poor-fit
+  graphrag_mode_fit:
+    type: string
+    enum:
+      - good-fit
+      - partial-fit
+      - poor-fit
+  truth_view_fit:
+    type: string
+    enum:
+      - good-fit
+      - partial-fit
+      - poor-fit
+  compiler_profile_fit:
+    type: string
+    enum:
+      - good-fit
+      - partial-fit
+      - poor-fit
+  task_profile_fit:
+    type: string
+    enum:
+      - good-fit
+      - partial-fit
+      - poor-fit
+  subagent_fit:
+    type: string
+    enum:
+      - good-fit
+      - partial-fit
+      - poor-fit
+  handoff_quality:
+    type: string
+    enum:
+      - good-fit
+      - partial-fit
+      - poor-fit
+  editorial_acceptance_fit:
+    type: string
+    enum:
+      - good-fit
+      - partial-fit
+      - poor-fit
+  same_beagle_owned_identity:
+    type: boolean
+  note:
+    type: string

@@ -1,0 +1,114 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - replay_execution_id
+  - replay_request_id
+  - source_run_id
+  - source_submitted_job_id
+  - source_run_label
+  - source_intent_text
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - requested_by
+  - requester_role_id
+  - execution_mode
+  - replay_mode
+  - selected_subagent_id
+  - task_family
+  - compute_profile_id
+  - run_label
+  - source_dirty_state
+  - source_config_fingerprint
+  - source_result_manifest_key
+  - dispatched_run_id
+  - submitted_job_id
+  - published_result_job_id
+  - replay_request_path
+  - workbench_run_path
+  - run_capsule_path
+  - run_diff_path
+  - recorded_at
+  - note
+properties:
+  phase:
+    type: string
+    const: B25.7
+  contract_kind:
+    type: string
+    const: replay-execution
+  contract_version:
+    type: string
+  replay_execution_id:
+    type: string
+  replay_request_id:
+    type: string
+  source_run_id:
+    type: string
+  source_submitted_job_id:
+    type: integer
+  source_run_label:
+    type: string
+  source_intent_text:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  requested_by:
+    type: string
+  requester_role_id:
+    type: string
+  execution_mode:
+    type: string
+  replay_mode:
+    type: string
+  selected_subagent_id:
+    type: string
+  task_family:
+    type: string
+  compute_profile_id:
+    type: string
+  run_label:
+    type: string
+  source_branch:
+    type: [string, "null"]
+  source_commit:
+    type: [string, "null"]
+  source_tree_ish:
+    type: [string, "null"]
+  source_dirty_state:
+    type: string
+  source_patch_ref:
+    type: [string, "null"]
+  source_source_fingerprint:
+    type: [string, "null"]
+  source_config_fingerprint:
+    type: string
+  source_result_manifest_key:
+    type: string
+  dispatched_run_id:
+    type: string
+  submitted_job_id:
+    type: integer
+  published_result_job_id:
+    type: integer
+  replay_request_path:
+    type: string
+  workbench_run_path:
+    type: string
+  run_capsule_path:
+    type: string
+  run_diff_path:
+    type: string
+  recorded_at:
+    type: string
+  note:
+    type: string

@@ -1,0 +1,98 @@
+version: beagle-workbench-result-binding-v1
+kind: workbench-result-binding
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - binding_id
+  - reservation_id
+  - run_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - compute_profile_id
+  - selected_subagent_id
+  - task_family
+  - submitted_job_id
+  - published_result_job_id
+  - final_job_state
+  - artifact_ready
+  - result_bound_at
+  - result_catalog_lookup_path
+  - result_manifest_path
+  - workbench_run_path
+  - collaborative_workbench_path
+  - result_refs
+  - note
+properties:
+  phase:
+    const: B25.3
+  contract_kind:
+    const: workbench-result-binding
+  contract_version:
+    const: beagle-workbench-result-binding-v1
+  binding_id:
+    type: string
+  reservation_id:
+    type: string
+  run_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  compute_profile_id:
+    type: string
+  selected_subagent_id:
+    type: string
+  task_family:
+    type: string
+  recipe_kind:
+    type: [string, "null"]
+  experiment_id:
+    type: [string, "null"]
+  submitted_job_id:
+    type: integer
+  published_result_job_id:
+    type: integer
+  final_job_state:
+    type: string
+  artifact_ready:
+    type: boolean
+  result_bound_at:
+    type: string
+    format: date-time
+  result_catalog_lookup_path:
+    type: string
+  result_manifest_path:
+    type: string
+  workbench_run_path:
+    type: string
+  collaborative_workbench_path:
+    type: string
+  result_refs:
+    type: array
+    items:
+      type: object
+      required:
+        - ref_id
+        - ref_kind
+        - locator
+        - summary
+      properties:
+        ref_id:
+          type: string
+        ref_kind:
+          type: string
+        locator:
+          type: string
+        summary:
+          type: string
+  note:
+    type: string

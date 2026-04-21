@@ -1,0 +1,95 @@
+type: object
+required:
+  - trajectory_quality_version
+  - manuscript_trajectory_quality_id
+  - manuscript_alignment_labels_id
+  - manuscript_promotion_evidence_id
+  - manuscript_promotion_gate_id
+  - source_trajectory_eval_id
+  - source_execution_reflection_id
+  - source_plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - task_family
+  - selected_subagent_id
+  - expected_subagent_id
+  - base_trajectory_quality
+  - base_trajectory_score
+  - acceptance_criteria_passed
+  - compiled_context_sufficient
+  - review_quality_label
+  - editorial_acceptance_fit
+  - trajectory_quality
+  - quality_uplift_required
+  - same_beagle_owned_identity
+properties:
+  trajectory_quality_version:
+    type: string
+    enum:
+      - beagle-manuscript-trajectory-quality-v1
+  manuscript_trajectory_quality_id:
+    type: string
+  manuscript_alignment_labels_id:
+    type: string
+  manuscript_promotion_evidence_id:
+    type: string
+  manuscript_promotion_gate_id:
+    type: string
+  source_trajectory_eval_id:
+    type: string
+  source_execution_reflection_id:
+    type: string
+  source_plan_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+    enum:
+      - implementation-and-analysis-canary-live-manuscript-quality-uplift
+  task_family:
+    type: string
+  selected_subagent_id:
+    type: string
+  expected_subagent_id:
+    type: string
+  base_trajectory_quality:
+    type: string
+  base_trajectory_score:
+    type: integer
+  acceptance_criteria_passed:
+    type: boolean
+  compiled_context_sufficient:
+    type: boolean
+  review_quality_label:
+    type: string
+    enum:
+      - operator-ready
+      - needs-edit
+      - replan-required
+  editorial_acceptance_fit:
+    type: string
+    enum:
+      - good-fit
+      - partial-fit
+      - poor-fit
+  trajectory_quality:
+    type: string
+    enum:
+      - manuscript-ready
+      - shadow-tuning-required
+      - needs-replan
+  quality_uplift_required:
+    type: boolean
+  same_beagle_owned_identity:
+    type: boolean
+  note:
+    type: string

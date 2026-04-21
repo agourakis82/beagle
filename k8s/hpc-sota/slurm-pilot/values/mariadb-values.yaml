@@ -1,0 +1,93 @@
+architecture: standalone
+
+auth:
+  database: slurm_acct_db
+  username: slurm
+
+volumePermissions:
+  enabled: true
+
+primary:
+  podSecurityContext:
+    enabled: true
+  containerSecurityContext:
+    enabled: true
+    runAsUser: 1001
+    runAsGroup: 1001
+    runAsNonRoot: true
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
+    appArmorProfile:
+      type: Unconfined
+  persistence:
+    enabled: true
+    storageClass: ceph-rbd-ssd
+    size: 8Gi
+  nodeSelector:
+    kubernetes.io/hostname: t560-proxmox
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+  startupProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+    successThreshold: 1
+  customStartupProbe:
+    exec:
+      command:
+        - /bin/bash
+        - -ec
+        - |
+          password_aux="${MARIADB_ROOT_PASSWORD:-}"
+          if [[ -f "${MARIADB_ROOT_PASSWORD_FILE:-}" ]]; then
+              password_aux="$(cat "${MARIADB_ROOT_PASSWORD_FILE}")"
+          fi
+          mariadb-admin ping -h 127.0.0.1 -uroot -p"${password_aux}"
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+    successThreshold: 1
+  customLivenessProbe:
+    exec:
+      command:
+        - /bin/bash
+        - -ec
+        - |
+          password_aux="${MARIADB_ROOT_PASSWORD:-}"
+          if [[ -f "${MARIADB_ROOT_PASSWORD_FILE:-}" ]]; then
+              password_aux="$(cat "${MARIADB_ROOT_PASSWORD_FILE}")"
+          fi
+          mariadb-admin ping -h 127.0.0.1 -uroot -p"${password_aux}"
+    initialDelaySeconds: 120
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+  customReadinessProbe:
+    exec:
+      command:
+        - /bin/bash
+        - -ec
+        - |
+          password_aux="${MARIADB_ROOT_PASSWORD:-}"
+          if [[ -f "${MARIADB_ROOT_PASSWORD_FILE:-}" ]]; then
+              password_aux="$(cat "${MARIADB_ROOT_PASSWORD_FILE}")"
+          fi
+          mariadb-admin ping -h 127.0.0.1 -uroot -p"${password_aux}"
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 12
+    successThreshold: 1

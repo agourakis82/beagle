@@ -1,0 +1,8 @@
+[Unit]
+Description=Emit Sounio ABIDE runner metrics to node-exporter textfile
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/devsounio/beagle/k8s/hpc-sota/observability/t560-sounio-abide-runner-metrics.sh

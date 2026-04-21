@@ -1,0 +1,79 @@
+title: Variant Promotion Decision Schema
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - decision_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - decision_action
+  - promoted_variant_id
+  - archived_variant_count
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  decision_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  generated_at:
+    type: string
+    format: date-time
+  study_convergence_id:
+    type: string
+  study_convergence_state:
+    type: string
+  decision_action:
+    type: string
+  promoted_variant_id:
+    type: string
+  promoted_variant_label:
+    type: string
+  promoted_variant_kind:
+    type: string
+  promoted_run_id:
+    type: string
+  promoted_run_label:
+    type: string
+  promoted_compute_profile_id:
+    type: string
+  archived_variant_count:
+    type: integer
+  archived_variant_ids:
+    type: array
+    items:
+      type: string
+  archived_variant_labels:
+    type: array
+    items:
+      type: string
+  archived_variant_kinds:
+    type: array
+    items:
+      type: string
+  operator_review_required:
+    type: boolean
+  decision_basis_summary:
+    type: string
+  evidence_refs:
+    type: array
+    items:
+      type: object
+  note:
+    type: string

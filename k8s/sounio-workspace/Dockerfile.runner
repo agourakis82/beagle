@@ -1,0 +1,36 @@
+# Sounio runner image — closes the agent → cockpit → K8s → beagle loop.
+#
+# Alpine base (musl) avoids the getaddrinfo/pthread bug that debian:bookworm-
+# slim exhibits under K8s cgroup v2. gcompat bridges the prebuilt glibc
+# souc ELF to musl's dynamic loader.
+
+FROM alpine:3.19
+
+RUN apk add --no-cache \
+      bash git ca-certificates curl coreutils findutils grep sed gawk \
+      less file tar gzip procps gcompat libstdc++
+
+# Bake the prebuilt compiler + stdlib + scripts into /opt/sounio. Presets
+# add /opt/sounio/bin to PATH so `souc` and the helper scripts just work
+# without a clone. A source clone can still happen at runtime for repo-
+# relative scripts — both paths coexist.
+COPY sounio-bundle.tgz /tmp/sounio-bundle.tgz
+RUN mkdir -p /opt/sounio && tar -xzf /tmp/sounio-bundle.tgz -C /opt/sounio \
+ && rm /tmp/sounio-bundle.tgz \
+ && chmod -R a+rx /opt/sounio
+
+ENV PATH="/opt/sounio/bin:${PATH}"
+ENV SOUNIO_STDLIB_PATH=/opt/sounio/stdlib
+
+# `bash -lc` (login) re-sources /etc/profile which on alpine wipes PATH
+# back to the hardcoded default. Drop a profile.d snippet so login shells
+# keep /opt/sounio/bin visible — the preset commands use bash -lc.
+RUN printf '%s\n' \
+      'export PATH="/opt/sounio/bin:$PATH"' \
+      'export SOUNIO_STDLIB_PATH=/opt/sounio/stdlib' \
+      > /etc/profile.d/sounio.sh \
+ && chmod +x /etc/profile.d/sounio.sh
+
+WORKDIR /work
+
+CMD ["/bin/bash"]

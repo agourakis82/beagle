@@ -67,7 +67,7 @@ pub struct VoidInsight {
 }
 
 /// Types of insights from void navigation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InsightType {
     Pattern,
     Anomaly,
@@ -103,7 +103,7 @@ pub struct ExtractedInfo {
 }
 
 /// Extraction type
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExtractionType {
     Vacuum,
     Negative,

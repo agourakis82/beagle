@@ -1,0 +1,60 @@
+api_version: beagle.workstream.recipe/v1
+phase: B14.3
+id: beagle-darwin-hpc-governance.operator_gpu_loop
+workstream: beagle-darwin-hpc-governance
+kind: operator_gpu_loop
+summary: Canonical advanced operator GPU loop with publication, retrieval and persisted state.
+
+inputs:
+  repo: agourakis82/beagle
+  branch: feat/darwin-hpc-governance
+  workspace_id: runtime-supplied
+  profile_id: gpu-single-v1
+  expected_execution_node: r740-proxmox
+  default_dev_plane: beagle-cluster
+  promotion_scope: beagle-darwin-hpc-general-noninfra
+
+steps:
+  - id: bootstrap
+    action: bootstrap_workspace_session
+    success_condition: workspace and session resolve
+    recovery_point: session_before_loop
+  - id: control_surface_lookup
+    action: query_hpc_control_catalog
+    success_condition: gpu-single-v1 is listed
+    recovery_point: control_before_loop
+  - id: submit_gpu_single
+    action: execute_advanced_operator_gpu_workflow
+    success_condition: slurm job reaches COMPLETED on r740-proxmox
+    recovery_point: submitted_job
+  - id: publication_retrieval
+    action: resolve_published_result_and_manifest
+    success_condition: object-backed result remains resolvable
+    recovery_point: published_result
+  - id: persist_state
+    action: persist_workspace_session_state
+    success_condition: session tracks last successful GPU workflow
+    recovery_point: session_before_restart
+
+outputs:
+  primary_artifacts:
+    - control-before-loop3.json
+    - results-before-loop3.json
+    - loop3-pilot.json
+    - loop3-result-after.json
+    - loop3-result-manifest-after.json
+    - session-before-restart.json
+    - loop3.json
+
+recovery_points:
+  - session_before_loop
+  - control_before_loop
+  - submitted_job
+  - published_result
+  - session_before_restart
+
+success_criteria:
+  - gpu-single-v1 is available in control surface
+  - submitted GPU job completes on r740-proxmox
+  - publication and retrieval stay object-backed
+  - session persists the GPU workflow state

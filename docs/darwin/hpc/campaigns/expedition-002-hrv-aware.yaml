@@ -1,0 +1,38 @@
+id: expedition-002-hrv-aware
+program_id: beagle-physio-symbolic-exocortex
+title: Expedition 002 HRV-Aware Campaign
+status: canonical-live
+campaign_kind: live-experiment
+source_phase: B19.1
+
+objective: >-
+  Run, analyze, and mature the HRV-aware versus blind experiment line on top of
+  the now-canonical observer -> memory -> pipeline path.
+
+workstreams:
+  - id: beagle-darwin-hpc-governance
+    role: experiment-execution-workstream
+
+experiments:
+  - id: beagle_exp_002_hrv_aware_vs_blind
+    spec_doc: docs/darwin/hpc/BEAGLE_EXPEDITION_002.md
+    results_doc: docs/darwin/hpc/BEAGLE_EXPEDITION_002_RESULTS.md
+    live_batch_id: b174-exp002-0322124804
+
+datasets:
+  - id: expedition-002-live-batch
+    kind: run-matrix
+    artifact_root: .artifacts/darwin-hpc/expedition-002-live-execution/
+
+observer_context:
+  contract: docs/darwin/hpc/contracts/physio-snapshot.json
+  source_phase: B17.2
+
+memory_context:
+  source_phase: B17.1
+  query_contract: docs/darwin/hpc/contracts/memory-query-response.json
+
+evidence_targets:
+  - id: expedition-002-results
+    kind: manuscript-results-doc
+    path: docs/darwin/hpc/BEAGLE_EXPEDITION_002_RESULTS.md

@@ -1,0 +1,84 @@
+type: object
+required:
+  - decision_version
+  - approval_gating_decision_id
+  - autonomy_policy_id
+  - risk_evaluation_id
+  - source_execution_id
+  - source_plan_id
+  - review_inbox_item_id
+  - review_decision_id
+  - follow_on_plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - decision_class
+  - matched_policy_rule
+  - evaluated_at
+  - operator_visibility_confirmed
+  - continuation_dispatch_permitted
+  - auto_continuation_enabled
+  - human_review_required
+  - blocked
+  - follow_on_state_after_gating
+  - requested_operator_action
+  - review_inbox_path
+  - continuation_dispatch_path
+  - note
+properties:
+  decision_version:
+    type: string
+    const: beagle-approval-gating-decision-v1
+  approval_gating_decision_id:
+    type: string
+  autonomy_policy_id:
+    type: string
+  risk_evaluation_id:
+    type: string
+  source_execution_id:
+    type: string
+  source_plan_id:
+    type: string
+  review_inbox_item_id:
+    type: string
+  review_decision_id:
+    type: string
+  follow_on_plan_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  decision_class:
+    type: string
+    enum:
+      - auto-continue
+      - review-required
+      - blocked
+  matched_policy_rule:
+    type: string
+  evaluated_at:
+    type: string
+    format: date-time
+  operator_visibility_confirmed:
+    type: boolean
+  continuation_dispatch_permitted:
+    type: boolean
+  auto_continuation_enabled:
+    type: boolean
+  human_review_required:
+    type: boolean
+  blocked:
+    type: boolean
+  follow_on_state_after_gating:
+    type: string
+  requested_operator_action:
+    type: string
+  review_inbox_path:
+    type: string
+  continuation_dispatch_path:
+    type: string
+  note:
+    type: string

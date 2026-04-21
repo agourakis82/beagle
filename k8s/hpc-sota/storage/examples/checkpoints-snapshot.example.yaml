@@ -1,0 +1,9 @@
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: training-checkpoints-snap-001
+  namespace: beagle
+spec:
+  volumeSnapshotClassName: ceph-rbd-snapshots
+  source:
+    persistentVolumeClaimName: training-checkpoints

@@ -1,0 +1,123 @@
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: sns-template
+  namespace: beagle
+  annotations:
+    sounio.dev/template: "true"
+    alpha.jobset.sigs.k8s.io/exclusive-topology: kubernetes.io/hostname
+spec:
+  coordinator:
+    replicatedJob: leader
+    jobIndex: 0
+    podIndex: 0
+  network:
+    enableDNSHostnames: true
+    subdomain: sns
+    publishNotReadyAddresses: true
+  replicatedJobs:
+    - name: leader
+      replicas: 1
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            spec:
+              restartPolicy: Never
+              tolerations:
+                - operator: Exists
+              containers:
+                - name: leader
+                  image: python:3.11-slim
+                  command:
+                    - /bin/sh
+                    - -lc
+                    - |
+                      python - <<'PY'
+                      import socket
+                      import threading
+
+                      expected = 2
+                      server = socket.socket()
+                      server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                      server.bind(("0.0.0.0", 29501))
+                      server.listen()
+                      print("leader-ready", flush=True)
+
+                      seen = []
+
+                      def accept_one():
+                          conn, addr = server.accept()
+                          data = conn.recv(1024).decode("utf-8", "ignore")
+                          conn.sendall(b"ack")
+                          conn.close()
+                          seen.append((addr[0], data))
+
+                      threads = [threading.Thread(target=accept_one) for _ in range(expected)]
+                      for t in threads:
+                          t.start()
+                      for t in threads:
+                          t.join()
+
+                      print(f"leader-seen={seen}", flush=True)
+                      PY
+                  ports:
+                    - containerPort: 29501
+    - name: workers
+      dependsOn:
+        - name: leader
+          status: Ready
+      replicas: 2
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            spec:
+              restartPolicy: Never
+              tolerations:
+                - operator: Exists
+              containers:
+                - name: worker
+                  image: python:3.11-slim
+                  env:
+                    - name: MASTER_ADDR
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['jobset.sigs.k8s.io/coordinator']
+                    - name: JOB_COMPLETION_INDEX
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+                  command:
+                    - /bin/sh
+                    - -lc
+                    - |
+                      python - <<'PY'
+                      import os
+                      import socket
+                      import time
+
+                      master = os.environ["MASTER_ADDR"]
+                      worker = os.environ["JOB_COMPLETION_INDEX"]
+                      print(f"worker={worker} master={master}", flush=True)
+
+                      deadline = time.time() + 60
+                      last_error = None
+                      while time.time() < deadline:
+                          try:
+                              sock = socket.create_connection((master, 29501), timeout=5)
+                              sock.sendall(f"hello-from-{worker}".encode())
+                              reply = sock.recv(16).decode()
+                              print(f"worker={worker} reply={reply}", flush=True)
+                              sock.close()
+                              raise SystemExit(0)
+                          except Exception as exc:
+                              last_error = exc
+                              time.sleep(2)
+
+                      raise SystemExit(f"worker={worker} failed to reach leader: {last_error}")
+                      PY

@@ -36,6 +36,12 @@ spec:
       securityContext:
         appArmorProfile:
           type: Unconfined
+      nodeSelector:
+        kubernetes.io/hostname: t560-proxmox
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

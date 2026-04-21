@@ -7,10 +7,11 @@ use beagle_agents::metacognitive::{
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::error::ApiError;
-use crate::state::AppState;
+use crate::state::{AnthropicAgentClient, AppState};
 
 // ============================================================================
 // Request/Response Types
@@ -212,7 +213,8 @@ pub async fn analyze_failures(
     let llm = state
         .anthropic_client()
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    let analyzer = WeaknessAnalyzer::new(llm);
+    let agent_client = Arc::new(AnthropicAgentClient::new(llm));
+    let analyzer = WeaknessAnalyzer::new(agent_client);
 
     // Analyze failures
     let patterns = analyzer.analyze_failures(&monitor).await.map_err(|e| {

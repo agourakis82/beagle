@@ -1,0 +1,59 @@
+api_version: beagle.workstream.recipe/v1
+phase: B14.3
+id: beagle-darwin-hpc-governance.operator_cpu_loop
+workstream: beagle-darwin-hpc-governance
+kind: operator_cpu_loop
+summary: Canonical operator CPU batch loop with result resolution and state persistence.
+
+inputs:
+  repo: agourakis82/beagle
+  branch: feat/darwin-hpc-governance
+  workspace_id: runtime-supplied
+  profile_id: cpu-batch-v1
+  default_dev_plane: beagle-cluster
+  promotion_scope: beagle-darwin-hpc-general-noninfra
+
+steps:
+  - id: bootstrap
+    action: bootstrap_workspace_session
+    success_condition: workspace and session resolve
+    recovery_point: session_before_loop
+  - id: control_surface_lookup
+    action: query_hpc_control_catalog
+    success_condition: cpu-batch-v1 is listed
+    recovery_point: control_before_loop
+  - id: submit_cpu_batch
+    action: execute_operator_cpu_batch_workflow
+    success_condition: slurm job reaches COMPLETED
+    recovery_point: submitted_job
+  - id: result_resolution
+    action: resolve_published_result_and_manifest
+    success_condition: published result remains resolvable
+    recovery_point: published_result
+  - id: persist_state
+    action: persist_workspace_session_state
+    success_condition: session tracks last successful CPU workflow
+    recovery_point: session_after_loop
+
+outputs:
+  primary_artifacts:
+    - control-before-loop2.json
+    - results-before-loop2.json
+    - loop2-pilot.json
+    - loop2-result-after.json
+    - loop2-result-manifest-after.json
+    - session-after-loop2.json
+    - loop2.json
+
+recovery_points:
+  - session_before_loop
+  - control_before_loop
+  - submitted_job
+  - published_result
+  - session_after_loop
+
+success_criteria:
+  - cpu-batch-v1 is available in control surface
+  - submitted CPU job completes
+  - result lookup remains object-backed and resolvable
+  - session persists the CPU workflow state

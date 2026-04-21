@@ -5,10 +5,12 @@
  */
 
 import { logger } from "./logger.js";
+import { triggerEvent, WebhookEventType } from "./webhooks.js";
 
 export interface BeagleConfig {
     baseUrl: string;
     authToken?: string;
+    consumerId?: string;
 }
 
 export class BeagleClient {
@@ -20,6 +22,7 @@ export class BeagleClient {
         private authToken?: string,
         timeout = 60000, // 60s default
         maxRetries = 2,
+        private consumerId = process.env.BEAGLE_CONSUMER || "beagle-operator",
     ) {
         // Remove trailing slash
         this.baseUrl = baseUrl.replace(/\/$/, "");
@@ -42,6 +45,9 @@ export class BeagleClient {
 
         if (this.authToken) {
             headers["Authorization"] = `Bearer ${this.authToken}`;
+        }
+        if (this.consumerId) {
+            headers["X-Beagle-Consumer"] = this.consumerId;
         }
 
         const options: RequestInit = {
@@ -160,8 +166,32 @@ export class BeagleClient {
         run_id: string;
         status: string;
         question?: string;
+        error?: string;
     }> {
-        return this.request("GET", `/api/pipeline/status/${runId}`);
+        const result = await this.request<{
+            run_id: string;
+            status: string;
+            question?: string;
+            error?: string;
+        }>("GET", `/api/pipeline/status/${runId}`);
+
+        // Trigger webhook if pipeline completed or failed
+        if (result.status === "completed") {
+            await triggerEvent("pipeline.complete", {
+                run_id: result.run_id,
+                question: result.question,
+                timestamp: new Date().toISOString(),
+            });
+        } else if (result.status === "failed") {
+            await triggerEvent("pipeline.failed", {
+                run_id: result.run_id,
+                question: result.question,
+                error: result.error,
+                timestamp: new Date().toISOString(),
+            });
+        }
+
+        return result;
     }
 
     async getRunArtifacts(runId: string): Promise<{
@@ -203,11 +233,40 @@ export class BeagleClient {
     async getScienceJobStatus(jobId: string): Promise<{
         job_id: string;
         status: string;
+        kind?: string;
         started_at?: string;
         completed_at?: string;
         error?: string;
     }> {
-        return this.request("GET", `/api/jobs/science/status/${jobId}`);
+        const result = await this.request<{
+            job_id: string;
+            status: string;
+            kind?: string;
+            started_at?: string;
+            completed_at?: string;
+            error?: string;
+        }>("GET", `/api/jobs/science/status/${jobId}`);
+
+        // Trigger webhook if job completed or failed
+        if (result.status === "completed") {
+            await triggerEvent("science_job.complete", {
+                job_id: result.job_id,
+                kind: result.kind,
+                started_at: result.started_at,
+                completed_at: result.completed_at,
+                timestamp: new Date().toISOString(),
+            }, { jobType: result.kind });
+        } else if (result.status === "failed") {
+            await triggerEvent("science_job.failed", {
+                job_id: result.job_id,
+                kind: result.kind,
+                error: result.error,
+                started_at: result.started_at,
+                timestamp: new Date().toISOString(),
+            }, { jobType: result.kind });
+        }
+
+        return result;
     }
 
     async getScienceJobArtifacts(jobId: string): Promise<{
@@ -222,19 +281,34 @@ export class BeagleClient {
 
     async memoryQuery(
         query: string,
-        topK = 5,
+        limit = 5,
+        domain?: string,
+        tags?: string[],
+        includeRecentPhysio = false,
     ): Promise<{
+        summary: string;
         results: Array<{
-            id: string;
+            memory_id: string;
             source: string;
-            snippet: string;
+            conversation_id: string;
+            turn_index: number;
+            role: string;
+            text: string;
+            tags: string[];
+            domain?: string;
+            timestamp: string;
+            physio_snapshot?: Record<string, unknown>;
+            experiment_flags?: Record<string, unknown>;
             score?: number;
-            metadata?: Record<string, unknown>;
         }>;
+        recent_physio?: Record<string, unknown>;
     }> {
         return this.request("POST", "/api/memory/query", {
             query,
-            top_k: topK,
+            limit,
+            domain,
+            tags,
+            include_recent_physio: includeRecentPhysio,
         });
     }
 
@@ -242,23 +316,52 @@ export class BeagleClient {
         source: string,
         conversationId: string,
         turnIndex: number,
-        role: "user" | "assistant" | "system",
+        role: "user" | "assistant" | "system" | "tool",
         text: string,
-        subjectHint?: string,
+        domain?: string,
         tags?: string[],
+        provider?: string,
+        model?: string,
     ): Promise<{
-        stored: boolean;
+        status: string;
         memory_id?: string;
+        searchable: boolean;
+        physio_attached: boolean;
+        experiment_flags_attached: boolean;
     }> {
-        return this.request("POST", "/api/memory/ingest_chat", {
+        const result = await this.request<{
+            status: string;
+            memory_id?: string;
+            searchable: boolean;
+            physio_attached: boolean;
+            experiment_flags_attached: boolean;
+        }>("POST", "/api/memory/ingest_chat", {
             source,
             conversation_id: conversationId,
             turn_index: turnIndex,
             role,
             text,
-            subject_hint: subjectHint,
+            domain,
             tags,
+            provider,
+            model,
         });
+
+        // Trigger webhook if ingestion completed successfully
+        if (result.status === "ok" || result.status === "success") {
+            await triggerEvent("memory.ingest_complete", {
+                memory_id: result.memory_id,
+                source,
+                conversation_id: conversationId,
+                turn_index: turnIndex,
+                role,
+                domain,
+                tags,
+                timestamp: new Date().toISOString(),
+            });
+        }
+
+        return result;
     }
 
     async tagRun(
@@ -336,5 +439,143 @@ export class BeagleClient {
             max_tokens: options?.max_tokens,
             temperature: options?.temperature,
         });
+    }
+
+    /**
+     * Stream LLM completion via Server-Sent Events (SSE)
+     * Returns an async generator that yields chunks as they arrive from the LLM
+     */
+    async *llmCompleteStream(
+        prompt: string,
+        options?: {
+            requires_math?: boolean;
+            requires_high_quality?: boolean;
+            offline_required?: boolean;
+            max_tokens?: number;
+            temperature?: number;
+        },
+    ): AsyncGenerator<
+        | { type: "chunk"; content: string; index: number }
+        | { type: "complete"; metadata: Record<string, unknown> }
+        | { type: "error"; error: string },
+        void,
+        unknown
+    > {
+        const url = new URL(`${this.baseUrl}/api/llm/complete/stream`);
+        url.searchParams.append("prompt", prompt);
+        if (options?.requires_math) url.searchParams.append("requires_math", "true");
+        if (options?.requires_high_quality)
+            url.searchParams.append("requires_high_quality", "true");
+        if (options?.offline_required) url.searchParams.append("offline_required", "true");
+        if (options?.max_tokens) url.searchParams.append("max_tokens", options.max_tokens.toString());
+        if (options?.temperature !== undefined)
+            url.searchParams.append("temperature", options.temperature.toString());
+
+        const headers: Record<string, string> = {
+            Accept: "text/event-stream",
+        };
+
+        if (this.authToken) {
+            headers["Authorization"] = `Bearer ${this.authToken}`;
+        }
+        if (this.consumerId) {
+            headers["X-Beagle-Consumer"] = this.consumerId;
+        }
+
+        const response = await fetch(url.toString(), {
+            method: "GET",
+            headers,
+        });
+
+        if (!response.ok) {
+            throw new Error(`SSE request failed: ${response.status} ${response.statusText}`);
+        }
+
+        if (!response.body) {
+            throw new Error("Response body is null");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+
+                // Process SSE events in buffer
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+                let currentEvent: string | null = null;
+
+                for (const line of lines) {
+                    if (line.startsWith("event: ")) {
+                        currentEvent = line.slice(7).trim();
+                    } else if (line.startsWith("data: ")) {
+                        const data = line.slice(6);
+                        if (currentEvent === "chunk") {
+                            try {
+                                const parsed = JSON.parse(data);
+                                yield { type: "chunk", content: parsed.content, index: parsed.index };
+                            } catch (e) {
+                                logger.warn("Failed to parse chunk data:", { data, error: e });
+                            }
+                        } else if (currentEvent === "complete") {
+                            try {
+                                const parsed = JSON.parse(data);
+                                yield { type: "complete", metadata: parsed };
+                                return;
+                            } catch (e) {
+                                logger.warn("Failed to parse complete data:", { data, error: e });
+                                yield {
+                                    type: "complete",
+                                    metadata: { raw: data },
+                                };
+                                return;
+                            }
+                        } else if (currentEvent === "error") {
+                            yield { type: "error", error: data };
+                        }
+                    } else if (line.trim() === "" && currentEvent) {
+                        // Event separator, reset event type
+                        currentEvent = null;
+                    }
+                }
+            }
+
+            // Process any remaining data in buffer
+            if (buffer.trim()) {
+                const lines = buffer.split("\n");
+                let currentEvent: string | null = null;
+                for (const line of lines) {
+                    if (line.startsWith("event: ")) {
+                        currentEvent = line.slice(7).trim();
+                    } else if (line.startsWith("data: ")) {
+                        const data = line.slice(6);
+                        if (currentEvent === "chunk") {
+                            try {
+                                const parsed = JSON.parse(data);
+                                yield { type: "chunk", content: parsed.content, index: parsed.index };
+                            } catch {
+                                // Ignore parse errors for incomplete data
+                            }
+                        } else if (currentEvent === "complete") {
+                            try {
+                                const parsed = JSON.parse(data);
+                                yield { type: "complete", metadata: parsed };
+                            } catch {
+                                yield { type: "complete", metadata: { raw: data } };
+                            }
+                        }
+                    }
+                }
+            }
+        } finally {
+            reader.releaseLock();
+        }
     }
 }

@@ -1,0 +1,117 @@
+type: object
+required:
+  - recommendation_version
+  - manuscript_tuning_recommendation_id
+  - manuscript_trajectory_quality_id
+  - manuscript_context_adequacy_id
+  - manuscript_promotion_gate_id
+  - control_policy_id
+  - manuscript_candidate_policy_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - current_promotion_gate_decision
+  - manuscript_must_remain_shadow
+  - candidate_policy_mode
+  - candidate_tuned_policy_id
+  - candidate_task_family
+  - candidate_selected_subagent_id
+  - candidate_work_mode
+  - candidate_retrieval_query_type
+  - candidate_compiler_profile_id
+  - candidate_graphrag_query_mode
+  - candidate_temporal_truth_view
+  - candidate_context_task_profile
+  - candidate_context_budget_profile_id
+  - candidate_handoff_package
+  - candidate_assembly_package
+  - editorial_acceptance_target
+  - next_validation_mode
+  - promotion_readiness_label
+  - recommended_changes
+  - highest_impact_fix
+  - same_beagle_owned_identity
+properties:
+  recommendation_version:
+    type: string
+    enum:
+      - beagle-manuscript-tuning-recommendation-v1
+  manuscript_tuning_recommendation_id:
+    type: string
+  manuscript_trajectory_quality_id:
+    type: string
+  manuscript_context_adequacy_id:
+    type: string
+  manuscript_promotion_gate_id:
+    type: string
+  control_policy_id:
+    type: string
+  manuscript_candidate_policy_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+    enum:
+      - implementation-and-analysis-canary-live-manuscript-quality-uplift
+  current_promotion_gate_decision:
+    type: string
+  manuscript_must_remain_shadow:
+    type: boolean
+  candidate_policy_mode:
+    type: string
+    enum:
+      - shadow-retest
+  candidate_tuned_policy_id:
+    type: string
+  candidate_task_family:
+    type: string
+  candidate_selected_subagent_id:
+    type: string
+  candidate_work_mode:
+    type: string
+  candidate_retrieval_query_type:
+    type: string
+  candidate_compiler_profile_id:
+    type: string
+  candidate_graphrag_query_mode:
+    type: string
+  candidate_temporal_truth_view:
+    type: string
+  candidate_context_task_profile:
+    type: string
+  candidate_context_budget_profile_id:
+    type: string
+  candidate_handoff_package:
+    type: string
+  candidate_assembly_package:
+    type: string
+  editorial_acceptance_target:
+    type: string
+    enum:
+      - operator-ready
+  next_validation_mode:
+    type: string
+    enum:
+      - shadow-retest
+  promotion_readiness_label:
+    type: string
+    enum:
+      - tune-in-shadow
+  recommended_changes:
+    type: array
+    items:
+      type: string
+  highest_impact_fix:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  note:
+    type: string

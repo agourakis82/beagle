@@ -1,0 +1,72 @@
+type: object
+required:
+  - suggestion_version
+  - suggestion_id
+  - execution_id
+  - plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - evaluation_mode
+  - replan_required
+  - request_operator_review
+  - request_operator_approval_again
+  - requested_operator_action
+  - suggested_task_family
+  - suggested_subagent_id
+  - suggested_retrieval_query_type
+  - suggested_compiler_profile_id
+  - suggested_graphrag_query_mode
+  - suggested_temporal_truth_view
+  - suggested_changes
+  - rationale
+  - note
+properties:
+  suggestion_version:
+    type: string
+  suggestion_id:
+    type: string
+  execution_id:
+    type: string
+  plan_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  evaluation_mode:
+    type: string
+  replan_required:
+    type: boolean
+  request_operator_review:
+    type: boolean
+  request_operator_approval_again:
+    type: boolean
+  requested_operator_action:
+    type: string
+  suggested_task_family:
+    type: string
+  suggested_subagent_id:
+    type: string
+  suggested_retrieval_query_type:
+    type: string
+  suggested_compiler_profile_id:
+    type: string
+  suggested_graphrag_query_mode:
+    type: string
+  suggested_temporal_truth_view:
+    type: string
+  suggested_recipe_kind:
+    type:
+      - string
+      - "null"
+  suggested_changes:
+    type: array
+    items:
+      type: string
+  rationale:
+    type: string
+  note:
+    type: string

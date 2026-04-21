@@ -1,0 +1,14 @@
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: r770-proxmox
+      tolerations:
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule

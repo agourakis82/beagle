@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Beagle Memory Ingest Chat Request",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "type": "string",
+      "enum": ["chatgpt", "claude", "codex", "cursor", "other"]
+    },
+    "conversation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "turn_index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "role": {
+      "type": "string",
+      "enum": ["user", "assistant", "system", "tool"]
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "domain": {
+      "type": ["string", "null"]
+    },
+    "provider": {
+      "type": ["string", "null"]
+    },
+    "model": {
+      "type": ["string", "null"]
+    },
+    "experiment_flags": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "hrv_aware": { "type": ["boolean", "null"] },
+        "serendipity_enabled": { "type": ["boolean", "null"] },
+        "triad_enabled": { "type": ["boolean", "null"] }
+      }
+    }
+  },
+  "required": ["source", "conversation_id", "turn_index", "role", "text"]
+}

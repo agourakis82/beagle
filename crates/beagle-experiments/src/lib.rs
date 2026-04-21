@@ -8,6 +8,7 @@
 
 pub mod analysis;
 pub mod exp001;
+pub mod exp002;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,16 @@ pub use analysis::{ConditionMetrics, ExperimentDataPoint, ExperimentMetrics};
 pub use exp001::{
     assert_expedition_001_llm_config, Expedition001Config, EXPEDITION_001_DEFAULT_N,
     EXPEDITION_001_ID,
+};
+pub use exp002::{
+    blank_human_rating_template as expedition_002_blank_human_rating_template,
+    build_human_eval_packet as expedition_002_build_human_eval_packet,
+    generate_condition_sequence as expedition_002_condition_sequence,
+    Expedition002HumanEvalKey, Expedition002HumanEvalKeyEntry, Expedition002HumanEvalPacket,
+    Expedition002HumanEvalSource, Expedition002HumanRating, Expedition002HumanRatingBatch,
+    hrv_aware_condition_flags as expedition_002_hrv_aware_condition_flags,
+    hrv_blind_condition_flags as expedition_002_hrv_blind_condition_flags, Expedition002Config,
+    EXPEDITION_002_DEFAULT_N, EXPEDITION_002_HUMAN_EVAL_PROTOCOL, EXPEDITION_002_ID,
 };
 
 /// Tag experimental para um run_id

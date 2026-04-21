@@ -1,0 +1,75 @@
+id: beagle-darwin-hpc-governance
+repo: agourakis82/beagle
+default_branch: feat/darwin-hpc-governance
+branch_lineage: feat/darwin-hpc-governance
+scope: beagle-darwin-hpc-general-noninfra
+default_dev_plane: beagle-cluster
+vm_fallback_role: fallback-only
+
+compute_profiles:
+  default: cpu-short-v1
+  batch: cpu-batch-v1
+  advanced: gpu-single-v1
+
+result_plane:
+  publication: object-backed
+  retrieval: object-backed
+  retention_policy: active
+
+consumer_policy:
+  operator: full
+  darwin_research: bounded
+
+recovery_policy:
+  handoff_required: true
+  recovery_required: true
+
+recipes:
+  registry_root: docs/darwin/hpc/workstreams/recipes
+  validation_state: canonical-live
+  repo_native_dev_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-governance.repo_native_dev_loop.yaml
+  operator_cpu_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-governance.operator_cpu_loop.yaml
+  operator_gpu_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-governance.operator_gpu_loop.yaml
+  recovery_resume_loop: docs/darwin/hpc/workstreams/recipes/beagle-darwin-hpc-governance.recovery_resume_loop.yaml
+  latest_validation_phase: B14.3
+  latest_validation_workspace_id: b143-0321200310
+  latest_validation_session_id: ws-20260321230311
+
+promotion_state:
+  state: canonical
+  last_transition: resume
+  allowed_states:
+    - staged
+    - pilot
+    - canonical
+    - held
+    - rollback
+    - recovery
+  allowed_transitions:
+    - name: promote
+      from: staged
+      to: pilot
+    - name: promote
+      from: pilot
+      to: canonical
+    - name: hold
+      from: canonical
+      to: held
+    - name: resume
+      from: held
+      to: canonical
+    - name: rollback
+      from: canonical
+      to: rollback
+    - name: recover
+      from: rollback
+      to: recovery
+    - name: resume
+      from: recovery
+      to: canonical
+  source_phase: B14.1
+  canonical_workspace_id: b141-0321174602
+  canonical_session_id: ws-20260321204603
+  latest_validation_phase: B14.4
+  latest_validation_workspace_id: b144-0321204218
+  latest_validation_session_id: ws-20260321234559

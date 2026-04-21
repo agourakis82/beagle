@@ -1,0 +1,53 @@
+api_version: beagle.workstream.recipe/v1
+phase: B14.3
+id: beagle-darwin-hpc-governance.recovery_resume_loop
+workstream: beagle-darwin-hpc-governance
+kind: recovery_resume_loop
+summary: Canonical restart/recovery loop for resuming the governed workstream session.
+
+inputs:
+  repo: agourakis82/beagle
+  branch: feat/darwin-hpc-governance
+  workspace_id: runtime-supplied
+  recovery_required: true
+  handoff_required: true
+  default_dev_plane: beagle-cluster
+  vm_fallback_role: fallback-only
+
+steps:
+  - id: session_restart
+    action: rollout_restart_and_wait
+    success_condition: beagle-core rollout completes after restart
+    recovery_point: beagle_health_after_restart
+  - id: repo_branch_recovery
+    action: bootstrap_workspace_after_restart
+    success_condition: canonical repo and branch are recovered
+    recovery_point: bootstrap_after_restart
+  - id: last_task_result_recovery
+    action: restore_last_task_and_result_context
+    success_condition: last task and published result remain present
+    recovery_point: session_after_restart
+  - id: resume_semantics
+    action: validate_same_session_line_and_canonical_plane
+    success_condition: same session resumes on beagle-cluster without VM takeover
+    recovery_point: smoke_summary
+
+outputs:
+  primary_artifacts:
+    - beagle-health-after-restart.json
+    - bootstrap-after-restart.json
+    - session-after-restart.json
+    - fallback-summary.json
+    - smoke.json
+
+recovery_points:
+  - beagle_health_after_restart
+  - bootstrap_after_restart
+  - session_after_restart
+  - smoke_summary
+
+success_criteria:
+  - same session line survives restart
+  - canonical repo and branch are recovered
+  - last task and result remain available
+  - beagle-cluster remains active and VM remains fallback-only

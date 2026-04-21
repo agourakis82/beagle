@@ -1,0 +1,41 @@
+title: Crossref Deposit Bundle
+type: object
+required:
+  - export_profile
+  - bundle_id
+  - submission_mode
+  - real_deposit_performed
+  - batch_id
+  - journal_title
+  - article_title
+  - related_item_count
+  - readiness_state
+  - xml_bundle
+properties:
+  export_profile:
+    type: string
+    enum:
+      - crossref-journal-article-deposit-bundle-v1
+  bundle_id:
+    type: string
+  submission_mode:
+    type: string
+    enum:
+      - deposit-ready-no-submit
+  real_deposit_performed:
+    type: boolean
+  batch_id:
+    type: string
+  journal_title:
+    type: string
+  article_title:
+    type: string
+  related_item_count:
+    type: integer
+    minimum: 0
+  readiness_state:
+    type: string
+  xml_bundle:
+    type: string
+  note:
+    type: string

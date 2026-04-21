@@ -1,0 +1,98 @@
+type: object
+required:
+  - soak_version
+  - analysis_shadow_soak_id
+  - control_policy_id
+  - analysis_candidate_policy_id
+  - source_analysis_shadow_calibration_id
+  - source_analysis_rollout_metrics_id
+  - source_analysis_rollout_decision_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - shadow_sample_count
+  - rolling_window_size
+  - implementation_canary_retained
+  - manuscript_control_retained
+  - history
+properties:
+  soak_version:
+    type: string
+    enum:
+      - beagle-analysis-shadow-soak-v1
+  analysis_shadow_soak_id:
+    type: string
+  control_policy_id:
+    type: string
+  analysis_candidate_policy_id:
+    type: string
+  source_analysis_shadow_calibration_id:
+    type: string
+  source_analysis_rollout_metrics_id:
+    type: string
+  source_analysis_rollout_decision_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+  shadow_sample_count:
+    type: integer
+    minimum: 0
+  rolling_window_size:
+    type: integer
+    minimum: 1
+  implementation_canary_retained:
+    type: boolean
+  manuscript_control_retained:
+    type: boolean
+  history:
+    type: array
+    items:
+      type: object
+      required:
+        - observation_id
+        - sample_id
+        - sample_source
+        - observed_at
+        - expected_decision_class
+        - current_policy_decision_class
+        - analysis_candidate_decision_class
+        - operator_alignment_observed
+        - execution_alignment_observed
+        - improved_alignment
+        - regression
+      properties:
+        observation_id:
+          type: string
+        sample_id:
+          type: string
+        sample_source:
+          type: string
+        observed_at:
+          type: string
+        expected_decision_class:
+          type: string
+        current_policy_decision_class:
+          type: string
+        analysis_candidate_decision_class:
+          type: string
+        operator_alignment_observed:
+          type: boolean
+        execution_alignment_observed:
+          type: boolean
+        improved_alignment:
+          type: boolean
+        regression:
+          type: boolean
+        note:
+          type: string
+  note:
+    type: string

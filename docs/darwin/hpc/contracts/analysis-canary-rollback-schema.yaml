@@ -1,0 +1,70 @@
+type: object
+required:
+  - decision_version
+  - analysis_canary_rollback_decision_id
+  - analysis_canary_metrics_id
+  - source_analysis_promotion_gate_id
+  - control_policy_id
+  - implementation_canary_policy_id
+  - analysis_canary_policy_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - generated_at
+  - canary_stage
+  - implementation_canary_retained
+  - analysis_canary_live
+  - manuscript_control_retained
+  - regression_detected
+  - rollback_required
+  - rollback_triggered
+  - rollback_reason
+  - rollback_action
+  - same_beagle_owned_identity
+  - note
+properties:
+  decision_version:
+    type: string
+    const: beagle-analysis-canary-rollback-v1
+  analysis_canary_rollback_decision_id:
+    type: string
+  analysis_canary_metrics_id:
+    type: string
+  source_analysis_promotion_gate_id:
+    type: string
+  control_policy_id:
+    type: string
+  implementation_canary_policy_id:
+    type: string
+  analysis_canary_policy_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  canary_stage:
+    type: string
+  implementation_canary_retained:
+    type: boolean
+  analysis_canary_live:
+    type: boolean
+  manuscript_control_retained:
+    type: boolean
+  regression_detected:
+    type: boolean
+  rollback_required:
+    type: boolean
+  rollback_triggered:
+    type: boolean
+  rollback_reason:
+    type: string
+  rollback_action:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  note:
+    type: string

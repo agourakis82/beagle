@@ -1,0 +1,105 @@
+type: object
+required:
+  - thresholds_version
+  - escalation_thresholds_id
+  - dataset_id
+  - eval_report_id
+  - policy_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - generated_at
+  - stage_state
+  - thresholds
+  - note
+properties:
+  thresholds_version:
+    type: string
+    const: beagle-escalation-thresholds-v1
+  escalation_thresholds_id:
+    type: string
+  dataset_id:
+    type: string
+  eval_report_id:
+    type: string
+  policy_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  stage_state:
+    type: string
+    const: shadow-only
+  thresholds:
+    type: array
+    items:
+      type: object
+      required:
+        - task_family
+        - stage_state
+        - auto_continue_enabled
+        - auto_continue_min_overall_quality_score
+        - auto_continue_min_trajectory_score
+        - blocked_max_overall_quality_score
+        - blocked_max_trajectory_score
+        - allowed_subagent_ids
+        - allowed_retrieval_query_types
+        - allowed_compiler_profile_ids
+        - allowed_graphrag_query_modes
+        - allowed_temporal_truth_views
+        - blocked_requested_operator_actions
+        - blocked_when_replan_required
+        - recommended_action
+        - rationale
+      properties:
+        task_family:
+          type: string
+        stage_state:
+          type: string
+        auto_continue_enabled:
+          type: boolean
+        auto_continue_min_overall_quality_score:
+          type: integer
+        auto_continue_min_trajectory_score:
+          type: integer
+        blocked_max_overall_quality_score:
+          type: integer
+        blocked_max_trajectory_score:
+          type: integer
+        allowed_subagent_ids:
+          type: array
+          items:
+            type: string
+        allowed_retrieval_query_types:
+          type: array
+          items:
+            type: string
+        allowed_compiler_profile_ids:
+          type: array
+          items:
+            type: string
+        allowed_graphrag_query_modes:
+          type: array
+          items:
+            type: string
+        allowed_temporal_truth_views:
+          type: array
+          items:
+            type: string
+        blocked_requested_operator_actions:
+          type: array
+          items:
+            type: string
+        blocked_when_replan_required:
+          type: boolean
+        recommended_action:
+          type: string
+        rationale:
+          type: string
+  note:
+    type: string

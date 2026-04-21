@@ -1,0 +1,24 @@
+services:
+  technitium-dns:
+    image: technitium/dns-server:latest
+    container_name: svc10g-technitium
+    restart: unless-stopped
+    environment:
+      TZ: America/Sao_Paulo
+      DNS_SERVER_DOMAIN: svc10g.lab.sounio
+      DNS_SERVER_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+    ports:
+      - "127.0.0.1:5353:53/tcp"
+      - "127.0.0.1:5353:53/udp"
+      - "10.30.0.1:5380:5380/tcp"
+      - "192.168.3.207:5380:5380/tcp"
+      - "10.100.100.3:5380:5380/tcp"
+    volumes:
+      - /srv/service-fabric/technitium/config:/etc/dns
+    secrets:
+      - admin_password
+
+secrets:
+  admin_password:
+    file: /srv/service-fabric/technitium/admin-password.txt
+

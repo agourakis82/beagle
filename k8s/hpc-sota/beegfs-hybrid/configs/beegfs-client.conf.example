@@ -1,0 +1,5 @@
+sysMgmtdHost=10.100.100.2
+connInterfacesFile=/etc/beegfs/interfaces
+connAuthFile=/etc/beegfs/beegfs.conn.auth
+sysMountSanityCheckMS=1
+storeAllowFirstRunInit=false

@@ -1,0 +1,133 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - dispatch_id
+  - proposal_id
+  - study_decision_id
+  - next_run_proposal_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - proposal_state
+  - approved_by
+  - approved_at
+  - dispatch_state
+  - dispatched_at
+  - study_state
+  - requested_by
+  - requester_role_id
+  - selected_subagent_id
+  - task_family
+  - approved_run_label
+  - approved_variant_id
+  - approved_variant_label
+  - approved_compute_profile_id
+  - source_run_id
+  - reservation_id
+  - run_id
+  - submitted_job_id
+  - published_result_job_id
+  - result_binding_id
+  - run_result_identity_receipt_id
+  - run_scoped_publication_id
+  - deterministic_result_binding_id
+  - study_registry_id
+  - study_dag_id
+  - study_sweep_id
+  - comparative_result_summary_id
+  - operator_review_required
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  dispatch_id:
+    type: string
+  proposal_id:
+    type: string
+  study_decision_id:
+    type: string
+  next_run_proposal_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  proposal_state:
+    type: string
+  approved_by:
+    type: string
+  approved_at:
+    type: string
+  dispatch_state:
+    type: string
+  dispatched_at:
+    type: string
+  study_state:
+    type: string
+  requested_by:
+    type: string
+  requester_role_id:
+    type: string
+  selected_subagent_id:
+    type: string
+  task_family:
+    type: string
+  approved_run_label:
+    type: string
+  approved_variant_id:
+    type: string
+  approved_variant_label:
+    type: string
+  approved_compute_profile_id:
+    type: string
+  approved_recipe_kind:
+    type: string
+  approved_experiment_id:
+    type: string
+  approved_replay_mode:
+    type: string
+  source_run_id:
+    type: string
+  reservation_id:
+    type: string
+  run_id:
+    type: string
+  submitted_job_id:
+    type: integer
+  published_result_job_id:
+    type: integer
+  result_binding_id:
+    type: string
+  run_result_identity_receipt_id:
+    type: string
+  run_scoped_publication_id:
+    type: string
+  deterministic_result_binding_id:
+    type: string
+  study_registry_id:
+    type: string
+  study_dag_id:
+    type: string
+  study_sweep_id:
+    type: string
+  comparative_result_summary_id:
+    type: string
+  operator_review_required:
+    type: boolean
+  evidence_refs:
+    type: array
+  note:
+    type: string

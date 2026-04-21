@@ -109,7 +109,7 @@ impl BeagleContext {
         #[cfg(feature = "memory")]
         let memory = {
             use beagle_hypergraph::CachedPostgresStorage;
-            use beagle_memory::{ContextBridge, MemoryEngine};
+            use beagle_memory::{ContextBridge, MemoryEngine, MemoryEngineConfig};
 
             if let (Some(pg_url), Some(redis_url)) =
                 (&cfg.hermes.database_url, &cfg.hermes.redis_url)
@@ -117,17 +117,41 @@ impl BeagleContext {
                 match CachedPostgresStorage::new(pg_url, redis_url).await {
                     Ok(storage) => {
                         let bridge = Arc::new(ContextBridge::new(Arc::new(storage)));
+                        let memory_config = MemoryEngineConfig::from_runtime(
+                            cfg.graph.qdrant_url.clone(),
+                            std::env::var("BEAGLE_MEMORY_EMBEDDING_URL")
+                                .or_else(|_| std::env::var("EMBEDDING_URL"))
+                                .ok(),
+                            Some(cfg.storage.data_dir_path()),
+                        );
                         info!("MemoryEngine initialized with Postgres+Redis");
-                        Some(Arc::new(MemoryEngine::new(bridge)))
+                        Some(Arc::new(MemoryEngine::new(Some(bridge), memory_config)))
                     }
                     Err(e) => {
-                        warn!("Failed to initialize MemoryEngine: {}", e);
-                        None
+                        warn!(
+                            "Failed to initialize MemoryEngine bridge: {}; continuing with local memory mode",
+                            e
+                        );
+                        let memory_config = MemoryEngineConfig::from_runtime(
+                            cfg.graph.qdrant_url.clone(),
+                            std::env::var("BEAGLE_MEMORY_EMBEDDING_URL")
+                                .or_else(|_| std::env::var("EMBEDDING_URL"))
+                                .ok(),
+                            Some(cfg.storage.data_dir_path()),
+                        );
+                        Some(Arc::new(MemoryEngine::new(None, memory_config)))
                     }
                 }
             } else {
-                warn!("MemoryEngine requires DATABASE_URL and REDIS_URL");
-                None
+                warn!("MemoryEngine bridge requires DATABASE_URL and REDIS_URL; using local memory mode");
+                let memory_config = MemoryEngineConfig::from_runtime(
+                    cfg.graph.qdrant_url.clone(),
+                    std::env::var("BEAGLE_MEMORY_EMBEDDING_URL")
+                        .or_else(|_| std::env::var("EMBEDDING_URL"))
+                        .ok(),
+                    Some(cfg.storage.data_dir_path()),
+                );
+                Some(Arc::new(MemoryEngine::new(None, memory_config)))
             }
         };
         #[cfg(not(feature = "memory"))]
@@ -152,6 +176,21 @@ impl BeagleContext {
 
         // Darwin é inicializado no beagle-monorepo com with_context()
         // para evitar dependência circular
+
+        #[cfg(feature = "memory")]
+        {
+            if let Some(ref engine) = &memory {
+                let health = engine.qdrant_health().await;
+                info!(
+                    target: "beagle_memory",
+                    qdrant_status = %health.status,
+                    qdrant_configured = health.configured,
+                    qdrant_collection = %health.collection,
+                    qdrant_http_status = ?health.http_status,
+                    "MemoryEngine Qdrant health snapshot at startup"
+                );
+            }
+        }
 
         Ok(Self {
             cfg,
@@ -210,6 +249,347 @@ impl BeagleContext {
     ) -> anyhow::Result<beagle_memory::MemoryResult> {
         if let Some(ref memory) = self.memory {
             memory.query(q).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    /// Estado de ligação ao Qdrant para o índice vectorial da memória (sem payloads).
+    #[cfg(feature = "memory")]
+    pub async fn memory_qdrant_health(&self) -> beagle_memory::MemoryQdrantHealth {
+        match &self.memory {
+            Some(engine) => engine.qdrant_health().await,
+            None => beagle_memory::MemoryQdrantHealth {
+                configured: false,
+                status: "memory_engine_disabled".to_string(),
+                http_status: None,
+                collection: String::new(),
+                base_url: None,
+                error: None,
+            },
+        }
+    }
+
+    /// Helper para descrever a coleção canônica de retrieval híbrida
+    #[cfg(feature = "memory")]
+    pub fn memory_retrieval_collection(&self) -> anyhow::Result<beagle_memory::RetrievalCollection> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.retrieval_collection())
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    /// Helper para retrieval híbrida com dense+sparse e filtros explícitos
+    #[cfg(feature = "memory")]
+    pub async fn memory_hybrid_retrieve(
+        &self,
+        q: beagle_memory::RetrievalQuery,
+    ) -> anyhow::Result<beagle_memory::RetrievalResult> {
+        if let Some(ref memory) = self.memory {
+            memory.hybrid_retrieve(q).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub async fn memory_code_retrieve(
+        &self,
+        q: beagle_memory::CodeRetrievalQuery,
+    ) -> anyhow::Result<beagle_memory::CodeRetrievalResult> {
+        if let Some(ref memory) = self.memory {
+            memory.code_retrieve(q).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub async fn memory_sovereign_retrieve(
+        &self,
+        q: beagle_memory::SovereignRetrievalQuery,
+    ) -> anyhow::Result<beagle_memory::SovereignRetrievalResult> {
+        if let Some(ref memory) = self.memory {
+            memory.sovereign_retrieve(q).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_classify_retrieval_query(
+        &self,
+        q: &beagle_memory::RoutedRetrievalQuery,
+    ) -> anyhow::Result<beagle_memory::RetrievalQueryType> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.classify_retrieval_query(q))
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_retrieval_routing_decision(
+        &self,
+        q: &beagle_memory::RoutedRetrievalQuery,
+    ) -> anyhow::Result<beagle_memory::RetrievalRoutingDecision> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.retrieval_routing_decision(q))
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub async fn memory_routed_retrieve(
+        &self,
+        q: beagle_memory::RoutedRetrievalQuery,
+    ) -> anyhow::Result<beagle_memory::RoutedRetrievalResult> {
+        if let Some(ref memory) = self.memory {
+            memory.routed_retrieve(q).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub async fn memory_reranked_routed_retrieve(
+        &self,
+        q: beagle_memory::RoutedRetrievalQuery,
+    ) -> anyhow::Result<beagle_memory::RerankedResult> {
+        if let Some(ref memory) = self.memory {
+            memory.reranked_routed_retrieve(q).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_embedding_backend_matrix(
+        &self,
+    ) -> anyhow::Result<beagle_memory::EmbeddingBackendMatrix> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.embedding_backend_matrix())
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_sovereign_retrieval_backend_profile(
+        &self,
+    ) -> anyhow::Result<beagle_memory::SovereignRetrievalBackendProfile> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.sovereign_retrieval_backend_profile())
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_embedding_backend_contract(
+        &self,
+    ) -> anyhow::Result<beagle_memory::EmbeddingBackendContract> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.embedding_backend_contract())
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_reranking_profile(&self) -> anyhow::Result<beagle_memory::RerankingProfile> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.reranking_profile())
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub async fn memory_retrieval_benchmark(
+        &self,
+        request: beagle_memory::RetrievalBenchmarkRequest,
+    ) -> anyhow::Result<beagle_memory::RetrievalBenchmarkReport> {
+        if let Some(ref memory) = self.memory {
+            memory.benchmark_retrieval(request).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub async fn memory_retrieval_evaluate(
+        &self,
+        request: beagle_memory::RetrievalEvalRequest,
+    ) -> anyhow::Result<beagle_memory::RetrievalEvalReport> {
+        if let Some(ref memory) = self.memory {
+            memory.evaluate_retrieval(request).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub async fn memory_feedback_adjusted_routed_retrieve(
+        &self,
+        request: beagle_memory::RelevanceFeedbackInput,
+    ) -> anyhow::Result<beagle_memory::FeedbackLoopResult> {
+        if let Some(ref memory) = self.memory {
+            memory.feedback_adjusted_routed_retrieve(request).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_compiler_contract(
+        &self,
+    ) -> anyhow::Result<beagle_memory::MemoryCompilerContract> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.memory_compiler_contract())
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_context_budget_profile(
+        &self,
+        task_profile: &str,
+    ) -> anyhow::Result<beagle_memory::ContextBudgetProfile> {
+        if let Some(ref memory) = self.memory {
+            memory.context_budget_profile(task_profile)
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub async fn memory_compile_context(
+        &self,
+        request: beagle_memory::CompiledContextRequest,
+    ) -> anyhow::Result<beagle_memory::CompiledContextPacket> {
+        if let Some(ref memory) = self.memory {
+            memory.compile_context(request).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub async fn memory_evaluate_compiler_policies(
+        &self,
+        request: beagle_memory::CompilerEvalRequest,
+    ) -> anyhow::Result<beagle_memory::CompilerEvalReport> {
+        if let Some(ref memory) = self.memory {
+            memory.evaluate_compiler_policies(request).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_derive_compiler_policy(
+        &self,
+        report: &beagle_memory::CompilerEvalReport,
+    ) -> anyhow::Result<beagle_memory::CompilerPolicy> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.derive_compiler_policy(report))
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_derive_retrieval_policy(
+        &self,
+        report: &beagle_memory::RetrievalEvalReport,
+    ) -> anyhow::Result<beagle_memory::RetrievalPolicy> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.derive_retrieval_policy(report))
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_promotion_policy(
+        &self,
+    ) -> anyhow::Result<beagle_memory::MemoryPromotionPolicy> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.memory_promotion_policy())
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_retention_policy(
+        &self,
+    ) -> anyhow::Result<beagle_memory::MemoryRetentionPolicy> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.memory_retention_policy())
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_temporal_schema(
+        &self,
+    ) -> anyhow::Result<beagle_memory::TemporalMemorySchema> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.temporal_memory_schema())
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub async fn memory_temporal_query(
+        &self,
+        query: beagle_memory::TemporalQuery,
+    ) -> anyhow::Result<beagle_memory::TemporalQueryResult> {
+        if let Some(ref memory) = self.memory {
+            memory.temporal_query(query).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub fn memory_graph_rag_query_mode(
+        &self,
+        query: &beagle_memory::GraphRagQuery,
+    ) -> anyhow::Result<beagle_memory::GraphRagQueryModeDecision> {
+        if let Some(ref memory) = self.memory {
+            Ok(memory.graph_rag_query_mode(query))
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub async fn memory_evaluate_promotion(
+        &self,
+        memory_id: &str,
+    ) -> anyhow::Result<Option<beagle_memory::PromotedMemory>> {
+        if let Some(ref memory) = self.memory {
+            memory.evaluate_memory_promotion(memory_id).await
+        } else {
+            anyhow::bail!("MemoryEngine not initialized")
+        }
+    }
+
+    #[cfg(feature = "memory")]
+    pub async fn memory_graph_rag_query(
+        &self,
+        query: beagle_memory::GraphRagQuery,
+    ) -> anyhow::Result<beagle_memory::GraphRagResult> {
+        if let Some(ref memory) = self.memory {
+            memory.graph_rag_query(query).await
         } else {
             anyhow::bail!("MemoryEngine not initialized")
         }

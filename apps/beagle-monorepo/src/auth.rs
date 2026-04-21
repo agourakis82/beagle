@@ -197,11 +197,18 @@ mod tests {
 
         let ctx = BeagleContext::new_with_mocks(cfg);
 
+        let (cognitive_tx, _rx) = crate::cognitive_events::make_channel();
         AppState {
             ctx: Arc::new(Mutex::new(ctx)),
             jobs: Arc::new(JobRegistry::new()),
             science_jobs: Arc::new(ScienceJobRegistry::new()),
             observer: Arc::new(UniversalObserver::new().unwrap()),
+            voids: Arc::new(crate::jobs::VoidJourneyRegistry::new()),
+            fractals: Arc::new(crate::jobs::FractalTreeRegistry::new()),
+            phis: Arc::new(crate::jobs::PhiMeasurementRegistry::new()),
+            deep_thinks: Arc::new(crate::jobs::DeepThinkRegistry::new()),
+            mcp_tools: Arc::new(crate::jobs::McpToolCallRegistry::new()),
+            cognitive_tx,
         }
     }
 

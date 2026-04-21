@@ -25,6 +25,7 @@ pub enum BridgeProvider {
     Glm5,
     GrokFast,
     Minimax,
+    Kimi,
     CodexHuman,
     ClaudeHuman,
     McpGeneric,

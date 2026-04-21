@@ -1,0 +1,63 @@
+# Beagle Agent Pod — alpine variant.
+#
+# Why this exists: the debian-based agent image hits the well-known
+# "getaddrinfo() thread failed to start" pthread DNS bug under K8s
+# cgroup v2 when new internal services come up during the pod's
+# lifetime. Alpine's musl libc has a non-pthread DNS resolver that
+# sidesteps the whole class of failures. Same trick used earlier for
+# the sounio runner.
+#
+# Parity with Dockerfile:
+#   - Node 22, tmux, git, curl, ca-certificates, jq, openssh-client,
+#     less, procps, python3
+#   - @anthropic-ai/claude-code + @openai/codex globally installed
+#   - UID 1000 'agent' user owning /workspace
+#   - Same entrypoint.sh
+#
+# Trade-off: build-essential → build-base on alpine; some npm packages
+# with native deps may need python3/make/g++ which we include.
+
+FROM node:22-alpine AS agent
+
+RUN apk add --no-cache \
+      bash \
+      tmux \
+      git \
+      curl \
+      ca-certificates \
+      jq \
+      openssh-client-default \
+      less \
+      procps \
+      python3 \
+      build-base \
+      libc6-compat
+
+# Install Claude Code CLI
+RUN npm install -g @anthropic-ai/claude-code@latest
+
+# Install Codex CLI (optional)
+RUN npm install -g @openai/codex@latest || echo "codex not available"
+
+# Replace the distro 'node' user (UID 1000) with 'agent' so the
+# StatefulSet runAsUser:1000 still maps correctly.
+RUN deluser --remove-home node 2>/dev/null || true && \
+    adduser -D -u 1000 -s /bin/bash agent && \
+    mkdir -p /workspace && \
+    chown -R agent:agent /workspace
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+USER agent
+WORKDIR /workspace
+
+RUN printf '%s\n' \
+    'set -g history-limit 50000' \
+    'set -g mouse on' \
+    'set -g default-terminal "xterm-256color"' \
+    'set -ga terminal-overrides ",xterm-256color:Tc"' \
+    'set -g status off' \
+  > /home/agent/.tmux.conf
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

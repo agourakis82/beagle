@@ -1,0 +1,58 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - current_run_id
+  - prior_run_id
+  - current_submitted_job_id
+  - prior_submitted_job_id
+  - lineage_relation
+  - changed_categories
+  - code
+  - config
+  - environment
+  - result
+properties:
+  phase:
+    type: string
+    const: B25.5
+  contract_kind:
+    type: string
+    const: run-diff
+  contract_version:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  current_run_id:
+    type: string
+  prior_run_id:
+    type: string
+  current_submitted_job_id:
+    type: integer
+  prior_submitted_job_id:
+    type: integer
+  lineage_relation:
+    type: string
+  changed_categories:
+    type: array
+  code:
+    type: object
+  config:
+    type: object
+  environment:
+    type: object
+  result:
+    type: object
+  note:
+    type: string

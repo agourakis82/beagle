@@ -1,0 +1,82 @@
+type: object
+required:
+  - receipt_version
+  - continuation_receipt_id
+  - continuation_dispatch_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - source_execution_id
+  - source_plan_id
+  - review_decision_id
+  - follow_on_plan_id
+  - recorded_at
+  - review_action
+  - chained_receipt_ids
+  - handoff_updated
+  - next_execution_receipt
+  - next_execution_result_links
+  - continuation_state_path
+  - note
+properties:
+  receipt_version:
+    type: string
+    const: beagle-continuation-receipt-v1
+  continuation_receipt_id:
+    type: string
+  continuation_dispatch_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  source_execution_id:
+    type: string
+  source_plan_id:
+    type: string
+  source_receipt_id:
+    type:
+      - string
+      - "null"
+  review_decision_id:
+    type: string
+  follow_on_plan_id:
+    type: string
+  recorded_at:
+    type: string
+    format: date-time
+  review_action:
+    type: string
+    enum:
+      - approved
+      - edited
+  chained_receipt_ids:
+    type: array
+    items:
+      type: string
+  handoff_updated:
+    type: boolean
+  handoff_ref:
+    type:
+      - string
+      - "null"
+  next_execution_receipt:
+    type: object
+    required:
+      - receipt_version
+      - receipt_id
+      - execution_id
+      - plan_id
+      - final_state
+  next_execution_result_links:
+    type: object
+    required:
+      - links_version
+      - execution_id
+      - links
+  continuation_state_path:
+    type: string
+  note:
+    type: string

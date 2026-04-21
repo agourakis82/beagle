@@ -57,17 +57,59 @@ pub struct FeedbackEvent {
     // --- Julgamento humano (preenchido depois) ---
     pub accepted: Option<bool>, // true = "bom", false = "ruim"
     pub rating_0_10: Option<u8>,
+    pub clarity_0_10: Option<u8>,
+    pub adequacy_of_tone_0_10: Option<u8>,
+    pub usefulness_0_10: Option<u8>,
+    pub safety_or_emotional_fit_0_10: Option<u8>,
     pub notes: Option<String>,
+    pub evaluator_id: Option<String>,
+    pub judgment_protocol: Option<String>,
+    pub blinded_item_id: Option<String>,
 
     // --- Experimentos A/B ---
     pub experiment_condition: Option<String>, // "A" | "B" | "control" | "treatment" | etc.
     pub experiment_id: Option<String>,        // ID do experimento
 }
 
+/// Julgamento humano estruturado e auditável.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct StructuredHumanJudgment {
+    pub accepted: bool,
+    pub rating_0_10: Option<u8>,
+    pub clarity_0_10: Option<u8>,
+    pub adequacy_of_tone_0_10: Option<u8>,
+    pub usefulness_0_10: Option<u8>,
+    pub safety_or_emotional_fit_0_10: Option<u8>,
+    pub notes: Option<String>,
+    pub evaluator_id: Option<String>,
+    pub judgment_protocol: Option<String>,
+    pub blinded_item_id: Option<String>,
+}
+
 /// Entrada no log JSONL
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FeedbackLogEntry {
     pub event: FeedbackEvent,
+}
+
+impl FeedbackEvent {
+    /// Retorna true quando o evento carrega julgamento humano explícito.
+    ///
+    /// Mantemos a checagem tolerante ao histórico do repositório: eventos antigos
+    /// podem carregar accepted/rating mesmo sem event_type=HumanFeedback.
+    pub fn has_human_judgment(&self) -> bool {
+        self.accepted.is_some()
+            || self.rating_0_10.is_some()
+            || self.clarity_0_10.is_some()
+            || self.adequacy_of_tone_0_10.is_some()
+            || self.usefulness_0_10.is_some()
+            || self.safety_or_emotional_fit_0_10.is_some()
+            || self
+                .notes
+                .as_ref()
+                .map(|notes| !notes.trim().is_empty())
+                .unwrap_or(false)
+    }
 }
 
 /// Retorna o caminho do arquivo de feedback
@@ -149,7 +191,14 @@ pub fn create_pipeline_event(
         grok4_tokens_est: None,
         accepted: None,
         rating_0_10: None,
+        clarity_0_10: None,
+        adequacy_of_tone_0_10: None,
+        usefulness_0_10: None,
+        safety_or_emotional_fit_0_10: None,
         notes: None,
+        evaluator_id: None,
+        judgment_protocol: None,
+        blinded_item_id: None,
         experiment_id: None,
         experiment_condition: None,
     }
@@ -188,7 +237,14 @@ pub fn create_triad_event(
         grok4_tokens_est: Some(heavy_tokens),
         accepted: None,
         rating_0_10: None,
+        clarity_0_10: None,
+        adequacy_of_tone_0_10: None,
+        usefulness_0_10: None,
+        safety_or_emotional_fit_0_10: None,
         notes: None,
+        evaluator_id: None,
+        judgment_protocol: None,
+        blinded_item_id: None,
         experiment_id: None,
         experiment_condition: None,
     }
@@ -200,6 +256,22 @@ pub fn create_human_feedback_event(
     accepted: bool,
     rating: Option<u8>,
     notes: Option<String>,
+) -> FeedbackEvent {
+    create_structured_human_feedback_event(
+        run_id,
+        StructuredHumanJudgment {
+            accepted,
+            rating_0_10: rating,
+            notes,
+            ..StructuredHumanJudgment::default()
+        },
+    )
+}
+
+/// Cria evento de feedback humano estruturado.
+pub fn create_structured_human_feedback_event(
+    run_id: String,
+    judgment: StructuredHumanJudgment,
 ) -> FeedbackEvent {
     FeedbackEvent {
         event_type: FeedbackEventType::HumanFeedback,
@@ -216,10 +288,46 @@ pub fn create_human_feedback_event(
         grok4_heavy_calls: None,
         grok3_tokens_est: None,
         grok4_tokens_est: None,
-        accepted: Some(accepted),
-        rating_0_10: rating,
-        notes,
+        accepted: Some(judgment.accepted),
+        rating_0_10: judgment.rating_0_10,
+        clarity_0_10: judgment.clarity_0_10,
+        adequacy_of_tone_0_10: judgment.adequacy_of_tone_0_10,
+        usefulness_0_10: judgment.usefulness_0_10,
+        safety_or_emotional_fit_0_10: judgment.safety_or_emotional_fit_0_10,
+        notes: judgment.notes,
+        evaluator_id: judgment.evaluator_id,
+        judgment_protocol: judgment.judgment_protocol,
+        blinded_item_id: judgment.blinded_item_id,
         experiment_id: None,
         experiment_condition: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{create_structured_human_feedback_event, FeedbackEventType, StructuredHumanJudgment};
+
+    #[test]
+    fn structured_human_judgment_is_detected() {
+        let event = create_structured_human_feedback_event(
+            "run-123".to_string(),
+            StructuredHumanJudgment {
+                accepted: true,
+                rating_0_10: Some(8),
+                clarity_0_10: Some(9),
+                adequacy_of_tone_0_10: Some(8),
+                usefulness_0_10: Some(9),
+                safety_or_emotional_fit_0_10: Some(8),
+                notes: Some("bounded blinded eval".to_string()),
+                evaluator_id: Some("tester".to_string()),
+                judgment_protocol: Some("b17.5-v1".to_string()),
+                blinded_item_id: Some("item-001".to_string()),
+            },
+        );
+
+        assert_eq!(event.event_type, FeedbackEventType::HumanFeedback);
+        assert!(event.has_human_judgment());
+        assert_eq!(event.clarity_0_10, Some(9));
+        assert_eq!(event.blinded_item_id.as_deref(), Some("item-001"));
     }
 }

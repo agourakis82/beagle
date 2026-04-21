@@ -1,0 +1,48 @@
+api_version: beagle-program-graph-schema/v1
+phase: B19.1
+status: canonical-contract
+
+entity_types:
+  program:
+    required_fields:
+      - id
+      - title
+      - status
+      - source_phase
+      - north_star
+      - campaigns
+      - workstreams
+      - evidence_targets
+  campaign:
+    required_fields:
+      - id
+      - program_id
+      - title
+      - status
+      - campaign_kind
+      - workstreams
+  experiment:
+    required_fields:
+      - id
+      - spec_doc
+      - results_doc
+  evidence_target:
+    required_fields:
+      - id
+      - kind
+      - path
+
+relation_types:
+  - program_contains_campaign
+  - campaign_uses_workstream
+  - campaign_runs_experiment
+  - experiment_supports_result
+  - result_informs_manuscript
+  - physio_contextualizes_experiment
+
+consistency_rules:
+  - every program campaign id must resolve to an existing campaign file
+  - every campaign program_id must resolve to an existing program
+  - every referenced workstream id must exist in docs/darwin/hpc/workstreams/registry.yaml
+  - every experiment spec_doc and results_doc must exist
+  - every evidence target path must exist

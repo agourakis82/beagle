@@ -1,0 +1,124 @@
+version: beagle-deterministic-result-binding-v1
+kind: deterministic-result-binding
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - binding_id
+  - reservation_id
+  - run_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - compute_profile_id
+  - selected_subagent_id
+  - task_family
+  - submitted_job_id
+  - requested_run_label
+  - published_result_job_id
+  - published_result_run_label
+  - resolved_result_lookup_job_id
+  - result_manifest_job_id
+  - published_result_manifest_key
+  - result_manifest_object_key
+  - result_lookup_scope
+  - catalog_before_matching_run_count
+  - catalog_after_matching_run_count
+  - run_identity_confirmed
+  - no_profile_latest_ambiguity
+  - result_bound_at
+  - result_catalog_lookup_path
+  - result_manifest_path
+  - artifact_manifest_path
+  - run_result_identity_receipt_path
+  - run_scoped_publication_path
+  - result_refs
+  - note
+properties:
+  phase:
+    const: B25.4
+  contract_kind:
+    const: deterministic-result-binding
+  contract_version:
+    const: beagle-deterministic-result-binding-v1
+  binding_id:
+    type: string
+  reservation_id:
+    type: string
+  run_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  compute_profile_id:
+    type: string
+  selected_subagent_id:
+    type: string
+  task_family:
+    type: string
+  submitted_job_id:
+    type: integer
+  requested_run_label:
+    type: string
+  published_result_job_id:
+    type: integer
+  published_result_run_label:
+    type: string
+  resolved_result_lookup_job_id:
+    type: integer
+  result_manifest_job_id:
+    type: integer
+  published_result_manifest_key:
+    type: string
+  result_manifest_object_key:
+    type: string
+  result_lookup_scope:
+    type: string
+  catalog_before_matching_run_count:
+    type: integer
+  catalog_after_matching_run_count:
+    type: integer
+  run_identity_confirmed:
+    type: boolean
+  no_profile_latest_ambiguity:
+    type: boolean
+  result_bound_at:
+    type: string
+    format: date-time
+  result_catalog_lookup_path:
+    type: string
+  result_manifest_path:
+    type: string
+  artifact_manifest_path:
+    type: string
+  run_result_identity_receipt_path:
+    type: string
+  run_scoped_publication_path:
+    type: string
+  result_refs:
+    type: array
+    items:
+      type: object
+      required:
+        - ref_id
+        - ref_kind
+        - locator
+        - summary
+      properties:
+        ref_id:
+          type: string
+        ref_kind:
+          type: string
+        locator:
+          type: string
+        summary:
+          type: string
+  note:
+    type: string

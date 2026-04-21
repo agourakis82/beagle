@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sounio-workspace-habitat-internal
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: sounio-workspace-habitat
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: ssh
+      port: 2222
+      targetPort: ssh

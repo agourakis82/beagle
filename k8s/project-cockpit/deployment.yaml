@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: project-cockpit
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: project-cockpit
+    app.kubernetes.io/part-of: beagle
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: project-cockpit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: project-cockpit
+        app.kubernetes.io/part-of: beagle
+    spec:
+      serviceAccountName: project-cockpit
+      nodeSelector:
+        kubernetes.io/hostname: r770-proxmox
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - r770-proxmox
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      containers:
+        - name: app
+          image: ttl.sh/project-cockpit-keepalivefix-20260418-2155:24h
+          imagePullPolicy: Always
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: Unconfined
+            appArmorProfile:
+              type: Unconfined
+          env:
+            - name: PROJECT_COCKPIT_PORT
+              value: "4370"
+            - name: PROJECT_COCKPIT_KEEP_ALIVE_TIMEOUT_MS
+              value: "610000"
+            - name: PROJECT_COCKPIT_FAST_MEMORY_CACHE_TTL_MS
+              value: "15000"
+            - name: PROJECT_COCKPIT_MEMORY_WARM_INTERVAL_MS
+              value: "15000"
+            - name: PROJECT_COCKPIT_DISABLE_MEMORY_WARMERS
+              value: "true"
+            - name: PROJECT_COCKPIT_REMEMBERED_STATE_CONFIGMAP
+              value: "project-cockpit-remembered"
+            - name: PROJECT_COCKPIT_REMEMBERED_STATE_DIR
+              value: "/var/run/project-cockpit-remembered"
+            - name: PROJECT_COCKPIT_SGLANG_ENDPOINT
+              value: "http://sglang-serving.beagle.svc.cluster.local:30000"
+            - name: PROJECT_COCKPIT_DYNAMO_ENDPOINT
+              value: "http://dynamo-control-plane.beagle.svc.cluster.local:8000"
+            - name: PROJECT_COCKPIT_PROMETHEUS_URL
+              value: "http://darwin-observability-prometheus.darwin-platform.svc.cluster.local:9090"
+          ports:
+            - name: http
+              containerPort: 4370
+          volumeMounts:
+            - name: remembered-state
+              mountPath: /var/run/project-cockpit-remembered
+              readOnly: true
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -lc
+                - curl -fsS http://127.0.0.1:4370/healthz >/dev/null
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -lc
+                - curl -fsS http://127.0.0.1:4370/livez >/dev/null
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 150m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 4Gi
+      volumes:
+        - name: remembered-state
+          configMap:
+            name: project-cockpit-remembered

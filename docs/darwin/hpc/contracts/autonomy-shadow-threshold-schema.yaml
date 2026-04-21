@@ -1,0 +1,131 @@
+type: object
+required:
+  - shadow_threshold_version
+  - shadow_threshold_id
+  - policy_role
+  - source_policy_id
+  - source_dataset_id
+  - source_eval_report_id
+  - source_escalation_thresholds_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - generated_at
+  - stage_state
+  - family_thresholds
+  - note
+properties:
+  shadow_threshold_version:
+    type: string
+    const: beagle-autonomy-shadow-threshold-v1
+  shadow_threshold_id:
+    type: string
+  policy_role:
+    type: string
+    enum:
+      - current-control
+      - candidate-shadow
+  source_policy_id:
+    type: string
+  source_dataset_id:
+    type: string
+  source_eval_report_id:
+    type: string
+  source_escalation_thresholds_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  stage_state:
+    type: string
+    enum:
+      - control-live
+      - shadow-candidate
+  family_thresholds:
+    type: array
+    items:
+      type: object
+      required:
+        - task_family
+        - rollout_state
+        - auto_continue_enabled
+        - auto_continue_allowed_review_actions
+        - auto_continue_allowed_trajectory_qualities
+        - auto_continue_min_overall_quality_score
+        - auto_continue_min_trajectory_score
+        - blocked_max_overall_quality_score
+        - blocked_max_trajectory_score
+        - blocked_trajectory_qualities
+        - allowed_subagent_ids
+        - allowed_retrieval_query_types
+        - allowed_compiler_profile_ids
+        - allowed_graphrag_query_modes
+        - allowed_temporal_truth_views
+        - blocked_requested_operator_actions
+        - blocked_when_replan_required
+        - guarded_enablement_eligible
+        - rationale
+      properties:
+        task_family:
+          type: string
+        rollout_state:
+          type: string
+        auto_continue_enabled:
+          type: boolean
+        auto_continue_allowed_review_actions:
+          type: array
+          items:
+            type: string
+        auto_continue_allowed_trajectory_qualities:
+          type: array
+          items:
+            type: string
+        auto_continue_min_overall_quality_score:
+          type: integer
+        auto_continue_min_trajectory_score:
+          type: integer
+        blocked_max_overall_quality_score:
+          type: integer
+        blocked_max_trajectory_score:
+          type: integer
+        blocked_trajectory_qualities:
+          type: array
+          items:
+            type: string
+        allowed_subagent_ids:
+          type: array
+          items:
+            type: string
+        allowed_retrieval_query_types:
+          type: array
+          items:
+            type: string
+        allowed_compiler_profile_ids:
+          type: array
+          items:
+            type: string
+        allowed_graphrag_query_modes:
+          type: array
+          items:
+            type: string
+        allowed_temporal_truth_views:
+          type: array
+          items:
+            type: string
+        blocked_requested_operator_actions:
+          type: array
+          items:
+            type: string
+        blocked_when_replan_required:
+          type: boolean
+        guarded_enablement_eligible:
+          type: boolean
+        rationale:
+          type: string
+  note:
+    type: string

@@ -1,16 +1,14 @@
 use super::{corpus::NoveltyScorer, hypothesis::Hypothesis};
-use crate::{
-    CausalGraph, CausalReasoner, DebateOrchestrator, DebateTranscript, HypergraphReasoner,
-};
+use crate::{CausalGraph, CausalReasoner, DebateOrchestrator, DebateTranscript};
 use anyhow::Result;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::info;
 
-/// Simulates hypothesis validation using all available tools
+/// Simulates hypothesis validation using debate and causal analysis
+/// Note: HypergraphReasoner field removed as it was not actively used in simulation
 pub struct SimulationEngine {
     debate: Arc<DebateOrchestrator>,
-    reasoning: Arc<HypergraphReasoner>,
     causal: Arc<CausalReasoner>,
     novelty_scorer: Option<Arc<NoveltyScorer>>,
 }
@@ -18,12 +16,10 @@ pub struct SimulationEngine {
 impl SimulationEngine {
     pub fn new(
         debate: Arc<DebateOrchestrator>,
-        reasoning: Arc<HypergraphReasoner>,
         causal: Arc<CausalReasoner>,
     ) -> Self {
         Self {
             debate,
-            reasoning,
             causal,
             novelty_scorer: None,
         }
@@ -32,13 +28,11 @@ impl SimulationEngine {
     /// Create with novelty scorer for real corpus-based novelty detection
     pub fn with_novelty_scorer(
         debate: Arc<DebateOrchestrator>,
-        reasoning: Arc<HypergraphReasoner>,
         causal: Arc<CausalReasoner>,
         novelty_scorer: Arc<NoveltyScorer>,
     ) -> Self {
         Self {
             debate,
-            reasoning,
             causal,
             novelty_scorer: Some(novelty_scorer),
         }
@@ -60,10 +54,6 @@ impl SimulationEngine {
             .causal
             .extract_causal_graph(&hypothesis.content)
             .await?;
-
-        // 3. Reasoning path to find support/contradiction
-        // (simplified - placeholder for future reasoning integration)
-        let _ = Arc::clone(&self.reasoning);
 
         // Aggregate scores
         let debate_strength = debate_result.synthesis.final_confidence;

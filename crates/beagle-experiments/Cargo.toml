@@ -28,6 +28,14 @@ name = "analyze_experiments"
 path = "src/bin/analyze_experiments.rs"
 
 [[bin]]
+name = "prepare_expedition_002_human_eval"
+path = "src/bin/prepare_expedition_002_human_eval.rs"
+
+[[bin]]
+name = "apply_expedition_002_human_eval"
+path = "src/bin/apply_expedition_002_human_eval.rs"
+
+[[bin]]
 name = "run_beagle_expedition_001"
 path = "src/bin/run_beagle_expedition_001.rs"
 
@@ -68,5 +76,4 @@ csv = "1.3"
 tempfile = "3.10"
 beagle-feedback = { path = "../beagle-feedback" }
 beagle-config = { path = "../beagle-config" }
-
 

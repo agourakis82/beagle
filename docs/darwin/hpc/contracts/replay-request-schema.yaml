@@ -1,0 +1,93 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - replay_request_id
+  - source_run_id
+  - source_submitted_job_id
+  - source_run_label
+  - source_intent_text
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - replay_mode
+  - selected_subagent_id
+  - task_family
+  - compute_profile_id
+  - config_fingerprint
+  - result_manifest_key
+  - source_dirty_state
+  - replay_execution_path
+properties:
+  phase:
+    type: string
+    const: B25.7
+  contract_kind:
+    type: string
+    const: replay-request
+  contract_version:
+    type: string
+  replay_request_id:
+    type: string
+  source_run_id:
+    type: string
+  source_submitted_job_id:
+    type: integer
+  source_run_label:
+    type: string
+  source_intent_text:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  replay_mode:
+    type: string
+  selected_subagent_id:
+    type: string
+  task_family:
+    type: string
+  compute_profile_id:
+    type: string
+  recipe_kind:
+    type: [string, "null"]
+  experiment_id:
+    type: [string, "null"]
+  retrieval_query_type:
+    type: [string, "null"]
+  compiler_profile_id:
+    type: [string, "null"]
+  graphrag_query_mode:
+    type: [string, "null"]
+  temporal_truth_view:
+    type: [string, "null"]
+  config_fingerprint:
+    type: string
+  result_manifest_key:
+    type: string
+  source_branch:
+    type: [string, "null"]
+  source_commit:
+    type: [string, "null"]
+  source_tree_ish:
+    type: [string, "null"]
+  source_dirty_state:
+    type: string
+  source_patch_ref:
+    type: [string, "null"]
+  source_source_fingerprint:
+    type: [string, "null"]
+  replay_execution_path:
+    type: string
+  workbench_run_path:
+    type: string
+  deterministic_result_binding_path:
+    type: string
+  note:
+    type: string

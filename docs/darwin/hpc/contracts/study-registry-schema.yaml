@@ -1,0 +1,113 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - study_id
+  - study_label
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - created_at
+  - updated_at
+  - baseline_run_id
+  - run_count
+  - variant_count
+  - run_ids
+  - variant_ids
+  - runs
+  - note
+properties:
+  phase:
+    type: string
+    const: B26.1
+  contract_kind:
+    type: string
+    const: study-registry
+  contract_version:
+    type: string
+  study_id:
+    type: string
+  study_label:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  created_at:
+    type: string
+  updated_at:
+    type: string
+  baseline_run_id:
+    type: string
+  run_count:
+    type: integer
+  variant_count:
+    type: integer
+  run_ids:
+    type: array
+    items:
+      type: string
+  variant_ids:
+    type: array
+    items:
+      type: string
+  runs:
+    type: array
+    items:
+      type: object
+      required:
+        - run_id
+        - run_label
+        - submitted_job_id
+        - published_result_job_id
+        - selected_subagent_id
+        - task_family
+        - compute_profile_id
+        - source_dirty_state
+        - run_role
+        - same_beagle_owned_identity
+      properties:
+        run_id:
+          type: string
+        run_label:
+          type: string
+        submitted_job_id:
+          type: integer
+        published_result_job_id:
+          type: integer
+        selected_subagent_id:
+          type: string
+        task_family:
+          type: string
+        compute_profile_id:
+          type: string
+        recipe_kind:
+          type: [string, "null"]
+        experiment_id:
+          type: [string, "null"]
+        source_branch:
+          type: [string, "null"]
+        source_commit:
+          type: [string, "null"]
+        source_dirty_state:
+          type: string
+        source_fingerprint:
+          type: [string, "null"]
+        replay_mode:
+          type: [string, "null"]
+        source_run_id:
+          type: [string, "null"]
+        replay_execution_id:
+          type: [string, "null"]
+        run_role:
+          type: string
+        same_beagle_owned_identity:
+          type: boolean
+  note:
+    type: string

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sounio-workspace-local-data
+  namespace: beagle
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-zfast-t560
+  volumeName: local-zfast-t560-sounio-workspace-pv
+  resources:
+    requests:
+      storage: 80Gi

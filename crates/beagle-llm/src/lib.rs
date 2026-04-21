@@ -6,6 +6,7 @@
 //! - Detecção automática de keywords de alto risco
 
 use async_trait::async_trait;
+use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 
 pub mod clients;
@@ -38,6 +39,8 @@ pub use stats::LlmCallsStats;
 pub use tier::Tier;
 // RequestMeta agora está em tier.rs, mas mantemos HIGH_BIAS_KEYWORDS de meta.rs
 pub use meta::HIGH_BIAS_KEYWORDS;
+
+// Streaming types will be defined later in this file
 
 // Módulos legados (mantidos para compatibilidade)
 pub mod anthropic;
@@ -142,4 +145,50 @@ pub trait LlmClient: Send + Sync {
     fn prefers_heavy(&self) -> bool {
         false
     }
+
+    /// Check if this client supports streaming
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
+    /// Stream completion - yields chunks as they arrive from the LLM provider
+    /// Default implementation falls back to non-streaming and yields the complete response
+    async fn stream_complete(
+        &self,
+        prompt: &str,
+    ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<StreamChunk>>> {
+        // Default: complete synchronously and return as single chunk
+        let output = self.complete(prompt).await?;
+        let chunk = StreamChunk {
+            content: output.text,
+            index: 0,
+            done: true,
+            metadata: None,
+        };
+        Ok(futures::stream::iter(vec![Ok(chunk)]).boxed())
+    }
+}
+
+/// A chunk of streaming LLM output
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamChunk {
+    /// The text content of this chunk
+    pub content: String,
+    /// Sequential index of this chunk (0-based)
+    pub index: usize,
+    /// Whether this is the final chunk
+    pub done: bool,
+    /// Optional metadata (model name, usage stats, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// Trait for LLM clients that natively support streaming
+#[async_trait]
+pub trait StreamingLlmClient: LlmClient {
+    /// Native streaming implementation - must be implemented by providers that support it
+    async fn stream_complete_native(
+        &self,
+        prompt: &str,
+    ) -> anyhow::Result<futures::stream::BoxStream<'static, anyhow::Result<StreamChunk>>>;
 }

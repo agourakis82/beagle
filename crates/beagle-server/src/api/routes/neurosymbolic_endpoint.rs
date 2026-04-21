@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::error::ApiError;
-use crate::state::AppState;
+use crate::state::{AnthropicAgentClient, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct NeuroSymbolicRequest {
@@ -65,7 +65,8 @@ pub async fn neurosymbolic_reason(
             "Anthropic client not configured. Set ANTHROPIC_API_KEY.".to_string(),
         )
     })?;
-    let neural_extractor = Arc::new(NeuralExtractor::new(llm));
+    let agent_client = Arc::new(AnthropicAgentClient::new(llm));
+    let neural_extractor = Arc::new(NeuralExtractor::new(agent_client));
     let mut hybrid = HybridReasoner::new(neural_extractor);
 
     // Run hybrid reasoning

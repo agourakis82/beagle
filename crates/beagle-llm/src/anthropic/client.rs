@@ -1,12 +1,17 @@
 use anyhow::{anyhow, Context, Result};
+use bytes::Bytes;
+use eventsource_stream::Eventsource;
+use futures::stream::{self, BoxStream, StreamExt};
 use reqwest::Client;
 use serde_json::{json, Value};
 use tracing::{debug, info, warn};
 
 use super::claude_code_session::ClaudeCodeSessionReader;
 use crate::models::{CompletionRequest, CompletionResponse, ModelType};
+use crate::StreamChunk;
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
+const STREAM_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// Tipo de autenticação usada pelo cliente.
@@ -180,6 +185,136 @@ impl AnthropicClient {
             model: model_name,
             usage,
         })
+    }
+
+    /// Stream completion from Anthropic API using Server-Sent Events (SSE)
+    pub async fn stream_complete(
+        &self,
+        request: CompletionRequest,
+    ) -> Result<BoxStream<'static, Result<StreamChunk>>> {
+        let CompletionRequest {
+            model,
+            messages,
+            max_tokens,
+            temperature,
+            system,
+        } = request;
+
+        let mut body = json!({
+            "model": resolve_model_id(&model),
+            "messages": messages
+                .iter()
+                .map(|message| {
+                    json!({
+                        "role": &message.role,
+                        "content": [{
+                            "type": "text",
+                            "text": &message.content,
+                        }],
+                    })
+                })
+                .collect::<Vec<_>>(),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": true,
+        });
+
+        if let Some(system_prompt) = system {
+            body["system"] = json!(system_prompt);
+        }
+
+        debug!(
+            model = %model,
+            max_tokens = max_tokens,
+            "Iniciando streaming da Anthropic"
+        );
+
+        // Configura autenticação baseada no tipo
+        let mut request_builder = self.http.post(STREAM_URL);
+
+        match &self.auth {
+            AuthType::ApiKey(key) => {
+                request_builder = request_builder.header("x-api-key", key);
+            }
+            AuthType::OAuth(token) => {
+                request_builder =
+                    request_builder.header("authorization", format!("Bearer {}", token));
+            }
+        }
+
+        let response = request_builder
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("accept", "text/event-stream")
+            .json(&body)
+            .send()
+            .await
+            .context("Falha ao iniciar streaming da Anthropic")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Anthropic streaming error ({}): {}", status, error_text);
+        }
+
+        let model_name = model.to_string();
+        let stream = response
+            .bytes_stream()
+            .eventsource()
+            .enumerate()
+            .filter_map(move |(index, event)| {
+                let model_name = model_name.clone();
+                async move {
+                    match event {
+                        Ok(event) => {
+                            if event.data == "[DONE]" {
+                                return Some(Ok(StreamChunk {
+                                    content: String::new(),
+                                    index,
+                                    done: true,
+                                    metadata: Some(json!({"model": model_name})),
+                                }));
+                            }
+
+                            // Parse SSE data as JSON
+                            match serde_json::from_str::<Value>(&event.data) {
+                                Ok(data) => {
+                                    // Extract content from content_block_delta events
+                                    if let Some(delta) = data.get("delta") {
+                                        if let Some(text) = delta.get("text").and_then(Value::as_str) {
+                                            return Some(Ok(StreamChunk {
+                                                content: text.to_string(),
+                                                index,
+                                                done: false,
+                                                metadata: None,
+                                            }));
+                                        }
+                                    }
+                                    // Handle content_block_start
+                                    if let Some(content_block) = data.get("content_block") {
+                                        if let Some(text) = content_block.get("text").and_then(Value::as_str) {
+                                            return Some(Ok(StreamChunk {
+                                                content: text.to_string(),
+                                                index,
+                                                done: false,
+                                                metadata: None,
+                                            }));
+                                        }
+                                    }
+                                    None
+                                }
+                                Err(e) => {
+                                    warn!("Failed to parse SSE event: {}", e);
+                                    None
+                                }
+                            }
+                        }
+                        Err(e) => Some(Err(anyhow!("SSE error: {}", e))),
+                    }
+                }
+            })
+            .boxed();
+
+        Ok(stream)
     }
 }
 

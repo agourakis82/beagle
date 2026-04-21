@@ -1,0 +1,145 @@
+# k8s/auth-bridge/deployment.yaml
+#
+# Standalone auth bridge — serves /api/auth/beagle-token to any client
+# (MCP, iOS, cockpit, ChatGPT). Separated from cockpit so its blast
+# radius is bounded to the single responsibility of vending the operator
+# token from the cluster Secret.
+#
+# Exposed via its own Tailscale LB hostname: beagle-auth.tail21cbc4.ts.net
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auth-bridge
+  namespace: beagle
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auth-bridge-secret-reader
+  namespace: beagle
+rules:
+  # Scoped to exactly one Secret — the minimum needed to vend the token.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["beagle-core-secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auth-bridge-secret-reader
+  namespace: beagle
+subjects:
+  - kind: ServiceAccount
+    name: auth-bridge
+    namespace: beagle
+roleRef:
+  kind: Role
+  name: auth-bridge-secret-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-bridge
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: auth-bridge
+    app.kubernetes.io/part-of: beagle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: auth-bridge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: auth-bridge
+        app.kubernetes.io/part-of: beagle
+    spec:
+      serviceAccountName: auth-bridge
+      # Prefer r770 (no disk-pressure) — auth-bridge is tiny but t560's
+      # disk pressure triggers immediate eviction, and the GPU nodes have
+      # NoSchedule taints we can tolerate.
+      nodeSelector:
+        kubernetes.io/hostname: r770-proxmox
+      tolerations:
+        - key: sounio.dev/pool
+          operator: Exists
+          effect: NoSchedule
+        - key: sounio.dev/compute
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: bridge
+          # Set at deploy time via kubectl set image
+          image: ttl.sh/beagle-auth-bridge:24h
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 7070
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          env:
+            - name: NAMESPACE
+              value: beagle
+            - name: SECRET_NAME
+              value: beagle-core-secrets
+            - name: BEAGLE_URL
+              value: http://beagle-core.tail21cbc4.ts.net
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-bridge
+  namespace: beagle
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: auth-bridge
+---
+# Tailnet LB so MCP / iOS / cockpit can all resolve beagle-auth.ts.net
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-bridge-tailnet
+  namespace: beagle
+  labels:
+    app: auth-bridge
+    surface: tailnet
+  annotations:
+    tailscale.com/hostname: beagle-auth
+    tailscale.com/proxy-group: sounio-workspace-ingress
+    tailscale.com/tags: tag:k8s,tag:sounio-workspace
+spec:
+  loadBalancerClass: tailscale
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 7070
+  selector:
+    app.kubernetes.io/name: auth-bridge

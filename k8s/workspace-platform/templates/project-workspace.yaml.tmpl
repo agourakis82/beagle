@@ -1,0 +1,331 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${PROJECT_NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: workspace-platform
+    sounio.dev/project: ${PROJECT_SLUG}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${PROJECT_SLUG}-workspace
+  namespace: ${PROJECT_NAMESPACE}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ${PROJECT_SLUG}-workspace
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: ssh
+      port: 2222
+      targetPort: ssh
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${PROJECT_SLUG}-workspace-internal
+  namespace: ${PROJECT_NAMESPACE}
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: ${PROJECT_SLUG}-workspace
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: ssh
+      port: 2222
+      targetPort: ssh
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${PROJECT_SLUG}-workspace
+  namespace: ${PROJECT_NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: workspace-platform
+    sounio.dev/project: ${PROJECT_SLUG}
+  annotations:
+    sounio.dev/project-mode: ${PROJECT_MODE}
+spec:
+  serviceName: ${PROJECT_SLUG}-workspace-internal
+  replicas: ${PROJECT_REPLICAS}
+  podManagementPolicy: OrderedReady
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${PROJECT_SLUG}-workspace
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${PROJECT_SLUG}-workspace
+        app.kubernetes.io/part-of: workspace-platform
+        sounio.dev/project: ${PROJECT_SLUG}
+    spec:
+      securityContext:
+        fsGroup: 1000
+        seccompProfile:
+          type: Unconfined
+${WORKSPACE_NODE_BINDING}
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+${WORKSPACE_TOLERATIONS_BLOCK}
+      initContainers:
+        - name: seed-repo
+          image: ${REPO_SEED_IMAGE}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euo pipefail
+              if [ "${PROJECT_REPO_SEED_MODE}" = "runtime" ]; then
+                exit 0
+              fi
+              export HOME=/tmp/git-home
+              mkdir -p "${DOLLAR}HOME"
+              if [ -f /var/run/project-repo-auth/git-credentials ]; then
+                cp /var/run/project-repo-auth/git-credentials "${DOLLAR}HOME/.git-credentials"
+                chmod 600 "${DOLLAR}HOME/.git-credentials"
+                git config --global credential.helper store
+              fi
+              if [ -f /var/run/project-repo-auth/.netrc ]; then
+                cp /var/run/project-repo-auth/.netrc "${DOLLAR}HOME/.netrc"
+                chmod 600 "${DOLLAR}HOME/.netrc"
+              fi
+              if [ -f /var/run/project-repo-auth/known_hosts ]; then
+                mkdir -p "${DOLLAR}HOME/.ssh"
+                cp /var/run/project-repo-auth/known_hosts "${DOLLAR}HOME/.ssh/known_hosts"
+                chmod 600 "${DOLLAR}HOME/.ssh/known_hosts"
+              fi
+              if [ -d /workspace/${PROJECT_SLUG} ] && [ ! -d /workspace/${PROJECT_SLUG}/.git ]; then
+                rm -rf /workspace/${PROJECT_SLUG}
+              fi
+              if [ ! -d /workspace/${PROJECT_SLUG}/.git ]; then
+                git clone --branch "${PROJECT_REPO_BRANCH}" --single-branch "${PROJECT_REPO_URL}" /workspace/${PROJECT_SLUG}
+              fi
+              mkdir -p /workspace/.beagle /workspace/.home/openvscode-server
+              chown -R 1000:1000 /workspace
+          env:
+            - name: PROJECT_REPO_URL
+              value: ${PROJECT_REPO_URL}
+            - name: PROJECT_REPO_BRANCH
+              value: ${PROJECT_REPO_BRANCH}
+            - name: PROJECT_SLUG
+              value: ${PROJECT_SLUG}
+            - name: PROJECT_WORKSPACE_ROOT
+              value: ${PROJECT_WORKSPACE_ROOT}
+            - name: PROJECT_TMUX_SESSION
+              value: ${PROJECT_TMUX_SESSION}
+            - name: PROJECT_AUTO_TMUX_ATTACH
+              value: "${PROJECT_AUTO_TMUX_ATTACH}"
+            - name: PROJECT_REPO_SEED_MODE
+              value: ${PROJECT_REPO_SEED_MODE}
+          volumeMounts:
+            - name: workspace-data
+              mountPath: /workspace
+            - name: project-repo-auth
+              mountPath: /var/run/project-repo-auth
+              readOnly: true
+      containers:
+        - name: workspace-ide
+          image: ${IDE_IMAGE}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            appArmorProfile:
+              type: Unconfined
+          command:
+            - /bin/sh
+            - /opt/sounio-workspace/bootstrap-workspace.sh
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: BEAGLE_WORKSTREAM_ID
+              value: ${PROJECT_WORKSTREAM_ID}
+            - name: BEAGLE_WORKSPACE_ID
+              value: ${WORKSPACE_ID}
+            - name: BEAGLE_SESSION_ID
+              value: ${SESSION_ID}
+            - name: BEAGLE_WORKSPACE_BROWSER_URL
+              value: ${WORKSPACE_BROWSER_URL}
+            - name: BEAGLE_WORKSPACE_REPO_URL
+              value: ${PROJECT_REPO_URL}
+            - name: BEAGLE_WORKSPACE_BRANCH
+              value: ${PROJECT_REPO_BRANCH}
+            - name: BEAGLE_WORKSPACE_ROOT
+              value: ${PROJECT_WORKSPACE_ROOT}
+            - name: PROJECT_SLUG
+              value: ${PROJECT_SLUG}
+            - name: PROJECT_WORKSPACE_ROOT
+              value: ${PROJECT_WORKSPACE_ROOT}
+            - name: PROJECT_TMUX_SESSION
+              value: ${PROJECT_TMUX_SESSION}
+            - name: PROJECT_AUTO_TMUX_ATTACH
+              value: "${PROJECT_AUTO_TMUX_ATTACH}"
+            - name: TMUX_TMPDIR
+              value: /workspace/.home/openvscode-server/.tmux
+            - name: BEAGLE_WORKSPACE_CONTEXT_DIR
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context
+            - name: BEAGLE_WORKSPACE_CONTEXT_ENV_FILE
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/beagle-context.env
+            - name: BEAGLE_WORKSPACE_CONTEXT_PACKET_FILE
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/current-context-packet.json
+            - name: BEAGLE_WORKSPACE_DEVCONTAINER_DIR
+              value: ${PROJECT_WORKSPACE_ROOT}/.devcontainer
+            - name: BEAGLE_EXTERNAL_WORKSPACE_REGISTRATION_FILE
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/external-workspace-registration.json
+            - name: BEAGLE_WORKSPACE_HYDRATION_FILE
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/workspace-hydration.json
+            - name: BEAGLE_WORKSPACE_SUBAGENTS_DIR
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/subagents
+            - name: BEAGLE_WORKSPACE_SUBAGENTS_FILE
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/workspace-subagents.json
+            - name: BEAGLE_WORKSPACE_TEMPLATE_FILE
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/workspace-template.json
+            - name: BEAGLE_WORKSPACE_TEMPLATE_ID
+              value: beagle-template-${PROJECT_SLUG}-workspace
+            - name: BEAGLE_WORKSPACE_TEMPLATE_VERSION
+              value: beagle-project-workspace-v1
+            - name: BEAGLE_WORKSPACE_SSH_HOST_KEYS_DIR
+              value: /workspace/.beagle/${PROJECT_SLUG}-ssh-host-keys
+            - name: SOUC_BIN
+              value: /workspace/${PROJECT_SLUG}/bin/souc
+            - name: SOUNIO_STDLIB_PATH
+              value: /workspace/${PROJECT_SLUG}/stdlib
+            - name: BEAGLE_VSIX_PACK
+              value: ${PROJECT_VSIX_PACK}
+            - name: BEAGLE_VSIX_PACK_VERSION
+              value: ${PROJECT_VSIX_PACK_VERSION}
+            - name: BEAGLE_VSIX_ENABLE_RECOMMENDED
+              value: ${PROJECT_VSIX_ENABLE_RECOMMENDED}
+            - name: BEAGLE_VSIX_ENABLE_EXPERIMENTAL
+              value: ${PROJECT_VSIX_ENABLE_EXPERIMENTAL}
+            - name: BEAGLE_VSIX_REQUIRED_EXTENSIONS
+              value: ${PROJECT_VSIX_REQUIRED_EXTENSIONS}
+            - name: BEAGLE_VSIX_RECOMMENDED_EXTENSIONS
+              value: ${PROJECT_VSIX_RECOMMENDED_EXTENSIONS}
+            - name: BEAGLE_VSIX_EXPERIMENTAL_EXTENSIONS
+              value: ${PROJECT_VSIX_EXPERIMENTAL_EXTENSIONS}
+            - name: BEAGLE_AI_IDE_AGENTS
+              value: '${PROJECT_AI_IDE_AGENTS}'
+          envFrom:
+            - configMapRef:
+                name: ${WORKSPACE_CONFIGMAP_NAME}
+            - secretRef:
+                name: ${CORE_SECRETS_SECRET_NAME}
+                optional: true
+          volumeMounts:
+            - name: workspace-data
+              mountPath: /workspace
+            - name: workspace-config
+              mountPath: /opt/sounio-workspace/bootstrap-workspace.sh
+              subPath: bootstrap-workspace.sh
+              readOnly: true
+        - name: workspace-ssh
+          image: ${SSH_IMAGE}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - passwd -d openvscode-server >/dev/null 2>&1 || true; exec /usr/local/bin/ssh-entrypoint.sh
+          securityContext:
+            appArmorProfile:
+              type: Unconfined
+          env:
+            - name: BEAGLE_WORKSTREAM_ID
+              value: ${PROJECT_WORKSTREAM_ID}
+            - name: BEAGLE_WORKSPACE_ID
+              value: ${WORKSPACE_ID}
+            - name: BEAGLE_SESSION_ID
+              value: ${SESSION_ID}
+            - name: BEAGLE_WORKSPACE_BROWSER_URL
+              value: ${WORKSPACE_BROWSER_URL}
+            - name: BEAGLE_WORKSPACE_REPO_URL
+              value: ${PROJECT_REPO_URL}
+            - name: BEAGLE_WORKSPACE_BRANCH
+              value: ${PROJECT_REPO_BRANCH}
+            - name: BEAGLE_WORKSPACE_ROOT
+              value: ${PROJECT_WORKSPACE_ROOT}
+            - name: PROJECT_SLUG
+              value: ${PROJECT_SLUG}
+            - name: PROJECT_WORKSPACE_ROOT
+              value: ${PROJECT_WORKSPACE_ROOT}
+            - name: PROJECT_TMUX_SESSION
+              value: ${PROJECT_TMUX_SESSION}
+            - name: PROJECT_AUTO_TMUX_ATTACH
+              value: "${PROJECT_AUTO_TMUX_ATTACH}"
+            - name: TMUX_TMPDIR
+              value: /workspace/.home/openvscode-server/.tmux
+            - name: BEAGLE_WORKSPACE_CONTEXT_DIR
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context
+            - name: BEAGLE_WORKSPACE_CONTEXT_ENV_FILE
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/beagle-context.env
+            - name: BEAGLE_WORKSPACE_CONTEXT_PACKET_FILE
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/current-context-packet.json
+            - name: BEAGLE_WORKSPACE_DEVCONTAINER_DIR
+              value: ${PROJECT_WORKSPACE_ROOT}/.devcontainer
+            - name: BEAGLE_EXTERNAL_WORKSPACE_REGISTRATION_FILE
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/external-workspace-registration.json
+            - name: BEAGLE_WORKSPACE_HYDRATION_FILE
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/workspace-hydration.json
+            - name: BEAGLE_WORKSPACE_SUBAGENTS_DIR
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/subagents
+            - name: BEAGLE_WORKSPACE_SUBAGENTS_FILE
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/workspace-subagents.json
+            - name: BEAGLE_WORKSPACE_TEMPLATE_FILE
+              value: ${PROJECT_WORKSPACE_ROOT}/.beagle/context/workspace-template.json
+            - name: BEAGLE_WORKSPACE_TEMPLATE_ID
+              value: beagle-template-${PROJECT_SLUG}-workspace
+            - name: BEAGLE_WORKSPACE_TEMPLATE_VERSION
+              value: beagle-project-workspace-v1
+            - name: BEAGLE_WORKSPACE_SSH_HOST_KEYS_DIR
+              value: /workspace/.beagle/${PROJECT_SLUG}-ssh-host-keys
+          envFrom:
+            - configMapRef:
+                name: ${WORKSPACE_CONFIGMAP_NAME}
+            - secretRef:
+                name: ${CORE_SECRETS_SECRET_NAME}
+                optional: true
+          ports:
+            - name: ssh
+              containerPort: 2222
+          volumeMounts:
+            - name: workspace-data
+              mountPath: /workspace
+            - name: workspace-ssh-authorized-keys
+              mountPath: /var/run/beagle-workspace-ssh
+              readOnly: true
+      volumes:
+        - name: workspace-config
+          configMap:
+            name: ${WORKSPACE_CONFIGMAP_NAME}
+            defaultMode: 0755
+        - name: workspace-ssh-authorized-keys
+          secret:
+            secretName: ${SSH_AUTHORIZED_KEYS_SECRET_NAME}
+            optional: true
+            defaultMode: 0600
+        - name: project-repo-auth
+          secret:
+            secretName: ${PROJECT_REPO_SECRET_NAME}
+            optional: true
+            defaultMode: 0600
+  volumeClaimTemplates:
+    - metadata:
+        name: workspace-data
+      spec:
+        accessModes:
+          - ReadWriteOncePod
+        storageClassName: ${PROJECT_STORAGE_CLASS}
+        resources:
+          requests:
+            storage: ${PROJECT_STORAGE_SIZE}
+        volumeMode: Filesystem

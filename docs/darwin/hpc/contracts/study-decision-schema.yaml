@@ -1,0 +1,63 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - decision_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - generated_at
+  - study_decision_basis_id
+  - recommended_action
+  - recommended_next_variant_id
+  - recommended_next_variant_label
+  - recommended_next_compute_profile_id
+  - recommended_next_run_label
+  - operator_review_required
+  - next_run_proposal_id
+  - decision_basis_summary
+properties:
+  phase:
+    type: string
+  contract_kind:
+    type: string
+  contract_version:
+    type: string
+  decision_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  generated_at:
+    type: string
+  study_decision_basis_id:
+    type: string
+  recommended_action:
+    type: string
+  recommended_next_variant_id:
+    type: string
+  recommended_next_variant_label:
+    type: string
+  recommended_next_compute_profile_id:
+    type: string
+  recommended_next_run_label:
+    type: string
+  operator_review_required:
+    type: boolean
+  next_run_proposal_id:
+    type: string
+  decision_basis_summary:
+    type: string
+  note:
+    type: string
+

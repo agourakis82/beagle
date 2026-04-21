@@ -1,0 +1,459 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sounio-workspace-config
+  namespace: beagle
+data:
+  BEAGLE_WORKSPACE_ID: sounio-cluster-pilot
+  BEAGLE_SESSION_ID: ws-cluster-sounio-habitat
+  BEAGLE_WORKSTREAM_ID: sounio-lang-main
+  BEAGLE_WORKSPACE_REPO_URL: https://github.com/sounio-lang/sounio.git
+  BEAGLE_WORKSPACE_BRANCH: main
+  BEAGLE_WORKSPACE_BEAGLE_BASE_URL: http://beagle-core.beagle.svc.cluster.local:8080
+  BEAGLE_WORKSPACE_BROWSER_URL: http://sounio-workspace.beagle.svc.cluster.local:8080
+  BEAGLE_WORKSPACE_ROOT: /workspace/sounio
+  BEAGLE_WORKSPACE_CONTEXT_DIR: /workspace/sounio/.beagle/context
+  BEAGLE_WORKSPACE_CONTEXT_PACKET_FILE: /workspace/sounio/.beagle/context/current-context-packet.json
+  BEAGLE_WORKSPACE_CONTEXT_ENV_FILE: /workspace/sounio/.beagle/context/beagle-context.env
+  BEAGLE_WORKSPACE_TEMPLATE_FILE: /workspace/sounio/.beagle/context/workspace-template.json
+  BEAGLE_EXTERNAL_WORKSPACE_REGISTRATION_FILE: /workspace/sounio/.beagle/context/external-workspace-registration.json
+  BEAGLE_WORKSPACE_HYDRATION_FILE: /workspace/sounio/.beagle/context/workspace-hydration.json
+  BEAGLE_WORKSPACE_SUBAGENTS_FILE: /workspace/sounio/.beagle/context/workspace-subagents.json
+  BEAGLE_WORKSPACE_SUBAGENTS_DIR: /workspace/sounio/.beagle/context/subagents
+  BEAGLE_WORKSPACE_DEVCONTAINER_DIR: /workspace/sounio/.devcontainer
+  BEAGLE_WORKSPACE_TEMPLATE_ID: beagle-template-sounio-cluster-pilot
+  BEAGLE_WORKSPACE_TEMPLATE_VERSION: beagle-sounio-cluster-workspace-v1
+  BEAGLE_WORKSPACE_REPRODUCIBILITY_MODE: git-clone-plus-pvc-cache
+  BEAGLE_EXTERNAL_WORKSPACE_KIND: coder-compatible-external-workspace
+  BEAGLE_WORKSPACE_WARM_START_STRATEGY: git-clone-plus-pvc-cache
+  BEAGLE_WORKSPACE_ALLOW_GIT_SYNC_ON_BOOT: "false"
+  BEAGLE_WORKSPACE_SSH_ENABLED: "true"
+  BEAGLE_WORKSPACE_SSH_PORT: "2222"
+  BEAGLE_WORKSPACE_SSH_USER: openvscode-server
+  BEAGLE_WORKSPACE_SSH_AUTHORIZED_KEYS_FILE: /var/run/beagle-workspace-ssh/authorized_keys
+  BEAGLE_WORKSPACE_SSH_HOST_KEYS_DIR: /workspace/.beagle/sounio-ssh-host-keys
+  SOUC_BIN: /workspace/sounio/bin/souc
+  SOUNIO_STDLIB_PATH: /workspace/sounio/stdlib
+  HOME: /workspace/.home/openvscode-server
+  XDG_CONFIG_HOME: /workspace/.home/openvscode-server/.config
+  BEAGLE_GIT_USER_NAME: Demetrios Chiuratto Agourakis
+  BEAGLE_GIT_USER_EMAIL: demetrios@agourakis.med.br
+  BEAGLE_GIT_CREDENTIAL_HELPER: '!/usr/bin/gh auth git-credential'
+  BEAGLE_VSIX_PACK: sounio
+  BEAGLE_VSIX_PACK_VERSION: sov-v1
+  BEAGLE_VSIX_ENABLE_RECOMMENDED: "true"
+  BEAGLE_VSIX_ENABLE_EXPERIMENTAL: "false"
+  BEAGLE_VSIX_REQUIRED_EXTENSIONS: eamodio.gitlens,GitHub.vscode-pull-request-github,redhat.vscode-yaml,ms-python.python,ms-toolsai.jupyter,rust-lang.rust-analyzer,llvm-vs-code-extensions.vscode-clangd
+  BEAGLE_VSIX_RECOMMENDED_EXTENSIONS: EditorConfig.EditorConfig,tamasfe.even-better-toml,ms-vscode.makefile-tools,yzhang.markdown-all-in-one,ms-vscode.cpptools,ocamllabs.ocaml-platform,leanprover.lean4
+  BEAGLE_VSIX_EXPERIMENTAL_EXTENSIONS: ""
+  BEAGLE_AI_IDE_AGENTS: '[{"name":"codex","mode":"vsix-first"},{"name":"claude-code","mode":"hybrid"}]'
+  bootstrap-workspace.sh: |
+    #!/bin/sh
+    set -eu
+
+    TOKEN="${BEAGLE_OPERATOR_API_TOKEN:-${BEAGLE_API_TOKEN:-}}"
+    WORKSPACE_ROOT="${BEAGLE_WORKSPACE_ROOT:-/workspace/sounio}"
+    WORKSPACE_PARENT="$(dirname "${WORKSPACE_ROOT}")"
+    CONTEXT_DIR="${BEAGLE_WORKSPACE_CONTEXT_DIR:-${WORKSPACE_ROOT}/.beagle/context}"
+    CONTEXT_PACKET_FILE="${BEAGLE_WORKSPACE_CONTEXT_PACKET_FILE:-${CONTEXT_DIR}/current-context-packet.json}"
+    CONTEXT_ENV_FILE="${BEAGLE_WORKSPACE_CONTEXT_ENV_FILE:-${CONTEXT_DIR}/beagle-context.env}"
+    TEMPLATE_FILE="${BEAGLE_WORKSPACE_TEMPLATE_FILE:-${CONTEXT_DIR}/workspace-template.json}"
+    REGISTRATION_FILE="${BEAGLE_EXTERNAL_WORKSPACE_REGISTRATION_FILE:-${CONTEXT_DIR}/external-workspace-registration.json}"
+    HYDRATION_FILE="${BEAGLE_WORKSPACE_HYDRATION_FILE:-${CONTEXT_DIR}/workspace-hydration.json}"
+    SUBAGENTS_FILE="${BEAGLE_WORKSPACE_SUBAGENTS_FILE:-${CONTEXT_DIR}/workspace-subagents.json}"
+    SUBAGENTS_DIR="${BEAGLE_WORKSPACE_SUBAGENTS_DIR:-${CONTEXT_DIR}/subagents}"
+    DEVCONTAINER_DIR="${BEAGLE_WORKSPACE_DEVCONTAINER_DIR:-${WORKSPACE_ROOT}/.devcontainer}"
+    TEMPLATE_ID="${BEAGLE_WORKSPACE_TEMPLATE_ID:-beagle-template-${BEAGLE_WORKSPACE_ID}}"
+    TEMPLATE_VERSION="${BEAGLE_WORKSPACE_TEMPLATE_VERSION:-beagle-sounio-cluster-workspace-v1}"
+    REPRODUCIBILITY_MODE="${BEAGLE_WORKSPACE_REPRODUCIBILITY_MODE:-git-clone-plus-pvc-cache}"
+    EXTERNAL_WORKSPACE_KIND="${BEAGLE_EXTERNAL_WORKSPACE_KIND:-coder-compatible-external-workspace}"
+    WARM_START_STRATEGY="${BEAGLE_WORKSPACE_WARM_START_STRATEGY:-git-clone-plus-pvc-cache}"
+    HOME_DIR="${HOME:-/workspace/.home/openvscode-server}"
+    LOGIN_HOME="/home/openvscode-server"
+    HEALTH_DIR="/workspace/.beagle/health"
+    SOUC_BIN_PATH="${SOUC_BIN:-${WORKSPACE_ROOT}/bin/souc}"
+    SOUNIO_STDLIB="${SOUNIO_STDLIB_PATH:-${WORKSPACE_ROOT}/stdlib}"
+    VSIX_PACK="${BEAGLE_VSIX_PACK:-}"
+    VSIX_PACK_VERSION="${BEAGLE_VSIX_PACK_VERSION:-unversioned}"
+    VSIX_ENABLE_RECOMMENDED="${BEAGLE_VSIX_ENABLE_RECOMMENDED:-true}"
+    VSIX_ENABLE_EXPERIMENTAL="${BEAGLE_VSIX_ENABLE_EXPERIMENTAL:-false}"
+    VSIX_REQUIRED_EXTENSIONS="${BEAGLE_VSIX_REQUIRED_EXTENSIONS:-}"
+    VSIX_RECOMMENDED_EXTENSIONS="${BEAGLE_VSIX_RECOMMENDED_EXTENSIONS:-}"
+    VSIX_EXPERIMENTAL_EXTENSIONS="${BEAGLE_VSIX_EXPERIMENTAL_EXTENSIONS:-}"
+    VSIX_STATUS_FILE="${CONTEXT_DIR}/vsix-pack-status.json"
+    if [ -n "${BEAGLE_CORE_SERVICE_HOST:-}" ]; then
+      BASE_URL="http://${BEAGLE_CORE_SERVICE_HOST}:${BEAGLE_CORE_SERVICE_PORT:-8080}"
+    else
+      BASE_URL="${BEAGLE_WORKSPACE_BEAGLE_BASE_URL:-http://beagle-core.beagle.svc.cluster.local:8080}"
+    fi
+    WORKSPACE_BROWSER_URL="${BEAGLE_WORKSPACE_BROWSER_URL:-http://sounio-workspace.beagle.svc.cluster.local:8080}"
+    CONSUMER_HEADER="X-Beagle-Consumer: beagle-operator"
+    HYDRATION_MODE="unknown"
+    WARM_START_USED="false"
+    PREBUILT_SNAPSHOT_EXPECTED="false"
+    CONTEXT_SOURCE="local-only"
+    ALLOW_GIT_SYNC_ON_BOOT="${BEAGLE_WORKSPACE_ALLOW_GIT_SYNC_ON_BOOT:-false}"
+
+    BEAGLE_CURL_CONNECT_TIMEOUT="${BEAGLE_CURL_CONNECT_TIMEOUT:-2}"
+    BEAGLE_CURL_MAX_TIME="${BEAGLE_CURL_MAX_TIME:-2}"
+    BEAGLE_HEALTH_RETRY_COUNT="${BEAGLE_HEALTH_RETRY_COUNT:-15}"
+
+    curl_beagle() {
+      url="$1"
+      shift || true
+      if [ -n "${TOKEN}" ]; then
+        curl -fsS --connect-timeout "${BEAGLE_CURL_CONNECT_TIMEOUT}" --max-time "${BEAGLE_CURL_MAX_TIME}" \
+          -H "${CONSUMER_HEADER}" -H "Authorization: Bearer ${TOKEN}" "$@" "${url}"
+      else
+        curl -fsS --connect-timeout "${BEAGLE_CURL_CONNECT_TIMEOUT}" --max-time "${BEAGLE_CURL_MAX_TIME}" \
+          -H "${CONSUMER_HEADER}" "$@" "${url}"
+      fi
+    }
+
+    fetch_atomic() {
+      url="$1"
+      target="$2"
+      shift 2 || true
+      tmp="$(mktemp "${target}.tmp.XXXXXX")"
+      if curl_beagle "${url}" "$@" > "${tmp}"; then
+        mv "${tmp}" "${target}"
+        return 0
+      fi
+      rm -f "${tmp}"
+      return 1
+    }
+
+    write_atomic() {
+      target="$1"
+      tmp="$(mktemp "${target}.tmp.XXXXXX")"
+      cat > "${tmp}"
+      mv "${tmp}" "${target}"
+    }
+
+    ensure_persistent_dir() {
+      dir="$1"
+      mkdir -p "${dir}"
+    }
+
+    ensure_persistent_file() {
+      file="$1"
+      if [ ! -e "${file}" ]; then
+        : > "${file}"
+      fi
+    }
+
+    write_local_bootstrap_fallback() {
+      write_atomic "${CONTEXT_DIR}/bootstrap.json" <<EOF
+    {
+      "status": "degraded",
+      "phase": "B26.7",
+      "bootstrap_mode": "local-only",
+      "workstream_id": "${BEAGLE_WORKSTREAM_ID}",
+      "workspace_id": "${BEAGLE_WORKSPACE_ID}",
+      "session_id": "${BEAGLE_SESSION_ID}",
+      "repo_url": "${BEAGLE_WORKSPACE_REPO_URL}",
+      "branch": "${BEAGLE_WORKSPACE_BRANCH}",
+      "workspace_root": "${WORKSPACE_ROOT}",
+      "reason": "beagle-api-unavailable-or-unauthorized"
+    }
+    EOF
+    }
+
+    write_local_context_packet_fallback() {
+      write_atomic "${CONTEXT_PACKET_FILE}" <<EOF
+    {
+      "status": "degraded",
+      "phase": "B26.7",
+      "context_mode": "local-only",
+      "workstream_id": "${BEAGLE_WORKSTREAM_ID}",
+      "workspace_id": "${BEAGLE_WORKSPACE_ID}",
+      "session_id": "${BEAGLE_SESSION_ID}",
+      "repo_url": "${BEAGLE_WORKSPACE_REPO_URL}",
+      "branch": "${BEAGLE_WORKSPACE_BRANCH}",
+      "workspace_root": "${WORKSPACE_ROOT}"
+    }
+    EOF
+    }
+
+    write_local_context_env_fallback() {
+      write_atomic "${CONTEXT_ENV_FILE}" <<EOF
+    export BEAGLE_WORKSTREAM_ID='${BEAGLE_WORKSTREAM_ID}'
+    export BEAGLE_WORKSPACE_ID='${BEAGLE_WORKSPACE_ID}'
+    export BEAGLE_SESSION_ID='${BEAGLE_SESSION_ID}'
+    export BEAGLE_WORKSPACE_ROOT='${WORKSPACE_ROOT}'
+    export BEAGLE_WORKSPACE_REPO_URL='${BEAGLE_WORKSPACE_REPO_URL}'
+    export BEAGLE_WORKSPACE_BRANCH='${BEAGLE_WORKSPACE_BRANCH}'
+    export BEAGLE_WORKSPACE_CONTEXT_MODE='local-only'
+    EOF
+    }
+
+    workspace_has_non_context_files() {
+      find "${WORKSPACE_ROOT}" -mindepth 1 -maxdepth 1 ! -name '.beagle' -print -quit | grep -q .
+    }
+
+    workspace_git_is_clean() {
+      git -C "${WORKSPACE_ROOT}" diff --quiet --ignore-submodules=all &&
+      git -C "${WORKSPACE_ROOT}" diff --cached --quiet --ignore-submodules=all
+    }
+
+    hydrate_real_git_clone() {
+      TMP_CLONE_DIR="$(mktemp -d /tmp/sounio-workspace-clone.XXXXXX)"
+      trap 'rm -rf "${TMP_CLONE_DIR}"' EXIT INT TERM
+      if git clone --branch "${BEAGLE_WORKSPACE_BRANCH}" --single-branch "${BEAGLE_WORKSPACE_REPO_URL}" "${TMP_CLONE_DIR}/repo"; then
+        mkdir -p "${WORKSPACE_ROOT}"
+        find "${WORKSPACE_ROOT}" -mindepth 1 -maxdepth 1 ! -name '.beagle' -exec rm -rf {} +
+        find "${TMP_CLONE_DIR}/repo" -mindepth 1 -maxdepth 1 -exec mv {} "${WORKSPACE_ROOT}/" \;
+        rm -rf "${TMP_CLONE_DIR}"
+        trap - EXIT INT TERM
+        return 0
+      fi
+      rm -rf "${TMP_CLONE_DIR}"
+      trap - EXIT INT TERM
+      return 1
+    }
+
+    mkdir -p "${HOME_DIR}" "${WORKSPACE_PARENT}" "${CONTEXT_DIR}" "${SUBAGENTS_DIR}" "${DEVCONTAINER_DIR}" "${HEALTH_DIR}"
+    rm -f "${HEALTH_DIR}/workspace-bootstrap-ready"
+
+    ensure_persistent_dir "${HOME_DIR}/bin"
+    ensure_persistent_dir "${HOME_DIR}/.local"
+    ensure_persistent_dir "${HOME_DIR}/.config"
+    ensure_persistent_dir "${HOME_DIR}/.config/gh"
+    ensure_persistent_dir "${HOME_DIR}/.vscode-server"
+    ensure_persistent_dir "${HOME_DIR}/.ssh"
+    chmod 700 "${HOME_DIR}/.ssh" 2>/dev/null || true
+    ensure_persistent_file "${HOME_DIR}/.bashrc"
+    ensure_persistent_file "${HOME_DIR}/.bash_profile"
+    ensure_persistent_file "${HOME_DIR}/.gitconfig"
+    ensure_persistent_file "${HOME_DIR}/.beagle_shell_helpers.sh"
+    ensure_persistent_file "${HOME_DIR}/.profile"
+    ensure_persistent_file "${HOME_DIR}/.zshenv"
+    ensure_persistent_file "${HOME_DIR}/.zshrc"
+    ensure_persistent_file "${HOME_DIR}/.tmux.conf"
+
+    csv_to_lines() {
+      printf '%s' "$1" | tr ',' '\n' | sed '/^[[:space:]]*$/d'
+    }
+
+    install_vsix_list() {
+      label="$1"
+      csv="$2"
+      if [ -z "${csv}" ]; then
+        return 0
+      fi
+      csv_to_lines "${csv}" | while IFS= read -r extension_id; do
+        if [ -z "${extension_id}" ]; then
+          continue
+        fi
+        echo "[INFO] ensuring ${label} VSIX ${extension_id}" >&2
+        "${OPENVSCODE_SERVER_ROOT}/bin/openvscode-server" --install-extension "${extension_id}" >/dev/null 2>&1 || \
+          echo "[WARN] unable to install ${extension_id} in pack ${VSIX_PACK}" >&2
+      done
+    }
+
+    install_vsix_pack_if_enabled() {
+      if [ -z "${VSIX_PACK}" ]; then
+        return 0
+      fi
+      install_vsix_list "required" "${VSIX_REQUIRED_EXTENSIONS}"
+      if [ "${VSIX_ENABLE_RECOMMENDED}" = "true" ]; then
+        install_vsix_list "recommended" "${VSIX_RECOMMENDED_EXTENSIONS}"
+      fi
+      if [ "${VSIX_ENABLE_EXPERIMENTAL}" = "true" ]; then
+        install_vsix_list "experimental" "${VSIX_EXPERIMENTAL_EXTENSIONS}"
+      fi
+      write_atomic "${VSIX_STATUS_FILE}" <<EOF
+    {
+      "status": "ok",
+      "pack": "${VSIX_PACK}",
+      "packVersion": "${VSIX_PACK_VERSION}",
+      "required": "${VSIX_REQUIRED_EXTENSIONS}",
+      "recommended": "${VSIX_RECOMMENDED_EXTENSIONS}",
+      "experimental": "${VSIX_EXPERIMENTAL_EXTENSIONS}",
+      "recommendedEnabled": ${VSIX_ENABLE_RECOMMENDED},
+      "experimentalEnabled": ${VSIX_ENABLE_EXPERIMENTAL}
+    }
+    EOF
+    }
+
+    ensure_login_link() {
+      src="$1"
+      dst="$2"
+      if [ -e "${src}" ] || [ -L "${src}" ]; then
+        rm -rf "${src}"
+      fi
+      ln -sfn "${dst}" "${src}"
+    }
+
+    mkdir -p "${LOGIN_HOME}"
+    ensure_login_link "${LOGIN_HOME}/.bashrc" "${HOME_DIR}/.bashrc"
+    ensure_login_link "${LOGIN_HOME}/.bash_profile" "${HOME_DIR}/.bash_profile"
+    ensure_login_link "${LOGIN_HOME}/.gitconfig" "${HOME_DIR}/.gitconfig"
+    ensure_login_link "${LOGIN_HOME}/.beagle_shell_helpers.sh" "${HOME_DIR}/.beagle_shell_helpers.sh"
+    ensure_login_link "${LOGIN_HOME}/.profile" "${HOME_DIR}/.profile"
+    ensure_login_link "${LOGIN_HOME}/.zshenv" "${HOME_DIR}/.zshenv"
+    ensure_login_link "${LOGIN_HOME}/.zshrc" "${HOME_DIR}/.zshrc"
+    ensure_login_link "${LOGIN_HOME}/.tmux.conf" "${HOME_DIR}/.tmux.conf"
+    ensure_login_link "${LOGIN_HOME}/bin" "${HOME_DIR}/bin"
+    ensure_login_link "${LOGIN_HOME}/.local" "${HOME_DIR}/.local"
+    ensure_login_link "${LOGIN_HOME}/.vscode-server" "${HOME_DIR}/.vscode-server"
+    ensure_login_link "${LOGIN_HOME}/.config" "${HOME_DIR}/.config"
+    ensure_login_link "${LOGIN_HOME}/.claude" "${HOME_DIR}/.claude"
+    ensure_login_link "${LOGIN_HOME}/.codex" "${HOME_DIR}/.codex"
+    ensure_login_link "${LOGIN_HOME}/.cursor" "${HOME_DIR}/.cursor"
+    ensure_login_link "${LOGIN_HOME}/.gemini" "${HOME_DIR}/.gemini"
+    ensure_login_link "${LOGIN_HOME}/.ssh" "${HOME_DIR}/.ssh"
+
+    if [ -d "${WORKSPACE_ROOT}/.git" ]; then
+      HYDRATION_MODE="pvc-preserved"
+      WARM_START_USED="true"
+      if [ "${ALLOW_GIT_SYNC_ON_BOOT}" = "true" ]; then
+        if workspace_git_is_clean; then
+          if git -C "${WORKSPACE_ROOT}" fetch --depth=1 origin "${BEAGLE_WORKSPACE_BRANCH}"; then
+            if git -C "${WORKSPACE_ROOT}" checkout "${BEAGLE_WORKSPACE_BRANCH}" &&
+               git -C "${WORKSPACE_ROOT}" pull --ff-only origin "${BEAGLE_WORKSPACE_BRANCH}"; then
+              HYDRATION_MODE="git-sync"
+            else
+              echo "[WARN] existing workspace checkout could not switch/pull ${BEAGLE_WORKSPACE_BRANCH}; preserving current checkout" >&2
+            fi
+          else
+            echo "[WARN] existing workspace checkout could not fetch ${BEAGLE_WORKSPACE_BRANCH}; preserving current checkout" >&2
+          fi
+        else
+          echo "[WARN] existing workspace checkout is dirty; preserving current checkout on boot" >&2
+        fi
+      else
+        echo "[INFO] existing workspace checkout detected; preserving current checkout on boot" >&2
+      fi
+    else
+      if [ -d "${WORKSPACE_ROOT}" ] && workspace_has_non_context_files; then
+        echo "[WARN] non-canonical workspace root detected without .git; rehydrating ${WORKSPACE_ROOT} as a real clone" >&2
+      fi
+      if hydrate_real_git_clone; then
+        HYDRATION_MODE="real-clone"
+      else
+        echo "[WARN] unable to clone ${BEAGLE_WORKSPACE_REPO_URL}; continuing with habitat-only directory" >&2
+        mkdir -p "${WORKSPACE_ROOT}"
+        HYDRATION_MODE="habitat-only"
+      fi
+    fi
+
+    for _ in $(seq 1 "${BEAGLE_HEALTH_RETRY_COUNT}"); do
+      if curl_beagle "${BASE_URL}/health" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 2
+    done
+
+    if fetch_atomic "${BASE_URL}/api/darwin/workspace/bootstrap?workstream_id=${BEAGLE_WORKSTREAM_ID}&workspace_id=${BEAGLE_WORKSPACE_ID}&session_id=${BEAGLE_SESSION_ID}" "${CONTEXT_DIR}/bootstrap.json"; then
+      CONTEXT_SOURCE="beagle-api"
+    else
+      echo "[WARN] unable to fetch bootstrap context for ${BEAGLE_WORKSPACE_ID}; continuing in local-only mode" >&2
+      write_local_bootstrap_fallback
+    fi
+    if ! fetch_atomic "${BASE_URL}/api/darwin/workstreams/${BEAGLE_WORKSTREAM_ID}/context-packet" "${CONTEXT_PACKET_FILE}"; then
+      echo "[WARN] unable to fetch context packet for ${BEAGLE_WORKSTREAM_ID}; continuing in local-only mode" >&2
+      write_local_context_packet_fallback
+    fi
+    if ! fetch_atomic "${BASE_URL}/api/darwin/workstreams/${BEAGLE_WORKSTREAM_ID}/workspace-habitat/context.env" "${CONTEXT_ENV_FILE}"; then
+      echo "[WARN] unable to fetch habitat context env for ${BEAGLE_WORKSTREAM_ID}; continuing in local-only mode" >&2
+      write_local_context_env_fallback
+    fi
+    tmp_context_env="$(mktemp "${CONTEXT_ENV_FILE}.tmp.XXXXXX")"
+    cat "${CONTEXT_ENV_FILE}" > "${tmp_context_env}"
+    printf "\nexport SOUC_BIN='%s'\nexport SOUNIO_STDLIB_PATH='%s'\n" "${SOUC_BIN_PATH}" "${SOUNIO_STDLIB}" >> "${tmp_context_env}"
+    mv "${tmp_context_env}" "${CONTEXT_ENV_FILE}"
+
+    write_atomic "${TEMPLATE_FILE}" <<EOF
+    {
+      "status": "ok",
+      "phase": "B26.7",
+      "template_id": "${TEMPLATE_ID}",
+      "template_version": "${TEMPLATE_VERSION}",
+      "context_source": "${CONTEXT_SOURCE}",
+      "workstream_id": "${BEAGLE_WORKSTREAM_ID}",
+      "workspace_id": "${BEAGLE_WORKSPACE_ID}",
+      "session_id": "${BEAGLE_SESSION_ID}",
+      "repo_url": "${BEAGLE_WORKSPACE_REPO_URL}",
+      "branch": "${BEAGLE_WORKSPACE_BRANCH}",
+      "workspace_root": "${WORKSPACE_ROOT}",
+      "context_packet_file": "${CONTEXT_PACKET_FILE}",
+      "context_env_file": "${CONTEXT_ENV_FILE}",
+      "template_contract_kind": "git-backed-external-workspace-contract",
+      "reproducibility_mode": "${REPRODUCIBILITY_MODE}",
+      "warm_start_strategy": "${WARM_START_STRATEGY}",
+      "managed_attach_alias": "${BEAGLE_WORKSPACE_ID}.coder",
+      "launch_resume_path": "/api/darwin/workstreams/${BEAGLE_WORKSTREAM_ID}/workspace-launch-resume",
+      "managed_attach_path": "/api/darwin/workstreams/${BEAGLE_WORKSTREAM_ID}/managed-attach"
+    }
+    EOF
+    write_atomic "${REGISTRATION_FILE}" <<EOF
+    {
+      "status": "ok",
+      "phase": "B26.7",
+      "registration_kind": "${EXTERNAL_WORKSPACE_KIND}",
+      "registration_state": "git-backed-registered",
+      "context_source": "${CONTEXT_SOURCE}",
+      "workstream_id": "${BEAGLE_WORKSTREAM_ID}",
+      "workspace_id": "${BEAGLE_WORKSPACE_ID}",
+      "session_id": "${BEAGLE_SESSION_ID}",
+      "stable_workspace_alias": "${BEAGLE_WORKSPACE_ID}.coder",
+      "browser_url": "${WORKSPACE_BROWSER_URL}",
+      "recommended_client": "cursor",
+      "registration_file": "${REGISTRATION_FILE}"
+    }
+    EOF
+    write_atomic "${HYDRATION_FILE}" <<EOF
+    {
+      "status": "ok",
+      "phase": "B26.7",
+      "context_source": "${CONTEXT_SOURCE}",
+      "workstream_id": "${BEAGLE_WORKSTREAM_ID}",
+      "workspace_id": "${BEAGLE_WORKSPACE_ID}",
+      "session_id": "${BEAGLE_SESSION_ID}",
+      "startup_mode": "${HYDRATION_MODE}",
+      "warm_start_used": ${WARM_START_USED},
+      "prebuilt_snapshot_expected": ${PREBUILT_SNAPSHOT_EXPECTED},
+      "warm_start_strategy": "${WARM_START_STRATEGY}",
+      "hydrated_startup_path": "git-clone-workspace-root"
+    }
+    EOF
+    write_atomic "${SUBAGENTS_FILE}" <<EOF
+    {
+      "status": "ok",
+      "phase": "B26.7",
+      "context_source": "${CONTEXT_SOURCE}",
+      "workstream_id": "${BEAGLE_WORKSTREAM_ID}",
+      "workspace_id": "${BEAGLE_WORKSPACE_ID}",
+      "session_id": "${BEAGLE_SESSION_ID}",
+      "subagents_kind": "workspace-subagents",
+      "subagents_version": "sounio-workspace-single-role-v1",
+      "workspace_subagent_handoff_path": "/api/darwin/workstreams/${BEAGLE_WORKSTREAM_ID}/workspace-subagent-handoff",
+      "subagents_file": "${SUBAGENTS_FILE}",
+      "subagents_dir": "${SUBAGENTS_DIR}",
+      "devcontainer_dir": "${DEVCONTAINER_DIR}",
+      "roles": [
+        {
+          "subagent_id": "sounio-core",
+          "role": "core",
+          "role_tag": "compiler-runtime",
+          "label": "Sounio Core",
+          "work_modes": ["core", "compiler", "language", "tooling", "interactive-editing"],
+          "default_tools": ["cursor", "codex"],
+          "env_file": "${CONTEXT_ENV_FILE}",
+          "workspace_folder": "${WORKSPACE_ROOT}",
+          "access_state": "live"
+        }
+      ]
+    }
+    EOF
+
+    chmod 600 "${CONTEXT_PACKET_FILE}" "${CONTEXT_ENV_FILE}" "${CONTEXT_DIR}/bootstrap.json" "${TEMPLATE_FILE}" "${REGISTRATION_FILE}" "${HYDRATION_FILE}" "${SUBAGENTS_FILE}"
+    install_vsix_pack_if_enabled
+    printf 'ready\n' > "${HEALTH_DIR}/workspace-bootstrap-ready"
+
+    exec "${OPENVSCODE_SERVER_ROOT}/bin/openvscode-server" \
+      --host 0.0.0.0 \
+      --port 8080 \
+      --without-connection-token \
+      "${WORKSPACE_ROOT}"

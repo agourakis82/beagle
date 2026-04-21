@@ -1,9 +1,16 @@
 //! Void Deadlock Handler - Detecção e resolução de loops cognitivos
 //!
-//! Implementa detecção de deadlock e aplica estratégias Void quando necessário
+//! Implementa detecção de deadlock e aplica estratégias Void quando necessário.
+//! Quando a feature `void` está habilitada, usa o VoidNavigator real do beagle_void.
+//! Caso contrário, usa implementação fallback.
 
 use std::collections::VecDeque;
 use tracing::{info, warn};
+
+#[cfg(feature = "void")]
+use beagle_void::{VoidConfig, VoidNavigator, VoidOrchestrator};
+#[cfg(feature = "void")]
+use std::sync::Arc;
 
 /// Estado de detecção de deadlock para um run
 #[derive(Debug, Clone)]
@@ -92,22 +99,127 @@ fn similarity(a: &str, b: &str) -> f64 {
 }
 
 /// Aplica estratégia Void para quebrar deadlock
-pub async fn handle_deadlock(run_id: &str, reason: &str, _focus: &str) -> anyhow::Result<String> {
+///
+/// Quando a feature `void` está habilitada, usa VoidNavigator real para navegação
+/// no vazio ontológico e extração de insights. Caso contrário, usa fallback.
+pub async fn handle_deadlock(run_id: &str, reason: &str, focus: &str) -> anyhow::Result<String> {
     info!(
         run_id = %run_id,
         reason = %reason,
         "VOID: Aplicando estratégia de quebra de deadlock"
     );
 
-    // Estratégia conservadora: apenas loga e retorna insight do Void
-    // Em lab/prod, pode ser mais agressivo (resetar contexto, trocar provider, etc.)
+    #[cfg(feature = "void")]
+    {
+        info!("VOID: Usando VoidNavigator real (feature 'void' habilitada)");
+        return handle_deadlock_with_void(run_id, reason, focus).await;
+    }
 
-    // Por enquanto, retorna mensagem simples (VoidNavigator requer beagle-ontic que pode não estar disponível)
-    // TODO: Integrar VoidNavigator quando beagle-ontic estiver disponível
-    warn!("VOID: Usando implementação fallback (VoidNavigator não disponível)");
+    #[cfg(not(feature = "void"))]
+    {
+        warn!("VOID: Usando implementação fallback (feature 'void' não habilitada)");
+        Ok(format!(
+            "[VOID BREAK APPLIED - FALLBACK] {}\n\nInsight: Deadlock detectado. Considerando abordagem alternativa ou redução de contexto.\nPara navegação real no vazio ontológico, compile com: cargo build --features void",
+            reason
+        ))
+    }
+}
 
-    Ok(format!(
-        "[VOID BREAK APPLIED] {}\n\nInsight do vazio: Deadlock detectado. Considerando abordagem alternativa ou redução de contexto.",
-        reason
-    ))
+/// Implementação usando VoidNavigator real (requer feature `void`)
+#[cfg(feature = "void")]
+async fn handle_deadlock_with_void(run_id: &str, reason: &str, focus: &str) -> anyhow::Result<String> {
+    // Criar orchestrator void com configurações padrão
+    let orchestrator = Arc::new(VoidOrchestrator::new());
+
+    // Determinar profundidade baseada na severidade do deadlock
+    let target_depth = if std::env::var("BEAGLE_VOID_DEEP").is_ok() {
+        8.0 // Navegação profunda para casos críticos
+    } else {
+        4.0 // Navegação padrão
+    };
+
+    info!(
+        run_id = %run_id,
+        target_depth = target_depth,
+        "VOID: Iniciando navegação no vazio"
+    );
+
+    // Executar jornada completa no vazio
+    match orchestrator.journey(target_depth).await {
+        Ok(journey_result) => {
+            info!(
+                run_id = %run_id,
+                max_depth = journey_result.navigation.max_depth_reached,
+                num_extractions = journey_result.extractions.len(),
+                "VOID: Navegação completa"
+            );
+
+            // Compilar insights extraídos
+            let mut insights = Vec::new();
+
+            // Insights da navegação
+            for insight in &journey_result.navigation.insights {
+                insights.push(format!(
+                    "[Profundidade {:.2}] {} (confiança: {:.0}%)",
+                    insight.depth_found,
+                    insight.content,
+                    insight.confidence * 100.0
+                ));
+            }
+
+            // Insights das extrações
+            for extraction in &journey_result.extractions {
+                for info in &extraction.extracted_info {
+                    insights.push(format!(
+                        "[Extração {:?}] {} (certeza: {:.0}%)",
+                        extraction.extraction_type,
+                        info.content,
+                        info.certainty * 100.0
+                    ));
+                }
+            }
+
+            // Resultado da sonda
+            let probe_insight = if journey_result.probe_result.causal_effect.is_some() {
+                format!(
+                    "Efeito causal detectado: interferência quântica ativa (incerteza: {:.2})",
+                    journey_result.probe_result.uncertainty
+                )
+            } else {
+                format!(
+                    "Medição estável: {:.2} (incerteza: {:.2})",
+                    journey_result.probe_result.measurement,
+                    journey_result.probe_result.uncertainty
+                )
+            };
+
+            let insights_text = if insights.is_empty() {
+                "Nenhum insight específico extraído (estado coerente)".to_string()
+            } else {
+                insights.join("\n• ")
+            };
+
+            Ok(format!(
+                "[VOID BREAK APPLIED - NAVIGATOR REAL] {}\n\nFoco: '{}'\nProfundidade: {:.1}\nDuração: {} ms\n\nInsights do vazio:\n• {}\n\nSondagem: {}",
+                reason,
+                focus,
+                journey_result.navigation.max_depth_reached,
+                journey_result.navigation.duration_ms,
+                insights_text,
+                probe_insight
+            ))
+        }
+        Err(e) => {
+            warn!(
+                run_id = %run_id,
+                error = %e,
+                "VOID: Erro na navegação, usando fallback"
+            );
+            Ok(format!(
+                "[VOID BREAK APPLIED - PARTIAL] {}\n\nErro na navegação completa: {}.\nFallback: Deadlock detectado. Considerando abordagem alternativa.",
+                reason,
+                e
+            ))
+        }
+    }
 }

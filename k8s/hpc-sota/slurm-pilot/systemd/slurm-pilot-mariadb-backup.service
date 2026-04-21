@@ -1,0 +1,8 @@
+[Unit]
+Description=Backup host MariaDB for Slurm pilot accounting
+After=mariadb.service
+Requires=mariadb.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/slurm-pilot-mariadb-backup.sh

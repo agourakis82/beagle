@@ -1,0 +1,96 @@
+type: object
+required:
+  - point_version
+  - point_id
+  - collection_name
+  - payload
+properties:
+  point_version:
+    type: string
+    enum:
+      - beagle-memory-point-v1
+  point_id:
+    type: string
+  collection_name:
+    type: string
+  dense_vector_name:
+    type:
+      - string
+      - "null"
+  payload:
+    type: object
+    required:
+      - memory_id
+      - source
+      - conversation_id
+      - turn_index
+      - role
+      - text
+      - tags
+      - timestamp
+    properties:
+      memory_id:
+        type: string
+      workstream_id:
+        type:
+          - string
+          - "null"
+      campaign_id:
+        type:
+          - string
+          - "null"
+      program_id:
+        type:
+          - string
+          - "null"
+      workspace_id:
+        type:
+          - string
+          - "null"
+      session_id:
+        type:
+          - string
+          - "null"
+      source:
+        type: string
+      conversation_id:
+        type: string
+      turn_index:
+        type: integer
+      role:
+        type: string
+      text:
+        type: string
+      domain:
+        type:
+          - string
+          - "null"
+      tags:
+        type: array
+        items:
+          type: string
+      physio_snapshot_ref:
+        type:
+          - string
+          - "null"
+      physio_snapshot:
+        type:
+          - object
+          - "null"
+      experiment_flags:
+        type:
+          - object
+          - "null"
+      result_refs:
+        type: array
+        items:
+          type: string
+      claim_refs:
+        type: array
+        items:
+          type: string
+      timestamp:
+        type: string
+        format: date-time
+  note:
+    type: string

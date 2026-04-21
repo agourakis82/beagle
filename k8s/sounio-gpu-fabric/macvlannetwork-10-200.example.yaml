@@ -1,0 +1,23 @@
+apiVersion: mellanox.com/v1alpha1
+kind: MacvlanNetwork
+metadata:
+  name: gpu-fabric-10-200
+spec:
+  networkNamespace: "beagle"
+  # Replace the master with the fabric interface reported by `ibdev2netdev`
+  # on the target node group.
+  #
+  # Examples in this lab today:
+  # - t560-proxmox  -> nic7 / enp153s0f1np1
+  # - r770-proxmox  -> nic3 / enP1s3f0np0
+  # - r740-proxmox  -> nic4 / enp59s0f0np0
+  # - 5860-proxmox  -> ens5f1np1
+  master: "ens5f1np1"
+  mode: "bridge"
+  mtu: 9000
+  ipam: |
+    {
+      "type": "whereabouts",
+      "range": "10.200.10.0/24"
+    }
+

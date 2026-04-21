@@ -1,0 +1,166 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pl-runtime-gpu-pilot-orangefs
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: pl-runtime-gpu-pilot-orangefs
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pl-runtime-gpu-pilot-orangefs
+      annotations:
+        k8s.v1.cni.cncf.io/networks: beagle/gpu-fabric-10-200-pilot
+    spec:
+      restartPolicy: Never
+      runtimeClassName: nvidia
+      priorityClassName: hpc-training
+      nodeSelector:
+        sounio.dev/accelerator-class: gpu
+        sounio.dev/compute: heavy
+        sounio.dev/pool: gpu-batch
+        sounio.dev/orangefs-client: "true"
+      tolerations:
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+      containers:
+        - name: pl-runtime
+          image: sounio/pytorch-rdma:2.7.1-cuda12.8-rdma
+          imagePullPolicy: Never
+          securityContext:
+            privileged: true
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: LD_LIBRARY_PATH
+              value: /nvidia-host
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euo pipefail
+              mkdir -p /datasets /checkpoints /scratch/pl-runtime
+              python - <<'PY'
+              import io, json, socket, time
+              import os
+              from pathlib import Path
+              import torch
+
+              def _best_effort_fsync(path: Path) -> None:
+                  try:
+                      fd = os.open(path, os.O_RDONLY)
+                  except OSError:
+                      return
+                  try:
+                      try:
+                          os.fsync(fd)
+                      except OSError:
+                          pass
+                  finally:
+                      os.close(fd)
+
+              def promote_bytes(dst: str, payload: bytes) -> None:
+                  dst_path = Path(dst)
+                  dst_path.parent.mkdir(parents=True, exist_ok=True)
+                  for attempt in range(15):
+                      tmp_path = dst_path.parent / f".{dst_path.name}.tmp-{attempt}"
+                      try:
+                          with open(tmp_path, "wb") as handle:
+                              handle.write(payload)
+                              handle.flush()
+                              try:
+                                  os.fsync(handle.fileno())
+                              except OSError:
+                                  pass
+                          os.replace(tmp_path, dst_path)
+                          _best_effort_fsync(dst_path.parent)
+                          return
+                      except OSError:
+                          try:
+                              tmp_path.unlink()
+                          except FileNotFoundError:
+                              pass
+                          if attempt == 14:
+                              raise
+
+              if not torch.cuda.is_available():
+                  raise RuntimeError("CUDA is not available for PL runtime pilot")
+
+              device = torch.device("cuda:0")
+              a = torch.randn(4096, 4096, device=device)
+              b = torch.randn(4096, 4096, device=device)
+              torch.cuda.synchronize()
+              start = time.perf_counter()
+              out = torch.matmul(a, b)
+              torch.cuda.synchronize()
+              elapsed = time.perf_counter() - start
+              payload = {
+                  "hostname": socket.gethostname(),
+                  "cuda": True,
+                  "device_name": torch.cuda.get_device_name(device),
+                  "gpu_count": torch.cuda.device_count(),
+                  "elapsed_seconds": elapsed,
+                  "checksum": float(out[0, 0].detach().cpu()),
+              }
+              metrics_bytes = json.dumps(payload, indent=2).encode("utf-8")
+              Path("/scratch/pl-runtime/pl-runtime-metrics.json").write_bytes(metrics_bytes)
+              promote_bytes("/datasets/pl-runtime-metrics.json", metrics_bytes)
+              checkpoint_buf = io.BytesIO()
+              torch.save({"payload": payload}, checkpoint_buf)
+              checkpoint_bytes = checkpoint_buf.getvalue()
+              Path("/scratch/pl-runtime/pl-runtime-state.pt").write_bytes(checkpoint_bytes)
+              promote_bytes("/checkpoints/pl-runtime-state.pt", checkpoint_bytes)
+              Path("/scratch/pl-runtime/run.txt").write_text("pl runtime pilot complete\n", encoding="utf-8")
+              print(json.dumps(payload), flush=True)
+              PY
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+              rdma/sounio_gpu_fabric: "1"
+            limits:
+              cpu: "4"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+              rdma/sounio_gpu_fabric: "1"
+          volumeMounts:
+            - name: host-libcuda
+              mountPath: /nvidia-host/libcuda.so.1
+              readOnly: true
+            - name: host-libnvidia-ml
+              mountPath: /nvidia-host/libnvidia-ml.so.1
+              readOnly: true
+            - name: datasets
+              mountPath: /datasets
+            - name: checkpoints
+              mountPath: /checkpoints
+            - name: scratch
+              mountPath: /scratch
+      volumes:
+        - name: host-libcuda
+          hostPath:
+            path: /lib/x86_64-linux-gnu/libcuda.so.1
+            type: File
+        - name: host-libnvidia-ml
+          hostPath:
+            path: /lib/x86_64-linux-gnu/libnvidia-ml.so.1
+            type: File
+        - name: datasets
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/datasets
+            type: DirectoryOrCreate
+        - name: checkpoints
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/checkpoints
+            type: DirectoryOrCreate
+        - name: scratch
+          emptyDir: {}

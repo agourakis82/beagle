@@ -1,0 +1,113 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - capsule_id
+  - captured_at
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - run_id
+  - reservation_id
+  - submitted_job_id
+  - published_result_job_id
+  - run_label
+  - selected_subagent_id
+  - task_family
+  - compute_profile_id
+  - canonical_repo
+  - canonical_branch
+  - canonical_track
+  - git
+  - environment
+  - config_fingerprint
+  - input_manifest
+  - published_result
+  - artifact_manifest
+  - published_result_manifest
+  - result_refs
+  - deterministic_result_lookup_scope
+  - deterministic_identity_confirmed
+properties:
+  phase:
+    type: string
+    const: B25.5
+  contract_kind:
+    type: string
+    const: run-capsule
+  contract_version:
+    type: string
+  capsule_id:
+    type: string
+  captured_at:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  run_id:
+    type: string
+  parent_run_id:
+    type: [string, "null"]
+  reservation_id:
+    type: string
+  submitted_job_id:
+    type: integer
+  published_result_job_id:
+    type: integer
+  run_label:
+    type: string
+  selected_subagent_id:
+    type: string
+  task_family:
+    type: string
+  compute_profile_id:
+    type: string
+  recipe_kind:
+    type: [string, "null"]
+  experiment_id:
+    type: [string, "null"]
+  canonical_repo:
+    type: string
+  canonical_branch:
+    type: string
+  canonical_track:
+    type: string
+  git:
+    type: object
+  environment:
+    type: object
+  retrieval_query_type:
+    type: [string, "null"]
+  retrieval_profile:
+    type: [string, "null"]
+  compiler_profile_id:
+    type: [string, "null"]
+  graphrag_query_mode:
+    type: [string, "null"]
+  temporal_truth_view:
+    type: [string, "null"]
+  config_fingerprint:
+    type: string
+  input_manifest:
+    type: object
+  published_result:
+    type: object
+  artifact_manifest:
+    type: object
+  published_result_manifest:
+    type: object
+  result_refs:
+    type: array
+  deterministic_result_lookup_scope:
+    type: string
+  deterministic_identity_confirmed:
+    type: boolean
+  note:
+    type: string

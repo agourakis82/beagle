@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: darwin-alert-sink
+  namespace: darwin-platform
+  labels:
+    app.kubernetes.io/name: darwin-alert-sink
+    app.kubernetes.io/part-of: darwin-observability
+    darwin.phase: B8
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: darwin-alert-sink
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: darwin-alert-sink
+        app.kubernetes.io/part-of: darwin-observability
+        darwin.phase: B8
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: alert-sink
+          image: python:3.12-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -lc
+            - |
+              cat > /tmp/alert_sink.py <<'PY'
+              import json
+              import os
+              from http.server import BaseHTTPRequestHandler, HTTPServer
+
+              class Handler(BaseHTTPRequestHandler):
+                  def _write(self, status, body, content_type="application/json"):
+                      self.send_response(status)
+                      self.send_header("Content-Type", content_type)
+                      self.end_headers()
+                      self.wfile.write(body.encode())
+
+                  def do_GET(self):
+                      if self.path == "/healthz":
+                          self._write(200, '{"status":"ok"}')
+                          return
+                      self._write(404, '{"status":"not-found"}')
+
+                  def do_POST(self):
+                      length = int(self.headers.get("Content-Length", "0"))
+                      payload = self.rfile.read(length).decode("utf-8") if length else ""
+                      print(json.dumps({
+                          "path": self.path,
+                          "headers": dict(self.headers),
+                          "payload": payload,
+                      }), flush=True)
+                      self._write(202, '{"status":"accepted"}')
+
+                  def log_message(self, fmt, *args):
+                      return
+
+              HTTPServer(("0.0.0.0", int(os.environ.get("PORT", "8080"))), Handler).serve_forever()
+              PY
+              exec python /tmp/alert_sink.py
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: darwin-alert-sink
+  namespace: darwin-platform
+  labels:
+    app.kubernetes.io/name: darwin-alert-sink
+    app.kubernetes.io/part-of: darwin-observability
+    darwin.phase: B8
+spec:
+  selector:
+    app.kubernetes.io/name: darwin-alert-sink
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

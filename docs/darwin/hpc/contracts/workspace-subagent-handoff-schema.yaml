@@ -1,0 +1,37 @@
+version: beagle-cross-subagent-session-handoff-v1
+kind: workspace-subagent-handoff
+description: >
+  Canonical Beagle contract for bounded cross-subagent handoff inside one
+  Beagle-owned workspace/session/workstream identity.
+
+required:
+  - handoff_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - source_subagent_id
+  - target_subagent_id
+  - intent
+  - summary
+  - handoff_text
+  - workspace_subagent_handoff_path
+  - workspace_subagent_list_path
+  - target_route_path
+  - context_packet_ref
+  - managed_attach_state
+  - stable_attach_alias
+
+propagation:
+  required:
+    - handoff_present
+    - source_env_file
+    - target_env_file
+    - source_workspace_folder
+    - target_workspace_folder
+    - source_shell_entry_hint
+    - target_shell_entry_hint
+
+allowed_subagents:
+  - core
+  - experiments
+  - manuscript

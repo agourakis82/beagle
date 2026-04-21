@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh Tailscale route health metrics for node exporter
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

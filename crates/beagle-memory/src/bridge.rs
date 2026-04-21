@@ -344,6 +344,13 @@ fn default_metadata() -> crate::models::ConversationMetadata {
             cost_usd: None,
         },
         tags: vec![],
+        source: None,
+        conversation_id: None,
+        turn_index: None,
+        role: None,
+        domain_label: None,
+        physio_snapshot: None,
+        experiment_flags: None,
     }
 }
 

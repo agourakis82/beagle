@@ -1,0 +1,30 @@
+$ORIGIN lab.sounio.
+$TTL 300
+
+@       IN SOA ns1.lab.sounio. hostmaster.lab.sounio. (
+            2026040401 ; serial
+            3600       ; refresh
+            900        ; retry
+            1209600    ; expire
+            300 )      ; minimum
+
+        IN NS  ns1.lab.sounio.
+ns1     IN A   10.100.100.2
+
+t560        IN A   10.100.100.2
+r770        IN A   10.100.100.1
+r740        IN A   10.100.100.4
+pve-5860    IN A   10.100.100.3
+registry    IN A   192.168.3.207
+push-registry IN A 192.168.3.207
+dnsctrl     IN A   192.168.3.207
+ipam        IN A   192.168.3.207
+
+gw-k8s      IN A   10.100.100.254
+gw-storage  IN A   10.200.0.254
+gw-gpu      IN A   10.210.0.254
+svc10g-gw   IN A   10.30.0.1
+svc10g-sw   IN A   10.30.0.254
+registry-cache IN A 10.100.100.3
+technitium  IN A   192.168.3.207
+netbox      IN A   192.168.3.207

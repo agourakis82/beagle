@@ -1,0 +1,12 @@
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyGroup
+metadata:
+  name: sounio-workspace-ingress
+  namespace: tailscale
+spec:
+  type: ingress
+  replicas: 2
+  proxyClass: sounio-workspace-proxy
+  tags:
+    - tag:k8s
+    - tag:sounio-workspace

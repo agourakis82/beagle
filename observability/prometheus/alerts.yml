@@ -1,0 +1,129 @@
+# BEAGLE Prometheus Alert Rules
+# Alerting rules for monitoring BEAGLE health and performance
+
+groups:
+  - name: beagle-alerts
+    rules:
+      # LLM Request Error Rate Alert
+      - alert: BeagleHighLLMErrorRate
+        expr: |
+          (
+            sum(rate(beagle_llm_requests_total{status="error"}[5m]))
+            /
+            sum(rate(beagle_llm_requests_total[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High LLM error rate detected"
+          description: "LLM error rate is above 10% for the last 5 minutes"
+
+      # LLM High Latency Alert
+      - alert: BeagleHighLLMLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(beagle_llm_request_duration_seconds_bucket[5m])) by (provider, le)
+          ) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High LLM latency detected"
+          description: "95th percentile LLM latency is above 10 seconds for provider {{ $labels.provider }}"
+
+      # Pipeline Failure Rate Alert
+      - alert: BeagleHighPipelineFailureRate
+        expr: |
+          (
+            sum(rate(beagle_pipeline_runs_total{status=~"failed|error"}[10m]))
+            /
+            sum(rate(beagle_pipeline_runs_total[10m]))
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High pipeline failure rate"
+          description: "Pipeline failure rate is above 20% for the last 10 minutes"
+
+      # Memory Query Error Rate Alert
+      - alert: BeagleHighMemoryQueryErrorRate
+        expr: |
+          (
+            sum(rate(beagle_memory_queries_total{status="error"}[5m]))
+            /
+            sum(rate(beagle_memory_queries_total[5m]))
+          ) > 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory query error rate"
+          description: "Memory query error rate is above 15% for the last 5 minutes"
+
+      # Qdrant Health Alert
+      - alert: BeagleQdrantUnhealthy
+        expr: beagle_qdrant_health_status == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Qdrant is unhealthy"
+          description: "Qdrant health status is unhealthy (0) for more than 1 minute"
+
+      # High Rate Limit Hits Alert
+      - alert: BeagleHighRateLimitHits
+        expr: |
+          sum(increase(beagle_rate_limit_hits_total[1h])) by (identifier) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High rate limit hits"
+          description: "Rate limit hits for {{ $labels.identifier }} exceeded 100 in the last hour"
+
+      # Cost Alert - High LLM spending
+      - alert: BeagleHighLLMCost
+        expr: |
+          sum(increase(beagle_llm_cost_usd_total[1h])) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High LLM cost detected"
+          description: "LLM cost exceeded $10 in the last hour"
+
+      # Service Down Alert (if no metrics received)
+      - alert: BeagleMetricsMissing
+        expr: |
+          up{job=~"beagle-.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "BEAGLE service metrics missing"
+          description: "BEAGLE service {{ $labels.job }} is not reporting metrics"
+
+  - name: beagle-capacity-planning
+    rules:
+      # High Connection Count Alert
+      - alert: BeagleHighActiveConnections
+        expr: beagle_active_connections > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High active connections"
+          description: "Active connections are above 100"
+
+      # LLM Token Usage Alert (approaching limits)
+      - alert: BeagleHighTokenUsage
+        expr: |
+          sum(increase(beagle_llm_tokens_total[1h])) > 1000000
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "High token usage"
+          description: "Token usage exceeded 1M tokens in the last hour"

@@ -1,0 +1,52 @@
+phase: B25.1
+kind: workspace-tenancy
+version: beagle-workspace-tenancy-v1
+
+identity:
+  required:
+    - workstream_id
+    - workspace_id
+    - session_id
+    - same_beagle_owned_identity
+
+workspace:
+  required:
+    - workspace_identity_owner
+    - workspace_model
+    - workspace_tenancy_state
+    - shared_workspace_recommended
+    - external_workspace_compatible
+    - prebuilt_prehydrated_recommended
+    - canonical_workspace_combination
+    - workspace_template_path
+    - workspace_launch_resume_path
+    - managed_attach_path
+    - cursor_remote_lane_path
+    - stable_workspace_alias
+    - vscode_cursor_access
+    - repo_hydration
+
+vscode_cursor_access:
+  required:
+    - access_version
+    - access_kind
+    - clients
+
+repo_hydration:
+  required:
+    - hydration_version
+    - hydration_kind
+    - warm_start_strategy
+    - startup_mode
+    - reproducible_ready
+    - warm_start_ready
+    - prebuilt_snapshot_expected
+    - external_workspace_compatible
+    - repo_remote_url
+    - repo_branch
+    - repo_root
+    - hydrated_startup_path
+    - template_file
+    - registration_file
+    - hydration_file
+    - recommended_clone_command

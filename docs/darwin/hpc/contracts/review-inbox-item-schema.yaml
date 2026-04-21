@@ -1,0 +1,127 @@
+type: object
+required:
+  - inbox_version
+  - inbox_item_id
+  - execution_id
+  - plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - replan_suggestion_id
+  - requested_operator_action
+  - replan_required
+  - inbox_state
+  - created_by
+  - created_at
+  - create_note
+  - suggested_task_family
+  - suggested_subagent_id
+  - suggested_retrieval_query_type
+  - suggested_compiler_profile_id
+  - suggested_graphrag_query_mode
+  - suggested_temporal_truth_view
+  - suggested_changes
+  - rationale
+  - review_decision_path
+  - follow_on_plan_path
+  - note
+properties:
+  inbox_version:
+    type: string
+    const: beagle-review-inbox-item-v1
+  inbox_item_id:
+    type: string
+  execution_id:
+    type: string
+  plan_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  reflection_id:
+    type:
+      - string
+      - "null"
+  trajectory_eval_id:
+    type:
+      - string
+      - "null"
+  replan_suggestion_id:
+    type: string
+  requested_operator_action:
+    type: string
+  replan_required:
+    type: boolean
+  inbox_state:
+    type: string
+    enum:
+      - pending-review
+      - approved
+      - edited
+      - rejected
+  created_by:
+    type: string
+  created_at:
+    type: string
+    format: date-time
+  create_note:
+    type: string
+  suggested_task_family:
+    type: string
+  suggested_subagent_id:
+    type: string
+  suggested_retrieval_query_type:
+    type: string
+  suggested_compiler_profile_id:
+    type: string
+  suggested_graphrag_query_mode:
+    type: string
+  suggested_temporal_truth_view:
+    type: string
+  suggested_recipe_kind:
+    type:
+      - string
+      - "null"
+  suggested_changes:
+    type: array
+    items:
+      type: string
+  rationale:
+    type: string
+  autonomy_policy_id:
+    type:
+      - string
+      - "null"
+  risk_evaluation_id:
+    type:
+      - string
+      - "null"
+  approval_gating_decision_id:
+    type:
+      - string
+      - "null"
+  approval_gating_decision_class:
+    type:
+      - string
+      - "null"
+  review_decision_path:
+    type: string
+  follow_on_plan_path:
+    type: string
+  autonomy_policy_path:
+    type:
+      - string
+      - "null"
+  risk_evaluation_path:
+    type:
+      - string
+      - "null"
+  approval_gating_decision_path:
+    type:
+      - string
+      - "null"
+  note:
+    type: string

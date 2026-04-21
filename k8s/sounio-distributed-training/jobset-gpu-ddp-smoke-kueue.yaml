@@ -1,0 +1,152 @@
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: sounio-gpu-ddp-kq
+  namespace: beagle
+  labels:
+    kueue.x-k8s.io/queue-name: hpc-training
+  annotations:
+    alpha.jobset.sigs.k8s.io/exclusive-topology: kubernetes.io/hostname
+spec:
+  coordinator:
+    replicatedJob: workers
+    jobIndex: 0
+    podIndex: 0
+  network:
+    enableDNSHostnames: true
+    subdomain: sounio-gpu-ddp-kq
+    publishNotReadyAddresses: true
+  replicatedJobs:
+    - name: workers
+      replicas: 2
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            metadata:
+              labels:
+                sounio.dev/distributed-group: sounio-gpu-ddp-kq
+            spec:
+              priorityClassName: hpc-training
+              restartPolicy: Never
+              securityContext:
+                seccompProfile:
+                  type: Unconfined
+              tolerations:
+                - key: sounio.dev/pool
+                  operator: Equal
+                  value: gpu-batch
+                  effect: NoSchedule
+                - key: sounio.dev/compute
+                  operator: Equal
+                  value: heavy
+                  effect: NoSchedule
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: sounio.dev/accelerator
+                            operator: Exists
+                          - key: sounio.dev/compute
+                            operator: In
+                            values:
+                              - heavy
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - labelSelector:
+                        matchExpressions:
+                          - key: sounio.dev/distributed-group
+                            operator: In
+                            values:
+                              - sounio-gpu-ddp-kq
+                      topologyKey: kubernetes.io/hostname
+              containers:
+                - name: ddp-smoke
+                  image: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
+                  imagePullPolicy: IfNotPresent
+                  securityContext:
+                    privileged: true
+                  env:
+                    - name: MASTER_ADDR
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['jobset.sigs.k8s.io/coordinator']
+                    - name: MASTER_PORT
+                      value: "29500"
+                    - name: NODE_RANK
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.labels['jobset.sigs.k8s.io/job-index']
+                    - name: WORLD_SIZE
+                      value: "2"
+                    - name: NCCL_SOCKET_IFNAME
+                      value: eth0
+                    - name: NCCL_DEBUG
+                      value: INFO
+                    - name: TORCH_DISTRIBUTED_DEBUG
+                      value: DETAIL
+                    - name: PYTHONUNBUFFERED
+                      value: "1"
+                  command:
+                    - /bin/bash
+                    - -lc
+                    - |
+                      python - <<'PY'
+                      import os
+                      import socket
+                      import torch
+                      import torch.distributed as dist
+
+                      master = os.environ["MASTER_ADDR"]
+                      port = os.environ["MASTER_PORT"]
+                      rank = int(os.environ["NODE_RANK"])
+                      world = int(os.environ["WORLD_SIZE"])
+                      backend = "nccl" if torch.cuda.is_available() else "gloo"
+                      device = "cuda" if torch.cuda.is_available() else "cpu"
+
+                      if torch.cuda.is_available():
+                          torch.cuda.set_device(0)
+
+                      print(
+                          f"hostname={socket.gethostname()} "
+                          f"rank={rank}/{world} "
+                          f"master={master}:{port} "
+                          f"backend={backend} "
+                          f"cuda={torch.cuda.is_available()} "
+                          f"gpus={torch.cuda.device_count()}",
+                          flush=True,
+                      )
+
+                      dist.init_process_group(
+                          backend=backend,
+                          init_method=f"tcp://{master}:{port}",
+                          rank=rank,
+                          world_size=world,
+                      )
+
+                      try:
+                          tensor = torch.tensor([rank + 1], device=device)
+                          dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+                          print(
+                              f"hostname={socket.gethostname()} "
+                              f"rank={rank} "
+                              f"allreduce={tensor.item()}",
+                              flush=True,
+                          )
+                          dist.barrier()
+                      finally:
+                          if dist.is_initialized():
+                              dist.destroy_process_group()
+                      PY
+                  resources:
+                    requests:
+                      cpu: "4"
+                      memory: 12Gi
+                      nvidia.com/gpu: "1"
+                    limits:
+                      cpu: "4"
+                      memory: 12Gi
+                      nvidia.com/gpu: "1"

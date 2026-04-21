@@ -1,0 +1,204 @@
+services:
+  registry-cache-dockerhub:
+    image: registry:3
+    container_name: registry-cache-dockerhub
+    restart: unless-stopped
+    ports:
+      - "10.30.0.1:5000:5000"
+      - "10.100.100.3:5000:5000"
+      - "192.168.3.207:5000:5000"
+    volumes:
+      - /srv/service-fabric/registry/dockerhub.yml:/etc/distribution/config.yml:ro
+      - /srv/service-fabric/registry/data/dockerhub:/var/lib/registry
+
+  registry-cache-ghcr:
+    image: registry:3
+    container_name: registry-cache-ghcr
+    restart: unless-stopped
+    ports:
+      - "10.30.0.1:5001:5000"
+      - "10.100.100.3:5001:5000"
+      - "192.168.3.207:5001:5000"
+    volumes:
+      - /srv/service-fabric/registry/ghcr.yml:/etc/distribution/config.yml:ro
+      - /srv/service-fabric/registry/data/ghcr:/var/lib/registry
+
+  registry-cache-k8s:
+    image: registry:3
+    container_name: registry-cache-k8s
+    restart: unless-stopped
+    ports:
+      - "10.30.0.1:5002:5000"
+      - "10.100.100.3:5002:5000"
+      - "192.168.3.207:5002:5000"
+    volumes:
+      - /srv/service-fabric/registry/registry-k8s.yml:/etc/distribution/config.yml:ro
+      - /srv/service-fabric/registry/data/registry-k8s:/var/lib/registry
+
+  registry-push:
+    image: registry:3
+    container_name: registry-push
+    restart: unless-stopped
+    ports:
+      - "10.30.0.1:5003:5000"
+      - "10.100.100.3:5003:5000"
+      - "192.168.3.207:5003:5000"
+    volumes:
+      - /srv/service-fabric/registry/registry-push.yml:/etc/distribution/config.yml:ro
+      - /srv/service-fabric/registry/data/push:/var/lib/registry
+
+  technitium:
+    image: technitium/dns-server:latest
+    container_name: technitium-dns
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5353:53/udp"
+      - "127.0.0.1:5353:53/tcp"
+      - "10.30.0.1:5380:5380/tcp"
+      - "192.168.3.207:5380:5380/tcp"
+    env_file:
+      - /srv/service-fabric/technitium/technitium.env
+    volumes:
+      - /srv/service-fabric/technitium/config:/etc/dns
+    sysctls:
+      - net.ipv4.ip_local_port_range=1024 65535
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: netbox-postgres
+    restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - unix_socket_directories=
+    env_file:
+      - /srv/service-fabric/netbox/env/postgres.env
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -q -t 2 -h 127.0.0.1 -p 5432 -d $$POSTGRES_DB -U $$POSTGRES_USER
+      start_period: 20s
+      timeout: 30s
+      interval: 10s
+      retries: 5
+    volumes:
+      - /srv/service-fabric/netbox/postgres:/var/lib/postgresql/data
+
+  redis:
+    image: valkey/valkey:9.0-alpine
+    container_name: netbox-redis
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - valkey-server --appendonly yes --requirepass $$REDIS_PASSWORD
+    env_file:
+      - /srv/service-fabric/netbox/env/redis.env
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - '[ "$$(valkey-cli --pass "$${REDIS_PASSWORD}" ping)" = "PONG" ]'
+      start_period: 5s
+      timeout: 3s
+      interval: 1s
+      retries: 5
+    volumes:
+      - /srv/service-fabric/netbox/redis:/data
+
+  redis-cache:
+    image: valkey/valkey:9.0-alpine
+    container_name: netbox-redis-cache
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - valkey-server --requirepass $$REDIS_PASSWORD
+    env_file:
+      - /srv/service-fabric/netbox/env/redis-cache.env
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - '[ "$$(valkey-cli --pass "$${REDIS_PASSWORD}" ping)" = "PONG" ]'
+      start_period: 5s
+      timeout: 3s
+      interval: 1s
+      retries: 5
+    volumes:
+      - /srv/service-fabric/netbox/redis-cache:/data
+
+  netbox:
+    image: netboxcommunity/netbox:v4.5-4.0.2
+    container_name: netbox
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+    env_file:
+      - /srv/service-fabric/netbox/env/netbox.env
+      - /srv/service-fabric/netbox/env/bootstrap.env
+    user: "netbox:root"
+    ports:
+      - "10.30.0.1:8080:8080"
+      - "192.168.3.207:8080:8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -fsS http://localhost:8080/login/ >/dev/null || exit 1
+      start_period: 120s
+      timeout: 5s
+      interval: 15s
+      retries: 10
+    volumes:
+      - /srv/service-fabric/netbox/media:/opt/netbox/netbox/media
+      - /srv/service-fabric/netbox/reports:/opt/netbox/netbox/reports
+      - /srv/service-fabric/netbox/scripts:/opt/netbox/netbox/scripts
+
+  netbox-worker:
+    image: netboxcommunity/netbox:v4.5-4.0.2
+    container_name: netbox-worker
+    restart: unless-stopped
+    depends_on:
+      netbox:
+        condition: service_healthy
+    env_file:
+      - /srv/service-fabric/netbox/env/netbox.env
+      - /srv/service-fabric/netbox/env/bootstrap.env
+    user: "netbox:root"
+    command:
+      - /opt/netbox/venv/bin/python
+      - /opt/netbox/netbox/manage.py
+      - rqworker
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - ps -ef | grep -v grep | grep -q rqworker || exit 1
+      start_period: 30s
+      timeout: 3s
+      interval: 15s
+      retries: 10
+    volumes:
+      - /srv/service-fabric/netbox/media:/opt/netbox/netbox/media
+      - /srv/service-fabric/netbox/reports:/opt/netbox/netbox/reports
+      - /srv/service-fabric/netbox/scripts:/opt/netbox/netbox/scripts
+
+  netbox-housekeeping:
+    image: netboxcommunity/netbox:v4.5-4.0.2
+    container_name: netbox-housekeeping
+    restart: unless-stopped
+    depends_on:
+      netbox:
+        condition: service_healthy
+    env_file:
+      - /srv/service-fabric/netbox/env/netbox.env
+      - /srv/service-fabric/netbox/env/bootstrap.env
+    user: "netbox:root"
+    command:
+      - /opt/netbox/housekeeping.sh
+    volumes:
+      - /srv/service-fabric/netbox/media:/opt/netbox/netbox/media
+      - /srv/service-fabric/netbox/reports:/opt/netbox/netbox/reports
+      - /srv/service-fabric/netbox/scripts:/opt/netbox/netbox/scripts

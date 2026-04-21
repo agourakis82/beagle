@@ -1,0 +1,63 @@
+version: beagle-manuscript-subagent-jats-assembly-v1
+kind: workspace-manuscript-assembly
+description: >
+  Canonical Beagle contract for bounded JATS-ready manuscript assembly inside
+  the manuscript subagent while preserving one Beagle-owned
+  workstream/workspace/session identity.
+
+required:
+  - assembly_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - source_subagent_id
+  - source_role_tag
+  - section_profile
+  - intent
+  - summary
+  - assembly_goal
+  - upstream_manuscript_handoff_id
+  - workspace_manuscript_assembly_path
+  - workspace_manuscript_handoff_ref
+  - program_context_packet_ref
+  - campaign_context_packet_ref
+  - evidence_pack_ref
+  - claims_ref
+  - manuscript_pack_ref
+  - review_bundle_ref
+  - jats_manuscript_pack_ref
+  - section_map_contract_ref
+  - program_id
+  - campaign_id
+  - manuscript_pack_id
+  - jats_pack_id
+  - article_type
+  - readiness_state
+  - managed_attach_state
+  - stable_attach_alias
+
+continuity:
+  required:
+    - handoff_present
+    - propagated_handoff
+    - last_result_available
+    - memory_hit_count
+    - claim_count
+    - supported_claim_count
+    - manuscript_pack_id
+    - manuscript_title
+    - review_payload_count
+    - jats_pack_id
+    - jats_profile
+    - article_type
+    - section_count
+    - section_types
+    - provenance_activity_count
+    - citation_related_identifier_count
+    - readiness_state
+    - source_env_file
+    - source_workspace_folder
+    - source_shell_entry_hint
+
+allowed_subagents:
+  - manuscript

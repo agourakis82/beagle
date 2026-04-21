@@ -1,0 +1,123 @@
+version: beagle-workbench-run-orchestration-v1
+kind: workbench-run-orchestration
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - run_id
+  - reservation_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - requested_by
+  - requester_role_id
+  - selected_subagent_id
+  - task_family
+  - intent_text
+  - compute_profile_id
+  - run_label
+  - scheduler_kind
+  - submit_mode
+  - current_state
+  - lifecycle_transitions
+  - submitted_job_id
+  - published_result_job_id
+  - published_result_manifest_key
+  - artifact_ready
+  - bounded_partner_access
+  - direct_cluster_admin_grant
+  - direct_kubernetes_access_grant
+  - workbench_run_path
+  - workbench_result_binding_path
+  - collaborative_workbench_path
+  - note
+properties:
+  phase:
+    const: B25.3
+  contract_kind:
+    const: workbench-run-orchestration
+  contract_version:
+    const: beagle-workbench-run-orchestration-v1
+  run_id:
+    type: string
+  reservation_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  requested_by:
+    type: string
+  requester_role_id:
+    type: string
+  selected_subagent_id:
+    type: string
+  task_family:
+    type: string
+  intent_text:
+    type: string
+  recipe_kind:
+    type: [string, "null"]
+  experiment_id:
+    type: [string, "null"]
+  compute_profile_id:
+    type: string
+  run_label:
+    type: string
+  scheduler_kind:
+    type: string
+  submit_mode:
+    type: string
+  current_state:
+    type: string
+    enum:
+      - reserved
+      - queued
+      - running
+      - succeeded
+      - failed
+      - stopped
+  lifecycle_transitions:
+    type: array
+    items:
+      type: object
+      required:
+        - state
+        - transitioned_at
+        - note
+      properties:
+        state:
+          type: string
+        transitioned_at:
+          type: string
+          format: date-time
+        note:
+          type: string
+  submitted_job_id:
+    type: integer
+  published_result_job_id:
+    type: integer
+  published_result_manifest_key:
+    type: string
+  artifact_ready:
+    type: boolean
+  bounded_partner_access:
+    type: boolean
+  direct_cluster_admin_grant:
+    type: boolean
+  direct_kubernetes_access_grant:
+    type: boolean
+  workbench_run_path:
+    type: string
+  workbench_result_binding_path:
+    type: string
+  collaborative_workbench_path:
+    type: string
+  note:
+    type: string

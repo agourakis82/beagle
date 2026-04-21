@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - darwin-platform-quota-grafana-tailnet.yaml
+  - namespace.yaml
+  - sounio-workspace-proxyclass.yaml
+  - proxygroup.yaml
+  - apiserver-proxygroup.yaml
+  - darwin-grafana-tailnet-http.yaml
+  - sounio-workspace-tailnet-ssh.yaml
+  - sounio-workspace-tailnet-http.yaml

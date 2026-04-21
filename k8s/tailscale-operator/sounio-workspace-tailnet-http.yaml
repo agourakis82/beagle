@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sounio-workspace-tailnet-http
+  namespace: beagle
+  annotations:
+    tailscale.com/proxy-group: sounio-workspace-ingress
+    tailscale.com/hostname: sounio-workspace
+    tailscale.com/tags: tag:k8s,tag:sounio-workspace
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  selector:
+    app.kubernetes.io/name: sounio-workspace-habitat
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

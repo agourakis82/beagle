@@ -1,0 +1,86 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - study_dag_id
+  - study_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - generated_at
+  - root_node_id
+  - node_count
+  - edge_count
+  - nodes
+  - edges
+  - note
+properties:
+  phase:
+    type: string
+    const: B26.1
+  contract_kind:
+    type: string
+    const: study-dag
+  contract_version:
+    type: string
+  study_dag_id:
+    type: string
+  study_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  generated_at:
+    type: string
+  root_node_id:
+    type: string
+  node_count:
+    type: integer
+  edge_count:
+    type: integer
+  nodes:
+    type: array
+    items:
+      type: object
+      required:
+        - node_id
+        - node_kind
+        - label
+      properties:
+        node_id:
+          type: string
+        node_kind:
+          type: string
+        label:
+          type: string
+        run_id:
+          type: [string, "null"]
+        variant_id:
+          type: [string, "null"]
+  edges:
+    type: array
+    items:
+      type: object
+      required:
+        - edge_id
+        - from_node_id
+        - to_node_id
+        - relation
+      properties:
+        edge_id:
+          type: string
+        from_node_id:
+          type: string
+        to_node_id:
+          type: string
+        relation:
+          type: string
+  note:
+    type: string

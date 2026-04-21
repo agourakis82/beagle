@@ -1,0 +1,114 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Beagle JATS-Ready Manuscript Pack
+type: object
+additionalProperties: false
+properties:
+  pack_version:
+    type: string
+  jats_profile:
+    type: string
+  article_type:
+    type: string
+  pack_id:
+    type: string
+  program_id:
+    type: string
+  campaign_id:
+    type: string
+  campaign_title:
+    type: string
+  active_workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  manuscript_target:
+    type:
+      - object
+      - "null"
+  title:
+    type: string
+  abstract_text:
+    type: string
+  hypothesis:
+    type: string
+  readiness_state:
+    type: string
+  claim_ids:
+    type: array
+    items:
+      type: string
+  evidence_pack_ref:
+    type: string
+  review_bundle_ref:
+    type: string
+  section_map:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+      properties:
+        section_id:
+          type: string
+        section_type:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        claim_refs:
+          type: array
+          items:
+            type: string
+        evidence_refs:
+          type: array
+          items:
+            type: string
+        provenance_refs:
+          type: array
+          items:
+            type: string
+        citation_refs:
+          type: array
+          items:
+            type: string
+      required:
+        - section_id
+        - section_type
+        - title
+        - body
+        - claim_refs
+        - evidence_refs
+        - provenance_refs
+        - citation_refs
+  provenance:
+    type: object
+    additionalProperties: false
+  citation:
+    type: object
+    additionalProperties: false
+  jats_xml:
+    type: string
+required:
+  - pack_version
+  - jats_profile
+  - article_type
+  - pack_id
+  - program_id
+  - campaign_id
+  - campaign_title
+  - active_workstream_id
+  - workspace_id
+  - session_id
+  - title
+  - abstract_text
+  - hypothesis
+  - readiness_state
+  - claim_ids
+  - evidence_pack_ref
+  - review_bundle_ref
+  - section_map
+  - provenance
+  - citation
+  - jats_xml

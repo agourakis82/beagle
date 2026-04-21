@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/v4.2.4/deployments/multus-daemonset-thick.yml
+  - https://raw.githubusercontent.com/k8snetworkplumbingwg/whereabouts/v0.9.3/doc/crds/whereabouts.cni.cncf.io_ippools.yaml
+  - https://raw.githubusercontent.com/k8snetworkplumbingwg/whereabouts/v0.9.3/doc/crds/whereabouts.cni.cncf.io_overlappingrangeipreservations.yaml
+  - https://raw.githubusercontent.com/k8snetworkplumbingwg/whereabouts/v0.9.3/doc/crds/whereabouts.cni.cncf.io_nodeslicepools.yaml
+  - https://raw.githubusercontent.com/k8snetworkplumbingwg/whereabouts/v0.9.3/doc/crds/daemonset-install.yaml
+  - https://raw.githubusercontent.com/Mellanox/k8s-rdma-shared-dev-plugin/v1.5.3/deployment/k8s/base/daemonset.yaml
+  - rdma-shared-configmap.yaml
+
+images:
+  - name: ghcr.io/k8snetworkplumbingwg/multus-cni
+    newTag: v4.2.4-thick
+  - name: ghcr.io/k8snetworkplumbingwg/whereabouts
+    newTag: v0.9.3
+  - name: ghcr.io/mellanox/k8s-rdma-shared-dev-plugin
+    newTag: v1.5.3
+
+patches:
+  - path: multus-config-patch.yaml
+    target:
+      kind: ConfigMap
+      name: multus-daemon-config
+      namespace: kube-system
+  - path: whereabouts-daemonset-patch.yaml
+    target:
+      kind: DaemonSet
+      name: whereabouts
+      namespace: kube-system
+  - path: rdma-shared-daemonset-patch.yaml
+    target:
+      kind: DaemonSet
+      name: rdma-shared-dp-ds
+      namespace: kube-system

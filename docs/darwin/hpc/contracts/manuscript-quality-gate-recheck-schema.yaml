@@ -1,0 +1,84 @@
+type: object
+required:
+  - gate_recheck_version
+  - manuscript_quality_gate_recheck_id
+  - manuscript_shadow_retest_id
+  - manuscript_tuning_recommendation_id
+  - manuscript_promotion_evidence_id
+  - manuscript_promotion_gate_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - base_promotion_gate_decision
+  - promotion_evidence_sufficient
+  - retest_applied
+  - tuned_quality_ready
+  - promotion_criteria_met
+  - promotion_gate_decision
+  - promotion_readiness_label
+  - manuscript_must_remain_shadow
+  - implementation_canary_retained
+  - analysis_canary_retained
+  - same_beagle_owned_identity
+properties:
+  gate_recheck_version:
+    type: string
+    enum:
+      - beagle-manuscript-quality-gate-recheck-v1
+  manuscript_quality_gate_recheck_id:
+    type: string
+  manuscript_shadow_retest_id:
+    type: string
+  manuscript_tuning_recommendation_id:
+    type: string
+  manuscript_promotion_evidence_id:
+    type: string
+  manuscript_promotion_gate_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+    enum:
+      - implementation-and-analysis-canary-live-manuscript-tuned-shadow-retest
+  base_promotion_gate_decision:
+    type: string
+  promotion_evidence_sufficient:
+    type: boolean
+  retest_applied:
+    type: boolean
+  tuned_quality_ready:
+    type: boolean
+  promotion_criteria_met:
+    type: boolean
+  promotion_gate_decision:
+    type: string
+    enum:
+      - keep-shadow
+      - stage-manuscript-canary
+  promotion_readiness_label:
+    type: string
+    enum:
+      - keep-shadow
+      - stage-manuscript-canary
+  manuscript_must_remain_shadow:
+    type: boolean
+  implementation_canary_retained:
+    type: boolean
+  analysis_canary_retained:
+    type: boolean
+  same_beagle_owned_identity:
+    type: boolean
+  rationale:
+    type: string
+  next_action:
+    type: string
+  note:
+    type: string

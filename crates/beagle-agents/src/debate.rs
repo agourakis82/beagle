@@ -2,9 +2,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
-use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
+
+use crate::causal::AgentLlmClient;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebateTranscript {
@@ -33,12 +35,12 @@ pub struct DebateSynthesis {
 }
 
 pub struct DebateOrchestrator {
-    llm: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
     max_rounds: usize,
 }
 
 impl DebateOrchestrator {
-    pub fn new(llm: Arc<AnthropicClient>) -> Self {
+    pub fn new(llm: Arc<dyn AgentLlmClient>) -> Self {
         Self { llm, max_rounds: 3 }
     }
 
@@ -121,17 +123,9 @@ impl DebateOrchestrator {
             }
         };
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeHaiku45,
-            messages: vec![Message::user(query.to_string())],
-            max_tokens: 500,
-            temperature: 0.7,
-            system: Some(system),
-        };
+        let response = self.llm.complete_with_system(query, &system).await?;
 
-        let response = self.llm.complete(request).await?;
-
-        Ok(response.content)
+        Ok(response)
     }
 
     async fn evaluate_arguments(&self, pro: &str, con: &str) -> Result<f32> {
@@ -142,17 +136,10 @@ impl DebateOrchestrator {
             pro, con
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeHaiku45,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 10,
-            temperature: 0.0,
-            system: Some("You are an impartial judge.".to_string()),
-        };
+        let system = "You are an impartial judge.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
-        let response = self.llm.complete(request).await?;
-
-        let score = response.content.trim().parse::<f32>().unwrap_or(0.0);
+        let score = response.trim().parse::<f32>().unwrap_or(0.0);
 
         Ok(score * 0.2)
     }
@@ -181,18 +168,11 @@ impl DebateOrchestrator {
             query, debate_summary
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeHaiku45,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 800,
-            temperature: 0.5,
-            system: Some("You are a scientific judge synthesizing a debate.".to_string()),
-        };
-
-        let response = self.llm.complete(request).await?;
+        let system = "You are a scientific judge synthesizing a debate.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
         Ok(DebateSynthesis {
-            conclusion: response.content,
+            conclusion: response,
             proponent_strength: (final_confidence * 2.0 - 1.0).max(0.0),
             opponent_strength: (1.0 - final_confidence).max(0.0),
             final_confidence,

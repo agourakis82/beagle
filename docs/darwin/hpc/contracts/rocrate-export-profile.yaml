@@ -1,0 +1,23 @@
+profile_id: ro-crate-1.2-bounded
+kind: review-bundle-export
+root_entity:
+  id: "./"
+  type: Dataset
+main_entities:
+  - review-bundle
+  - evidence-pack
+  - claims
+  - manuscript-pack
+required_payloads:
+  - ro-crate-metadata.json
+  - evidence-pack.json
+  - claims.json
+  - manuscript-pack.json
+carried_blocks:
+  - provenance
+  - citation
+  - readiness_state
+non_goals:
+  - doi-minting
+  - repository-publication-automation
+  - full-jats-generation

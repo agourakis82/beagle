@@ -1,0 +1,109 @@
+type: object
+required:
+  - gate_version
+  - analysis_promotion_gate_id
+  - analysis_shadow_soak_id
+  - analysis_soak_metrics_id
+  - control_policy_id
+  - analysis_candidate_policy_id
+  - source_analysis_rollout_decision_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - minimum_shadow_sample_count
+  - prior_shadow_sample_count
+  - additional_shadow_sample_count
+  - shadow_sample_count
+  - false_auto_continue_rate_basis_points
+  - false_review_required_rate_basis_points
+  - alignment_with_operator_decision_basis_points
+  - alignment_with_execution_outcome_basis_points
+  - regression_count
+  - promotion_gate_decision
+  - promotion_criteria_met
+  - implementation_canary_retained
+  - manuscript_control_retained
+  - hold_or_rollback_required
+  - rollback_trigger
+  - rollback_action
+  - same_beagle_owned_identity
+  - rationale
+properties:
+  gate_version:
+    type: string
+    enum:
+      - beagle-analysis-promotion-gate-recheck-v1
+  analysis_promotion_gate_id:
+    type: string
+  analysis_shadow_soak_id:
+    type: string
+  analysis_soak_metrics_id:
+    type: string
+  control_policy_id:
+    type: string
+  analysis_candidate_policy_id:
+    type: string
+  source_analysis_rollout_decision_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+  minimum_shadow_sample_count:
+    type: integer
+    minimum: 1
+  prior_shadow_sample_count:
+    type: integer
+    minimum: 0
+  additional_shadow_sample_count:
+    type: integer
+    minimum: 0
+  shadow_sample_count:
+    type: integer
+    minimum: 0
+  false_auto_continue_rate_basis_points:
+    type: integer
+    minimum: 0
+  false_review_required_rate_basis_points:
+    type: integer
+    minimum: 0
+  alignment_with_operator_decision_basis_points:
+    type: integer
+    minimum: 0
+  alignment_with_execution_outcome_basis_points:
+    type: integer
+    minimum: 0
+  regression_count:
+    type: integer
+    minimum: 0
+  promotion_gate_decision:
+    type: string
+    enum:
+      - keep-shadow
+      - stage-analysis-canary
+      - rollback-shadow
+  promotion_criteria_met:
+    type: boolean
+  implementation_canary_retained:
+    type: boolean
+  manuscript_control_retained:
+    type: boolean
+  hold_or_rollback_required:
+    type: boolean
+  rollback_trigger:
+    type: string
+  rollback_action:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  rationale:
+    type: string
+  note:
+    type: string

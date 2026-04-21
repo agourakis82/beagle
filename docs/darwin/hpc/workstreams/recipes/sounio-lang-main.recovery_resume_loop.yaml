@@ -1,0 +1,44 @@
+api_version: beagle.workstream.recipe/v1
+phase: B26.7
+id: sounio-lang-main.recovery_resume_loop
+workstream: sounio-lang-main
+kind: recovery_resume_loop
+summary: Recovery loop for resuming the Sounio workspace after interruption while preserving the same Beagle-owned identity.
+
+inputs:
+  repo: sounio-lang/sounio
+  branch: main
+  workspace_id: runtime-supplied
+  default_dev_plane: beagle-cluster
+  vm_fallback_role: fallback-only
+  promotion_scope: sounio-lang-compiler-mainline
+
+steps:
+  - id: bootstrap
+    action: bootstrap_workspace_session
+    success_condition: previous Sounio session is recovered or deterministically re-created
+    recovery_point: bootstrap_after
+  - id: restore_context
+    action: refresh_workspace_context_packet_and_env
+    success_condition: context packet and context env reflect the recovered session
+    recovery_point: context_after
+  - id: restore_attach
+    action: refresh_managed_attach_plane
+    success_condition: browser and managed attach paths remain operator-ready
+    recovery_point: attach_after
+
+outputs:
+  primary_artifacts:
+    - bootstrap-after.json
+    - workspace-context-after.json
+    - workspace-launch-resume-after.json
+
+recovery_points:
+  - bootstrap_after
+  - context_after
+  - attach_after
+
+success_criteria:
+  - the same workstream/workspace/session identity is preserved
+  - context packet remains coherent after restart
+  - managed attach remains operator-visible and restart-safe

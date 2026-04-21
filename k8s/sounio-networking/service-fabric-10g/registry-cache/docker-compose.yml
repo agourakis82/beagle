@@ -1,0 +1,13 @@
+services:
+  registry-cache:
+    image: registry:3
+    container_name: svc10g-registry-cache
+    restart: unless-stopped
+    ports:
+      - "10.30.0.1:5000:5000"
+      - "192.168.3.207:5000:5000"
+      - "10.100.100.3:5000:5000"
+    volumes:
+      - ./config.yml:/etc/distribution/config.yml:ro
+      - /srv/service-fabric/registry/data:/var/lib/registry
+

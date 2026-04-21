@@ -67,6 +67,7 @@ Siga as instruções em [docs/BEAGLE_MCP.md](docs/BEAGLE_MCP.md).
 
 ## Documentação
 
+- [BACKLOG_HYBRID_v0_3_plus_restoration.md](docs/BACKLOG_HYBRID_v0_3_plus_restoration.md) - Backlog híbrido (release v0.3 + restoration plan)
 - [BEAGLE_MCP.md](docs/BEAGLE_MCP.md) - Guia do MCP Server
 - [BEAGLE_CORE_v0_1.md](docs/BEAGLE_CORE_v0_1.md) - Documentação técnica do core
 - [BEAGLE_v0_3_RELEASE_NOTES.md](docs/BEAGLE_v0_3_RELEASE_NOTES.md) - Release notes v0.3.0

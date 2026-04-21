@@ -1,0 +1,115 @@
+type: object
+required:
+  - dispatch_version
+  - continuation_dispatch_id
+  - source_execution_id
+  - source_plan_id
+  - review_inbox_item_id
+  - review_decision_id
+  - follow_on_plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - review_action
+  - dispatch_state
+  - dispatched_by
+  - dispatch_note
+  - dispatched_at
+  - operator_visibility_confirmed
+  - next_execution_id
+  - next_plan_id
+  - next_task_family
+  - next_selected_subagent_id
+  - next_retrieval_query_type
+  - next_compiler_profile_id
+  - next_graphrag_query_mode
+  - next_temporal_truth_view
+  - continuation_state_path
+  - continuation_receipt_path
+  - note
+properties:
+  dispatch_version:
+    type: string
+    const: beagle-continuation-dispatch-v1
+  continuation_dispatch_id:
+    type: string
+  source_execution_id:
+    type: string
+  source_plan_id:
+    type: string
+  source_receipt_id:
+    type:
+      - string
+      - "null"
+  review_inbox_item_id:
+    type: string
+  review_decision_id:
+    type: string
+  follow_on_plan_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  review_action:
+    type: string
+    enum:
+      - approved
+      - edited
+  dispatch_state:
+    type: string
+    enum:
+      - dispatched
+  dispatched_by:
+    type: string
+  dispatch_note:
+    type: string
+  dispatched_at:
+    type: string
+    format: date-time
+  operator_visibility_confirmed:
+    type: boolean
+  next_execution_id:
+    type: string
+  next_plan_id:
+    type: string
+  next_task_family:
+    type: string
+  next_selected_subagent_id:
+    type: string
+  next_retrieval_query_type:
+    type: string
+  next_compiler_profile_id:
+    type: string
+  next_graphrag_query_mode:
+    type: string
+  next_temporal_truth_view:
+    type: string
+  autonomy_policy_id:
+    type:
+      - string
+      - "null"
+  risk_evaluation_id:
+    type:
+      - string
+      - "null"
+  approval_gating_decision_id:
+    type:
+      - string
+      - "null"
+  approval_gating_decision_class:
+    type:
+      - string
+      - "null"
+  approval_gating_risk_level:
+    type:
+      - string
+      - "null"
+  continuation_state_path:
+    type: string
+  continuation_receipt_path:
+    type: string
+  note:
+    type: string

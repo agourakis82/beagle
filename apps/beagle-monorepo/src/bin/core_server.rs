@@ -37,11 +37,35 @@ async fn async_main() -> anyhow::Result<()> {
         .await
         .context("Falha ao criar UniversalObserver")?;
 
+    // Warm-load the most recent persisted PhysioSnapshot (if any) so the
+    // HRV-aware router keeps routing correctly across pod restarts. Without
+    // this, hrv_hint defaults to Normal until a new snapshot arrives.
+    {
+        let persisted: Vec<beagle_observer::PhysioSnapshot> =
+            beagle_monorepo::jobs::jsonl_load_tail(beagle_monorepo::jobs::PHYSIO_JSONL, 1);
+        if let Some(last) = persisted.into_iter().last() {
+            info!(
+                hrv_ms = ?last.hrv_ms,
+                hrv_level = ?last.hrv_level,
+                "Rehidratando snapshot fisiológico do disco"
+            );
+            let _ = observer.record_physio_snapshot(last).await;
+        }
+    }
+
+    let (cognitive_tx, _warm_rx) = beagle_monorepo::cognitive_events::make_channel();
+
     let state = AppState {
         ctx: Arc::new(Mutex::new(ctx)),
         jobs: Arc::new(beagle_monorepo::JobRegistry::new()),
         science_jobs: Arc::new(beagle_monorepo::ScienceJobRegistry::new()),
         observer: Arc::new(observer),
+        voids: Arc::new(beagle_monorepo::VoidJourneyRegistry::new()),
+        fractals: Arc::new(beagle_monorepo::FractalTreeRegistry::new()),
+        phis: Arc::new(beagle_monorepo::PhiMeasurementRegistry::new()),
+        deep_thinks: Arc::new(beagle_monorepo::jobs::DeepThinkRegistry::new()),
+        mcp_tools: Arc::new(beagle_monorepo::jobs::McpToolCallRegistry::new()),
+        cognitive_tx,
     };
 
     let router = build_router(state);

@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: local-zfast-t560-canary
+  namespace: beagle
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: t560-proxmox
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  containers:
+    - name: canary
+      image: docker.io/library/debian:bookworm-slim
+      command:
+        - /bin/bash
+        - -lc
+        - |
+          set -euo pipefail
+          echo "beagle $(date -Is)" >> /beagle-workspace/.cutover-canary.txt
+          echo "sounio $(date -Is)" >> /sounio-workspace/.cutover-canary.txt
+          echo "core $(date -Is)" >> /beagle-core/.cutover-canary.txt
+          ls -la /beagle-workspace | sed -n '1,40p'
+          ls -la /sounio-workspace | sed -n '1,40p'
+          ls -la /beagle-core | sed -n '1,40p'
+      volumeMounts:
+        - name: beagle-workspace
+          mountPath: /beagle-workspace
+        - name: sounio-workspace
+          mountPath: /sounio-workspace
+        - name: beagle-core
+          mountPath: /beagle-core
+  volumes:
+    - name: beagle-workspace
+      persistentVolumeClaim:
+        claimName: beagle-workspace-local-data
+    - name: sounio-workspace
+      persistentVolumeClaim:
+        claimName: sounio-workspace-local-data
+    - name: beagle-core
+      persistentVolumeClaim:
+        claimName: beagle-core-local-data

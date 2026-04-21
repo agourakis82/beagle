@@ -1,0 +1,54 @@
+version: beagle-evidence-to-manuscript-loop-v1
+kind: workspace-manuscript-handoff
+description: >
+  Canonical Beagle contract for bounded evidence-to-manuscript continuity
+  inside one Beagle-owned workspace/session/workstream identity.
+
+required:
+  - manuscript_handoff_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - source_subagent_id
+  - target_subagent_id
+  - requested_work_mode
+  - intent
+  - summary
+  - manuscript_goal
+  - upstream_handoff_id
+  - subagent_handoff_id
+  - subagent_handoff_text
+  - workspace_manuscript_handoff_path
+  - workspace_subagent_handoff_ref
+  - target_route_path
+  - program_context_packet_ref
+  - campaign_context_packet_ref
+  - evidence_pack_ref
+  - claims_ref
+  - manuscript_pack_ref
+  - campaign_id
+  - managed_attach_state
+  - stable_attach_alias
+
+continuity:
+  required:
+    - handoff_present
+    - propagated_handoff
+    - last_result_available
+    - memory_hit_count
+    - claim_count
+    - supported_claim_count
+    - manuscript_pack_id
+    - manuscript_title
+    - manuscript_readiness_state
+    - source_env_file
+    - target_env_file
+    - source_workspace_folder
+    - target_workspace_folder
+    - source_shell_entry_hint
+    - target_shell_entry_hint
+
+allowed_subagents:
+  - core
+  - experiments
+  - manuscript

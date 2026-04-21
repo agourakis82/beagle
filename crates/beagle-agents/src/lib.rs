@@ -96,8 +96,8 @@ pub use reasoning::{HypergraphReasoner, PathNode, ReasoningPath, ReasoningType};
 // ============================================
 
 pub use causal::{
-    CausalEdge, CausalEdgeType, CausalGraph, CausalMetadata, CausalNode, CausalReasoner,
-    CounterfactualResult, InterventionResult, NodeType,
+    AgentLlmClient, CausalEdge, CausalEdgeType, CausalGraph, CausalMetadata, CausalNode,
+    CausalReasoner, CounterfactualResult, InterventionResult, NodeType,
 };
 
 // ============================================

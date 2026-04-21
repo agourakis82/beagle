@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: __NAME__
+  namespace: beagle
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: __NODE__
+  tolerations:
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+  containers:
+    - name: repro
+      image: docker.io/library/python:3.11-slim
+      env:
+        - name: RUN_ID
+          value: "__RUN_ID__"
+        - name: SIZE_MB
+          value: "__SIZE_MB__"
+        - name: SLEEP_BEFORE_READ
+          value: "__SLEEP_BEFORE_READ__"
+      command:
+        - /bin/bash
+        - -lc
+        - |
+          set -euo pipefail
+          python3 -u - <<'PY'
+          import hashlib
+          import os
+          import socket
+          import time
+          from pathlib import Path
+
+          run_id = os.environ["RUN_ID"]
+          size_mb = int(os.environ["SIZE_MB"])
+          sleep_before_read = float(os.environ["SLEEP_BEFORE_READ"])
+          host = socket.gethostname()
+          base = Path("/orangefs") / f"checkpoint-repro-{run_id}"
+          base.mkdir(parents=True, exist_ok=True)
+          path = base / f"checkpoint-{host}.bin"
+
+          chunk = b"\0" * (1024 * 1024)
+          start = time.time()
+          with open(path, "wb") as f:
+              for _ in range(size_mb):
+                  f.write(chunk)
+              f.flush()
+              os.fsync(f.fileno())
+          write_s = time.time() - start
+          print(f"host={host} phase=write mb_s={size_mb / write_s:.2f} path={path}", flush=True)
+
+          if sleep_before_read > 0:
+              print(f"host={host} phase=sleep seconds={sleep_before_read}", flush=True)
+              time.sleep(sleep_before_read)
+
+          start = time.time()
+          h = hashlib.sha256()
+          with open(path, "rb") as f:
+              while True:
+                  data = f.read(1024 * 1024)
+                  if not data:
+                      break
+                  h.update(data)
+          read_s = time.time() - start
+          print(f"host={host} phase=read mb_s={size_mb / read_s:.2f} sha256={h.hexdigest()}", flush=True)
+          PY
+      volumeMounts:
+        - name: orangefs
+          mountPath: /orangefs
+  volumes:
+    - name: orangefs
+      hostPath:
+        path: /var/lib/orangefs-lab/client-runtime/mnt
+        type: Directory

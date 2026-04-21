@@ -1,0 +1,75 @@
+type: object
+required:
+  - profile_version
+  - profile_id
+  - current_state
+  - current_mode
+  - bounded_top_k
+  - general_candidate_id
+  - sovereign_candidate_id
+  - candidates
+properties:
+  profile_version:
+    type: string
+  profile_id:
+    type: string
+  current_state:
+    type: string
+  current_mode:
+    type: string
+  bounded_top_k:
+    type: integer
+  general_candidate_id:
+    type: string
+  sovereign_candidate_id:
+    type: string
+  candidates:
+    type: array
+    items:
+      type: object
+      required:
+        - candidate_id
+        - provider
+        - model
+        - candidate_kind
+        - route_scope
+        - serving_mode
+        - runtime_state
+        - self_hosted
+        - multilingual_ready
+        - code_retrieval_ready
+        - latency_class
+        - recommended_scope
+      properties:
+        candidate_id:
+          type: string
+        provider:
+          type: string
+        model:
+          type: string
+        candidate_kind:
+          type: string
+        route_scope:
+          type: string
+        serving_mode:
+          type: string
+        runtime_state:
+          type: string
+        self_hosted:
+          type: boolean
+        multilingual_ready:
+          type: boolean
+        code_retrieval_ready:
+          type: boolean
+        latency_class:
+          type: string
+        endpoint_ref:
+          type:
+            - string
+            - "null"
+        recommended_scope:
+          type: string
+        note:
+          type: string
+  note:
+    type: string

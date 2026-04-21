@@ -1,0 +1,59 @@
+type: object
+required:
+  - matrix_version
+  - current_dense_backend
+  - current_sparse_backend
+  - current_store
+  - backends
+properties:
+  matrix_version:
+    type: string
+  current_dense_backend:
+    type: string
+  current_sparse_backend:
+    type: string
+  current_store:
+    type: string
+  backends:
+    type: array
+    items:
+      type: object
+      required:
+        - backend_id
+        - backend_kind
+        - provider
+        - model_family
+        - serving_mode
+        - self_hosted
+        - multilingual_ready
+        - code_retrieval_ready
+        - sovereign_fit
+        - qdrant_fit
+        - recommended_scope
+      properties:
+        backend_id:
+          type: string
+        backend_kind:
+          type: string
+        provider:
+          type: string
+        model_family:
+          type: string
+        serving_mode:
+          type: string
+        self_hosted:
+          type: boolean
+        multilingual_ready:
+          type: boolean
+        code_retrieval_ready:
+          type: boolean
+        sovereign_fit:
+          type: string
+        qdrant_fit:
+          type: string
+        recommended_scope:
+          type: string
+        note:
+          type: string
+  note:
+    type: string

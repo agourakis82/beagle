@@ -1,0 +1,59 @@
+version: beagle-compiler-policy-v1
+title: Compiler Policy
+type: object
+required:
+  - policy_version
+  - policy_id
+  - generated_at
+  - profiles
+properties:
+  policy_version:
+    type: string
+  policy_id:
+    type: string
+  generated_at:
+    type: string
+  profiles:
+    type: array
+    items:
+      type: object
+      required:
+        - task_profile
+        - budget_profile_id
+        - retrieval_query_type
+        - graphrag_query_mode
+        - temporal_truth_view
+        - selected_memory_tiers
+        - current_state
+        - evidence_basis
+        - last_eval_at
+        - recommended_when
+      properties:
+        task_profile:
+          type: string
+        budget_profile_id:
+          type: string
+        retrieval_query_type:
+          type: string
+        graphrag_query_mode:
+          type: string
+        temporal_truth_view:
+          type: string
+        selected_memory_tiers:
+          type: array
+          items:
+            type: string
+        current_state:
+          type: string
+        evidence_basis:
+          type: array
+          items:
+            type: string
+        last_eval_at:
+          type: string
+        recommended_when:
+          type: string
+        note:
+          type: string
+  note:
+    type: string

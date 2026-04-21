@@ -1,0 +1,48 @@
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: sounio-hpc
+spec:
+  namespaceSelector: {}
+  queueingStrategy: BestEffortFIFO
+  resourceGroups:
+    - coveredResources: ["cpu", "memory"]
+      flavors:
+        - name: cpu-any
+          resources:
+            - name: cpu
+              nominalQuota: 192
+            - name: memory
+              nominalQuota: 768Gi
+        - name: cpu-batch-r770
+          resources:
+            - name: cpu
+              nominalQuota: 64
+            - name: memory
+              nominalQuota: 256Gi
+    - coveredResources: ["nvidia.com/gpu", "rdma/sounio_gpu_fabric"]
+      flavors:
+        - name: gpu-any
+          resources:
+            - name: nvidia.com/gpu
+              nominalQuota: 3
+            - name: rdma/sounio_gpu_fabric
+              nominalQuota: 3000
+        - name: gpu-l4
+          resources:
+            - name: nvidia.com/gpu
+              nominalQuota: 1
+            - name: rdma/sounio_gpu_fabric
+              nominalQuota: 1000
+        - name: gpu-rtx-a5000
+          resources:
+            - name: nvidia.com/gpu
+              nominalQuota: 1
+            - name: rdma/sounio_gpu_fabric
+              nominalQuota: 1000
+        - name: gpu-rtx-4000-ada
+          resources:
+            - name: nvidia.com/gpu
+              nominalQuota: 1
+            - name: rdma/sounio_gpu_fabric
+              nominalQuota: 1000

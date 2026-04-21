@@ -1,0 +1,37 @@
+title: DataCite Deposit Payload
+type: object
+required:
+  - deposit_profile
+  - api_shape_version
+  - target_state
+  - real_deposit_performed
+  - prefix_placeholder
+  - doi_candidate
+  - payload
+  - readiness_state
+properties:
+  deposit_profile:
+    type: string
+    enum:
+      - datacite-rest-api-draft-staging-v1
+  api_shape_version:
+    type: string
+    enum:
+      - datacite-rest-api-doi-draft
+  target_state:
+    type: string
+    enum:
+      - draft
+  real_deposit_performed:
+    type: boolean
+  prefix_placeholder:
+    type: string
+  doi_candidate:
+    type: string
+  payload:
+    type: object
+    description: DataCite REST API-compatible JSON payload staged for draft deposit.
+  readiness_state:
+    type: string
+  note:
+    type: string

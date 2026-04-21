@@ -170,6 +170,100 @@ pub async fn query_beagle(prompt: &str, context_tokens: usize) -> String {
     "ERRO: Nenhum backend LLM disponível. Configure XAI_API_KEY ou VLLM_URL.".to_string()
 }
 
+/// HRV-aware flow state. Derived from physio observer's `flow_state` /
+/// `hrv_level` fields in `/api/v1/cognitive/state`. High HRV → exploratory
+/// tier preference. Low HRV → conservative. Normal → default order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HrvTierHint {
+    /// High HRV, user in peak/flow — prefer deeper reasoning (Grok-4-Heavy
+    /// first even when context is small) and allow higher temperature for
+    /// more exploratory sampling.
+    Flow,
+    /// Low HRV, user under stress — prefer fast Grok-3, cap max_tokens,
+    /// drop temperature for more deterministic replies.
+    Stress,
+    /// Default Grok-3 → Grok-4 → vLLM ordering.
+    Normal,
+}
+
+impl HrvTierHint {
+    /// Parse from the string labels used throughout cognitive state:
+    /// `flow`/`high` → Flow, `stress`/`low` → Stress, otherwise Normal.
+    pub fn from_flow_state(s: Option<&str>) -> Self {
+        match s.map(|x| x.to_ascii_lowercase()).as_deref() {
+            Some("flow") | Some("high") => HrvTierHint::Flow,
+            Some("stress") | Some("low") => HrvTierHint::Stress,
+            _ => HrvTierHint::Normal,
+        }
+    }
+}
+
+/// HRV-aware variant of `query_beagle`. Same fallback chain, but the tier
+/// preference and sampling parameters shift based on `hint`:
+///
+/// | Hint    | Primary tier   | Temperature | max_tokens |
+/// |---------|----------------|-------------|------------|
+/// | Flow    | Grok-4-Heavy   | 0.9         | 4096       |
+/// | Stress  | Grok-3         | 0.3         | 1024       |
+/// | Normal  | Grok-3         | None (def)  | None (def) |
+///
+/// Every fallback still runs in order, so a degraded tier preference never
+/// breaks the query — at worst it adds one extra attempt before the normal
+/// path kicks in.
+pub async fn query_beagle_with_hrv(prompt: &str, context_tokens: usize, hint: HrvTierHint) -> String {
+    let prompt_tokens = prompt.len() / 4;
+    let total_context = context_tokens + prompt_tokens;
+    let (temperature, max_tokens) = match hint {
+        HrvTierHint::Flow => (Some(0.9f32), Some(4096u32)),
+        HrvTierHint::Stress => (Some(0.3f32), Some(1024u32)),
+        HrvTierHint::Normal => (None, None),
+    };
+
+    debug!(
+        "🧠 query_beagle_with_hrv: hint={:?} prompt_tokens={} context_tokens={} total={}",
+        hint, prompt_tokens, context_tokens, total_context
+    );
+
+    // Flow → try Grok-4-Heavy first regardless of context size.
+    if matches!(hint, HrvTierHint::Flow) && total_context < GROK3_MAX_CONTEXT {
+        if let Some(ref grok4) = *GROK4_CLIENT {
+            debug!("🌊 flow-mode: trying Grok-4-Heavy first");
+            if let Ok(response) = grok4
+                .chat_with_params(prompt, None, temperature, max_tokens, None)
+                .await
+            {
+                info!("✅ query_beagle_with_hrv(Flow): Grok-4-Heavy respondeu ({} chars)", response.len());
+                return response;
+            }
+        }
+    }
+
+    // Default path: Grok-3 → Grok-4-Heavy → vLLM, each with HRV-shaped params.
+    if total_context < GROK3_MAX_CONTEXT {
+        if let Some(ref grok3) = *GROK3_CLIENT {
+            if let Ok(response) = grok3
+                .chat_with_params(prompt, None, temperature, max_tokens, None)
+                .await
+            {
+                info!("✅ query_beagle_with_hrv({:?}): Grok-3 respondeu", hint);
+                return response;
+            }
+        }
+    }
+    if let Some(ref grok4) = *GROK4_CLIENT {
+        if let Ok(response) = grok4
+            .chat_with_params(prompt, None, temperature, max_tokens, None)
+            .await
+        {
+            info!("✅ query_beagle_with_hrv({:?}): Grok-4-Heavy respondeu", hint);
+            return response;
+        }
+    }
+    // vLLM fallback ignores the HRV shaping (its sampling params are fixed).
+    warn!("query_beagle_with_hrv: falling back to plain query_beagle / vLLM chain");
+    query_beagle(prompt, context_tokens).await
+}
+
 /// Roteador inteligente de queries LLM
 pub struct SmartRouter {
     grok_client: Option<GrokClient>,

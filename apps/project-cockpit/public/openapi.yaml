@@ -1,0 +1,835 @@
+openapi: 3.1.0
+info:
+  title: Beagle Cognitive Substrate
+  version: 1.0.0
+  description: |
+    Endpoints for the cognitive novelty layer — void navigation, fractal
+    recursion, IIT Φ measurement, chained deep-think, recursive Φ-of-Φ,
+    and the aggregated cognitive-state surface.
+
+    Every numeric result is derived from the inputs via computation; no
+    mocks, no constants masquerading as data. When a substrate path is
+    unavailable (embedding backend down, LLM blocked), the response
+    stamps the actual path taken — no silent degradation.
+
+    Intended consumers: Claude Desktop (MCP), Claude Code (MCP), ChatGPT
+    Custom GPT Actions (this spec), cockpit web UI, iOS cockpit app.
+servers:
+  - url: https://beagle.chiuratto.ai
+    description: Cockpit public boundary for native apps
+  - url: http://beagle-core.tail21cbc4.ts.net
+    description: Tailnet (primary)
+  - url: http://beagle-core.beagle.svc.cluster.local:8080
+    description: In-cluster
+security:
+  - consumerHeader: []
+    bearerAuth: []
+paths:
+  /api/v1/cognitive/state:
+    get:
+      operationId: getCognitiveState
+      summary: Full cognitive state snapshot
+      description: |
+        Returns HRV, recent pipeline runs, recent science jobs, recent
+        void/fractal/phi/deep-think activity. Every entry carries its own
+        `truth_mode` (`observed` / `stale` / `declared`).
+      responses:
+        "200":
+          description: Cognitive state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CognitiveStateResponse"
+
+  /api/v1/cognitive/stream:
+    get:
+      operationId: streamCognitiveEvents
+      summary: SSE stream of cognitive events
+      description: |
+        Server-sent events. Emits `void` / `fractal` / `phi` / `physio` /
+        `deep_think` event types. Each `data:` payload is the JSON-encoded
+        CognitiveEvent. Subscribers that lag beyond the 256-event buffer
+        receive a `lagged` event with the number dropped.
+      responses:
+        "200":
+          description: Event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /api/v1/cognitive/meta_phi:
+    get:
+      operationId: getMetaPhi
+      summary: Φ over the last N cognitive events
+      description: |
+        Treats the last N entries across void/fractal/phi registries as a
+        substrate of discrete "atoms" and computes Φ over their
+        chronological trajectory.
+      responses:
+        "200":
+          description: Meta-Φ result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetaPhiResponse"
+
+  /api/v1/cognitive/phi_of_phi:
+    get:
+      operationId: getPhiOfPhi
+      summary: Second-order Φ over the awareness trajectory
+      description: |
+        Discretizes the last `window` PhiMeasurement entries into `bins`
+        awareness bands, builds a TPM from band→band transitions, and
+        computes Φ over the bands. Needs ≥4 measurements + ≥2 distinct
+        bands to produce a non-declared result.
+      parameters:
+        - in: query
+          name: window
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 20
+        - in: query
+          name: bins
+          schema:
+            type: integer
+            minimum: 2
+            maximum: 8
+            default: 4
+      responses:
+        "200":
+          description: Φ-of-Φ result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhiOfPhiResponse"
+
+  /api/exocortex/process:
+    post:
+      operationId: exocortexProcess
+      summary: Real IIT Φ over a query's concept substrate
+      description: |
+        Extracts up to `substrate_size` concept tokens from the query,
+        builds a TPM (embedding cosine when available, activation
+        co-occurrence otherwise), and runs the MIP search. Also routes
+        the query through the HRV-aware tiered LLM router and returns
+        the response.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExocortexRequest"
+      responses:
+        "200":
+          description: Φ + LLM response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExocortexResponse"
+
+  /api/fractal/recurse:
+    post:
+      operationId: fractalRecurse
+      summary: LLM-driven recursive cognitive tree
+      description: |
+        Expands `root_prompt` into a K-ary tree of depth D via level-
+        parallel LLM calls. Every node carries a real LLM-generated
+        summary + sharper children. Hard caps: depth ≤ 4, branching ≤ 3.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FractalRequest"
+      responses:
+        "200":
+          description: Flattened tree
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FractalResponse"
+
+  /api/cognitive/deep-think:
+    post:
+      operationId: cognitiveDeepThink
+      summary: Chained fractal → void → phi journey
+      description: |
+        Single endpoint that runs fractal expansion, then fires void
+        journeys on "stuck" leaves (≤3), then computes Φ over the
+        unified substrate (fractal summaries + void insights).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeepThinkRequest"
+      responses:
+        "200":
+          description: Journey object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeepThinkResponse"
+
+  /dev/void:
+    post:
+      operationId: voidNavigate
+      summary: Void navigation (ndarray tensor math)
+      description: |
+        Real eigendecomposition + Hegelian aufhebung + epistemic/aleatoric
+        variance. Enabled by default in the cluster binary (no feature
+        gate). Returns insights extracted during the journey.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoidRequest"
+      responses:
+        "200":
+          description: Journey result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoidResponse"
+
+  /api/observer/physio:
+    post:
+      operationId: ingestPhysio
+      summary: Ingest an HRV / physio snapshot
+      description: |
+        Each POST updates the in-memory observer, persists to JSONL, and
+        broadcasts a `physio` SSE event. The latest snapshot survives pod
+        restarts via JSONL warm-load.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhysioRequest"
+      responses:
+        "200":
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /api/auth/beagle-token:
+    get:
+      operationId: getBeagleToken
+      summary: Fetch the beagle operator token
+      description: |
+        Returns the operator token from the in-cluster Secret. Intended
+        for use by MCP servers, cockpit UI, and iOS to cache in Keychain.
+        Served by the cockpit host (not beagle-core). The public boundary
+        is the cockpit auth bridge; beagle-core stays private and is
+        accessed through the returned token and headers.
+      servers:
+        - url: http://sounio-cockpit.tail21cbc4.ts.net
+          description: Cockpit (Tailnet) — the auth bridge
+      security: []
+      responses:
+        "200":
+          description: Token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  auth_header_value: { type: string }
+                  consumer_header_name: { type: string }
+                  consumer_header_value: { type: string }
+                  beagle_url: { type: string }
+
+  /api/mobile/v1/chat:
+    post:
+      operationId: mobileChatComplete
+      summary: Complete a native-app chat turn through Cockpit
+      description: |
+        Public native-app chat entry point. Cockpit keeps beagle-core private,
+        merges the optional system prompt into the completion prompt, and
+        proxies the request to the private Dynamo control plane behind the
+        scenes.
+        The response uses the standard mobile envelope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileChatRequest"
+      responses:
+        "200":
+          description: Mobile envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileChatEnvelope"
+
+  /api/mobile/v1/projects/{slug}/ideas:
+    post:
+      operationId: mobileSaveIdea
+      summary: Persist a device idea into Cockpit memory
+      description: |
+        First-class mobile write route for idea persistence. This is distinct
+        from chat and returns an explicit sync state the app can trust.
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileIdeaRequest"
+      responses:
+        "200":
+          description: Mobile envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileIdeaEnvelope"
+
+  /api/mobile/v1/projects/{slug}/delegations:
+    post:
+      operationId: mobileDelegateWork
+      summary: Delegate work to an agent session
+      description: |
+        Starts or resumes an agent session if needed, records the delegated
+        task, and returns agent/session provenance for the native app.
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileDelegationRequest"
+      responses:
+        "200":
+          description: Mobile envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileDelegationEnvelope"
+
+  /api/mobile/v1/summary:
+    get:
+      operationId: mobileHomeSummary
+      summary: Compact mobile home briefing
+      description: |
+        Returns a compact public-native summary with active agent/session
+        counts, cluster health, and the latest recorded memory sync time.
+      responses:
+        "200":
+          description: Mobile envelope response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileSummaryEnvelope"
+
+  /api/llm/complete:
+    post:
+      operationId: cockpitLegacyChatComplete
+      summary: Legacy cockpit completion proxy
+      description: |
+        Compatibility route for existing native clients that still post to
+        `/api/llm/complete`. This is still served by Cockpit, keeps
+        beagle-core private, and returns the legacy completion shape.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileChatRequest"
+      responses:
+        "200":
+          description: Legacy completion response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegacyCompletionResponse"
+
+components:
+  securitySchemes:
+    consumerHeader:
+      type: apiKey
+      in: header
+      name: X-Beagle-Consumer
+      description: Consumer label — usually `beagle-operator`.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer token from `/api/auth/beagle-token`.
+
+  schemas:
+    MobileChatRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+          description: User message to complete.
+        system:
+          type: string
+          description: Optional system prompt merged before proxying.
+        requires_math:
+          type: boolean
+          default: false
+        requires_high_quality:
+          type: boolean
+          default: false
+        offline_required:
+          type: boolean
+          default: false
+
+    MobileChatData:
+      type: object
+      properties:
+        response: { type: string }
+        model: { type: string }
+        source:
+          type: string
+          enum: [device, cluster, agent, hybrid]
+        agentKind: { type: string, nullable: true }
+        sessionId: { type: string, nullable: true }
+        podName: { type: string, nullable: true }
+        tokens_used: { type: integer }
+
+    MobileChatEnvelope:
+      type: object
+      properties:
+        ok: { type: boolean, enum: [true] }
+        data:
+          $ref: "#/components/schemas/MobileChatData"
+        error:
+          oneOf:
+            - $ref: "#/components/schemas/MobileEnvelopeError"
+            - type: "null"
+        meta:
+          type: object
+          properties:
+            truthMode: { type: string }
+            generatedAt: { type: string, format: date-time }
+            observedAt: { type: string, format: date-time }
+            request_id: { type: string }
+            source:
+              type: string
+              enum: [device, cluster, agent, hybrid]
+            latency_ms: { type: integer }
+
+    LegacyCompletionResponse:
+      type: object
+      properties:
+        text: { type: string }
+        response: { type: string }
+        source:
+          type: string
+          enum: [device, cluster, agent, hybrid]
+        agentKind: { type: string, nullable: true }
+        sessionId: { type: string, nullable: true }
+        podName: { type: string, nullable: true }
+        provider: { type: string }
+        tier: { type: string }
+        tokens_used: { type: integer }
+        truthMode: { type: string }
+
+    MobileIdeaRequest:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string }
+        author: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        clientSessionId: { type: string }
+        alias: { type: string }
+
+    MobileIdeaData:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [device, cluster, agent, hybrid]
+        syncState:
+          type: string
+          enum: [local_only, queued, synced, delegated]
+        idea:
+          type: object
+          properties:
+            entryId: { type: string }
+            text: { type: string }
+            author: { type: string }
+            tags:
+              type: array
+              items: { type: string }
+            createdAt: { type: string, format: date-time }
+
+    MobileIdeaEnvelope:
+      type: object
+      properties:
+        ok: { type: boolean, enum: [true] }
+        data:
+          $ref: "#/components/schemas/MobileIdeaData"
+        error:
+          oneOf:
+            - $ref: "#/components/schemas/MobileEnvelopeError"
+            - type: "null"
+        meta:
+          type: object
+          properties:
+            truthMode: { type: string }
+            request_id: { type: string }
+            source:
+              type: string
+              enum: [device, cluster, agent, hybrid]
+
+    MobileDelegationRequest:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string }
+        author: { type: string }
+        agentKind: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        clientSessionId: { type: string }
+        alias: { type: string }
+
+    MobileDelegationData:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [device, cluster, agent, hybrid]
+        resultingState:
+          type: string
+          enum: [local_only, queued, synced, delegated]
+        delegation:
+          type: object
+          properties:
+            action: { type: string }
+            agentKind: { type: string }
+            sessionId: { type: string }
+            podName: { type: string }
+            status: { type: string }
+        task:
+          type: object
+          properties:
+            entryId: { type: string }
+            text: { type: string }
+            createdAt: { type: string, format: date-time }
+
+    MobileDelegationEnvelope:
+      type: object
+      properties:
+        ok: { type: boolean, enum: [true] }
+        data:
+          $ref: "#/components/schemas/MobileDelegationData"
+        error:
+          oneOf:
+            - $ref: "#/components/schemas/MobileEnvelopeError"
+            - type: "null"
+        meta:
+          type: object
+          properties:
+            truthMode: { type: string }
+            request_id: { type: string }
+            source:
+              type: string
+              enum: [device, cluster, agent, hybrid]
+
+    MobileSummaryEnvelope:
+      type: object
+      properties:
+        ok: { type: boolean, enum: [true] }
+        data:
+          type: object
+          properties:
+            source:
+              type: string
+              enum: [device, cluster, agent, hybrid]
+            activeAgentsCount: { type: integer }
+            activeSessionsCount: { type: integer }
+            clusterHealth:
+              type: object
+              properties:
+                status: { type: string }
+                surface: { type: string }
+                healthyNodes: { type: integer }
+                admittedNodes: { type: integer }
+            lastMemorySyncTime:
+              type: string
+              format: date-time
+              nullable: true
+        error:
+          oneOf:
+            - $ref: "#/components/schemas/MobileEnvelopeError"
+            - type: "null"
+        meta:
+          type: object
+          properties:
+            truthMode: { type: string }
+            request_id: { type: string }
+            source:
+              type: string
+              enum: [device, cluster, agent, hybrid]
+
+    MobileEnvelopeError:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+
+    ExocortexRequest:
+      type: object
+      required: [query]
+      properties:
+        query: { type: string }
+        substrate_size:
+          type: integer
+          minimum: 2
+          maximum: 8
+          default: 5
+
+    ExocortexResponse:
+      type: object
+      properties:
+        phi: { type: number, format: double }
+        mip_partition:
+          type: array
+          items: { type: array, items: { type: string } }
+        substrate:
+          type: array
+          items: { type: string }
+        ei_full: { type: number }
+        ei_cut: { type: number }
+        awareness_level: { type: string }
+        history_window: { type: integer }
+        response: { type: string }
+        tpm_source:
+          type: string
+          enum: [embeddings, activations]
+        truth_mode: { type: string }
+
+    FractalRequest:
+      type: object
+      required: [root_prompt]
+      properties:
+        root_prompt: { type: string }
+        max_depth: { type: integer, minimum: 1, maximum: 4, default: 2 }
+        branching: { type: integer, minimum: 1, maximum: 3, default: 2 }
+
+    FractalNode:
+      type: object
+      properties:
+        id: { type: string }
+        parent_id: { type: string, nullable: true }
+        depth: { type: integer }
+        prompt: { type: string }
+        summary: { type: string }
+        children:
+          type: array
+          items: { type: string }
+
+    FractalResponse:
+      type: object
+      properties:
+        root_id: { type: string }
+        max_depth: { type: integer }
+        branching: { type: integer }
+        node_count: { type: integer }
+        duration_ms: { type: integer }
+        nodes:
+          type: array
+          items: { $ref: "#/components/schemas/FractalNode" }
+        truth_mode: { type: string }
+
+    DeepThinkRequest:
+      type: object
+      required: [root_prompt]
+      properties:
+        root_prompt: { type: string }
+        max_depth: { type: integer, minimum: 1, maximum: 2, default: 2 }
+        branching: { type: integer, minimum: 1, maximum: 2, default: 2 }
+        void_on_stuck: { type: boolean, default: true }
+
+    DeepThinkResponse:
+      type: object
+      properties:
+        journey_id: { type: string }
+        root_prompt: { type: string }
+        duration_ms: { type: integer }
+        fractal:
+          type: object
+          properties:
+            root_id: { type: string }
+            node_count: { type: integer }
+            nodes:
+              type: array
+              items: { $ref: "#/components/schemas/FractalNode" }
+        void_journeys:
+          type: array
+          items:
+            type: object
+            properties:
+              journey_id: { type: string }
+              focus: { type: string }
+              insights:
+                type: array
+                items: { type: string }
+              raw_result: { type: string }
+        phi_measurement:
+          type: object
+          properties:
+            phi: { type: number }
+            ei_full: { type: number }
+            ei_cut: { type: number }
+            mip_partition:
+              type: array
+              items: { type: array, items: { type: string } }
+            substrate:
+              type: array
+              items: { type: string }
+            tpm_source: { type: string }
+            awareness_level: { type: string }
+        hrv_tier: { type: string }
+        truth_mode: { type: string }
+
+    VoidRequest:
+      type: object
+      required: [focus]
+      properties:
+        target_depth: { type: number, minimum: 0, maximum: 10, default: 4 }
+        focus: { type: string }
+        deep: { type: boolean, default: false }
+
+    VoidResponse:
+      type: object
+      properties:
+        journey_id: { type: string }
+        status: { type: string }
+        max_depth_reached: { type: number, nullable: true }
+        duration_ms: { type: integer, nullable: true }
+        insights:
+          type: array
+          items: { type: string }
+        probe_result: { type: string, nullable: true }
+        void_enabled: { type: boolean }
+
+    PhysioRequest:
+      type: object
+      required: [source]
+      properties:
+        source: { type: string }
+        session_id: { type: string, nullable: true }
+        timestamp: { type: string, format: date-time, nullable: true }
+        hr: { type: number, nullable: true }
+        hrv_ms: { type: number, nullable: true }
+        hrv_level:
+          type: string
+          enum: [low, normal, high]
+          nullable: true
+        spo2: { type: number, nullable: true }
+        stress_index: { type: number, nullable: true }
+
+    MetaPhiResponse:
+      type: object
+      properties:
+        meta_phi: { type: number }
+        ei_full: { type: number }
+        ei_cut: { type: number }
+        substrate:
+          type: array
+          items: { type: string }
+        substrate_size: { type: integer }
+        mip_partition:
+          type: array
+          items: { type: array, items: { type: string } }
+        event_timeline:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: { type: string }
+              label: { type: string }
+              timestamp: { type: string, format: date-time }
+        awareness_label: { type: string }
+        computed_at: { type: string, format: date-time }
+        truth_mode: { type: string }
+
+    PhiOfPhiResponse:
+      type: object
+      properties:
+        phi_of_phi: { type: number }
+        ei_full: { type: number }
+        ei_cut: { type: number }
+        bins: { type: integer }
+        band_edges:
+          type: array
+          items: { type: number }
+        band_labels:
+          type: array
+          items: { type: string }
+        trajectory:
+          type: array
+          items: { type: integer }
+        mip_partition:
+          type: array
+          items: { type: array, items: { type: integer } }
+        base_phi_count: { type: integer }
+        base_phi_range:
+          type: array
+          items: { type: number }
+        cognitive_rhythm:
+          type: string
+          enum: [stable, volatile, rising, falling, insufficient]
+        computed_at: { type: string, format: date-time }
+        truth_mode: { type: string }
+
+    CognitiveStateResponse:
+      type: object
+      properties:
+        generated_at: { type: string, format: date-time }
+        hrv:
+          type: object
+          properties:
+            latest_ms: { type: number, nullable: true }
+            level: { type: string, nullable: true }
+            flow_state: { type: string, nullable: true }
+            source: { type: string, nullable: true }
+            observed_at: { type: string, format: date-time, nullable: true }
+            truth_mode: { type: string }
+        recent_runs:
+          type: array
+          items: { type: object }
+        recent_science_jobs:
+          type: array
+          items: { type: object }
+        recent_feedback:
+          type: array
+          items: { type: object }
+        recent_void_journeys:
+          type: array
+          items: { type: object }
+        recent_fractal_trees:
+          type: array
+          items: { type: object }
+        recent_phi_measurements:
+          type: array
+          items: { type: object }
+        recent_deep_thinks:
+          type: array
+          items: { type: object }
+        truth_mode: { type: string }

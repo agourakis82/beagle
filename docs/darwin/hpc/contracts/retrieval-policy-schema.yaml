@@ -1,0 +1,21 @@
+version: beagle-retrieval-policy-v1
+kind: evidence-backed-retrieval-policy
+description: >
+  B22.9 policy artifact derived from live evaluation instead of static
+  heuristics alone.
+policy:
+  policy_version: string
+  policy_id: string
+  generated_at: date-time
+  lanes:
+    - query_type: general|code|sovereign
+      selected_route: string
+      dense_backend: string
+      sparse_backend: string
+      reranker_backend: string
+      feedback_mode: string
+      current_state: string
+      evidence_basis: [string]
+      last_eval_at: date-time
+      recommended_when: string
+      note: string

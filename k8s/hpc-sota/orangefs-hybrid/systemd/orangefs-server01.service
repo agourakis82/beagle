@@ -1,0 +1,15 @@
+[Unit]
+Description=OrangeFS server01 proof island on t560
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=LD_LIBRARY_PATH=/zfast/orangefs-lab/orangefs-build-serveronly-dyn/lib
+ExecStartPre=/bin/bash -lc 'fuser -k 3334/tcp >/dev/null 2>&1 || true; sleep 1'
+ExecStart=/zfast/orangefs-lab/orangefs-build-serveronly-dyn/src/server/pvfs2-server -d -a server01 /zfast/orangefs-lab/two-node/etc/orangefs_lab_2n.conf
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

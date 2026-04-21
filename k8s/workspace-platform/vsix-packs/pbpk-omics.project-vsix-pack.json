@@ -1,0 +1,14 @@
+{
+  "projectSlug": "pbpk-omics",
+  "packVersion": "sov-v1",
+  "extends": "core-sovereign",
+  "required": [
+    "ms-python.python",
+    "ms-toolsai.jupyter",
+    "redhat.vscode-yaml"
+  ],
+  "recommended": [
+    "REditorSupport.r"
+  ],
+  "experimental": []
+}

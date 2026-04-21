@@ -1,6 +1,6 @@
 use super::{evolution::MatchResult, player::ResearchPlayer};
+use crate::causal::AgentLlmClient;
 use anyhow::Result;
-use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::info;
@@ -32,19 +32,19 @@ pub struct StandingEntry {
 }
 
 pub struct CompetitionArena {
-    llm: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
     tournament_format: TournamentFormat,
 }
 
 impl CompetitionArena {
-    pub fn new(llm: Arc<AnthropicClient>) -> Self {
+    pub fn new(llm: Arc<dyn AgentLlmClient>) -> Self {
         Self {
             llm,
             tournament_format: TournamentFormat::Swiss,
         }
     }
 
-    pub fn with_format(llm: Arc<AnthropicClient>, format: TournamentFormat) -> Self {
+    pub fn with_format(llm: Arc<dyn AgentLlmClient>, format: TournamentFormat) -> Self {
         Self {
             llm,
             tournament_format: format,
@@ -278,16 +278,8 @@ impl CompetitionArena {
             }
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeHaiku45,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 200,
-            temperature: *boldness as f32,
-            system: None,
-        };
-
-        let response = self.llm.complete(request).await?;
-        Ok(response.content)
+        let response = self.llm.complete(&prompt).await?;
+        Ok(response)
     }
 
     async fn judge_hypotheses(&self, hyp1: &str, hyp2: &str) -> Result<usize> {
@@ -303,16 +295,9 @@ impl CompetitionArena {
             hyp1, hyp2
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeSonnet4,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 10,
-            temperature: 0.0,
-            system: Some("You are an impartial scientific judge.".to_string()),
-        };
-
-        let response = self.llm.complete(request).await?;
-        let content = response.content.trim().to_uppercase();
+        let system = "You are an impartial scientific judge.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
+        let content = response.trim().to_uppercase();
 
         // Determine winner: 0 = player1 (A), 1 = player2 (B)
         if content.contains("A") && !content.contains("B") {

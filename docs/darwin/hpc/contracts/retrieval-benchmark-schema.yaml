@@ -1,0 +1,131 @@
+type: object
+required:
+  - benchmark_version
+  - collection_name
+  - dense_backend
+  - sparse_backend
+  - reranking_profile_id
+  - cases
+  - summary
+  - recommendation
+properties:
+  benchmark_version:
+    type: string
+  collection_name:
+    type: string
+  dense_backend:
+    type: string
+  sparse_backend:
+    type: string
+  reranking_profile_id:
+    type: string
+  cases:
+    type: array
+    items:
+      type: object
+      required:
+        - case_id
+        - case_kind
+        - retrieval_mode
+        - latency_ms
+        - hit_count
+        - payload_filter_correctness
+        - relevance_proxy_score
+        - top_k_stable
+      properties:
+        case_id:
+          type: string
+        case_kind:
+          type: string
+        description:
+          type: string
+        retrieval_mode:
+          type: string
+        latency_ms:
+          type: integer
+        hit_count:
+          type: integer
+        dense_hit_count:
+          type: integer
+        sparse_hit_count:
+          type: integer
+        payload_filter_correctness:
+          type: number
+        relevance_proxy_score:
+          type: number
+        top_k_stable:
+          type: boolean
+        context_packet_usable_hit_count:
+          type: integer
+        top_hit_memory_id:
+          type: string
+        top_hit_source:
+          type: string
+        top_hit_workstream_id:
+          type: string
+        top_hit_tags:
+          type: array
+          items:
+            type: string
+        note:
+          type: string
+  summary:
+    type: object
+    required:
+      - benchmark_version
+      - case_count
+      - average_latency_ms
+      - average_filter_correctness
+      - average_relevance_proxy
+      - top_k_stability_pass_rate
+    properties:
+      benchmark_version:
+        type: string
+      case_count:
+        type: integer
+      average_latency_ms:
+        type: number
+      average_filter_correctness:
+        type: number
+      average_relevance_proxy:
+        type: number
+      top_k_stability_pass_rate:
+        type: number
+      context_packet_usable_case_count:
+        type: integer
+      note:
+        type: string
+  recommendation:
+    type: object
+    required:
+      - keep_qdrant
+      - dense_backend_recommendation
+      - reranking_recommendation
+      - general_retrieval_path
+      - code_retrieval_path
+      - multilingual_retrieval_path
+      - sovereign_retrieval_path
+      - bounded_upgrade_path
+    properties:
+      keep_qdrant:
+        type: boolean
+      dense_backend_recommendation:
+        type: string
+      reranking_recommendation:
+        type: string
+      general_retrieval_path:
+        type: string
+      code_retrieval_path:
+        type: string
+      multilingual_retrieval_path:
+        type: string
+      sovereign_retrieval_path:
+        type: string
+      bounded_upgrade_path:
+        type: array
+        items:
+          type: string
+      note:
+        type: string
+  note:
+    type: string

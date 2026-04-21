@@ -1,0 +1,24 @@
+# Tailnet LoadBalancer for beagle-server — makes /api/* and /dev/* reachable
+# from any device on the tailnet (iOS apps, Mac workstation, etc.)
+# without going through the cockpit proxy.
+apiVersion: v1
+kind: Service
+metadata:
+  name: beagle-core-tailnet
+  namespace: beagle
+  labels:
+    app: beagle-core
+    surface: tailnet
+  annotations:
+    tailscale.com/proxy-group: sounio-workspace-ingress
+    tailscale.com/hostname: beagle-core
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  selector:
+    app: beagle-core
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP

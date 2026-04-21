@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TECHNITIUM_URL="${TECHNITIUM_URL:-http://10.30.0.1:5380}"
+TECHNITIUM_USER="${TECHNITIUM_USER:-admin}"
+TECHNITIUM_PASSWORD="${TECHNITIUM_PASSWORD:?set TECHNITIUM_PASSWORD}"
+
+curl -fsS -X POST \
+  "${TECHNITIUM_URL}/api/user/login?user=${TECHNITIUM_USER}&pass=${TECHNITIUM_PASSWORD}&includeInfo=true"
+

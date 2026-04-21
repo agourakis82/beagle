@@ -89,3 +89,6 @@ tmp/
 *.bak
 .envrc
 .artifacts/darwin-hpc/
+
+# Gerado por scripts/generate_reality_report.sh (reexecutável)
+audit/reports/REALITY_SNAPSHOT_*.md

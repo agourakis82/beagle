@@ -1,0 +1,57 @@
+api_version: beagle.workstream.recipe/v1
+phase: B26.7
+id: sounio-lang-main.operator_gpu_loop
+workstream: sounio-lang-main
+kind: operator_gpu_loop
+summary: Canonical GPU-aware operator loop for Sounio experiments that need the Slurm GPU lane.
+
+inputs:
+  repo: sounio-lang/sounio
+  branch: main
+  workspace_id: runtime-supplied
+  profile_id: gpu-single-v1
+  default_dev_plane: beagle-cluster
+  promotion_scope: sounio-lang-compiler-mainline
+
+steps:
+  - id: bootstrap
+    action: bootstrap_workspace_session
+    success_condition: workstream session resolves on the Sounio line
+    recovery_point: session_before_loop
+  - id: control_surface_lookup
+    action: query_hpc_control_catalog
+    success_condition: gpu-single-v1 is listed
+    recovery_point: control_before_loop
+  - id: submit_gpu_job
+    action: execute_operator_gpu_workflow
+    success_condition: Slurm GPU job reaches COMPLETED
+    recovery_point: submitted_job
+  - id: result_resolution
+    action: resolve_published_result_and_manifest
+    success_condition: published result remains resolvable
+    recovery_point: published_result
+  - id: persist_state
+    action: persist_workspace_session_state
+    success_condition: Sounio session tracks the last successful GPU workflow
+    recovery_point: session_after_loop
+
+outputs:
+  primary_artifacts:
+    - gpu-pilot.json
+    - workstream-status.json
+    - workstream-last-result.json
+    - timeline.json
+    - gpu-loop.json
+
+recovery_points:
+  - session_before_loop
+  - control_before_loop
+  - submitted_job
+  - published_result
+  - session_after_loop
+
+success_criteria:
+  - gpu-single-v1 is available in control surface
+  - submitted GPU job completes
+  - result lookup remains object-backed and resolvable
+  - Sounio session persists the GPU workflow state

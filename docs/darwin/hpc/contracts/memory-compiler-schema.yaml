@@ -1,0 +1,35 @@
+version: beagle-memory-compiler-v1
+kind: memory-compiler-contract
+description: >
+  B23.5 contract describing the canonical task-aware compiler that turns the
+  Beagle memory hierarchy, temporal truth layer, routed retrieval, and bounded
+  GraphRAG into a compiled context packet.
+compiler:
+  compiler_version: string
+  compiler_id: string
+  supported_task_profiles:
+    - implementation|analysis|interactive-editing|manuscript
+  supported_memory_tiers:
+    - episodic|semantic|procedural
+  supported_graphrag_modes:
+    - local|global|drift
+  supported_temporal_truth_views:
+    - current|historical|both
+  supported_source_kinds:
+    - procedural|semantic|episodic|temporal|graphrag
+  note: string
+compile_request:
+  task_profile: implementation|analysis|interactive-editing|manuscript
+  tool_id: string|null
+  query_text: string
+  workstream_id: string|null
+  campaign_id: string|null
+  program_id: string|null
+  workspace_id: string|null
+  session_id: string|null
+  root_entity_type: string|null
+  root_entity_id: string|null
+  repo_path: string|null
+  file_type: string|null
+  tags: [string]
+  rerank_hint: string|null

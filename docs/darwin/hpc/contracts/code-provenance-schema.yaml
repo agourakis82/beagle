@@ -1,0 +1,65 @@
+type: object
+required:
+  - phase
+  - contract_kind
+  - contract_version
+  - workstream_id
+  - workspace_id
+  - session_id
+  - same_beagle_owned_identity
+  - selected_subagent_id
+  - run_label
+  - submitted_job_id
+  - dirty_state
+  - source_fingerprint
+  - capture_kind
+properties:
+  phase:
+    type: string
+    const: B25.6
+  contract_kind:
+    type: string
+    const: code-provenance
+  contract_version:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  same_beagle_owned_identity:
+    type: boolean
+  selected_subagent_id:
+    type: string
+  run_label:
+    type: string
+  submitted_job_id:
+    type: integer
+  repo_root:
+    type: [string, "null"]
+  branch:
+    type: [string, "null"]
+  commit:
+    type: [string, "null"]
+  tree_ish:
+    type: [string, "null"]
+  dirty_state:
+    type: string
+    enum: [clean, dirty, unknown]
+  patch_ref:
+    type: [string, "null"]
+  source_fingerprint:
+    type: string
+  lockfile_fingerprints:
+    type: array
+  image_reference:
+    type: [string, "null"]
+  image_digest:
+    type: [string, "null"]
+  artifact_manifest_key:
+    type: [string, "null"]
+  capture_kind:
+    type: string
+  note:
+    type: string

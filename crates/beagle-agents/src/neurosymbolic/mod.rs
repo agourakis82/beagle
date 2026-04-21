@@ -4,11 +4,12 @@
 //! Neural networks extract patterns, symbolic systems enforce constraints
 
 use anyhow::Result;
-use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::info;
+
+use crate::causal::AgentLlmClient;
 
 #[cfg(test)]
 mod tests;
@@ -57,11 +58,11 @@ pub type Substitution = HashMap<String, Term>;
 
 /// Neural pattern extractor using LLM
 pub struct NeuralExtractor {
-    llm: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
 }
 
 impl NeuralExtractor {
-    pub fn new(llm: Arc<AnthropicClient>) -> Self {
+    pub fn new(llm: Arc<dyn AgentLlmClient>) -> Self {
         Self { llm }
     }
 
@@ -87,15 +88,8 @@ impl NeuralExtractor {
             text
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeSonnet4,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 2000,
-            temperature: 0.2,
-            system: Some("You are a fact extraction system. Output only valid JSON.".to_string()),
-        };
-
-        let response = self.llm.complete(request).await?;
+        let system = "You are a fact extraction system. Output only valid JSON.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
         // Parse JSON
         #[derive(Deserialize)]
@@ -105,7 +99,7 @@ impl NeuralExtractor {
             confidence: f64,
         }
 
-        let content = response.content.trim();
+        let content = response.trim();
         let json_content = if content.contains("```json") {
             content
                 .lines()
@@ -153,15 +147,8 @@ impl NeuralExtractor {
             text
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeSonnet4,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 2000,
-            temperature: 0.2,
-            system: Some("You are a rule extraction system. Output only valid JSON.".to_string()),
-        };
-
-        let response = self.llm.complete(request).await?;
+        let system = "You are a rule extraction system. Output only valid JSON.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
         #[derive(Deserialize)]
         struct RuleData {
@@ -170,7 +157,7 @@ impl NeuralExtractor {
             confidence: f64,
         }
 
-        let content = response.content.trim();
+        let content = response.trim();
         let json_content = if content.contains("```json") {
             content
                 .lines()
@@ -224,18 +211,11 @@ impl NeuralExtractor {
             text
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeHaiku45,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 1000,
-            temperature: 0.1,
-            system: Some("You are an entity recognition system.".to_string()),
-        };
-
-        let response = self.llm.complete(request).await?;
+        let system = "You are an entity recognition system.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
         let entities: Vec<(String, String)> =
-            serde_json::from_str(response.content.trim()).unwrap_or_else(|_| vec![]);
+            serde_json::from_str(response.trim()).unwrap_or_else(|_| vec![]);
 
         info!("✅ Recognized {} entities", entities.len());
         Ok(entities)
@@ -252,18 +232,11 @@ impl NeuralExtractor {
             text
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeHaiku45,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 1000,
-            temperature: 0.1,
-            system: Some("You are a relation extraction system.".to_string()),
-        };
-
-        let response = self.llm.complete(request).await?;
+        let system = "You are a relation extraction system.";
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
         let relations: Vec<(String, String, String)> =
-            serde_json::from_str(response.content.trim()).unwrap_or_else(|_| vec![]);
+            serde_json::from_str(response.trim()).unwrap_or_else(|_| vec![]);
 
         info!("✅ Extracted {} relations", relations.len());
         Ok(relations)

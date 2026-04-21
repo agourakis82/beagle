@@ -1,0 +1,10 @@
+store = "/srv/beegfs/mgmtd"
+
+[sysMgmtdHost]
+value = "10.100.100.2"
+
+[connAuthFile]
+value = "/etc/beegfs/beegfs.conn.auth"
+
+[registration-disable]
+value = false

@@ -1,0 +1,95 @@
+type: object
+required:
+  - trajectory_eval_version
+  - trajectory_eval_id
+  - execution_id
+  - plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - evaluation_mode
+  - expected_states
+  - observed_states
+  - lifecycle_match
+  - acceptance_criteria_met_count
+  - acceptance_criteria_total
+  - result_link_count
+  - compiled_context_memory_hit_count
+  - compiled_context_sufficient
+  - context_usefulness
+  - trajectory_quality
+  - trajectory_score
+  - criteria
+  - note
+properties:
+  trajectory_eval_version:
+    type: string
+  trajectory_eval_id:
+    type: string
+  execution_id:
+    type: string
+  plan_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  evaluation_mode:
+    type: string
+  expected_states:
+    type: array
+    items:
+      type: string
+  observed_states:
+    type: array
+    items:
+      type: string
+  lifecycle_match:
+    type: boolean
+  acceptance_criteria_met_count:
+    type: integer
+    minimum: 0
+  acceptance_criteria_total:
+    type: integer
+    minimum: 0
+  result_link_count:
+    type: integer
+    minimum: 0
+  compiled_context_memory_hit_count:
+    type: integer
+    minimum: 0
+  compiled_context_sufficient:
+    type: boolean
+  context_usefulness:
+    type: string
+  trajectory_quality:
+    type: string
+  trajectory_score:
+    type: integer
+    minimum: 0
+    maximum: 100
+  criteria:
+    type: array
+    items:
+      type: object
+      required:
+        - criterion_id
+        - met
+        - success_signal
+        - stop_condition
+        - note
+      properties:
+        criterion_id:
+          type: string
+        met:
+          type: boolean
+        success_signal:
+          type: string
+        stop_condition:
+          type: string
+        note:
+          type: string
+  note:
+    type: string

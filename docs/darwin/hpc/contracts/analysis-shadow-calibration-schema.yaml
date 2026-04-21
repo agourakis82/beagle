@@ -1,0 +1,95 @@
+type: object
+required:
+  - calibration_version
+  - analysis_shadow_calibration_id
+  - control_policy_id
+  - analysis_candidate_policy_id
+  - source_dataset_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - implementation_canary_retained
+  - manuscript_control_retained
+  - compared_sample_count
+  - improved_alignment_count
+  - regression_count
+  - recommendation_for_analysis
+  - samples
+properties:
+  calibration_version:
+    type: string
+    enum:
+      - beagle-analysis-shadow-calibration-v1
+  analysis_shadow_calibration_id:
+    type: string
+  control_policy_id:
+    type: string
+  analysis_candidate_policy_id:
+    type: string
+  source_dataset_id:
+    type: string
+  source_canary_rollout_metrics_id:
+    type: string
+  source_canary_rollback_decision_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+  implementation_canary_retained:
+    type: boolean
+  manuscript_control_retained:
+    type: boolean
+  compared_sample_count:
+    type: integer
+    minimum: 0
+  improved_alignment_count:
+    type: integer
+    minimum: 0
+  regression_count:
+    type: integer
+    minimum: 0
+  recommendation_for_analysis:
+    type: string
+    enum:
+      - keep-shadow
+      - stage-analysis-canary
+      - rollback-shadow
+  samples:
+    type: array
+    items:
+      type: object
+      required:
+        - sample_id
+        - sample_source
+        - expected_decision_class
+        - current_policy_decision_class
+        - analysis_candidate_decision_class
+        - improved_alignment
+        - regression
+      properties:
+        sample_id:
+          type: string
+        sample_source:
+          type: string
+        expected_decision_class:
+          type: string
+        current_policy_decision_class:
+          type: string
+        analysis_candidate_decision_class:
+          type: string
+        improved_alignment:
+          type: boolean
+        regression:
+          type: boolean
+        note:
+          type: string
+  note:
+    type: string

@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "beagle-cognitive": {
+      "command": "node",
+      "args": [
+        "/Users/YOUR_USER/Library/Application Support/Claude/mcp-servers/cockpit-mcp-server.mjs"
+      ],
+      "env": {
+        "AUTH_BRIDGE_URL": "http://beagle-auth.tail21cbc4.ts.net",
+        "BEAGLE_URL": "http://beagle-core.tail21cbc4.ts.net",
+        "COCKPIT_API": "http://sounio-cockpit.tail21cbc4.ts.net",
+        "COCKPIT_PROJECT": "mac-desktop",
+        "BEAGLE_CONSUMER": "beagle-operator"
+      }
+    }
+  }
+}

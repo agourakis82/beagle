@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Beagle Multi-Step Tool Session Step",
+  "description": "One bounded step inside a Beagle-owned premium-tool session loop. The surrounding workstream/workspace/session envelope is supplied by Beagle.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "step_id",
+    "tool",
+    "action_type",
+    "summary",
+    "memory_text"
+  ],
+  "properties": {
+    "step_id": {
+      "type": "string"
+    },
+    "tool": {
+      "type": "string",
+      "enum": [
+        "cursor",
+        "claude-code",
+        "codex"
+      ]
+    },
+    "action_type": {
+      "type": "string",
+      "enum": [
+        "note",
+        "implementation",
+        "analysis",
+        "handoff_update"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "memory_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "handoff_patch": {
+      "type": "string"
+    },
+    "result_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "repo_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

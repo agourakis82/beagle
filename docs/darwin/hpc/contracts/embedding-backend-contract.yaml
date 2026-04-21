@@ -1,0 +1,47 @@
+type: object
+required:
+  - contract_version
+  - promoted_dense_backend
+  - promoted_provider
+  - promoted_model
+  - active_dense_backend
+  - runtime_state
+  - authentication_mode
+  - store_direction
+  - sparse_backend
+  - code_candidate_backend
+  - sovereign_candidate_backend
+  - note
+properties:
+  contract_version:
+    type: string
+  promoted_dense_backend:
+    type: string
+  promoted_provider:
+    type: string
+  promoted_model:
+    type: string
+  active_dense_backend:
+    type: string
+  runtime_state:
+    type: string
+    enum:
+      - promoted-active
+      - auth-blocked-fallback
+      - endpoint-missing-fallback
+  authentication_mode:
+    type: string
+  endpoint_ref:
+    type:
+      - string
+      - "null"
+  store_direction:
+    type: string
+  sparse_backend:
+    type: string
+  code_candidate_backend:
+    type: string
+  sovereign_candidate_backend:
+    type: string
+  note:
+    type: string

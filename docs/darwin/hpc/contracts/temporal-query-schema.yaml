@@ -1,0 +1,50 @@
+version: beagle-temporal-query-v1
+kind: temporal-query-schema
+description: >
+  B23.4 schema for bounded temporal retrieval over Beagle-owned memories and
+  canonical entities.
+query:
+  query_version: string
+  query_text: string
+  truth_view: current|historical|both
+  top_k: integer
+  dense_enabled: boolean
+  sparse_enabled: boolean
+  dense_weight: float
+  sparse_weight: float
+  filters:
+    workstream_id: string|null
+    campaign_id: string|null
+    session_id: string|null
+    source: string|null
+    role: string|null
+    domain: string|null
+    repo_path: string|null
+    file_type: string|null
+    tags: [string]
+  root_entity_type: string|null
+  root_entity_id: string|null
+  subject_refs: [string]
+  include_contradictions: boolean
+  query_type_hint: string|null
+  query_mode_hint: string|null
+  rerank_hint: string|null
+result:
+  result_version: string
+  schema_version: string
+  truth_view: current|historical|both
+  collection_name: string
+  query_type: string
+  retrieval_mode: string
+  dense_backend: string
+  sparse_backend: string
+  reranker_backend: string
+  reranking_applied: boolean
+  track_count: integer
+  current_truth_count: integer
+  historical_truth_count: integer
+  contradiction_count: integer
+  top_current_memory_ids: [string]
+  top_historical_memory_ids: [string]
+  tracks: [temporal-memory-track]
+  contradictions: [memory-contradiction]

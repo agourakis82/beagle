@@ -1,0 +1,61 @@
+version: beagle-compiled-context-packet-v1
+kind: compiled-context-packet
+description: >
+  B23.5 packet describing the task-aware context slice compiled from routed
+  retrieval, bounded GraphRAG, temporal truth, and the Beagle memory
+  hierarchy.
+packet:
+  packet_version: string
+  compiler_id: string
+  task_profile: implementation|analysis|interactive-editing|manuscript
+  tool_id: string|null
+  budget_profile:
+    profile_id: string
+    retrieval_query_type: general|code|sovereign
+    graphrag_query_mode_hint: local|global|drift
+    temporal_truth_view: current|historical|both
+    include_temporal_contradictions: boolean
+    selected_memory_tiers: [episodic|semantic|procedural]
+    max_context_items: integer
+    allocations:
+      - source_kind: procedural|semantic|episodic|temporal|graphrag
+        max_items: integer
+        budget_weight: float
+        note: string
+  retrieval_query_type: general|code|sovereign
+  dense_backend: string
+  sparse_backend: string
+  graphrag_query_mode: local|global|drift
+  graphrag_query_mode_reason: string
+  workstream_id: string|null
+  campaign_id: string|null
+  program_id: string|null
+  workspace_id: string|null
+  session_id: string|null
+  applied_filters:
+    workstream_id: string|null
+    campaign_id: string|null
+    session_id: string|null
+    source: string|null
+    role: string|null
+    domain: string|null
+    tags: [string]
+    repo_path: string|null
+    file_type: string|null
+  selected_memory_tiers: [episodic|semantic|procedural]
+  temporal_truth_view: current|historical|both
+  temporal_subject_refs: [string]
+  temporal_current_memory_ids: [string]
+  temporal_historical_memory_ids: [string]
+  temporal_track_count: integer
+  temporal_contradiction_count: integer
+  temporal_preview: string
+  top_memory_ids: [string]
+  source_slices:
+    - source_kind: procedural|semantic|episodic|temporal|graphrag
+      budgeted_items: integer
+      selected_count: integer
+      support_ids: [string]
+      summary: string
+  compiled_context_text: string
+  note: string

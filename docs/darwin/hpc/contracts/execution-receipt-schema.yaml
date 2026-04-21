@@ -1,0 +1,20 @@
+version: beagle-plan-execution-receipt-v1
+type: object
+required:
+  - receipt_version
+  - receipt_id
+  - execution_id
+  - plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - final_state
+  - recorded_at
+  - selected_subagent_id
+  - result_link_count
+  - result_links_path
+  - handoff_updated
+  - operator_execution_state
+properties:
+  final_state:
+    enum: [succeeded, failed, stopped]

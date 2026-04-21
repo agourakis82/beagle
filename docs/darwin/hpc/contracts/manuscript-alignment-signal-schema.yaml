@@ -1,0 +1,121 @@
+type: object
+required:
+  - labels_version
+  - manuscript_alignment_labels_id
+  - manuscript_shadow_history_id
+  - manuscript_soak_metrics_id
+  - control_policy_id
+  - manuscript_candidate_policy_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - rollout_stage
+  - shadow_sample_count
+  - operator_alignment_labeled_count
+  - execution_outcome_alignment_labeled_count
+  - same_beagle_owned_identity
+  - labels
+properties:
+  labels_version:
+    type: string
+    enum:
+      - beagle-manuscript-alignment-signal-v1
+  manuscript_alignment_labels_id:
+    type: string
+  manuscript_shadow_history_id:
+    type: string
+  manuscript_soak_metrics_id:
+    type: string
+  control_policy_id:
+    type: string
+  manuscript_candidate_policy_id:
+    type: string
+  source_review_decision_id:
+    type: [string, "null"]
+  source_execution_reflection_id:
+    type: [string, "null"]
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  rollout_stage:
+    type: string
+    enum:
+      - implementation-and-analysis-canary-live-manuscript-alignment-signal
+  shadow_sample_count:
+    type: integer
+    minimum: 1
+  operator_alignment_labeled_count:
+    type: integer
+    minimum: 0
+  execution_outcome_alignment_labeled_count:
+    type: integer
+    minimum: 0
+  same_beagle_owned_identity:
+    type: boolean
+  labels:
+    type: array
+    items:
+      type: object
+      required:
+        - observation_id
+        - sample_id
+        - sample_source
+        - observed_at
+        - expected_decision_class
+        - current_policy_decision_class
+        - manuscript_candidate_decision_class
+        - operator_alignment_label
+        - execution_outcome_alignment_label
+        - review_quality_label
+        - promotion_readiness_label
+        - regression
+      properties:
+        observation_id:
+          type: string
+        sample_id:
+          type: string
+        sample_source:
+          type: string
+        observed_at:
+          type: string
+        expected_decision_class:
+          type: string
+        current_policy_decision_class:
+          type: string
+        manuscript_candidate_decision_class:
+          type: string
+        operator_alignment_label:
+          type: string
+          enum:
+            - aligned
+            - misaligned
+            - insufficient-evidence
+        execution_outcome_alignment_label:
+          type: string
+          enum:
+            - aligned
+            - misaligned
+            - insufficient-evidence
+        review_quality_label:
+          type: string
+          enum:
+            - operator-ready
+            - needs-edit
+            - replan-required
+        promotion_readiness_label:
+          type: string
+          enum:
+            - supports-stage-manuscript-canary
+            - keep-shadow
+            - rollback-shadow
+        regression:
+          type: boolean
+        note:
+          type: string
+  note:
+    type: string

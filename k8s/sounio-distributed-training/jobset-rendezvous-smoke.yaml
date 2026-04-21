@@ -1,0 +1,101 @@
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: sounio-rdzv-smoke
+  namespace: beagle
+  annotations:
+    alpha.jobset.sigs.k8s.io/exclusive-topology: kubernetes.io/hostname
+spec:
+  coordinator:
+    replicatedJob: workers
+    jobIndex: 0
+    podIndex: 0
+  network:
+    enableDNSHostnames: true
+    subdomain: srz
+    publishNotReadyAddresses: true
+  replicatedJobs:
+    - name: workers
+      replicas: 2
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            metadata:
+              labels:
+                sounio.dev/distributed-group: sounio-rdzv-smoke
+            spec:
+              restartPolicy: Never
+              tolerations:
+                - key: sounio.dev/compute
+                  operator: Equal
+                  value: heavy
+                  effect: NoSchedule
+                - key: sounio.dev/pool
+                  operator: Equal
+                  value: gpu-batch
+                  effect: NoSchedule
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: sounio.dev/pool
+                            operator: In
+                            values:
+                              - gpu-batch
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - labelSelector:
+                        matchExpressions:
+                          - key: sounio.dev/distributed-group
+                            operator: In
+                            values:
+                              - sounio-rdzv-smoke
+                      topologyKey: kubernetes.io/hostname
+              containers:
+                - name: worker
+                  image: busybox:1.36
+                  env:
+                    - name: MASTER_ADDR
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.annotations['jobset.sigs.k8s.io/coordinator']
+                    - name: MASTER_PORT
+                      value: "29500"
+                    - name: NODE_RANK
+                      valueFrom:
+                        fieldRef:
+                          fieldPath: metadata.labels['jobset.sigs.k8s.io/job-index']
+                  command:
+                    - /bin/sh
+                    - -lc
+                    - |
+                      set -eu
+                      echo "worker=$(hostname)"
+                      echo "rank=${NODE_RANK}"
+                      echo "leader=${MASTER_ADDR}"
+                      nslookup "${MASTER_ADDR}"
+                      if [ "${NODE_RANK}" = "0" ]; then
+                        while true; do nc -l -p "${MASTER_PORT}" </dev/null; done &
+                        touch /tmp/rendezvous-ready
+                        sleep 20
+                      fi
+                      for _ in 1 2 3 4 5 6 7 8 9 10; do
+                        if nc -zvw 5 "${MASTER_ADDR}" "${MASTER_PORT}"; then
+                          break
+                        fi
+                        sleep 1
+                      done
+                      echo "rendezvous-ok"
+                  startupProbe:
+                    exec:
+                      command:
+                        - /bin/sh
+                        - -lc
+                        - |
+                          [ "${NODE_RANK}" != "0" ] || test -f /tmp/rendezvous-ready
+                    initialDelaySeconds: 1
+                    periodSeconds: 1

@@ -1,0 +1,22 @@
+profile: jats-1.4-bounded-qa-v1
+description: >
+  Bounded QA report over a JATS-ready manuscript artifact. Keeps human-eval
+  pending explicit as a warning when it still applies.
+required:
+  - qa_profile
+  - qa_state
+  - checked_at
+  - readiness_state
+  - warning_count
+  - failure_count
+  - checks
+check:
+  required:
+    - check_id
+    - description
+    - status
+    - detail
+  allowed_status:
+    - pass
+    - warning
+    - fail

@@ -1,0 +1,81 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Beagle Manuscript Pack
+type: object
+additionalProperties: false
+properties:
+  pack_version:
+    type: string
+  pack_id:
+    type: string
+  title:
+    type: string
+  hypothesis:
+    type: string
+  manuscript_target:
+    type:
+      - object
+      - "null"
+  evidence_pack_ref:
+    type: string
+  campaign_title:
+    type: string
+  program_id:
+    type: string
+  campaign_id:
+    type: string
+  active_workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  claim_ids:
+    type: array
+    items:
+      type: string
+  claims:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+  interpretive_notes:
+    type: array
+    items:
+      type: string
+  gaps:
+    type: array
+    items:
+      type: string
+  readiness_state:
+    type: string
+  evidence_targets:
+    type: array
+    items:
+      type: object
+      additionalProperties: false
+  provenance:
+    type: object
+    additionalProperties: false
+  citation:
+    type: object
+    additionalProperties: false
+required:
+  - pack_version
+  - pack_id
+  - title
+  - hypothesis
+  - evidence_pack_ref
+  - campaign_title
+  - program_id
+  - campaign_id
+  - active_workstream_id
+  - workspace_id
+  - session_id
+  - claim_ids
+  - claims
+  - interpretive_notes
+  - gaps
+  - readiness_state
+  - evidence_targets
+  - provenance
+  - citation

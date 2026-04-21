@@ -1,0 +1,166 @@
+openapi: 3.1.0
+info:
+  title: Beagle Reranked Retrieval Result
+  version: beagle-reranked-result-v1
+components:
+  schemas:
+    RerankedResult:
+      type: object
+      required:
+        - result_version
+        - profile_id
+        - query_type
+        - routing_decision
+        - collection_name
+        - prerank_retrieval_mode
+        - postrank_retrieval_mode
+        - dense_backend
+        - sparse_backend
+        - reranker_backend
+        - reranker_kind
+        - reranker_runtime_state
+        - reranking_applied
+        - top_k
+        - candidate_count
+        - applied_filters
+        - prerank_hit_count
+        - postrank_hit_count
+        - prerank_top_memory_ids
+        - postrank_top_memory_ids
+        - relevance_proxy_before
+        - relevance_proxy_after
+        - latency
+        - hits
+        - recommendation
+        - note
+      properties:
+        result_version:
+          type: string
+        profile_id:
+          type: string
+        query_type:
+          type: string
+          enum: [general, code, sovereign]
+        routing_decision:
+          type: object
+        collection_name:
+          type: string
+        prerank_retrieval_mode:
+          type: string
+        postrank_retrieval_mode:
+          type: string
+        dense_backend:
+          type: string
+        sparse_backend:
+          type: string
+        reranker_backend:
+          type: string
+        reranker_kind:
+          type: string
+        reranker_runtime_state:
+          type: string
+        reranking_applied:
+          type: boolean
+        top_k:
+          type: integer
+        candidate_count:
+          type: integer
+        applied_filters:
+          type: object
+        prerank_hit_count:
+          type: integer
+        postrank_hit_count:
+          type: integer
+        prerank_top_memory_ids:
+          type: array
+          items:
+            type: string
+        postrank_top_memory_ids:
+          type: array
+          items:
+            type: string
+        relevance_proxy_before:
+          type: number
+        relevance_proxy_after:
+          type: number
+        latency:
+          type: object
+          required:
+            - prerank_latency_ms
+            - rerank_latency_ms
+            - total_latency_ms
+            - latency_delta_ms
+          properties:
+            prerank_latency_ms:
+              type: integer
+            rerank_latency_ms:
+              type: integer
+            total_latency_ms:
+              type: integer
+            latency_delta_ms:
+              type: integer
+        hits:
+          type: array
+          items:
+            type: object
+            required:
+              - rank
+              - prerank_rank
+              - point
+              - hybrid_score
+              - rerank_score
+            properties:
+              rank:
+                type: integer
+              prerank_rank:
+                type: integer
+              point:
+                type: object
+              dense_score:
+                type:
+                  - number
+                  - "null"
+              sparse_score:
+                type:
+                  - number
+                  - "null"
+              hybrid_score:
+                type: number
+              rerank_score:
+                type: number
+        recommendation:
+          type: object
+          required:
+            - query_type
+            - reranker_backend
+            - runtime_state
+            - reranking_applied
+            - top_hit_changed
+            - relevance_proxy_before
+            - relevance_proxy_after
+            - latency_delta_ms
+            - recommendation
+            - note
+          properties:
+            query_type:
+              type: string
+            reranker_backend:
+              type: string
+            runtime_state:
+              type: string
+            reranking_applied:
+              type: boolean
+            top_hit_changed:
+              type: boolean
+            relevance_proxy_before:
+              type: number
+            relevance_proxy_after:
+              type: number
+            latency_delta_ms:
+              type: integer
+            recommendation:
+              type: string
+            note:
+              type: string
+        note:
+          type: string

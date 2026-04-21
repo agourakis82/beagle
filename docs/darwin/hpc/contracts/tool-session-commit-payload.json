@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Beagle Repo-Aware Tool Session Commit Payload",
+  "description": "Bounded tool writeback payload for a Beagle-owned session that also carries a repo-native patch output reference.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workstream_id",
+    "workspace_id",
+    "session_id",
+    "tool",
+    "action_type",
+    "summary",
+    "memory_text"
+  ],
+  "properties": {
+    "workstream_id": {
+      "type": "string"
+    },
+    "workspace_id": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "tool": {
+      "type": "string",
+      "enum": [
+        "cursor",
+        "claude-code",
+        "codex"
+      ]
+    },
+    "action_type": {
+      "type": "string",
+      "enum": [
+        "note",
+        "implementation",
+        "analysis",
+        "handoff_update"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "memory_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "handoff_patch": {
+      "type": "string"
+    },
+    "patch_ref": {
+      "type": "string"
+    },
+    "result_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "repo_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

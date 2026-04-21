@@ -1,0 +1,86 @@
+# Periodic cleanup of evicted / failed / completed pods in the beagle
+# namespace. Doesn't fix the root cause (t560-proxmox disk pressure —
+# that's a node-level migration job for another day) but bounds the
+# noise so `kubectl get pods` stays readable and controller churn is
+# contained.
+#
+# Runs every 10 minutes with a 1-minute deadline. Uses the default
+# service account in a restricted namespace role.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: evicted-cleanup
+  namespace: beagle
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: evicted-cleanup
+  namespace: beagle
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: evicted-cleanup
+  namespace: beagle
+subjects:
+  - kind: ServiceAccount
+    name: evicted-cleanup
+    namespace: beagle
+roleRef:
+  kind: Role
+  name: evicted-cleanup
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: evicted-cleanup
+  namespace: beagle
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 60
+      backoffLimit: 0
+      template:
+        spec:
+          serviceAccountName: evicted-cleanup
+          restartPolicy: OnFailure
+          tolerations:
+            - key: sounio.dev/pool
+              operator: Exists
+              effect: NoSchedule
+            - key: sounio.dev/compute
+              operator: Exists
+              effect: NoSchedule
+          nodeSelector:
+            kubernetes.io/hostname: r770-proxmox
+          containers:
+            - name: cleanup
+              image: ttl.sh/beagle-kcleanup-1776271254:24h
+              imagePullPolicy: Always
+              resources:
+                requests: { cpu: 50m, memory: 64Mi }
+                limits:   { cpu: 200m, memory: 128Mi }
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  echo "scanning namespace for terminal pods..."
+                  kubectl -n beagle get pods --no-headers 2>/dev/null | \
+                    awk '$3 == "Failed" || $3 == "Evicted" || $3 == "Completed" || $3 == "ContainerStatusUnknown" { print $1 }' | \
+                    while read -r p; do
+                      echo "  delete $p"
+                      kubectl -n beagle delete pod "$p" --force --grace-period=0 --wait=false 2>/dev/null || true
+                    done
+                  echo "done"

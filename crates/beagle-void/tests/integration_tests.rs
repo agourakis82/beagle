@@ -6,10 +6,13 @@
 //! - VoidProbe region probing and depth measurement
 //! - Data structures and serialization
 //! - Error handling and edge cases
-//! - Impossibility calculations
-//! - Resource type handling
+//! - Void state and phase transitions
 
-use beagle_void::{ExtractionEngine, VoidNavigator, VoidProbe};
+use beagle_void::{
+    ExtractionConfig, ExtractionEngine, ExtractionResult, ExtractionType,
+    ProbeConfig, ProbeResult, VoidConfig, VoidInsight, VoidNavigator,
+    VoidNavigationResult, VoidPhase, VoidProbe, VoidState,
+};
 
 // ============================================================================
 // VOIDNAVIGATOR TESTS
@@ -17,16 +20,47 @@ use beagle_void::{ExtractionEngine, VoidNavigator, VoidProbe};
 
 #[test]
 fn test_void_navigator_creation() {
-    let navigator = VoidNavigator::default();
-    // Verifies that navigator can be created
+    let config = VoidConfig::default();
+    let navigator = VoidNavigator::new(config);
     let _nav_ref = &navigator;
 }
 
-#[test]
-fn test_void_navigator_default_factory() {
-    let nav1 = VoidNavigator::new();
-    let nav2 = VoidNavigator::default();
-    // Both should work without error
+#[tokio::test]
+async fn test_void_navigator_with_config() {
+    let config = VoidConfig {
+        max_depth: 5.0,
+        dissolution_rate: 0.2,
+        reintegration_rate: 0.3,
+        coherence_threshold: 0.4,
+    };
+    let navigator = VoidNavigator::new(config);
+    let result = navigator.navigate(3.0).await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_void_navigator_navigation_result() {
+    let navigator = VoidNavigator::new(VoidConfig::default());
+    let result = navigator.navigate(2.0).await.unwrap();
+    assert!(result.max_depth_reached > 0.0);
+    // Duration can be 0 in very fast execution, so we just check it's >= 0
+    assert!(result.duration_ms >= 0);
+}
+
+#[tokio::test]
+async fn test_void_navigator_state_transition() {
+    let navigator = VoidNavigator::new(VoidConfig::default());
+    
+    // Initial state should be Grounded
+    let initial_state = navigator.get_state().await;
+    assert_eq!(initial_state.phase, VoidPhase::Grounded);
+    assert_eq!(initial_state.depth, 0.0);
+    
+    // After navigation, should return to Grounded
+    let _result = navigator.navigate(1.0).await.unwrap();
+    let final_state = navigator.get_state().await;
+    assert_eq!(final_state.phase, VoidPhase::Grounded);
+    assert_eq!(final_state.depth, 0.0);
 }
 
 // ============================================================================
@@ -35,21 +69,59 @@ fn test_void_navigator_default_factory() {
 
 #[test]
 fn test_extraction_engine_creation() {
-    let engine = ExtractionEngine::default();
+    let config = ExtractionConfig::default();
+    let engine = ExtractionEngine::new(config);
     let _ref = &engine;
 }
 
 #[test]
-fn test_extraction_engine_with_url() {
-    let engine = ExtractionEngine::with_vllm_url("http://localhost:8000/v1");
+fn test_extraction_engine_with_config() {
+    let config = ExtractionConfig {
+        sensitivity: 0.8,
+        min_quality: 0.5,
+        max_extractions: 50,
+    };
+    let engine = ExtractionEngine::new(config);
     let _ref = &engine;
 }
 
-#[test]
-fn test_extraction_engine_default_factory() {
-    let engine1 = ExtractionEngine::new();
-    let engine2 = ExtractionEngine::default();
-    // Both should work without error
+#[tokio::test]
+async fn test_extraction_engine_extract() {
+    let engine = ExtractionEngine::new(ExtractionConfig::default());
+    let state = VoidState {
+        depth: 5.0,
+        coherence: 0.8,
+        entropy: 0.2,
+        phase: VoidPhase::InVoid,
+    };
+    
+    let result = engine.extract(&state, ExtractionType::Vacuum).await;
+    assert!(result.is_ok());
+    
+    let extraction = result.unwrap();
+    assert!(extraction.quality_score > 0.0);
+}
+
+#[tokio::test]
+async fn test_extraction_engine_different_types() {
+    let engine = ExtractionEngine::new(ExtractionConfig::default());
+    let state = VoidState {
+        depth: 3.0,
+        coherence: 0.7,
+        entropy: 0.3,
+        phase: VoidPhase::InVoid,
+    };
+    
+    for extraction_type in [
+        ExtractionType::Vacuum,
+        ExtractionType::Negative,
+        ExtractionType::ZeroPoint,
+        ExtractionType::Liminal,
+        ExtractionType::Holographic,
+    ] {
+        let result = engine.extract(&state, extraction_type).await;
+        assert!(result.is_ok());
+    }
 }
 
 // ============================================================================
@@ -58,100 +130,105 @@ fn test_extraction_engine_default_factory() {
 
 #[test]
 fn test_void_probe_creation() {
-    let probe = VoidProbe::default();
+    let config = ProbeConfig::default();
+    let probe = VoidProbe::new(config);
     let _ref = &probe;
 }
 
 #[test]
-fn test_void_probe_with_url() {
-    let probe = VoidProbe::with_vllm_url("http://localhost:8000/v1");
+fn test_void_probe_with_config() {
+    let config = ProbeConfig {
+        probe_intensity: 0.7,
+        measurement_precision: 0.95,
+        intervention_strength: 0.4,
+    };
+    let probe = VoidProbe::new(config);
     let _ref = &probe;
 }
 
-#[test]
-fn test_void_probe_default_factory() {
-    let probe1 = VoidProbe::new();
-    let probe2 = VoidProbe::default();
-    // Both should work without error
-}
-
-// ============================================================================
-// RESOURCE TYPE TESTS
-// ============================================================================
-
-#[test]
-fn test_resource_type_insight() {
-    use beagle_void::extraction_engine::ResourceType;
-    let rt = ResourceType::Insight;
-    assert_eq!(rt, ResourceType::Insight);
-}
-
-#[test]
-fn test_resource_type_concept() {
-    use beagle_void::extraction_engine::ResourceType;
-    let rt = ResourceType::Concept;
-    assert_eq!(rt, ResourceType::Concept);
-}
-
-#[test]
-fn test_resource_type_structure() {
-    use beagle_void::extraction_engine::ResourceType;
-    let rt = ResourceType::Structure;
-    assert_eq!(rt, ResourceType::Structure);
-}
-
-#[test]
-fn test_resource_type_paradox() {
-    use beagle_void::extraction_engine::ResourceType;
-    let rt = ResourceType::Paradox;
-    assert_eq!(rt, ResourceType::Paradox);
-}
-
-#[test]
-fn test_resource_types_are_distinct() {
-    use beagle_void::extraction_engine::ResourceType;
-    assert_ne!(ResourceType::Insight, ResourceType::Concept);
-    assert_ne!(ResourceType::Concept, ResourceType::Structure);
-    assert_ne!(ResourceType::Structure, ResourceType::Paradox);
-    assert_ne!(ResourceType::Insight, ResourceType::Paradox);
-}
-
-// ============================================================================
-// VOID NAVIGATION RESULT TESTS
-// ============================================================================
-
-#[test]
-fn test_void_navigation_result_structure() {
-    use beagle_void::navigator::VoidNavigationResult;
-    let result = VoidNavigationResult {
-        cycles_completed: 5,
-        insights: vec![],
-        total_void_time_subjective: 0.0,
+#[tokio::test]
+async fn test_void_probe_probe() {
+    let probe = VoidProbe::new(ProbeConfig::default());
+    let state = VoidState {
+        depth: 4.0,
+        coherence: 0.6,
+        entropy: 0.4,
+        phase: VoidPhase::InVoid,
     };
-    assert_eq!(result.cycles_completed, 5);
-    assert_eq!(result.insights.len(), 0);
+    
+    let result = probe.probe(&state).await;
+    assert!(result.is_ok());
+    
+    let probe_result = result.unwrap();
+    assert!(probe_result.measurement >= 0.0);
+    assert!(probe_result.uncertainty >= 0.0);
+}
+
+#[tokio::test]
+async fn test_void_probe_state_tracking() {
+    let probe = VoidProbe::new(ProbeConfig::default());
+    let state = VoidState::default();
+    
+    // Initial state
+    let initial = probe.get_state().await;
+    assert!(!initial.active);
+    assert_eq!(initial.measurements, 0);
+    
+    // After probe
+    let _result = probe.probe(&state).await.unwrap();
+    let after = probe.get_state().await;
+    assert!(!after.active); // Should be false after probe completes
+    assert_eq!(after.measurements, 1);
+    assert!(after.last_result.is_some());
+}
+
+// ============================================================================
+// VOID STATE TESTS
+// ============================================================================
+
+#[test]
+fn test_void_state_default() {
+    let state = VoidState::default();
+    assert_eq!(state.depth, 0.0);
+    assert_eq!(state.coherence, 1.0);
+    assert_eq!(state.entropy, 0.0);
+    assert_eq!(state.phase, VoidPhase::Grounded);
 }
 
 #[test]
-fn test_void_navigation_cycles_value() {
-    use beagle_void::navigator::VoidNavigationResult;
-    let result = VoidNavigationResult {
-        cycles_completed: 10,
-        insights: vec![],
-        total_void_time_subjective: 0.0,
+fn test_void_state_custom() {
+    let state = VoidState {
+        depth: 5.0,
+        coherence: 0.5,
+        entropy: 0.5,
+        phase: VoidPhase::InVoid,
     };
-    assert!(result.cycles_completed > 0);
+    assert_eq!(state.depth, 5.0);
+    assert_eq!(state.coherence, 0.5);
+    assert_eq!(state.entropy, 0.5);
+    assert_eq!(state.phase, VoidPhase::InVoid);
 }
 
 #[test]
-fn test_void_navigation_void_time_valid() {
-    use beagle_void::navigator::VoidNavigationResult;
-    let result = VoidNavigationResult {
-        cycles_completed: 3,
-        insights: vec![],
-        total_void_time_subjective: 42.5,
-    };
-    assert!(result.total_void_time_subjective >= 0.0);
+fn test_void_phase_variants() {
+    let phases = [
+        VoidPhase::Grounded,
+        VoidPhase::Dissolving,
+        VoidPhase::InVoid,
+        VoidPhase::Reintegrating,
+        VoidPhase::Transcended,
+    ];
+    
+    // All phases should be distinct
+    for (i, phase1) in phases.iter().enumerate() {
+        for (j, phase2) in phases.iter().enumerate() {
+            if i == j {
+                assert_eq!(phase1, phase2);
+            } else {
+                assert_ne!(phase1, phase2);
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -159,133 +236,46 @@ fn test_void_navigation_void_time_valid() {
 // ============================================================================
 
 #[test]
-fn test_void_insight_impossibility_level_range() {
-    use beagle_void::navigator::VoidInsight;
+fn test_void_insight_creation() {
+    use beagle_void::InsightType;
+    
     let insight = VoidInsight {
-        id: "test-id".to_string(),
-        cycle: 1,
-        insight_text: "test insight".to_string(),
-        impossibility_level: 0.5,
-        extracted_at: chrono::Utc::now(),
+        insight_type: InsightType::Pattern,
+        content: "Test insight".to_string(),
+        confidence: 0.8,
+        depth_found: 3.5,
+        metadata: std::collections::HashMap::new(),
     };
-    assert!(insight.impossibility_level >= 0.0);
-    assert!(insight.impossibility_level <= 1.0);
+    
+    assert_eq!(insight.insight_type, InsightType::Pattern);
+    assert_eq!(insight.content, "Test insight");
+    assert_eq!(insight.confidence, 0.8);
+    assert_eq!(insight.depth_found, 3.5);
 }
 
 #[test]
-fn test_void_insight_min_impossibility() {
-    use beagle_void::navigator::VoidInsight;
-    let insight = VoidInsight {
-        id: "test".to_string(),
-        cycle: 1,
-        insight_text: "test".to_string(),
-        impossibility_level: 0.0,
-        extracted_at: chrono::Utc::now(),
-    };
-    assert_eq!(insight.impossibility_level, 0.0);
-}
-
-#[test]
-fn test_void_insight_max_impossibility() {
-    use beagle_void::navigator::VoidInsight;
-    let insight = VoidInsight {
-        id: "test".to_string(),
-        cycle: 1,
-        insight_text: "test".to_string(),
-        impossibility_level: 1.0,
-        extracted_at: chrono::Utc::now(),
-    };
-    assert_eq!(insight.impossibility_level, 1.0);
-}
-
-#[test]
-fn test_void_insight_cycle_tracking() {
-    use beagle_void::navigator::VoidInsight;
-    let insight = VoidInsight {
-        id: "test".to_string(),
-        cycle: 7,
-        insight_text: "test".to_string(),
-        impossibility_level: 0.5,
-        extracted_at: chrono::Utc::now(),
-    };
-    assert_eq!(insight.cycle, 7);
-}
-
-#[test]
-fn test_void_insight_has_unique_id() {
-    use beagle_void::navigator::VoidInsight;
-    let insight1 = VoidInsight {
-        id: "id-1".to_string(),
-        cycle: 1,
-        insight_text: "text".to_string(),
-        impossibility_level: 0.5,
-        extracted_at: chrono::Utc::now(),
-    };
-    let insight2 = VoidInsight {
-        id: "id-2".to_string(),
-        cycle: 1,
-        insight_text: "text".to_string(),
-        impossibility_level: 0.5,
-        extracted_at: chrono::Utc::now(),
-    };
-    assert_ne!(insight1.id, insight2.id);
-}
-
-// ============================================================================
-// COGNITIVE RESOURCE TESTS
-// ============================================================================
-
-#[test]
-fn test_cognitive_resource_structure() {
-    use beagle_void::extraction_engine::{CognitiveResource, ResourceType};
-    let resource = CognitiveResource {
-        id: "resource-1".to_string(),
-        resource_type: ResourceType::Insight,
-        content: "Some insight content".to_string(),
-        void_origin_depth: 0.75,
-        extracted_at: chrono::Utc::now(),
-    };
-    assert_eq!(resource.resource_type, ResourceType::Insight);
-    assert!(!resource.content.is_empty());
-}
-
-#[test]
-fn test_cognitive_resource_depth_range() {
-    use beagle_void::extraction_engine::{CognitiveResource, ResourceType};
-    let resource = CognitiveResource {
-        id: "res".to_string(),
-        resource_type: ResourceType::Concept,
-        content: "test".to_string(),
-        void_origin_depth: 0.3,
-        extracted_at: chrono::Utc::now(),
-    };
-    assert!(resource.void_origin_depth >= 0.0);
-    assert!(resource.void_origin_depth <= 1.0);
-}
-
-#[test]
-fn test_cognitive_resource_types() {
-    use beagle_void::extraction_engine::{CognitiveResource, ResourceType};
-
-    let insight_res = CognitiveResource {
-        id: "1".to_string(),
-        resource_type: ResourceType::Insight,
-        content: "test".to_string(),
-        void_origin_depth: 0.5,
-        extracted_at: chrono::Utc::now(),
-    };
-
-    let concept_res = CognitiveResource {
-        id: "2".to_string(),
-        resource_type: ResourceType::Concept,
-        content: "test".to_string(),
-        void_origin_depth: 0.5,
-        extracted_at: chrono::Utc::now(),
-    };
-
-    assert_eq!(insight_res.resource_type, ResourceType::Insight);
-    assert_eq!(concept_res.resource_type, ResourceType::Concept);
-    assert_ne!(insight_res.resource_type, concept_res.resource_type);
+fn test_insight_type_variants() {
+    use beagle_void::InsightType;
+    
+    let types = [
+        InsightType::Pattern,
+        InsightType::Anomaly,
+        InsightType::Connection,
+        InsightType::Emergence,
+        InsightType::Vacuum,
+        InsightType::Liminal,
+    ];
+    
+    // All types should be distinct
+    for (i, t1) in types.iter().enumerate() {
+        for (j, t2) in types.iter().enumerate() {
+            if i == j {
+                assert_eq!(t1, t2);
+            } else {
+                assert_ne!(t1, t2);
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -294,40 +284,39 @@ fn test_cognitive_resource_types() {
 
 #[test]
 fn test_extraction_result_empty() {
-    use beagle_void::extraction_engine::ExtractionResult;
     let result = ExtractionResult {
-        resources_extracted: vec![],
-        extraction_efficiency: 0.0,
+        extracted_info: vec![],
+        quality_score: 0.0,
+        extraction_type: ExtractionType::Vacuum,
     };
-    assert_eq!(result.resources_extracted.len(), 0);
+    assert!(result.extracted_info.is_empty());
+    assert_eq!(result.quality_score, 0.0);
 }
 
 #[test]
-fn test_extraction_result_efficiency_range() {
-    use beagle_void::extraction_engine::ExtractionResult;
+fn test_extraction_result_with_data() {
+    use beagle_void::ExtractedInfo;
+    
     let result = ExtractionResult {
-        resources_extracted: vec![],
-        extraction_efficiency: 0.85,
+        extracted_info: vec![
+            ExtractedInfo {
+                content: "Info 1".to_string(),
+                source_depth: 1.0,
+                certainty: 0.9,
+            },
+            ExtractedInfo {
+                content: "Info 2".to_string(),
+                source_depth: 2.0,
+                certainty: 0.8,
+            },
+        ],
+        quality_score: 0.85,
+        extraction_type: ExtractionType::Liminal,
     };
-    assert!(result.extraction_efficiency >= 0.0);
-    assert!(result.extraction_efficiency <= 1.0);
-}
-
-#[test]
-fn test_extraction_result_has_resources() {
-    use beagle_void::extraction_engine::{CognitiveResource, ExtractionResult, ResourceType};
-    let resource = CognitiveResource {
-        id: "res-1".to_string(),
-        resource_type: ResourceType::Insight,
-        content: "content".to_string(),
-        void_origin_depth: 0.5,
-        extracted_at: chrono::Utc::now(),
-    };
-    let result = ExtractionResult {
-        resources_extracted: vec![resource],
-        extraction_efficiency: 0.8,
-    };
-    assert_eq!(result.resources_extracted.len(), 1);
+    
+    assert_eq!(result.extracted_info.len(), 2);
+    assert_eq!(result.quality_score, 0.85);
+    assert_eq!(result.extraction_type, ExtractionType::Liminal);
 }
 
 // ============================================================================
@@ -336,49 +325,61 @@ fn test_extraction_result_has_resources() {
 
 #[test]
 fn test_probe_result_structure() {
-    use beagle_void::void_probe::ProbeResult;
+    use beagle_void::CausalEffect;
+    
     let result = ProbeResult {
-        depth: 0.5,
-        insight: "Some void insight".to_string(),
-        region_mapped: "Region at depth 0.5".to_string(),
+        measurement: 0.75,
+        uncertainty: 0.1,
+        causal_effect: Some(CausalEffect {
+            intervention: "test".to_string(),
+            effect_size: 0.5,
+            confidence: 0.8,
+        }),
     };
-    assert_eq!(result.depth, 0.5);
-    assert!(!result.insight.is_empty());
-    assert!(!result.region_mapped.is_empty());
+    
+    assert_eq!(result.measurement, 0.75);
+    assert_eq!(result.uncertainty, 0.1);
+    assert!(result.causal_effect.is_some());
 }
 
 #[test]
-fn test_probe_result_depth_range() {
-    use beagle_void::void_probe::ProbeResult;
+fn test_probe_result_without_causal() {
     let result = ProbeResult {
-        depth: 0.0,
-        insight: "insight".to_string(),
-        region_mapped: "region".to_string(),
+        measurement: 0.5,
+        uncertainty: 0.2,
+        causal_effect: None,
     };
-    assert!(result.depth >= 0.0);
-    assert!(result.depth <= 1.0);
+    
+    assert!(result.causal_effect.is_none());
+}
+
+// ============================================================================
+// CONFIG TESTS
+// ============================================================================
+
+#[test]
+fn test_void_config_default() {
+    let config = VoidConfig::default();
+    assert_eq!(config.max_depth, 10.0);
+    assert_eq!(config.dissolution_rate, 0.1);
+    assert_eq!(config.reintegration_rate, 0.2);
+    assert_eq!(config.coherence_threshold, 0.3);
 }
 
 #[test]
-fn test_probe_result_surface_depth() {
-    use beagle_void::void_probe::ProbeResult;
-    let result = ProbeResult {
-        depth: 0.0,
-        insight: "Surface insight".to_string(),
-        region_mapped: "Surface region".to_string(),
-    };
-    assert_eq!(result.depth, 0.0);
+fn test_extraction_config_default() {
+    let config = ExtractionConfig::default();
+    assert_eq!(config.sensitivity, 0.5);
+    assert_eq!(config.min_quality, 0.3);
+    assert_eq!(config.max_extractions, 100);
 }
 
 #[test]
-fn test_probe_result_absolute_depth() {
-    use beagle_void::void_probe::ProbeResult;
-    let result = ProbeResult {
-        depth: 1.0,
-        insight: "Absolute void insight".to_string(),
-        region_mapped: "Absolute void region".to_string(),
-    };
-    assert_eq!(result.depth, 1.0);
+fn test_probe_config_default() {
+    let config = ProbeConfig::default();
+    assert_eq!(config.probe_intensity, 0.5);
+    assert_eq!(config.measurement_precision, 0.9);
+    assert_eq!(config.intervention_strength, 0.3);
 }
 
 // ============================================================================
@@ -386,137 +387,122 @@ fn test_probe_result_absolute_depth() {
 // ============================================================================
 
 #[test]
+fn test_void_state_serializable() {
+    let state = VoidState::default();
+    let serialized = serde_json::to_string(&state);
+    assert!(serialized.is_ok());
+    
+    let deserialized: Result<VoidState, _> = serde_json::from_str(&serialized.unwrap());
+    assert!(deserialized.is_ok());
+    
+    let restored = deserialized.unwrap();
+    assert_eq!(restored.depth, state.depth);
+    assert_eq!(restored.coherence, state.coherence);
+}
+
+#[test]
 fn test_void_insight_serializable() {
-    use beagle_void::navigator::VoidInsight;
+    use beagle_void::InsightType;
+    
     let insight = VoidInsight {
-        id: "test-id".to_string(),
-        cycle: 1,
-        insight_text: "test text".to_string(),
-        impossibility_level: 0.5,
-        extracted_at: chrono::Utc::now(),
+        insight_type: InsightType::Pattern,
+        content: "Test".to_string(),
+        confidence: 0.8,
+        depth_found: 3.0,
+        metadata: std::collections::HashMap::new(),
     };
+    
     let serialized = serde_json::to_string(&insight);
     assert!(serialized.is_ok());
 }
 
 #[test]
-fn test_cognitive_resource_serializable() {
-    use beagle_void::extraction_engine::{CognitiveResource, ResourceType};
-    let resource = CognitiveResource {
-        id: "test-id".to_string(),
-        resource_type: ResourceType::Insight,
-        content: "test content".to_string(),
-        void_origin_depth: 0.5,
-        extracted_at: chrono::Utc::now(),
-    };
-    let serialized = serde_json::to_string(&resource);
-    assert!(serialized.is_ok());
-}
-
-#[test]
 fn test_extraction_result_serializable() {
-    use beagle_void::extraction_engine::ExtractionResult;
     let result = ExtractionResult {
-        resources_extracted: vec![],
-        extraction_efficiency: 0.8,
+        extracted_info: vec![],
+        quality_score: 0.8,
+        extraction_type: ExtractionType::Vacuum,
     };
-    let serialized = serde_json::to_string(&result);
-    assert!(serialized.is_ok());
-}
-
-#[test]
-fn test_void_navigation_result_serializable() {
-    use beagle_void::navigator::VoidNavigationResult;
-    let result = VoidNavigationResult {
-        cycles_completed: 5,
-        insights: vec![],
-        total_void_time_subjective: 0.0,
-    };
+    
     let serialized = serde_json::to_string(&result);
     assert!(serialized.is_ok());
 }
 
 #[test]
 fn test_probe_result_serializable() {
-    use beagle_void::void_probe::ProbeResult;
     let result = ProbeResult {
-        depth: 0.5,
-        insight: "insight".to_string(),
-        region_mapped: "region".to_string(),
+        measurement: 0.5,
+        uncertainty: 0.1,
+        causal_effect: None,
     };
+    
     let serialized = serde_json::to_string(&result);
     assert!(serialized.is_ok());
 }
 
-// ============================================================================
-// VOID CONCEPTS TESTS
-// ============================================================================
-
 #[test]
-fn test_void_navigation_cycles_positive() {
-    use beagle_void::navigator::VoidNavigationResult;
-    for cycles in 1..=10 {
-        let result = VoidNavigationResult {
-            cycles_completed: cycles,
-            insights: vec![],
-            total_void_time_subjective: 0.0,
-        };
-        assert!(result.cycles_completed > 0);
-    }
+fn test_void_config_serializable() {
+    let config = VoidConfig::default();
+    let serialized = serde_json::to_string(&config);
+    assert!(serialized.is_ok());
+    
+    let deserialized: Result<VoidConfig, _> = serde_json::from_str(&serialized.unwrap());
+    assert!(deserialized.is_ok());
 }
 
 #[test]
-fn test_impossibility_level_zero() {
-    use beagle_void::navigator::VoidInsight;
-    let insight = VoidInsight {
-        id: "test".to_string(),
-        cycle: 1,
-        insight_text: "completely possible".to_string(),
-        impossibility_level: 0.0,
-        extracted_at: chrono::Utc::now(),
+fn test_probe_config_serializable() {
+    let config = ProbeConfig::default();
+    let serialized = serde_json::to_string(&config);
+    assert!(serialized.is_ok());
+}
+
+#[test]
+fn test_extraction_config_serializable() {
+    let config = ExtractionConfig::default();
+    let serialized = serde_json::to_string(&config);
+    assert!(serialized.is_ok());
+}
+
+// ============================================================================
+// VOID NAVIGATION RESULT TESTS
+// ============================================================================
+
+#[test]
+fn test_void_navigation_result_structure() {
+    let result = VoidNavigationResult {
+        insights: vec![],
+        final_state: VoidState::default(),
+        max_depth_reached: 5.0,
+        duration_ms: 100,
     };
-    assert_eq!(insight.impossibility_level, 0.0);
+    
+    assert!(result.insights.is_empty());
+    assert_eq!(result.max_depth_reached, 5.0);
+    assert_eq!(result.duration_ms, 100);
 }
 
 #[test]
-fn test_impossibility_level_one() {
-    use beagle_void::navigator::VoidInsight;
-    let insight = VoidInsight {
-        id: "test".to_string(),
-        cycle: 1,
-        insight_text: "completely impossible".to_string(),
-        impossibility_level: 1.0,
-        extracted_at: chrono::Utc::now(),
+fn test_void_navigation_result_with_insights() {
+    use beagle_void::InsightType;
+    
+    let result = VoidNavigationResult {
+        insights: vec![
+            VoidInsight {
+                insight_type: InsightType::Pattern,
+                content: "Insight 1".to_string(),
+                confidence: 0.9,
+                depth_found: 2.0,
+                metadata: std::collections::HashMap::new(),
+            },
+        ],
+        final_state: VoidState::default(),
+        max_depth_reached: 3.0,
+        duration_ms: 50,
     };
-    assert_eq!(insight.impossibility_level, 1.0);
-}
-
-// ============================================================================
-// VLLM URL CONFIGURATION TESTS
-// ============================================================================
-
-#[test]
-fn test_extraction_engine_default_url() {
-    let engine = ExtractionEngine::new();
-    let _ref = &engine;
-}
-
-#[test]
-fn test_extraction_engine_custom_url() {
-    let engine = ExtractionEngine::with_vllm_url("http://custom-host:9000/v1");
-    let _ref = &engine;
-}
-
-#[test]
-fn test_void_probe_default_url() {
-    let probe = VoidProbe::new();
-    let _ref = &probe;
-}
-
-#[test]
-fn test_void_probe_custom_url() {
-    let probe = VoidProbe::with_vllm_url("http://custom-host:9000/v1");
-    let _ref = &probe;
+    
+    assert_eq!(result.insights.len(), 1);
+    assert_eq!(result.insights[0].content, "Insight 1");
 }
 
 // ============================================================================
@@ -524,139 +510,241 @@ fn test_void_probe_custom_url() {
 // ============================================================================
 
 #[test]
-fn test_very_long_insight_text() {
-    use beagle_void::navigator::VoidInsight;
-    let long_text = "a".repeat(10_000);
+fn test_very_long_insight_content() {
+    use beagle_void::InsightType;
+    
+    let long_content = "a".repeat(10_000);
     let insight = VoidInsight {
-        id: "test".to_string(),
-        cycle: 1,
-        insight_text: long_text,
-        impossibility_level: 0.5,
-        extracted_at: chrono::Utc::now(),
+        insight_type: InsightType::Pattern,
+        content: long_content.clone(),
+        confidence: 0.5,
+        depth_found: 1.0,
+        metadata: std::collections::HashMap::new(),
     };
-    assert!(!insight.insight_text.is_empty());
+    assert_eq!(insight.content.len(), 10_000);
+    assert_eq!(insight.content, long_content);
 }
 
 #[test]
-fn test_empty_insight_text() {
-    use beagle_void::navigator::VoidInsight;
+fn test_empty_insight_content() {
+    use beagle_void::InsightType;
+    
     let insight = VoidInsight {
-        id: "test".to_string(),
-        cycle: 1,
-        insight_text: String::new(),
-        impossibility_level: 0.5,
-        extracted_at: chrono::Utc::now(),
+        insight_type: InsightType::Pattern,
+        content: String::new(),
+        confidence: 0.5,
+        depth_found: 1.0,
+        metadata: std::collections::HashMap::new(),
     };
-    assert!(insight.insight_text.is_empty());
+    assert!(insight.content.is_empty());
 }
 
 #[test]
-fn test_unicode_in_insight_text() {
-    use beagle_void::navigator::VoidInsight;
+fn test_unicode_in_insight_content() {
+    use beagle_void::InsightType;
+    
     let insight = VoidInsight {
-        id: "test".to_string(),
-        cycle: 1,
-        insight_text: "Vazio ontologico absoluto no universo".to_string(),
-        impossibility_level: 0.5,
-        extracted_at: chrono::Utc::now(),
+        insight_type: InsightType::Pattern,
+        content: "Vazio ontologico absoluto no universo 🌌".to_string(),
+        confidence: 0.5,
+        depth_found: 1.0,
+        metadata: std::collections::HashMap::new(),
     };
-    assert!(insight.insight_text.contains("ontologico"));
+    assert!(insight.content.contains("ontologico"));
+    assert!(insight.content.contains("🌌"));
 }
 
 #[test]
-fn test_special_chars_in_resource_content() {
-    use beagle_void::extraction_engine::{CognitiveResource, ResourceType};
-    let resource = CognitiveResource {
-        id: "test".to_string(),
-        resource_type: ResourceType::Paradox,
+fn test_special_chars_in_extraction_content() {
+    use beagle_void::ExtractedInfo;
+    
+    let info = ExtractedInfo {
         content: "Content with !@#$%^&*() symbols".to_string(),
-        void_origin_depth: 0.5,
-        extracted_at: chrono::Utc::now(),
+        source_depth: 0.5,
+        certainty: 0.8,
     };
-    assert!(resource.content.contains("!@#$%^&*()"));
+    assert!(info.content.contains("!@#$%^&*()"));
 }
 
 #[test]
-fn test_multiple_cycles_tracking() {
-    use beagle_void::navigator::VoidNavigationResult;
-    for cycle_count in 0..=20 {
-        let result = VoidNavigationResult {
-            cycles_completed: cycle_count,
-            insights: vec![],
-            total_void_time_subjective: 0.0,
-        };
-        assert_eq!(result.cycles_completed, cycle_count);
-    }
-}
-
-#[test]
-fn test_various_void_times() {
-    use beagle_void::navigator::VoidNavigationResult;
-    for void_time in [0.0, 1.5, 10.0, 100.0, 999.999] {
-        let result = VoidNavigationResult {
-            cycles_completed: 1,
-            insights: vec![],
-            total_void_time_subjective: void_time,
-        };
-        assert_eq!(result.total_void_time_subjective, void_time);
-    }
-}
-
-#[test]
-fn test_probe_depth_precision() {
-    use beagle_void::void_probe::ProbeResult;
-    let depths = [0.0, 0.25, 0.5, 0.75, 1.0];
+fn test_extreme_depth_values() {
+    let depths = [0.0, 0.0001, 1.0, 10.0, 100.0, 1000.0];
     for depth in depths.iter() {
-        let result = ProbeResult {
+        let state = VoidState {
             depth: *depth,
-            insight: "insight".to_string(),
-            region_mapped: "region".to_string(),
+            coherence: 0.5,
+            entropy: 0.5,
+            phase: VoidPhase::InVoid,
         };
-        assert_eq!(result.depth, *depth);
+        assert_eq!(state.depth, *depth);
     }
 }
 
-// ============================================================================
-// API CONTRACT AND DOCUMENTATION TESTS
-// ============================================================================
-
 #[test]
-fn test_void_navigator_api_contract() {
-    let navigator = VoidNavigator::new();
-    let _nav_ref = &navigator;
-    // Verify structure and methods exist
+fn test_extreme_coherence_values() {
+    let coherences = [0.0, 0.0001, 0.5, 0.9999, 1.0];
+    for coherence in coherences.iter() {
+        let state = VoidState {
+            depth: 1.0,
+            coherence: *coherence,
+            entropy: 0.5,
+            phase: VoidPhase::InVoid,
+        };
+        assert!((state.coherence - *coherence).abs() < f64::EPSILON);
+    }
 }
 
 #[test]
-fn test_extraction_engine_api_contract() {
-    let engine = ExtractionEngine::default();
-    let _engine_ref = &engine;
-    // Verify structure and methods exist
+fn test_extreme_entropy_values() {
+    let entropies = [0.0, 0.0001, 0.5, 0.9999, 1.0];
+    for entropy in entropies.iter() {
+        let state = VoidState {
+            depth: 1.0,
+            coherence: 0.5,
+            entropy: *entropy,
+            phase: VoidPhase::InVoid,
+        };
+        assert!((state.entropy - *entropy).abs() < f64::EPSILON);
+    }
 }
 
+#[tokio::test]
+async fn test_navigation_zero_depth() {
+    let navigator = VoidNavigator::new(VoidConfig::default());
+    let result = navigator.navigate(0.0).await;
+    assert!(result.is_ok());
+    
+    let nav_result = result.unwrap();
+    assert_eq!(nav_result.max_depth_reached, 0.0);
+}
+
+#[tokio::test]
+async fn test_extraction_zero_depth() {
+    let engine = ExtractionEngine::new(ExtractionConfig::default());
+    let state = VoidState {
+        depth: 0.0,
+        coherence: 1.0,
+        entropy: 0.0,
+        phase: VoidPhase::Grounded,
+    };
+    
+    let result = engine.extract(&state, ExtractionType::Vacuum).await;
+    assert!(result.is_ok());
+    
+    let extraction = result.unwrap();
+    assert!(extraction.extracted_info.is_empty()); // No depth = no extractions
+}
+
+#[tokio::test]
+async fn test_probe_zero_depth() {
+    let probe = VoidProbe::new(ProbeConfig::default());
+    let state = VoidState {
+        depth: 0.0,
+        coherence: 1.0,
+        entropy: 0.0,
+        phase: VoidPhase::Grounded,
+    };
+    
+    let result = probe.probe(&state).await;
+    assert!(result.is_ok());
+    
+    let probe_result = result.unwrap();
+    // With zero depth, measurement should be close to 0 (with some noise)
+    // base_measurement = depth * coherence = 0 * 1 = 0
+    // noise is small, so measurement should be close to 0
+    assert!(probe_result.measurement.abs() < 0.5);
+}
+
+// ============================================================================
+// API CONTRACT TESTS
+// ============================================================================
+
 #[test]
-fn test_void_probe_api_contract() {
-    let probe = VoidProbe::new();
-    let _probe_ref = &probe;
-    // Verify structure and methods exist
+fn test_module_exports() {
+    // Verify all main types are exported
+    let _config = VoidConfig::default();
+    let _extract_config = ExtractionConfig::default();
+    let _probe_config = ProbeConfig::default();
+    let _state = VoidState::default();
+    let _phase = VoidPhase::Grounded;
 }
 
 #[test]
 fn test_void_concepts_naming() {
-    let navigator_type = "VoidNavigator";
-    let extraction_type = "ExtractionEngine";
-    let probe_type = "VoidProbe";
+    let navigator_type = std::any::type_name::<VoidNavigator>();
+    let extraction_type = std::any::type_name::<ExtractionEngine>();
+    let probe_type = std::any::type_name::<VoidProbe>();
 
-    assert!(navigator_type.contains("Void"));
-    assert!(extraction_type.contains("Extraction"));
-    assert!(probe_type.contains("Probe"));
+    assert!(navigator_type.contains("VoidNavigator"));
+    assert!(extraction_type.contains("ExtractionEngine"));
+    assert!(probe_type.contains("VoidProbe"));
 }
 
-#[test]
-fn test_module_exports() {
-    use beagle_void::{ExtractionEngine, VoidNavigator, VoidProbe};
+#[tokio::test]
+async fn test_full_void_workflow() {
+    // Create components
+    let navigator = VoidNavigator::new(VoidConfig::default());
+    let extractor = ExtractionEngine::new(ExtractionConfig::default());
+    let probe = VoidProbe::new(ProbeConfig::default());
+    
+    // Navigate into void
+    let nav_result = navigator.navigate(3.0).await.unwrap();
+    assert!(nav_result.max_depth_reached > 0.0);
+    
+    // Extract information from final state
+    let extraction = extractor.extract(&nav_result.final_state, ExtractionType::Vacuum).await.unwrap();
+    assert!(extraction.quality_score >= 0.0);
+    
+    // Probe the state
+    let probe_result = probe.probe(&nav_result.final_state).await.unwrap();
+    // Measurement can have noise, just verify it's a valid float
+    assert!(!probe_result.measurement.is_nan());
+    assert!(!probe_result.measurement.is_infinite());
+}
 
-    let _nav = VoidNavigator::new();
-    let _engine = ExtractionEngine::new();
-    let _probe = VoidProbe::new();
+#[tokio::test]
+async fn test_multiple_navigations() {
+    let navigator = VoidNavigator::new(VoidConfig::default());
+    
+    for i in 1..=5 {
+        let target_depth = i as f64;
+        let result = navigator.navigate(target_depth).await.unwrap();
+        assert!(result.max_depth_reached >= target_depth - 0.1); // Allow small floating point variance
+    }
+}
+
+#[tokio::test]
+async fn test_multiple_extractions_same_state() {
+    let engine = ExtractionEngine::new(ExtractionConfig::default());
+    let state = VoidState {
+        depth: 5.0,
+        coherence: 0.8,
+        entropy: 0.2,
+        phase: VoidPhase::InVoid,
+    };
+    
+    for _ in 0..10 {
+        let result = engine.extract(&state, ExtractionType::Vacuum).await;
+        assert!(result.is_ok());
+    }
+}
+
+#[tokio::test]
+async fn test_multiple_probes_same_state() {
+    let probe = VoidProbe::new(ProbeConfig::default());
+    let state = VoidState {
+        depth: 3.0,
+        coherence: 0.7,
+        entropy: 0.3,
+        phase: VoidPhase::InVoid,
+    };
+    
+    for _ in 0..10 {
+        let result = probe.probe(&state).await;
+        assert!(result.is_ok());
+    }
+    
+    // Check that measurements are tracked
+    let probe_state = probe.get_state().await;
+    assert_eq!(probe_state.measurements, 10);
 }

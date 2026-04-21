@@ -1,19 +1,48 @@
+# Prometheus configuration for BEAGLE observability
+# Scrape configuration for BEAGLE metrics endpoint
+
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  external_labels:
+    cluster: 'beagle'
+    replica: '{{.ExternalURL}}'
 
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - "alerts.yml"
+
+# Scrape configurations
 scrape_configs:
-  - job_name: beagle-server
-    metrics_path: /metrics
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
     static_configs:
-      - targets:
-          - beagle-server:3000
-      - targets:
-          - host.docker.internal:3000
+      - targets: ['localhost:9090']
 
-  - job_name: jaeger
-    metrics_path: /metrics
+  # BEAGLE core server metrics
+  - job_name: 'beagle-core'
     static_configs:
-      - targets:
-          - jaeger:14269
+      - targets: ['beagle-core:8080']
+    metrics_path: /metrics
+    scrape_interval: 10s
+    scrape_timeout: 5s
 
+  # BEAGLE monorepo metrics (if running separately)
+  - job_name: 'beagle-monorepo'
+    static_configs:
+      - targets: ['beagle-monorepo:8080']
+    metrics_path: /metrics
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Docker daemon metrics (if available)
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['host.docker.internal:9323']
+    metrics_path: /metrics

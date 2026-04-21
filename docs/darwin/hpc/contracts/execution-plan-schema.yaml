@@ -1,0 +1,147 @@
+version: beagle-execution-plan-v1
+title: Execution Plan
+type: object
+required:
+  - plan_version
+  - plan_id
+  - planner_policy_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - task_family
+  - tool_id
+  - work_mode
+  - selected_subagent_id
+  - selected_role_tag
+  - selected_specialization
+  - retrieval_query_type
+  - dense_backend
+  - sparse_backend
+  - compiler_profile_id
+  - graphrag_query_mode
+  - temporal_truth_view
+  - selected_memory_tiers
+  - expected_outputs
+  - success_criteria
+  - stop_conditions
+  - context_packet_ref
+  - workspace_subagent_route_path
+  - workspace_subagent_handoff_path
+  - tool_launch_path
+  - compiled_context_top_memory_ids
+  - operator_execution_state
+  - note
+properties:
+  plan_version:
+    type: string
+  plan_id:
+    type: string
+  planner_policy_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  program_id:
+    type: string
+  campaign_id:
+    type: string
+  task_family:
+    type: string
+  tool_id:
+    type: string
+  work_mode:
+    type: string
+  selected_subagent_id:
+    type: string
+  selected_role_tag:
+    type: string
+  selected_specialization:
+    type: string
+  retrieval_query_type:
+    type: string
+  dense_backend:
+    type: string
+  sparse_backend:
+    type: string
+  compiler_profile_id:
+    type: string
+  graphrag_query_mode:
+    type: string
+  temporal_truth_view:
+    type: string
+  selected_memory_tiers:
+    type: array
+    items:
+      type: string
+  recipe_target:
+    type: object
+    required:
+      - recipe_id
+      - recipe_kind
+      - summary
+      - recovery_points
+    properties:
+      recipe_id:
+        type: string
+      recipe_kind:
+        type: string
+      summary:
+        type: string
+      recovery_points:
+        type: array
+        items:
+          type: string
+  experiment_target:
+    type: object
+    required:
+      - experiment_id
+      - campaign_id
+      - spec_doc
+      - results_doc
+      - live_batch_id
+    properties:
+      experiment_id:
+        type: string
+      campaign_id:
+        type: string
+      spec_doc:
+        type: string
+      results_doc:
+        type: string
+      live_batch_id:
+        type: string
+  expected_outputs:
+    type: array
+    items:
+      type: string
+  success_criteria:
+    type: array
+    items:
+      $ref: ./plan-acceptance-criteria-schema.yaml
+  stop_conditions:
+    type: array
+    items:
+      type: string
+  context_packet_ref:
+    type: string
+  program_context_packet_ref:
+    type: string
+  workspace_subagent_route_path:
+    type: string
+  workspace_subagent_handoff_path:
+    type: string
+  tool_launch_path:
+    type: string
+  compiled_context_top_memory_ids:
+    type: array
+    items:
+      type: string
+  compiled_context_preview:
+    type: string
+  operator_execution_state:
+    type: string
+  note:
+    type: string

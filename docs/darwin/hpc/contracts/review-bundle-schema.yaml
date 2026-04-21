@@ -1,0 +1,94 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Beagle Review Bundle
+type: object
+additionalProperties: false
+properties:
+  status:
+    type: string
+  phase:
+    type: string
+  bundle:
+    type: object
+    additionalProperties: false
+    properties:
+      bundle_version:
+        type: string
+      export_profile:
+        type: string
+      bundle_id:
+        type: string
+      program_id:
+        type: string
+      campaign_id:
+        type: string
+      active_workstream_id:
+        type: string
+      workspace_id:
+        type: string
+      session_id:
+        type: string
+      readiness_state:
+        type: string
+      manuscript_target:
+        type:
+          - object
+          - "null"
+      claim_ids:
+        type: array
+        items:
+          type: string
+      claims:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+      evidence_pack_ref:
+        type: string
+      manuscript_pack_ref:
+        type: string
+      evidence_targets:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+      payload_manifest:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+      review_notes:
+        type: array
+        items:
+          type: string
+      provenance:
+        type: object
+        additionalProperties: false
+      citation:
+        type: object
+        additionalProperties: false
+      ro_crate_metadata:
+        type: object
+    required:
+      - bundle_version
+      - export_profile
+      - bundle_id
+      - program_id
+      - campaign_id
+      - active_workstream_id
+      - workspace_id
+      - session_id
+      - readiness_state
+      - claim_ids
+      - claims
+      - evidence_pack_ref
+      - manuscript_pack_ref
+      - evidence_targets
+      - payload_manifest
+      - review_notes
+      - provenance
+      - citation
+      - ro_crate_metadata
+required:
+  - status
+  - phase
+  - bundle

@@ -1,0 +1,125 @@
+type: object
+required:
+  - metrics_version
+  - analysis_canary_metrics_id
+  - control_policy_id
+  - implementation_canary_policy_id
+  - analysis_canary_policy_id
+  - source_canary_rollout_metrics_id
+  - source_canary_rollback_decision_id
+  - source_analysis_shadow_calibration_id
+  - source_analysis_sample_accumulation_id
+  - source_analysis_soak_metrics_id
+  - source_analysis_promotion_gate_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - generated_at
+  - canary_stage
+  - analysis_sample_count
+  - false_auto_continue_rate_basis_points
+  - false_review_required_rate_basis_points
+  - alignment_with_operator_decision_basis_points
+  - alignment_with_execution_outcome_basis_points
+  - regression_count
+  - rollback_triggered
+  - implementation_canary_retained
+  - analysis_canary_live
+  - manuscript_control_retained
+  - family_metrics
+  - note
+properties:
+  metrics_version:
+    type: string
+    const: beagle-analysis-canary-metrics-v1
+  analysis_canary_metrics_id:
+    type: string
+  control_policy_id:
+    type: string
+  implementation_canary_policy_id:
+    type: string
+  analysis_canary_policy_id:
+    type: string
+  source_canary_rollout_metrics_id:
+    type: string
+  source_canary_rollback_decision_id:
+    type: string
+  source_analysis_shadow_calibration_id:
+    type: string
+  source_analysis_sample_accumulation_id:
+    type: string
+  source_analysis_soak_metrics_id:
+    type: string
+  source_analysis_promotion_gate_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  canary_stage:
+    type: string
+  analysis_sample_count:
+    type: integer
+  false_auto_continue_rate_basis_points:
+    type: integer
+  false_review_required_rate_basis_points:
+    type: integer
+  alignment_with_operator_decision_basis_points:
+    type: integer
+  alignment_with_execution_outcome_basis_points:
+    type: integer
+  regression_count:
+    type: integer
+  rollback_triggered:
+    type: boolean
+  implementation_canary_retained:
+    type: boolean
+  analysis_canary_live:
+    type: boolean
+  manuscript_control_retained:
+    type: boolean
+  family_metrics:
+    type: array
+    items:
+      type: object
+      required:
+        - task_family
+        - live_policy_role
+        - canary_enabled
+        - control_retained
+        - false_auto_continue_rate_basis_points
+        - false_review_required_rate_basis_points
+        - alignment_with_operator_decision_basis_points
+        - alignment_with_execution_outcome_basis_points
+        - regression_count
+        - rollback_triggered
+        - rationale
+      properties:
+        task_family:
+          type: string
+        live_policy_role:
+          type: string
+        canary_enabled:
+          type: boolean
+        control_retained:
+          type: boolean
+        false_auto_continue_rate_basis_points:
+          type: integer
+        false_review_required_rate_basis_points:
+          type: integer
+        alignment_with_operator_decision_basis_points:
+          type: integer
+        alignment_with_execution_outcome_basis_points:
+          type: integer
+        regression_count:
+          type: integer
+        rollback_triggered:
+          type: boolean
+        rationale:
+          type: string
+  note:
+    type: string

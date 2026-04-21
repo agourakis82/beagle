@@ -1,0 +1,12 @@
+version: beagle-graphrag-edge-v1
+kind: graphrag-edge
+description: >
+  Canonical edge shape for the bounded B23.1 graph-aware retrieval pilot.
+edge:
+  edge_version: string
+  edge_id: string
+  from_node_id: string
+  to_node_id: string
+  edge_type: contains|uses|belongs_to|runs|yields|supports|appears_in
+  support_memory_ids: [string]
+  properties: object

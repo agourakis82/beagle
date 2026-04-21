@@ -1,6 +1,5 @@
 use anyhow::Result;
-
-use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
+use async_trait::async_trait;
 
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -8,6 +7,37 @@ use serde_json;
 use std::sync::Arc;
 
 use tracing::info;
+
+/// Trait for LLM clients that can be used by agents
+#[async_trait]
+pub trait AgentLlmClient: Send + Sync {
+    /// Complete a prompt and return the response text
+    async fn complete(&self, prompt: &str) -> Result<String>;
+    /// Complete with system prompt
+    async fn complete_with_system(&self, prompt: &str, system: &str) -> Result<String>;
+}
+
+// Implement AgentLlmClient for Arc<dyn AgentLlmClient>
+#[async_trait]
+impl AgentLlmClient for Arc<dyn AgentLlmClient> {
+    async fn complete(&self, prompt: &str) -> Result<String> {
+        self.as_ref().complete(prompt).await
+    }
+    async fn complete_with_system(&self, prompt: &str, system: &str) -> Result<String> {
+        self.as_ref().complete_with_system(prompt, system).await
+    }
+}
+
+// Implement AgentLlmClient for Arc<T> where T: AgentLlmClient
+#[async_trait]
+impl<T: AgentLlmClient + Send + Sync> AgentLlmClient for Arc<T> {
+    async fn complete(&self, prompt: &str) -> Result<String> {
+        self.as_ref().complete(prompt).await
+    }
+    async fn complete_with_system(&self, prompt: &str, system: &str) -> Result<String> {
+        self.as_ref().complete_with_system(prompt, system).await
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 
@@ -112,11 +142,11 @@ pub struct CounterfactualResult {
 }
 
 pub struct CausalReasoner {
-    llm: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
 }
 
 impl CausalReasoner {
-    pub fn new(llm: Arc<AnthropicClient>) -> Self {
+    pub fn new(llm: Arc<dyn AgentLlmClient>) -> Self {
         Self { llm }
     }
 
@@ -162,30 +192,15 @@ impl CausalReasoner {
 
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeSonnet4,
-
-            messages: vec![Message::user(prompt)],
-
-            max_tokens: 2000,
-
-            temperature: 0.2,
-
-            system: Some(
-                "You are a causal inference expert trained in Pearl's causal calculus. \
-
+        let system = "You are a causal inference expert trained in Pearl's causal calculus. \
                  Only extract genuine causal relationships with empirical evidence. \
+                 Be conservative and rigorous.";
 
-                 Be conservative and rigorous."
-                    .to_string(),
-            ),
-        };
-
-        let response = self.llm.complete(request).await?;
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
         // Parse JSON
 
-        let content = response.content.trim();
+        let content = response.trim();
 
         let json_content = if content.starts_with("```") {
             // Strip markdown if present
@@ -282,28 +297,16 @@ impl CausalReasoner {
             graph_json, variable, value, variable
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeSonnet4,
+        let system = "You are a causal inference expert using Pearl's do-calculus.";
 
-            messages: vec![Message::user(prompt)],
-
-            max_tokens: 1000,
-
-            temperature: 0.3,
-
-            system: Some(
-                "You are a causal inference expert using Pearl's do-calculus.".to_string(),
-            ),
-        };
-
-        let response = self.llm.complete(request).await?;
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
         Ok(InterventionResult {
             intervention: format!("do({} = {})", variable, value),
 
             target_variable: variable.to_string(),
 
-            predicted_effect: response.content,
+            predicted_effect: response,
 
             effect_size: 0.5, // TODO: Extract from response
 
@@ -363,29 +366,16 @@ impl CausalReasoner {
             counterfactual_value
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeSonnet4,
+        let system = "You are a causal inference expert using Pearl's counterfactual reasoning.";
 
-            messages: vec![Message::user(prompt)],
-
-            max_tokens: 800,
-
-            temperature: 0.3,
-
-            system: Some(
-                "You are a causal inference expert using Pearl's counterfactual reasoning."
-                    .to_string(),
-            ),
-        };
-
-        let response = self.llm.complete(request).await?;
+        let response = self.llm.complete_with_system(&prompt, system).await?;
 
         Ok(CounterfactualResult {
             original_scenario: format!("{} = {}", variable, actual_value),
 
             counterfactual_scenario: format!("{} = {}", variable, counterfactual_value),
 
-            predicted_outcome: response.content,
+            predicted_outcome: response,
 
             confidence: 0.6,
         })

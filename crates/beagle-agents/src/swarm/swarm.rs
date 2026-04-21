@@ -1,19 +1,20 @@
 use super::{agent::SwarmAgent, emergence::EmergentBehavior, pheromone::PheromoneField};
 use anyhow::Result;
-use beagle_llm::{AnthropicClient, CompletionRequest, Message, ModelType};
 use std::sync::Arc;
 use tracing::{debug, info};
+
+use crate::causal::AgentLlmClient;
 
 /// Swarm orchestrator (minimal coordination)
 pub struct SwarmOrchestrator {
     agents: Vec<SwarmAgent>,
     field: PheromoneField,
-    llm: Arc<AnthropicClient>,
+    llm: Arc<dyn AgentLlmClient>,
     max_iterations: usize,
 }
 
 impl SwarmOrchestrator {
-    pub fn new(n_agents: usize, llm: Arc<AnthropicClient>) -> Self {
+    pub fn new(n_agents: usize, llm: Arc<dyn AgentLlmClient>) -> Self {
         let agents = (0..n_agents).map(|_| SwarmAgent::new()).collect();
 
         Self {
@@ -93,16 +94,8 @@ impl SwarmOrchestrator {
             query, iteration
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeHaiku45,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 100,
-            temperature: 0.9,
-            system: None,
-        };
-
-        let response = self.llm.complete(request).await?;
-        Ok(response.content.trim().to_string())
+        let response = self.llm.complete(&prompt).await?;
+        Ok(response.trim().to_string())
     }
 
     async fn evaluate_concept(&self, concept: &str) -> Result<f64> {
@@ -114,16 +107,8 @@ impl SwarmOrchestrator {
             concept
         );
 
-        let request = CompletionRequest {
-            model: ModelType::ClaudeHaiku45,
-            messages: vec![Message::user(prompt)],
-            max_tokens: 10,
-            temperature: 0.0,
-            system: None,
-        };
-
-        let response = self.llm.complete(request).await?;
-        let score = response.content.trim().parse::<f64>().unwrap_or(0.5);
+        let response = self.llm.complete(&prompt).await?;
+        let score = response.trim().parse::<f64>().unwrap_or(0.5);
 
         Ok(score.clamp(0.0, 1.0))
     }

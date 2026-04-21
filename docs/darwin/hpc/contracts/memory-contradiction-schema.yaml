@@ -1,0 +1,19 @@
+version: beagle-memory-contradiction-v1
+kind: memory-contradiction-schema
+description: >
+  B23.4 schema for explicit contradiction markers between current and
+  historical memory versions over the same canonical subject.
+contradiction:
+  contradiction_version: string
+  contradiction_id: string
+  truth_key: string
+  contradiction_kind: string
+  contradiction_status: current-vs-historical
+  current_memory_id: string
+  contradicted_memory_id: string
+  entity_refs: [string]
+  current_observed_at: string
+  contradicted_observed_at: string
+  reason: string
+  current_snippet: string
+  contradicted_snippet: string

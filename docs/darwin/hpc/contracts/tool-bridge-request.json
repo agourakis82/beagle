@@ -38,6 +38,7 @@
         "glm5",
         "grok_fast",
         "minimax",
+        "kimi",
         "codex_human",
         "claude_human",
         "mcp_generic"

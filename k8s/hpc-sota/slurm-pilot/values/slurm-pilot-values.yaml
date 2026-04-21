@@ -1,0 +1,430 @@
+clusterName: beagle-slurm-pilot
+
+configFiles:
+  cgroup.conf: |
+    CgroupPlugin=cgroup/v2
+    IgnoreSystemd=yes
+    ConstrainCores=yes
+    ConstrainRAMSpace=yes
+    ConstrainDevices=yes
+    ConstrainSwapSpace=yes
+  gres.conf: |
+    AutoDetect=nvidia
+
+controller:
+  persistence:
+    enabled: true
+    storageClassName: ceph-rbd-ssd
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 8Gi
+  extraConfMap:
+    SchedulerType: sched/backfill
+    PriorityType: priority/multifactor
+    PriorityWeightQOS: 10000
+    PriorityWeightAge: 100
+    SelectType: select/cons_tres
+    SelectTypeParameters:
+      - CR_Core_Memory
+  slurmctld:
+    securityContext:
+      runAsNonRoot: false
+      runAsUser: 0
+      runAsGroup: 0
+      allowPrivilegeEscalation: true
+      privileged: true
+      capabilities:
+        add:
+          - SYS_ADMIN
+          - NET_ADMIN
+  podSpec:
+    securityContext:
+      seccompProfile:
+        type: Unconfined
+    hostAliases:
+      - ip: 10.96.32.209
+        hostnames:
+          - slurm-pilot-accounting
+          - slurm-pilot-accounting.slurm-pilot
+          - slurm-pilot-accounting.slurm-pilot.svc.cluster.local
+      - ip: 10.96.111.82
+        hostnames:
+          - slurm-pilot-controller
+          - slurm-pilot-controller.slurm-pilot
+          - slurm-pilot-controller.slurm-pilot.svc.cluster.local
+    initContainers:
+      - name: fix-slurm-runtime-perms
+        image: ghcr.io/slinkyproject/slurmctld:25.11-ubuntu24.04
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+          runAsNonRoot: false
+        command:
+          - sh
+          - -c
+          - |
+            set -eux
+            mkdir -p /run/slurmctld /var/log/slurm /var/spool/slurmctld/beagle-slurm-pilot
+            chown 401:401 /run /run/slurmctld /var/log/slurm /var/spool/slurmctld/beagle-slurm-pilot
+            chmod 2775 /run/slurmctld /var/log/slurm /var/spool/slurmctld/beagle-slurm-pilot
+        volumeMounts:
+          - name: run
+            mountPath: /run
+          - name: slurm-authsocket
+            mountPath: /run/slurmctld
+          - name: slurm-logfile
+            mountPath: /var/log/slurm
+          - name: statesave
+            mountPath: /var/spool/slurmctld/beagle-slurm-pilot
+    nodeSelector:
+      kubernetes.io/os: linux
+      kubernetes.io/hostname: r770-proxmox
+      sounio.dev/compute: heavy
+    tolerations:
+      - key: sounio.dev/pool
+        operator: Equal
+        value: gpu-batch
+        effect: NoSchedule
+      - key: sounio.dev/compute
+        operator: Equal
+        value: heavy
+        effect: NoSchedule
+
+restapi:
+  replicas: 1
+  podSpec:
+    hostAliases:
+      - ip: 10.96.32.209
+        hostnames:
+          - slurm-pilot-accounting
+          - slurm-pilot-accounting.slurm-pilot
+          - slurm-pilot-accounting.slurm-pilot.svc.cluster.local
+      - ip: 10.96.111.82
+        hostnames:
+          - slurm-pilot-controller
+          - slurm-pilot-controller.slurm-pilot
+          - slurm-pilot-controller.slurm-pilot.svc.cluster.local
+          - slurm-pilot-controller-0
+    nodeSelector:
+      kubernetes.io/os: linux
+      kubernetes.io/hostname: r770-proxmox
+      sounio.dev/compute: heavy
+    tolerations:
+      - key: sounio.dev/pool
+        operator: Equal
+        value: gpu-batch
+        effect: NoSchedule
+      - key: sounio.dev/compute
+        operator: Equal
+        value: heavy
+        effect: NoSchedule
+
+loginsets:
+  slinky:
+    enabled: true
+    replicas: 1
+    login:
+      image:
+        repository: ghcr.io/slinkyproject/login
+        tag: 25.11-ubuntu24.04
+      securityContext:
+        privileged: true
+        allowPrivilegeEscalation: true
+      volumeMounts:
+        - name: orangefs-training
+          mountPath: /orangefs/training
+    initconf:
+      image:
+        repository: ghcr.io/slinkyproject/login
+        tag: 25.11-ubuntu24.04
+    podSpec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      hostAliases:
+        - ip: 10.96.32.209
+          hostnames:
+            - slurm-pilot-accounting
+            - slurm-pilot-accounting.slurm-pilot
+            - slurm-pilot-accounting.slurm-pilot.svc.cluster.local
+        - ip: 10.96.111.82
+          hostnames:
+            - slurm-pilot-controller
+            - slurm-pilot-controller.slurm-pilot
+            - slurm-pilot-controller.slurm-pilot.svc.cluster.local
+            - slurm-pilot-controller-0
+      nodeSelector:
+        kubernetes.io/os: linux
+        kubernetes.io/hostname: r770-proxmox
+        sounio.dev/compute: heavy
+        sounio.dev/orangefs-client: "true"
+      tolerations:
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+      volumes:
+        - name: orangefs-training
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs
+            type: Directory
+    service:
+      spec:
+        type: ClusterIP
+
+accounting:
+  enabled: true
+  slurmdbd:
+    image:
+      repository: ghcr.io/slinkyproject/slurmdbd
+      tag: 25.11-ubuntu24.04
+    securityContext:
+      runAsNonRoot: false
+      runAsUser: 0
+      runAsGroup: 0
+      allowPrivilegeEscalation: true
+      privileged: true
+      capabilities:
+        add:
+          - SYS_ADMIN
+          - NET_ADMIN
+      seccompProfile:
+        type: Unconfined
+    resources:
+      requests:
+        cpu: "500m"
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+  storageConfig:
+    host: 10.100.100.2
+    port: 3306
+    database: slurm_acct_db
+    username: slurm
+    passwordKeyRef:
+      name: mariadb-password
+      key: password
+  podSpec:
+    securityContext:
+      runAsNonRoot: false
+      runAsUser: 0
+      runAsGroup: 0
+      seccompProfile:
+        type: Unconfined
+    hostAliases: []
+    nodeSelector:
+      kubernetes.io/os: linux
+      kubernetes.io/hostname: r770-proxmox
+      sounio.dev/compute: heavy
+    tolerations:
+      - key: sounio.dev/pool
+        operator: Equal
+        value: gpu-batch
+        effect: NoSchedule
+      - key: sounio.dev/compute
+        operator: Equal
+        value: heavy
+        effect: NoSchedule
+
+nodesets:
+  slinky:
+    enabled: false
+  cpuops:
+    enabled: true
+    scalingMode: DaemonSet
+    taintKubeNodes: false
+    workloadDisruptionProtection: true
+    slurmd:
+      image:
+        repository: ghcr.io/slinkyproject/slurmd
+        tag: 25.11-ubuntu24.04
+      resources:
+        requests:
+          cpu: "1"
+          memory: 2Gi
+        limits:
+          cpu: "8"
+          memory: 16Gi
+      volumeMounts:
+        - name: orangefs-training
+          mountPath: /orangefs/training
+    logfile:
+      image:
+        repository: ghcr.io/slinkyproject/slurmd
+        tag: 25.11-ubuntu24.04
+    extraConfMap:
+      Features:
+        - orangefs
+        - cpu
+        - ops
+        - k8s
+    podSpec:
+      dnsConfig:
+        searches:
+          - slurm-workers-slurm-pilot.slurm-pilot.svc.cluster.local
+          - slurm-pilot.svc.cluster.local
+          - svc.cluster.local
+          - cluster.local
+      nodeSelector:
+        kubernetes.io/os: linux
+        kubernetes.io/hostname: t560-proxmox
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      volumes:
+        - name: orangefs-training
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs
+            type: Directory
+  gpuorangefs:
+    enabled: true
+    scalingMode: DaemonSet
+    taintKubeNodes: false
+    workloadDisruptionProtection: true
+    slurmd:
+      image:
+        repository: ghcr.io/slinkyproject/slurmd
+        tag: 25.11-ubuntu24.04
+      lifecycle:
+        postStart:
+          exec:
+            command:
+              - /bin/bash
+              - -lc
+              - ldconfig
+      resources:
+        requests:
+          cpu: "2"
+          memory: 4Gi
+        limits:
+          cpu: "4"
+          memory: 8Gi
+      volumeMounts:
+        - name: orangefs-training
+          mountPath: /orangefs/training
+        - name: host-nvidia-smi
+          mountPath: /host-nvidia/nvidia-smi
+          readOnly: true
+        - name: host-nvidia-smi
+          mountPath: /usr/bin/nvidia-smi
+          readOnly: true
+        - name: host-libnvidia-ml
+          mountPath: /host-nvidia/libnvidia-ml.so.1
+          readOnly: true
+        - name: host-libnvidia-ml
+          mountPath: /lib/x86_64-linux-gnu/libnvidia-ml.so.1
+          readOnly: true
+        - name: host-libcuda
+          mountPath: /host-nvidia/libcuda.so.1
+          readOnly: true
+        - name: host-libcuda
+          mountPath: /lib/x86_64-linux-gnu/libcuda.so.1
+          readOnly: true
+        - name: host-libnvidia-ptxjitcompiler
+          mountPath: /host-nvidia/libnvidia-ptxjitcompiler.so.1
+          readOnly: true
+        - name: host-libnvidia-ptxjitcompiler
+          mountPath: /lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1
+          readOnly: true
+        - name: host-libnvidia-ptxjitcompiler
+          mountPath: /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1
+          readOnly: true
+    logfile:
+      image:
+        repository: ghcr.io/slinkyproject/slurmd
+        tag: 25.11-ubuntu24.04
+    extraConfMap:
+      Features:
+        - orangefs
+        - gpu
+        - k8s
+      Gres:
+        - gpu:1
+    podSpec:
+      dnsConfig:
+        searches:
+          - slurm-workers-slurm-pilot.slurm-pilot.svc.cluster.local
+          - slurm-pilot.svc.cluster.local
+          - svc.cluster.local
+          - cluster.local
+      hostAliases:
+        - ip: 10.96.32.209
+          hostnames:
+            - slurm-pilot-accounting
+            - slurm-pilot-accounting.slurm-pilot
+            - slurm-pilot-accounting.slurm-pilot.svc.cluster.local
+        - ip: 10.96.111.82
+          hostnames:
+            - slurm-pilot-controller
+            - slurm-pilot-controller.slurm-pilot
+            - slurm-pilot-controller.slurm-pilot.svc.cluster.local
+            - slurm-pilot-controller-0
+      nodeSelector:
+        kubernetes.io/os: linux
+        sounio.dev/orangefs-client: "true"
+        sounio.dev/pool: gpu-batch
+        sounio.dev/accelerator-class: gpu
+        sounio.dev/slurm-worker-gpuorangefs: "true"
+      tolerations:
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+      volumes:
+        - name: orangefs-training
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs
+            type: Directory
+        - name: host-nvidia-smi
+          hostPath:
+            path: /usr/bin/nvidia-smi
+            type: File
+        - name: host-libnvidia-ml
+          hostPath:
+            path: /lib/x86_64-linux-gnu/libnvidia-ml.so.1
+            type: File
+        - name: host-libcuda
+          hostPath:
+            path: /lib/x86_64-linux-gnu/libcuda.so.1
+            type: File
+        - name: host-libnvidia-ptxjitcompiler
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1
+            type: File
+
+partitions:
+  cpu-ops:
+    enabled: true
+    nodesets:
+      - cpuops
+    configMap:
+      Default: "NO"
+      MaxTime: UNLIMITED
+      State: UP
+      OverSubscribe: EXCLUSIVE
+  gpu-orangefs:
+    enabled: true
+    nodesets:
+      - gpuorangefs
+    configMap:
+      Default: "YES"
+      MaxTime: UNLIMITED
+      State: UP
+      OverSubscribe: EXCLUSIVE
+
+vendor:
+  nvidia:
+    dcgm:
+      enabled: false

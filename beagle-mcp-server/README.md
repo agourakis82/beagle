@@ -8,7 +8,7 @@
 
 This MCP server acts as a **thin, type-safe adapter** between AI assistants (Claude, ChatGPT) and the BEAGLE Core HTTP API, providing:
 
-- ✅ **6 canonical tools** for memory, pipelines, and LLM routing
+- ✅ **14+ canonical tools** for memory, pipelines, LLM routing, web search, and webhooks
 - ✅ **Automatic retries** with exponential backoff
 - ✅ **Configurable timeouts** (default: 60s)
 - ✅ **Graceful degradation** when BEAGLE core is unavailable
@@ -23,11 +23,41 @@ This MCP server acts as a **thin, type-safe adapter** between AI assistants (Cla
 | Tool | Description | Key Inputs | Outputs |
 |------|-------------|-----------|---------|
 | `beagle_llm_complete` | Proxy LLM via TieredRouter | `prompt`, `requires_math`, `requires_high_quality` | `text`, `provider`, `llm_stats` |
+| `beagle_llm_complete_stream` | **Streaming** LLM completion | `prompt`, `stream_chunk_size` | `chunks[]`, `complete_text` |
 | `beagle_pipeline_run` | Start BEAGLE pipeline | `question`, `with_triad`, `hrv_aware` | `run_id`, `status` |
 | `beagle_pipeline_status` | Check pipeline status | `run_id` | `status`, `artifacts`, `llm_stats` |
 | `beagle_memory_query` | Memory RAG search | `query`, `top_k` | `results[]` with snippets |
 | `beagle_memory_ingest_chat` | Ingest conversation | `source`, `conversation_id`, `role`, `text` | `stored`, `memory_id` |
 | `beagle_feedback_tag` | Tag run with feedback | `run_id`, `accepted`, `rating_0_10` | `status`, `run_id` |
+| `tavily_search` | Web search via Tavily API | `query`, `max_results`, `search_depth` | `results[]`, `answer` |
+| `tavily_research` | Research with domain focus | `query`, `focus_area` (scientific/medical/technical) | `results[]`, `answer`, `sources` |
+
+### Streaming Support (P2 Feature)
+
+The `beagle_llm_complete_stream` tool provides chunked responses for better UX with long LLM outputs:
+
+```json
+{
+  "stream_info": {
+    "total_chunks": 12,
+    "total_length": 1156,
+    "provider": "claude",
+    "duration_ms": 2345
+  },
+  "chunks": [
+    {"index": 0, "content": "First chunk...", "done": false},
+    {"index": 1, "content": "Second chunk...", "done": false},
+    ...
+    {"index": 11, "content": "Final chunk", "done": true}
+  ],
+  "complete_text": "Full response text..."
+}
+```
+
+Use streaming for:
+- Long-form content generation (>500 chars)
+- Real-time progress visibility
+- Better perceived performance
 
 ---
 
@@ -74,12 +104,15 @@ Create or edit `~/.config/Claude/claude_desktop_config.json` (macOS/Linux) or `%
       "command": "node",
       "args": ["/absolute/path/to/beagle-mcp-server/dist/index.js"],
       "env": {
-        "BEAGLE_CORE_URL": "http://localhost:8080"
+        "BEAGLE_CORE_URL": "http://localhost:8080",
+        "TAVILY_API_KEY": "tvly-your-api-key-here"
       }
     }
   }
 }
 ```
+
+**Note:** Get your free Tavily API key at [https://tavily.com](https://tavily.com) (1,000 calls/month on free tier).
 
 #### 2. Restart Claude Desktop
 
@@ -168,6 +201,8 @@ beagle-mcp-server/
 ├── src/
 │   ├── index.ts              # Main server entry point
 │   ├── beagle-client.ts      # HTTP client with retry/timeout
+│   ├── webhook-store.ts      # Webhook storage (in-memory + JSON)
+│   ├── webhooks.ts           # Webhook delivery engine
 │   ├── compat.ts             # Client type detection
 │   ├── logger.ts             # Structured logging
 │   ├── security.ts           # Output sanitization
@@ -177,11 +212,13 @@ beagle-mcp-server/
 │   │   ├── llm.ts            # beagle_llm_complete
 │   │   ├── pipeline.ts       # beagle_pipeline_run, beagle_pipeline_status
 │   │   ├── memory.ts         # beagle_memory_query, beagle_memory_ingest_chat
-│   │   └── feedback.ts       # beagle_feedback_tag
+│   │   ├── feedback.ts       # beagle_feedback_tag
+│   │   └── webhooks.ts       # Webhook management tools
 │   └── transports/
 │       ├── claude-desktop.ts # STDIO transport config
 │       └── openai-apps.ts    # HTTP transport config
 ├── dist/                     # Compiled JavaScript
+├── data/                     # Webhook storage (created at runtime)
 ├── package.json
 ├── tsconfig.json
 ├── .env.example
@@ -207,6 +244,44 @@ npm start
 # Run integration tests (requires BEAGLE core running)
 npm run test:mcp
 ```
+
+---
+
+## Third-Party Tools
+
+### Tavily Web Search
+
+**Setup:**
+1. Get free API key at [https://tavily.com](https://tavily.com)
+2. Add `TAVILY_API_KEY` to your environment or Claude Desktop config
+
+**Tools:**
+
+| Tool | Use Case | Example |
+|------|----------|---------|
+| `tavily_search` | General web search | Current events, news, general queries |
+| `tavily_research` | Scientific/technical research | Academic papers, medical info, code docs |
+
+**Example Usage in Claude Desktop:**
+
+```
+Search for recent breakthroughs in CRISPR gene editing
+```
+(Claude will automatically use `tavily_research` with `focus_area: scientific`)
+
+```
+What happened in the markets today?
+```
+(Claude will use `tavily_search` with recent time filter)
+
+**Parameters:**
+- `query` (required): Search query
+- `max_results`: 1-20 (default: 5)
+- `search_depth`: "basic" (fast) or "advanced" (comprehensive)
+- `include_answer`: Include AI-generated summary (default: false)
+- `focus_area`: For `tavily_research` - "scientific", "medical", "technical", "news", "general"
+
+---
 
 ### Adding New Tools
 
@@ -369,6 +444,9 @@ This MCP server expects the following HTTP endpoints from BEAGLE Core:
 | `/api/memory/query` | POST | Memory RAG search |
 | `/api/memory/ingest_chat` | POST | Ingest conversation turn |
 | `/api/feedback/tag_run` | POST | Tag run with feedback |
+| `/api/jobs/science/start` | POST | Start science job |
+| `/api/jobs/science/status/:job_id` | GET | Get science job status |
+| `/api/jobs/science/:job_id/artifacts` | GET | Get science job artifacts |
 
 If any endpoint is missing, the corresponding tool will fail gracefully with a descriptive error.
 

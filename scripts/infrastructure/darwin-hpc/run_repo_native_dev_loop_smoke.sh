@@ -8,7 +8,8 @@ SERVICE_NAME="${SERVICE_NAME:-beagle-core}"
 LOCAL_PORT="${LOCAL_PORT:-18091}"
 PROFILE_ID="${PROFILE_ID:-cpu-short-v1}"
 OUT="${OUT:-${ROOT}/.artifacts/darwin-hpc/repo-native-dev-loop-smoke}"
-OPERATOR_API_TOKEN="${BEAGLE_OPERATOR_API_TOKEN:-${BEAGLE_API_TOKEN:?BEAGLE_OPERATOR_API_TOKEN or BEAGLE_API_TOKEN is required}}"
+OPERATOR_API_TOKEN="${BEAGLE_OPERATOR_API_TOKEN:-${BEAGLE_API_TOKEN:-}}"
+SECRET_NAME="${SECRET_NAME:-beagle-core-secrets}"
 WORKSPACE_ID="${WORKSPACE_ID:-b132-$(date +%m%d%H%M%S)}"
 EXPECTED_REPO="${EXPECTED_REPO:-agourakis82/beagle}"
 EXPECTED_BRANCH="${EXPECTED_BRANCH:-$(git -C "${ROOT}" rev-parse --abbrev-ref HEAD)}"
@@ -26,6 +27,7 @@ require() {
 }
 
 require curl
+require base64
 require git
 require jq
 require podman
@@ -54,6 +56,29 @@ resolve_kubectl() {
 
 KUBECTL="$(resolve_kubectl)"
 require "${KUBECTL%% *}"
+
+resolve_operator_api_token() {
+  if [[ -n "${OPERATOR_API_TOKEN}" ]]; then
+    printf '%s\n' "${OPERATOR_API_TOKEN}"
+    return 0
+  fi
+
+  local encoded_token=""
+  encoded_token="$(${KUBECTL} -n "${NAMESPACE}" get secret "${SECRET_NAME}" -o jsonpath='{.data.BEAGLE_OPERATOR_API_TOKEN}' 2>/dev/null || true)"
+  if [[ -z "${encoded_token}" ]]; then
+    encoded_token="$(${KUBECTL} -n "${NAMESPACE}" get secret "${SECRET_NAME}" -o jsonpath='{.data.BEAGLE_API_TOKEN}' 2>/dev/null || true)"
+  fi
+
+  if [[ -n "${encoded_token}" ]]; then
+    printf '%s' "${encoded_token}" | base64 -d
+    return 0
+  fi
+
+  echo "[FAIL] BEAGLE_OPERATOR_API_TOKEN/BEAGLE_API_TOKEN not set locally and not found in secret ${SECRET_NAME}" >&2
+  exit 1
+}
+
+OPERATOR_API_TOKEN="$(resolve_operator_api_token)"
 
 mkdir -p "${OUT}"
 

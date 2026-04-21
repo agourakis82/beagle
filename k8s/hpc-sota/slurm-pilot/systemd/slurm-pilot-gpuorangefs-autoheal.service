@@ -1,0 +1,14 @@
+[Unit]
+Description=Run safe autoheal checks for admitted gpuorangefs Slurm workers
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash /home/devsounio/beagle/k8s/hpc-sota/slurm-pilot/scripts/70-autoheal-gpuorangefs-pool.sh
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,120 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pbpk-single-gpu-orangefs
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: pbpk-single-gpu-orangefs
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pbpk-single-gpu-orangefs
+      annotations:
+        k8s.v1.cni.cncf.io/networks: beagle/gpu-fabric-10-200-pilot
+    spec:
+      restartPolicy: Never
+      runtimeClassName: nvidia
+      priorityClassName: hpc-training
+      nodeSelector:
+        sounio.dev/accelerator-class: gpu
+        sounio.dev/compute: heavy
+        sounio.dev/pool: gpu-batch
+        sounio.dev/orangefs-client: "true"
+      tolerations:
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+      containers:
+        - name: pbpk
+          image: sounio/pytorch-rdma:2.7.1-cuda12.8-rdma
+          imagePullPolicy: Never
+          securityContext:
+            privileged: true
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: LD_LIBRARY_PATH
+              value: /nvidia-host
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euo pipefail
+              mkdir -p /datasets /checkpoints /scratch/pbpk
+              python - <<'PY'
+              import json, socket
+              from pathlib import Path
+              import torch
+
+              if not torch.cuda.is_available():
+                  raise RuntimeError("CUDA is not available for PBPK pilot")
+
+              device = torch.device("cuda:0")
+              x = torch.linspace(0.0, 24.0, 4096, device=device).unsqueeze(1)
+              ka = torch.tensor(0.7, device=device)
+              ke = torch.tensor(0.12, device=device)
+              dose = torch.tensor(120.0, device=device)
+              conc = dose * ka / (ka - ke) * (torch.exp(-ke * x) - torch.exp(-ka * x))
+              summary = {
+                  "hostname": socket.gethostname(),
+                  "cuda": True,
+                  "device_name": torch.cuda.get_device_name(device),
+                  "gpu_count": torch.cuda.device_count(),
+                  "cmax": float(conc.max().detach().cpu()),
+                  "auc_proxy": float(torch.trapz(conc.squeeze(), x.squeeze()).detach().cpu()),
+              }
+              Path("/datasets/pbpk-summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+              torch.save({"summary": summary, "curve": conc.detach().cpu()}, "/checkpoints/pbpk-state.pt")
+              Path("/scratch/pbpk/run.txt").write_text("pbpk pilot complete\n", encoding="utf-8")
+              print(json.dumps(summary), flush=True)
+              PY
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+              rdma/sounio_gpu_fabric: "1"
+            limits:
+              cpu: "4"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+              rdma/sounio_gpu_fabric: "1"
+          volumeMounts:
+            - name: host-libcuda
+              mountPath: /nvidia-host/libcuda.so.1
+              readOnly: true
+            - name: host-libnvidia-ml
+              mountPath: /nvidia-host/libnvidia-ml.so.1
+              readOnly: true
+            - name: datasets
+              mountPath: /datasets
+            - name: checkpoints
+              mountPath: /checkpoints
+            - name: scratch
+              mountPath: /scratch
+      volumes:
+        - name: host-libcuda
+          hostPath:
+            path: /lib/x86_64-linux-gnu/libcuda.so.1
+            type: File
+        - name: host-libnvidia-ml
+          hostPath:
+            path: /lib/x86_64-linux-gnu/libnvidia-ml.so.1
+            type: File
+        - name: datasets
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/datasets
+            type: DirectoryOrCreate
+        - name: checkpoints
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/checkpoints
+            type: DirectoryOrCreate
+        - name: scratch
+          emptyDir: {}

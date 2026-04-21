@@ -1,0 +1,92 @@
+/* ═══════════════════════════════════════════════════════════════
+   Truth Mode Visual System
+
+   Border style = preattentive truth indicator
+   solid  = observed (live)
+   dashed = remembered (cached)
+   dotted = declared (policy)
+
+   Operators can scan the entire screen and instantly know
+   what's real vs cached vs assumed.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Truth borders */
+[data-truth="observed"] {
+  border-color: var(--truth-observed);
+  border-style: solid;
+}
+
+[data-truth="remembered"] {
+  border-color: var(--truth-remembered);
+  border-style: dashed;
+}
+
+[data-truth="declared"] {
+  border-color: var(--truth-declared);
+  border-style: dotted;
+}
+
+[data-truth="stale"] {
+  border-color: var(--truth-stale);
+  border-style: dotted;
+  opacity: 0.7;
+}
+
+/* Freshness pulse — only observed data is alive */
+@keyframes truth-pulse {
+  0%, 100% { opacity: 0.82; }
+  50%      { opacity: 1; }
+}
+
+[data-truth="observed"] .truth-pulse,
+[data-truth="observed"].truth-pulse {
+  animation: truth-pulse 3s ease-in-out infinite;
+}
+
+/* Posture indicators */
+@keyframes posture-on-glow {
+  0%, 100% { box-shadow: 0 0 6px 1px rgba(81, 214, 189, 0.3); }
+  50%      { box-shadow: 0 0 12px 3px rgba(81, 214, 189, 0.5); }
+}
+
+.posture-on {
+  color: var(--posture-on);
+  animation: posture-on-glow 4s ease-in-out infinite;
+}
+
+.posture-warm {
+  color: var(--posture-warm);
+}
+
+.posture-cold {
+  color: var(--posture-cold);
+  opacity: 0.7;
+}
+
+/* Truth badge chip */
+.truth-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: 4px;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.truth-badge--observed {
+  background: rgba(81, 214, 189, 0.12);
+  color: var(--truth-observed);
+}
+
+.truth-badge--remembered {
+  background: rgba(119, 184, 255, 0.10);
+  color: var(--truth-remembered);
+}
+
+.truth-badge--declared {
+  background: rgba(159, 178, 205, 0.08);
+  color: var(--truth-declared);
+}

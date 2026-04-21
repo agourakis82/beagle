@@ -1,0 +1,184 @@
+type: object
+required:
+  - dataset_version
+  - dataset_id
+  - policy_id
+  - source_execution_id
+  - source_plan_id
+  - workstream_id
+  - workspace_id
+  - session_id
+  - generated_at
+  - sample_count
+  - replay_sample_count
+  - shadow_sample_count
+  - task_families_evaluated
+  - decision_classes_evaluated
+  - samples
+  - note
+properties:
+  dataset_version:
+    type: string
+    const: beagle-autonomy-calibration-dataset-v1
+  dataset_id:
+    type: string
+  policy_id:
+    type: string
+  source_execution_id:
+    type: string
+  source_plan_id:
+    type: string
+  workstream_id:
+    type: string
+  workspace_id:
+    type: string
+  session_id:
+    type: string
+  generated_at:
+    type: string
+  sample_count:
+    type: integer
+  replay_sample_count:
+    type: integer
+  shadow_sample_count:
+    type: integer
+  task_families_evaluated:
+    type: array
+    items:
+      type: string
+  decision_classes_evaluated:
+    type: array
+    items:
+      type: string
+      enum:
+        - auto-continue
+        - review-required
+        - blocked
+  samples:
+    type: array
+    items:
+      type: object
+      required:
+        - sample_id
+        - sample_source
+        - source_execution_id
+        - source_plan_id
+        - workstream_id
+        - workspace_id
+        - session_id
+        - task_family
+        - selected_subagent_id
+        - retrieval_query_type
+        - compiler_profile_id
+        - graphrag_query_mode
+        - temporal_truth_view
+        - trajectory_quality
+        - trajectory_score
+        - overall_quality_score
+        - replan_required
+        - requested_operator_action
+        - review_action
+        - current_policy_decision_class
+        - current_policy_risk_level
+        - current_policy_risk_score
+        - expected_decision_class
+        - current_policy_correct
+        - matched_policy_signals
+        - risk_signals
+        - outcome_source
+        - note
+      properties:
+        sample_id:
+          type: string
+        sample_source:
+          type: string
+        source_execution_id:
+          type: string
+        source_plan_id:
+          type: string
+        workstream_id:
+          type: string
+        workspace_id:
+          type: string
+        session_id:
+          type: string
+        task_family:
+          type: string
+        selected_subagent_id:
+          type: string
+        retrieval_query_type:
+          type: string
+        compiler_profile_id:
+          type: string
+        graphrag_query_mode:
+          type: string
+        temporal_truth_view:
+          type: string
+        trajectory_quality:
+          type: string
+        trajectory_score:
+          type: integer
+        overall_quality_score:
+          type: integer
+        replan_required:
+          type: boolean
+        requested_operator_action:
+          type: string
+        review_action:
+          type: string
+        recipe_kind:
+          type:
+            - string
+            - "null"
+        experiment_id:
+          type:
+            - string
+            - "null"
+        current_policy_decision_class:
+          type: string
+          enum:
+            - auto-continue
+            - review-required
+            - blocked
+        current_policy_risk_level:
+          type: string
+        current_policy_risk_score:
+          type: integer
+        expected_decision_class:
+          type: string
+          enum:
+            - auto-continue
+            - review-required
+            - blocked
+        current_policy_correct:
+          type: boolean
+        operator_alignment_observed:
+          type:
+            - boolean
+            - "null"
+        execution_alignment_observed:
+          type:
+            - boolean
+            - "null"
+        continued_successfully:
+          type:
+            - boolean
+            - "null"
+        matched_policy_signals:
+          type: array
+          items:
+            type: string
+        risk_signals:
+          type: array
+          items:
+            type: object
+        outcome_source:
+          type: string
+        shadow_scenario:
+          type:
+            - string
+            - "null"
+        note:
+          type: string
+  note:
+    type: string

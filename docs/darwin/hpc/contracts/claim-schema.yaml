@@ -1,0 +1,48 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: Beagle Claim Record
+type: object
+additionalProperties: false
+properties:
+  claim_id:
+    type: string
+  campaign_id:
+    type: string
+  manuscript_target:
+    type:
+      - string
+      - "null"
+  claim_kind:
+    type: string
+  claim_state:
+    type: string
+  confidence_mode:
+    type: string
+  claim_text:
+    type: string
+  supports:
+    type: array
+    items:
+      type: string
+  contradicts:
+    type: array
+    items:
+      type: string
+  evidence_refs:
+    type: array
+    items:
+      type: string
+  gaps:
+    type: array
+    items:
+      type: string
+required:
+  - claim_id
+  - campaign_id
+  - claim_kind
+  - claim_state
+  - confidence_mode
+  - claim_text
+  - supports
+  - contradicts
+  - evidence_refs
+  - gaps

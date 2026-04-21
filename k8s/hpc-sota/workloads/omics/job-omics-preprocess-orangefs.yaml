@@ -1,0 +1,106 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: omics-preprocess-orangefs
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: omics-preprocess-orangefs
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: omics-preprocess-orangefs
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        sounio.dev/orangefs-client: "true"
+        sounio.dev/compute: heavy
+        sounio.dev/pool: gpu-batch
+      tolerations:
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+      containers:
+        - name: omics
+          image: python:3.11-slim
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euo pipefail
+              mkdir -p /datasets /checkpoints /scratch/omics
+              copy_with_retry() {
+                local src="$1"
+                local dst="$2"
+                local attempt
+                for attempt in $(seq 1 15); do
+                  mkdir -p "$(dirname "$dst")" || true
+                  rm -f "$dst" || true
+                  if cp -f "$src" "$dst" && [ -s "$dst" ]; then
+                    return 0
+                  fi
+                  sleep 1
+                done
+                echo "failed to copy $src -> $dst" >&2
+                return 1
+              }
+              python - <<'PY'
+              import csv, json, random
+              import io
+              from pathlib import Path
+
+              random.seed(42)
+              rows = []
+              for gene_idx in range(1024):
+                  rows.append({
+                      "gene": f"GENE_{gene_idx:04d}",
+                      "expr_mean": round(random.random() * 100.0, 4),
+                      "expr_var": round(random.random() * 10.0, 4),
+                  })
+
+              buf = io.StringIO()
+              writer = csv.DictWriter(buf, fieldnames=["gene", "expr_mean", "expr_var"])
+              writer.writeheader()
+              writer.writerows(rows)
+              csv_bytes = buf.getvalue().encode("utf-8")
+              Path("/scratch/omics/omics-expression-summary.csv").write_bytes(csv_bytes)
+
+              summary = {"records": len(rows), "top_gene": max(rows, key=lambda row: row["expr_mean"])["gene"]}
+              summary_bytes = json.dumps(summary, indent=2).encode("utf-8")
+              Path("/scratch/omics/omics-preprocess-summary.json").write_bytes(summary_bytes)
+              Path("/scratch/omics/run.txt").write_text("omics preprocess complete\n", encoding="utf-8")
+              print(json.dumps(summary), flush=True)
+              PY
+              copy_with_retry /scratch/omics/omics-expression-summary.csv /datasets/omics-expression-summary.csv
+              copy_with_retry /scratch/omics/omics-preprocess-summary.json /checkpoints/omics-preprocess-summary.json
+          resources:
+            requests:
+              cpu: "2"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+          volumeMounts:
+            - name: datasets
+              mountPath: /datasets
+            - name: checkpoints
+              mountPath: /checkpoints
+            - name: scratch
+              mountPath: /scratch
+      volumes:
+        - name: datasets
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/datasets
+            type: DirectoryOrCreate
+        - name: checkpoints
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/checkpoints
+            type: DirectoryOrCreate
+        - name: scratch
+          emptyDir: {}

@@ -22,7 +22,8 @@ import dotenv from "dotenv";
 import { BeagleClient } from "./beagle-client.js";
 import { defineTools } from "./tools/index.js";
 import { logger } from "./logger.js";
-import { validateAuth, extractToken, checkRateLimit } from "./auth.js";
+import { validateAuth, extractToken, checkCombinedRateLimit, getUserContextFromToken, type AuthResult } from "./auth.js";
+import { isOAuthEnabled, validateOAuthConfig } from "./oauth.js";
 import { getClientInfo, getTransportType } from "./compat.js";
 import {
     configureForClaudeDesktop,
@@ -107,19 +108,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         );
     }
 
-    // Rate limiting (by client identifier, if available)
+    // Extract user context from OAuth token if available
+    const userContext = authResult.userContext;
+
+    // Rate limiting (by user ID if authenticated, otherwise by client identifier)
     const clientId = (request as any).meta?.clientId || "unknown";
-    const rateLimitResult = checkRateLimit(clientId);
+    const rateLimitKey = userContext?.userId || clientId;
+    const rateLimitResult = checkCombinedRateLimit(clientId, userContext?.userId);
     if (!rateLimitResult.allowed) {
         throw new McpError(
             ErrorCode.InvalidRequest,
-            "Rate limit exceeded. Please try again later.",
+            `Rate limit exceeded: ${rateLimitResult.reason}. Please try again later.`,
         );
     }
 
     logger.info(`Tool called: ${name}`, {
         args: args ? Object.keys(args) : [],
         clientId,
+        userId: userContext?.userId,
+        tenantId: userContext?.tenantId,
+        authType: authResult.authType,
         remaining: rateLimitResult.remaining,
     });
 
@@ -167,10 +175,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 });
 
+// Validate OAuth configuration on startup
+const oauthConfig = validateOAuthConfig();
+if (!oauthConfig.valid) {
+    logger.error("OAuth configuration invalid", { error: oauthConfig.error });
+    process.exit(1);
+}
+
 // Start server
 async function main() {
     const clientInfo = getClientInfo();
     const transportType = getTransportType(clientInfo.type);
+    const oauthEnabled = isOAuthEnabled();
 
     logger.info("Starting BEAGLE MCP Server", {
         version: "0.3.0",
@@ -178,6 +194,8 @@ async function main() {
         transport: transportType,
         toolsCount: tools.length,
         beagleUrl: beagleClient.baseUrl,
+        oauthEnabled,
+        authEnabled: process.env.MCP_ENABLE_AUTH === 'true',
     });
 
     // Create appropriate transport

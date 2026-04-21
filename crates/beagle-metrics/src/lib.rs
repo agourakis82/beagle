@@ -1,144 +1,118 @@
-//! Prometheus Metrics Implementation - Q1 SOTA Standards
+//! Prometheus Metrics Implementation for BEAGLE Observability
 //!
-//! Implements comprehensive observability with:
-//! - RED Method (Rate, Errors, Duration)
-//! - USE Method (Utilization, Saturation, Errors)
-//! - Four Golden Signals (Latency, Traffic, Errors, Saturation)
-//! - Custom business metrics
-//! - Exemplar support for distributed tracing
-//! - Multi-dimensional cardinality control
+//! Exports metrics in Prometheus format at /metrics endpoint
 //!
-//! References:
-//! - Beyer, B., et al. (2016). "Site Reliability Engineering." O'Reilly Media.
-//! - Wilkie, T. (2018). "The RED Method: key metrics for microservices architecture."
-//! - Gregg, B. (2013). "The USE Method." ACM Queue.
-//! - Google SRE Book (2016). "The Four Golden Signals."
+//! ## Core Metrics Implemented:
+//!
+//! ### LLM Router Metrics:
+//! - `beagle_llm_requests_total` (counter, labels: provider, tier, status)
+//! - `beagle_llm_request_duration_seconds` (histogram, buckets: 0.1, 0.5, 1, 2, 5, 10)
+//! - `beagle_llm_tokens_total` (counter, labels: provider, type=input/output)
+//! - `beagle_llm_cost_usd_total` (counter, labels: provider)
+//!
+//! ### Memory Metrics:
+//! - `beagle_memory_queries_total` (counter, labels: source=qdrant/postgres, status)
+//! - `beagle_memory_query_duration_seconds` (histogram)
+//! - `beagle_memory_index_size` (gauge, labels: index_type)
+//! - `beagle_qdrant_health_status` (gauge: 1=healthy, 0=unhealthy)
+//!
+//! ### Pipeline Metrics:
+//! - `beagle_pipeline_runs_total` (counter, labels: status)
+//! - `beagle_pipeline_duration_seconds` (histogram)
+//! - `beagle_pipeline_stages_duration_seconds` (histogram, labels: stage)
+//!
+//! ### System Metrics:
+//! - `beagle_active_connections` (gauge)
+//! - `beagle_rate_limit_hits_total` (counter, labels: identifier)
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use axum::{
     extract::State,
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::get,
     Router,
 };
 use lazy_static::lazy_static;
 use prometheus::{
     register_counter_vec, register_gauge_vec, register_histogram_vec, register_int_counter_vec,
-    register_int_gauge_vec, register_summary_vec,
-    Counter, CounterVec, Encoder, Gauge, GaugeVec, Histogram, HistogramVec,
-    IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Summary, SummaryVec, TextEncoder,
-    exponential_buckets, linear_buckets, Opts, Registry,
+    register_int_gauge, register_int_gauge_vec,
+    CounterVec, Encoder, GaugeVec, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    TextEncoder,
 };
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn, error, instrument};
+use tracing::{debug, error, info, warn};
 
 // ============================================
-// Core Metrics (RED Method)
-// ============================================
-
-lazy_static! {
-    /// Request rate counter
-    static ref REQUEST_COUNTER: IntCounterVec = register_int_counter_vec!(
-        "beagle_requests_total",
-        "Total number of HTTP requests",
-        &["method", "endpoint", "status", "service"]
-    ).unwrap();
-
-    /// Request duration histogram
-    static ref REQUEST_DURATION: HistogramVec = register_histogram_vec!(
-        "beagle_request_duration_seconds",
-        "HTTP request latency",
-        &["method", "endpoint", "status", "service"],
-        exponential_buckets(0.001, 2.0, 15).unwrap() // 1ms to ~32s
-    ).unwrap();
-
-    /// Request errors counter
-    static ref REQUEST_ERRORS: IntCounterVec = register_int_counter_vec!(
-        "beagle_request_errors_total",
-        "Total number of HTTP request errors",
-        &["method", "endpoint", "error_type", "service"]
-    ).unwrap();
-}
-
-// ============================================
-// System Metrics (USE Method)
+// LLM Router Metrics
 // ============================================
 
 lazy_static! {
-    /// CPU utilization gauge
-    static ref CPU_UTILIZATION: GaugeVec = register_gauge_vec!(
-        "beagle_cpu_utilization_ratio",
-        "CPU utilization (0-1)",
-        &["core"]
-    ).unwrap();
-
-    /// Memory utilization gauge
-    static ref MEMORY_UTILIZATION: GaugeVec = register_gauge_vec!(
-        "beagle_memory_utilization_bytes",
-        "Memory utilization in bytes",
-        &["type"] // heap, stack, total
-    ).unwrap();
-
-    /// Thread pool saturation
-    static ref THREAD_POOL_SATURATION: GaugeVec = register_gauge_vec!(
-        "beagle_thread_pool_saturation_ratio",
-        "Thread pool saturation (0-1)",
-        &["pool"]
-    ).unwrap();
-
-    /// File descriptor usage
-    static ref FD_USAGE: IntGaugeVec = register_int_gauge_vec!(
-        "beagle_fd_usage",
-        "File descriptor usage",
-        &["type"] // open, max
-    ).unwrap();
-}
-
-// ============================================
-// LLM Metrics
-// ============================================
-
-lazy_static! {
-    /// LLM request counter
-    static ref LLM_REQUESTS: IntCounterVec = register_int_counter_vec!(
+    /// Total LLM requests by provider, tier, and status
+    pub static ref LLM_REQUESTS_TOTAL: IntCounterVec = register_int_counter_vec!(
         "beagle_llm_requests_total",
-        "Total LLM requests",
-        &["provider", "model", "tier", "status"]
-    ).unwrap();
+        "Total LLM requests by provider, tier, and status",
+        &["provider", "tier", "status"]
+    ).expect("Failed to register beagle_llm_requests_total");
 
-    /// LLM token usage
-    static ref LLM_TOKENS: IntCounterVec = register_int_counter_vec!(
+    /// LLM request duration in seconds (histogram with custom buckets)
+    pub static ref LLM_REQUEST_DURATION_SECONDS: HistogramVec = register_histogram_vec!(
+        "beagle_llm_request_duration_seconds",
+        "LLM request duration in seconds",
+        &["provider", "tier"],
+        vec![0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+    ).expect("Failed to register beagle_llm_request_duration_seconds");
+
+    /// Total LLM tokens processed by provider and type (input/output)
+    pub static ref LLM_TOKENS_TOTAL: IntCounterVec = register_int_counter_vec!(
         "beagle_llm_tokens_total",
-        "Total LLM tokens processed",
-        &["provider", "model", "direction"] // input, output
-    ).unwrap();
+        "Total LLM tokens processed by provider and type",
+        &["provider", "type"]
+    ).expect("Failed to register beagle_llm_tokens_total");
 
-    /// LLM request latency
-    static ref LLM_LATENCY: HistogramVec = register_histogram_vec!(
-        "beagle_llm_latency_seconds",
-        "LLM request latency",
-        &["provider", "model", "tier"],
-        exponential_buckets(0.1, 2.0, 10).unwrap() // 100ms to ~100s
-    ).unwrap();
-
-    /// LLM cost counter
-    static ref LLM_COST: CounterVec = register_counter_vec!(
+    /// Total LLM cost in USD by provider
+    pub static ref LLM_COST_USD_TOTAL: CounterVec = register_counter_vec!(
         "beagle_llm_cost_usd_total",
-        "Total LLM cost in USD",
-        &["provider", "model"]
-    ).unwrap();
+        "Total LLM cost in USD by provider",
+        &["provider"]
+    ).expect("Failed to register beagle_llm_cost_usd_total");
+}
 
-    /// LLM cache metrics
-    static ref LLM_CACHE: IntCounterVec = register_int_counter_vec!(
-        "beagle_llm_cache_total",
-        "LLM cache hits/misses",
-        &["status"] // hit, miss
-    ).unwrap();
+// ============================================
+// Memory Metrics
+// ============================================
+
+lazy_static! {
+    /// Total memory queries by source and status
+    pub static ref MEMORY_QUERIES_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "beagle_memory_queries_total",
+        "Total memory queries by source and status",
+        &["source", "status"]
+    ).expect("Failed to register beagle_memory_queries_total");
+
+    /// Memory query duration in seconds
+    pub static ref MEMORY_QUERY_DURATION_SECONDS: HistogramVec = register_histogram_vec!(
+        "beagle_memory_query_duration_seconds",
+        "Memory query duration in seconds",
+        &["source"],
+        vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+    ).expect("Failed to register beagle_memory_query_duration_seconds");
+
+    /// Memory index size by index type
+    pub static ref MEMORY_INDEX_SIZE: IntGaugeVec = register_int_gauge_vec!(
+        "beagle_memory_index_size",
+        "Memory index size by index type",
+        &["index_type"]
+    ).expect("Failed to register beagle_memory_index_size");
+
+    /// Qdrant health status (1=healthy, 0=unhealthy)
+    pub static ref QDRANT_HEALTH_STATUS: IntGauge = register_int_gauge!(
+        "beagle_qdrant_health_status",
+        "Qdrant health status (1=healthy, 0=unhealthy)"
+    ).expect("Failed to register beagle_qdrant_health_status");
 }
 
 // ============================================
@@ -146,117 +120,100 @@ lazy_static! {
 // ============================================
 
 lazy_static! {
-    /// Pipeline execution counter
-    static ref PIPELINE_EXECUTIONS: IntCounterVec = register_int_counter_vec!(
-        "beagle_pipeline_executions_total",
-        "Total pipeline executions",
-        &["pipeline", "stage", "status"]
-    ).unwrap();
+    /// Total pipeline runs by status
+    pub static ref PIPELINE_RUNS_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "beagle_pipeline_runs_total",
+        "Total pipeline runs by status",
+        &["status"]
+    ).expect("Failed to register beagle_pipeline_runs_total");
 
-    /// Pipeline stage duration
-    static ref PIPELINE_STAGE_DURATION: HistogramVec = register_histogram_vec!(
-        "beagle_pipeline_stage_duration_seconds",
-        "Pipeline stage execution time",
-        &["pipeline", "stage"],
-        linear_buckets(0.1, 0.5, 20).unwrap() // 0.1s to 10s
-    ).unwrap();
+    /// Pipeline duration in seconds
+    pub static ref PIPELINE_DURATION_SECONDS: HistogramVec = register_histogram_vec!(
+        "beagle_pipeline_duration_seconds",
+        "Pipeline duration in seconds",
+        &["status"],
+        vec![1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0]
+    ).expect("Failed to register beagle_pipeline_duration_seconds");
+
+    /// Pipeline stage duration in seconds by stage
+    pub static ref PIPELINE_STAGES_DURATION_SECONDS: HistogramVec = register_histogram_vec!(
+        "beagle_pipeline_stages_duration_seconds",
+        "Pipeline stage duration in seconds by stage",
+        &["stage"],
+        vec![0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0]
+    ).expect("Failed to register beagle_pipeline_stages_duration_seconds");
+}
+
+// ============================================
+// System Metrics
+// ============================================
+
+lazy_static! {
+    /// Number of active connections
+    pub static ref ACTIVE_CONNECTIONS: IntGauge = register_int_gauge!(
+        "beagle_active_connections",
+        "Number of active connections"
+    ).expect("Failed to register beagle_active_connections");
+
+    /// Total rate limit hits by identifier
+    pub static ref RATE_LIMIT_HITS_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "beagle_rate_limit_hits_total",
+        "Total rate limit hits by identifier",
+        &["identifier"]
+    ).expect("Failed to register beagle_rate_limit_hits_total");
+}
+
+// ============================================
+// Additional BEAGLE-Specific Metrics
+// ============================================
+
+lazy_static! {
+    /// HTTP request metrics (RED method)
+    pub static ref HTTP_REQUESTS_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "beagle_http_requests_total",
+        "Total HTTP requests by method, endpoint, and status",
+        &["method", "endpoint", "status"]
+    ).expect("Failed to register beagle_http_requests_total");
+
+    /// HTTP request duration
+    pub static ref HTTP_REQUEST_DURATION_SECONDS: HistogramVec = register_histogram_vec!(
+        "beagle_http_request_duration_seconds",
+        "HTTP request duration in seconds",
+        &["method", "endpoint"],
+        vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+    ).expect("Failed to register beagle_http_request_duration_seconds");
 
     /// Active pipelines gauge
-    static ref ACTIVE_PIPELINES: IntGaugeVec = register_int_gauge_vec!(
+    pub static ref ACTIVE_PIPELINES: IntGauge = register_int_gauge!(
         "beagle_active_pipelines",
-        "Currently active pipelines",
-        &["pipeline"]
-    ).unwrap();
+        "Number of active pipelines"
+    ).expect("Failed to register beagle_active_pipelines");
+
+    /// LLM cache hits/misses
+    pub static ref LLM_CACHE_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "beagle_llm_cache_total",
+        "LLM cache hits and misses",
+        &["status"]
+    ).expect("Failed to register beagle_llm_cache_total");
 }
 
 // ============================================
-// Scientific Computation Metrics
+// Metrics Collector
 // ============================================
 
-lazy_static! {
-    /// PBPK simulation metrics
-    static ref PBPK_SIMULATIONS: IntCounterVec = register_int_counter_vec!(
-        "beagle_pbpk_simulations_total",
-        "Total PBPK simulations",
-        &["drug", "model", "status"]
-    ).unwrap();
-
-    /// PBPK simulation duration
-    static ref PBPK_DURATION: HistogramVec = register_histogram_vec!(
-        "beagle_pbpk_duration_seconds",
-        "PBPK simulation duration",
-        &["model"],
-        exponential_buckets(0.01, 2.0, 15).unwrap() // 10ms to ~300s
-    ).unwrap();
-
-    /// Heliobiology metrics
-    static ref HELIO_COMPUTATIONS: IntCounterVec = register_int_counter_vec!(
-        "beagle_helio_computations_total",
-        "Heliobiology computations",
-        &["type", "status"]
-    ).unwrap();
-}
-
-// ============================================
-// Business Metrics
-// ============================================
-
-lazy_static! {
-    /// Research papers generated
-    static ref PAPERS_GENERATED: IntCounterVec = register_int_counter_vec!(
-        "beagle_papers_generated_total",
-        "Total research papers generated",
-        &["quality_tier", "domain"]
-    ).unwrap();
-
-    /// Discoveries made
-    static ref DISCOVERIES: IntCounterVec = register_int_counter_vec!(
-        "beagle_discoveries_total",
-        "Scientific discoveries",
-        &["type", "impact_level"]
-    ).unwrap();
-
-    /// User engagement
-    static ref USER_ENGAGEMENT: GaugeVec = register_gauge_vec!(
-        "beagle_user_engagement",
-        "User engagement metrics",
-        &["metric_type"] // dau, mau, session_duration
-    ).unwrap();
-}
-
-// ============================================
-// Custom Metrics Collector
-// ============================================
+/// Global metrics collector instance
+pub static METRICS: once_cell::sync::Lazy<Arc<MetricsCollector>> =
+    once_cell::sync::Lazy::new(|| {
+        Arc::new(MetricsCollector::new(MetricsConfig::default()))
+    });
 
 /// Metrics configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct MetricsConfig {
     /// Enable detailed cardinality tracking
     pub enable_cardinality_tracking: bool,
-
     /// Maximum label cardinality before warning
     pub max_cardinality_per_metric: usize,
-
-    /// Enable exemplar support
-    pub enable_exemplars: bool,
-
-    /// Metrics retention period (seconds)
-    pub retention_period_seconds: u64,
-
-    /// Custom buckets for histograms
-    pub custom_buckets: HashMap<String, Vec<f64>>,
-
-    /// Quantiles for summaries
-    pub summary_quantiles: Vec<f64>,
-
-    /// Enable RED method metrics
-    pub enable_red_metrics: bool,
-
-    /// Enable USE method metrics
-    pub enable_use_metrics: bool,
-
-    /// Enable business metrics
-    pub enable_business_metrics: bool,
 }
 
 impl Default for MetricsConfig {
@@ -264,13 +221,6 @@ impl Default for MetricsConfig {
         Self {
             enable_cardinality_tracking: true,
             max_cardinality_per_metric: 1000,
-            enable_exemplars: true,
-            retention_period_seconds: 86400, // 24 hours
-            custom_buckets: HashMap::new(),
-            summary_quantiles: vec![0.5, 0.9, 0.95, 0.99, 0.999],
-            enable_red_metrics: true,
-            enable_use_metrics: true,
-            enable_business_metrics: true,
         }
     }
 }
@@ -278,33 +228,196 @@ impl Default for MetricsConfig {
 /// Metrics collector and exporter
 pub struct MetricsCollector {
     config: MetricsConfig,
-    registry: Registry,
     cardinality_tracker: Arc<RwLock<HashMap<String, HashMap<String, usize>>>>,
-    start_time: Instant,
 }
 
 impl MetricsCollector {
     /// Create new metrics collector
-    pub fn new(config: MetricsConfig) -> Result<Self> {
-        let registry = Registry::new();
-
-        // Register all metrics with the registry
-        Self::register_metrics(&registry)?;
-
-        Ok(Self {
+    pub fn new(config: MetricsConfig) -> Self {
+        Self {
             config,
-            registry,
             cardinality_tracker: Arc::new(RwLock::new(HashMap::new())),
-            start_time: Instant::now(),
-        })
+        }
     }
 
-    /// Register all metrics
-    fn register_metrics(registry: &Registry) -> Result<()> {
-        // Note: In production, you'd register each metric with the registry
-        // For now, they're registered globally via lazy_static
-        Ok(())
+    // ============================================
+    // LLM Metrics Recording
+    // ============================================
+
+    /// Record an LLM request with full details
+    pub fn record_llm_request(
+        &self,
+        provider: &str,
+        tier: &str,
+        status: &str,
+        duration: Duration,
+        tokens_in: u64,
+        tokens_out: u64,
+        cost_usd: f64,
+    ) {
+        // Increment request counter
+        LLM_REQUESTS_TOTAL
+            .with_label_values(&[provider, tier, status])
+            .inc();
+
+        // Record duration
+        LLM_REQUEST_DURATION_SECONDS
+            .with_label_values(&[provider, tier])
+            .observe(duration.as_secs_f64());
+
+        // Record token usage
+        if tokens_in > 0 {
+            LLM_TOKENS_TOTAL
+                .with_label_values(&[provider, "input"])
+                .inc_by(tokens_in);
+        }
+        if tokens_out > 0 {
+            LLM_TOKENS_TOTAL
+                .with_label_values(&[provider, "output"])
+                .inc_by(tokens_out);
+        }
+
+        // Record cost
+        if cost_usd > 0.0 {
+            LLM_COST_USD_TOTAL
+                .with_label_values(&[provider])
+                .inc_by(cost_usd);
+        }
+
+        // Track cardinality if enabled
+        if self.config.enable_cardinality_tracking {
+            self.track_cardinality(
+                "llm_requests",
+                &[provider, tier, status],
+            );
+        }
+
+        debug!(
+            provider = provider,
+            tier = tier,
+            status = status,
+            duration_ms = duration.as_millis() as u64,
+            tokens_in = tokens_in,
+            tokens_out = tokens_out,
+            cost_usd = cost_usd,
+            "LLM request recorded"
+        );
     }
+
+    /// Record LLM cache hit/miss
+    pub fn record_llm_cache(&self, hit: bool) {
+        let status = if hit { "hit" } else { "miss" };
+        LLM_CACHE_TOTAL.with_label_values(&[status]).inc();
+    }
+
+    // ============================================
+    // Memory Metrics Recording
+    // ============================================
+
+    /// Record a memory query
+    pub fn record_memory_query(
+        &self,
+        source: &str,
+        status: &str,
+        duration: Duration,
+    ) {
+        MEMORY_QUERIES_TOTAL
+            .with_label_values(&[source, status])
+            .inc();
+
+        MEMORY_QUERY_DURATION_SECONDS
+            .with_label_values(&[source])
+            .observe(duration.as_secs_f64());
+
+        debug!(
+            source = source,
+            status = status,
+            duration_ms = duration.as_millis() as u64,
+            "Memory query recorded"
+        );
+    }
+
+    /// Update memory index size
+    pub fn set_memory_index_size(&self, index_type: &str, size: i64) {
+        MEMORY_INDEX_SIZE
+            .with_label_values(&[index_type])
+            .set(size);
+    }
+
+    /// Update Qdrant health status
+    pub fn set_qdrant_health(&self, healthy: bool) {
+        let value = if healthy { 1 } else { 0 };
+        QDRANT_HEALTH_STATUS.set(value);
+    }
+
+    // ============================================
+    // Pipeline Metrics Recording
+    // ============================================
+
+    /// Record pipeline run start
+    pub fn record_pipeline_start(&self) {
+        ACTIVE_PIPELINES.inc();
+    }
+
+    /// Record pipeline run completion
+    pub fn record_pipeline_end(
+        &self,
+        status: &str,
+        duration: Duration,
+    ) {
+        ACTIVE_PIPELINES.dec();
+        PIPELINE_RUNS_TOTAL.with_label_values(&[status]).inc();
+        PIPELINE_DURATION_SECONDS
+            .with_label_values(&[status])
+            .observe(duration.as_secs_f64());
+
+        debug!(
+            status = status,
+            duration_secs = duration.as_secs_f64(),
+            "Pipeline run recorded"
+        );
+    }
+
+    /// Record pipeline stage duration
+    pub fn record_pipeline_stage(
+        &self,
+        stage: &str,
+        duration: Duration,
+    ) {
+        PIPELINE_STAGES_DURATION_SECONDS
+            .with_label_values(&[stage])
+            .observe(duration.as_secs_f64());
+
+        debug!(
+            stage = stage,
+            duration_secs = duration.as_secs_f64(),
+            "Pipeline stage recorded"
+        );
+    }
+
+    // ============================================
+    // System Metrics Recording
+    // ============================================
+
+    /// Increment active connections
+    pub fn increment_connections(&self) {
+        ACTIVE_CONNECTIONS.inc();
+    }
+
+    /// Decrement active connections
+    pub fn decrement_connections(&self) {
+        ACTIVE_CONNECTIONS.dec();
+    }
+
+    /// Record rate limit hit
+    pub fn record_rate_limit_hit(&self, identifier: &str) {
+        RATE_LIMIT_HITS_TOTAL.with_label_values(&[identifier]).inc();
+        warn!(identifier = identifier, "Rate limit hit recorded");
+    }
+
+    // ============================================
+    // HTTP Metrics Recording
+    // ============================================
 
     /// Record HTTP request
     pub fn record_http_request(
@@ -313,344 +426,264 @@ impl MetricsCollector {
         endpoint: &str,
         status: u16,
         duration: Duration,
-        service: &str,
     ) {
         let status_str = status.to_string();
 
-        // Increment request counter
-        REQUEST_COUNTER
-            .with_label_values(&[method, endpoint, &status_str, service])
+        HTTP_REQUESTS_TOTAL
+            .with_label_values(&[method, endpoint, &status_str])
             .inc();
 
-        // Record duration
-        REQUEST_DURATION
-            .with_label_values(&[method, endpoint, &status_str, service])
+        HTTP_REQUEST_DURATION_SECONDS
+            .with_label_values(&[method, endpoint])
             .observe(duration.as_secs_f64());
-
-        // Record errors
-        if status >= 400 {
-            let error_type = if status < 500 { "client_error" } else { "server_error" };
-            REQUEST_ERRORS
-                .with_label_values(&[method, endpoint, error_type, service])
-                .inc();
-        }
 
         // Track cardinality if enabled
         if self.config.enable_cardinality_tracking {
-            self.track_cardinality("http_requests", &[method, endpoint, &status_str, service]);
+            self.track_cardinality("http_requests", &[method, endpoint, &status_str]);
         }
     }
 
-    /// Record LLM request
-    pub fn record_llm_request(
-        &self,
-        provider: &str,
-        model: &str,
-        tier: &str,
-        success: bool,
-        tokens_in: u64,
-        tokens_out: u64,
-        duration: Duration,
-        cost_usd: f64,
-    ) {
-        let status = if success { "success" } else { "failure" };
+    // ============================================
+    // Cardinality Tracking
+    // ============================================
 
-        // Request counter
-        LLM_REQUESTS
-            .with_label_values(&[provider, model, tier, status])
-            .inc();
-
-        // Token usage
-        LLM_TOKENS
-            .with_label_values(&[provider, model, "input"])
-            .inc_by(tokens_in);
-        LLM_TOKENS
-            .with_label_values(&[provider, model, "output"])
-            .inc_by(tokens_out);
-
-        // Latency
-        LLM_LATENCY
-            .with_label_values(&[provider, model, tier])
-            .observe(duration.as_secs_f64());
-
-        // Cost
-        LLM_COST
-            .with_label_values(&[provider, model])
-            .inc_by(cost_usd);
-    }
-
-    /// Record pipeline execution
-    pub fn record_pipeline_execution(
-        &self,
-        pipeline: &str,
-        stage: &str,
-        success: bool,
-        duration: Duration,
-    ) {
-        let status = if success { "success" } else { "failure" };
-
-        PIPELINE_EXECUTIONS
-            .with_label_values(&[pipeline, stage, status])
-            .inc();
-
-        PIPELINE_STAGE_DURATION
-            .with_label_values(&[pipeline, stage])
-            .observe(duration.as_secs_f64());
-    }
-
-    /// Update system metrics
-    pub fn update_system_metrics(&self) {
-        // CPU utilization
-        if let Ok(cpu_info) = sys_info::cpu_num() {
-            let load = sys_info::loadavg().unwrap_or_default();
-            CPU_UTILIZATION
-                .with_label_values(&["total"])
-                .set(load.one / cpu_info as f64);
-        }
-
-        // Memory utilization
-        if let Ok(mem_info) = sys_info::mem_info() {
-            MEMORY_UTILIZATION
-                .with_label_values(&["total"])
-                .set(mem_info.total as f64 * 1024.0);
-            MEMORY_UTILIZATION
-                .with_label_values(&["used"])
-                .set((mem_info.total - mem_info.free) as f64 * 1024.0);
-            MEMORY_UTILIZATION
-                .with_label_values(&["free"])
-                .set(mem_info.free as f64 * 1024.0);
-        }
-    }
-
-    /// Record scientific computation
-    pub fn record_scientific_computation(
-        &self,
-        computation_type: &str,
-        subtype: &str,
-        success: bool,
-        duration: Duration,
-        metadata: HashMap<String, String>,
-    ) {
-        let status = if success { "success" } else { "failure" };
-
-        match computation_type {
-            "pbpk" => {
-                let drug = metadata.get("drug").map(|s| s.as_str()).unwrap_or("unknown");
-                let model = metadata.get("model").map(|s| s.as_str()).unwrap_or("default");
-
-                PBPK_SIMULATIONS
-                    .with_label_values(&[drug, model, status])
-                    .inc();
-
-                PBPK_DURATION
-                    .with_label_values(&[model])
-                    .observe(duration.as_secs_f64());
-            }
-            "heliobiology" => {
-                HELIO_COMPUTATIONS
-                    .with_label_values(&[subtype, status])
-                    .inc();
-            }
-            _ => {}
-        }
-    }
-
-    /// Record business metric
-    pub fn record_business_metric(&self, metric_type: &str, value: f64, labels: HashMap<String, String>) {
-        match metric_type {
-            "paper_generated" => {
-                let quality = labels.get("quality").map(|s| s.as_str()).unwrap_or("standard");
-                let domain = labels.get("domain").map(|s| s.as_str()).unwrap_or("general");
-                PAPERS_GENERATED
-                    .with_label_values(&[quality, domain])
-                    .inc();
-            }
-            "discovery" => {
-                let disc_type = labels.get("type").map(|s| s.as_str()).unwrap_or("insight");
-                let impact = labels.get("impact").map(|s| s.as_str()).unwrap_or("medium");
-                DISCOVERIES
-                    .with_label_values(&[disc_type, impact])
-                    .inc();
-            }
-            "engagement" => {
-                let eng_type = labels.get("type").map(|s| s.as_str()).unwrap_or("session");
-                USER_ENGAGEMENT
-                    .with_label_values(&[eng_type])
-                    .set(value);
-            }
-            _ => {}
-        }
-    }
-
-    /// Track cardinality to prevent explosion
     fn track_cardinality(&self, metric_name: &str, labels: &[&str]) {
+        if !self.config.enable_cardinality_tracking {
+            return;
+        }
+
         let key = labels.join(",");
+        let metric_name = metric_name.to_string();
+        let max_cardinality = self.config.max_cardinality_per_metric;
+        let tracker = self.cardinality_tracker.clone();
 
-        tokio::spawn({
-            let tracker = self.cardinality_tracker.clone();
-            let metric_name = metric_name.to_string();
-            let max_cardinality = self.config.max_cardinality_per_metric;
+        tokio::spawn(async move {
+            let mut tracker = tracker.write().await;
+            let metric_labels = tracker
+                .entry(metric_name.clone())
+                .or_insert_with(HashMap::new);
 
-            async move {
-                let mut tracker = tracker.write().await;
-                let metric_labels = tracker.entry(metric_name.clone()).or_insert_with(HashMap::new);
+            *metric_labels.entry(key).or_insert(0) += 1;
 
-                *metric_labels.entry(key).or_insert(0) += 1;
-
-                if metric_labels.len() > max_cardinality {
-                    warn!(
-                        "High cardinality detected for metric '{}': {} unique label combinations",
-                        metric_name,
-                        metric_labels.len()
-                    );
-                }
+            if metric_labels.len() > max_cardinality {
+                warn!(
+                    metric = metric_name,
+                    cardinality = metric_labels.len(),
+                    max = max_cardinality,
+                    "High cardinality detected"
+                );
             }
         });
-    }
-
-    /// Export metrics in Prometheus format
-    pub fn export(&self) -> Result<String> {
-        let encoder = TextEncoder::new();
-        let metric_families = self.registry.gather();
-
-        // Also gather from default registry (for lazy_static metrics)
-        let default_families = prometheus::gather();
-
-        let mut buffer = vec![];
-        encoder.encode(&metric_families, &mut buffer)?;
-        encoder.encode(&default_families, &mut buffer)?;
-
-        String::from_utf8(buffer).context("Failed to encode metrics")
     }
 
     /// Get cardinality report
     pub async fn get_cardinality_report(&self) -> HashMap<String, usize> {
         let tracker = self.cardinality_tracker.read().await;
-        tracker.iter()
+        tracker
+            .iter()
             .map(|(metric, labels)| (metric.clone(), labels.len()))
             .collect()
     }
 
-    /// Health check for metrics system
-    pub fn health_check(&self) -> HealthStatus {
-        let uptime = self.start_time.elapsed();
+    // ============================================
+    // Export
+    // ============================================
 
-        HealthStatus {
-            healthy: true,
-            uptime_seconds: uptime.as_secs(),
-            metrics_count: prometheus::gather().len(),
-            last_scrape: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+    /// Export metrics in Prometheus text format
+    pub fn export(&self) -> Result<String> {
+        let encoder = TextEncoder::new();
+        let metric_families = prometheus::gather();
+
+        let mut buffer = Vec::new();
+        encoder
+            .encode(&metric_families, &mut buffer)
+            .context("Failed to encode metrics")?;
+
+        String::from_utf8(buffer).context("Failed to convert metrics to UTF-8")
+    }
+}
+
+// ============================================
+// Convenience Functions (Global Access)
+// ============================================
+
+/// Record an LLM request (convenience function)
+pub fn record_llm_request(
+    provider: &str,
+    tier: &str,
+    status: &str,
+    duration: Duration,
+    tokens_in: u64,
+    tokens_out: u64,
+    cost_usd: f64,
+) {
+    METRICS.record_llm_request(provider, tier, status, duration, tokens_in, tokens_out, cost_usd);
+}
+
+/// Record LLM cache hit/miss
+pub fn record_llm_cache(hit: bool) {
+    METRICS.record_llm_cache(hit);
+}
+
+/// Record memory query
+pub fn record_memory_query(source: &str, status: &str, duration: Duration) {
+    METRICS.record_memory_query(source, status, duration);
+}
+
+/// Set memory index size
+pub fn set_memory_index_size(index_type: &str, size: i64) {
+    METRICS.set_memory_index_size(index_type, size);
+}
+
+/// Set Qdrant health status
+pub fn set_qdrant_health(healthy: bool) {
+    METRICS.set_qdrant_health(healthy);
+}
+
+/// Record pipeline start
+pub fn record_pipeline_start() {
+    METRICS.record_pipeline_start();
+}
+
+/// Record pipeline end
+pub fn record_pipeline_end(status: &str, duration: Duration) {
+    METRICS.record_pipeline_end(status, duration);
+}
+
+/// Record pipeline stage
+pub fn record_pipeline_stage(stage: &str, duration: Duration) {
+    METRICS.record_pipeline_stage(stage, duration);
+}
+
+/// Increment active connections
+pub fn increment_connections() {
+    METRICS.increment_connections();
+}
+
+/// Decrement active connections
+pub fn decrement_connections() {
+    METRICS.decrement_connections();
+}
+
+/// Record rate limit hit
+pub fn record_rate_limit_hit(identifier: &str) {
+    METRICS.record_rate_limit_hit(identifier);
+}
+
+/// Record HTTP request
+pub fn record_http_request(method: &str, endpoint: &str, status: u16, duration: Duration) {
+    METRICS.record_http_request(method, endpoint, status, duration);
+}
+
+/// Export metrics
+pub fn export_metrics() -> Result<String> {
+    METRICS.export()
+}
+
+// ============================================
+// Axum Integration
+// ============================================
+
+/// Create Axum router for metrics endpoints.
+/// The routes themselves are stateless, but making the router generic lets it
+/// merge cleanly into services that already carry application state.
+pub fn metrics_router<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    Router::new()
+        .route("/metrics", get(prometheus_handler))
+        .route("/metrics/health", get(metrics_health_handler))
+}
+
+/// Prometheus metrics handler - exports in Prometheus text format
+async fn prometheus_handler() -> Result<Response, StatusCode> {
+    match export_metrics() {
+        Ok(metrics) => Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            .body(metrics)
+            .unwrap()
+            .into_response()),
+        Err(e) => {
+            error!("Failed to export metrics: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
 
-/// Health status for metrics
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthStatus {
-    pub healthy: bool,
-    pub uptime_seconds: u64,
-    pub metrics_count: usize,
-    pub last_scrape: u64,
+/// Metrics health check
+async fn metrics_health_handler() -> impl IntoResponse {
+    let report = METRICS.get_cardinality_report().await;
+    let metrics_count = prometheus::gather().len();
+
+    axum::Json(serde_json::json!({
+        "healthy": true,
+        "metrics_count": metrics_count,
+        "cardinality": report,
+    }))
 }
 
-/// Create Axum router for metrics endpoint
-pub fn metrics_router(collector: Arc<MetricsCollector>) -> Router {
-    Router::new()
-        .route("/metrics", get(prometheus_handler))
-        .route("/metrics/health", get(metrics_health))
-        .route("/metrics/cardinality", get(cardinality_report))
-        .with_state(collector)
-}
-
-/// Prometheus metrics handler
-async fn prometheus_handler(
-    State(collector): State<Arc<MetricsCollector>>,
-) -> Result<String, StatusCode> {
-    collector.export()
-        .map_err(|e| {
-            error!("Failed to export metrics: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })
-}
-
-/// Metrics health check handler
-async fn metrics_health(
-    State(collector): State<Arc<MetricsCollector>>,
-) -> impl IntoResponse {
-    axum::Json(collector.health_check())
-}
-
-/// Cardinality report handler
-async fn cardinality_report(
-    State(collector): State<Arc<MetricsCollector>>,
-) -> impl IntoResponse {
-    axum::Json(collector.get_cardinality_report().await)
-}
-
-/// Middleware for automatic HTTP metrics
+/// Middleware for automatic HTTP metrics collection
 pub async fn metrics_middleware(
     req: axum::extract::Request,
     next: axum::middleware::Next,
-    collector: Arc<MetricsCollector>,
 ) -> impl IntoResponse {
     let method = req.method().to_string();
     let path = req.uri().path().to_string();
     let start = Instant::now();
 
+    // Increment active connections
+    increment_connections();
+
     let response = next.run(req).await;
+
+    // Decrement active connections
+    decrement_connections();
 
     let duration = start.elapsed();
     let status = response.status().as_u16();
 
-    collector.record_http_request(&method, &path, status, duration, "beagle");
+    // Record the request
+    record_http_request(&method, &path, status, duration);
 
     response
 }
 
 // ============================================
-// Helper Functions
+// Timer Helper
 // ============================================
 
-/// Record with exemplar support
-pub fn record_with_exemplar(histogram: &Histogram, value: f64, trace_id: Option<String>) {
-    // Note: Prometheus client doesn't support exemplars directly yet
-    // This is a placeholder for when support is added
-    histogram.observe(value);
+/// Timer for measuring operation duration
+pub struct MetricsTimer {
+    start: Instant,
+    recorded: bool,
+}
 
-    if let Some(tid) = trace_id {
-        debug!("Recording exemplar with trace_id: {}", tid);
+impl MetricsTimer {
+    /// Create a new timer
+    pub fn new() -> Self {
+        Self {
+            start: Instant::now(),
+            recorded: false,
+        }
+    }
+
+    /// Get elapsed time
+    pub fn elapsed(&self) -> Duration {
+        self.start.elapsed()
     }
 }
 
-/// Create custom histogram with specific buckets
-pub fn create_custom_histogram(
-    name: &str,
-    help: &str,
-    buckets: Vec<f64>,
-) -> Result<Histogram> {
-    let opts = Opts::new(name, help)
-        .buckets(buckets);
-
-    Histogram::with_opts(opts).context("Failed to create histogram")
-}
-
-/// Create summary with custom quantiles
-pub fn create_custom_summary(
-    name: &str,
-    help: &str,
-    quantiles: Vec<f64>,
-) -> Result<Summary> {
-    let mut opts = Opts::new(name, help);
-
-    for quantile in quantiles {
-        opts = opts.quantile(quantile, 0.01)?; // 1% error margin
+impl Default for MetricsTimer {
+    fn default() -> Self {
+        Self::new()
     }
-
-    Summary::with_opts(opts).context("Failed to create summary")
 }
+
+// ============================================
+// Tests
+// ============================================
 
 #[cfg(test)]
 mod tests {
@@ -659,75 +692,100 @@ mod tests {
     #[test]
     fn test_metrics_collector_creation() {
         let config = MetricsConfig::default();
-        let collector = MetricsCollector::new(config).unwrap();
-        assert!(collector.health_check().healthy);
-    }
-
-    #[test]
-    fn test_http_metrics_recording() {
-        let config = MetricsConfig::default();
-        let collector = MetricsCollector::new(config).unwrap();
-
-        collector.record_http_request(
-            "GET",
-            "/api/test",
-            200,
-            Duration::from_millis(100),
-            "test_service",
-        );
-
-        // Verify metric was recorded
-        let families = prometheus::gather();
-        assert!(families.iter().any(|f| f.get_name() == "beagle_requests_total"));
+        let collector = MetricsCollector::new(config);
+        // Just verify it doesn't panic
     }
 
     #[test]
     fn test_llm_metrics_recording() {
-        let config = MetricsConfig::default();
-        let collector = MetricsCollector::new(config).unwrap();
-
-        collector.record_llm_request(
+        METRICS.record_llm_request(
             "grok",
-            "grok-3",
             "standard",
-            true,
+            "success",
+            Duration::from_secs(2),
             100,
             150,
-            Duration::from_secs(2),
             0.005,
         );
 
         // Verify metrics were recorded
         let families = prometheus::gather();
-        assert!(families.iter().any(|f| f.get_name() == "beagle_llm_requests_total"));
-        assert!(families.iter().any(|f| f.get_name() == "beagle_llm_tokens_total"));
+        assert!(families
+            .iter()
+            .any(|f| f.get_name() == "beagle_llm_requests_total"));
+        assert!(families
+            .iter()
+            .any(|f| f.get_name() == "beagle_llm_tokens_total"));
+        assert!(families
+            .iter()
+            .any(|f| f.get_name() == "beagle_llm_cost_usd_total"));
     }
 
-    #[tokio::test]
-    async fn test_cardinality_tracking() {
-        let config = MetricsConfig {
-            enable_cardinality_tracking: true,
-            max_cardinality_per_metric: 10,
-            ..Default::default()
-        };
+    #[test]
+    fn test_memory_metrics_recording() {
+        METRICS.record_memory_query("qdrant", "success", Duration::from_millis(50));
+        METRICS.set_memory_index_size("embeddings", 1000);
+        METRICS.set_qdrant_health(true);
 
-        let collector = MetricsCollector::new(config).unwrap();
+        let families = prometheus::gather();
+        assert!(families
+            .iter()
+            .any(|f| f.get_name() == "beagle_memory_queries_total"));
+        assert!(families
+            .iter()
+            .any(|f| f.get_name() == "beagle_memory_index_size"));
+        assert!(families
+            .iter()
+            .any(|f| f.get_name() == "beagle_qdrant_health_status"));
+    }
 
-        // Record many different label combinations
-        for i in 0..20 {
-            collector.record_http_request(
-                "GET",
-                &format!("/api/endpoint_{}", i),
-                200,
-                Duration::from_millis(100),
-                "test",
-            );
-        }
+    #[test]
+    fn test_pipeline_metrics_recording() {
+        METRICS.record_pipeline_start();
+        METRICS.record_pipeline_stage("ingest", Duration::from_secs(1));
+        METRICS.record_pipeline_end("success", Duration::from_secs(10));
 
-        // Wait for async tracking
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        let families = prometheus::gather();
+        assert!(families
+            .iter()
+            .any(|f| f.get_name() == "beagle_pipeline_runs_total"));
+        assert!(families
+            .iter()
+            .any(|f| f.get_name() == "beagle_pipeline_stages_duration_seconds"));
+    }
 
-        let report = collector.get_cardinality_report().await;
-        assert!(!report.is_empty());
+    #[test]
+    fn test_system_metrics_recording() {
+        METRICS.increment_connections();
+        METRICS.record_rate_limit_hit("api_key_123");
+        METRICS.decrement_connections();
+
+        let families = prometheus::gather();
+        assert!(families
+            .iter()
+            .any(|f| f.get_name() == "beagle_active_connections"));
+        assert!(families
+            .iter()
+            .any(|f| f.get_name() == "beagle_rate_limit_hits_total"));
+    }
+
+    #[test]
+    fn test_export_metrics() {
+        // Record some data
+        METRICS.record_llm_request(
+            "grok",
+            "standard",
+            "success",
+            Duration::from_secs(1),
+            50,
+            100,
+            0.002,
+        );
+
+        // Export and verify format
+        let output = export_metrics().unwrap();
+        assert!(output.contains("beagle_llm_requests_total"));
+        assert!(output.contains("# HELP"));
+        assert!(output.contains("# TYPE"));
     }
 }

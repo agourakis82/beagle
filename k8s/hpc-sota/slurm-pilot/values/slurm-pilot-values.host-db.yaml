@@ -1,0 +1,14 @@
+# Emergency rollback overlay.
+# Use this when the externalized MariaDB candidate is unavailable and the
+# validated host-local backend on t560 (10.100.100.2) must resume service.
+accounting:
+  podSpec:
+    hostAliases: []
+  storageConfig:
+    host: 10.100.100.2
+    port: 3306
+    database: slurm_acct_db
+    username: slurm
+    passwordKeyRef:
+      name: mariadb-password
+      key: password
