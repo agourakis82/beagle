@@ -1,0 +1,18 @@
+apiVersion: cilium.io/v2
+kind: CiliumNodeConfig
+metadata:
+  name: r740-slurmd-canary-kpr-tunnel
+  namespace: kube-system
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: r740-proxmox
+  defaults:
+    debug: "true"
+    debug-verbose: "flow"
+    devices: "vmbr100"
+    enable-tcx: "false"
+    auto-direct-node-routes: "false"
+    direct-routing-device: "vmbr100"
+    kube-proxy-replacement: "true"
+    routing-mode: "tunnel"
