@@ -57,6 +57,14 @@ struct BeagleVisionOSApp: App {
         }
         .immersionStyle(selection: .constant(.mixed), in: .mixed)
 
+        // MARK: - Triad Spatial Debate
+
+        ImmersiveSpace(id: "triad-debate") {
+            SpatialTriadView()
+                .environment(cognitive)
+        }
+        .immersionStyle(selection: .constant(.mixed), in: .mixed)
+
         // MARK: - Cluster Volume (retained from v1)
 
         WindowGroup("Cluster Volume", id: "cluster-volume") {
@@ -65,6 +73,15 @@ struct BeagleVisionOSApp: App {
         }
         .windowStyle(.volumetric)
         .defaultSize(width: 1.2, height: 0.8, depth: 1.2, in: .meters)
+
+        // MARK: - Knowledge Graph Volume — Poincare disk in 3D
+
+        WindowGroup("Knowledge Graph", id: "knowledge-graph") {
+            HyperbolicGraphView(thoughts: cognitive.recentThoughts)
+                .environment(cognitive)
+        }
+        .windowStyle(.volumetric)
+        .defaultSize(width: 1.4, height: 0.8, depth: 1.4, in: .meters)
     }
 }
 
@@ -129,9 +146,25 @@ struct SpatialMindView: View {
                 .buttonStyle(.bordered)
 
                 Button {
+                    openWindow(id: "knowledge-graph")
+                } label: {
+                    Label("Knowledge Graph", systemImage: "point.3.connected.trianglepath.dotted")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
                     Task { await openImmersiveSpace(id: "go-deep") }
                 } label: {
                     Label("Immersive Deep", systemImage: "cube.transparent")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    Task { await openImmersiveSpace(id: "triad-debate") }
+                } label: {
+                    Label("Triad Debate", systemImage: "scalemass")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
@@ -478,6 +511,13 @@ struct SpatialDeepExploration: View {
                     Task { await openImmersiveSpace(id: "go-deep") }
                 } label: {
                     Label("Spatial Mode", systemImage: "cube.transparent")
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    Task { await openImmersiveSpace(id: "triad-debate") }
+                } label: {
+                    Label("Triad Debate", systemImage: "scalemass")
                 }
                 .buttonStyle(.bordered)
             }
