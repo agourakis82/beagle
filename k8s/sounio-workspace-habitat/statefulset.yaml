@@ -92,6 +92,14 @@ spec:
               value: ws-cluster-sounio-habitat-vnext
             - name: BEAGLE_WORKSPACE_BROWSER_URL
               value: http://sounio-workspace-habitat.beagle.svc.cluster.local:8080
+            - name: HOME
+              value: /workspace/.home/openvscode-server
+            - name: USER
+              value: openvscode-server
+            - name: LOGNAME
+              value: openvscode-server
+            - name: SHELL
+              value: /usr/bin/zsh
             - name: NODE_OPTIONS
               value: --max-old-space-size=49152
           envFrom:
@@ -173,6 +181,14 @@ spec:
               value: ws-cluster-sounio-habitat-vnext
             - name: BEAGLE_WORKSPACE_BROWSER_URL
               value: http://sounio-workspace-habitat.beagle.svc.cluster.local:8080
+            - name: HOME
+              value: /workspace/.home/openvscode-server
+            - name: USER
+              value: openvscode-server
+            - name: LOGNAME
+              value: openvscode-server
+            - name: SHELL
+              value: /usr/bin/zsh
             - name: LANG
               value: C.UTF-8
             - name: LC_ALL

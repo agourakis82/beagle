@@ -148,6 +148,31 @@ data:
       fi
     }
 
+    unify_editor_state_dir() {
+      canonical="$1"
+      compat="$2"
+      backup="${compat}.pre-unify"
+
+      ensure_persistent_dir "${canonical}"
+
+      if [ -L "${compat}" ]; then
+        return 0
+      fi
+
+      if [ -d "${compat}" ]; then
+        cp -a -n "${compat}/." "${canonical}/" 2>/dev/null || true
+        if [ ! -e "${backup}" ]; then
+          mv "${compat}" "${backup}"
+        else
+          rm -rf "${compat}"
+        fi
+      elif [ -e "${compat}" ]; then
+        rm -rf "${compat}"
+      fi
+
+      ln -sfn "${canonical}" "${compat}"
+    }
+
     write_local_bootstrap_fallback() {
       write_atomic "${CONTEXT_DIR}/bootstrap.json" <<EOF
     {
@@ -227,6 +252,7 @@ data:
     ensure_persistent_dir "${HOME_DIR}/.config/gh"
     ensure_persistent_dir "${HOME_DIR}/.tmux"
     ensure_persistent_dir "${HOME_DIR}/.vscode-server"
+    unify_editor_state_dir "${HOME_DIR}/.vscode-server" "${HOME_DIR}/.openvscode-server"
     ensure_persistent_dir "${HOME_DIR}/.ssh"
     chmod 700 "${HOME_DIR}/.ssh" 2>/dev/null || true
     chmod 700 "${HOME_DIR}/.tmux" 2>/dev/null || true
@@ -321,6 +347,7 @@ data:
     ensure_login_link "${LOGIN_HOME}/.tmux.conf" "${HOME_DIR}/.tmux.conf"
     ensure_login_link "${LOGIN_HOME}/bin" "${HOME_DIR}/bin"
     ensure_login_link "${LOGIN_HOME}/.local" "${HOME_DIR}/.local"
+    ensure_login_link "${LOGIN_HOME}/.openvscode-server" "${HOME_DIR}/.openvscode-server"
     ensure_login_link "${LOGIN_HOME}/.vscode-server" "${HOME_DIR}/.vscode-server"
     ensure_login_link "${LOGIN_HOME}/.config" "${HOME_DIR}/.config"
     ensure_login_link "${LOGIN_HOME}/.claude" "${HOME_DIR}/.claude"
