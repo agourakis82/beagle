@@ -28,35 +28,11 @@ struct JournalingSuggestionsCard: View {
                         .foregroundStyle(BeagleTheme.textTertiary)
                 }
 
-                JournalingSuggestionsPicker { suggestion in
+                JournalingSuggestionsPicker("Capture a moment") { suggestion in
                     Task {
-                        let text = "Inspired by: \(suggestion.title ?? "a moment")"
+                        let title = suggestion.title ?? "a moment"
+                        let text = "Inspired by: \(title)"
                         _ = await cognitive.captureThought(text: text, source: "journaling-suggestion")
-                    }
-                } label: {
-                    HStack(spacing: BeagleSpacing.sm) {
-                        ZStack {
-                            Circle()
-                                .fill(BeagleTheme.truthDeclared.opacity(0.08))
-                                .frame(width: 36, height: 36)
-                            Image(systemName: "sparkle")
-                                .font(.system(size: 15))
-                                .foregroundStyle(BeagleTheme.truthDeclared)
-                        }
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Capture a moment")
-                                .font(BeagleFont.subheadline.font)
-                                .fontWeight(.medium)
-                                .foregroundStyle(BeagleTheme.textPrimary)
-                            Text("Apple suggests moments worth remembering")
-                                .font(BeagleFont.caption.font)
-                                .foregroundStyle(BeagleTheme.textSecondary)
-                                .lineLimit(2)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(BeagleTheme.textTertiary)
                     }
                 }
                 .buttonStyle(ScalePress())
