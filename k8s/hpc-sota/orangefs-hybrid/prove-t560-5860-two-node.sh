@@ -12,7 +12,7 @@ T560_LIB="$T560_BUILD/lib"
 T560_SERVER="$T560_BUILD/src/server/pvfs2-server"
 T560_BIN="$T560_BUILD/src/apps/kernel/linux"
 
-R5860_BASE=/var/lib/orangefs-lab/two-node
+R5860_BASE=/srv/orangefs-server02-store/two-node
 R5860_BUILD=/var/lib/orangefs-lab/orangefs-build-serveronly-dyn
 R5860_SERVER="$R5860_BUILD/src/server/pvfs2-server"
 
@@ -93,9 +93,9 @@ cat >"$CONF_LOCAL" <<'EOF'
 
 <ServerOptions>
     Server server02
-    DataStorageSpace /var/lib/orangefs-lab/two-node/server02/data
-    MetadataStorageSpace /var/lib/orangefs-lab/two-node/server02/meta
-    LogFile /var/lib/orangefs-lab/two-node/server02/log/pvfs2-server.log
+    DataStorageSpace /srv/orangefs-server02-store/two-node/server02/data
+    MetadataStorageSpace /srv/orangefs-server02-store/two-node/server02/meta
+    LogFile /srv/orangefs-server02-store/two-node/server02/log/pvfs2-server.log
 </ServerOptions>
 
 <Filesystem>

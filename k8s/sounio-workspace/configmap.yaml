@@ -35,7 +35,13 @@ data:
   SOUC_BIN: /workspace/sounio/bin/souc
   SOUNIO_STDLIB_PATH: /workspace/sounio/stdlib
   HOME: /workspace/.home/openvscode-server
+  TMUX_TMPDIR: /workspace/.home/openvscode-server/.tmux
   XDG_CONFIG_HOME: /workspace/.home/openvscode-server/.config
+  SLURM_CONF: /run/slurm/conf/slurm.conf
+  BEAGLE_WORKSPACE_SLURM_RUNTIME_DIR: /run/slurm
+  BEAGLE_WORKSPACE_SLURM_CONF: /run/slurm/conf/slurm.conf
+  BEAGLE_WORKSPACE_SLURM_CONF_SERVER: slurm-pilot-controller.slurm-pilot:6817
+  BEAGLE_WORKSPACE_SLURM_AUTH_KEY_FILE: /etc/slurm/slurm.key
   BEAGLE_GIT_USER_NAME: Demetrios Chiuratto Agourakis
   BEAGLE_GIT_USER_EMAIL: demetrios@agourakis.med.br
   BEAGLE_GIT_CREDENTIAL_HELPER: '!/usr/bin/gh auth git-credential'
@@ -219,9 +225,11 @@ data:
     ensure_persistent_dir "${HOME_DIR}/.local"
     ensure_persistent_dir "${HOME_DIR}/.config"
     ensure_persistent_dir "${HOME_DIR}/.config/gh"
+    ensure_persistent_dir "${HOME_DIR}/.tmux"
     ensure_persistent_dir "${HOME_DIR}/.vscode-server"
     ensure_persistent_dir "${HOME_DIR}/.ssh"
     chmod 700 "${HOME_DIR}/.ssh" 2>/dev/null || true
+    chmod 700 "${HOME_DIR}/.tmux" 2>/dev/null || true
     ensure_persistent_file "${HOME_DIR}/.bashrc"
     ensure_persistent_file "${HOME_DIR}/.bash_profile"
     ensure_persistent_file "${HOME_DIR}/.gitconfig"
@@ -230,6 +238,23 @@ data:
     ensure_persistent_file "${HOME_DIR}/.zshenv"
     ensure_persistent_file "${HOME_DIR}/.zshrc"
     ensure_persistent_file "${HOME_DIR}/.tmux.conf"
+
+    cat > "${HOME_DIR}/.profile" <<'EOF'
+    # Beagle-managed login profile.
+    # Keep plain sh login shells POSIX-safe and only source .bashrc from bash.
+    export PATH="$HOME/bin:$HOME/.elan/bin:$PATH"
+    export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
+
+    if [ -n "${BASH_VERSION:-}" ] && [ -f "$HOME/.bashrc" ]; then
+      . "$HOME/.bashrc"
+    fi
+    EOF
+
+    cat > "${HOME_DIR}/.bash_profile" <<'EOF'
+    if [ -f "$HOME/.bashrc" ]; then
+      . "$HOME/.bashrc"
+    fi
+    EOF
 
     csv_to_lines() {
       printf '%s' "$1" | tr ',' '\n' | sed '/^[[:space:]]*$/d'

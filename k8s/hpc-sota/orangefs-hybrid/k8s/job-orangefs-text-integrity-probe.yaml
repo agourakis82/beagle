@@ -1,0 +1,149 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: orangefs-text-integrity-probe
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: orangefs-text-integrity-probe
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orangefs-text-integrity-probe
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        sounio.dev/orangefs-client: "true"
+      tolerations:
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+      containers:
+        - name: probe
+          image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euo pipefail
+              mkdir -p /datasets/text-integrity /checkpoints/text-integrity /scratch/text-integrity
+              python3 - <<'PY'
+              import hashlib
+              import json
+              import random
+              import shutil
+              import socket
+              from pathlib import Path
+
+              random.seed(20260421)
+
+              ds = Path("/datasets/text-integrity")
+              ck = Path("/checkpoints/text-integrity")
+              sc = Path("/scratch/text-integrity")
+              src = sc / "src"
+              dst = ds / f"run-{socket.gethostname()}"
+              src.mkdir(parents=True, exist_ok=True)
+              dst.mkdir(parents=True, exist_ok=True)
+
+              corpus = []
+              for idx in range(96):
+                  sio_lines = [
+                      f"// corpus file {idx}",
+                      f"fn probe_{idx}() -> i64 {{",
+                      "  let acc = 0",
+                  ]
+                  for inner in range(48):
+                      val = (idx * 997 + inner * 37) % 104729
+                      sio_lines.append(f"  let v_{inner} = {val}")
+                  sio_lines.append("  acc")
+                  sio_lines.append("}")
+                  sio_text = "\n".join(sio_lines) + "\n"
+
+                  stdout_lines = [
+                      f"run={idx}",
+                      f"hostname={socket.gethostname()}",
+                      "phase=compile_ok",
+                      "phase=run_ok",
+                  ]
+                  for inner in range(64):
+                      stdout_lines.append(
+                          f"metric_{inner}\tseed={(idx + inner) % 17}\tvalue={(idx * inner + 13) % 100003}"
+                      )
+                  stdout_text = "\n".join(stdout_lines) + "\n"
+
+                  corpus.append((f"probe_{idx:03d}.sio", sio_text))
+                  corpus.append((f"probe_{idx:03d}.stdout", stdout_text))
+
+              expected = {}
+              for name, text in corpus:
+                  path = src / name
+                  path.write_text(text, encoding="utf-8")
+                  expected[name] = {
+                      "bytes": len(text.encode("utf-8")),
+                      "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                  }
+                  shutil.copy2(path, dst / name)
+
+              mismatches = []
+              for name, meta in expected.items():
+                  data = (dst / name).read_bytes()
+                  digest = hashlib.sha256(data).hexdigest()
+                  size = len(data)
+                  if size != meta["bytes"] or digest != meta["sha256"]:
+                      text = data.decode("utf-8", errors="replace")
+                      mismatches.append(
+                          {
+                              "file": name,
+                              "expected_bytes": meta["bytes"],
+                              "observed_bytes": size,
+                              "expected_sha256": meta["sha256"],
+                              "observed_sha256": digest,
+                              "space_lines": sum(1 for line in text.splitlines() if line and set(line) == {" "}),
+                          }
+                      )
+
+              summary = {
+                  "hostname": socket.gethostname(),
+                  "files_checked": len(expected),
+                  "mismatch_count": len(mismatches),
+                  "mismatches": mismatches[:20],
+              }
+              (ck / f"text-integrity-{socket.gethostname()}.json").write_text(
+                  json.dumps(summary, indent=2), encoding="utf-8"
+              )
+              print(json.dumps(summary), flush=True)
+              if mismatches:
+                  raise SystemExit(42)
+              PY
+          resources:
+            requests:
+              cpu: "1"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          volumeMounts:
+            - name: datasets
+              mountPath: /datasets
+            - name: checkpoints
+              mountPath: /checkpoints
+            - name: scratch
+              mountPath: /scratch
+      volumes:
+        - name: datasets
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/datasets
+            type: DirectoryOrCreate
+        - name: checkpoints
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/checkpoints
+            type: DirectoryOrCreate
+        - name: scratch
+          emptyDir: {}

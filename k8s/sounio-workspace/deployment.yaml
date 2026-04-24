@@ -4,7 +4,10 @@ metadata:
   name: sounio-workspace
   namespace: beagle
 spec:
-  replicas: 1
+  # Legacy pre-habitat deployment kept scaled down so future applies do not
+  # resurrect the stale workspace surface. The active front door is the
+  # StatefulSet-backed habitat behind the stable `sounio-workspace` service.
+  replicas: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: sounio-workspace
@@ -14,6 +17,7 @@ spec:
         app.kubernetes.io/name: sounio-workspace
         app.kubernetes.io/part-of: beagle
     spec:
+      serviceAccountName: sounio-workspace-admin
       terminationGracePeriodSeconds: 60
       nodeSelector:
         kubernetes.io/hostname: t560-proxmox
@@ -27,7 +31,7 @@ spec:
           type: Unconfined
       containers:
         - name: workspace-ide
-          image: 192.168.3.207:5003/sounio-lab-sounio-workspace-ide-20260406213306-743727:stable
+          image: 192.168.3.207:5003/sounio-lab-sounio-workspace-ide-20260424070010-slurmnative6:stable
           imagePullPolicy: Always
           securityContext:
             appArmorProfile:
@@ -80,7 +84,7 @@ spec:
               cpu: "4"
               memory: 6Gi
         - name: workspace-ssh
-          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260406213306-743727:stable
+          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260424065320-slurmnative5:stable
           imagePullPolicy: Always
           securityContext:
             appArmorProfile:

@@ -60,6 +60,15 @@ Use OrangeFS for:
 - shared AI/HPC artifacts
 - cross-node durable job state
 
+Current architecture note:
+
+- the live two-server OrangeFS island is repaired and green
+- the worker-visible export is still only about `933G`
+- the short-term ceiling is the current `server02` backend on `5860`, not the
+  whole lab's raw storage inventory
+- the next true supercomputing-storage move is to promote OrangeFS onto
+  genuinely large backing media, not just add more clients
+
 Use Ceph for:
 
 - generic platform PVCs

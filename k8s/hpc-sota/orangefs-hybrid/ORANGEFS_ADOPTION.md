@@ -18,6 +18,8 @@ It is **not** the default backend for:
 - Grafana or Prometheus state
 - generic platform PVCs
 - workspace roots already stable on `zfast`
+- text-heavy Sounio compiler scratch or `.stdout` aggregation without a local
+  verification path
 
 ## Live prerequisites
 
@@ -29,6 +31,50 @@ Current live assumptions:
 - `r770` runs `orangefs-client-runtime.service`
 - `orangefs-proven-workflow-canary.timer` is active on `t560`
 - `orangefs-training-canary.timer` is active on `t560`
+
+## 2026-04-24 capacity repair
+
+The original two-server OrangeFS baseline had a bad allocation on `5860`:
+
+- live server02 data and metadata were still stored under
+  `/var/lib/orangefs-lab/two-node/server02/*`
+- that path lived on a `128G` thin LV
+- the same LV was also carrying unrelated `service-fabric/registry-data`
+- the result was a false cluster-level `100%` full condition even though the
+  visible `/orangefs/training` tree was far smaller
+
+The live repair moved server02 onto a dedicated thin-backed filesystem:
+
+- mount: `/srv/orangefs-server02-store`
+- live server02 paths:
+  - `/srv/orangefs-server02-store/data`
+  - `/srv/orangefs-server02-store/meta`
+  - `/srv/orangefs-server02-store/log`
+
+Post-repair live result:
+
+- the GPU clients now report the OrangeFS export at roughly `933G` total
+  instead of `250G`
+- both `r740` and `r770` again see substantial free space
+- the dedicated text-integrity probe is green on both GPU clients after the
+  migration
+
+This repair restored the namespace, but it did not yet make OrangeFS a
+multi-terabyte data plane.
+
+Current measured truth:
+
+- `t560` server01 has room on `zfast`
+- `5860` server02 is still the effective capacity ceiling
+- the `5860` dedicated server02 LV is healthy, but the underlying `pve/data`
+  thin pool remains nearly full
+
+That means the next OrangeFS decision is about growth topology, not first
+viability.
+
+Detailed next-step plan:
+
+- [multi-terabyte capacity plan](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/MULTITERABYTE_CAPACITY_PLAN.md)
 
 ## First real adoption workload
 
@@ -118,6 +164,14 @@ The first simple real workload also completed:
   - runtime proof:
     - the probe now reports `cuda=true`
     - it sees `gpu_count=1` inside the pod
+
+There is now an explicit correctness caveat on the PVFS2 text path:
+
+- binary dataset/checkpoint canaries remain useful
+- text-heavy `.sio` and `.stdout` artifacts need a dedicated integrity probe
+- the promoted Sounio campaign path now defaults to worker-local stage/run and
+  worker-first fetch instead of assuming OrangeFS publication is the safe
+  default
 
 The next single-node promoted GPU workload is now ready:
 

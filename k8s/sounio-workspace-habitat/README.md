@@ -35,6 +35,16 @@ Storage note:
   `Immediate`, which still preserves single-writer semantics while matching the
   actual CSI behavior of this cluster
 
+Capacity note:
+- the habitat `/workspace` volume is a Ceph-backed workspace PVC, not OrangeFS
+- OrangeFS pressure and workspace PVC pressure are separate operator problems
+- the always-on `sounio` habitat should budget for persistent IDE state,
+  agent/tool histories, workspace backups, and local developer caches
+- the source-of-truth workspace floor is now `500Gi`
+- durable scientific data still belongs on OrangeFS, and hot scratch should
+  move toward local NVMe or pod-local scratch instead of bloating the workspace
+  PVC
+
 Current placement note:
 - the habitat is presently steered toward the validated worker pair:
   - `r740-proxmox`
@@ -96,6 +106,14 @@ Current hardening focus:
 - the IDE image now includes the Chrome runtime dependencies needed by
   `agent-browser`, so browser automation can run from inside the persistent
   habitat and reopen the cockpit after reconnects
+- the SSH sidecar is now the native Slurm configless anchor for the habitat:
+  it should run `sackd`, publish a shared `/run/slurm` runtime, and let the
+  SSH/tmux lane use real Slurm `25.11` client commands
+- the IDE image now matches that native Slurm `25.11` client stack, so both the
+  browser shell and the SSH/tmux lane can submit jobs directly from the habitat
+- the workspace expects a `beagle`-namespace auth secret named
+  `sounio-workspace-slurm-auth`; sync it from the pilot namespace with
+  [../hpc-sota/ops/sync-workspace-slurm-auth-secret.sh](/home/devsounio/beagle/k8s/hpc-sota/ops/sync-workspace-slurm-auth-secret.sh)
 
 ## VSIX note
 

@@ -1,5 +1,29 @@
 # OrangeFS Proven Workflow Results
 
+## Scope warning
+
+This proof remains useful, but its scope is narrower than the title alone
+suggests.
+
+As of `2026-04-21`, a later Sounio workload exposed a correctness failure on
+the PVFS2 path for text-heavy compiler artifacts:
+
+- a measurable fraction of `.sio` source files read back through OrangeFS were
+  truncated and padded with spaces
+- `.stdout` writes used for batch-result aggregation showed the same padding
+  pattern
+- that corruption was enough to silently invalidate both the Slurm stage and a
+  later `kubectl tar` pull
+
+The safe interpretation of this document is therefore:
+
+- the workflow below proved fixed-size binary dataset/checkpoint publication and
+  immediate readback under that specific canary shape
+- it did **not** prove OrangeFS correctness for general text artifacts, active
+  scratch, or readback-sensitive compiler pipelines
+- for Sounio compile/run workloads, use local staging and local execution first,
+  then publish durable outputs to OrangeFS
+
 ## Why this exists
 
 The larger multi-node benchmark was useful, but it mixed:
@@ -92,8 +116,16 @@ That does not mean OrangeFS has already beaten Ceph overall on this cluster.
 
 It does mean:
 
-- OrangeFS is no longer blocked on checkpoint correctness
+- OrangeFS was no longer blocked on checkpoint correctness for this binary
+  canary shape
 - the split workflow is a more trustworthy Orange-first validation path than
   the older monolithic benchmark
 - the next comparison against Ceph should use this proven workflow shape, not
   the earlier mixed benchmark alone
+
+It does **not** mean:
+
+- OrangeFS is safe as shared scratch for `.sio` inputs, `.stdout` trees, or
+  other text-heavy compiler artifacts
+- OrangeFS readback is trustworthy enough to keep text aggregation on the PVFS2
+  path without a local verification step

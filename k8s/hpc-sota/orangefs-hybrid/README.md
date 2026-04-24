@@ -106,6 +106,7 @@ OrangeFS checks those boxes unusually well.
 - [proven workflow results at 512 MiB](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/PROVEN_WORKFLOW_512_RESULTS.md)
 - [CephFS comparison prep](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/CEPHFS_COMPARISON_PREP.md)
 - [OrangeFS adoption path](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/ORANGEFS_ADOPTION.md)
+- [multi-terabyte capacity plan](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/MULTITERABYTE_CAPACITY_PLAN.md)
 - [OrangeFS training canary status](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/TRAINING_CANARY_STATUS.md)
 - [OrangeFS real workload path](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/REAL_WORKLOAD_PATH.md)
 - [systemd deployment results](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/SYSTEMD_DEPLOYMENT_RESULTS.md)
@@ -125,6 +126,7 @@ OrangeFS checks those boxes unusually well.
 - [K8s benchmark runner](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-r740-benchmark.sh)
 - [multi-node K8s benchmark runner](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-multinode-orangefs-benchmark.sh)
 - [dataset repro runner](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-orangefs-dataset-repro.sh)
+- [OrangeFS text integrity probe runner](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-orangefs-text-integrity-probe.sh)
 - [OrangeFS proven workflow runner](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-orangefs-proven-workflow.sh)
 - [OrangeFS proven workflow canary runner](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-orangefs-proven-workflow-canary.sh)
 - [OrangeFS training canary runner](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-orangefs-training-canary.sh)
@@ -185,22 +187,33 @@ We have already proven:
   visibility
 - the first simple real workload (`orangefs-artifact-probe`) has completed on
   the promoted OrangeFS baseline and now reports `cuda=true`
+- there is now a dedicated OrangeFS text-integrity probe for `.sio`-like and
+  `.stdout`-like artifacts because PVFS2 text correctness is no longer assumed
 - the next promoted single-node workload is now defined and has completed:
   - [orangefs-cuda-pilot](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/k8s/job-orangefs-cuda-pilot.yaml)
 - the `orangefs-cuda-pilot.timer` is now installed on `t560`
 
 ## Current highest-value blocker
 
-The next thing to decide is no longer basic OrangeFS viability or first
-distributed-train adoption. Those are already real.
+The next thing to decide is no longer basic OrangeFS viability or outage
+recovery. Those are already real.
 
-The current highest-value question is now operational polish:
+The repaired two-server island is green, but it is still not a genuine
+multi-terabyte data plane:
 
-- let the installed training-canary timer produce a clean scheduled run
-- watch whether the residual late elastic/TCPStore shutdown warnings remain
-  harmless across repeated runs
-- then pick the next real AI/HPC workload to migrate onto the OrangeFS
-  baseline
+- GPU workers now see roughly `933G` total with substantial free space again
+- `t560` server01 has room on `zfast`
+- `5860` server02 is the current limiting backend
+- the `5860` local-lvm thin pool underneath server02 is still nearly full
+
+That makes the current highest-value question capacity architecture, not first
+proof:
+
+- keep the text-integrity probe green on both OrangeFS client nodes
+- keep the installed canaries green so the repaired baseline stays honest
+- make backend ceilings visible in operator tooling
+- choose the next real storage host for OrangeFS growth instead of assuming the
+  whole lab's raw storage is already part of the namespace
 
 For future benchmarking, the comparison should use the proven workflow shape:
 

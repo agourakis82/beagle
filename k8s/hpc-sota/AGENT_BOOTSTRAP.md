@@ -166,10 +166,14 @@ bash orangefs-hybrid/run-k8s-orangefs-artifact-probe.sh
 1. Prefer proven scripts over ad hoc commands.
 2. Use local scratch first; promote durable outputs to OrangeFS.
 3. Do not use OrangeFS as shared scratch by default.
-4. Do not run heavy Slurm GPU jobs and heavy K8s GPU jobs on the same nodes unless contention is intentional.
-5. Do not touch `slurmdbd` migration artifacts during unrelated work.
-6. If local `kubectl` is uncertain, use `ops/lab-ops.sh` rather than improvising.
-7. If Sounio workspace behavior matters, read [WORKSPACE_K8S.md](/home/devsounio/projects/sounio/WORKSPACE_K8S.md) before editing workspace infrastructure.
+4. For Sounio compile/run pipelines, do not trust PVFS2 for active `.sio`
+   inputs, `.stdout` aggregation trees, or intermediate readback unless the
+   exact path has been re-proven locally. Stage inputs locally, run locally,
+   then publish results.
+5. Do not run heavy Slurm GPU jobs and heavy K8s GPU jobs on the same nodes unless contention is intentional.
+6. Do not touch `slurmdbd` migration artifacts during unrelated work.
+7. If local `kubectl` is uncertain, use `ops/lab-ops.sh` rather than improvising.
+8. If Sounio workspace behavior matters, read [WORKSPACE_K8S.md](/home/devsounio/projects/sounio/WORKSPACE_K8S.md) before editing workspace infrastructure.
 
 ## Observability and verification
 

@@ -106,5 +106,12 @@ Current recommended stance:
 - keep `PAYLOAD_TRANSFER_MODE=embedded` as the conservative default
 - allow `sbcast` as a supported alternative lane when you want to exercise the
   recovered path explicitly
-- `sbcast + orangefs` is now a valid production lane on the admitted
-  `gpuorangefs` workers, but `embedded` remains the lowest-surprise default
+- for Sounio compile/run batches, prefer `worker_local + fetch` or another
+  fully local execution path on the worker/workspace pod
+- treat OrangeFS as a durable publication layer, not as trusted shared scratch,
+  for `.sio` sources, `.stdout` trees, or aggregation intermediates
+- a later `2026-04-21` finding showed PVFS2 truncation with all-space padding on
+  a measurable fraction of text-heavy `.sio` and `.stdout` artifacts; until that
+  is isolated and disproven on the live path, `sbcast + orangefs` should not be
+  the default for readback-sensitive compiler workloads
+- `embedded` remains the lowest-surprise default

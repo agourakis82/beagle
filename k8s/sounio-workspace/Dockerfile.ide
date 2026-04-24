@@ -1,9 +1,12 @@
-FROM docker.io/gitpod/openvscode-server@sha256:236821ee7c8f9284b7f94799d4b66bc465926f435ac323af03e50bfb503c1ca1
+FROM docker.io/gitpod/openvscode-server@sha256:236821ee7c8f9284b7f94799d4b66bc465926f435ac323af03e50bfb503c1ca1 AS openvscode
 
-USER root
+FROM ghcr.io/slinkyproject/login:25.11-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    OPENVSCODE_SERVER_ROOT=/home/.openvscode-server
 
 RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
       bash \
       build-essential \
       ca-certificates \
@@ -16,7 +19,7 @@ RUN apt-get update \
       gh \
       git \
       jq \
-      libasound2 \
+      libasound2t64 \
       libatk-bridge2.0-0 \
       libatk1.0-0 \
       libatspi2.0-0 \
@@ -42,7 +45,9 @@ RUN apt-get update \
       lld \
       llvm \
       make \
+      netcat-openbsd \
       ninja-build \
+      openssh-client \
       pkg-config \
       python3 \
       python3-pip \
@@ -52,6 +57,13 @@ RUN apt-get update \
       zsh \
     && rm -rf /var/lib/apt/lists/*
 
-RUN usermod -s /usr/bin/zsh openvscode-server
+RUN useradd -m -u 1000 -s /usr/bin/zsh openvscode-server \
+    && mkdir -p /workspace /home/openvscode-server/.ssh "${OPENVSCODE_SERVER_ROOT}" \
+    && chown -R openvscode-server:openvscode-server /workspace /home/openvscode-server "${OPENVSCODE_SERVER_ROOT}" \
+    && mkdir -p /etc/sudoers.d \
+    && printf 'openvscode-server ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/openvscode-server \
+    && chmod 0440 /etc/sudoers.d/openvscode-server
+
+COPY --from=openvscode --chown=openvscode-server:openvscode-server /home/.openvscode-server /home/.openvscode-server
 
 USER openvscode-server

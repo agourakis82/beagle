@@ -5,7 +5,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app.kubernetes.io/name: sounio-workspace
+    app.kubernetes.io/name: sounio-workspace-habitat
   ports:
     - name: http
       port: 8080

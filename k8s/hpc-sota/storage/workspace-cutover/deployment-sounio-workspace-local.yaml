@@ -35,7 +35,7 @@ spec:
               mountPath: /workspace
       containers:
         - name: workspace-ide
-          image: 192.168.3.207:5003/sounio-lab-sounio-workspace-ide-20260406213306-743727:stable
+          image: 192.168.3.207:5003/sounio-lab-sounio-workspace-ide-20260424070010-slurmnative6:stable
           imagePullPolicy: Always
           command: ["/bin/sh","/opt/sounio-workspace/bootstrap-workspace.sh"]
           ports:
@@ -52,7 +52,7 @@ spec:
             - { name: workspace-data, mountPath: /workspace }
             - { name: workspace-config, mountPath: /opt/sounio-workspace/bootstrap-workspace.sh, subPath: bootstrap-workspace.sh, readOnly: true }
         - name: workspace-ssh
-          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260406213306-743727:stable
+          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260424065320-slurmnative5:stable
           imagePullPolicy: Always
           command:
             - /bin/sh

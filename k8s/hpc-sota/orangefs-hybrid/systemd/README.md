@@ -9,12 +9,19 @@ Current status:
 - `orangefs-client-runtime.service` is now also live on `t560`
 - `orangefs-training-canary.timer` is installed on `t560`
 - `orangefs-cuda-pilot.timer` is now installed on `t560`
+- as of `2026-04-24`, `5860` server02 no longer stores its live OrangeFS data
+  on the small shared `/var/lib/orangefs-lab` thin LV
+- the live server02 data and metadata path is now the dedicated thin volume
+  mounted at `/srv/orangefs-server02-store`
 
 Why this shape:
 
 - the proof-window workflow is already trusted
 - the current step is operationalizing the proven shape without changing the
   storage baseline
+- `5860` had been overcommitting a `128G` OrangeFS LV with unrelated
+  `service-fabric/registry-data`, which pinned the export at `100%` even
+  though the visible training tree was much smaller
 - the timers separate recurring validation from ad-hoc debugging
 
 Files:

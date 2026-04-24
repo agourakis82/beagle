@@ -30,9 +30,9 @@
 
 <ServerOptions>
     Server server02
-    DataStorageSpace /var/lib/orangefs-lab/two-node/server02/data
-    MetadataStorageSpace /var/lib/orangefs-lab/two-node/server02/meta
-    LogFile /var/lib/orangefs-lab/two-node/server02/log/pvfs2-server.log
+    DataStorageSpace /srv/orangefs-server02-store/data
+    MetadataStorageSpace /srv/orangefs-server02-store/meta
+    LogFile /srv/orangefs-server02-store/log/pvfs2-server.log
 </ServerOptions>
 
 <Filesystem>

@@ -26,6 +26,14 @@ Why:
 - strong SSD inventory
 - already participates in GPU-side work
 
+Current reality after the `2026-04-24` repair:
+
+- `5860` is still the live `server02`
+- the repaired backend now lives on `/srv/orangefs-server02-store`
+- this keeps the current namespace healthy
+- it should still be treated as a temporary capacity anchor because the backing
+  local-lvm thin pool is already close to full
+
 ### r740-proxmox
 
 - role:
@@ -49,9 +57,13 @@ Why:
   - local NVMe hot tier
   - OrangeFS client
 
+- preferred later role:
+  - next real OrangeFS growth server if we want the shared namespace to become
+    genuinely multi-terabyte
+
 - optional later role:
   - additional OrangeFS server capacity if we want to split metadata and data
-    more aggressively
+    more aggressively after the first real capacity jump
 
 ## First hybrid recommendation
 

@@ -245,6 +245,7 @@ nodesets:
       image:
         repository: ghcr.io/slinkyproject/slurmd
         tag: 25.11-ubuntu24.04
+      imagePullPolicy: Always
       resources:
         requests:
           cpu: "1"
@@ -259,6 +260,7 @@ nodesets:
       image:
         repository: ghcr.io/slinkyproject/slurmd
         tag: 25.11-ubuntu24.04
+      imagePullPolicy: Always
     extraConfMap:
       Features:
         - orangefs
@@ -293,6 +295,7 @@ nodesets:
       image:
         repository: ghcr.io/slinkyproject/slurmd
         tag: 25.11-ubuntu24.04
+      imagePullPolicy: Always
       lifecycle:
         postStart:
           exec:
@@ -341,6 +344,7 @@ nodesets:
       image:
         repository: ghcr.io/slinkyproject/slurmd
         tag: 25.11-ubuntu24.04
+      imagePullPolicy: Always
     extraConfMap:
       Features:
         - orangefs

@@ -19,6 +19,7 @@ spec:
         app.kubernetes.io/name: sounio-workspace-habitat
         app.kubernetes.io/part-of: beagle
     spec:
+      serviceAccountName: sounio-workspace-admin
       terminationGracePeriodSeconds: 60
       securityContext:
         fsGroup: 1000
@@ -26,40 +27,54 @@ spec:
           type: Unconfined
       affinity:
         nodeAffinity:
-          # Prefer the validated workers for the habitat, but do not hard-pin
-          # scheduling now that the workspace images are pullable from the lab
-          # registry.
           preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 90
+            - weight: 100
               preference:
                 matchExpressions:
-                  - key: kubernetes.io/hostname
+                  - key: sounio.dev/runtime-role
                     operator: In
                     values:
-                      - r740-proxmox
-                      - r770-proxmox
+                      - infra-control
             - weight: 100
               preference:
                 matchExpressions:
                   - key: kubernetes.io/hostname
                     operator: In
                     values:
-                      - r740-proxmox
+                      - t560-proxmox
+            - weight: 90
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - r770-proxmox
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: sounio.dev/runtime-role
+                    operator: In
+                    values:
+                      - infra-control
+                      - cluster-core
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
           effect: NoSchedule
-        - key: sounio.dev/compute
-          operator: Equal
-          value: heavy
-          effect: NoSchedule
-        - key: sounio.dev/pool
-          operator: Equal
-          value: gpu-batch
-          effect: NoSchedule
+      initContainers:
+        - name: normalize-permissions
+          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260424065320-slurmnative5:stable
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -lc
+            - set -euo pipefail; mkdir -p /workspace/.beagle /workspace/.home/openvscode-server; chown -R 1000:1000 /workspace
+          volumeMounts:
+            - name: workspace-data
+              mountPath: /workspace
       containers:
         - name: workspace-ide
-          image: 192.168.3.207:5003/sounio-lab-sounio-workspace-ide-20260406213306-743727:stable
+          image: 192.168.3.207:5003/sounio-lab-sounio-workspace-ide-20260424070010-slurmnative6:stable
           imagePullPolicy: Always
           securityContext:
             appArmorProfile:
@@ -77,6 +92,8 @@ spec:
               value: ws-cluster-sounio-habitat-vnext
             - name: BEAGLE_WORKSPACE_BROWSER_URL
               value: http://sounio-workspace-habitat.beagle.svc.cluster.local:8080
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=49152
           envFrom:
             - configMapRef:
                 name: sounio-workspace-config
@@ -86,9 +103,13 @@ spec:
           volumeMounts:
             - name: workspace-data
               mountPath: /workspace
+            - name: slurm-runtime
+              mountPath: /run/slurm
+            - name: workspace-slurm-auth
+              mountPath: /etc/slurm
+              readOnly: true
             - name: workspace-config
-              mountPath: /opt/sounio-workspace/bootstrap-workspace.sh
-              subPath: bootstrap-workspace.sh
+              mountPath: /opt/sounio-workspace
               readOnly: true
           readinessProbe:
             exec:
@@ -119,21 +140,32 @@ spec:
             timeoutSeconds: 2
           resources:
             requests:
-              cpu: 500m
-              memory: 1Gi
+              cpu: "28"
+              memory: 64Gi
             limits:
-              cpu: "4"
-              memory: 6Gi
+              cpu: "28"
+              memory: 64Gi
         - name: workspace-ssh
-          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260406213306-743727:stable
+          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260424065320-slurmnative5:stable
           imagePullPolicy: Always
           securityContext:
+            allowPrivilegeEscalation: true
             appArmorProfile:
               type: Unconfined
+            privileged: true
           command:
-            - /bin/sh
+            - /bin/bash
             - -lc
-            - passwd -d openvscode-server >/dev/null 2>&1 || true; exec /usr/local/bin/ssh-entrypoint.sh
+            - >
+              passwd -d openvscode-server >/dev/null 2>&1 || true;
+              install -d -m 0700 -o 1000 -g 1000 "${TMUX_TMPDIR:-/workspace/.home/openvscode-server/.tmux}";
+              su -s /bin/sh openvscode-server -c '
+                export TMUX_TMPDIR="${TMUX_TMPDIR:-/workspace/.home/openvscode-server/.tmux}";
+                mkdir -p "${TMUX_TMPDIR}";
+                chmod 700 "${TMUX_TMPDIR}";
+                tmux has-session -t sounio-dev 2>/dev/null || tmux new-session -d -s sounio-dev
+              ' >/dev/null 2>&1 || true;
+              exec /usr/local/bin/ssh-entrypoint.sh
           env:
             - name: BEAGLE_WORKSPACE_ID
               value: sounio-cluster-pilot-habitat
@@ -141,6 +173,10 @@ spec:
               value: ws-cluster-sounio-habitat-vnext
             - name: BEAGLE_WORKSPACE_BROWSER_URL
               value: http://sounio-workspace-habitat.beagle.svc.cluster.local:8080
+            - name: LANG
+              value: C.UTF-8
+            - name: LC_ALL
+              value: C.UTF-8
           envFrom:
             - configMapRef:
                 name: sounio-workspace-config
@@ -153,6 +189,11 @@ spec:
           volumeMounts:
             - name: workspace-data
               mountPath: /workspace
+            - name: slurm-runtime
+              mountPath: /run/slurm
+            - name: workspace-slurm-auth
+              mountPath: /etc/slurm
+              readOnly: true
             - name: workspace-ssh-authorized-keys
               mountPath: /var/run/beagle-workspace-ssh
               readOnly: true
@@ -161,7 +202,7 @@ spec:
               command:
                 - sh
                 - -lc
-                - nc -z 127.0.0.1 2222
+                - nc -z 127.0.0.1 2222 && test -S /run/slurm/sack.socket
             periodSeconds: 5
             failureThreshold: 120
             timeoutSeconds: 1
@@ -170,7 +211,7 @@ spec:
               command:
                 - sh
                 - -lc
-                - nc -z 127.0.0.1 2222
+                - nc -z 127.0.0.1 2222 && test -S /run/slurm/sack.socket
             initialDelaySeconds: 30
             periodSeconds: 20
             timeoutSeconds: 1
@@ -181,12 +222,19 @@ spec:
               memory: 512Mi
             limits:
               cpu: "2"
-              memory: 2Gi
+              memory: 3Gi
       volumes:
         - name: workspace-config
           configMap:
             name: sounio-workspace-config
             defaultMode: 0755
+        - name: slurm-runtime
+          emptyDir:
+            medium: Memory
+        - name: workspace-slurm-auth
+          secret:
+            secretName: sounio-workspace-slurm-auth
+            defaultMode: 0440
         - name: workspace-ssh-authorized-keys
           secret:
             secretName: sounio-workspace-ssh-authorized-keys
@@ -203,5 +251,5 @@ spec:
         storageClassName: ceph-rbd-ssd-rwop
         resources:
           requests:
-            storage: 50Gi
+            storage: 500Gi
         volumeMode: Filesystem

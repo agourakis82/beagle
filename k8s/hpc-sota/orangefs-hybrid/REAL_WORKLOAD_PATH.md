@@ -7,6 +7,20 @@ now that the full DDP training canary is green under the promoted baseline.
 
 ## First promoted workload
 
+Before trusting text-heavy compiler pipelines, run the text-integrity probe:
+
+- [text integrity probe job](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/k8s/job-orangefs-text-integrity-probe.yaml)
+- [text integrity probe runner](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-orangefs-text-integrity-probe.sh)
+
+It validates:
+
+- repeated `.sio`-like text writes
+- repeated `.stdout`-like text writes
+- immediate byte-for-byte readback against local scratch originals
+
+This is now the gate for PVFS2 text correctness. Use the artifact probe below
+only after the text path is clean for the target node.
+
 Use the single-job artifact probe first:
 
 - [artifact probe job](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/k8s/job-orangefs-artifact-probe.yaml)
