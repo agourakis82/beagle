@@ -1058,6 +1058,121 @@ public enum LocalLLMError: LocalizedError {
     }
 }
 
+// MARK: - Cognitive Router
+
+/// Automatic model selection based on task type and device capability.
+/// Maps cognitive tasks to model personalities to specific models.
+public enum CognitiveTask: String, CaseIterable, Sendable {
+    case thoughtCapture         // Quick capture -> fast/stream personality
+    case deepReasoning          // GoDeep -> reasoning personality
+    case codeGeneration         // Terminal/agent context -> code personality
+    case medicalAnalysis        // PBPK/pharma -> medical personality
+    case creativeProvocation    // Serendipity -> creative/exotic personality
+    case streamOfConsciousness  // Continuous flow -> stream personality (RWKV/Mamba)
+    case triadReview            // Adversarial -> analytical personality
+    case translation            // Multilingual -> multilingual personality
+    case triage                 // Quick classification -> fast personality
+}
+
+extension CognitiveTask {
+    /// The model personality best suited for this cognitive task.
+    public var preferredPersonality: ModelPersonality {
+        switch self {
+        case .thoughtCapture:        return .stream
+        case .deepReasoning:         return .analytical
+        case .codeGeneration:        return .analytical   // code models map to analytical
+        case .medicalAnalysis:       return .medical
+        case .creativeProvocation:   return .creative
+        case .streamOfConsciousness: return .stream
+        case .triadReview:           return .analytical
+        case .translation:           return .creative     // multilingual models carry creative personality
+        case .triage:                return .hybrid
+        }
+    }
+
+    /// Human-readable description of when this task type applies.
+    public var taskDescription: String {
+        switch self {
+        case .thoughtCapture:        return "Quick thought capture — low latency, streaming"
+        case .deepReasoning:         return "Deep reasoning — multi-step logic, proofs, analysis"
+        case .codeGeneration:        return "Code generation — implementation, refactoring, debugging"
+        case .medicalAnalysis:       return "Medical analysis — PBPK, pharmacokinetics, clinical"
+        case .creativeProvocation:   return "Creative provocation — lateral thinking, serendipity"
+        case .streamOfConsciousness: return "Stream of consciousness — infinite context, journaling"
+        case .triadReview:           return "Triad review — adversarial debate, bias detection"
+        case .translation:           return "Translation — multilingual, Portuguese, cross-lingual"
+        case .triage:                return "Triage — quick classification, routing"
+        }
+    }
+}
+
+extension LocalLLMEngine {
+
+    /// Suggest the best on-device model for a cognitive task, considering device RAM.
+    ///
+    /// Selection logic:
+    /// 1. Find models whose personality matches the task's preferred personality and fit on this device.
+    /// 2. Prefer the lightest model that fits (minimize memory pressure on iPhone).
+    /// 3. If no personality match fits, fall back to any model that fits, preferring lighter ones.
+    /// 4. Ultimate fallback: gemma2_2B (smallest mature model in the catalog).
+    public func suggestModel(for task: CognitiveTask) -> OnDeviceModel {
+        let personality = task.preferredPersonality
+        let candidates = OnDeviceModel.allCases
+            .filter { $0.personality == personality && $0.fitsOnThisDevice && !$0.isExperimental }
+            .sorted { $0.minimumRAMGB < $1.minimumRAMGB }
+
+        // Primary: best-fit personality match
+        if let best = candidates.first { return best }
+
+        // Secondary: any non-experimental model that fits
+        let fallbacks = OnDeviceModel.allCases
+            .filter { $0.fitsOnThisDevice && !$0.isExperimental }
+            .sorted { $0.minimumRAMGB < $1.minimumRAMGB }
+
+        return fallbacks.first ?? .gemma2_2B
+    }
+
+    /// Load the suggested model for a cognitive task, then generate a response.
+    ///
+    /// If the currently loaded model already matches the suggestion, it stays loaded
+    /// (no unnecessary reload). Otherwise the engine loads the suggested model first.
+    public func respondForTask(_ task: CognitiveTask, prompt: String) async throws -> String {
+        let model = suggestModel(for: task)
+        if currentModel != model {
+            await load(model)
+        }
+        return try await respond(to: prompt)
+    }
+
+    /// Streaming variant of `respondForTask` — returns tokens as they arrive.
+    public func generateForTask(_ task: CognitiveTask, prompt: String) async -> AsyncThrowingStream<String, Error> {
+        let model = suggestModel(for: task)
+        if currentModel != model {
+            await load(model)
+        }
+        return generate(prompt: prompt)
+    }
+
+    /// Combine Mamba triage with cognitive routing:
+    /// 1. Mamba classifies prompt complexity.
+    /// 2. Simple prompts stay on Mamba (Tier -1).
+    /// 3. Medium/complex prompts route through `suggestModel(for:)`.
+    ///
+    /// This is the highest-level entry point — the exocortex calls this and the
+    /// engine handles everything: triage, model selection, loading, generation.
+    public func autoRespond(prompt: String, task: CognitiveTask) async throws -> String {
+        // For triage and thought capture, try Mamba first if loaded
+        if mambaLoaded && (task == .triage || task == .thoughtCapture) {
+            let complexity = await triagePrompt(prompt)
+            if complexity == .simple {
+                return try await mambaGenerate(prompt: prompt, maxTokens: 256)
+            }
+        }
+
+        return try await respondForTask(task, prompt: prompt)
+    }
+}
+
 // MARK: - HuggingFace Downloader + TokenizerLoader
 
 #if canImport(MLXLLM)

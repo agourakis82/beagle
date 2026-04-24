@@ -1430,6 +1430,13 @@ struct HomeView: View {
 
                 Spacer()
 
+                LorenzAttractorView(
+                    stagnation: provocation.stagnationScore ?? 0.5,
+                    tintColor: Color.orange
+                )
+                .frame(width: 80, height: 60)
+                .opacity(0.7)
+
                 Text(provocation.domain)
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(Color.orange.opacity(0.7))

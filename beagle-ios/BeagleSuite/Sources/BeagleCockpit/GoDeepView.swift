@@ -44,6 +44,8 @@ struct GoDeepView: View {
 
                     modalityStream
 
+                    quantumHypothesesView
+
                     if store.isSynthesizing || store.synthesis != nil {
                         synthesisCard
                     }
@@ -95,6 +97,14 @@ struct GoDeepView: View {
                 Text(store.isRunning ? "Cancel" : "Close")
                     .foregroundStyle(BeagleTheme.textSecondary)
             }
+        }
+        ToolbarItem(placement: trailingToolbarPlacement) {
+            Toggle(isOn: $store.quantumMode) {
+                Label("Quantum", systemImage: "atom")
+            }
+            .toggleStyle(.button)
+            .tint(BeagleTheme.truthRemembered)
+            .disabled(store.isRunning)
         }
         ToolbarItem(placement: trailingToolbarPlacement) {
             if !store.isRunning && store.hasAnyResult {
@@ -321,6 +331,91 @@ struct GoDeepView: View {
                 .strokeBorder(BeagleTheme.truthObserved.opacity(0.06), lineWidth: 1)
         )
         .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    // MARK: - Quantum Hypotheses Visualization
+
+    @ViewBuilder
+    private var quantumHypothesesView: some View {
+        if store.quantumMode && !store.hypotheses.isEmpty {
+            VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+                // Section header with wave icon
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "waveform.path.ecg")
+                        .foregroundStyle(BeagleTheme.truthRemembered)
+                    Text("Hypothesis Superposition")
+                        .font(BeagleFont.headline.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                }
+
+                // Amplitude bars — each hypothesis shown as a bar with height = amplitude
+                ForEach(store.hypotheses) { hyp in
+                    GlassPanel(elevation: hyp.isCollapsed ? .raised : .flush) {
+                        VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                            // Perspective label + probability badge
+                            HStack {
+                                Text(hyp.perspective)
+                                    .font(BeagleFont.footnote.font)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(BeagleTheme.textPrimary)
+                                Spacer()
+                                Text("\(Int(hyp.probability * 100))%")
+                                    .font(BeagleFont.data.font)
+                                    .foregroundStyle(amplitudeColor(hyp.amplitude))
+                            }
+
+                            // Amplitude bar
+                            GeometryReader { geo in
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(amplitudeColor(hyp.amplitude).gradient)
+                                    .frame(width: geo.size.width * hyp.amplitude)
+                            }
+                            .frame(height: 6)
+
+                            // Hypothesis text (collapsed or full)
+                            if !hyp.text.contains("[awaiting") {
+                                Text(hyp.text)
+                                    .font(BeagleFont.caption.font)
+                                    .foregroundStyle(BeagleTheme.textSecondary)
+                                    .lineLimit(hyp.isCollapsed ? 4 : 2)
+                            }
+                        }
+                    }
+                    .opacity(hyp.isCollapsed && hyp.amplitude < 0.2 ? 0.4 : 1.0)
+                }
+
+                // Interference results
+                if let interference = store.interferenceResult {
+                    if !interference.novelEmergent.isEmpty {
+                        GlassPanel(elevation: .raised, truth: .observed) {
+                            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                                HStack(spacing: BeagleSpacing.xs) {
+                                    Image(systemName: "sparkles")
+                                    Text("Emergent Insights")
+                                        .font(BeagleFont.footnote.font)
+                                        .fontWeight(.semibold)
+                                }
+                                .foregroundStyle(BeagleTheme.truthObserved)
+
+                                ForEach(interference.novelEmergent, id: \.self) { insight in
+                                    Text("\u{2022} \(insight)")
+                                        .font(BeagleFont.caption.font)
+                                        .foregroundStyle(BeagleTheme.textSecondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .transition(.opacity.combined(with: .move(edge: .top)))
+            .animation(BeagleMotion.slow, value: store.hypotheses.count)
+        }
+    }
+
+    private func amplitudeColor(_ amplitude: Double) -> Color {
+        if amplitude > 0.7 { return BeagleTheme.truthObserved }
+        if amplitude > 0.3 { return BeagleTheme.postureWarm }
+        return BeagleTheme.textTertiary
     }
 
     // MARK: - Depth Gradient Background (living MeshGradient)

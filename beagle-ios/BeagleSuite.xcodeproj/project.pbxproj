@@ -41,6 +41,7 @@
 		BD252AA03538ED12C4AFE5D7 /* BeagleWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */; };
 		BD5252A15774BB0AFF4C2537 /* PlatformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4EBFAF926379A760494FDDE /* PlatformView.swift */; };
 		BD8DE849A86BAFDCE1CAC86B /* LiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365A4A4180DF64759923830A /* LiveActivityManager.swift */; };
+		L0R3NZ0000000000000001 /* LorenzAttractorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = L0R3NZ0000000000000002 /* LorenzAttractorView.swift */; };
 		BF0742CD0ABD9D8AD53DE9D6 /* HeatmapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EECE76875D595132E400D65E /* HeatmapView.swift */; };
 		CAB18C9B9AA87C72B1B91BE4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
 		CE44D183EF481CB215B031F3 /* BeagleAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C802020558042DE65886DB3 /* BeagleAppIntents.swift */; };
@@ -89,6 +90,7 @@
 		287C64605E5D53C799744EFA /* AgentSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionView.swift; sourceTree = "<group>"; };
 		2C4128C7822635F0B4D0B966 /* PresencePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresencePill.swift; sourceTree = "<group>"; };
 		365A4A4180DF64759923830A /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
+		L0R3NZ0000000000000002 /* LorenzAttractorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LorenzAttractorView.swift; sourceTree = "<group>"; };
 		3FADF6A9C3533B785FE38619 /* GoDeepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoDeepView.swift; sourceTree = "<group>"; };
 		4391CB65FB2D130CC3568338 /* BeagleCockpit.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BeagleCockpit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleWidgets.swift; sourceTree = "<group>"; };
@@ -186,6 +188,7 @@
 				5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */,
 				E8A1F3C2D4B5E60A3C7F9013 /* JournalingSuggestionsView.swift */,
 				365A4A4180DF64759923830A /* LiveActivityManager.swift */,
+				L0R3NZ0000000000000002 /* LorenzAttractorView.swift */,
 				1627EC91F819B45D2929869B /* MetalClusterView.swift */,
 				0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */,
 				8F9429744BAEF1DC81205FFB /* OnboardingView.swift */,
@@ -461,6 +464,7 @@
 				907EF19DEAD54A0CE58672EC /* HomeView.swift in Sources */,
 				E8A1F3C2D4B5E60A3C7F9012 /* JournalingSuggestionsView.swift in Sources */,
 				BD8DE849A86BAFDCE1CAC86B /* LiveActivityManager.swift in Sources */,
+				L0R3NZ0000000000000001 /* LorenzAttractorView.swift in Sources */,
 				2E61BDB009F282CB1A3CCCE7 /* MetalClusterView.swift in Sources */,
 				B153B877BF3BB76F401EF7EF /* ModelSettingsView.swift in Sources */,
 				40BF456C71ED40A7CBF92FD8 /* OnboardingView.swift in Sources */,
