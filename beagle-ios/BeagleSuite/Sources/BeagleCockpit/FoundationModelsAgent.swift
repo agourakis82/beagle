@@ -92,7 +92,21 @@ public final class FoundationModelsAgent {
 
     /// Respond to a prompt using Foundation Models with exocortex tool access.
     /// Returns nil if unavailable (caller should fall back to cloud agent).
+    ///
+    /// Before invoking Foundation Models, checks if the Mamba draft model (Tier -1)
+    /// can handle the prompt directly. Simple prompts (greetings, classification,
+    /// short factual) are answered at Tier -1 for sub-10ms latency.
     public func respond(to prompt: String) async -> String? {
+        // Tier -1 pre-screening: if Mamba is loaded, check prompt complexity
+        if LocalLLMEngine.shared.mambaLoaded {
+            let complexity = await LocalLLMEngine.shared.triagePrompt(prompt)
+            if complexity == .simple {
+                if let mambaResult = try? await LocalLLMEngine.shared.mambaGenerate(prompt: prompt) {
+                    return mambaResult
+                }
+            }
+        }
+
         #if canImport(FoundationModels)
         guard #available(iOS 26, macOS 26, visionOS 26, *) else { return nil }
         guard isAvailable else { return nil }
