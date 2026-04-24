@@ -45,53 +45,43 @@ struct HomeView: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: homeLeadsWithReturnedWork ? BeagleSpacing.lg : BeagleSpacing.xl) {
-                    if homeLeadsWithReturnedWork {
-                        myWorkCard
-                        bodyStateCard
-                    } else {
-                        bodyStateCard
-                        myWorkCard
-                    }
-                    discussionFieldCard
-                    activeAgentsStrip
-                    shellPresenceCard
+                VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
+
+                    // ── Zone 1: Presence ─────────────────────────────
+                    // One warm line. Not a card. Just presence.
                     greetingSection
+
+                    // Dream insights float above everything — they're magic, not data
                     if DreamSynthesisEngine.shared.hasUnreadInsights {
                         overnightInsightsCard
                     }
-                    metacognitiveStrip
-                    livingBriefingCard
-                    previewSignalCard
-                    #if os(iOS)
-                    ambientCaptureToggle
-                    #endif
-                    if showProvocations {
+
+                    // ── Zone 2: Thinking ─────────────────────────────
+                    // The invitation to think. Always visible.
+                    discussionFieldCard
+
+                    // One provocation — the best one, not all of them
+                    if let chaos = chaosProvocation, currentIntensity != .minimal {
+                        chaosSerendipityCard(chaos)
+                    } else if showProvocations, !provocations.isEmpty {
                         provocationsSection
                     }
-                    #if canImport(JournalingSuggestions)
-                    if showProvocations {
-                        JournalingSuggestionsCard()
-                    }
-                    #endif
-                    if showTriadReadyCard {
-                        triadReadyCard
-                    }
+
+                    // ── Zone 3: Context (collapsible) ────────────────
+                    // Only what's operationally relevant right now
                     if showWarmthCard {
                         warmthCard
                     }
-                    if let brief = morningBrief, currentIntensity != .minimal {
-                        morningBriefCard(brief)
+
+                    if homeLeadsWithReturnedWork {
+                        myWorkCard
                     }
-                    if let insight = serendipityInsight, currentIntensity != .minimal, morningBriefIntensity != .minimal {
-                        serendipityCard(insight)
+
+                    if runningAgentsExist {
+                        activeAgentsStrip
                     }
-                    if let chaos = chaosProvocation, currentIntensity != .minimal {
-                        chaosSerendipityCard(chaos)
-                    }
-                    if currentIntensity != .minimal, morningBriefIntensity != .minimal {
-                        noveltySection
-                    }
+
+                    // Recent thoughts — the memory stream
                     recentThoughtsSection
                 }
                 .padding(.horizontal, BeagleSpacing.lg)
@@ -2005,6 +1995,10 @@ struct HomeView: View {
 
     private var homeLeadsWithReturnedWork: Bool {
         focusedLane?.laneResult != nil
+    }
+
+    private var runningAgentsExist: Bool {
+        cognitive.state.value?.agentSessions?.contains(where: { ($0.readyReplicas ?? 0) > 0 }) ?? false
     }
 
     // MARK: - HRV Cognitive Throttling
