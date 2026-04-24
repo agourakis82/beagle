@@ -179,6 +179,18 @@ struct BeagleSurface: View {
     private var resultArea: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+                // Processing indicator
+                if isProcessing {
+                    HStack(spacing: BeagleSpacing.sm) {
+                        ProgressView()
+                            .tint(BeagleTheme.truthObserved)
+                        Text("Thinking...")
+                            .font(BeagleFont.caption.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                    }
+                    .padding(.top, BeagleSpacing.md)
+                }
+
                 switch mode {
                 case .resting:
                     EmptyView()
@@ -187,7 +199,26 @@ struct BeagleSurface: View {
                     thinkingView
 
                 case .conversation:
-                    ConversationView(conversation: conversation)
+                    // Foundation Models response (on-device, with tools)
+                    if let response = responseText {
+                        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                            Text(response)
+                                .font(BeagleFont.body.font)
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                                .textSelection(.enabled)
+                                .lineSpacing(3)
+                        }
+                        .padding(BeagleSpacing.md)
+                        .background(
+                            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                                .fill(.ultraThinMaterial)
+                        )
+                    }
+
+                    // Cloud conversation fallback
+                    if !conversation.messages.isEmpty {
+                        ConversationView(conversation: conversation)
+                    }
 
                 case .deepExploration:
                     GoDeepView(store: deepStore, prompt: inputText)
@@ -204,6 +235,30 @@ struct BeagleSurface: View {
 
                 case .readiness:
                     CognitiveStateView()
+                }
+
+                // Back to resting button
+                if mode != .resting && !isProcessing {
+                    Button {
+                        withAnimation(BeagleMotion.snappy) {
+                            mode = .resting
+                            responseText = nil
+                        }
+                    } label: {
+                        HStack(spacing: BeagleSpacing.xs) {
+                            Image(systemName: "xmark.circle")
+                                .font(.system(size: 12))
+                            Text("Clear")
+                                .font(BeagleFont.caption.font)
+                        }
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .padding(.horizontal, BeagleSpacing.md)
+                        .padding(.vertical, BeagleSpacing.xs)
+                        .background(Capsule().fill(.ultraThinMaterial))
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, BeagleSpacing.sm)
                 }
             }
             .padding(.horizontal, BeagleSpacing.lg)
@@ -377,87 +432,54 @@ struct BeagleSurface: View {
         )
     }
 
-    // MARK: - Input handling (the intelligence)
+    // MARK: - Input handling (intelligent routing)
+
+    @State private var isProcessing = false
+    @State private var responseText: String?
 
     private func handleInput() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        let intent = classifyIntent(text)
+        let capturedText = text
         inputText = ""
         inputFocused = false
+        isProcessing = true
 
-        withAnimation(BeagleMotion.snappy) {
-            switch intent {
-            case .thought:
-                mode = .thinking
-                Task {
-                    lastCapture = await cognitive.captureThought(text: text, source: "surface")
-                    if !cognitive.isCapturing {
-                        // Stay in thinking mode to show the result
-                    }
-                }
+        // Quick escape hatches — explicit commands that don't need AI
+        let lower = capturedText.lowercased()
+        if lower == "terminal" || lower == "shell" {
+            withAnimation(BeagleMotion.snappy) { mode = .terminal }
+            terminal.connect(slug: activeSlug, kind: "claude-code")
+            isProcessing = false
+            return
+        }
 
-            case .goDeep:
-                mode = .deepExploration
-                deepStore = GoDeepStore()
-                // GoDeepView handles the rest via its .task
+        // Everything else → Foundation Models with tools
+        // The model decides: capture thought? search memory? check physio? go deep?
+        withAnimation(BeagleMotion.snappy) { mode = .conversation }
 
-            case .terminal:
-                mode = .terminal
-                terminal.connect(slug: activeSlug, kind: "claude-code")
+        Task {
+            // Try Foundation Models first (on-device, free, has tools)
+            let agentResponse = await FoundationModelsAgent.shared.respond(to: capturedText)
 
-            case .search:
-                mode = .results
-                let query = text.replacingOccurrences(of: "search ", with: "")
-                    .replacingOccurrences(of: "find ", with: "")
-                    .replacingOccurrences(of: "buscar ", with: "")
-                searchResults = cognitive.semanticSearch(query: query)
-
-            case .readiness:
-                showReadiness = true
-
-            case .chat:
-                mode = .conversation
-                conversation = ConversationStore(preferLocal: false)
-                let slug = cognitive.activeProjectSlug ?? "sounio"
-                conversation.projectSlug = slug
-                Task { await conversation.sendMessage(text) }
+            if let response = agentResponse, !response.isEmpty {
+                // The model responded — it may have called tools (search, capture, physio)
+                responseText = response
+                isProcessing = false
+                return
             }
-        }
-    }
 
-    // MARK: - Intent classification
-
-    private enum InputIntent {
-        case thought, goDeep, terminal, search, readiness, chat
-    }
-
-    private func classifyIntent(_ text: String) -> InputIntent {
-        let lower = text.lowercased()
-
-        // Explicit commands
-        if lower.hasPrefix("go deep") || lower.hasPrefix("explore") || lower.hasPrefix("aprofundar") {
-            return .goDeep
+            // Fallback: if Foundation Models unavailable, use cloud conversation
+            let slug = cognitive.activeProjectSlug ?? "sounio"
+            conversation = ConversationStore(preferLocal: false)
+            conversation.projectSlug = slug
+            let family = ProjectFamily.fromProjectSlug(slug)
+            conversation.projectFamily = family
+            conversation.publicationScope = PublicationScope.forProjectFamily(family)
+            await conversation.sendMessage(capturedText)
+            isProcessing = false
         }
-        if lower.hasPrefix("terminal") || lower.hasPrefix("shell") || lower.hasPrefix("ssh") {
-            return .terminal
-        }
-        if lower.hasPrefix("search") || lower.hasPrefix("find") || lower.hasPrefix("buscar") || lower.hasPrefix("o que pensei") {
-            return .search
-        }
-        if lower.hasPrefix("how am i") || lower.hasPrefix("readiness") || lower.hasPrefix("como estou") || lower.hasPrefix("hrv") {
-            return .readiness
-        }
-
-        // Questions → chat
-        if lower.hasSuffix("?") || lower.hasPrefix("what") || lower.hasPrefix("why") || lower.hasPrefix("how") ||
-           lower.hasPrefix("o que") || lower.hasPrefix("por que") || lower.hasPrefix("como") {
-            return .chat
-        }
-
-        // Default: capture as thought
-        return .thought
     }
 
     // MARK: - Computed
