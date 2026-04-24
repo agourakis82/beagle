@@ -82,6 +82,15 @@ struct BeagleVisionOSApp: App {
         }
         .windowStyle(.volumetric)
         .defaultSize(width: 1.4, height: 0.8, depth: 1.4, in: .meters)
+
+        // MARK: - Thought Stream — glass post-its floating in space
+
+        WindowGroup("Thought Stream", id: "thought-stream") {
+            SpatialThoughtsView(thoughts: cognitive.recentThoughts)
+                .environment(cognitive)
+        }
+        .windowStyle(.volumetric)
+        .defaultSize(width: 1.2, height: 0.6, depth: 0.8, in: .meters)
     }
 }
 
@@ -149,6 +158,14 @@ struct SpatialMindView: View {
                     openWindow(id: "knowledge-graph")
                 } label: {
                     Label("Knowledge Graph", systemImage: "point.3.connected.trianglepath.dotted")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    openWindow(id: "thought-stream")
+                } label: {
+                    Label("Thought Stream", systemImage: "note.text")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)

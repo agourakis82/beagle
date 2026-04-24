@@ -60,7 +60,9 @@ public final class CognitiveStore {
                     source: p.source,
                     createdAt: formatter.string(from: p.capturedAt),
                     syncedToServer: p.syncedToServer,
-                    syncState: p.syncedToServer ? .synced : .localOnly
+                    syncState: p.syncedToServer ? .synced : .localOnly,
+                    translatedText: p.translatedText,
+                    originalLanguage: p.originalLanguage
                 )
             }
             SemanticSearchEngine.shared.index(thoughts: recentThoughts)
@@ -92,7 +94,7 @@ public final class CognitiveStore {
         let projectSlug = activeProjectSlug ?? "sounio"
         let projectFamily = ProjectFamily.fromProjectSlug(projectSlug)
         let publicationScope = PublicationScope.forProjectFamily(projectFamily)
-        let thought: ThoughtCapture
+        var thought: ThoughtCapture
         let persisted = PersistedThought(rawText: text, source: source)
 
         if let response = result.value, let refined = response.response {
@@ -132,6 +134,19 @@ public final class CognitiveStore {
             )
         }
 
+        // Bilingual processing: detect language and enqueue translation if Portuguese
+        let textToAnalyze = thought.refinedText ?? thought.rawText ?? text
+        let detectedLang = TranslationEngine.shared.detectLanguage(textToAnalyze)
+        thought.originalLanguage = detectedLang
+        persisted.originalLanguage = detectedLang
+
+        if TranslationEngine.isPortugueseCode(detectedLang) {
+            TranslationEngine.shared.enqueueForTranslation(
+                thoughtId: thought.id,
+                text: textToAnalyze
+            )
+        }
+
         recentThoughts.insert(thought, at: 0)
         if recentThoughts.count > 50 { recentThoughts.removeLast() }
         totalThoughtCount += 1
@@ -142,6 +157,29 @@ public final class CognitiveStore {
         try? modelContext?.save()
 
         return thought
+    }
+
+    // MARK: - Bilingual translation callback
+
+    /// Called by the UI layer when a translation completes via TranslationSession.
+    /// Updates the in-memory thought and persists the translation to SwiftData.
+    public func applyTranslation(thoughtId: String, translatedText: String) {
+        TranslationEngine.shared.recordTranslation(thoughtId: thoughtId, translatedText: translatedText)
+
+        // Update in-memory thought
+        if let idx = recentThoughts.firstIndex(where: { $0.id == thoughtId }) {
+            recentThoughts[idx].translatedText = translatedText
+        }
+
+        // Persist to SwiftData
+        if let context = modelContext {
+            let descriptor = FetchDescriptor<PersistedThought>()
+            if let all = try? context.fetch(descriptor),
+               let persisted = all.first(where: { $0.nodeId == thoughtId }) {
+                persisted.translatedText = translatedText
+                try? context.save()
+            }
+        }
     }
 
     // MARK: - Triad review

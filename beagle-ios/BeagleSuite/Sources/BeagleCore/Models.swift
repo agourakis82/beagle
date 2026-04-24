@@ -1224,6 +1224,19 @@ public struct ThoughtCapture: Codable, Sendable, Identifiable {
     public let syncedToServer: Bool?
     public let syncState: IdeaSyncState?
 
+    /// English translation if the original thought was in Portuguese.
+    public var translatedText: String?
+    /// Detected language code (BCP-47), e.g. "pt", "en", "es".
+    public var originalLanguage: String?
+
+    /// Whether this thought has a bilingual translation available.
+    public var isBilingual: Bool { translatedText != nil }
+
+    /// The best text for international display: translation if available, otherwise refined/raw.
+    public var internationalText: String? {
+        translatedText ?? refinedText ?? rawText
+    }
+
     enum CodingKeys: String, CodingKey {
         case nodeId = "node_id"
         case refinedText = "refined_text"
@@ -1233,6 +1246,8 @@ public struct ThoughtCapture: Codable, Sendable, Identifiable {
         case syncedToServer = "synced_to_server"
         case syncState
         case syncStateSnake = "sync_state"
+        case translatedText = "translated_text"
+        case originalLanguage = "original_language"
     }
 
     public var residency: ThoughtResidency {
@@ -1253,7 +1268,9 @@ public struct ThoughtCapture: Codable, Sendable, Identifiable {
         source: String?,
         createdAt: String?,
         syncedToServer: Bool?,
-        syncState: IdeaSyncState?
+        syncState: IdeaSyncState?,
+        translatedText: String? = nil,
+        originalLanguage: String? = nil
     ) {
         self.stableId = UUID().uuidString
         self.nodeId = nodeId
@@ -1263,6 +1280,8 @@ public struct ThoughtCapture: Codable, Sendable, Identifiable {
         self.createdAt = createdAt
         self.syncedToServer = syncedToServer
         self.syncState = syncState
+        self.translatedText = translatedText
+        self.originalLanguage = originalLanguage
     }
 
     public init(from decoder: Decoder) throws {
@@ -1277,6 +1296,8 @@ public struct ThoughtCapture: Codable, Sendable, Identifiable {
         syncState =
             try container.decodeIfPresent(IdeaSyncState.self, forKey: .syncState)
             ?? container.decodeIfPresent(IdeaSyncState.self, forKey: .syncStateSnake)
+        translatedText = try container.decodeIfPresent(String.self, forKey: .translatedText)
+        originalLanguage = try container.decodeIfPresent(String.self, forKey: .originalLanguage)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -1288,6 +1309,8 @@ public struct ThoughtCapture: Codable, Sendable, Identifiable {
         try container.encodeIfPresent(createdAt, forKey: .createdAt)
         try container.encodeIfPresent(syncedToServer, forKey: .syncedToServer)
         try container.encodeIfPresent(syncState, forKey: .syncState)
+        try container.encodeIfPresent(translatedText, forKey: .translatedText)
+        try container.encodeIfPresent(originalLanguage, forKey: .originalLanguage)
     }
 }
 

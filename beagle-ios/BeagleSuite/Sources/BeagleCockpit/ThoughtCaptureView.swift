@@ -16,12 +16,14 @@
 
 import SwiftUI
 import BeagleCore
+import Translation
 
 struct ThoughtCaptureView: View {
     @Environment(CognitiveStore.self) private var cognitive
     @State private var inputText = ""
     @State private var captureMode: CaptureMode = .keyboard
     @State private var lastRefined: String?
+    @State private var lastTranslation: String?
     @State private var refinedPersisted = false
     @State private var conversation: ConversationStore
     @State private var hermesPhase = ""
@@ -108,6 +110,32 @@ struct ThoughtCaptureView: View {
             conversation.projectFamily = family
             conversation.publicationScope = PublicationScope.forProjectFamily(family)
             conversation.flowState = cognitive.flowState
+        }
+        .translationTask(TranslationEngine.shared.activeConfiguration) { session in
+            let batch = TranslationEngine.shared.drainPending()
+            guard !batch.isEmpty else {
+                TranslationEngine.shared.applyResults([])
+                return
+            }
+            // Use batch translation API — TranslationSession.translations(from:) accepts [TranslationSession.Request]
+            let requests = batch.map { TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id) }
+            var results: [(id: String, translated: String)] = []
+            do {
+                for try await response in session.translate(batch: requests) {
+                    if let clientId = response.clientIdentifier {
+                        results.append((id: clientId, translated: response.targetText))
+                    }
+                }
+            } catch {
+                // Batch failed — apply whatever we got
+            }
+            TranslationEngine.shared.applyResults(results)
+            for r in results {
+                cognitive.applyTranslation(thoughtId: r.id, translatedText: r.translated)
+                if r.id == cognitive.recentThoughts.first?.id {
+                    lastTranslation = r.translated
+                }
+            }
         }
     }
 
@@ -352,6 +380,31 @@ struct ThoughtCaptureView: View {
                     .textSelection(.enabled)
                     .lineSpacing(2)
 
+                // Bilingual: show English translation below Portuguese original
+                if let translation = lastTranslation {
+                    VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+                        HStack(spacing: BeagleSpacing.xxs) {
+                            Image(systemName: "globe")
+                                .font(.system(size: 10))
+                                .foregroundStyle(BeagleTheme.truthRemembered)
+                            Text("English")
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.truthRemembered)
+                                .textCase(.uppercase)
+                                .tracking(0.3)
+                        }
+
+                        Text(translation)
+                            .font(BeagleFont.footnote.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .textSelection(.enabled)
+                            .lineSpacing(2)
+                            .italic()
+                    }
+                    .padding(.top, BeagleSpacing.xxs)
+                    .transition(.push(from: .bottom).combined(with: .opacity))
+                }
+
                 // Persistence confirmation
                 HStack(spacing: BeagleSpacing.sm) {
                     if refinedPersisted {
@@ -398,16 +451,39 @@ struct ThoughtCaptureView: View {
                             .padding(.top, 8)
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(thoughtText.isEmpty ? "—" : thoughtText)
+                            Text(thoughtText.isEmpty ? "---" : thoughtText)
                                 .font(BeagleFont.footnote.font)
                                 .foregroundStyle(BeagleTheme.textPrimary)
                                 .lineLimit(3)
+
+                            // Bilingual: show English translation if available
+                            if let translated = thought.translatedText ?? TranslationEngine.shared.translation(for: thought.id) {
+                                HStack(spacing: BeagleSpacing.xxs) {
+                                    Image(systemName: "globe")
+                                        .font(.system(size: 9))
+                                        .foregroundStyle(BeagleTheme.truthRemembered)
+                                    Text(translated)
+                                        .font(BeagleFont.caption.font)
+                                        .foregroundStyle(BeagleTheme.textSecondary)
+                                        .lineLimit(2)
+                                        .italic()
+                                }
+                            }
+
                             HStack(spacing: BeagleSpacing.xs) {
                                 PresencePill(
                                     label: thought.effectiveSyncState.label,
                                     systemImage: thought.effectiveSyncState.systemImage,
                                     tint: tint(for: thought.effectiveSyncState)
                                 )
+                                // Language badge for bilingual thoughts
+                                if let lang = thought.originalLanguage, TranslationEngine.isPortugueseCode(lang) {
+                                    PresencePill(
+                                        label: "PT \u{2192} EN",
+                                        systemImage: "globe",
+                                        tint: BeagleTheme.truthRemembered
+                                    )
+                                }
                                 if let source = sourceLabel(for: thought.source) {
                                     Text(source)
                                         .font(BeagleFont.dataSmall.font)
@@ -432,12 +508,24 @@ struct ThoughtCaptureView: View {
                             GoDeepContextAction(prompt: thoughtText)
                         }
 
+                        // Copy original
                         Button {
                             #if os(iOS)
                             UIPasteboard.general.string = thoughtText
                             #endif
                         } label: {
                             Label("Copy", systemImage: "doc.on.doc")
+                        }
+
+                        // Copy translation if available
+                        if let translated = thought.translatedText ?? TranslationEngine.shared.translation(for: thought.id) {
+                            Button {
+                                #if os(iOS)
+                                UIPasteboard.general.string = translated
+                                #endif
+                            } label: {
+                                Label("Copy English", systemImage: "globe")
+                            }
                         }
                     }
                 }
@@ -452,11 +540,15 @@ struct ThoughtCaptureView: View {
         guard !text.isEmpty else { return }
 
         refinedPersisted = false
+        lastTranslation = nil
         let thought = await cognitive.captureThought(text: text, source: "ios-\(captureMode.rawValue)")
         withAnimation(BeagleMotion.slow) {
             lastRefined = thought?.refinedText ?? thought?.rawText
         }
         inputText = ""
+
+        // Trigger bilingual translation if Portuguese thought was enqueued
+        TranslationEngine.shared.triggerPendingTranslations()
     }
 
     private func pasteFromClipboard() {

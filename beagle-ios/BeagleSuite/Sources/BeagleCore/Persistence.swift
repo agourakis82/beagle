@@ -26,6 +26,10 @@ public final class PersistedThought {
     public var capturedAt: Date
     public var syncedToServer: Bool
     public var nodeId: String?
+    /// English translation if the original thought was in Portuguese.
+    public var translatedText: String?
+    /// Detected language code (BCP-47), e.g. "pt", "en".
+    public var originalLanguage: String?
 
     public init(rawText: String, refinedText: String? = nil, source: String = "ios", capturedAt: Date = .now) {
         self.rawText = rawText

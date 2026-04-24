@@ -31,8 +31,12 @@ public final class SemanticSearchEngine {
     public func index(thoughts: [ThoughtCapture]) {
         guard embedding != nil else { return }
         thoughtVectors = thoughts.compactMap { t in
-            let text = t.refinedText ?? t.rawText ?? ""
+            var text = t.refinedText ?? t.rawText ?? ""
             guard !text.isEmpty else { return nil }
+            // Include English translation in the indexed text for bilingual search
+            if let translated = t.translatedText {
+                text += " " + translated
+            }
             return (text: text, thought: t)
         }
     }
@@ -59,7 +63,8 @@ public final class SemanticSearchEngine {
         let q = query.lowercased()
         return thoughts.filter { t in
             let text = (t.refinedText ?? t.rawText ?? "").lowercased()
-            return text.contains(q)
+            let translated = (t.translatedText ?? "").lowercased()
+            return text.contains(q) || translated.contains(q)
         }
         .prefix(limit)
         .map { $0 }
