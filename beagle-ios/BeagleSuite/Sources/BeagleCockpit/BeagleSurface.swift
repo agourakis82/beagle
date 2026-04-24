@@ -37,6 +37,7 @@ struct BeagleSurface: View {
     @State private var showAgentPanel = false
     @State private var showReadiness = false
     @State private var terminal = TerminalStore()
+    @State private var terminalInputText = ""
     @State private var conversation = ConversationStore(preferLocal: false)
     @State private var deepStore = GoDeepStore()
     @State private var lastCapture: ThoughtCapture?
@@ -224,11 +225,29 @@ struct BeagleSurface: View {
                     GoDeepView(store: deepStore, prompt: inputText)
 
                 case .terminal:
-                    TerminalContentView(
-                        terminal: terminal,
-                        onReconnect: nil
-                    )
-                    .frame(minHeight: 300)
+                    VStack(spacing: 0) {
+                        TerminalContentView(
+                            terminal: terminal,
+                            onReconnect: {
+                                terminal.connectTerminal(slug: activeSlug)
+                            }
+                        )
+                        .frame(minHeight: 400)
+
+                        // Terminal input bar
+                        BeagleInputBar(
+                            text: $terminalInputText,
+                            placeholder: "> command",
+                            mode: .terminal,
+                            isEnabled: terminal.connectionState.isConnected,
+                            onSubmit: { text in
+                                terminal.sendInput(text + "\n")
+                            },
+                            onSpecialKey: { key in
+                                terminal.sendInput(key.escapeSequence)
+                            }
+                        )
+                    }
 
                 case .results:
                     resultsView
@@ -448,9 +467,9 @@ struct BeagleSurface: View {
 
         // Quick escape hatches — explicit commands that don't need AI
         let lower = capturedText.lowercased()
-        if lower == "terminal" || lower == "shell" {
+        if lower == "terminal" || lower == "shell" || lower == "tmux" {
             withAnimation(BeagleMotion.snappy) { mode = .terminal }
-            terminal.connect(slug: activeSlug, kind: "claude-code")
+            terminal.connectTerminal(slug: activeSlug)
             isProcessing = false
             return
         }
