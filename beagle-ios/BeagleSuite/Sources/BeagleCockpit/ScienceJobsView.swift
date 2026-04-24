@@ -24,27 +24,25 @@ struct ScienceJobsView: View {
     ]
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
-                    launcherSection
-                    if let success = launchSuccess {
-                        launchSuccessBanner(success)
-                    }
-                    if let error = launchError {
-                        launchErrorBanner(error)
-                    }
-                    runningSection
-                    completedSection
+        ScrollView {
+            VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
+                launcherSection
+                if let success = launchSuccess {
+                    launchSuccessBanner(success)
                 }
-                .padding(.horizontal, BeagleSpacing.lg)
-                .padding(.top, BeagleSpacing.md)
+                if let error = launchError {
+                    launchErrorBanner(error)
+                }
+                runningSection
+                completedSection
             }
-            .background { ScienceJobsGradient(hasRunning: cognitive.activeJobs.contains(where: \.isRunning)) }
-            .navigationTitle("Science")
-            .task {
-                await cognitive.pollActiveJobs()
-            }
+            .padding(.horizontal, BeagleSpacing.lg)
+            .padding(.top, BeagleSpacing.md)
+        }
+        .background { ScienceJobsGradient(hasRunning: cognitive.activeJobs.contains(where: \.isRunning)) }
+        .navigationTitle("Science")
+        .task {
+            await cognitive.pollActiveJobs()
         }
     }
 

@@ -19,6 +19,7 @@ public final class LiveActivityManager {
 
     private var agentActivity: Activity<AgentSessionAttributes>?
     private var researchActivity: Activity<ResearchRunAttributes>?
+    private var cognitiveActivity: Activity<CognitiveActivityAttributes>?
 
     // MARK: - Agent Session
 
@@ -117,6 +118,80 @@ public final class LiveActivityManager {
         Task { await unsafeAct.end(content, dismissalPolicy: .after(.now + 300)) }
         researchActivity = nil
     }
+
+    // MARK: - Cognitive State (HRV + Agent Posture)
+
+    public func startCognitiveActivity(
+        posture: CognitivePosture,
+        agentCount: Int,
+        jobCount: Int
+    ) {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+
+        // End any existing cognitive activity before starting a new one
+        if cognitiveActivity != nil {
+            endCognitiveActivity()
+        }
+
+        let attributes = CognitiveActivityAttributes()
+        let initialState = CognitiveActivityAttributes.ContentState(
+            readiness: posture.readiness,
+            intensity: posture.suggestedIntensity.rawValue,
+            hrvMs: posture.hrv,
+            agentCount: agentCount,
+            activeJobCount: jobCount,
+            lastThoughtSnippet: nil
+        )
+
+        do {
+            cognitiveActivity = try Activity.request(
+                attributes: attributes,
+                content: .init(state: initialState, staleDate: Date.now.addingTimeInterval(600))
+            )
+        } catch {
+            print("[LiveActivity] cognitive start failed: \(error)")
+        }
+    }
+
+    public func updateCognitiveActivity(
+        posture: CognitivePosture,
+        agentCount: Int,
+        jobCount: Int,
+        lastThought: String? = nil
+    ) {
+        guard let act = cognitiveActivity else { return }
+        let newState = CognitiveActivityAttributes.ContentState(
+            readiness: posture.readiness,
+            intensity: posture.suggestedIntensity.rawValue,
+            hrvMs: posture.hrv,
+            agentCount: agentCount,
+            activeJobCount: jobCount,
+            lastThoughtSnippet: lastThought.map { String($0.suffix(100)) }
+        )
+        let content = ActivityContent(state: newState, staleDate: Date.now.addingTimeInterval(600))
+        nonisolated(unsafe) let unsafeAct = act
+        Task { await unsafeAct.update(content) }
+    }
+
+    public func endCognitiveActivity() {
+        guard let act = cognitiveActivity else { return }
+        let finalState = CognitiveActivityAttributes.ContentState(
+            readiness: nil,
+            intensity: "normal",
+            hrvMs: nil,
+            agentCount: 0,
+            activeJobCount: 0,
+            lastThoughtSnippet: nil
+        )
+        let content = ActivityContent(state: finalState, staleDate: nil)
+        nonisolated(unsafe) let unsafeAct = act
+        Task { await unsafeAct.end(content, dismissalPolicy: .after(.now + 120)) }
+        cognitiveActivity = nil
+    }
+
+    public var isCognitiveActivityRunning: Bool {
+        cognitiveActivity != nil
+    }
 }
 
 #else
@@ -127,5 +202,12 @@ public final class LiveActivityManager {
     public func startAgentActivity(slug: String, kind: String, sessionId: String) {}
     public func updateAgentActivity(status: String, tokens: Int, snippet: String) {}
     public func endAgentActivity(finalStatus: String) {}
+    public func startResearchActivity(runId: String, campaign: String, slug: String) {}
+    public func updateResearchActivity(step: Int, total: Int, eta: Int) {}
+    public func endResearchActivity() {}
+    public func startCognitiveActivity(posture: CognitivePosture, agentCount: Int, jobCount: Int) {}
+    public func updateCognitiveActivity(posture: CognitivePosture, agentCount: Int, jobCount: Int, lastThought: String? = nil) {}
+    public func endCognitiveActivity() {}
+    public var isCognitiveActivityRunning: Bool { false }
 }
 #endif

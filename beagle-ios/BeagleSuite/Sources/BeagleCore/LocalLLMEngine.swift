@@ -359,6 +359,24 @@ public final class LocalLLMEngine {
 
     public static let shared = LocalLLMEngine()
 
+    private static var supportsLocalRuntime: Bool {
+        #if canImport(MLXLLM) && !targetEnvironment(simulator)
+        return true
+        #else
+        return false
+        #endif
+    }
+    
+    #if canImport(MLXLLM)
+    private static let defaultInstructions = """
+    You are an exocortex — an extension of a researcher's mind working on \
+    sovereign supercomputing, PBPK pharmacokinetics, heliobiology, and \
+    computational neuroscience. Think deeply. Make cross-domain connections. \
+    Challenge assumptions. Be intellectually provocative.
+    """
+    private static let defaultGenerateParameters = GenerateParameters(maxTokens: 2048, temperature: 0.7)
+    #endif
+
     public private(set) var loadState: LoadState = .idle
     public private(set) var currentModel: OnDeviceModel? {
         didSet {
@@ -387,27 +405,38 @@ public final class LocalLLMEngine {
 
     public var isReady: Bool { loadState == .ready }
     public var isAvailable: Bool {
-        #if canImport(MLXLLM)
-        return true
-        #else
-        return false
-        #endif
+        Self.supportsLocalRuntime
     }
 
     #if canImport(MLXLLM)
     private var modelContainer: ModelContainer?
-    nonisolated(unsafe) private var chatSession: ChatSession?
+    private var chatSession: ChatSession?
     #endif
 
     private init() {
-        #if canImport(MLXLLM)
+        #if canImport(MLXLLM) && !targetEnvironment(simulator)
         Memory.cacheLimit = 20 * 1024 * 1024
         #endif
     }
+    
+    #if canImport(MLXLLM)
+    private func makeChatSession(with container: ModelContainer) -> ChatSession {
+        ChatSession(
+            container,
+            instructions: Self.defaultInstructions,
+            generateParameters: Self.defaultGenerateParameters
+        )
+    }
+    #endif
 
     // MARK: - Load
 
     public func load(_ model: OnDeviceModel) async {
+        guard Self.supportsLocalRuntime else {
+            loadState = .error("On-device models are unavailable in the simulator")
+            return
+        }
+
         #if canImport(MLXLLM)
         guard loadState != .loading else { return }
 
@@ -437,16 +466,7 @@ public final class LocalLLMEngine {
             }
 
             modelContainer = container
-            chatSession = ChatSession(
-                container,
-                instructions: """
-                You are an exocortex — an extension of a researcher's mind working on \
-                sovereign supercomputing, PBPK pharmacokinetics, heliobiology, and \
-                computational neuroscience. Think deeply. Make cross-domain connections. \
-                Challenge assumptions. Be intellectually provocative.
-                """,
-                generateParameters: GenerateParameters(maxTokens: 2048, temperature: 0.7)
-            )
+            chatSession = makeChatSession(with: container)
             loadState = .ready
         } catch {
             loadState = .error(error.localizedDescription)
@@ -457,7 +477,7 @@ public final class LocalLLMEngine {
     }
 
     public func unload() {
-        #if canImport(MLXLLM)
+        #if canImport(MLXLLM) && !targetEnvironment(simulator)
         chatSession = nil
         modelContainer = nil
         Memory.clearCache()
@@ -470,7 +490,11 @@ public final class LocalLLMEngine {
     // MARK: - Generate (streaming)
 
     public func generate(prompt: String) -> AsyncThrowingStream<String, Error> {
-        #if canImport(MLXLLM) && canImport(MLXLLM)
+        guard Self.supportsLocalRuntime else {
+            return AsyncThrowingStream { $0.finish(throwing: LocalLLMError.platformNotSupported) }
+        }
+
+        #if canImport(MLXLLM)
         guard let session = chatSession else {
             return AsyncThrowingStream { $0.finish(throwing: LocalLLMError.modelNotLoaded) }
         }
@@ -518,7 +542,9 @@ public final class LocalLLMEngine {
     /// Clear conversation history but keep model loaded.
     public func clearHistory() async {
         #if canImport(MLXLLM)
-        await chatSession?.clear()
+        if let container = modelContainer {
+            chatSession = makeChatSession(with: container)
+        }
         #endif
     }
 }
@@ -540,8 +566,6 @@ public enum LocalLLMError: LocalizedError {
 // MARK: - HuggingFace Downloader + TokenizerLoader
 
 #if canImport(MLXLLM)
-import Hub
-import Tokenizers
 
 /// Downloads model snapshots from HuggingFace Hub.
 struct HubApiDownloader: Downloader, Sendable {

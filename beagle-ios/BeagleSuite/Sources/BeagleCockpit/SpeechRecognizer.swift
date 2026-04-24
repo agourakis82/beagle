@@ -2,28 +2,21 @@
 //  SpeechRecognizer.swift
 //  BeagleCockpit
 //
-//  On-device speech-to-text using WhisperKit (OpenAI Whisper on Neural Engine).
+//  On-device speech-to-text using Apple SpeechAnalyzer (iOS 26+).
 //  Two modes:
 //    1. Manual: tap to record, tap to stop (thought capture)
 //    2. Ambient: continuous background listening, auto-captures insights
+//
+//  Primary path: SpeechAnalyzer + SpeechTranscriber (iOS 26 Neural Engine).
+//  Fallback path: SFSpeechRecognizer (if SpeechAnalyzer assets unavailable).
 //
 //  All processing on-device. Zero cloud dependency.
 //
 
 import SwiftUI
 import BeagleCore
-
-#if canImport(WhisperKit) && os(iOS)
-@preconcurrency import WhisperKit
-#endif
-
-#if canImport(AVFoundation) && os(iOS)
-import AVFoundation
-#endif
-
-#if canImport(Speech) && os(iOS)
 import Speech
-#endif
+import AVFoundation
 
 @Observable
 @MainActor
@@ -44,32 +37,38 @@ final class SpeechRecognizer {
 
     // MARK: - Private state
 
-    #if canImport(WhisperKit) && os(iOS)
-    nonisolated(unsafe) private var whisperKit: WhisperKit?
-    #endif
-
-    #if canImport(AVFoundation) && os(iOS)
     private var audioEngine: AVAudioEngine?
-    #endif
-
     private var ambientTask: Task<Void, Never>?
+    private var recordingTask: Task<Void, Never>?
+    private var analyzerInputContinuation: AsyncStream<AnalyzerInput>.Continuation?
+    private var useLegacyRecognizer: Bool = false
 
     // MARK: - Setup
 
     func setup() async {
-        #if canImport(WhisperKit) && os(iOS)
+        // Check if SpeechAnalyzer transcription assets are available
         do {
-            whisperKit = try await WhisperKit(
-                model: "openai_whisper-tiny",
-                downloadBase: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
-                verbose: false
-            )
+            guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current) else {
+                // Current locale not supported by SpeechAnalyzer — fall back
+                useLegacyRecognizer = true
+                isWhisperReady = true
+                return
+            }
+
+            let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults], attributeOptions: [.audioTimeRange])
+
+            // Ensure on-device assets are installed
+            if let installationRequest = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+                try await installationRequest.downloadAndInstall()
+            }
+
+            useLegacyRecognizer = false
             isWhisperReady = true
         } catch {
-            self.error = "Whisper setup failed: \(error.localizedDescription)"
-            isWhisperReady = false
+            // Asset download failed — fall back to SFSpeechRecognizer
+            useLegacyRecognizer = true
+            isWhisperReady = true
         }
-        #endif
     }
 
     // MARK: - Manual recording (tap to start/stop)
@@ -77,37 +76,23 @@ final class SpeechRecognizer {
     func startRecording() async {
         error = nil
         transcript = ""
-        await startAudioEngine()
 
-        #if canImport(AVFoundation) && os(iOS)
-        guard isRecording else { return }
-
-        let bufferRef = UnsafeMutablePointer<[Float]>.allocate(capacity: 1)
-        bufferRef.initialize(to: [])
-
-        audioEngine?.inputNode.installTap(onBus: 0, bufferSize: 4096, format: audioEngine!.inputNode.outputFormat(forBus: 0)) { buffer, _ in
-            let channelData = buffer.floatChannelData?[0]
-            let frameLength = Int(buffer.frameLength)
-            if let channelData, frameLength > 0 {
-                bufferRef.pointee.append(contentsOf: Array(UnsafeBufferPointer(start: channelData, count: frameLength)))
-            }
+        if useLegacyRecognizer {
+            await startRecordingLegacy()
+        } else {
+            await startRecordingAnalyzer()
         }
-
-        Task {
-            while isRecording {
-                try? await Task.sleep(for: .seconds(2))
-                guard isRecording else { break }
-                let samples = bufferRef.pointee
-                if !samples.isEmpty {
-                    await transcribeAndUpdate(samples)
-                }
-            }
-            bufferRef.deallocate()
-        }
-        #endif
     }
 
     func stopRecording() {
+        // Signal the analyzer input stream to finish
+        analyzerInputContinuation?.finish()
+        analyzerInputContinuation = nil
+
+        // Cancel the recording task
+        recordingTask?.cancel()
+        recordingTask = nil
+
         stopAudioEngine()
     }
 
@@ -126,11 +111,283 @@ final class SpeechRecognizer {
         guard !isAmbientActive else { return }
         error = nil
 
+        if useLegacyRecognizer {
+            await startAmbientLegacy()
+        } else {
+            await startAmbientAnalyzer()
+        }
+    }
+
+    func stopAmbient() {
+        analyzerInputContinuation?.finish()
+        analyzerInputContinuation = nil
+        ambientTask?.cancel()
+        ambientTask = nil
+        isAmbientActive = false
+        stopAudioEngine()
+    }
+
+    /// Consume and clear captured fragments (called by CognitiveStore).
+    func consumeFragments() -> [AmbientFragment] {
+        let fragments = ambientFragments
+        ambientFragments.removeAll()
+        return fragments
+    }
+
+    // MARK: - SpeechAnalyzer path (iOS 26+)
+
+    private func startRecordingAnalyzer() async {
         #if canImport(AVFoundation) && os(iOS)
-        // Configure for background audio
+        await startAudioEngine()
+        guard isRecording, let audioEngine else { return }
+
+        guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current) else {
+            error = "Speech language not supported"
+            stopAudioEngine()
+            return
+        }
+
+        let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults], attributeOptions: [.audioTimeRange])
+
+        guard let audioFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+            error = "Could not determine audio format"
+            stopAudioEngine()
+            return
+        }
+
+        let (inputStream, continuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
+        self.analyzerInputContinuation = continuation
+
+        let analyzer = SpeechAnalyzer(modules: [transcriber])
+        let inputNode = audioEngine.inputNode
+        let hardwareFormat = inputNode.outputFormat(forBus: 0)
+
+        // Install converter if needed
+        let converter = AVAudioConverter(from: hardwareFormat, to: audioFormat)
+
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) { [weak self] buffer, _ in
+            guard self != nil else { return }
+
+            if let converter {
+                let frameCount = AVAudioFrameCount(
+                    Double(buffer.frameLength) * audioFormat.sampleRate / hardwareFormat.sampleRate
+                )
+                guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: frameCount) else { return }
+
+                var outError: NSError?
+                converter.convert(to: convertedBuffer, error: &outError) { _, outStatus in
+                    outStatus.pointee = .haveData
+                    return buffer
+                }
+
+                if outError == nil {
+                    let input = AnalyzerInput(buffer: convertedBuffer)
+                    continuation.yield(input)
+                }
+            } else {
+                // Formats already match
+                let input = AnalyzerInput(buffer: buffer)
+                continuation.yield(input)
+            }
+        }
+
+        // Process results in background
+        recordingTask = Task { [weak self] in
+            // Stream transcription results
+            let resultsTask = Task {
+                do {
+                    for try await result in transcriber.results {
+                        let text = String(result.text.characters)
+                        await MainActor.run { [weak self] in
+                            if !text.isEmpty {
+                                self?.transcript = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                            }
+                        }
+                    }
+                } catch {
+                    await MainActor.run { [weak self] in
+                        self?.error = "Transcription error: \(error.localizedDescription)"
+                    }
+                }
+            }
+
+            // Feed audio to the analyzer
+            do {
+                let lastSampleTime = try await analyzer.analyzeSequence(inputStream)
+                if let lastSampleTime {
+                    try await analyzer.finalizeAndFinish(through: lastSampleTime)
+                } else {
+                    await analyzer.cancelAndFinishNow()
+                }
+            } catch {
+                // Analysis cancelled or failed — not necessarily an error
+                if !Task.isCancelled {
+                    await MainActor.run { [weak self] in
+                        self?.error = "Analysis error: \(error.localizedDescription)"
+                    }
+                }
+            }
+
+            resultsTask.cancel()
+        }
+        #endif
+    }
+
+    private func startAmbientAnalyzer() async {
+        #if canImport(AVFoundation) && os(iOS)
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetooth])
+            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetoothHFP])
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            self.error = "Audio session error: \(error.localizedDescription)"
+            return
+        }
+
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+
+        guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current) else {
+            self.error = "Speech language not supported for ambient"
+            return
+        }
+
+        let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [.volatileResults], attributeOptions: [.audioTimeRange])
+
+        guard let audioFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+            self.error = "Could not determine audio format for ambient"
+            return
+        }
+
+        let (inputStream, continuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
+        self.analyzerInputContinuation = continuation
+
+        let analyzer = SpeechAnalyzer(modules: [transcriber])
+        let hardwareFormat = inputNode.outputFormat(forBus: 0)
+        let converter = AVAudioConverter(from: hardwareFormat, to: audioFormat)
+
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) { buffer, _ in
+            if let converter {
+                let frameCount = AVAudioFrameCount(
+                    Double(buffer.frameLength) * audioFormat.sampleRate / hardwareFormat.sampleRate
+                )
+                guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: frameCount) else { return }
+
+                var outError: NSError?
+                converter.convert(to: convertedBuffer, error: &outError) { _, outStatus in
+                    outStatus.pointee = .haveData
+                    return buffer
+                }
+
+                if outError == nil {
+                    continuation.yield(AnalyzerInput(buffer: convertedBuffer))
+                }
+            } else {
+                continuation.yield(AnalyzerInput(buffer: buffer))
+            }
+        }
+
+        do {
+            engine.prepare()
+            try engine.start()
+        } catch {
+            self.error = "Could not start ambient audio: \(error.localizedDescription)"
+            continuation.finish()
+            return
+        }
+
+        self.audioEngine = engine
+        self.isAmbientActive = true
+
+        ambientTask = Task { [weak self] in
+            // Track last captured text to detect new content
+            var lastCapturedText = ""
+
+            // Stream transcription results continuously
+            let resultsTask = Task {
+                do {
+                    for try await result in transcriber.results {
+                        let text = String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+
+                        guard !text.isEmpty, text != lastCapturedText, text.count > 10 else { continue }
+
+                        lastCapturedText = text
+                        let fragment = AmbientFragment(text: text, timestamp: Date())
+
+                        await MainActor.run { [weak self] in
+                            self?.ambientFragments.append(fragment)
+
+                            // Keep last 50 fragments
+                            if let count = self?.ambientFragments.count, count > 50 {
+                                self?.ambientFragments.removeFirst(count - 50)
+                            }
+                        }
+                    }
+                } catch {
+                    await MainActor.run { [weak self] in
+                        if self?.isAmbientActive == true {
+                            self?.error = "Ambient transcription error: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            }
+
+            // Feed audio to analyzer (blocks until stream finishes)
+            do {
+                let lastSampleTime = try await analyzer.analyzeSequence(inputStream)
+                if let lastSampleTime {
+                    try await analyzer.finalizeAndFinish(through: lastSampleTime)
+                } else {
+                    await analyzer.cancelAndFinishNow()
+                }
+            } catch {
+                // Cancelled — expected on stopAmbient()
+            }
+
+            resultsTask.cancel()
+        }
+        #else
+        error = "Ambient capture requires iOS"
+        #endif
+    }
+
+    // MARK: - Legacy SFSpeechRecognizer path (fallback)
+
+    private func startRecordingLegacy() async {
+        #if canImport(AVFoundation) && os(iOS)
+        await startAudioEngine()
+        guard isRecording else { return }
+
+        let bufferRef = UnsafeMutablePointer<[Float]>.allocate(capacity: 1)
+        bufferRef.initialize(to: [])
+
+        audioEngine?.inputNode.installTap(onBus: 0, bufferSize: 4096, format: audioEngine!.inputNode.outputFormat(forBus: 0)) { buffer, _ in
+            let channelData = buffer.floatChannelData?[0]
+            let frameLength = Int(buffer.frameLength)
+            if let channelData, frameLength > 0 {
+                bufferRef.pointee.append(contentsOf: Array(UnsafeBufferPointer(start: channelData, count: frameLength)))
+            }
+        }
+
+        recordingTask = Task {
+            while isRecording {
+                try? await Task.sleep(for: .seconds(2))
+                guard isRecording else { break }
+                let samples = bufferRef.pointee
+                if !samples.isEmpty {
+                    await transcribeAndUpdateLegacy(samples)
+                }
+            }
+            bufferRef.deallocate()
+        }
+        #endif
+    }
+
+    private func startAmbientLegacy() async {
+        #if canImport(AVFoundation) && os(iOS)
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetoothHFP])
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             self.error = "Audio session error: \(error.localizedDescription)"
@@ -141,7 +398,6 @@ final class SpeechRecognizer {
         let inputNode = engine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
-        // Sliding window: accumulate 30s chunks, transcribe, slide
         let chunkDuration: TimeInterval = 30
         let sampleRate = recordingFormat.sampleRate
         let chunkSamples = Int(sampleRate * chunkDuration)
@@ -154,7 +410,6 @@ final class SpeechRecognizer {
             let frameLength = Int(buffer.frameLength)
             if let channelData, frameLength > 0 {
                 bufferRef.pointee.append(contentsOf: Array(UnsafeBufferPointer(start: channelData, count: frameLength)))
-                // Keep only last 60s of audio (2 chunks)
                 if bufferRef.pointee.count > chunkSamples * 2 {
                     bufferRef.pointee.removeFirst(bufferRef.pointee.count - chunkSamples * 2)
                 }
@@ -173,7 +428,6 @@ final class SpeechRecognizer {
         self.audioEngine = engine
         self.isAmbientActive = true
 
-        // Background transcription loop
         ambientTask = Task {
             var lastTranscript = ""
 
@@ -182,15 +436,12 @@ final class SpeechRecognizer {
                 guard isAmbientActive else { break }
 
                 let samples = bufferRef.pointee
-                guard samples.count > Int(sampleRate * 2) else { continue } // at least 2s of audio
+                guard samples.count > Int(sampleRate * 2) else { continue }
 
-                // Transcribe the chunk
-                let text = await transcribeRaw(Array(samples.suffix(chunkSamples)))
+                let text = await transcribeRawLegacy(Array(samples.suffix(chunkSamples)))
 
-                // Only capture if there's meaningful new content
                 if let text, !text.isEmpty, text != lastTranscript {
                     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    // Filter out silence/noise (very short fragments or repeated)
                     if trimmed.count > 10 {
                         let fragment = AmbientFragment(
                             text: trimmed,
@@ -198,7 +449,6 @@ final class SpeechRecognizer {
                         )
                         ambientFragments.append(fragment)
 
-                        // Keep last 50 fragments
                         if ambientFragments.count > 50 {
                             ambientFragments.removeFirst(ambientFragments.count - 50)
                         }
@@ -212,20 +462,6 @@ final class SpeechRecognizer {
         #else
         error = "Ambient capture requires iOS"
         #endif
-    }
-
-    func stopAmbient() {
-        ambientTask?.cancel()
-        ambientTask = nil
-        isAmbientActive = false
-        stopAudioEngine()
-    }
-
-    /// Consume and clear captured fragments (called by CognitiveStore).
-    func consumeFragments() -> [AmbientFragment] {
-        let fragments = ambientFragments
-        ambientFragments.removeAll()
-        return fragments
     }
 
     // MARK: - Private: audio engine
@@ -261,28 +497,75 @@ final class SpeechRecognizer {
         isRecording = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
+    #else
+    private func startAudioEngine() async {
+        error = "Speech capture requires iOS"
+    }
+
+    private func stopAudioEngine() {
+        isRecording = false
+    }
     #endif
 
-    // MARK: - Private: transcription
+    // MARK: - Private: legacy transcription (SFSpeechRecognizer)
 
-    private func transcribeAndUpdate(_ samples: [Float]) async {
-        if let text = await transcribeRaw(samples), !text.isEmpty {
+    private func transcribeAndUpdateLegacy(_ samples: [Float]) async {
+        if let text = await transcribeRawLegacy(samples), !text.isEmpty {
             transcript = text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 
-    private func transcribeRaw(_ samples: [Float]) async -> String? {
-        #if canImport(WhisperKit) && os(iOS)
-        guard let whisper = whisperKit else { return nil }
-        do {
-            let results = try await whisper.transcribe(audioArray: samples)
-            return results.first?.text
-        } catch {
+    private func transcribeRawLegacy(_ samples: [Float]) async -> String? {
+        let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format!, frameCapacity: AVAudioFrameCount(samples.count)) else {
             return nil
         }
-        #else
-        return nil
-        #endif
+
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        let audioData = buffer.floatChannelData![0]
+        audioData.initialize(from: samples, count: samples.count)
+
+        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        guard recognizer?.isAvailable == true else {
+            return nil
+        }
+
+        return await withCheckedContinuation { continuation in
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.shouldReportPartialResults = false
+            request.requiresOnDeviceRecognition = true
+
+            var finalTranscription: String?
+            var didResume = false
+
+            let task = recognizer!.recognitionTask(with: request) { result, error in
+                if didResume { return }
+
+                if error != nil {
+                    didResume = true
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                if let result = result, result.isFinal {
+                    finalTranscription = result.bestTranscription.formattedString
+                    didResume = true
+                    continuation.resume(returning: finalTranscription)
+                }
+            }
+
+            request.append(buffer)
+            request.endAudio()
+
+            Task {
+                try? await Task.sleep(for: .seconds(5))
+                if !didResume {
+                    task.cancel()
+                    didResume = true
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
     }
 }
 

@@ -9,7 +9,7 @@ data:
     //   POST /api/projects/:slug/agent/session/:kind/pause — scale StatefulSet to 0
     //   POST /api/projects/:slug/agent/session/:kind/stop  — delete StatefulSet + PVC
     //   GET  /api/projects/:slug/agent/session/:kind       — session detail
-    //   WS   /ws/projects/:slug/agent/:kind                — stream tmux via kubectl exec
+    //   WS   /ws/projects/:slug/agent/:kind                — stream an interactive shell via kubectl exec
     //
     // Supported kinds: claude-code, codex, local-sglang, custom
     //
@@ -24,6 +24,7 @@ data:
     import { spawn } from "node:child_process";
     import { readFile } from "node:fs/promises";
     import path from "node:path";
+    import pty from "node-pty";
 
     const AGENT_NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
     const AGENT_IMAGE = process.env.PROJECT_COCKPIT_AGENT_IMAGE || "beagle-agent:latest";
@@ -281,7 +282,7 @@ data:
     }
 
     /**
-     * WebSocket handler — stream tmux output from agent pod.
+     * WebSocket handler — stream an interactive shell from the agent pod.
      * @param {import('ws').WebSocketServer} wss
      */
     export function registerAgentWebSocket(wss, { urlPattern = /^\/ws\/projects\/([^/]+)\/agent\/([^/]+)/ } = {}) {
@@ -291,45 +292,53 @@ data:
         const [, slug, kind] = match;
 
         const name = resourceName(slug, kind);
-        const tmuxSession = `agent-${kind}`;
         const podName = `${name}-0`;  // StatefulSet pod 0
+    
+        const shellCommand = 'WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"; cd "$WORKSPACE_DIR" 2>/dev/null || cd /workspace 2>/dev/null || cd "${HOME:-/tmp}"; if command -v bash >/dev/null 2>&1; then export SHELL="$(command -v bash)"; exec "$SHELL" -li; fi; if command -v sh >/dev/null 2>&1; then export SHELL="$(command -v sh)"; exec "$SHELL" -li; fi; echo "no interactive shell available in agent pod"; exit 127';
 
-        // kubectl exec into tmux attach
-        const kubectl = spawn(KUBECTL, [
+        // kubectl exec into the existing pod through a real PTY so kubectl -t works.
+        const kubectl = pty.spawn(KUBECTL, [
           "-n", AGENT_NAMESPACE,
           "exec", "-it", podName,
           "--",
-          "tmux", "attach-session", "-t", tmuxSession
-        ], { stdio: ["pipe", "pipe", "pipe"] });
+          "env",
+          "WORKSPACE_DIR=/workspace",
+          "sh", "-lc", shellCommand
+        ], {
+          name: "xterm-256color",
+          cols: 120,
+          rows: 34,
+          cwd: process.cwd(),
+          env: process.env
+        });
 
         socket.on("message", (data) => {
           try {
             const msg = JSON.parse(data.toString());
-            if (msg.type === "input" && kubectl.stdin.writable) {
-              kubectl.stdin.write(msg.data);
+            if (msg.type === "input") {
+              kubectl.write(msg.data);
             } else if (msg.type === "resize") {
-              // TTY resize — send SIGWINCH or use resize command
-              // (kubectl exec doesn't easily support resize; tmux handles its own)
+              const cols = Number(msg.cols) || 120;
+              const rows = Number(msg.rows) || 34;
+              kubectl.resize(cols, rows);
             }
           } catch {
             // Treat raw data as input
-            if (kubectl.stdin.writable) kubectl.stdin.write(data);
+            kubectl.write(data.toString());
           }
         });
 
-        kubectl.stdout.on("data", (d) => {
-          socket.send(JSON.stringify({ type: "data", data: d.toString() }));
+        kubectl.onData((data) => {
+          socket.send(JSON.stringify({ type: "data", data }));
         });
-        kubectl.stderr.on("data", (d) => {
-          socket.send(JSON.stringify({ type: "stderr", data: d.toString() }));
-        });
-        kubectl.on("close", (code) => {
-          socket.send(JSON.stringify({ type: "exit", code }));
+        kubectl.onExit(({ exitCode, signal }) => {
+          const detail = signal ? `terminal exited (${exitCode}, signal ${signal})` : `terminal exited (${exitCode})`;
+          socket.send(JSON.stringify({ type: "exit", data: detail }));
           socket.close();
         });
 
         socket.on("close", () => {
-          kubectl.kill("SIGTERM");
+          kubectl.kill();
         });
       });
     }
@@ -2775,7 +2784,7 @@ data:
           : `kubectl -n ${namespace} scale statefulset/${workspaceController} --replicas=1
     kubectl -n ${namespace} rollout status statefulset/${workspaceController} --timeout=300s`;
       const attachTmux = project?.tmuxSession
-        ? `kubectl -n ${namespace} exec -it ${workspacePod} -c ${workspaceContainer} -- sh -lc 'exec tmux new-session -A -s ${project.tmuxSession}'`
+        ? `kubectl -n ${namespace} exec -it ${workspacePod} -c ${workspaceContainer} -- sh -lc 'TMUX_SOCKET_DIR="${project.workspaceRoot}/.tmux"; TMUX_SOCKET="${project.workspaceRoot}/.tmux/${project.tmuxSession}.sock"; mkdir -p "$TMUX_SOCKET_DIR"; chmod 700 "$TMUX_SOCKET_DIR"; exec tmux -S "$TMUX_SOCKET" new-session -A -s ${project.tmuxSession}'`
         : `kubectl -n ${namespace} exec -it ${workspacePod} -c ${workspaceContainer} -- sh`;
       const standbyHabitat =
         posture === "always-on"
@@ -10847,7 +10856,7 @@ data:
           publicationCheckpoint,
           continuityTimeline,
           commands: {
-            terminal: `ssh ${project.sshHost}\ntmux new-session -A -s ${project.tmuxSession}`,
+            terminal: `ssh ${project.sshHost}\nexport TMUX_SOCKET_DIR=${project.workspaceRoot}/.tmux\nexport TMUX_SOCKET=$TMUX_SOCKET_DIR/${project.tmuxSession}.sock\nmkdir -p "$TMUX_SOCKET_DIR" && chmod 700 "$TMUX_SOCKET_DIR"\ntmux -S "$TMUX_SOCKET" new-session -A -s ${project.tmuxSession}`,
             workspace: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}`,
             inspectDirty: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}\ngit status --short --branch\ngit diff --stat`,
             context: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}\nsed -n '1,160p' .beagle/context/current-context-packet.json\nsed -n '1,160p' .beagle/context/workspace-hydration.json`,
@@ -11407,7 +11416,7 @@ data:
         }
       });
       const resumeCommands = {
-        terminal: `ssh ${project.sshHost}\ntmux new-session -A -s ${project.tmuxSession}`,
+        terminal: `ssh ${project.sshHost}\nexport TMUX_SOCKET_DIR=${project.workspaceRoot}/.tmux\nexport TMUX_SOCKET=$TMUX_SOCKET_DIR/${project.tmuxSession}.sock\nmkdir -p "$TMUX_SOCKET_DIR" && chmod 700 "$TMUX_SOCKET_DIR"\ntmux -S "$TMUX_SOCKET" new-session -A -s ${project.tmuxSession}`,
         workspace: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}`,
         inspectDirty: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}\ngit status --short --branch\ngit diff --stat`,
         context: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}\nsed -n '1,160p' .beagle/context/current-context-packet.json\nsed -n '1,160p' .beagle/context/workspace-hydration.json`,
@@ -13082,7 +13091,7 @@ data:
       }
 
       const shellCommand =
-        'cd "$WORKSPACE_ROOT" && exec tmux new-session -A -s "$TMUX_SESSION"';
+        'cd "$WORKSPACE_ROOT" && TMUX_SOCKET_DIR="$WORKSPACE_ROOT/.tmux" && TMUX_SOCKET="$TMUX_SOCKET_DIR/$TMUX_SESSION.sock" && mkdir -p "$TMUX_SOCKET_DIR" && chmod 700 "$TMUX_SOCKET_DIR" && exec tmux -S "$TMUX_SOCKET" new-session -A -s "$TMUX_SESSION"';
 
       const proc = pty.spawn(
         "kubectl",

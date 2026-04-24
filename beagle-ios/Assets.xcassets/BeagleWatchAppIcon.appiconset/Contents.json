@@ -1,0 +1,12 @@
+{
+  "images" : [
+    { "filename" : "icon_1024x1024.png", "idiom" : "watch-marketing", "scale" : "1x", "size" : "1024x1024" },
+    { "filename" : "icon_172x172.png", "idiom" : "watch", "role" : "quickLook", "subtype" : "38mm", "scale" : "2x", "size" : "86x86" },
+    { "filename" : "icon_196x196.png", "idiom" : "watch", "role" : "quickLook", "subtype" : "42mm", "scale" : "2x", "size" : "98x98" },
+    { "filename" : "icon_216x216.png", "idiom" : "watch", "role" : "quickLook", "subtype" : "44mm", "scale" : "2x", "size" : "108x108" }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

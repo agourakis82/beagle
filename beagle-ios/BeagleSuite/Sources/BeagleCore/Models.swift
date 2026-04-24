@@ -52,6 +52,217 @@ public struct Project: Codable, Sendable, Identifiable, Hashable {
     }
 }
 
+public struct ProjectLaneState: Sendable, Identifiable {
+    public let project: Project
+    public let sessions: [AgentSession]
+    public let scienceJobs: [ScienceJob]
+    public let laneResult: MobileLaneResultSummary?
+    public let recentTrail: [String]
+    public let truth: TruthMode
+    public let isCurrent: Bool
+    public let livingQuestion: String?
+    public let carriedObjective: String?
+
+    public var id: String { project.projectSlug }
+
+    public init(
+        project: Project,
+        sessions: [AgentSession] = [],
+        scienceJobs: [ScienceJob] = [],
+        laneResult: MobileLaneResultSummary? = nil,
+        recentTrail: [String] = [],
+        truth: TruthMode = .declared,
+        isCurrent: Bool = false,
+        livingQuestion: String? = nil,
+        carriedObjective: String? = nil
+    ) {
+        self.project = project
+        self.sessions = sessions
+        self.scienceJobs = scienceJobs
+        self.laneResult = laneResult
+        self.recentTrail = recentTrail.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        self.truth = truth
+        self.isCurrent = isCurrent
+        self.livingQuestion = livingQuestion?.nilIfBlank
+        self.carriedObjective = carriedObjective?.nilIfBlank
+    }
+
+    public var displayName: String {
+        project.projectSlug
+            .split(separator: "-")
+            .map { $0.capitalized }
+            .joined(separator: " ")
+    }
+
+    public var branchLabel: String {
+        project.branch ?? project.preferredPrBase ?? "branch not declared"
+    }
+
+    public var habitatLabel: String {
+        project.workspacePod ?? "habitat parked"
+    }
+
+    public var runningSessions: [AgentSession] {
+        sessions.filter(\.isRunning)
+    }
+
+    public var pausedSessions: [AgentSession] {
+        sessions.filter { $0.phase == .paused }
+    }
+
+    public var visibleMindCount: Int {
+        sessions.count
+    }
+
+    public var activeMindCount: Int {
+        runningSessions.count
+    }
+
+    public var pausedMindCount: Int {
+        pausedSessions.count
+    }
+
+    public var leadSession: AgentSession? {
+        runningSessions.first ?? pausedSessions.first ?? sessions.first
+    }
+
+    public var leadMindLabel: String? {
+        leadSession?.presentedMindLabel
+    }
+
+    public var leadMindActivity: String? {
+        leadSession?.presentedActivityLine
+    }
+
+    public var currentFocus: String? {
+        carriedObjective?.nilIfBlank
+            ?? leadMindActivity?.nilIfBlank
+            ?? livingQuestion?.nilIfBlank
+    }
+
+    public var countsLine: String {
+        if sessions.isEmpty {
+            return "0 minds visible"
+        }
+        return "\(activeMindCount) live · \(pausedMindCount) paused · \(visibleMindCount) visible"
+    }
+
+    public var runningJobs: [ScienceJob] {
+        scienceJobs.filter(\.isRunning)
+    }
+
+    public var completedJobs: [ScienceJob] {
+        scienceJobs.filter(\.isCompleted)
+    }
+
+    public var failedJobs: [ScienceJob] {
+        scienceJobs.filter(\.isFailed)
+    }
+
+    public var jobLine: String? {
+        guard !scienceJobs.isEmpty else { return nil }
+        var parts: [String] = []
+        if !runningJobs.isEmpty { parts.append("\(runningJobs.count) live jobs") }
+        if !completedJobs.isEmpty { parts.append("\(completedJobs.count) results ready") }
+        if !failedJobs.isEmpty { parts.append("\(failedJobs.count) failed") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    public var resultSignal: String? {
+        if let laneResult {
+            return laneResult.signalLine
+        }
+        if let resultPath = completedJobs.compactMap(\.resultPath).first?.nilIfBlank {
+            return "Latest result at \(resultPath)"
+        }
+        if let recentTrail = recentTrail.first?.nilIfBlank {
+            return recentTrail
+        }
+        return nil
+    }
+
+    public var nextRecommendedMove: String {
+        if let laneResult {
+            return laneResult.recommendedAction?.nilIfBlank
+                ?? "Open what came back from this lane and decide what deserves promotion."
+        }
+        if let runningJob = runningJobs.first?.kind {
+            return "Watch \(runningJob) complete before changing lanes."
+        }
+        if let completedResult = completedJobs.first?.resultPath?.nilIfBlank {
+            return "Inspect the latest result at \(completedResult)."
+        }
+        if let running = leadSession, running.isRunning {
+            return "Re-enter \(running.presentedMindLabel) and keep the lane moving."
+        }
+        if !pausedSessions.isEmpty {
+            return "Recover the paused mind in this lane before starting a new thread."
+        }
+        if project.workspacePod != nil {
+            return "Wake the first mind inside the existing habitat."
+        }
+        return "Wake this lane in Agents, then let Command carry the heavier cluster work."
+    }
+
+    public var postureNarrative: String {
+        if let laneResult {
+            return (laneResult.resultReady ?? false)
+                ? "This lane has already returned work. Beagle should help you interpret it, not make you hunt for it."
+                : "This lane has a result thread forming, but it has not settled into a published return yet."
+        }
+        if let running = leadSession, running.isRunning {
+            return "\(running.presentedMindLabel) is carrying the clearest live thread in this lane right now."
+        }
+        if !pausedSessions.isEmpty {
+            return "This lane still has preserved context waiting for you to re-enter it."
+        }
+        if project.workspacePod != nil {
+            return "Its habitat already exists, even if no mind is actively carrying it yet."
+        }
+        return "This lane is known, but it still needs a living mind and a concrete next move."
+    }
+}
+
+public extension AgentSession {
+    var presentedMindLabel: String {
+        if let kind, !kind.isEmpty {
+            return kind
+                .replacingOccurrences(of: "-", with: " ")
+                .capitalized
+        }
+        if let name, !name.isEmpty {
+            return name
+        }
+        return "Agent"
+    }
+
+    var presentedActivityLine: String {
+        if let summary = activity?.summary?.nilIfBlank {
+            return summary
+        }
+        if let excerpt = activity?.excerpt?.nilIfBlank {
+            return excerpt
+        }
+        if let action, !action.isEmpty {
+            return action
+        }
+        switch phase {
+        case .running:
+            return "\(presentedMindLabel) is live in the habitat."
+        case .paused:
+            return "\(presentedMindLabel) is paused but recoverable."
+        case .pending:
+            return "\(presentedMindLabel) is waiting for readiness."
+        }
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
+    }
+}
+
 // MARK: - Posture Policy
 
 public struct PostureDefinition: Codable, Sendable, Hashable {
@@ -165,6 +376,7 @@ public struct MobileProjectOverview: Decodable, Sendable {
     public let researchOperations: ResearchOperations?
     public let inferenceRuntime: InferenceRuntime?
     public let viewerRuntime: ViewerRuntimeResponse?
+    public let laneResult: MobileLaneResultSummary?
 
     enum CodingKeys: String, CodingKey {
         case project
@@ -180,6 +392,8 @@ public struct MobileProjectOverview: Decodable, Sendable {
         case inference
         case viewerRuntime
         case viewer
+        case laneResult
+        case laneResultSnake = "lane_result"
     }
 
     public init(from decoder: Decoder) throws {
@@ -203,6 +417,9 @@ public struct MobileProjectOverview: Decodable, Sendable {
         viewerRuntime =
             try container.decodeIfPresent(ViewerRuntimeResponse.self, forKey: .viewerRuntime)
             ?? container.decodeIfPresent(ViewerRuntimeResponse.self, forKey: .viewer)
+        laneResult =
+            try container.decodeIfPresent(MobileLaneResultSummary.self, forKey: .laneResult)
+            ?? container.decodeIfPresent(MobileLaneResultSummary.self, forKey: .laneResultSnake)
     }
 }
 
@@ -211,6 +428,7 @@ public struct MobileHomeSummary: Decodable, Sendable {
     public let activeSessionsCount: Int?
     public let clusterHealth: String?
     public let lastMemorySyncTime: String?
+    public let laneResults: [MobileLaneResultSummary]?
 
     enum CodingKeys: String, CodingKey {
         case activeAgentsCount
@@ -221,6 +439,8 @@ public struct MobileHomeSummary: Decodable, Sendable {
         case clusterHealthSnake = "cluster_health"
         case lastMemorySyncTime
         case lastMemorySyncTimeSnake = "last_memory_sync_time"
+        case laneResults
+        case laneResultsSnake = "lane_results"
     }
 
     public init(from decoder: Decoder) throws {
@@ -237,6 +457,225 @@ public struct MobileHomeSummary: Decodable, Sendable {
         lastMemorySyncTime =
             try container.decodeIfPresent(String.self, forKey: .lastMemorySyncTime)
             ?? container.decodeIfPresent(String.self, forKey: .lastMemorySyncTimeSnake)
+        laneResults =
+            try container.decodeIfPresent([MobileLaneResultSummary].self, forKey: .laneResults)
+            ?? container.decodeIfPresent([MobileLaneResultSummary].self, forKey: .laneResultsSnake)
+    }
+}
+
+public struct MobileLaneResultSummary: Codable, Sendable, Identifiable, Hashable {
+    public var id: String { projectSlug }
+
+    public let projectSlug: String
+    public let workstreamId: String?
+    public let lookupJobId: String?
+    public let submittedJobId: String?
+    public let publishedResultJobId: String?
+    public let profileId: String?
+    public let requestedRunLabel: String?
+    public let publishedResultRunLabel: String?
+    public let publicationState: String?
+    public let finalJobState: String?
+    public let manifestKey: String?
+    public let resultManifestObjectKey: String?
+    public let resultLookupScope: String?
+    public let latestResultAt: String?
+    public let resultReady: Bool?
+    public let signalLine: String?
+    public let recommendedAction: String?
+    public let resultRoute: String?
+    public let manifestRoute: String?
+    public let artifactRoute: String?
+    public let stdoutRoute: String?
+    public let via: String?
+
+    public var effectiveRunLabel: String? {
+        publishedResultRunLabel?.nilIfBlank ?? requestedRunLabel?.nilIfBlank
+    }
+
+    public var readyForOpen: Bool {
+        resultReady == true || !(manifestKey?.isEmpty ?? true) || !(resultRoute?.isEmpty ?? true)
+    }
+
+    public var displayStateLabel: String {
+        publicationState?.nilIfBlank
+            ?? finalJobState?.nilIfBlank
+            ?? (readyForOpen ? "RETURNED" : "IN FLIGHT")
+    }
+
+    public var displayHeadline: String {
+        effectiveRunLabel ?? "Published work returned"
+    }
+
+    public var displayNodeLabel: String? {
+        signalLine?
+            .components(separatedBy: " · ")
+            .first(where: { $0.contains("-") && !$0.lowercased().contains("latest returned work") })?
+            .nilIfBlank
+    }
+
+    public var resultAgeLabel: String? {
+        guard let latestResultAt = latestResultAt?.nilIfBlank else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fallback = ISO8601DateFormatter()
+        guard let date = formatter.date(from: latestResultAt) ?? fallback.date(from: latestResultAt) else {
+            return nil
+        }
+        let relative = RelativeDateTimeFormatter()
+        relative.unitsStyle = .abbreviated
+        return relative.localizedString(for: date, relativeTo: .now)
+    }
+
+    public var humanSummary: String {
+        if let signalLine = signalLine?.nilIfBlank {
+            return signalLine
+        }
+        if readyForOpen {
+            return "This lane has returned work ready to inspect."
+        }
+        return "A result thread exists for this lane, but it still needs interpretation."
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case projectSlug
+        case workstreamId
+        case lookupJobId
+        case submittedJobId
+        case publishedResultJobId
+        case profileId
+        case requestedRunLabel
+        case publishedResultRunLabel
+        case publicationState
+        case finalJobState
+        case manifestKey
+        case resultManifestObjectKey
+        case resultLookupScope
+        case latestResultAt
+        case resultReady
+        case signalLine
+        case recommendedAction
+        case resultRoute
+        case manifestRoute
+        case artifactRoute
+        case stdoutRoute
+        case via
+        case projectSlugSnake = "project_slug"
+        case workstreamIdSnake = "workstream_id"
+        case lookupJobIdSnake = "lookup_job_id"
+        case submittedJobIdSnake = "submitted_job_id"
+        case publishedResultJobIdSnake = "published_result_job_id"
+        case profileIdSnake = "profile_id"
+        case requestedRunLabelSnake = "requested_run_label"
+        case publishedResultRunLabelSnake = "published_result_run_label"
+        case publicationStateSnake = "publication_state"
+        case finalJobStateSnake = "final_job_state"
+        case manifestKeySnake = "manifest_key"
+        case resultManifestObjectKeySnake = "result_manifest_object_key"
+        case resultLookupScopeSnake = "result_lookup_scope"
+        case latestResultAtSnake = "latest_result_at"
+        case resultReadySnake = "result_ready"
+        case signalLineSnake = "signal_line"
+        case recommendedActionSnake = "recommended_action"
+        case resultRouteSnake = "result_route"
+        case manifestRouteSnake = "manifest_route"
+        case artifactRouteSnake = "artifact_route"
+        case stdoutRouteSnake = "stdout_route"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        projectSlug =
+            try container.decodeIfPresent(String.self, forKey: .projectSlug)
+            ?? container.decodeIfPresent(String.self, forKey: .projectSlugSnake)
+            ?? "unknown"
+        workstreamId =
+            try container.decodeIfPresent(String.self, forKey: .workstreamId)
+            ?? container.decodeIfPresent(String.self, forKey: .workstreamIdSnake)
+        lookupJobId =
+            try container.decodeIfPresent(String.self, forKey: .lookupJobId)
+            ?? container.decodeIfPresent(String.self, forKey: .lookupJobIdSnake)
+        submittedJobId =
+            try container.decodeIfPresent(String.self, forKey: .submittedJobId)
+            ?? container.decodeIfPresent(String.self, forKey: .submittedJobIdSnake)
+        publishedResultJobId =
+            try container.decodeIfPresent(String.self, forKey: .publishedResultJobId)
+            ?? container.decodeIfPresent(String.self, forKey: .publishedResultJobIdSnake)
+        profileId =
+            try container.decodeIfPresent(String.self, forKey: .profileId)
+            ?? container.decodeIfPresent(String.self, forKey: .profileIdSnake)
+        requestedRunLabel =
+            try container.decodeIfPresent(String.self, forKey: .requestedRunLabel)
+            ?? container.decodeIfPresent(String.self, forKey: .requestedRunLabelSnake)
+        publishedResultRunLabel =
+            try container.decodeIfPresent(String.self, forKey: .publishedResultRunLabel)
+            ?? container.decodeIfPresent(String.self, forKey: .publishedResultRunLabelSnake)
+        publicationState =
+            try container.decodeIfPresent(String.self, forKey: .publicationState)
+            ?? container.decodeIfPresent(String.self, forKey: .publicationStateSnake)
+        finalJobState =
+            try container.decodeIfPresent(String.self, forKey: .finalJobState)
+            ?? container.decodeIfPresent(String.self, forKey: .finalJobStateSnake)
+        manifestKey =
+            try container.decodeIfPresent(String.self, forKey: .manifestKey)
+            ?? container.decodeIfPresent(String.self, forKey: .manifestKeySnake)
+        resultManifestObjectKey =
+            try container.decodeIfPresent(String.self, forKey: .resultManifestObjectKey)
+            ?? container.decodeIfPresent(String.self, forKey: .resultManifestObjectKeySnake)
+        resultLookupScope =
+            try container.decodeIfPresent(String.self, forKey: .resultLookupScope)
+            ?? container.decodeIfPresent(String.self, forKey: .resultLookupScopeSnake)
+        latestResultAt =
+            try container.decodeIfPresent(String.self, forKey: .latestResultAt)
+            ?? container.decodeIfPresent(String.self, forKey: .latestResultAtSnake)
+        resultReady =
+            try container.decodeIfPresent(Bool.self, forKey: .resultReady)
+            ?? container.decodeIfPresent(Bool.self, forKey: .resultReadySnake)
+        signalLine =
+            try container.decodeIfPresent(String.self, forKey: .signalLine)
+            ?? container.decodeIfPresent(String.self, forKey: .signalLineSnake)
+        recommendedAction =
+            try container.decodeIfPresent(String.self, forKey: .recommendedAction)
+            ?? container.decodeIfPresent(String.self, forKey: .recommendedActionSnake)
+        resultRoute =
+            try container.decodeIfPresent(String.self, forKey: .resultRoute)
+            ?? container.decodeIfPresent(String.self, forKey: .resultRouteSnake)
+        manifestRoute =
+            try container.decodeIfPresent(String.self, forKey: .manifestRoute)
+            ?? container.decodeIfPresent(String.self, forKey: .manifestRouteSnake)
+        artifactRoute =
+            try container.decodeIfPresent(String.self, forKey: .artifactRoute)
+            ?? container.decodeIfPresent(String.self, forKey: .artifactRouteSnake)
+        stdoutRoute =
+            try container.decodeIfPresent(String.self, forKey: .stdoutRoute)
+            ?? container.decodeIfPresent(String.self, forKey: .stdoutRouteSnake)
+        via = try container.decodeIfPresent(String.self, forKey: .via)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(projectSlug, forKey: .projectSlug)
+        try container.encodeIfPresent(workstreamId, forKey: .workstreamId)
+        try container.encodeIfPresent(lookupJobId, forKey: .lookupJobId)
+        try container.encodeIfPresent(submittedJobId, forKey: .submittedJobId)
+        try container.encodeIfPresent(publishedResultJobId, forKey: .publishedResultJobId)
+        try container.encodeIfPresent(profileId, forKey: .profileId)
+        try container.encodeIfPresent(requestedRunLabel, forKey: .requestedRunLabel)
+        try container.encodeIfPresent(publishedResultRunLabel, forKey: .publishedResultRunLabel)
+        try container.encodeIfPresent(publicationState, forKey: .publicationState)
+        try container.encodeIfPresent(finalJobState, forKey: .finalJobState)
+        try container.encodeIfPresent(manifestKey, forKey: .manifestKey)
+        try container.encodeIfPresent(resultManifestObjectKey, forKey: .resultManifestObjectKey)
+        try container.encodeIfPresent(resultLookupScope, forKey: .resultLookupScope)
+        try container.encodeIfPresent(latestResultAt, forKey: .latestResultAt)
+        try container.encodeIfPresent(resultReady, forKey: .resultReady)
+        try container.encodeIfPresent(signalLine, forKey: .signalLine)
+        try container.encodeIfPresent(recommendedAction, forKey: .recommendedAction)
+        try container.encodeIfPresent(resultRoute, forKey: .resultRoute)
+        try container.encodeIfPresent(manifestRoute, forKey: .manifestRoute)
+        try container.encodeIfPresent(artifactRoute, forKey: .artifactRoute)
+        try container.encodeIfPresent(stdoutRoute, forKey: .stdoutRoute)
+        try container.encodeIfPresent(via, forKey: .via)
     }
 }
 
@@ -369,17 +808,43 @@ public struct InferenceRuntimeResponse: Codable, Sendable {
 // MARK: - Cluster Truth
 
 public struct ClusterNode: Codable, Sendable, Hashable, Identifiable {
-    public var id: String { hostname ?? name ?? UUID().uuidString }
+    public let stableId: String
+    public var id: String { hostname ?? name ?? stableId }
     public let name: String?
     public let hostname: String?
     public let role: String?
     public let healthy: Bool?
 
+    enum CodingKeys: String, CodingKey {
+        case name, hostname, role, healthy
+    }
+
     public init(name: String?, hostname: String?, role: String?, healthy: Bool?) {
+        self.stableId = UUID().uuidString
         self.name = name
         self.hostname = hostname
         self.role = role
         self.healthy = healthy
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.stableId = UUID().uuidString
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.hostname = try container.decodeIfPresent(String.self, forKey: .hostname)
+        self.role = try container.decodeIfPresent(String.self, forKey: .role)
+        self.healthy = try container.decodeIfPresent(Bool.self, forKey: .healthy)
+    }
+
+    public static func == (lhs: ClusterNode, rhs: ClusterNode) -> Bool {
+        lhs.name == rhs.name && lhs.hostname == rhs.hostname && lhs.role == rhs.role && lhs.healthy == rhs.healthy
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(hostname)
+        hasher.combine(role)
+        hasher.combine(healthy)
     }
 }
 
@@ -434,6 +899,43 @@ public struct AgentPod: Codable, Sendable {
     public let ready: Bool?
 }
 
+public struct AgentSessionActivity: Codable, Sendable {
+    public let summary: String?
+    public let source: String?
+    public let updatedAt: String?
+    public let author: String?
+    public let excerpt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case summary
+        case source
+        case updatedAt
+        case updatedAtSnake = "updated_at"
+        case author
+        case excerpt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+        updatedAt =
+            try container.decodeIfPresent(String.self, forKey: .updatedAt)
+            ?? container.decodeIfPresent(String.self, forKey: .updatedAtSnake)
+        author = try container.decodeIfPresent(String.self, forKey: .author)
+        excerpt = try container.decodeIfPresent(String.self, forKey: .excerpt)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(summary, forKey: .summary)
+        try container.encodeIfPresent(source, forKey: .source)
+        try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
+        try container.encodeIfPresent(author, forKey: .author)
+        try container.encodeIfPresent(excerpt, forKey: .excerpt)
+    }
+}
+
 public struct AgentSession: Codable, Sendable {
     public let kind: String?
     public let name: String?
@@ -444,6 +946,7 @@ public struct AgentSession: Codable, Sendable {
     public let status: String?
     public let truthMode: String?
     public let action: String?
+    public let activity: AgentSessionActivity?
 
     public var isRunning: Bool { (readyReplicas ?? 0) > 0 }
     public var podName: String? { pods?.first?.name }
@@ -465,6 +968,19 @@ public struct AgentSessionListResponse: Codable, Sendable {
     public let sessions: [AgentSession]?
     public let generatedAt: String?
     public let truthMode: String?
+}
+
+public struct AgentSessionDetailResponse: Codable, Sendable {
+    public let projectSlug: String?
+    public let session: AgentSession?
+    public let generatedAt: String?
+}
+
+public struct AgentSessionActionResponse: Codable, Sendable {
+    public let projectSlug: String?
+    public let action: String?
+    public let session: AgentSession?
+    public let generatedAt: String?
 }
 
 // MARK: - Action Response
@@ -553,6 +1069,63 @@ public struct ResearchRunAttributes: ActivityAttributes {
         self.projectSlug = projectSlug
     }
 }
+
+public struct CognitiveActivityAttributes: ActivityAttributes {
+    public struct ContentState: Codable, Hashable, Sendable {
+        public var readiness: Double?
+        public var intensity: String
+        public var hrvMs: Double?
+        public var agentCount: Int
+        public var activeJobCount: Int
+        public var lastThoughtSnippet: String?
+
+        public init(
+            readiness: Double? = nil,
+            intensity: String = "normal",
+            hrvMs: Double? = nil,
+            agentCount: Int = 0,
+            activeJobCount: Int = 0,
+            lastThoughtSnippet: String? = nil
+        ) {
+            self.readiness = readiness
+            self.intensity = intensity
+            self.hrvMs = hrvMs
+            self.agentCount = agentCount
+            self.activeJobCount = activeJobCount
+            self.lastThoughtSnippet = lastThoughtSnippet
+        }
+
+        public var readinessPercent: Int {
+            guard let r = readiness else { return 0 }
+            return Int((r * 100).rounded())
+        }
+
+        public var intensityLabel: String {
+            switch intensity {
+            case "minimal":   return "Minimal"
+            case "calm":      return "Calm"
+            case "normal":    return "Normal"
+            case "engaged":   return "Engaged"
+            case "challenge": return "Challenge"
+            default:          return intensity.capitalized
+            }
+        }
+
+        public var lockScreenLine: String {
+            var parts: [String] = []
+            parts.append(intensityLabel)
+            if let readiness {
+                parts.append("\(Int((readiness * 100).rounded()))%")
+            }
+            if agentCount > 0 {
+                parts.append("\(agentCount) agent\(agentCount == 1 ? "" : "s")")
+            }
+            return parts.joined(separator: " · ")
+        }
+    }
+
+    public init() {}
+}
 #endif
 
 // MARK: - WebSocket / Terminal
@@ -589,7 +1162,8 @@ public struct TerminalLine: Identifiable, Sendable {
 // MARK: - Science Jobs
 
 public struct ScienceJob: Codable, Sendable, Identifiable {
-    public var id: String { jobId ?? UUID().uuidString }
+    private let stableId: String = UUID().uuidString
+    public var id: String { jobId ?? stableId }
     public let jobId: String?
     public let kind: String?
     public let status: String?
@@ -640,7 +1214,8 @@ public struct TriadScores: Codable, Sendable {
 // MARK: - Thought Capture
 
 public struct ThoughtCapture: Codable, Sendable, Identifiable {
-    public var id: String { nodeId ?? UUID().uuidString }
+    private let stableId: String
+    public var id: String { nodeId ?? stableId }
     public let nodeId: String?
     public let refinedText: String?
     public let rawText: String?
@@ -680,6 +1255,7 @@ public struct ThoughtCapture: Codable, Sendable, Identifiable {
         syncedToServer: Bool?,
         syncState: IdeaSyncState?
     ) {
+        self.stableId = UUID().uuidString
         self.nodeId = nodeId
         self.refinedText = refinedText
         self.rawText = rawText
@@ -691,6 +1267,7 @@ public struct ThoughtCapture: Codable, Sendable, Identifiable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.stableId = UUID().uuidString
         nodeId = try container.decodeIfPresent(String.self, forKey: .nodeId)
         refinedText = try container.decodeIfPresent(String.self, forKey: .refinedText)
         rawText = try container.decodeIfPresent(String.self, forKey: .rawText)
@@ -792,6 +1369,10 @@ public enum DiscussionProfile: String, Codable, Sendable, CaseIterable, Identifi
     case cluster
     case qwen3b
     case yi6b
+    case grok
+    case kimi
+    case claudeCode = "claude-code"
+    case codex
 
     public var id: String { rawValue }
 
@@ -803,6 +1384,14 @@ public enum DiscussionProfile: String, Codable, Sendable, CaseIterable, Identifi
             return "Qwen"
         case .yi6b:
             return "Yi"
+        case .grok:
+            return "Grok"
+        case .kimi:
+            return "Kimi"
+        case .claudeCode:
+            return "Claude Code"
+        case .codex:
+            return "Codex"
         }
     }
 
@@ -814,6 +1403,14 @@ public enum DiscussionProfile: String, Codable, Sendable, CaseIterable, Identifi
             return "Daily / Cheap"
         case .yi6b:
             return "Bilingual / Creative"
+        case .grok:
+            return "Fast / xAI"
+        case .kimi:
+            return "Moonshot / OpenRouter"
+        case .claudeCode:
+            return "Max / Pro subscription"
+        case .codex:
+            return "ChatGPT Pro subscription"
         }
     }
 
@@ -825,6 +1422,14 @@ public enum DiscussionProfile: String, Codable, Sendable, CaseIterable, Identifi
             return "bolt.horizontal.circle"
         case .yi6b:
             return "globe.asia.australia"
+        case .grok:
+            return "sparkles.rectangle.stack"
+        case .kimi:
+            return "moon.stars"
+        case .claudeCode:
+            return "person.crop.circle.badge.sparkles"
+        case .codex:
+            return "terminal"
         }
     }
 }
@@ -884,7 +1489,8 @@ public struct CognitiveState: Codable, Sendable {
 // MARK: - Novelty Endpoints (Void, Fractal, Phi)
 
 public struct VoidJourney: Codable, Sendable, Identifiable {
-    public var id: String { journeyId ?? UUID().uuidString }
+    private let stableId: String = UUID().uuidString
+    public var id: String { journeyId ?? stableId }
     public let journeyId: String?
     public let status: String?
     public let maxDepthReached: Double?
@@ -903,7 +1509,8 @@ public struct VoidJourney: Codable, Sendable, Identifiable {
 }
 
 public struct FractalTree: Codable, Sendable, Identifiable {
-    public var id: String { rootId ?? UUID().uuidString }
+    private let stableId: String = UUID().uuidString
+    public var id: String { rootId ?? stableId }
     public let rootId: String?
     public let rootPrompt: String?
     public let maxDepth: Int?
@@ -926,7 +1533,8 @@ public struct FractalTree: Codable, Sendable, Identifiable {
 }
 
 public struct PhiMeasurement: Codable, Sendable, Identifiable {
-    public var id: String { "\(measuredAt ?? UUID().uuidString)" }
+    private let stableId: String = UUID().uuidString
+    public var id: String { "\(measuredAt ?? stableId)" }
     public let querySnippet: String?
     public let phi: Double?
     public let substrateSize: Int?
@@ -969,7 +1577,8 @@ public struct CognitiveHRV: Codable, Sendable {
 }
 
 public struct CognitiveDraft: Codable, Sendable, Identifiable {
-    public var id: String { draftId ?? UUID().uuidString }
+    private let stableId: String = UUID().uuidString
+    public var id: String { draftId ?? stableId }
     public let draftId: String?
     public let kind: String?
     public let summary: String?
@@ -996,7 +1605,8 @@ public struct CognitiveTriad: Codable, Sendable {
 // MARK: - Hypergraph
 
 public struct Hyperedge: Codable, Sendable, Identifiable {
-    public var id: String { edgeId ?? UUID().uuidString }
+    private let stableId: String = UUID().uuidString
+    public var id: String { edgeId ?? stableId }
     public let edgeId: String?
     public let label: String?
     public let nodeIds: [String]?
@@ -1060,6 +1670,9 @@ public struct ChatResponse: Decodable, Sendable {
     public let agentKind: String?
     public let sessionId: String?
     public let podName: String?
+    public let conversationMode: String?
+    public let appliedDiscussionProfile: String?
+    public let flowState: String?
 
     enum CodingKeys: String, CodingKey {
         case response
@@ -1072,6 +1685,9 @@ public struct ChatResponse: Decodable, Sendable {
         case agentKind
         case sessionId
         case podName
+        case conversationMode = "conversation_mode"
+        case appliedDiscussionProfile = "applied_discussion_profile"
+        case flowState = "flow_state"
         case agentKindSnake = "agent_kind"
         case sessionIdSnake = "session_id"
         case podNameSnake = "pod_name"
@@ -1097,6 +1713,9 @@ public struct ChatResponse: Decodable, Sendable {
         podName =
             try container.decodeIfPresent(String.self, forKey: .podName)
             ?? container.decodeIfPresent(String.self, forKey: .podNameSnake)
+        conversationMode = try container.decodeIfPresent(String.self, forKey: .conversationMode)
+        appliedDiscussionProfile = try container.decodeIfPresent(String.self, forKey: .appliedDiscussionProfile)
+        flowState = try container.decodeIfPresent(String.self, forKey: .flowState)
     }
 }
 
@@ -1122,7 +1741,8 @@ public struct GPUNodeMetric: Codable, Sendable, Identifiable {
 }
 
 public struct HPCJob: Codable, Sendable, Identifiable {
-    public var id: String { jobId ?? UUID().uuidString }
+    private let stableId: String = UUID().uuidString
+    public var id: String { jobId ?? stableId }
     public let jobId: String?
     public let kind: String?
     public let status: String?
@@ -1163,7 +1783,8 @@ public struct HPCJobQueue: Codable, Sendable {
 }
 
 public struct JobArtifact: Codable, Sendable, Identifiable {
-    public var id: String { path ?? UUID().uuidString }
+    private let stableId: String = UUID().uuidString
+    public var id: String { path ?? stableId }
     public let path: String?
     public let type: String?    // "csv", "image", "json", "surface3d"
     public let sizeBytes: Int?

@@ -607,6 +607,30 @@ public struct ScratchpadResponse: Codable, Sendable {
     public let truthMode: String?
 }
 
+public struct ConsciousnessState: Codable, Sendable {
+    public let hrvMs: Double?
+    public let readiness: Double?
+    public let intensity: String?
+    public let circadianPhase: String?
+    public let capturedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case hrvMs = "hrv_ms"
+        case readiness
+        case intensity
+        case circadianPhase = "circadian_phase"
+        case capturedAt = "captured_at"
+    }
+
+    public init(hrvMs: Double?, readiness: Double?, intensity: String?, circadianPhase: String?, capturedAt: String? = nil) {
+        self.hrvMs = hrvMs
+        self.readiness = readiness
+        self.intensity = intensity
+        self.circadianPhase = circadianPhase
+        self.capturedAt = capturedAt
+    }
+}
+
 public struct ScratchpadEntry: Codable, Sendable, Identifiable {
     public var id: String { entryId ?? UUID().uuidString }
     public let entryId: String?
@@ -614,10 +638,12 @@ public struct ScratchpadEntry: Codable, Sendable, Identifiable {
     public let agent: String?
     public let text: String?
     public let timestamp: String?
+    public let consciousnessState: ConsciousnessState?
 
     enum CodingKeys: String, CodingKey {
         case entryId = "entry_id"
         case slug, agent, text, timestamp
+        case consciousnessState = "consciousness_state"
     }
 }
 

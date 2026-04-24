@@ -15,6 +15,8 @@ import SwiftData
 @MainActor
 public final class CognitiveStore {
 
+    private static let isoFormatter = ISO8601DateFormatter()
+
     public var state: Truthful<CognitiveState> = .declared(
         CognitiveState(hrv: nil, recentDrafts: nil, triadLatest: nil, agentSessions: nil, recentVoidJourneys: nil, recentFractalTrees: nil, recentPhiMeasurements: nil)
     )
@@ -35,6 +37,9 @@ public final class CognitiveStore {
     /// Total thoughts ever captured (persisted count).
     public var totalThoughtCount: Int = 0
 
+    /// The project that should receive idea writes on the mobile boundary.
+    public var activeProjectSlug: String?
+
     public init() {}
 
     /// Load persisted thoughts from SwiftData on launch.
@@ -46,15 +51,19 @@ public final class CognitiveStore {
         if let persisted = try? context.fetch(descriptor) {
             totalThoughtCount = persisted.count
             // Convert to ThoughtCapture for display (most recent 50)
+            let formatter = Self.isoFormatter
             recentThoughts = persisted.prefix(50).map { p in
                 ThoughtCapture(
                     nodeId: p.nodeId,
                     refinedText: p.refinedText,
                     rawText: p.rawText,
                     source: p.source,
-                    createdAt: ISO8601DateFormatter().string(from: p.capturedAt)
+                    createdAt: formatter.string(from: p.capturedAt),
+                    syncedToServer: p.syncedToServer,
+                    syncState: p.syncedToServer ? .synced : .localOnly
                 )
             }
+            SemanticSearchEngine.shared.index(thoughts: recentThoughts)
         }
     }
 
@@ -80,19 +89,36 @@ public final class CognitiveStore {
 
         let result = await BeagleClient.shared.captureThought(text: text, source: source)
 
+        let projectSlug = activeProjectSlug ?? "sounio"
+        let projectFamily = ProjectFamily.fromProjectSlug(projectSlug)
+        let publicationScope = PublicationScope.forProjectFamily(projectFamily)
         let thought: ThoughtCapture
         let persisted = PersistedThought(rawText: text, source: source)
 
         if let response = result.value, let refined = response.response {
+            let saveResult = await CockpitClient.shared.saveIdea(
+                slug: projectSlug,
+                text: text,
+                source: source,
+                refinedText: refined,
+                projectFamily: projectFamily,
+                publicationScope: publicationScope
+            )
+            let syncState =
+                saveResult.value?.syncState
+                ?? (saveResult.error == nil ? .synced : .localOnly)
             thought = ThoughtCapture(
-                nodeId: nil,
+                nodeId: saveResult.value?.nodeId,
                 refinedText: refined,
                 rawText: text,
                 source: source,
-                createdAt: ISO8601DateFormatter().string(from: .now)
+                createdAt: Self.isoFormatter.string(from: .now),
+                syncedToServer: syncState.isClusterResident,
+                syncState: syncState
             )
             persisted.refinedText = refined
-            persisted.syncedToServer = true
+            persisted.nodeId = saveResult.value?.nodeId
+            persisted.syncedToServer = syncState.isClusterResident
         } else {
             // Fallback: store raw thought locally
             thought = ThoughtCapture(
@@ -100,13 +126,16 @@ public final class CognitiveStore {
                 refinedText: nil,
                 rawText: text,
                 source: "\(source)-offline",
-                createdAt: ISO8601DateFormatter().string(from: .now)
+                createdAt: Self.isoFormatter.string(from: .now),
+                syncedToServer: false,
+                syncState: .localOnly
             )
         }
 
         recentThoughts.insert(thought, at: 0)
         if recentThoughts.count > 50 { recentThoughts.removeLast() }
         totalThoughtCount += 1
+        SemanticSearchEngine.shared.index(thoughts: recentThoughts)
 
         // Persist to SwiftData
         modelContext?.insert(persisted)
@@ -168,6 +197,19 @@ public final class CognitiveStore {
         return result.value?.ok == true
     }
 
+    // MARK: - Semantic search
+
+    /// Search recent thoughts by semantic similarity using on-device NLEmbedding.
+    /// Falls back to substring matching when the embedding model is unavailable.
+    public func semanticSearch(query: String) -> [(thought: ThoughtCapture, similarity: Double)] {
+        if SemanticSearchEngine.shared.isAvailable {
+            return SemanticSearchEngine.shared.search(query: query)
+        }
+        // Fallback: substring match with synthetic similarity of 0.5
+        return SemanticSearchEngine.substringSearch(query: query, in: recentThoughts)
+            .map { (thought: $0, similarity: 0.5) }
+    }
+
     // MARK: - Derived
 
     public var flowState: String {
@@ -184,5 +226,15 @@ public final class CognitiveStore {
 
     public var runningJobCount: Int {
         activeJobs.filter(\.isRunning).count
+    }
+
+    // MARK: - Shared helpers
+
+    public static func recentTrailSnippets(from thoughts: [ThoughtCapture], limit: Int = 3) -> [String] {
+        thoughts.prefix(limit).compactMap { thought in
+            let text = thought.refinedText ?? thought.rawText ?? ""
+            guard !text.isEmpty else { return nil }
+            return text.count > 96 ? String(text.prefix(96)) + "..." : text
+        }
     }
 }

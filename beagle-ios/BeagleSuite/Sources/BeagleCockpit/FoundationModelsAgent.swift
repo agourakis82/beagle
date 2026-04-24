@@ -81,6 +81,44 @@ public final class FoundationModelsAgent {
         """)
     }
 
+    /// Configure tool context with the app's cognitive and physio stores.
+    #if canImport(FoundationModels)
+    @available(iOS 26, macOS 26, visionOS 26, *)
+    public func configure(cognitive: CognitiveStore, physio: PhysioStore) {
+        ExocortexToolContext.shared.cognitive = cognitive
+        ExocortexToolContext.shared.physio = physio
+    }
+    #endif
+
+    /// Respond to a prompt using Foundation Models with exocortex tool access.
+    /// Returns nil if unavailable (caller should fall back to cloud agent).
+    public func respond(to prompt: String) async -> String? {
+        #if canImport(FoundationModels)
+        guard #available(iOS 26, macOS 26, visionOS 26, *) else { return nil }
+        guard isAvailable else { return nil }
+        do {
+            let session = LanguageModelSession(
+                model: .default,
+                tools: [SearchMemoryTool(), CaptureThoughtTool(), QueryPhysioTool(), SuggestExplorationTool()],
+                instructions: """
+                You are Beagle, a personal scientific exocortex. You assist a researcher \
+                with thought capture, deep exploration, and cognitive awareness. You have \
+                access to their recent thoughts, physiological state, and can save new \
+                insights. Adapt your depth and tone to their cognitive readiness. Be warm, \
+                insightful, and concise.
+                """
+            )
+            let response = try await session.respond(to: prompt)
+            return response.content
+        } catch {
+            print("[FoundationModelsAgent] respond error: \(error)")
+            return nil
+        }
+        #else
+        return nil
+        #endif
+    }
+
     /// Warm the neural engine by creating a throwaway session.
     /// Call once at app launch — reduces latency on first real query.
     public func prewarm() async {

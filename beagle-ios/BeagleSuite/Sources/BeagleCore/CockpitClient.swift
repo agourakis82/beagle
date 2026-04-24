@@ -6,9 +6,10 @@
 //  Uses URLSession with Swift 6 async/await.
 //  Returns Truthful<T> wrappers preserving epistemic metadata.
 //
-//  Tailscale addressing: resolves multiple URLs in preference order
-//  (public tailnet → internal VIP → cluster service DNS) so the same app
-//  works whether on tailnet, LAN, or remote.
+//  Resolves multiple URLs in preference order
+//  (public HTTPS edge → tailnet → internal VIP → cluster service DNS)
+//  so the same app works on the public mobile gateway first, while still
+//  preserving the old private fallbacks during transition.
 //
 
 import Foundation
@@ -17,12 +18,26 @@ public actor CockpitClient {
 
     public static let shared = CockpitClient()
 
+    private func derivedProjectFamily(slug: String, override: ProjectFamily?) -> ProjectFamily {
+        override ?? .fromProjectSlug(slug)
+    }
+
+    private func derivedPublicationScope(
+        slug: String,
+        projectFamily: ProjectFamily?,
+        override: PublicationScope?
+    ) -> PublicationScope {
+        if let override { return override }
+        return .forProjectFamily(derivedProjectFamily(slug: slug, override: projectFamily))
+    }
+
     private let session: URLSession
     private let decoder: JSONDecoder
 
     /// URL resolution order — tried in sequence until one responds.
     /// Override via `configure(baseURLs:)` from the app.
     private var baseURLs: [URL] = [
+        URL(string: "https://beagle.chiuratto.ai")!,                     // Public HTTPS mobile gateway
         URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,         // Tailnet FQDN
         URL(string: "http://100.107.208.198")!,                          // Tailnet direct IP (DNS fallback)
         URL(string: "http://project-cockpit.beagle.svc.cluster.local")!  // In-cluster (pod network only)
@@ -30,7 +45,7 @@ public actor CockpitClient {
 
     private init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 12  // Tailscale proxy group needs ~6-8s on first route
+        config.timeoutIntervalForRequest = 12  // Leave room for edge or tailnet fallback
         config.timeoutIntervalForResource = 30
         config.waitsForConnectivity = true
         config.httpAdditionalHeaders = [
@@ -89,10 +104,78 @@ public actor CockpitClient {
         return .staleError(lastError)
     }
 
+    public func fetchMobile<T: Decodable & Sendable>(
+        _ type: T.Type,
+        path: String,
+        timeout: TimeInterval = 12
+    ) async -> Truthful<T> {
+        var lastError: String = "no base URL reachable"
+
+        for base in baseURLs {
+            guard let url = URL(string: path, relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = timeout
+                let (data, response) = try await session.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    lastError = "invalid response"
+                    continue
+                }
+
+                guard (200..<300).contains(httpResponse.statusCode) else {
+                    lastError = formatError(
+                        statusCode: httpResponse.statusCode,
+                        data: data,
+                        fallback: "HTTP \(httpResponse.statusCode)"
+                    )
+                    continue
+                }
+
+                let envelope = try decoder.decode(MobileEnvelope<T>.self, from: data)
+                guard envelope.ok != false else {
+                    lastError = envelope.error?.message ?? "mobile gateway returned ok=false"
+                    continue
+                }
+                guard let payload = envelope.data else {
+                    lastError = envelope.error?.message ?? "mobile gateway returned no data"
+                    continue
+                }
+
+                let mode = TruthMode(rawValue: envelope.meta?.truthMode ?? "") ?? .observed
+                return Truthful(
+                    value: payload,
+                    mode: mode,
+                    observedAt: .now,
+                    source: url.host,
+                    error: nil
+                )
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+
+        return .staleError(lastError)
+    }
+
     // MARK: - High-level API
 
     public func catalog() async -> Truthful<ExecutiveCatalog> {
-        await fetch(ExecutiveCatalog.self, path: "/api/catalog/executive")
+        let mobile = await fetchMobile(ExecutiveCatalog.self, path: "/api/mobile/v1/catalog")
+        if mobile.value != nil { return mobile }
+        return await fetch(ExecutiveCatalog.self, path: "/api/catalog/executive")
+    }
+
+    public func mobileSummary() async -> Truthful<MobileHomeSummary> {
+        await fetchMobile(MobileHomeSummary.self, path: "/api/mobile/v1/summary")
+    }
+
+    public func projectOverview(slug: String, depth: String = "fast") async -> Truthful<MobileProjectOverview> {
+        await fetchMobile(
+            MobileProjectOverview.self,
+            path: "/api/mobile/v1/projects/\(slug)/overview?depth=\(depth)"
+        )
     }
 
     public func posturePolicy() async -> Truthful<PosturePolicy> {
@@ -100,18 +183,58 @@ public actor CockpitClient {
     }
 
     public func missionControl(slug: String) async -> Truthful<MissionControl> {
-        await fetch(MissionControl.self, path: "/api/projects/\(slug)/mission-control")
+        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(slug)/overview")
+        if let payload = overview.value?.missionControl {
+            return Truthful(
+                value: payload,
+                mode: overview.mode,
+                observedAt: overview.observedAt,
+                source: overview.source,
+                error: overview.error
+            )
+        }
+        return await fetch(MissionControl.self, path: "/api/projects/\(slug)/mission-control")
     }
 
     public func clusterLaneTruth(slug: String) async -> Truthful<ClusterLaneTruth> {
-        await fetch(ClusterLaneTruth.self, path: "/api/projects/\(slug)/cluster/lane-truth")
+        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(slug)/overview")
+        if let payload = overview.value?.clusterLaneTruth {
+            return Truthful(
+                value: payload,
+                mode: overview.mode,
+                observedAt: overview.observedAt,
+                source: overview.source,
+                error: overview.error
+            )
+        }
+        return await fetch(ClusterLaneTruth.self, path: "/api/projects/\(slug)/cluster/lane-truth")
     }
 
     public func researchOperations(slug: String) async -> Truthful<ResearchOperations> {
-        await fetch(ResearchOperations.self, path: "/api/projects/\(slug)/research/operations")
+        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(slug)/overview")
+        if let payload = overview.value?.researchOperations {
+            return Truthful(
+                value: payload,
+                mode: overview.mode,
+                observedAt: overview.observedAt,
+                source: overview.source,
+                error: overview.error
+            )
+        }
+        return await fetch(ResearchOperations.self, path: "/api/projects/\(slug)/research/operations")
     }
 
     public func inferenceRuntime(slug: String) async -> Truthful<InferenceRuntime> {
+        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(slug)/overview")
+        if let payload = overview.value?.inferenceRuntime {
+            return Truthful(
+                value: payload,
+                mode: overview.mode,
+                observedAt: overview.observedAt,
+                source: overview.source,
+                error: overview.error
+            )
+        }
         let wrapped = await fetch(InferenceRuntimeResponse.self, path: "/api/projects/\(slug)/inference/runtime")
         // Unwrap nested runtime object
         guard let runtime = wrapped.value?.runtime else {
@@ -127,7 +250,17 @@ public actor CockpitClient {
     }
 
     public func viewerRuntime(slug: String) async -> Truthful<ViewerRuntimeResponse> {
-        await fetch(ViewerRuntimeResponse.self, path: "/api/projects/\(slug)/viewer/runtime")
+        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(slug)/overview")
+        if let payload = overview.value?.viewerRuntime {
+            return Truthful(
+                value: payload,
+                mode: overview.mode,
+                observedAt: overview.observedAt,
+                source: overview.source,
+                error: overview.error
+            )
+        }
+        return await fetch(ViewerRuntimeResponse.self, path: "/api/projects/\(slug)/viewer/runtime")
     }
 
     // MARK: - POST helper
@@ -135,7 +268,8 @@ public actor CockpitClient {
     public func post<T: Decodable & Sendable>(
         _ type: T.Type,
         path: String,
-        body: [String: any Sendable] = [:]
+        body: [String: any Sendable] = [:],
+        timeout: TimeInterval = 15
     ) async -> Truthful<T> {
         var lastError = "no base URL reachable"
 
@@ -145,7 +279,7 @@ public actor CockpitClient {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.timeoutInterval = 15
+                request.timeoutInterval = timeout
 
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -172,7 +306,138 @@ public actor CockpitClient {
         return .staleError(lastError)
     }
 
+    public func postMobile<T: Decodable & Sendable>(
+        _ type: T.Type,
+        path: String,
+        body: [String: any Sendable] = [:],
+        timeout: TimeInterval = 15
+    ) async -> Truthful<T> {
+        var lastError = "no base URL reachable"
+
+        for base in baseURLs {
+            guard let url = URL(string: path, relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.timeoutInterval = timeout
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                let (data, response) = try await session.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200..<300).contains(httpResponse.statusCode) else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    lastError = formatError(
+                        statusCode: statusCode,
+                        data: data,
+                        fallback: "HTTP \(statusCode)"
+                    )
+                    continue
+                }
+
+                let envelope = try decoder.decode(MobileEnvelope<T>.self, from: data)
+                guard envelope.ok != false else {
+                    lastError = envelope.error?.message ?? "mobile gateway returned ok=false"
+                    continue
+                }
+                guard let payload = envelope.data else {
+                    lastError = envelope.error?.message ?? "mobile gateway returned no data"
+                    continue
+                }
+
+                let mode = TruthMode(rawValue: envelope.meta?.truthMode ?? "") ?? .observed
+                return Truthful(
+                    value: payload,
+                    mode: mode,
+                    observedAt: .now,
+                    source: url.host,
+                    error: nil
+                )
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+        return .staleError(lastError)
+    }
+
+    public func deleteMobile<T: Decodable & Sendable>(
+        _ type: T.Type,
+        path: String,
+        body: [String: any Sendable] = [:]
+    ) async -> Truthful<T> {
+        var lastError = "no base URL reachable"
+
+        for base in baseURLs {
+            guard let url = URL(string: path, relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "DELETE"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.timeoutInterval = 15
+                if !body.isEmpty {
+                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+                }
+
+                let (data, response) = try await session.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200..<300).contains(httpResponse.statusCode) else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    lastError = formatError(
+                        statusCode: statusCode,
+                        data: data,
+                        fallback: "HTTP \(statusCode)"
+                    )
+                    continue
+                }
+
+                let envelope = try decoder.decode(MobileEnvelope<T>.self, from: data)
+                guard envelope.ok != false else {
+                    lastError = envelope.error?.message ?? "mobile gateway returned ok=false"
+                    continue
+                }
+                guard let payload = envelope.data else {
+                    lastError = envelope.error?.message ?? "mobile gateway returned no data"
+                    continue
+                }
+
+                let mode = TruthMode(rawValue: envelope.meta?.truthMode ?? "") ?? .observed
+                return Truthful(
+                    value: payload,
+                    mode: mode,
+                    observedAt: .now,
+                    source: url.host,
+                    error: nil
+                )
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+        return .staleError(lastError)
+    }
+
     private func formatError(statusCode: Int, data: Data, fallback: String) -> String {
+        if let payload = try? decoder.decode(MobileEnvelope<EmptyMobilePayload>.self, from: data) {
+            var parts = ["HTTP \(statusCode)"]
+            parts.append(payload.error?.message ?? fallback)
+            if let reason = payload.error?.reason, !reason.isEmpty {
+                parts.append(reason)
+            }
+            if let code = payload.error?.code, !code.isEmpty {
+                parts.append("code=\(code)")
+            }
+            if let truthMode = payload.meta?.truthMode, !truthMode.isEmpty {
+                parts.append("truth=\(truthMode)")
+            }
+            if let requestId = payload.meta?.requestId, !requestId.isEmpty {
+                parts.append("requestId=\(requestId)")
+            }
+            return parts.joined(separator: " · ")
+        }
+
         if let payload = try? decoder.decode(CockpitBackendErrorPayload.self, from: data) {
             return payload.message(statusCode: statusCode, fallback: fallback)
         }
@@ -189,33 +454,98 @@ public actor CockpitClient {
     // MARK: - Agent Sessions
 
     public func agentSessions(slug: String) async -> Truthful<AgentSessionListResponse> {
-        await fetch(AgentSessionListResponse.self, path: "/api/projects/\(slug)/agent/sessions")
+        let mobile = await fetchMobile(AgentSessionListResponse.self, path: "/api/mobile/v1/projects/\(slug)/agent-sessions")
+        if mobile.value != nil { return mobile }
+        return await fetch(AgentSessionListResponse.self, path: "/api/projects/\(slug)/agent/sessions")
     }
 
     public func agentSession(slug: String, kind: String) async -> Truthful<AgentSession> {
-        await fetch(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)")
+        let mobile = await fetchMobile(AgentSessionDetailResponse.self, path: "/api/mobile/v1/projects/\(slug)/agent-sessions/\(kind)")
+        if let session = mobile.value?.session {
+            return Truthful(
+                value: session,
+                mode: mobile.mode,
+                observedAt: mobile.observedAt,
+                source: mobile.source,
+                error: mobile.error
+            )
+        }
+        return await fetch(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)")
     }
 
     public func startAgentSession(slug: String, kind: String = "claude-code") async -> Truthful<AgentSession> {
-        await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/start", body: ["kind": kind])
+        let mobile = await postMobile(AgentSessionActionResponse.self, path: "/api/mobile/v1/projects/\(slug)/agent-sessions", body: [
+            "kind": kind,
+            "confirmed": true
+        ], timeout: 60)
+        if let session = mobile.value?.session {
+            return Truthful(
+                value: session,
+                mode: mobile.mode,
+                observedAt: mobile.observedAt,
+                source: mobile.source,
+                error: mobile.error
+            )
+        }
+        return await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/start", body: ["kind": kind], timeout: 60)
     }
 
     public func pauseAgentSession(slug: String, kind: String) async -> Truthful<AgentSession> {
-        await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)/pause")
+        let mobile = await postMobile(AgentSessionActionResponse.self, path: "/api/mobile/v1/projects/\(slug)/agent-sessions/\(kind)/pause", body: [
+            "confirmed": true
+        ])
+        if let session = mobile.value?.session {
+            return Truthful(
+                value: session,
+                mode: mobile.mode,
+                observedAt: mobile.observedAt,
+                source: mobile.source,
+                error: mobile.error
+            )
+        }
+        return await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)/pause")
     }
 
     public func resumeAgentSession(slug: String, kind: String) async -> Truthful<AgentSession> {
-        await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)/resume")
+        let mobile = await postMobile(AgentSessionActionResponse.self, path: "/api/mobile/v1/projects/\(slug)/agent-sessions/\(kind)/resume", body: [
+            "confirmed": true
+        ])
+        if let session = mobile.value?.session {
+            return Truthful(
+                value: session,
+                mode: mobile.mode,
+                observedAt: mobile.observedAt,
+                source: mobile.source,
+                error: mobile.error
+            )
+        }
+        return await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)/resume")
     }
 
     public func stopAgentSession(slug: String, kind: String) async -> Truthful<AgentSession> {
-        await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)/stop")
+        let mobile = await deleteMobile(AgentSessionActionResponse.self, path: "/api/mobile/v1/projects/\(slug)/agent-sessions/\(kind)", body: [
+            "confirmed": true
+        ])
+        if let session = mobile.value?.session {
+            return Truthful(
+                value: session,
+                mode: mobile.mode,
+                observedAt: mobile.observedAt,
+                source: mobile.source,
+                error: mobile.error
+            )
+        }
+        return await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)/stop")
     }
 
     // MARK: - Habitat Actions
 
     public func executeAction(slug: String, actionId: String) async -> Truthful<ActionResponse> {
-        await post(ActionResponse.self, path: "/api/projects/\(slug)/go-work-now/actions/\(actionId)", body: [
+        let mobile = await postMobile(ActionResponse.self, path: "/api/mobile/v1/projects/\(slug)/actions/\(actionId)", body: [
+            "confirmed": true
+        ])
+        if mobile.value != nil { return mobile }
+        return await post(ActionResponse.self, path: "/api/projects/\(slug)/go-work-now/actions/\(actionId)", body: [
             "confirm": true
         ])
     }
@@ -276,10 +606,95 @@ public actor CockpitClient {
 
     // MARK: - Session
 
-    public func sessionHeartbeat(slug: String, clientSessionId: String) async -> Truthful<SessionHeartbeatResponse> {
-        await post(SessionHeartbeatResponse.self, path: "/api/projects/\(slug)/session/heartbeat", body: [
-            "clientSessionId": clientSessionId
+    public func sessionHeartbeat(
+        slug: String,
+        clientSessionId: String,
+        projectFamily: ProjectFamily? = nil,
+        publicationScope: PublicationScope? = nil
+    ) async -> Truthful<SessionHeartbeatResponse> {
+        let family = derivedProjectFamily(slug: slug, override: projectFamily)
+        let scope = derivedPublicationScope(
+            slug: slug,
+            projectFamily: family,
+            override: publicationScope
+        )
+        let mobile = await postMobile(SessionHeartbeatResponse.self, path: "/api/mobile/v1/projects/\(slug)/heartbeat", body: [
+            "clientSessionId": clientSessionId,
+            "projectFamily": family.rawValue,
+            "publicationScope": scope.rawValue,
+            "confirmed": true
         ])
+        if mobile.value != nil { return mobile }
+        return await post(SessionHeartbeatResponse.self, path: "/api/projects/\(slug)/session/heartbeat", body: [
+            "clientSessionId": clientSessionId,
+            "projectFamily": family.rawValue,
+            "publicationScope": scope.rawValue
+        ])
+    }
+
+    public func saveIdea(
+        slug: String,
+        text: String,
+        source: String,
+        refinedText: String? = nil,
+        projectFamily: ProjectFamily? = nil,
+        publicationScope: PublicationScope? = nil
+    ) async -> Truthful<IdeaSaveResponse> {
+        let family = derivedProjectFamily(slug: slug, override: projectFamily)
+        let scope = derivedPublicationScope(
+            slug: slug,
+            projectFamily: family,
+            override: publicationScope
+        )
+        var body: [String: any Sendable] = [
+            "text": text,
+            "rawText": text,
+            "raw_text": text,
+            "source": source,
+            "projectFamily": family.rawValue,
+            "publicationScope": scope.rawValue
+        ]
+        if let refinedText, !refinedText.isEmpty {
+            body["refinedText"] = refinedText
+            body["refined_text"] = refinedText
+        }
+        return await postMobile(
+            IdeaSaveResponse.self,
+            path: "/api/mobile/v1/projects/\(slug)/ideas",
+            body: body
+        )
+    }
+
+    public func delegate(
+        slug: String,
+        text: String,
+        agentKind: String? = nil,
+        source: String = "ios",
+        projectFamily: ProjectFamily? = nil,
+        publicationScope: PublicationScope? = nil
+    ) async -> Truthful<DelegationResponse> {
+        let family = derivedProjectFamily(slug: slug, override: projectFamily)
+        let scope = derivedPublicationScope(
+            slug: slug,
+            projectFamily: family,
+            override: publicationScope
+        )
+        var body: [String: any Sendable] = [
+            "text": text,
+            "prompt": text,
+            "source": source,
+            "projectFamily": family.rawValue,
+            "publicationScope": scope.rawValue
+        ]
+        if let agentKind, !agentKind.isEmpty {
+            body["agentKind"] = agentKind
+            body["agent_kind"] = agentKind
+        }
+        return await postMobile(
+            DelegationResponse.self,
+            path: "/api/mobile/v1/projects/\(slug)/delegations",
+            body: body
+        )
     }
 
     // MARK: - Vision (public endpoints)
@@ -298,11 +713,20 @@ public actor CockpitClient {
         await fetch(ScratchpadResponse.self, path: "/api/projects/\(slug)/agents/scratchpad")
     }
 
-    public func postAgentMessage(slug: String, agent: String, text: String) async -> Truthful<AgentMessageAck> {
-        await post(AgentMessageAck.self, path: "/api/projects/\(slug)/agents/scratchpad", body: [
+    public func postAgentMessage(slug: String, agent: String, text: String, consciousnessState: ConsciousnessState? = nil) async -> Truthful<AgentMessageAck> {
+        var body: [String: any Sendable] = [
             "author": agent,
             "text": text
-        ])
+        ]
+        if let cs = consciousnessState {
+            var csDict: [String: any Sendable] = [:]
+            if let hrv = cs.hrvMs { csDict["hrv_ms"] = hrv }
+            if let r = cs.readiness { csDict["readiness"] = r }
+            if let i = cs.intensity { csDict["intensity"] = i }
+            if let cp = cs.circadianPhase { csDict["circadian_phase"] = cp }
+            body["consciousness_state"] = csDict
+        }
+        return await post(AgentMessageAck.self, path: "/api/projects/\(slug)/agents/scratchpad", body: body)
     }
 }
 
@@ -340,3 +764,5 @@ struct CockpitBackendErrorPayload: Decodable {
         return parts.joined(separator: " · ")
     }
 }
+
+private struct EmptyMobilePayload: Decodable, Sendable {}

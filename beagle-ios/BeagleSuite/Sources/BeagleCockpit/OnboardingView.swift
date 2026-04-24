@@ -138,7 +138,7 @@ struct OnboardingView: View {
                 }
                 .padding(.horizontal, BeagleSpacing.lg)
 
-                Text("You can change this anytime in settings. 26 models available.")
+                Text("You can change this anytime in settings.")
                     .font(BeagleFont.caption.font)
                     .foregroundStyle(BeagleTheme.textTertiary)
             }

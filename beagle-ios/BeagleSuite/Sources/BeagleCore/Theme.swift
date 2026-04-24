@@ -57,6 +57,25 @@ public enum BeagleTheme {
     public static let stateError    = Color(hue: 0, saturation: 0.84, brightness: 0.95)
     public static let statePlanned  = truthDeclared
 
+    // MARK: - Intensity colors (semantic: cognitive load / HRV-derived)
+
+    public static let intensityMinimal   = Color(hue: 230/360, saturation: 0.25, brightness: 0.55) // muted indigo
+    public static let intensityCalm      = Color(hue: 190/360, saturation: 0.50, brightness: 0.80) // cool cyan
+    public static let intensityNormal    = truthObserved                                           // teal
+    public static let intensityEngaged   = postureWarm                                             // gold
+    public static let intensityChallenge = Color(hue: 18/360,  saturation: 0.85, brightness: 0.95) // warm orange
+
+    public static func color(forIntensity intensity: String) -> Color {
+        switch intensity {
+        case "minimal":   return intensityMinimal
+        case "calm":      return intensityCalm
+        case "normal":    return intensityNormal
+        case "engaged":   return intensityEngaged
+        case "challenge": return intensityChallenge
+        default:          return intensityNormal
+        }
+    }
+
     // MARK: - Surfaces (4-level depth)
 
     public static let surface0 = Color(red: 5/255,  green: 10/255, blue: 18/255)  // deepest
@@ -84,6 +103,193 @@ public enum BeagleTheme {
 
     public static func displayFont(size: CGFloat = 24, weight: Font.Weight = .semibold) -> Font {
         .system(size: size, weight: weight, design: .default)
+    }
+}
+
+// MARK: - Presence System
+
+public enum BeaglePresenceState: String, Sendable {
+    case dormant
+    case attentive
+    case active
+    case strained
+
+    public var title: String {
+        switch self {
+        case .dormant:
+            return "Beagle is resting lightly"
+        case .attentive:
+            return "Beagle is paying attention"
+        case .active:
+            return "Beagle is fully present"
+        case .strained:
+            return "Beagle is holding through interference"
+        }
+    }
+
+    public var subtitle: String {
+        switch self {
+        case .dormant:
+            return "The shell is quiet, but the system still remembers where you were."
+        case .attentive:
+            return "Device and cluster are listening for the next move."
+        case .active:
+            return "Agents, jobs, and memory are all in the room with you."
+        case .strained:
+            return "Truth is still visible, even when the channel is under pressure."
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .dormant:
+            return "moon.stars.fill"
+        case .attentive:
+            return "eye.fill"
+        case .active:
+            return "sparkles"
+        case .strained:
+            return "waveform.path.ecg"
+        }
+    }
+
+    public var tint: Color {
+        switch self {
+        case .dormant:
+            return BeagleTheme.truthDeclared
+        case .attentive:
+            return BeagleTheme.truthRemembered
+        case .active:
+            return BeagleTheme.truthObserved
+        case .strained:
+            return BeagleTheme.postureWarm
+        }
+    }
+
+    public var glow: Color {
+        switch self {
+        case .dormant:
+            return Color(hue: 230/360, saturation: 0.24, brightness: 0.45)
+        case .attentive:
+            return Color(hue: 192/360, saturation: 0.48, brightness: 0.84)
+        case .active:
+            return Color(hue: 166/360, saturation: 0.66, brightness: 0.92)
+        case .strained:
+            return Color(hue: 28/360, saturation: 0.75, brightness: 0.95)
+        }
+    }
+}
+
+public struct PresenceFieldCard<Accessory: View>: View {
+    private let state: BeaglePresenceState
+    private let eyebrow: String
+    private let title: String
+    private let message: String
+    private let detail: String?
+    private let truth: TruthMode
+    private let accessory: Accessory
+
+    public init(
+        state: BeaglePresenceState,
+        eyebrow: String,
+        title: String,
+        body message: String,
+        detail: String? = nil,
+        truth: TruthMode,
+        @ViewBuilder accessory: () -> Accessory
+    ) {
+        self.state = state
+        self.eyebrow = eyebrow
+        self.title = title
+        self.message = message
+        self.detail = detail
+        self.truth = truth
+        self.accessory = accessory()
+    }
+
+    public var body: some View {
+        GlassPanel(elevation: .floating, truth: truth) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+                HStack(alignment: .top, spacing: BeagleSpacing.md) {
+                    ZStack {
+                        Circle()
+                            .fill(state.tint.opacity(0.14))
+                            .frame(width: 38, height: 38)
+                        Image(systemName: state.icon)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(state.tint)
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(eyebrow)
+                            .font(BeagleFont.caption.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .textCase(.uppercase)
+                            .tracking(0.8)
+                        Text(title)
+                            .font(BeagleFont.title3.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                        Text(message)
+                            .font(BeagleFont.footnote.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .lineSpacing(2)
+                    }
+
+                    Spacer(minLength: BeagleSpacing.sm)
+                }
+
+                PresenceConstellation(state: state)
+
+                if let detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .lineSpacing(2)
+                }
+
+                accessory
+            }
+        }
+    }
+}
+
+private struct PresenceConstellation: View {
+    let state: BeaglePresenceState
+
+    var body: some View {
+        HStack(spacing: BeagleSpacing.sm) {
+            presenceNode(size: 11, opacity: 0.95)
+            capsule(width: 44, opacity: 0.35)
+            presenceNode(size: 8, opacity: 0.65)
+            capsule(width: 28, opacity: 0.20)
+            presenceNode(size: 6, opacity: 0.40)
+            Spacer()
+            Text(state.subtitle)
+                .font(BeagleFont.caption2.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .lineLimit(2)
+        }
+    }
+
+    private func presenceNode(size: CGFloat, opacity: Double) -> some View {
+        Circle()
+            .fill(state.tint.opacity(opacity))
+            .frame(width: size, height: size)
+            .shadow(color: state.glow.opacity(opacity * 0.5), radius: size, y: 0)
+    }
+
+    private func capsule(width: CGFloat, opacity: Double) -> some View {
+        Capsule()
+            .fill(
+                LinearGradient(
+                    colors: [state.tint.opacity(opacity), state.glow.opacity(opacity * 0.65)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .frame(width: width, height: 4)
     }
 }
 

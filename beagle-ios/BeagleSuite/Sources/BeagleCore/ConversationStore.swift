@@ -9,6 +9,7 @@
 
 import Foundation
 import Observation
+import SwiftData
 
 // MARK: - Message model
 
@@ -76,6 +77,7 @@ public final class ConversationStore {
     public var projectFamily: ProjectFamily?
     public var publicationScope: PublicationScope?
     public var discussionProfile: DiscussionProfile = .cluster
+    public var modelContext: ModelContext?
 
     private let client: BeagleClient
     private let llm = LocalLLMEngine.shared
@@ -94,10 +96,19 @@ public final class ConversationStore {
         self.publicationScope = publicationScope
     }
 
+    public var persistenceConversationId: String {
+        "home:\(projectSlug)"
+    }
+
     // MARK: - Send (auto-routing)
 
     /// HRV-aware flow state for routing decisions.
     public var flowState: String? = nil
+    public var physioContext: String? = nil
+    public var companionContext: String? = nil
+    public var behaviorContext: String? = nil
+    public var noteTakingContext: String? = nil
+    public var physioPolicy: PhysioConversationPolicy? = nil
 
     /// Send a message with HRV-gated routing:
     /// FLOW → cloud (deep reasoning worth the latency)
@@ -125,6 +136,25 @@ public final class ConversationStore {
         }
     }
 
+    private var activeSystemInstruction: String? {
+        let contextLines = [companionContext, physioContext, behaviorContext, noteTakingContext]
+            .compactMap { value -> String? in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+
+        guard !contextLines.isEmpty else { return nil }
+        return contextLines.joined(separator: "\n")
+    }
+
+    private func contextualizedUserText(_ text: String) -> String {
+        guard let activeSystemInstruction else { return text }
+        return activeSystemInstruction
+            .split(separator: "\n")
+            .map { "[\($0)]" }
+            .joined(separator: "\n") + "\n" + text
+    }
+
     // MARK: - Send via on-device LLM
 
     /// Send using the on-device MLX model (streaming).
@@ -137,6 +167,8 @@ public final class ConversationStore {
 
         let userMessage = ChatMessage(role: .user, content: text)
         messages.append(userMessage)
+        persist(message: userMessage)
+        let prompt = contextualizedUserText(text)
 
         let assistantId = UUID()
         let modelName = llm.currentModel?.displayName ?? "local"
@@ -149,7 +181,7 @@ public final class ConversationStore {
 
         // Stream tokens from on-device model
         do {
-            for try await chunk in llm.generate(prompt: text) {
+            for try await chunk in llm.generate(prompt: prompt) {
                 if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
                     messages[idx].content += chunk
                 }
@@ -164,6 +196,7 @@ public final class ConversationStore {
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
             messages[idx].isStreaming = false
+            persist(message: messages[idx])
         }
         isStreaming = false
     }
@@ -181,6 +214,7 @@ public final class ConversationStore {
 
         let userMessage = ChatMessage(role: .user, content: text)
         messages.append(userMessage)
+        persist(message: userMessage)
 
         let assistantId = UUID()
         let placeholder = ChatMessage(id: assistantId, role: .assistant, content: "", isStreaming: true)
@@ -189,10 +223,13 @@ public final class ConversationStore {
 
         let result = await client.chat(
             prompt: contextualPrompt,
+            system: activeSystemInstruction,
             projectSlug: projectSlug,
             projectFamily: projectFamily,
             publicationScope: publicationScope,
-            discussionProfile: discussionProfile
+            discussionProfile: discussionProfile,
+            flowState: flowState,
+            physioPolicy: physioPolicy
         )
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
@@ -206,11 +243,13 @@ public final class ConversationStore {
                 messages[idx].podName = response.podName
 
                 // Typing reveal for cloud responses
-                await revealText(fullText, at: idx)
+                await revealText(fullText, for: assistantId)
                 messages[idx].isStreaming = false
+                persist(message: messages[idx])
             } else {
                 messages[idx].content = result.error ?? "No response received."
                 messages[idx].isStreaming = false
+                persist(message: messages[idx])
             }
         }
 
@@ -240,20 +279,33 @@ public final class ConversationStore {
     public func clear() {
         messages.removeAll()
         isStreaming = false
+        guard let modelContext else { return }
+        let conversationId = persistenceConversationId
+        let descriptor = FetchDescriptor<PersistedMessage>(
+            predicate: #Predicate<PersistedMessage> { message in
+                message.conversationId == conversationId
+            }
+        )
+        if let persisted = try? modelContext.fetch(descriptor) {
+            for message in persisted {
+                modelContext.delete(message)
+            }
+            try? modelContext.save()
+        }
     }
 
     // MARK: - Typing reveal (cloud responses)
 
-    private func revealText(_ text: String, at index: Int) async {
+    private func revealText(_ text: String, for messageId: UUID) async {
         let chars = Array(text)
         let chunkSize = 30
         var pos = 0
 
         while pos < chars.count {
             // Guard against clear() being called mid-reveal
-            guard index < messages.count else { return }
+            guard let idx = messages.firstIndex(where: { $0.id == messageId }) else { return }
             let end = min(pos + chunkSize, chars.count)
-            messages[index].content = String(chars[0..<end])
+            messages[idx].content = String(chars[0..<end])
             pos = end
             if pos < chars.count {
                 // Propagate cancellation instead of swallowing it with try?
@@ -268,4 +320,75 @@ public final class ConversationStore {
 
     public var isEmpty: Bool { messages.isEmpty }
     public var lastMessage: ChatMessage? { messages.last }
+    public var lastUserMessage: ChatMessage? { messages.last(where: { $0.role == .user }) }
+    public var lastAssistantMessage: ChatMessage? { messages.last(where: { $0.role == .assistant }) }
+    public var lastUpdatedAt: Date? { messages.last?.timestamp }
+
+    public func loadPersistedConversation() {
+        guard let modelContext else { return }
+        let conversationId = persistenceConversationId
+        let descriptor = FetchDescriptor<PersistedMessage>(
+            predicate: #Predicate<PersistedMessage> { message in
+                message.conversationId == conversationId
+            },
+            sortBy: [SortDescriptor(\PersistedMessage.sentAt, order: .forward)]
+        )
+
+        guard let persisted = try? modelContext.fetch(descriptor) else { return }
+        messages = persisted.map { stored in
+            ChatMessage(
+                role: MessageRole(rawValue: stored.role) ?? .assistant,
+                content: stored.content,
+                timestamp: stored.sentAt,
+                isStreaming: false,
+                model: stored.model,
+                tokensUsed: stored.tokensUsed,
+                isLocal: stored.isLocal,
+                source: stored.source,
+                agentKind: stored.agentKind,
+                sessionId: stored.sessionId,
+                podName: stored.podName
+            )
+        }
+        isStreaming = false
+    }
+
+    public func restoreContext(
+        projectSlug: String,
+        projectFamily: ProjectFamily?,
+        publicationScope: PublicationScope?
+    ) {
+        self.projectSlug = projectSlug
+        self.projectFamily = projectFamily
+        self.publicationScope = publicationScope
+        loadPersistedConversation()
+    }
+
+    public func seedPreviewConversation(_ sampleMessages: [ChatMessage]) {
+        clear()
+        messages = sampleMessages
+        for message in sampleMessages {
+            persist(message: message)
+        }
+        isStreaming = false
+    }
+
+    private func persist(message: ChatMessage) {
+        guard let modelContext else { return }
+        let persisted = PersistedMessage(
+            role: message.role.rawValue,
+            content: message.content,
+            model: message.model,
+            tokensUsed: message.tokensUsed,
+            isLocal: message.isLocal,
+            source: message.source,
+            agentKind: message.agentKind,
+            sessionId: message.sessionId,
+            podName: message.podName,
+            conversationId: persistenceConversationId,
+            sentAt: message.timestamp
+        )
+        modelContext.insert(persisted)
+        try? modelContext.save()
+    }
 }

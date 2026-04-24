@@ -37,6 +37,7 @@ struct ModelSettingsView: View {
                 deviceCard
                 hfTokenCard
                 statusCard
+                diagnosticsLink
                 catalogSection
             }
             .padding(.horizontal, BeagleSpacing.lg)
@@ -303,6 +304,50 @@ struct ModelSettingsView: View {
             }
             .buttonStyle(SecondaryButton(color: BeagleTheme.truthObserved))
         }
+    }
+
+    // MARK: - Diagnostics link
+
+    private var diagnosticsLink: some View {
+        NavigationLink {
+            DiagnosticsView()
+        } label: {
+            HStack(spacing: BeagleSpacing.sm) {
+                ZStack {
+                    Circle()
+                        .fill(BeagleTheme.truthObserved.opacity(0.08))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "checkmark.seal")
+                        .font(.system(size: 15))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Diagnostics")
+                        .font(BeagleFont.subheadline.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    Text("Run all real-device tests automatically")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
+            .frame(minHeight: 54)
+            .padding(.horizontal, BeagleSpacing.md)
+            .padding(.vertical, BeagleSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                    .fill(BeagleTheme.surface1.opacity(0.5))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                    .strokeBorder(BeagleTheme.truthObserved.opacity(0.1), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Model Catalog (grouped by category)

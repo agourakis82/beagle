@@ -29,16 +29,59 @@ struct TerminalContentView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            scrollContent
-            if isUserScrolledUp && hasNewContent {
-                jumpToBottomPill
+            RoundedRectangle(cornerRadius: BeagleRadius.xl)
+                .fill(Color(red: 0.04, green: 0.05, blue: 0.08).opacity(0.92))
+                .overlay(
+                    RoundedRectangle(cornerRadius: BeagleRadius.xl)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.18), radius: 18, y: 10)
+
+            VStack(spacing: 0) {
+                channelRail
+                ZStack(alignment: .bottom) {
+                    scrollContent
+                    if isUserScrolledUp && hasNewContent {
+                        jumpToBottomPill
+                    }
+                    identityOverlay
+                    reconnectingOverlay
+                    exitOverlay
+                }
             }
-            identityOverlay
-            reconnectingOverlay
-            exitOverlay
         }
+        .padding(.horizontal, BeagleSpacing.sm)
+        .padding(.bottom, BeagleSpacing.sm)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(red: 0.04, green: 0.04, blue: 0.07))
+        .background(Color.clear)
+    }
+
+    private var channelRail: some View {
+        HStack(spacing: BeagleSpacing.sm) {
+            Label(channelTitle, systemImage: channelIcon)
+                .font(BeagleFont.caption.font)
+                .fontWeight(.medium)
+                .foregroundStyle(channelTint)
+            Spacer()
+            if case .connected(let source) = terminal.connectionState {
+                Text(source)
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, BeagleSpacing.md)
+        .padding(.vertical, BeagleSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.xl)
+                .fill(BeagleTheme.surface2.opacity(0.84))
+        )
+        .overlay(
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1),
+            alignment: .bottom
+        )
     }
 
     // MARK: - Scroll content
@@ -290,6 +333,7 @@ struct TerminalContentView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(BeagleTheme.truthObserved)
+                        .frame(minHeight: 44)
                     }
                     if let diagnosticsText, !diagnosticsText.isEmpty {
                         Button {
@@ -301,6 +345,7 @@ struct TerminalContentView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(BeagleTheme.textSecondary)
+                        .frame(minHeight: 44)
                     }
                 }
                 .padding(.horizontal, BeagleSpacing.md)
@@ -331,6 +376,49 @@ struct TerminalContentView: View {
         Task {
             try? await Task.sleep(for: .seconds(2))
             diagnosticsCopied = false
+        }
+    }
+
+    private var channelTitle: String {
+        switch terminal.connectionState {
+        case .connected:
+            return terminal.hasAbnormalExit ? "Channel restored" : "Channel open"
+        case .connecting:
+            return "Opening channel"
+        case .reconnecting:
+            return "Recovering channel"
+        case .failed:
+            return "Channel interrupted"
+        case .disconnected:
+            return terminal.hasAbnormalExit ? "Channel interrupted" : "Companion terminal"
+        }
+    }
+
+    private var channelIcon: String {
+        switch terminal.connectionState {
+        case .connected:
+            return "waveform.path.ecg"
+        case .connecting:
+            return "bolt.horizontal.circle"
+        case .reconnecting:
+            return "arrow.clockwise.circle"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        case .disconnected:
+            return terminal.hasAbnormalExit ? "exclamationmark.triangle.fill" : "terminal"
+        }
+    }
+
+    private var channelTint: Color {
+        switch terminal.connectionState {
+        case .connected:
+            return BeagleTheme.truthObserved
+        case .connecting, .reconnecting:
+            return BeagleTheme.postureWarm
+        case .failed:
+            return BeagleTheme.stateError
+        case .disconnected:
+            return terminal.hasAbnormalExit ? BeagleTheme.stateError : BeagleTheme.textSecondary
         }
     }
 }

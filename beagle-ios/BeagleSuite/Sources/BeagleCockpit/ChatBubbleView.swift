@@ -137,16 +137,25 @@ struct ChatBubbleView: View {
                 .font(BeagleFont.caption2.font)
                 .foregroundStyle(BeagleTheme.textTertiary)
 
-            if let model = message.model {
-                HStack(spacing: 2) {
-                    if message.isLocal {
-                        Image(systemName: "iphone")
-                            .font(.system(size: 8))
-                    }
-                    Text(model)
+            if message.role == .assistant {
+                PresencePill(
+                    label: provenanceLabel,
+                    systemImage: provenanceSystemImage,
+                    tint: provenanceTint
+                )
+                if let agentKind = message.agentKind, !agentKind.isEmpty {
+                    PresencePill(
+                        label: agentKindDisplayName(agentKind),
+                        systemImage: "sparkles.rectangle.stack",
+                        tint: BeagleTheme.truthRemembered
+                    )
                 }
-                .font(BeagleFont.caption2.font)
-                .foregroundStyle(message.isLocal ? BeagleTheme.truthObserved.opacity(0.6) : BeagleTheme.textTertiary)
+            }
+
+            if let model = message.model {
+                Text(model)
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(message.isLocal ? BeagleTheme.truthObserved.opacity(0.6) : BeagleTheme.textTertiary)
             }
 
             if let tokens = message.tokensUsed, tokens > 0 {
@@ -155,6 +164,60 @@ struct ChatBubbleView: View {
                     .foregroundStyle(BeagleTheme.textTertiary)
             }
         }
+    }
+
+    private var provenanceLabel: String {
+        switch normalizedSource {
+        case "device":
+            return "On Device"
+        case "agent":
+            return "Agent"
+        case "hybrid":
+            return "Hybrid"
+        default:
+            return message.isLocal ? "On Device" : "Cluster"
+        }
+    }
+
+    private var provenanceSystemImage: String {
+        switch normalizedSource {
+        case "device":
+            return "iphone"
+        case "agent":
+            return "sparkles.rectangle.stack"
+        case "hybrid":
+            return "point.3.connected.trianglepath.dotted"
+        default:
+            return message.isLocal ? "iphone" : "server.rack"
+        }
+    }
+
+    private var provenanceTint: Color {
+        switch normalizedSource {
+        case "device":
+            return BeagleTheme.truthObserved
+        case "agent":
+            return BeagleTheme.truthRemembered
+        case "hybrid":
+            return BeagleTheme.truthObserved.opacity(0.9)
+        default:
+            return message.isLocal ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered
+        }
+    }
+
+    private var normalizedSource: String {
+        message.source?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+    }
+
+    private func agentKindDisplayName(_ agentKind: String) -> String {
+        agentKind
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .map { segment in
+                segment.prefix(1).uppercased() + segment.dropFirst().lowercased()
+            }
+            .joined(separator: " ")
     }
 
     // MARK: - Context menu
@@ -193,9 +256,9 @@ private struct ThinkingIndicator: View {
     @State private var index = 0
 
     private static let messages = [
-        "Thinking...",
-        "Considering context...",
-        "Forming response...",
+        "Beagle is thinking...",
+        "Following the thread...",
+        "Shaping a response...",
     ]
 
     var body: some View {

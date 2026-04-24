@@ -9,11 +9,17 @@
 
 import SwiftUI
 import BeagleCore
+import SwiftData
 
 struct HomeView: View {
     @Environment(CatalogStore.self) private var catalog
     @Environment(CognitiveStore.self) private var cognitive
-    @State private var conversation = ConversationStore()
+    @Environment(PhysioStore.self) private var physio
+    @Environment(\.modelContext) private var modelContext
+    @AppStorage("selectedTab") private var selectedTab = 0
+    @AppStorage("pinnedLaneQuestionsJSON") private var pinnedLaneQuestionsJSON = "{}"
+    @AppStorage("cachedLaneResultsJSON") private var cachedLaneResultsJSON = "[]"
+    @State private var conversation: ConversationStore
     @State private var inputText = ""
     @State private var provocations: [Provocation] = []
     @State private var greeting = ""
@@ -23,32 +29,61 @@ struct HomeView: View {
     @State private var searchText = ""
     @State private var milestoneToShow: Int?
     @State private var lastSeenThoughtCount = 0
+    @State private var homeSummary: Truthful<MobileHomeSummary>?
+    @State private var workLanes: [ProjectLaneState] = []
+    @State private var inputFocusRequest = 0
     #if os(iOS)
     @State private var speechRecognizer = SpeechRecognizer()
     #endif
 
+    init() {
+        _conversation = State(initialValue: ConversationStore(preferLocal: false))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
+                VStack(alignment: .leading, spacing: homeLeadsWithReturnedWork ? BeagleSpacing.lg : BeagleSpacing.xl) {
+                    if homeLeadsWithReturnedWork {
+                        myWorkCard
+                        bodyStateCard
+                    } else {
+                        bodyStateCard
+                        myWorkCard
+                    }
+                    discussionFieldCard
+                    activeAgentsStrip
+                    shellPresenceCard
                     greetingSection
+                    livingBriefingCard
+                    previewSignalCard
                     #if os(iOS)
                     ambientCaptureToggle
                     #endif
-                    if !provocations.isEmpty {
+                    if showProvocations {
                         provocationsSection
                     }
-                    if let brief = morningBrief {
+                    #if canImport(JournalingSuggestions)
+                    if showProvocations {
+                        JournalingSuggestionsCard()
+                    }
+                    #endif
+                    if showTriadReadyCard {
+                        triadReadyCard
+                    }
+                    if showWarmthCard {
+                        warmthCard
+                    }
+                    if let brief = morningBrief, currentIntensity != .minimal {
                         morningBriefCard(brief)
                     }
-                    if let insight = serendipityInsight {
+                    if let insight = serendipityInsight, currentIntensity != .minimal, morningBriefIntensity != .minimal {
                         serendipityCard(insight)
                     }
-                    noveltySection
-                    recentThoughtsSection
-                    if !conversation.isEmpty {
-                        conversationSection
+                    if currentIntensity != .minimal, morningBriefIntensity != .minimal {
+                        noveltySection
                     }
+                    recentThoughtsSection
                 }
                 .padding(.horizontal, BeagleSpacing.lg)
                 .padding(.top, BeagleSpacing.xl)
@@ -59,14 +94,8 @@ struct HomeView: View {
             exocortexInput
         }
         .background { HomeGradient(thoughtCount: cognitive.recentThoughts.count, hasJobs: !cognitive.activeJobs.isEmpty) }
-        .navigationTitle("Mind")
-        .navigationBarTitleDisplayMode(.large)
-        .searchable(text: $searchText, prompt: "Search thoughts...")
-        .overlay {
-            if !searchText.isEmpty {
-                searchResults
-            }
-        }
+        .navigationTitle("Beagle")
+        .navigationBarTitleDisplayModeIfAvailable(.large)
         .overlay {
             if let milestone = milestoneToShow {
                 MilestoneCelebration(count: milestone) {
@@ -77,7 +106,16 @@ struct HomeView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: homeToolbarPlacement) {
+                NavigationLink {
+                    DeepExplorationView()
+                } label: {
+                    Label("Explore", systemImage: "scope")
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                }
+            }
+
+            ToolbarItem(placement: homeToolbarPlacement) {
                 NavigationLink {
                     ModelSettingsView()
                 } label: {
@@ -99,12 +137,26 @@ struct HomeView: View {
         .refreshable {
             async let c: () = catalog.refresh()
             async let g: () = cognitive.refresh()
-            _ = await (c, g)
+            async let p: () = physio.refresh()
+            async let s = CockpitClient.shared.mobileSummary()
+            let summary = await s
+            applyHomeSummary(summary)
+            _ = await (c, g, p)
+            await refreshWorkLanes()
+            applyPhysioConversationContext()
             generateProvocations()
         }
         .onChange(of: cognitive.recentThoughts.count) { oldCount, newCount in
             checkMilestone(oldCount: oldCount, newCount: newCount)
         }
+    }
+
+    private var homeToolbarPlacement: ToolbarItemPlacement {
+        #if os(macOS)
+        return .automatic
+        #else
+        return .topBarTrailing
+        #endif
     }
 
     private func checkMilestone(oldCount: Int, newCount: Int) {
@@ -121,6 +173,73 @@ struct HomeView: View {
     }
 
     // MARK: - Greeting (recognition, not template)
+
+    private var previewSignalCard: some View {
+        GlassPanel(elevation: .floating, truth: .observed) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+                        Text(BuildInfo.previewLabel)
+                            .font(BeagleFont.caption.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.postureWarm)
+                            .textCase(.uppercase)
+                            .tracking(0.9)
+                        Text("Device Mind + Cluster Mind")
+                            .font(BeagleFont.title2.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                    }
+                    Spacer()
+                    PresencePill(label: BuildInfo.detailedLabel, systemImage: "bolt.fill", tint: BeagleTheme.truthObserved)
+                }
+
+                Text("This build makes the bridge explicit: the private intelligence on your device is visible, the cluster is visible, and the handoff between them should finally feel alive.")
+                    .font(BeagleFont.body.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .lineSpacing(3)
+
+                CognitiveBridgeField(
+                    localWeight: LocalLLMEngine.shared.isReady ? 1.0 : 0.55,
+                    bridgeWeight: cognitive.serverReachable ? 1.0 : 0.62,
+                    clusterWeight: cognitive.serverReachable ? 0.96 : 0.38,
+                    emphasis: .balanced
+                )
+
+                HStack(spacing: BeagleSpacing.xs) {
+                    PresencePill(label: "On Device visible", systemImage: "iphone.gen3.radiowaves.left.and.right", tint: BeagleTheme.truthDeclared)
+                    PresencePill(label: "Cluster presence visible", systemImage: "server.rack", tint: BeagleTheme.truthObserved)
+                }
+            }
+        }
+        .opacity(hasAppeared ? 1 : 0)
+        .offset(y: hasAppeared ? 0 : 10)
+        .animation(.easeOut(duration: 0.5), value: hasAppeared)
+    }
+
+    private var shellPresenceCard: some View {
+        PresenceFieldCard(
+            state: shellPresenceState,
+            eyebrow: "Living Shell",
+            title: shellPresenceTitle,
+            body: shellPresenceBody,
+            detail: shellPresenceDetail,
+            truth: shellPresenceTruth
+        ) {
+            HStack(spacing: BeagleSpacing.xs) {
+                PresencePill(
+                    label: LocalLLMEngine.shared.isReady ? "device mind awake" : "device mind quiet",
+                    systemImage: "iphone.gen3.radiowaves.left.and.right",
+                    tint: LocalLLMEngine.shared.isReady ? BeagleTheme.truthDeclared : BeagleTheme.truthStale
+                )
+                PresencePill(
+                    label: cognitive.serverReachable ? "cluster within reach" : "cluster holding at distance",
+                    systemImage: "server.rack",
+                    tint: cognitive.serverReachable ? BeagleTheme.truthObserved : BeagleTheme.postureWarm
+                )
+            }
+        }
+    }
 
     private var greetingSection: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
@@ -163,15 +282,112 @@ struct HomeView: View {
                     HStack(spacing: BeagleSpacing.xxs) {
                         Image(systemName: "lock.shield.fill")
                             .font(.system(size: 9))
-                        Text("On-device")
+                        Text("Device mind")
                             .font(BeagleFont.caption2.font)
                     }
                     .foregroundStyle(BeagleTheme.truthObserved.opacity(0.5))
                 }
+
+                intensityPill
             }
             .opacity(hasAppeared ? 1 : 0)
             .animation(.easeOut(duration: 0.6).delay(0.4), value: hasAppeared)
         }
+    }
+
+    private var livingBriefingCard: some View {
+        let runningAgents = cognitive.state.value?.agentSessions?.filter { ($0.readyReplicas ?? 0) > 0 } ?? []
+        let summary = homeSummary?.value
+        let activeAgentCount = summary?.activeAgentsCount ?? runningAgents.count
+        let activeSessionCount = summary?.activeSessionsCount ?? runningAgents.count
+        let clusterThoughts = cognitive.recentThoughts.filter { $0.residency == .clusterMemory }.count
+        let localThoughts = cognitive.recentThoughts.filter { $0.residency == .deviceOnly }.count
+        let localWeight = LocalLLMEngine.shared.isReady ? 1.0 : 0.35
+        let bridgeWeight = cognitive.serverReachable ? 0.95 : 0.45
+        let clusterWeight = activeAgentCount == 0 ? min(1.0, 0.35 + Double(clusterThoughts) * 0.12) : 1.0
+
+        return GlassPanel(elevation: .floating, truth: cognitive.serverReachable ? .observed : .declared) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "sparkles.rectangle.stack")
+                        .font(.system(size: 14))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                    Text("Living Briefing")
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+                    Spacer()
+                    TruthBadge(cognitive.serverReachable ? .observed : .declared, compact: true)
+                }
+
+                Text("The mind in your hand is awake. The bridge is visible. The larger system is \(cognitive.serverReachable ? "within reach" : "quiet for now").")
+                    .font(BeagleFont.subheadline.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .lineSpacing(2)
+
+                CognitiveBridgeField(
+                    localWeight: localWeight,
+                    bridgeWeight: bridgeWeight,
+                    clusterWeight: clusterWeight,
+                    emphasis: .balanced
+                )
+
+                HStack(spacing: BeagleSpacing.sm) {
+                    briefingNode(
+                        title: "Device Mind",
+                        subtitle: LocalLLMEngine.shared.isReady ? "\(localThoughts) private thread\(localThoughts == 1 ? "" : "s")" : "Local model offline",
+                        systemImage: "iphone",
+                        tint: BeagleTheme.truthDeclared
+                    )
+                    briefingNode(
+                        title: "Bridge",
+                        subtitle: cognitive.serverReachable
+                            ? (summary?.lastMemorySyncTime.flatMap { relativeTime(from: $0) }.map { "Last sync \($0)" } ?? "Sync is live")
+                            : "Holding local state",
+                        systemImage: "arrow.left.and.right.circle",
+                        tint: BeagleTheme.postureWarm
+                    )
+                    briefingNode(
+                        title: "Cluster Mind",
+                        subtitle: activeAgentCount == 0
+                            ? "\(clusterThoughts) memory thread\(clusterThoughts == 1 ? "" : "s")"
+                            : "\(activeAgentCount) agent\(activeAgentCount == 1 ? "" : "s") active · \(activeSessionCount) session\(activeSessionCount == 1 ? "" : "s")",
+                        systemImage: "server.rack",
+                        tint: BeagleTheme.truthObserved
+                    )
+                }
+
+                if let clusterHealth = summary?.clusterHealth, !clusterHealth.isEmpty {
+                    PresencePill(label: "Cluster \(clusterHealth.capitalized)", systemImage: "waveform.path.ecg", tint: BeagleTheme.truthObserved)
+                }
+            }
+        }
+        .opacity(hasAppeared ? 1 : 0)
+        .offset(y: hasAppeared ? 0 : 12)
+        .animation(.easeOut(duration: 0.55).delay(0.12), value: hasAppeared)
+    }
+
+    private func briefingNode(title: String, subtitle: String, systemImage: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+            PresencePill(label: title, systemImage: systemImage, tint: tint)
+            Text(subtitle)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.textSecondary)
+                .lineLimit(2)
+                .lineSpacing(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(BeagleSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.md)
+                .fill(tint.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.md)
+                .strokeBorder(tint.opacity(0.08), lineWidth: 1)
+        )
     }
 
     /// Circadian gradient: warm gold in morning, teal in afternoon, soft violet at night.
@@ -193,18 +409,77 @@ struct HomeView: View {
         if let latest = thoughts.first, let text = latest.refinedText ?? latest.rawText {
             let snippet = String(text.prefix(60))
             if jobs.isEmpty {
-                return "Your last thought: \"\(snippet)\(text.count > 60 ? "..." : "")\" — want to continue?"
+                return "Your last thread: \"\(snippet)\(text.count > 60 ? "..." : "")\" — want to continue from the device, or carry it into the cluster?"
             } else {
-                return "\(jobs.count) job\(jobs.count > 1 ? "s" : "") running. Last thought: \"\(snippet)\(text.count > 60 ? "..." : "")\""
+                return "\(jobs.count) job\(jobs.count > 1 ? "s" : "") running. Last thread: \"\(snippet)\(text.count > 60 ? "..." : "")\""
             }
         }
 
         // Returning user with no recent thoughts
         let hour = Calendar.current.component(.hour, from: Date())
         if hour >= 0 && hour < 5 {
-            return "Late night thinking? Your exocortex is here. Everything stays on this device."
+            return "Late night thinking? Start privately on device, then decide what deserves the larger mind."
         }
-        return "Your exocortex is ready. What's on your mind?"
+        return "Beagle is here. Start with a thought, then let the command room deepen it."
+    }
+
+    private var shellPresenceState: BeaglePresenceState {
+        if !cognitive.serverReachable && !cognitive.activeJobs.isEmpty {
+            return .strained
+        }
+        if !cognitive.activeJobs.isEmpty || !(cognitive.state.value?.agentSessions?.isEmpty ?? true) {
+            return .active
+        }
+        if LocalLLMEngine.shared.isReady || cognitive.serverReachable {
+            return .attentive
+        }
+        return .dormant
+    }
+
+    private var shellPresenceTitle: String {
+        switch shellPresenceState {
+        case .active:
+            return "The whole shell feels awake now"
+        case .attentive:
+            return "Beagle is waiting in both directions"
+        case .strained:
+            return "The shell is holding shape through signal strain"
+        case .dormant:
+            return "Even quiet, the shell remembers your last thread"
+        }
+    }
+
+    private var shellPresenceBody: String {
+        if !cognitive.activeJobs.isEmpty {
+            return "\(cognitive.activeJobs.count) cluster job\(cognitive.activeJobs.count == 1 ? "" : "s") are still moving. This surface should feel less like a dashboard and more like a living bridge between your hand and the lab."
+        }
+        if let summary = homeSummary?.value, let activeAgentsCount = summary.activeAgentsCount, activeAgentsCount > 0 {
+            return "\(activeAgentsCount) agent\(activeAgentsCount == 1 ? "" : "s") are awake in the cluster. Start privately, or let the larger mind answer back."
+        }
+        if cognitive.serverReachable {
+            return "Your private thoughts, the remote memory, and the command surfaces now belong to one room. You should feel hosted, not dropped into tooling."
+        }
+        return "The local mind is still here even when the bridge goes quiet. Capture the thread first; the larger system can rejoin when the signal returns."
+    }
+
+    private var shellPresenceDetail: String {
+        let thoughtCount = cognitive.recentThoughts.count
+        let jobCount = cognitive.runningJobCount
+        let syncClause = cognitive.serverReachable ? "sync is live" : "sync is paused"
+        return "\(thoughtCount) thought\(thoughtCount == 1 ? "" : "s") in memory · \(jobCount) live job\(jobCount == 1 ? "" : "s") · \(syncClause)"
+    }
+
+    private var shellPresenceTruth: TruthMode {
+        switch shellPresenceState {
+        case .active:
+            return .observed
+        case .attentive:
+            return .remembered
+        case .dormant:
+            return .declared
+        case .strained:
+            return .stale
+        }
     }
 
     // MARK: - Provocations (like ChatGPT Pulse)
@@ -297,7 +572,7 @@ struct HomeView: View {
 
                 HStack(spacing: BeagleSpacing.xs) {
                     BreathingDot(color: BeagleTheme.truthRemembered, size: 6)
-                    Text("EXOCORTEX")
+                    Text("LARGER MIND")
                         .font(BeagleFont.caption.font)
                         .fontWeight(.medium)
                         .foregroundStyle(BeagleTheme.textTertiary)
@@ -404,13 +679,13 @@ struct HomeView: View {
                     .foregroundStyle(BeagleTheme.textTertiary)
                     .tracking(0.5)
 
-                ForEach(Array(cognitive.recentThoughts.prefix(3).enumerated()), id: \.element.id) { index, thought in
+                ForEach(Array(cognitive.recentThoughts.prefix(5).enumerated()), id: \.element.id) { index, thought in
                     let thoughtText = thought.refinedText ?? thought.rawText ?? ""
                     Button {
                         Task { await conversation.sendMessage("Expand on this thought: \(thoughtText)") }
                     } label: {
                         HStack(alignment: .top, spacing: BeagleSpacing.sm) {
-                            if thought.refinedText != nil {
+                            if thought.residency == .clusterMemory {
                                 BreathingDot(color: BeagleTheme.truthObserved, size: 6)
                                     .padding(.top, 7)
                             } else {
@@ -427,7 +702,20 @@ struct HomeView: View {
                                 .multilineTextAlignment(.leading)
                                 .lineSpacing(2)
 
+                            PresencePill(
+                                label: thought.effectiveSyncState.label,
+                                systemImage: thought.effectiveSyncState.systemImage,
+                                tint: tint(for: thought.effectiveSyncState)
+                            )
+
                             Spacer()
+
+                            if let age = thought.createdAt.flatMap({ relativeTime(from: $0) }) {
+                                Text(age)
+                                    .font(BeagleFont.caption2.font)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                    .padding(.top, 4)
+                            }
                         }
                     }
                     .buttonStyle(ScalePress())
@@ -449,10 +737,59 @@ struct HomeView: View {
 
     // MARK: - Conversation (inline, not separate tab)
 
-    @ViewBuilder
+    private var discussionFieldCard: some View {
+        GlassPanel(elevation: .floating, truth: discussionTruth) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+                        Text("Idea Field")
+                            .font(BeagleFont.caption.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.truthObserved)
+                            .textCase(.uppercase)
+                            .tracking(0.8)
+                        Text(conversation.isEmpty ? "Bring one living idea into the room" : "Stay with the thread until it turns into something real")
+                            .font(BeagleFont.title3.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                    }
+                    Spacer()
+                    PresencePill(
+                        label: discussionProfileLabel,
+                        systemImage: conversation.discussionProfile.iconName,
+                        tint: BeagleTheme.truthRemembered
+                    )
+                }
+
+                Text(discussionNarrative)
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineSpacing(2)
+
+                companionSignalStrip
+
+                if let pinnedQuestion = pinnedQuestionForCurrentLane {
+                    pinnedQuestionCard(pinnedQuestion)
+                }
+
+                if !conversation.isEmpty {
+                    whereWeLeftOffCard
+                }
+
+                discussionProfileStrip
+
+                if conversation.isEmpty {
+                    emptyDiscussionState
+                } else {
+                    conversationSection
+                }
+            }
+        }
+    }
+
     private var conversationSection: some View {
-        VStack(spacing: BeagleSpacing.xs) {
-            ForEach(conversation.messages) { message in
+        VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+            ForEach(conversation.messages.suffix(6)) { message in
                 ChatBubbleView(
                     message: message,
                     onRegenerate: message.role == .assistant ? {
@@ -460,7 +797,6 @@ struct HomeView: View {
                     } : nil
                 )
 
-                // Go Deeper button on assistant responses
                 if message.role == .assistant && !message.isStreaming {
                     HStack {
                         GoDeepButton(prompt: message.content)
@@ -469,6 +805,240 @@ struct HomeView: View {
                     .padding(.leading, BeagleSpacing.md)
                 }
             }
+        }
+    }
+
+    private var emptyDiscussionState: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+            HStack(spacing: BeagleSpacing.xs) {
+                PresencePill(
+                    label: focusedLane.map { projectDisplayName($0.project.projectSlug) } ?? "No lane selected",
+                    systemImage: "scope",
+                    tint: BeagleTheme.truthObserved
+                )
+                PresencePill(
+                    label: LocalLLMEngine.shared.isReady ? "Device mind ready" : "Cluster route ready",
+                    systemImage: LocalLLMEngine.shared.isReady ? "iphone" : "server.rack",
+                    tint: LocalLLMEngine.shared.isReady ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered
+                )
+            }
+
+            Text("Type below or start with one of these living prompts.")
+                .font(BeagleFont.footnote.font)
+                .foregroundStyle(BeagleTheme.textSecondary)
+
+            VStack(spacing: BeagleSpacing.xs) {
+                ForEach(discussionStarters, id: \.self) { starter in
+                    Button {
+                        prepareDraft(starter)
+                    } label: {
+                        HStack(spacing: BeagleSpacing.sm) {
+                            Image(systemName: "arrow.up.right.circle")
+                                .font(.system(size: 14))
+                                .foregroundStyle(BeagleTheme.truthObserved)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(starter)
+                                    .font(BeagleFont.footnote.font)
+                                    .foregroundStyle(BeagleTheme.textPrimary)
+                                    .multilineTextAlignment(.leading)
+                                    .lineLimit(3)
+                                Text("Load this into the composer")
+                                    .font(BeagleFont.caption2.font)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, BeagleSpacing.md)
+                        .padding(.vertical, BeagleSpacing.sm)
+                        .background(
+                            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                                .fill(BeagleTheme.surface1.opacity(0.5))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                                .strokeBorder(BeagleTheme.truthObserved.opacity(0.08), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var discussionProfileStrip: some View {
+        HStack(spacing: BeagleSpacing.sm) {
+            PresencePill(
+                label: "\(conversation.discussionProfile.label) route",
+                systemImage: conversation.discussionProfile.iconName,
+                tint: BeagleTheme.truthRemembered
+            )
+
+            Menu {
+                ForEach(DiscussionProfile.allCases) { profile in
+                    Button {
+                        conversation.discussionProfile = profile
+                    } label: {
+                        Label("\(profile.label) · \(profile.subtitle)", systemImage: profile.iconName)
+                    }
+                }
+            } label: {
+                Label("Change Route", systemImage: "arrow.triangle.branch")
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .padding(.horizontal, BeagleSpacing.sm)
+                    .padding(.vertical, BeagleSpacing.xs)
+                    .background(Capsule().fill(BeagleTheme.surface1.opacity(0.45)))
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(BeagleTheme.hairline, lineWidth: 1)
+                    )
+            }
+            Spacer()
+        }
+    }
+
+    private var companionSignalStrip: some View {
+        HStack(spacing: BeagleSpacing.xs) {
+            PresencePill(
+                label: "friend assistant",
+                systemImage: "person.2.wave.2.fill",
+                tint: BeagleTheme.truthObserved
+            )
+            PresencePill(
+                label: "idea notes stay alive",
+                systemImage: "note.text",
+                tint: BeagleTheme.truthRemembered
+            )
+            PresencePill(
+                label: physio.summary.readiness == .unavailable ? "body-state still quiet" : "body-state is shaping tone",
+                systemImage: "waveform.path.ecg",
+                tint: bodyPresenceState.tint
+            )
+            PresencePill(
+                label: physio.summary.conversationPolicy.modeLabel,
+                systemImage: "brain.head.profile",
+                tint: BeagleTheme.truthRemembered
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var whereWeLeftOffCard: some View {
+        if let lastUser = conversation.lastUserMessage {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    PresencePill(label: "Where We Left Off", systemImage: "arrow.trianglehead.clockwise", tint: BeagleTheme.truthRemembered)
+                    if let updated = conversation.lastUpdatedAt {
+                        PresencePill(label: RelativeDateTimeFormatter().localizedString(for: updated, relativeTo: .now), systemImage: "clock", tint: BeagleTheme.textSecondary)
+                    }
+                }
+
+                Text(lastUser.content)
+                    .font(BeagleFont.body.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .lineLimit(3)
+
+                if let lastAssistant = conversation.lastAssistantMessage, !lastAssistant.content.isEmpty {
+                    Text(lastAssistant.content)
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineLimit(3)
+                }
+
+                HStack(spacing: BeagleSpacing.sm) {
+                    Button {
+                        prepareDraft("Continue from where we left off and push this idea one level deeper.")
+                    } label: {
+                        Label("Continue in Composer", systemImage: "text.bubble")
+                    }
+                    .buttonStyle(SecondaryButton(color: BeagleTheme.truthObserved))
+
+                    Button {
+                        pinQuestionForCurrentLane(lastUser.content)
+                    } label: {
+                        Label(pinnedQuestionForCurrentLane == lastUser.content ? "Pinned" : "Pin Question", systemImage: pinnedQuestionForCurrentLane == lastUser.content ? "pin.fill" : "pin")
+                    }
+                    .buttonStyle(SecondaryButton(color: BeagleTheme.truthRemembered))
+                }
+            }
+            .padding(BeagleSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                    .fill(BeagleTheme.surface1.opacity(0.45))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                    .strokeBorder(BeagleTheme.truthRemembered.opacity(0.08), lineWidth: 1)
+            )
+        }
+    }
+
+    private func pinnedQuestionCard(_ question: String) -> some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            HStack(spacing: BeagleSpacing.xs) {
+                PresencePill(label: "Pinned Question", systemImage: "pin.fill", tint: BeagleTheme.truthObserved)
+                Spacer()
+                Button {
+                    clearPinnedQuestionForCurrentLane()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text(question)
+                .font(BeagleFont.footnote.font)
+                .foregroundStyle(BeagleTheme.textPrimary)
+                .lineLimit(4)
+
+            Button {
+                prepareDraft("Return to this core question and help me work it forward: \(question)")
+            } label: {
+                Label("Re-enter in Composer", systemImage: "arrow.up.right")
+            }
+            .buttonStyle(SecondaryButton(color: BeagleTheme.truthObserved))
+        }
+        .padding(BeagleSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .fill(BeagleTheme.truthObserved.opacity(0.07))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .strokeBorder(BeagleTheme.truthObserved.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private func discussionProfileButton(for profile: DiscussionProfile) -> some View {
+        let isSelected = conversation.discussionProfile == profile
+        let foreground = isSelected ? BeagleTheme.truthObserved : BeagleTheme.textSecondary
+        let fill = isSelected
+            ? BeagleTheme.truthObserved.opacity(0.12)
+            : BeagleTheme.surface1.opacity(0.45)
+        let stroke = isSelected
+            ? BeagleTheme.truthObserved.opacity(0.18)
+            : BeagleTheme.hairline
+
+        return Button {
+            conversation.discussionProfile = profile
+        } label: {
+            HStack(spacing: BeagleSpacing.xs) {
+                Image(systemName: profile.iconName)
+                    .font(.system(size: 12, weight: .semibold))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(profile.label)
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.semibold)
+                    Text(profile.subtitle)
+                        .font(BeagleFont.caption2.font)
+                }
+            }
+            .foregroundStyle(foreground)
+            .padding(.horizontal, BeagleSpacing.sm)
+            .padding(.vertical, BeagleSpacing.xs)
+            .background(Capsule().fill(fill))
+            .overlay(Capsule().strokeBorder(stroke, lineWidth: 1))
         }
     }
 
@@ -549,7 +1119,7 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Exocortex input (always visible at bottom)
+    // MARK: - Talk input (always visible at bottom)
 
     private var exocortexInput: some View {
         BeagleInputBar(
@@ -557,6 +1127,7 @@ struct HomeView: View {
             placeholder: circadianPlaceholder,
             mode: .chat,
             isEnabled: !conversation.isStreaming,
+            focusRequest: inputFocusRequest,
             onSubmit: { text in
                 #if os(iOS)
                 BeagleHaptics.capture()
@@ -577,7 +1148,7 @@ struct HomeView: View {
                 .symbolEffect(.variableColor, isActive: speechRecognizer.isAmbientActive)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Ambient Capture")
+                Text("Ambient Ideas")
                     .font(BeagleFont.footnote.font)
                     .fontWeight(.medium)
                     .foregroundStyle(BeagleTheme.textPrimary)
@@ -612,16 +1183,156 @@ struct HomeView: View {
     }
     #endif
 
+    // MARK: - Active Agents Strip (exocortex awareness)
+
+    @ViewBuilder
+    private var myWorkCard: some View {
+        if !displayWorkLanes.isEmpty {
+            GlassPanel(elevation: .floating, truth: .observed) {
+                VStack(alignment: .leading, spacing: homeLeadsWithReturnedWork ? BeagleSpacing.sm : BeagleSpacing.md) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+                            Text("My Work Right Now")
+                                .font(BeagleFont.caption.font)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(BeagleTheme.truthObserved)
+                                .textCase(.uppercase)
+                                .tracking(0.8)
+                            Text(workLaneHeadline)
+                                .font(BeagleFont.title3.font)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                        }
+                        Spacer()
+                        if let focusedLane {
+                            PresencePill(
+                                label: "focus: \(projectDisplayName(focusedLane.project.projectSlug))",
+                                systemImage: "scope",
+                                tint: BeagleTheme.truthObserved
+                            )
+                        }
+                    }
+
+                    if !homeLeadsWithReturnedWork {
+                        Text(workLaneSupportText)
+                            .font(BeagleFont.footnote.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .lineSpacing(2)
+                            .lineLimit(2)
+                    }
+
+                    if let focusedLane {
+                        focusedLaneCompass(focusedLane)
+                    }
+
+                    VStack(spacing: BeagleSpacing.sm) {
+                        ForEach(displayWorkLanes) { lane in
+                            workLaneRow(lane)
+                        }
+                    }
+                }
+            }
+            .opacity(hasAppeared ? 1 : 0)
+            .offset(y: hasAppeared ? 0 : 8)
+            .animation(.easeOut(duration: 0.5).delay(0.08), value: hasAppeared)
+        }
+    }
+
+    @ViewBuilder
+    private var activeAgentsStrip: some View {
+        let running = cognitive.state.value?.agentSessions?.filter { ($0.readyReplicas ?? 0) > 0 } ?? []
+        let activeAgentCount = homeSummary?.value?.activeAgentsCount ?? running.count
+        if activeAgentCount > 0 {
+            HStack(spacing: BeagleSpacing.sm) {
+                BreathingDot(color: BeagleTheme.truthObserved, size: 7)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(activeAgentCount == 1
+                         ? "\(running.first?.kind?.replacingOccurrences(of: "-", with: " ").capitalized ?? "Agent") is active"
+                         : "\(activeAgentCount) agents active")
+                        .font(BeagleFont.footnote.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                Text("Cluster mind is live · open Agents to join")
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                }
+                Spacer()
+                CognitiveBridgeField(
+                    localWeight: 0.45,
+                    bridgeWeight: 1.0,
+                    clusterWeight: 1.0,
+                    emphasis: .balanced
+                )
+                .frame(width: 138, height: 54)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(BeagleTheme.truthObserved.opacity(0.5))
+            }
+            .padding(.horizontal, BeagleSpacing.md)
+            .padding(.vertical, BeagleSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                    .fill(BeagleTheme.truthObserved.opacity(0.06))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                            .strokeBorder(BeagleTheme.truthObserved.opacity(0.15), lineWidth: 1)
+                    )
+            )
+            .opacity(hasAppeared ? 1 : 0)
+            .animation(.easeOut(duration: 0.5).delay(0.15), value: hasAppeared)
+        }
+    }
+
+    // MARK: - Warmth Card (negative State of Mind)
+
+    private var warmthCard: some View {
+        HStack(alignment: .top, spacing: BeagleSpacing.sm) {
+            Image(systemName: "heart.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(BeagleTheme.postureWarm)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                Text("Your recent mood check suggests a harder day. The exocortex is here \u{2014} no pressure, just presence.")
+                    .font(BeagleFont.subheadline.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .lineSpacing(3)
+            }
+        }
+        .padding(.horizontal, BeagleSpacing.lg)
+        .padding(.vertical, BeagleSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .fill(BeagleTheme.postureWarm.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .strokeBorder(BeagleTheme.postureWarm.opacity(0.08), lineWidth: 1)
+        )
+        .opacity(hasAppeared ? 1 : 0)
+        .offset(y: hasAppeared ? 0 : 12)
+        .animation(.easeOut(duration: 0.6).delay(0.15), value: hasAppeared)
+    }
+
     // MARK: - Morning Brief (synthesized from overnight agent activity)
 
     private func morningBriefCard(_ brief: String) -> some View {
-        GlassPanel(elevation: .floating, truth: .observed) {
+        let displayBrief: String = {
+            if morningBriefIntensity == .minimal {
+                // Show only the first sentence for low-energy state
+                let firstSentence = brief.components(separatedBy: ". ").first ?? brief
+                return firstSentence.hasSuffix(".") ? firstSentence : firstSentence + "."
+            }
+            return brief
+        }()
+
+        return GlassPanel(elevation: .floating, truth: .observed) {
             VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
                 HStack(spacing: BeagleSpacing.xs) {
                     Image(systemName: "sunrise.fill")
                         .font(.system(size: 14))
                         .foregroundStyle(BeagleTheme.postureWarm)
-                    Text("Morning Brief")
+                    Text("Command Brief")
                         .font(BeagleFont.caption.font)
                         .fontWeight(.medium)
                         .foregroundStyle(BeagleTheme.postureWarm)
@@ -631,12 +1342,14 @@ struct HomeView: View {
                     TruthBadge(.observed, compact: true)
                 }
 
-                Text(brief)
+                Text(displayBrief)
                     .font(BeagleFont.subheadline.font)
                     .foregroundStyle(BeagleTheme.textPrimary)
                     .lineSpacing(3)
 
-                GoDeepButton(prompt: "Expand on this morning brief: \(brief)")
+                if morningBriefIntensity != .minimal {
+                    GoDeepButton(prompt: "Expand on this morning brief: \(brief)")
+                }
             }
         }
         .opacity(hasAppeared ? 1 : 0)
@@ -741,23 +1454,71 @@ struct HomeView: View {
 
     private func bootstrap() async {
         greeting = timeGreeting()
+        if !hasAppeared {
+            withAnimation { hasAppeared = true }
+        }
         #if os(iOS)
         await speechRecognizer.setup()
         #endif
         async let c: () = catalog.refresh()
         async let g: () = cognitive.refresh()
-        _ = await (c, g)
+        async let p: () = physio.refresh()
+        async let s = CockpitClient.shared.mobileSummary()
+        let summary = await s
+        applyHomeSummary(summary)
+        _ = await (c, g, p)
         // Wire HRV flow state into conversation routing
         conversation.flowState = cognitive.flowState
+        conversation.modelContext = modelContext
+        let projectSlug = preferredLaneSlug
+        let family = ProjectFamily.fromProjectSlug(projectSlug)
+        conversation.restoreContext(
+            projectSlug: projectSlug,
+            projectFamily: family,
+            publicationScope: PublicationScope.forProjectFamily(family)
+        )
+        applyPhysioConversationContext()
+        seedDiscussionPreviewIfRequested()
+        await refreshWorkLanes()
 
         generateProvocations()
         generateInspirationLayer()
-        withAnimation { hasAppeared = true }
 
         #if os(iOS)
         // Start ambient triage loop: periodically sends fragments to cluster for filtering
         startAmbientTriageLoop()
         #endif
+    }
+
+    private func seedDiscussionPreviewIfRequested() {
+        let args = ProcessInfo.processInfo.arguments
+        guard args.contains("--beagle-seed-home-thread"), conversation.isEmpty else { return }
+
+        let now = Date()
+        let laneName = focusedLane.map { projectDisplayName($0.project.projectSlug) } ?? projectDisplayName(conversation.projectSlug)
+        let sampleMessages = [
+            ChatMessage(
+                role: .user,
+                content: "I think the real question in \(laneName) is whether we are building a tool or an actual cognitive habitat. Help me figure out what that changes.",
+                timestamp: now.addingTimeInterval(-420)
+            ),
+            ChatMessage(
+                role: .assistant,
+                content: "It changes the center of gravity. A tool helps you complete tasks; a cognitive habitat keeps the thread of thought alive between tasks. If \(laneName) is a habitat, the priority is continuity, memory, and visible active minds, not just feature coverage.",
+                timestamp: now.addingTimeInterval(-360),
+                model: "Hermes",
+                source: "agent",
+                agentKind: "claude-code"
+            ),
+            ChatMessage(
+                role: .user,
+                content: "Then the next move is probably to make the app remember the living question per lane, not just the latest UI state.",
+                timestamp: now.addingTimeInterval(-210)
+            )
+        ]
+
+        conversation.seedPreviewConversation(sampleMessages)
+        pinQuestionForCurrentLane("How do we make \(laneName) feel like a cognitive habitat instead of a tool?")
     }
 
     #if os(iOS)
@@ -794,7 +1555,7 @@ struct HomeView: View {
                 }
 
                 if triageResult == nil || triageResult?.isEmpty == true {
-                    let cloudResult = await BeagleClient.shared.chat(prompt: triagePrompt, system: "You are a cognitive filter for an exocortex. Extract only genuine intellectual insights from ambient speech. Be aggressive about filtering noise.")
+                    let cloudResult = await BeagleClient.shared.chat(prompt: triagePrompt, system: "You are a cognitive filter for a device mind that syncs with a larger cluster mind. Extract only genuine intellectual insights from ambient speech. Be aggressive about filtering noise.")
                     triageResult = cloudResult.value?.response
                 }
 
@@ -842,7 +1603,7 @@ struct HomeView: View {
                         let text = thought.refinedText ?? thought.rawText ?? ""
                         HStack(alignment: .top, spacing: BeagleSpacing.sm) {
                             Circle()
-                                .fill(thought.refinedText != nil ? BeagleTheme.truthObserved : BeagleTheme.truthDeclared)
+                                .fill(thought.residency == .clusterMemory ? BeagleTheme.truthObserved : BeagleTheme.truthDeclared)
                                 .frame(width: 6, height: 6)
                                 .padding(.top, 7)
 
@@ -852,11 +1613,11 @@ struct HomeView: View {
                                     .foregroundStyle(BeagleTheme.textPrimary)
                                     .lineLimit(4)
 
-                                if let source = thought.source {
-                                    Text(source)
-                                        .font(BeagleFont.caption2.font)
-                                        .foregroundStyle(BeagleTheme.textTertiary)
-                                }
+                                PresencePill(
+                                    label: thought.residency == .clusterMemory ? "Cluster memory" : "Device only",
+                                    systemImage: thought.effectiveSyncState.systemImage,
+                                    tint: tint(for: thought.effectiveSyncState)
+                                )
                             }
 
                             Spacer()
@@ -874,38 +1635,977 @@ struct HomeView: View {
     }
 
     private var circadianPlaceholder: String {
+        if physio.summary.readiness != .unavailable {
+            return physio.summary.conversationPolicy.suggestedPlaceholder
+        }
         let hour = Calendar.current.component(.hour, from: Date())
         switch hour {
-        case 5..<9:    return "What's on your mind this morning?"
+        case 5..<9:    return "Talk to Beagle about this morning's thread..."
         case 9..<12:   return "What are you working through?"
-        case 12..<14:  return "Any insights from the morning?"
+        case 12..<14:  return "What should the larger mind help with?"
         case 14..<18:  return "What's taking shape?"
-        case 18..<22:  return "Anything worth capturing tonight?"
-        default:       return "Can't sleep? Write it down..."
+        case 18..<22:  return "Any idea worth carrying forward tonight?"
+        default:       return "Can't sleep? Start with the device mind..."
+        }
+    }
+
+    private func tint(for syncState: IdeaSyncState) -> Color {
+        switch syncState {
+        case .localOnly:
+            return BeagleTheme.truthDeclared
+        case .queued:
+            return BeagleTheme.postureWarm
+        case .synced:
+            return BeagleTheme.truthObserved
+        case .delegated:
+            return BeagleTheme.truthRemembered
         }
     }
 
     private func timeGreeting() -> String {
         let hour = Calendar.current.component(.hour, from: Date())
+        let posture = physio.cognitivePosture
         let thoughtCount = cognitive.recentThoughts.count
 
-        // Contextual, warm — acknowledges where you are in your day and journey
-        switch hour {
-        case 5..<8:
-            return thoughtCount > 0 ? "Early start." : "Fresh morning."
-        case 8..<12:
-            return thoughtCount > 10 ? "Your mind has been active." : "Good morning."
-        case 12..<14:
-            return "Midday."
-        case 14..<17:
-            return thoughtCount > 5 ? "Deep afternoon." : "Good afternoon."
-        case 17..<20:
-            return "Winding down."
-        case 20..<23:
-            return thoughtCount > 0 ? "Evening reflections." : "Quiet evening."
-        default:
-            return "Still here."
+        // Late-night wisdom
+        if hour < 5 {
+            return "The night holds its own wisdom."
         }
+
+        // Morning: adapt to sleep + readiness
+        if hour < 9 {
+            if let sleep = posture.sleepQuality, sleep < 0.3 {
+                return "Rough night. Be gentle with yourself today."
+            }
+            if let readiness = posture.readiness, readiness > 0.7 {
+                return "Well rested. Your mind is sharp this morning."
+            }
+            if let readiness = posture.readiness, readiness < 0.3 {
+                return "Your body is still recovering. Easy start."
+            }
+            return thoughtCount > 0 ? "Early start." : "Fresh morning."
+        }
+
+        // Late morning
+        if hour < 12 {
+            if let readiness = posture.readiness, readiness > 0.7 {
+                return "Good morning. Energy looks strong."
+            }
+            return thoughtCount > 10 ? "Your mind has been active." : "Good morning."
+        }
+
+        // Midday
+        if hour < 14 {
+            return "Midday."
+        }
+
+        // Afternoon
+        if hour < 17 {
+            if let readiness = posture.readiness, readiness < 0.3 {
+                return "Afternoon lull. Pace yourself."
+            }
+            return thoughtCount > 5 ? "Deep afternoon." : "Good afternoon."
+        }
+
+        // Evening
+        if hour < 20 {
+            return "Winding down."
+        }
+        if hour < 23 {
+            return thoughtCount > 0 ? "Evening reflections." : "Quiet evening."
+        }
+        return "Still here."
+    }
+
+    // MARK: - Morning Brief Adaptation
+
+    /// Controls how much content the morning brief shows based on biosignals.
+    private enum MorningBriefIntensity {
+        case minimal   // Poor sleep + low HRV: just one key item
+        case moderate  // Decent state: standard brief
+        case full      // Good sleep + high HRV: full brief with provocations and GoDeep
+    }
+
+    private var morningBriefIntensity: MorningBriefIntensity {
+        let posture = physio.cognitivePosture
+        guard let readiness = posture.readiness else { return .moderate }
+        if readiness < 0.3 { return .minimal }
+        if readiness > 0.65 { return .full }
+        return .moderate
+    }
+
+    /// Whether the user's recent State of Mind suggests a harder day.
+    private var showWarmthCard: Bool {
+        guard let valence = physio.cognitivePosture.stateOfMind else { return false }
+        return valence < -0.3
+    }
+
+    private var focusedLane: ProjectLaneState? {
+        let targetSlug = preferredLaneSlug
+        return displayWorkLanes.first(where: { $0.project.projectSlug == targetSlug }) ?? displayWorkLanes.first
+    }
+
+    private var homeLeadsWithReturnedWork: Bool {
+        focusedLane?.laneResult != nil
+    }
+
+    // MARK: - HRV Cognitive Throttling
+
+    private var currentIntensity: CognitivePosture.InterfaceIntensity {
+        physio.cognitivePosture.suggestedIntensity
+    }
+
+    private var showProvocations: Bool {
+        guard !provocations.isEmpty else { return false }
+        switch currentIntensity {
+        case .minimal:
+            return false
+        case .calm:
+            return true // gentle provocations only — filtered at generation time
+        case .normal, .engaged, .challenge:
+            return true
+        }
+    }
+
+    private var showTriadReadyCard: Bool {
+        currentIntensity == .challenge
+    }
+
+    private var triadReadyCard: some View {
+        GlassPanel(elevation: .floating, truth: .observed) {
+            HStack(spacing: BeagleSpacing.sm) {
+                ZStack {
+                    Circle()
+                        .fill(BeagleTheme.truthObserved.opacity(0.12))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "bolt.trianglebadge.exclamationmark.fill")
+                        .font(.system(size: 17))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Ready for Triad Review?")
+                        .font(BeagleFont.subheadline.font)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    Text("Your cognitive readiness is high. A good time to stress-test an idea with adversarial debate.")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineSpacing(1)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var intensityPill: some View {
+        let intensity = currentIntensity
+        let (label, icon, tint): (String, String, Color) = {
+            switch intensity {
+            case .minimal:
+                return ("minimal", "moon.zzz.fill", BeagleTheme.textTertiary)
+            case .calm:
+                return ("calm", "leaf.fill", BeagleTheme.truthDeclared)
+            case .normal:
+                return ("normal", "circle.fill", BeagleTheme.textSecondary)
+            case .engaged:
+                return ("engaged", "flame.fill", BeagleTheme.postureWarm)
+            case .challenge:
+                return ("challenge", "bolt.fill", BeagleTheme.truthObserved)
+            }
+        }()
+        if intensity != .normal {
+            PresencePill(label: label, systemImage: icon, tint: tint)
+        }
+    }
+
+    private var displayWorkLanes: [ProjectLaneState] {
+        if !workLanes.isEmpty {
+            return workLanes
+        }
+        return summarySeededLanes()
+    }
+
+    private var preferredLaneSlug: String {
+        cognitive.activeProjectSlug ?? catalog.primaryProject?.projectSlug ?? "sounio"
+    }
+
+    private var laneProjectOptions: [Project] {
+        var ordered: [Project] = catalog.projects
+        var seen = Set(ordered.map(\.projectSlug))
+
+        let summaryDrivenSlugs = (homeSummary?.value?.laneResults ?? []).map(\.projectSlug)
+            + cachedLaneResults.map(\.projectSlug)
+            + ["sounio", "scratch", "hyperbolic-semantic-networks"]
+
+        for slug in summaryDrivenSlugs {
+            guard !seen.contains(slug) else { continue }
+            ordered.append(placeholderProject(for: slug))
+            seen.insert(slug)
+        }
+        ordered.sort { lhs, rhs in
+            let lhsFocused = lhs.projectSlug == preferredLaneSlug
+            let rhsFocused = rhs.projectSlug == preferredLaneSlug
+            if lhsFocused != rhsFocused { return lhsFocused }
+            if lhs.projectSlug == "sounio" || rhs.projectSlug == "sounio" {
+                return lhs.projectSlug == "sounio"
+            }
+            return lhs.projectSlug < rhs.projectSlug
+        }
+        return ordered
+    }
+
+    private var workLaneSupportText: String {
+        if let focusedLane, focusedLane.laneResult != nil {
+            return "Returned work is already here. See what came back before you wake the next mind."
+        }
+        if workLanes.isEmpty {
+            return "These are the project lanes Beagle already knows about. Live habitat and agent intent will settle in underneath as the bridge wakes up."
+        }
+        return "Start here when you want one honest answer to three questions: what you are building, where it is running, and which mind is doing what."
+    }
+
+    @ViewBuilder
+    private var bodyStateCard: some View {
+        PresenceFieldCard(
+            state: bodyPresenceState,
+            eyebrow: "Body State",
+            title: physio.summary.title,
+            body: physio.summary.bodyLine,
+            detail: physio.summary.detailLine,
+            truth: physio.summary.truthMode
+        ) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    if let hrv = physio.summary.hrvMs {
+                        PresencePill(label: "HRV \(Int(hrv)) ms", systemImage: "waveform.path.ecg", tint: BeagleTheme.truthObserved)
+                    }
+                    if let sleepHours = physio.summary.sleepHours {
+                        PresencePill(label: String(format: "sleep %.1f h", sleepHours), systemImage: "bed.double.fill", tint: BeagleTheme.truthRemembered)
+                    }
+                    if physio.summary.workoutCount > 0 {
+                        PresencePill(label: "\(physio.summary.workoutCount) workout\(physio.summary.workoutCount == 1 ? "" : "s")", systemImage: "figure.run", tint: BeagleTheme.postureWarm)
+                    }
+                    PresencePill(
+                        label: physio.summary.conversationPolicy.modeLabel,
+                        systemImage: "brain.head.profile",
+                        tint: bodyPresenceState.tint
+                    )
+                    PresencePill(
+                        label: physio.summary.conversationPolicy.routeLabel,
+                        systemImage: conversation.discussionProfile.iconName,
+                        tint: BeagleTheme.truthRemembered
+                    )
+                }
+
+                if physio.authorizationState == .idle {
+                    Button {
+                        Task { await physio.refresh(requestAuthorization: true) }
+                    } label: {
+                        Label("Connect Body State", systemImage: "heart.text.square")
+                    }
+                    .buttonStyle(SecondaryButton(color: BeagleTheme.truthObserved))
+                }
+            }
+        }
+    }
+
+    private var bodyPresenceState: BeaglePresenceState {
+        switch physio.summary.readiness {
+        case .restored:
+            return .active
+        case .steady:
+            return .attentive
+        case .strained:
+            return .strained
+        case .unavailable:
+            return .dormant
+        }
+    }
+
+    private func applyPhysioConversationContext() {
+        conversation.flowState = physio.summary.readiness == .unavailable
+            ? cognitive.flowState
+            : physio.summary.readiness.discussionFlowState
+        conversation.discussionProfile = physio.summary.suggestedDiscussionProfile
+        conversation.preferLocal = physio.summary.suggestedPreferLocal
+        conversation.physioPolicy = physio.summary.conversationPolicy
+        conversation.physioContext = physio.summary.promptContextLine
+        conversation.companionContext = "Companion contract: act like Beagle, a trusted friend-assistant and exocortex companion. Help carry the living question, take notes of important ideas, preserve continuity between turns, and adapt your cognitive pressure to the user's current state instead of acting like a generic chatbot."
+        conversation.behaviorContext = "Behavior policy: \(physio.summary.conversationPolicy.companionInstruction) \(physio.summary.conversationPolicy.pacingInstruction)"
+        conversation.noteTakingContext = "Note policy: \(physio.summary.conversationPolicy.noteInstruction)"
+    }
+
+    private var workLaneHeadline: String {
+        if let focusedLane, focusedLane.laneResult != nil {
+            return "See what came back and what should happen next"
+        }
+        return "See the lane, the habitat, and the minds actually carrying the thread"
+    }
+
+    private func focusedLaneCompass(_ lane: ProjectLaneState) -> some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+            HStack(alignment: .top, spacing: BeagleSpacing.sm) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Current lane")
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+                    Text("\(projectDisplayName(lane.project.projectSlug)) is the thread in your hands")
+                        .font(BeagleFont.title3.font)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    Text(lane.postureNarrative)
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineSpacing(2)
+                        .lineLimit(lane.laneResult == nil ? 3 : 2)
+                }
+                Spacer()
+                TruthBadge(lane.truth, compact: true)
+            }
+
+            if lane.laneResult != nil {
+                LaneResultCard(lane: lane)
+            }
+
+            HStack(spacing: BeagleSpacing.xs) {
+                PresencePill(
+                    label: lane.project.branch ?? lane.project.preferredPrBase ?? "branch not declared",
+                    systemImage: "arrow.triangle.branch",
+                    tint: BeagleTheme.truthRemembered
+                )
+                PresencePill(
+                    label: lane.project.workspacePod ?? "habitat parked",
+                    systemImage: lane.project.workspacePod == nil ? "moon.zzz.fill" : "shippingbox.fill",
+                    tint: lane.project.workspacePod == nil ? BeagleTheme.postureWarm : BeagleTheme.truthObserved
+                )
+                PresencePill(
+                    label: lane.countsLine,
+                    systemImage: "brain.head.profile",
+                    tint: BeagleTheme.truthObserved
+                )
+            }
+
+            if let livingQuestion = lane.livingQuestion, lane.laneResult == nil {
+                VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                    PresencePill(label: "Living Question", systemImage: "pin.fill", tint: BeagleTheme.truthObserved)
+                    Text(livingQuestion)
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .lineLimit(3)
+                }
+                .padding(BeagleSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: BeagleRadius.md)
+                        .fill(BeagleTheme.truthObserved.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: BeagleRadius.md)
+                        .strokeBorder(BeagleTheme.truthObserved.opacity(0.10), lineWidth: 1)
+                )
+            }
+
+            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                ForEach(Array(orderedSessions(for: lane).prefix(3)), id: \.name) { session in
+                    laneAgentRow(session)
+                }
+                if lane.sessions.isEmpty {
+                    Text(lane.laneResult == nil
+                         ? "No agent has picked up this lane yet. Open Agents to wake the first mind in this project."
+                         : "Returned work is already here. Wake an agent when you want help interpreting or extending it.")
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                }
+            }
+
+            if let jobLine = lane.jobLine {
+                HStack(spacing: BeagleSpacing.xs) {
+                    PresencePill(label: "Work in Motion", systemImage: "bolt.badge.clock", tint: BeagleTheme.postureWarm)
+                    Text(jobLine)
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineLimit(2)
+                }
+            }
+
+            if lane.laneResult == nil, let resultSignal = lane.resultSignal {
+                HStack(spacing: BeagleSpacing.xs) {
+                    PresencePill(label: "Result Trail", systemImage: "tray.full", tint: BeagleTheme.truthRemembered)
+                    Text(resultSignal)
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineLimit(2)
+                }
+            }
+
+            HStack(spacing: BeagleSpacing.xs) {
+                PresencePill(label: "Next move", systemImage: "figure.walk.motion", tint: BeagleTheme.postureWarm)
+                Text(lane.nextRecommendedMove)
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineSpacing(2)
+            }
+
+            HStack(spacing: BeagleSpacing.sm) {
+                Button {
+                    focusProjectLane(lane.project)
+                    selectedTab = 3
+                } label: {
+                    Label("Open \(projectDisplayName(lane.project.projectSlug)) Agents", systemImage: "apple.terminal")
+                }
+                .buttonStyle(PrimaryButton())
+
+                Button {
+                    focusProjectLane(lane.project)
+                    selectedTab = 2
+                } label: {
+                    Label("Open Command", systemImage: "server.rack")
+                }
+                .buttonStyle(SecondaryButton(color: BeagleTheme.truthObserved))
+            }
+        }
+        .padding(BeagleSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .fill(BeagleTheme.truthObserved.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .strokeBorder(BeagleTheme.truthObserved.opacity(0.16), lineWidth: 1)
+        )
+    }
+
+    private func workLaneRow(_ lane: ProjectLaneState) -> some View {
+        let isFocused = lane.project.projectSlug == preferredLaneSlug
+        return VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: BeagleSpacing.xs) {
+                        Text(projectDisplayName(lane.project.projectSlug))
+                            .font(BeagleFont.body.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                        if isFocused {
+                            PresencePill(label: "current lane", systemImage: "scope", tint: BeagleTheme.truthObserved)
+                        }
+                    }
+                    Text(lane.project.projectSlug)
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
+                Spacer()
+                TruthBadge(lane.truth, compact: true)
+            }
+
+            HStack(spacing: BeagleSpacing.xs) {
+                PresencePill(
+                    label: lane.project.branch ?? lane.project.preferredPrBase ?? "branch not declared",
+                    systemImage: "arrow.triangle.branch",
+                    tint: BeagleTheme.truthRemembered
+                )
+                PresencePill(
+                    label: lane.project.workspacePod ?? "habitat parked",
+                    systemImage: lane.project.workspacePod == nil ? "moon.zzz.fill" : "shippingbox.fill",
+                    tint: lane.project.workspacePod == nil ? BeagleTheme.postureWarm : BeagleTheme.truthObserved
+                )
+                if let tmux = lane.project.tmuxSession {
+                    PresencePill(label: tmux, systemImage: "terminal", tint: BeagleTheme.textSecondary)
+                }
+            }
+
+            if lane.sessions.isEmpty {
+                Text(lane.truth == .observed ? "No live agents are carrying this lane right now." : "Waiting for live habitat and agent telemetry.")
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+            } else {
+                VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+                    Text(lane.sessions.count == 1 ? "Agent in this lane" : "Agents in this lane")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                    VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                        ForEach(orderedSessions(for: lane), id: \.name) { session in
+                            laneAgentRow(session)
+                        }
+                    }
+                }
+            }
+
+            if let livingQuestion = lane.livingQuestion {
+                Text("Living question: \(livingQuestion)")
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.truthRemembered)
+                    .lineLimit(2)
+            } else if lane.laneResult != nil {
+                LaneResultCard(lane: lane, compact: true)
+            } else if let jobLine = lane.jobLine {
+                Text(jobLine)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.postureWarm)
+                    .lineLimit(2)
+            } else {
+                Text(lane.nextRecommendedMove)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineLimit(2)
+            }
+
+            HStack(spacing: BeagleSpacing.sm) {
+                Button {
+                    focusProjectLane(lane.project)
+                    selectedTab = 3
+                } label: {
+                    Label(lane.runningSessions.isEmpty ? "Open Agents" : "Join Agent", systemImage: "apple.terminal")
+                }
+                .buttonStyle(PrimaryButton())
+
+                Button {
+                    focusProjectLane(lane.project)
+                    selectedTab = 2
+                } label: {
+                    Label("Open Command", systemImage: "server.rack")
+                }
+                .buttonStyle(SecondaryButton(color: BeagleTheme.truthObserved))
+            }
+        }
+        .padding(BeagleSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .fill(isFocused ? BeagleTheme.truthObserved.opacity(0.08) : BeagleTheme.surface1.opacity(0.56))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .strokeBorder(isFocused ? BeagleTheme.truthObserved.opacity(0.22) : Color.white.opacity(0.05), lineWidth: 1)
+        )
+    }
+
+    private func refreshWorkLanes() async {
+        let projects = catalog.projects
+        guard !projects.isEmpty else {
+            workLanes = summarySeededLanes()
+            return
+        }
+
+        let activeSlug = preferredLaneSlug
+        let pinnedQuestions = pinnedLaneQuestions
+        let activeJobs = cognitive.activeJobs
+        let activeTrail = CognitiveStore.recentTrailSnippets(from: cognitive.recentThoughts)
+        let laneResultsBySlug = Dictionary(
+            uniqueKeysWithValues: (homeSummary?.value?.laneResults ?? []).map { ($0.projectSlug, $0) }
+        )
+
+        var lanes: [ProjectLaneState] = []
+        await withTaskGroup(of: ProjectLaneState.self) { group in
+            for project in projects {
+                let laneResult = laneResultsBySlug[project.projectSlug]
+                group.addTask {
+                    async let sessionsResult = CockpitClient.shared.agentSessions(slug: project.projectSlug)
+                    async let overviewResult = CockpitClient.shared.projectOverview(slug: project.projectSlug)
+                    let result = await sessionsResult
+                    let overview = await overviewResult
+                    let sessions = result.value?.sessions ?? []
+                    let carriedObjective =
+                        sessions.first(where: \.isRunning)?.presentedActivityLine
+                        ?? sessions.first(where: { $0.phase == .paused })?.presentedActivityLine
+                        ?? sessions.first?.presentedActivityLine
+                    let laneTruth = overview.value?.laneResult != nil ? overview.mode : result.mode
+                    return ProjectLaneState(
+                        project: project,
+                        sessions: sessions,
+                        scienceJobs: project.projectSlug == activeSlug ? activeJobs : [],
+                        laneResult: overview.value?.laneResult ?? laneResult,
+                        recentTrail: project.projectSlug == activeSlug ? activeTrail : [],
+                        truth: laneTruth,
+                        isCurrent: project.projectSlug == activeSlug,
+                        livingQuestion: pinnedQuestions[project.projectSlug],
+                        carriedObjective: project.projectSlug == activeSlug ? carriedObjective : nil
+                    )
+                }
+            }
+
+            for await lane in group {
+                lanes.append(lane)
+            }
+        }
+
+        lanes.sort { lhs, rhs in
+            let lhsFocused = lhs.project.projectSlug == preferredLaneSlug
+            let rhsFocused = rhs.project.projectSlug == preferredLaneSlug
+            if lhsFocused != rhsFocused { return lhsFocused }
+            if lhs.runningSessions.count != rhs.runningSessions.count {
+                return lhs.runningSessions.count > rhs.runningSessions.count
+            }
+            return lhs.project.projectSlug < rhs.project.projectSlug
+        }
+
+        persistLaneResults(lanes.compactMap(\.laneResult))
+        workLanes = lanes
+    }
+
+    private func applyHomeSummary(_ summary: Truthful<MobileHomeSummary>) {
+        homeSummary = summary
+        persistLaneResults(summary.value?.laneResults ?? [])
+        workLanes = summarySeededLanes(preserving: workLanes)
+    }
+
+    private func summarySeededLanes(preserving existing: [ProjectLaneState] = []) -> [ProjectLaneState] {
+        let projects = laneProjectOptions
+        guard !projects.isEmpty else { return [] }
+
+        let activeSlug = preferredLaneSlug
+        let pinnedQuestions = pinnedLaneQuestions
+        let activeJobs = cognitive.activeJobs
+        let activeTrail = CognitiveStore.recentTrailSnippets(from: cognitive.recentThoughts)
+        let existingBySlug = Dictionary(uniqueKeysWithValues: existing.map { ($0.project.projectSlug, $0) })
+        let observedResultSlugs = Set((homeSummary?.value?.laneResults ?? []).map(\.projectSlug))
+
+        var lanes = projects.map { project in
+            let existingLane = existingBySlug[project.projectSlug]
+            let laneResult = laneResultSummary(for: project.projectSlug) ?? existingLane?.laneResult
+            let truth: TruthMode
+            if observedResultSlugs.contains(project.projectSlug) {
+                truth = homeSummary?.mode ?? .observed
+            } else if laneResult != nil {
+                truth = .remembered
+            } else {
+                truth = existingLane?.truth ?? (catalog.projects.isEmpty ? .stale : .declared)
+            }
+
+            return ProjectLaneState(
+                project: existingLane?.project ?? project,
+                sessions: existingLane?.sessions ?? [],
+                scienceJobs: project.projectSlug == activeSlug ? activeJobs : (existingLane?.scienceJobs ?? []),
+                laneResult: laneResult,
+                recentTrail: project.projectSlug == activeSlug ? activeTrail : (existingLane?.recentTrail ?? []),
+                truth: truth,
+                isCurrent: project.projectSlug == activeSlug,
+                livingQuestion: pinnedQuestions[project.projectSlug],
+                carriedObjective: project.projectSlug == activeSlug
+                    ? (existingLane?.carriedObjective ?? lastMeaningfulLaneObjective(in: existingLane?.sessions ?? []))
+                    : existingLane?.carriedObjective
+            )
+        }
+
+        lanes.sort { lhs, rhs in
+            let lhsFocused = lhs.project.projectSlug == activeSlug
+            let rhsFocused = rhs.project.projectSlug == activeSlug
+            if lhsFocused != rhsFocused { return lhsFocused }
+            let lhsObservedResult = observedResultSlugs.contains(lhs.project.projectSlug)
+            let rhsObservedResult = observedResultSlugs.contains(rhs.project.projectSlug)
+            if lhsObservedResult != rhsObservedResult { return lhsObservedResult }
+            let lhsAnyResult = lhs.laneResult != nil
+            let rhsAnyResult = rhs.laneResult != nil
+            if lhsAnyResult != rhsAnyResult { return lhsAnyResult }
+            return lhs.project.projectSlug < rhs.project.projectSlug
+        }
+
+        return lanes
+    }
+
+    private func focusProjectLane(_ project: Project) {
+        cognitive.activeProjectSlug = project.projectSlug
+        let family = ProjectFamily.fromProjectSlug(project.projectSlug)
+        conversation.restoreContext(
+            projectSlug: project.projectSlug,
+            projectFamily: family,
+            publicationScope: PublicationScope.forProjectFamily(family)
+        )
+    }
+
+    private func liveAgentLabel(_ session: AgentSession) -> String {
+        if let kind = session.kind, !kind.isEmpty {
+            return kind.replacingOccurrences(of: "-", with: " ").capitalized
+        }
+        if let name = session.name, !name.isEmpty {
+            return name
+        }
+        return "Agent"
+    }
+
+    private func orderedSessions(for lane: ProjectLaneState) -> [AgentSession] {
+        lane.sessions.sorted { lhs, rhs in
+            if lhs.isRunning != rhs.isRunning {
+                return lhs.isRunning && !rhs.isRunning
+            }
+            return liveAgentLabel(lhs) < liveAgentLabel(rhs)
+        }
+    }
+
+    private func laneAgentRow(_ session: AgentSession) -> some View {
+        HStack(alignment: .top, spacing: BeagleSpacing.sm) {
+            PresencePill(
+                label: liveAgentLabel(session),
+                systemImage: sessionRoleIcon(session),
+                tint: sessionRoleTint(session)
+            )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sessionActivityLine(session))
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .lineLimit(2)
+                Text(sessionStateLine(session))
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+        }
+    }
+
+    private var discussionTruth: TruthMode {
+        if !conversation.isEmpty {
+            return .observed
+        }
+        if LocalLLMEngine.shared.isReady || cognitive.serverReachable {
+            return .remembered
+        }
+        return .declared
+    }
+
+    private var discussionProfileLabel: String {
+        "\(conversation.discussionProfile.label) · \(physio.summary.conversationPolicy.modeLabel)"
+    }
+
+    private var discussionNarrative: String {
+        let laneName = focusedLane.map { projectDisplayName($0.project.projectSlug) } ?? "this lane"
+        if let latestThought = cognitive.recentThoughts.first?.refinedText ?? cognitive.recentThoughts.first?.rawText,
+           !latestThought.isEmpty,
+           conversation.isEmpty {
+            let snippet = latestThought.count > 88 ? String(latestThought.prefix(88)) + "..." : latestThought
+            return "Start from the raw living thread in \(laneName). Beagle should help you think like a real companion, carry notes forward, and adapt the pressure of the conversation to your state. The latest thought still hanging in the air is: “\(snippet)”"
+        }
+
+        if conversation.isEmpty {
+            return "This should feel like a real exocortex room for \(laneName), not a dead input bar. Beagle should act like a trusted companion here: carry the question, take notes seriously, and meet you at your current body-state instead of forcing one fixed style of intelligence."
+        }
+
+        return "Keep the thread alive here. Push on the idea, challenge it, or ask Beagle to make the next leap without losing the lane context, the note trail, or the body-state shaping today’s cognition."
+    }
+
+    private var discussionStarters: [String] {
+        let laneName = focusedLane.map { projectDisplayName($0.project.projectSlug) } ?? "this project"
+        var starters: [String] = [
+            "Stay with me like a real companion in \(laneName). Help me think, take notes on the live idea, and keep only the most important thread alive.",
+            "Help me think through \(laneName) from first principles. What is the real problem underneath it?",
+            "What is the next concrete move for \(laneName), and why is it the right move now?",
+            "Challenge my current direction in \(laneName). What am I probably missing?"
+        ]
+
+        if let latestThought = cognitive.recentThoughts.first?.refinedText ?? cognitive.recentThoughts.first?.rawText,
+           !latestThought.isEmpty {
+            let snippet = latestThought.count > 120 ? String(latestThought.prefix(120)) + "..." : latestThought
+            starters.insert("Take this idea seriously and help me deepen it: \(snippet)", at: 0)
+        }
+
+        if physio.summary.readiness != .unavailable {
+            starters.insert(physio.summary.recommendedPrompt, at: min(1, starters.count))
+        }
+
+        return Array(starters.prefix(4))
+    }
+
+    private var currentLaneQuestionKey: String {
+        focusedLane?.project.projectSlug ?? preferredLaneSlug
+    }
+
+    private var pinnedQuestionForCurrentLane: String? {
+        pinnedQuestion(for: currentLaneQuestionKey)
+    }
+
+    private var pinnedLaneQuestions: [String: String] {
+        guard let data = pinnedLaneQuestionsJSON.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
+            return [:]
+        }
+        return decoded
+    }
+
+    private func pinQuestionForCurrentLane(_ question: String) {
+        var updated = pinnedLaneQuestions
+        updated[currentLaneQuestionKey] = question
+        if let data = try? JSONEncoder().encode(updated),
+           let json = String(data: data, encoding: .utf8) {
+            pinnedLaneQuestionsJSON = json
+        }
+    }
+
+    private func clearPinnedQuestionForCurrentLane() {
+        var updated = pinnedLaneQuestions
+        updated.removeValue(forKey: currentLaneQuestionKey)
+        if let data = try? JSONEncoder().encode(updated),
+           let json = String(data: data, encoding: .utf8) {
+            pinnedLaneQuestionsJSON = json
+        }
+    }
+
+    private func pinnedQuestion(for slug: String) -> String? {
+        pinnedLaneQuestions[slug]
+    }
+
+    private func makeLaneState(
+        project: Project,
+        sessions: [AgentSession],
+        truth: TruthMode,
+        laneResult: MobileLaneResultSummary? = nil
+    ) -> ProjectLaneState {
+        let isCurrent = project.projectSlug == preferredLaneSlug
+        let carriedObjective = isCurrent ? lastMeaningfulLaneObjective(in: sessions) : nil
+        return ProjectLaneState(
+            project: project,
+            sessions: sessions,
+            scienceJobs: isCurrent ? cognitive.activeJobs : [],
+            laneResult: laneResult,
+            recentTrail: isCurrent ? CognitiveStore.recentTrailSnippets(from: cognitive.recentThoughts) : [],
+            truth: truth,
+            isCurrent: isCurrent,
+            livingQuestion: pinnedQuestion(for: project.projectSlug),
+            carriedObjective: carriedObjective
+        )
+    }
+
+    private func laneResultSummary(for slug: String) -> MobileLaneResultSummary? {
+        homeSummary?.value?.laneResults?.first(where: { $0.projectSlug == slug })
+            ?? cachedLaneResults.first(where: { $0.projectSlug == slug })
+    }
+
+    private func placeholderProject(for slug: String) -> Project {
+        switch slug {
+        case "sounio":
+            return Project(projectSlug: slug, preferredPrBase: "integration/sounio-dev-ready-base")
+        default:
+            return Project(projectSlug: slug)
+        }
+    }
+
+    private func lastMeaningfulLaneObjective(in sessions: [AgentSession]) -> String? {
+        sessions.first(where: \.isRunning)?.presentedActivityLine
+            ?? sessions.first(where: { $0.phase == .paused })?.presentedActivityLine
+            ?? sessions.first?.presentedActivityLine
+    }
+
+
+    private var cachedLaneResults: [MobileLaneResultSummary] {
+        guard let data = cachedLaneResultsJSON.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([MobileLaneResultSummary].self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+
+    private func persistLaneResults(_ incoming: [MobileLaneResultSummary]) {
+        guard !incoming.isEmpty else { return }
+        var merged = Dictionary(uniqueKeysWithValues: cachedLaneResults.map { ($0.projectSlug, $0) })
+        for item in incoming {
+            merged[item.projectSlug] = item
+        }
+        let ordered = merged.values.sorted { $0.projectSlug < $1.projectSlug }
+        if let data = try? JSONEncoder().encode(ordered),
+           let json = String(data: data, encoding: .utf8) {
+            cachedLaneResultsJSON = json
+        }
+    }
+
+    private func prepareDraft(_ text: String) {
+        inputText = text
+        inputFocusRequest += 1
+    }
+
+    private func sessionRoleIcon(_ session: AgentSession) -> String {
+        switch session.kind {
+        case "claude-code":
+            return "sparkles"
+        case "codex":
+            return "curlybraces"
+        case "local-sglang":
+            return "cpu"
+        default:
+            return "brain.head.profile"
+        }
+    }
+
+    private func sessionRoleTint(_ session: AgentSession) -> Color {
+        switch session.phase {
+        case .running:
+            return BeagleTheme.truthObserved
+        case .paused:
+            return BeagleTheme.postureWarm
+        case .pending:
+            return BeagleTheme.truthRemembered
+        }
+    }
+
+    private func sessionActivityLine(_ session: AgentSession) -> String {
+        if let summary = session.activity?.summary?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty {
+            return summary
+        }
+
+        if let action = session.action?.trimmingCharacters(in: .whitespacesAndNewlines), !action.isEmpty {
+            return action
+                .replacingOccurrences(of: "-", with: " ")
+                .replacingOccurrences(of: "_", with: " ")
+                .capitalized
+        }
+
+        switch session.phase {
+        case .running:
+            return "Holding the live thread and ready for input."
+        case .paused:
+            return "Paused with its context preserved."
+        case .pending:
+            return "Crossing into the cluster and not ready yet."
+        }
+    }
+
+    private func sessionStateLine(_ session: AgentSession) -> String {
+        if let source = session.activity?.source, !source.isEmpty,
+           let updatedAt = session.activity?.updatedAt, !updatedAt.isEmpty,
+           let relative = relativeTime(from: updatedAt)
+        {
+            return "\(source) update · \(relative)"
+        }
+
+        switch session.phase {
+        case .running:
+            if let pod = session.podName {
+                return "live in \(pod)"
+            }
+            return "live now"
+        case .paused:
+            return "paused but recoverable"
+        case .pending:
+            if let status = session.status, !status.isEmpty {
+                return status.replacingOccurrences(of: "-", with: " ").lowercased()
+            }
+            return "waiting for readiness"
+        }
+    }
+
+    private func projectDisplayName(_ slug: String) -> String {
+        guard !slug.isEmpty else { return "Unassigned" }
+        return slug
+            .split(separator: "-")
+            .map { $0.capitalized }
+            .joined(separator: " ")
+    }
+
+    // MARK: - Helpers
+
+    private func relativeTime(from isoString: String) -> String? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: isoString) ?? ISO8601DateFormatter().date(from: isoString) {
+            let seconds = Int(Date.now.timeIntervalSince(date))
+            if seconds < 60 { return "just now" }
+            if seconds < 3600 { return "\(seconds / 60)m ago" }
+            if seconds < 86400 { return "\(seconds / 3600)h ago" }
+            if seconds < 172800 { return "yesterday" }
+            return "\(seconds / 86400)d ago"
+        }
+        return nil
     }
 
     // MARK: - Provocation generation (on-device LLM)
@@ -1100,5 +2800,82 @@ private struct HomeGradient: View {
 
             base, base, Color(white: 0.02)
         ]
+    }
+}
+
+struct LaneResultCard: View {
+    let lane: ProjectLaneState
+    var compact: Bool = false
+
+    private var result: MobileLaneResultSummary? { lane.laneResult }
+
+    var body: some View {
+        if let result {
+            VStack(alignment: .leading, spacing: compact ? BeagleSpacing.sm : BeagleSpacing.md) {
+                HStack(alignment: .firstTextBaseline, spacing: BeagleSpacing.sm) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(compact ? "Returned Work" : "What Came Back")
+                            .font(BeagleFont.caption.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.truthRemembered)
+                            .textCase(.uppercase)
+                            .tracking(0.7)
+                        Text(result.displayHeadline)
+                            .font(compact ? BeagleFont.footnote.font : BeagleFont.body.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                            .lineLimit(compact ? 2 : 3)
+                    }
+                    Spacer()
+                    PresencePill(
+                        label: result.displayStateLabel,
+                        systemImage: result.readyForOpen ? "checkmark.seal.fill" : "clock.badge",
+                        tint: result.readyForOpen ? BeagleTheme.truthObserved : BeagleTheme.postureWarm
+                    )
+                }
+
+                HStack(spacing: BeagleSpacing.xs) {
+                    if let node = result.displayNodeLabel {
+                        PresencePill(label: node, systemImage: "server.rack", tint: BeagleTheme.truthObserved)
+                    }
+                    if let age = result.resultAgeLabel {
+                        PresencePill(label: age, systemImage: "clock", tint: BeagleTheme.textSecondary)
+                    }
+                    if let profile = nonEmpty(result.profileId) {
+                        PresencePill(label: profile, systemImage: "dial.high", tint: BeagleTheme.truthRemembered)
+                    }
+                }
+
+                Text(result.humanSummary)
+                    .font(compact ? BeagleFont.caption.font : BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineSpacing(2)
+                    .lineLimit(compact ? 2 : 4)
+
+                if !compact {
+                    Text(result.readyForOpen
+                         ? "This lane already returned something real. Stay with the idea, but anchor it to the artifact that came back."
+                         : "A result thread exists here, but it still needs to settle into something you can open and interpret.")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.truthRemembered)
+                        .lineSpacing(2)
+                }
+            }
+            .padding(compact ? BeagleSpacing.sm : BeagleSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: compact ? BeagleRadius.md : BeagleRadius.lg)
+                    .fill(BeagleTheme.truthRemembered.opacity(compact ? 0.06 : 0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: compact ? BeagleRadius.md : BeagleRadius.lg)
+                    .strokeBorder(BeagleTheme.truthRemembered.opacity(compact ? 0.12 : 0.16), lineWidth: 1)
+            )
+        }
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

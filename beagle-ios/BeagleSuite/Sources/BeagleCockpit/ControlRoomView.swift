@@ -15,6 +15,10 @@ struct ControlRoomView: View {
     @State private var store: ProjectStore
     @State private var aiTriage: String?
     @State private var isTriaging = false
+    @State private var gitStatus: GitStatusDetail?
+    @State private var liveSessions: [AgentSession] = []
+    @State private var goWorkActions: [GoWorkNowAction] = []
+    @State private var showScienceJobs = false
 
     init(slug: String) {
         self.slug = slug
@@ -30,6 +34,7 @@ struct ControlRoomView: View {
                 researchLane
                 inferenceLane
                 agentLane
+                goWorkLane
                 Spacer(minLength: BeagleSpacing.jumbo)
             }
             .padding(.horizontal, BeagleSpacing.lg)
@@ -38,12 +43,21 @@ struct ControlRoomView: View {
         .background { HealthPulseGradient(truth: store.mission.mode) }
         .navigationTitle(slug)
         .sensoryFeedback(.success, trigger: store.mission.mode == .observed)
-        .task { await store.refresh() }
-        .refreshable { await store.refresh() }
+        .task {
+            await store.refresh()
+            await refreshSideData()
+        }
+        .refreshable {
+            await store.refresh()
+            await refreshSideData()
+        }
         .userActivity("dev.sounio.cockpit.viewProject") { activity in
             activity.title = "Viewing \(slug)"
             activity.userInfo = ["slug": slug]
             activity.isEligibleForHandoff = true
+        }
+        .sheet(isPresented: $showScienceJobs) {
+            ScienceJobsView()
         }
     }
 
@@ -125,6 +139,18 @@ struct ControlRoomView: View {
         isTriaging = false
     }
 
+    private func refreshSideData() async {
+        async let gs = CockpitClient.shared.gitStatus(slug: slug)
+        async let ss = CockpitClient.shared.agentSessions(slug: slug)
+        async let gw = CockpitClient.shared.goWorkNow(slug: slug)
+        let (gitResult, sessionsResult, gwResult) = await (gs, ss, gw)
+        withAnimation(BeagleMotion.normal) {
+            gitStatus = gitResult.value?.git
+            liveSessions = sessionsResult.value?.sessions ?? []
+            goWorkActions = (gwResult.value?.actions ?? []).filter { $0.ready == true }
+        }
+    }
+
     // MARK: - Lane 1: Mission Control
 
     private var missionLane: some View {
@@ -151,6 +177,35 @@ struct ControlRoomView: View {
                         Text("\(count)")
                             .font(BeagleFont.dataProminent.font)
                             .foregroundStyle(BeagleTheme.truthObserved)
+                    }
+                    .padding(.top, BeagleSpacing.xxs)
+                }
+                if let git = gitStatus {
+                    HStack(spacing: BeagleSpacing.sm) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 10))
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                        Text(git.branch ?? "—")
+                            .font(BeagleFont.data.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                        if let dirty = git.dirty, dirty, let count = git.dirtyCount, count > 0 {
+                            Text("·")
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                            HStack(spacing: BeagleSpacing.xxs) {
+                                Image(systemName: "pencil.circle.fill")
+                                    .font(.system(size: 9))
+                                Text("\(count) changed")
+                                    .font(BeagleFont.dataSmall.font)
+                            }
+                            .foregroundStyle(BeagleTheme.postureWarm)
+                        }
+                        if let ab = git.aheadBehind, !ab.isEmpty, ab != "0 0" {
+                            Text("·")
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                            Text(ab)
+                                .font(BeagleFont.dataSmall.font)
+                                .foregroundStyle(BeagleTheme.truthRemembered)
+                        }
                     }
                     .padding(.top, BeagleSpacing.xxs)
                 }
@@ -213,9 +268,18 @@ struct ControlRoomView: View {
 
                     // Pipeline launch shortcuts
                     HStack(spacing: BeagleSpacing.xs) {
-                        researchChip("PBPK", icon: "cross.vial.fill", color: BeagleTheme.stateError)
-                        researchChip("Helio", icon: "sun.max.fill", color: BeagleTheme.postureWarm)
-                        researchChip("KEC", icon: "brain.head.profile", color: BeagleTheme.truthRemembered)
+                        Button { showScienceJobs = true } label: {
+                            researchChip("PBPK", icon: "cross.vial.fill", color: BeagleTheme.stateError)
+                        }
+                        .buttonStyle(.plain)
+                        Button { showScienceJobs = true } label: {
+                            researchChip("Helio", icon: "sun.max.fill", color: BeagleTheme.postureWarm)
+                        }
+                        .buttonStyle(.plain)
+                        Button { showScienceJobs = true } label: {
+                            researchChip("KEC", icon: "brain.head.profile", color: BeagleTheme.truthRemembered)
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     // Go Deeper on research topic
@@ -291,16 +355,47 @@ struct ControlRoomView: View {
     // MARK: - Lane 5: Agent Session
 
     private var agentLane: some View {
-        Lane(title: "Agent Session", truth: .declared, defaultExpanded: false) {
+        let runningSession = liveSessions.first(where: { ($0.readyReplicas ?? 0) > 0 })
+        let lanetruth: TruthMode = runningSession != nil ? .observed : .declared
+        return Lane(title: "Agent Session", truth: lanetruth, defaultExpanded: runningSession != nil) {
             VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
-                Text("Persistent cloud agents — Claude Code, Codex, local SGLang. Session resumes from any device.")
-                    .font(BeagleFont.footnote.font)
-                    .foregroundStyle(BeagleTheme.textSecondary)
+                // Live session status rows
+                if !liveSessions.isEmpty {
+                    ForEach(liveSessions, id: \.kind) { session in
+                        let isRunning = (session.readyReplicas ?? 0) > 0
+                        HStack(spacing: BeagleSpacing.sm) {
+                            Circle()
+                                .fill(isRunning ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
+                                .frame(width: 7, height: 7)
+                                .shadow(color: isRunning ? BeagleTheme.truthObserved.opacity(0.4) : .clear, radius: 4)
+                                .symbolEffect(.pulse, isActive: isRunning)
+                            Text(session.kind?.replacingOccurrences(of: "-", with: " ").capitalized ?? "agent")
+                                .font(BeagleFont.footnote.font)
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                            Spacer()
+                            Text(isRunning ? "live" : "stopped")
+                                .font(BeagleFont.dataSmall.font)
+                                .foregroundStyle(isRunning ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
+                            if let pod = session.podName {
+                                Text(pod)
+                                    .font(BeagleFont.dataSmall.font)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: 120, alignment: .trailing)
+                            }
+                        }
+                    }
+                    Divider().opacity(0.2)
+                } else {
+                    Text("No sessions deployed yet.")
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
 
                 NavigationLink(value: AgentSessionDestination(slug: slug)) {
                     HStack(spacing: BeagleSpacing.xs) {
-                        Image(systemName: "sparkles")
-                        Text("Open Agent Session")
+                        Image(systemName: runningSession != nil ? "terminal.fill" : "sparkles")
+                        Text(runningSession != nil ? "Join Running Session" : "Start Agent Session")
                             .font(BeagleFont.footnote.font)
                             .fontWeight(.medium)
                         Spacer()
@@ -324,6 +419,55 @@ struct ControlRoomView: View {
         }
         .navigationDestination(for: AgentSessionDestination.self) { dest in
             AgentSessionView(slug: dest.slug)
+        }
+    }
+
+    // MARK: - Lane 6: Go Work Now
+
+    @ViewBuilder
+    private var goWorkLane: some View {
+        if !goWorkActions.isEmpty {
+            Lane(title: "Go Work Now", truth: .observed) {
+                VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                    ForEach(goWorkActions.prefix(4), id: \.id) { action in
+                        Button {
+                            Task { await CockpitClient.shared.executeAction(slug: slug, actionId: action.id ?? "") }
+                        } label: {
+                            HStack(spacing: BeagleSpacing.sm) {
+                                Image(systemName: "bolt.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(BeagleTheme.postureWarm)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(action.label ?? action.id ?? "action")
+                                        .font(BeagleFont.footnote.font)
+                                        .fontWeight(.medium)
+                                        .foregroundStyle(BeagleTheme.textPrimary)
+                                    if let desc = action.description, !desc.isEmpty {
+                                        Text(desc)
+                                            .font(BeagleFont.caption.font)
+                                            .foregroundStyle(BeagleTheme.textSecondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                            }
+                            .padding(.horizontal, BeagleSpacing.sm)
+                            .padding(.vertical, BeagleSpacing.xs)
+                            .background(
+                                RoundedRectangle(cornerRadius: BeagleRadius.sm)
+                                    .fill(BeagleTheme.postureWarm.opacity(0.05))
+                            )
+                        }
+                        .buttonStyle(ScalePress())
+                    }
+                }
+            }
+            .scrollTransition(.animated(BeagleMotion.normal)) { content, phase in
+                content.opacity(phase.isIdentity ? 1 : 0.6).scaleEffect(phase.isIdentity ? 1 : 0.97)
+            }
         }
     }
 }
@@ -406,5 +550,30 @@ extension ControlRoomView {
             Capsule().fill(color.opacity(0.08))
                 .overlay(Capsule().strokeBorder(color.opacity(0.12), lineWidth: 1))
         )
+    }
+}
+
+// MARK: - StatItem (inline stat display)
+
+private struct StatItem: View {
+    let label: String
+    let value: String
+    let color: Color
+
+    init(label: String, value: String, color: Color = BeagleTheme.textData) {
+        self.label = label
+        self.value = value
+        self.color = color
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+            Text(value)
+                .font(BeagleFont.data.font)
+                .foregroundStyle(color)
+        }
     }
 }

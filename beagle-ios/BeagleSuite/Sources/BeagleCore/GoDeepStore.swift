@@ -92,9 +92,13 @@ public final class GoDeepStore {
 
     // MARK: - Configuration
 
+    /// Default to the lanes that are currently returning promptly on the
+    /// live public/auth-bridge path. Slower lanes remain available for
+    /// explicit opt-in once backend stability catches up.
     public var enabledModalities: Set<GoDeepModality> = [
-        .deepResearch, .quantumReasoning, .swarmConsensus,
-        .causalExtract, .neurosymbolic, .serendipity
+        .swarmConsensus,
+        .temporal,
+        .neurosymbolic
     ]
 
     // MARK: - History
@@ -145,9 +149,12 @@ public final class GoDeepStore {
         // Start Live Activity on Dynamic Island
         onResearchStart?(session.id.uuidString, "Go Deeper", "exocortex")
 
-        runTask = Task { [client] in
+        runTask = Task { [weak self, client] in
+            guard let self else { return }
             // Start thinking status animation for all modalities
-            let thinkingTask = Task { await self.animateThinkingStatuses() }
+            let thinkingTask = Task { [weak self] in
+                await self?.animateThinkingStatuses()
+            }
 
             await withTaskGroup(of: (GoDeepModality, GoDeepResult)?.self) { group in
                 for modality in modalities {
@@ -299,11 +306,14 @@ public final class GoDeepStore {
         modalityStates[idx].startedAt = nil
         modalityStates[idx].completedAt = nil
 
-        Task { [client] in
+        Task { [weak self, client] in
+            guard let self else { return }
             // Start thinking animation for this one
             let messages = Self.thinkingMessages[modality] ?? ["Retrying..."]
-            self.modalityStates[idx].phase = .thinking(messages[0])
-            self.modalityStates[idx].startedAt = .now
+            if let idx = self.modalityStates.firstIndex(where: { $0.modality == modality }) {
+                self.modalityStates[idx].phase = .thinking(messages[0])
+                self.modalityStates[idx].startedAt = .now
+            }
 
             let result = await Self.executeModality(modality, prompt: prompt, client: client)
             self.resolveModality(modality, result: result)

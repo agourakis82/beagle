@@ -801,6 +801,7 @@ private struct MilestoneParticle: Identifiable {
 import UIKit
 
 /// Signature haptic patterns that give Beagle an emotional identity.
+@MainActor
 public enum BeagleHaptics {
 
     /// Single thought captured — a small, satisfying click.

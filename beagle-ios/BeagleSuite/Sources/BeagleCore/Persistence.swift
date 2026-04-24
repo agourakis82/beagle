@@ -55,12 +55,18 @@ public final class PersistedMessage {
     public var model: String?
     public var tokensUsed: Int?
     public var isLocal: Bool
+    public var source: String?
+    public var agentKind: String?
+    public var sessionId: String?
+    public var podName: String?
     public var conversationId: String    // groups messages into conversations
     public var sentAt: Date
 
     public init(
         role: String, content: String, model: String? = nil,
         tokensUsed: Int? = nil, isLocal: Bool = false,
+        source: String? = nil, agentKind: String? = nil,
+        sessionId: String? = nil, podName: String? = nil,
         conversationId: String = "default", sentAt: Date = .now
     ) {
         self.role = role
@@ -68,6 +74,10 @@ public final class PersistedMessage {
         self.model = model
         self.tokensUsed = tokensUsed
         self.isLocal = isLocal
+        self.source = source
+        self.agentKind = agentKind
+        self.sessionId = sessionId
+        self.podName = podName
         self.conversationId = conversationId
         self.sentAt = sentAt
     }

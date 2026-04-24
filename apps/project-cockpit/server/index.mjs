@@ -413,8 +413,7 @@ function buildKubectlCliArgs(args) {
     return args;
   }
 
-  const token = readFileSync(serviceAccountTokenPath, "utf8").trim();
-  if (!token) {
+  if (!inClusterToken) {
     return args;
   }
 
@@ -422,7 +421,7 @@ function buildKubectlCliArgs(args) {
     "--server",
     inClusterServer,
     "--token",
-    token,
+    inClusterToken,
     "--certificate-authority",
     serviceAccountCaPath,
     "--request-timeout",
@@ -1181,7 +1180,7 @@ function buildGoWorkNowPacket(project, operatingPosture = null, clusterState = n
       : `kubectl -n ${namespace} scale statefulset/${workspaceController} --replicas=1
 kubectl -n ${namespace} rollout status statefulset/${workspaceController} --timeout=300s`;
   const attachTmux = project?.tmuxSession
-    ? `kubectl -n ${namespace} exec -it ${workspacePod} -c ${workspaceContainer} -- sh -lc 'exec tmux new-session -A -s ${project.tmuxSession}'`
+    ? `kubectl -n ${namespace} exec -it ${workspacePod} -c ${workspaceContainer} -- sh -lc 'TMUX_SOCKET_DIR="${project.workspaceRoot}/.tmux"; TMUX_SOCKET="${project.workspaceRoot}/.tmux/${project.tmuxSession}.sock"; mkdir -p "$TMUX_SOCKET_DIR"; chmod 700 "$TMUX_SOCKET_DIR"; exec tmux -S "$TMUX_SOCKET" new-session -A -s ${project.tmuxSession}'`
     : `kubectl -n ${namespace} exec -it ${workspacePod} -c ${workspaceContainer} -- sh`;
   const standbyHabitat =
     posture === "always-on"
@@ -9253,7 +9252,7 @@ async function computeFastWorkspaceMemory(project) {
       publicationCheckpoint,
       continuityTimeline,
       commands: {
-        terminal: `ssh ${project.sshHost}\ntmux new-session -A -s ${project.tmuxSession}`,
+        terminal: `ssh ${project.sshHost}\nexport TMUX_SOCKET_DIR=${project.workspaceRoot}/.tmux\nexport TMUX_SOCKET=$TMUX_SOCKET_DIR/${project.tmuxSession}.sock\nmkdir -p "$TMUX_SOCKET_DIR" && chmod 700 "$TMUX_SOCKET_DIR"\ntmux -S "$TMUX_SOCKET" new-session -A -s ${project.tmuxSession}`,
         workspace: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}`,
         inspectDirty: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}\ngit status --short --branch\ngit diff --stat`,
         context: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}\nsed -n '1,160p' .beagle/context/current-context-packet.json\nsed -n '1,160p' .beagle/context/workspace-hydration.json`,
@@ -9813,7 +9812,7 @@ async function computeWorkspaceMemory(project) {
     }
   });
   const resumeCommands = {
-    terminal: `ssh ${project.sshHost}\ntmux new-session -A -s ${project.tmuxSession}`,
+    terminal: `ssh ${project.sshHost}\nexport TMUX_SOCKET_DIR=${project.workspaceRoot}/.tmux\nexport TMUX_SOCKET=$TMUX_SOCKET_DIR/${project.tmuxSession}.sock\nmkdir -p "$TMUX_SOCKET_DIR" && chmod 700 "$TMUX_SOCKET_DIR"\ntmux -S "$TMUX_SOCKET" new-session -A -s ${project.tmuxSession}`,
     workspace: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}`,
     inspectDirty: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}\ngit status --short --branch\ngit diff --stat`,
     context: `ssh ${project.sshHost}\ncd ${project.workspaceRoot}\nsed -n '1,160p' .beagle/context/current-context-packet.json\nsed -n '1,160p' .beagle/context/workspace-hydration.json`,
@@ -10215,6 +10214,33 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json());
+
+// ─── Security middleware ────────────────────────────────────────────
+
+const COCKPIT_AUTH_TOKEN = cleanValue(process.env.PROJECT_COCKPIT_AUTH_TOKEN);
+
+// Slug validation: reject any :slug param that isn't a safe k8s label value.
+const VALID_SLUG = /^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/;
+app.param("slug", (req, res, next, slug) => {
+  if (!VALID_SLUG.test(slug)) {
+    return res.status(400).json({ error: "invalid project slug", truthMode: "stale" });
+  }
+  next();
+});
+
+// Auth gate: skip health probes + OPTIONS; require token on everything else.
+app.use((req, res, next) => {
+  const p = req.path;
+  if (p === "/livez" || p === "/healthz" || req.method === "OPTIONS") return next();
+  if (!COCKPIT_AUTH_TOKEN) return next(); // no token configured = open (dev mode)
+  const bearer = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const headerToken = req.headers["x-cockpit-token"] || "";
+  if (bearer === COCKPIT_AUTH_TOKEN || headerToken === COCKPIT_AUTH_TOKEN) return next();
+  // Allow Tailscale-authenticated requests (operator sidecar sets this header)
+  const tsUser = req.headers["tailscale-user-login"];
+  if (tsUser) return next();
+  return res.status(401).json({ error: "unauthorized", truthMode: "stale" });
+});
 
 app.get("/livez", (_req, res) => {
   res.json({ ok: true });
@@ -11452,12 +11478,30 @@ const agentWss = new WebSocketServer({ noServer: true });
 attachAgentWebSocket(agentWss);
 
 server.on("upgrade", (req, socket, head) => {
+  // Auth check for WebSocket upgrades
+  if (COCKPIT_AUTH_TOKEN) {
+    const wsUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    const token = wsUrl.searchParams.get("token") || "";
+    const tsUser = req.headers["tailscale-user-login"];
+    if (token !== COCKPIT_AUTH_TOKEN && !tsUser) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+  }
+
   const urlPath = (req.url || "").split("?")[0];
   if (urlPath === "/ws/terminal") {
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
     return;
   }
-  if (/^\/ws\/projects\/[^/]+\/agent\/[^/]+$/.test(urlPath)) {
+  const agentMatch = urlPath.match(/^\/ws\/projects\/([^/]+)\/agent\/([^/]+)$/);
+  if (agentMatch) {
+    const [, wsSlug, wsKind] = agentMatch;
+    // Validate slug and kind before proceeding
+    if (!VALID_SLUG.test(wsSlug)) { socket.destroy(); return; }
+    const validKinds = ["claude-code", "codex", "local-sglang", "custom"];
+    if (!validKinds.includes(wsKind)) { socket.destroy(); return; }
     agentWss.handleUpgrade(req, socket, head, (ws) => agentWss.emit("connection", ws, req));
     return;
   }
@@ -11488,7 +11532,7 @@ wss.on("connection", async (ws, req) => {
   }
 
   const shellCommand =
-    'cd "$WORKSPACE_ROOT" && exec tmux new-session -A -s "$TMUX_SESSION"';
+    'cd "$WORKSPACE_ROOT" && TMUX_SOCKET_DIR="$WORKSPACE_ROOT/.tmux" && TMUX_SOCKET="$TMUX_SOCKET_DIR/$TMUX_SESSION.sock" && mkdir -p "$TMUX_SOCKET_DIR" && chmod 700 "$TMUX_SOCKET_DIR" && exec tmux -S "$TMUX_SOCKET" new-session -A -s "$TMUX_SESSION"';
 
   const proc = pty.spawn(
     "kubectl",

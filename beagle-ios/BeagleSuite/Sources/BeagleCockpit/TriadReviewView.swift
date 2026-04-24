@@ -36,27 +36,25 @@ struct TriadReviewView: View {
     ]
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
-                    inputSection
-                    if cognitive.isReviewingTriad { agentProgressSection }
-                    if let result { resultsSection(result) }
-                }
-                .padding(.horizontal, BeagleSpacing.lg)
-                .padding(.top, BeagleSpacing.md)
-                .padding(.bottom, BeagleSpacing.jumbo)
+        ScrollView {
+            VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
+                inputSection
+                if cognitive.isReviewingTriad { agentProgressSection }
+                if let result { resultsSection(result) }
             }
-            .background { HealthPulseGradient(truth: result != nil ? .observed : .declared) }
-            .navigationTitle("Triad Review")
-            .toolbar {
-                if result != nil {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        ShareLink(item: exportText, subject: Text("Triad Review")) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 14))
-                                .foregroundStyle(BeagleTheme.textSecondary)
-                        }
+            .padding(.horizontal, BeagleSpacing.lg)
+            .padding(.top, BeagleSpacing.md)
+            .padding(.bottom, BeagleSpacing.jumbo)
+        }
+        .background { HealthPulseGradient(truth: result != nil ? .observed : .declared) }
+        .navigationTitle("Triad Review")
+        .toolbar {
+            if result != nil {
+                ToolbarItem(placement: shareToolbarPlacement) {
+                    ShareLink(item: exportText, subject: Text("Triad Review")) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14))
+                            .foregroundStyle(BeagleTheme.textSecondary)
                     }
                 }
             }
@@ -92,6 +90,14 @@ struct TriadReviewView: View {
                 }
             }
         }
+    }
+
+    private var shareToolbarPlacement: ToolbarItemPlacement {
+        #if os(macOS)
+        return .automatic
+        #else
+        return .topBarTrailing
+        #endif
     }
 
     // MARK: - Agent Progress (per-agent thinking, not a single spinner)

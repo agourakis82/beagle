@@ -195,8 +195,16 @@ public actor BeagleClient {
     }
 
     /// Fetch auth token from cockpit bridge (zero hardcode).
+    /// Re-fetches when token is older than 4 minutes (server TTL is 5min).
+    private var tokenFetchedAt: Date?
+    private let tokenRefreshInterval: TimeInterval = 4 * 60 // 4 minutes
+
     public func ensureAuth() async -> Bool {
-        if tokenFetched { return true }
+        if tokenFetched,
+           let fetchedAt = tokenFetchedAt,
+           Date().timeIntervalSince(fetchedAt) < tokenRefreshInterval {
+            return true
+        }
         print("[BeagleClient] ensureAuth starting...")
         // GET /api/auth/beagle-token from the public Cockpit boundary first,
         // with older private paths left as fallback during transition.
@@ -262,11 +270,13 @@ public actor BeagleClient {
                     print("[BeagleClient] ensureAuth ✅ token acquired: \(consumerId)")
                     // Update base URL if provided
                     let beagleURLString = (json["beagle_url"] as? String) ?? (json["beagleServerUrl"] as? String)
-                    if let urlStr = beagleURLString, let serverUrl = URL(string: urlStr) {
+                    if let urlStr = beagleURLString, let serverUrl = URL(string: urlStr),
+                       !baseURLs.contains(serverUrl) {
                         print("[BeagleClient] ensureAuth updating base URL: \(serverUrl)")
                         baseURLs.insert(serverUrl, at: 0)
                     }
                     tokenFetched = true
+                    tokenFetchedAt = Date()
                     authBootstrapError = nil
                     return true
                 }
@@ -449,7 +459,9 @@ public actor BeagleClient {
         projectSlug: String = "sounio",
         projectFamily: ProjectFamily? = nil,
         publicationScope: PublicationScope? = nil,
-        discussionProfile: DiscussionProfile = .cluster
+        discussionProfile: DiscussionProfile = .cluster,
+        flowState: String? = nil,
+        physioPolicy: PhysioConversationPolicy? = nil
     ) async -> Truthful<ChatResponse> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -465,13 +477,19 @@ public actor BeagleClient {
         }
         let family = projectFamily ?? .fromProjectSlug(projectSlug)
         let scope = publicationScope ?? .forProjectFamily(family)
-        let body: [String: any Sendable] = [
+        var body: [String: any Sendable] = [
             "prompt": effectivePrompt,
             "projectSlug": projectSlug,
             "projectFamily": family.rawValue,
             "publicationScope": scope.rawValue,
             "discussionProfile": discussionProfile.rawValue
         ]
+        if let flowState, !flowState.isEmpty {
+            body["flow_state"] = flowState
+        }
+        if let physioPolicy {
+            body["physio_policy"] = physioPolicy.requestBody
+        }
 
         let mobileResult = await postPublicMobileChat(body: body)
         if mobileResult.value != nil {
@@ -489,6 +507,7 @@ public actor BeagleClient {
     public func postHRV(hrv: Double, state: String) async -> Truthful<HRVResponse> {
         await post(HRVResponse.self, path: "/api/observer/physio", body: [
             "hrv_ms": hrv,
+            "flow_state": state,
             "source": "apple-watch"
         ])
     }
@@ -559,7 +578,9 @@ public actor BeagleClient {
         projectSlug: String = "sounio",
         projectFamily: ProjectFamily? = nil,
         publicationScope: PublicationScope? = nil,
-        discussionProfile: DiscussionProfile = .cluster
+        discussionProfile: DiscussionProfile = .cluster,
+        flowState: String? = nil,
+        physioPolicy: PhysioConversationPolicy? = nil
     ) async -> Truthful<ChatResponse> {
         await llmComplete(
             prompt: prompt,
@@ -567,7 +588,9 @@ public actor BeagleClient {
             projectSlug: projectSlug,
             projectFamily: projectFamily,
             publicationScope: publicationScope,
-            discussionProfile: discussionProfile
+            discussionProfile: discussionProfile,
+            flowState: flowState,
+            physioPolicy: physioPolicy
         )
     }
 

@@ -50,6 +50,7 @@ struct BeagleInputBar: View {
     let placeholder: String
     let mode: InputBarMode
     let isEnabled: Bool
+    var focusRequest: Int = 0
     let onSubmit: (String) -> Void
     var onSpecialKey: ((SpecialKey) -> Void)?
 
@@ -66,6 +67,10 @@ struct BeagleInputBar: View {
         .padding(.vertical, BeagleSpacing.sm)
         .background(.ultraThinMaterial)
         .sensoryFeedback(.impact(weight: .medium), trigger: submitCount)
+        .onChange(of: focusRequest) {
+            guard isEnabled else { return }
+            isFocused = true
+        }
         #if os(iOS)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -228,26 +233,53 @@ struct BeagleInputBar: View {
 
     #if os(iOS)
     private var terminalKeyboardAccessory: some View {
-        HStack(spacing: BeagleSpacing.sm) {
-            accessoryButton("Ctrl+C", key: .interrupt)
-            accessoryButton("Tab", key: .tab)
-            accessoryButton("\u{2191}", key: .arrowUp)
-            accessoryButton("\u{2193}", key: .arrowDown)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                // Control group
+                accessoryButton("⌃C", key: .interrupt, highlight: true)
+                accessoryButton("⌃D", key: .eof)
+                accessoryDivider
+                // Navigation
+                accessoryButton("⇥", key: .tab)
+                accessoryButton("↑", key: .arrowUp)
+                accessoryButton("↓", key: .arrowDown)
+                accessoryButton("←", key: .arrowLeft)
+                accessoryButton("→", key: .arrowRight)
+            }
+            .padding(.horizontal, 4)
         }
     }
 
-    private func accessoryButton(_ label: String, key: SpecialKey) -> some View {
+    private var accessoryDivider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.1))
+            .frame(width: 1, height: 20)
+    }
+
+    private func accessoryButton(_ label: String, key: SpecialKey, highlight: Bool = false) -> some View {
         Button {
             onSpecialKey?(key)
+            #if os(iOS)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            #endif
         } label: {
             Text(label)
-                .font(BeagleFont.dataSmall.font)
-                .foregroundStyle(BeagleTheme.textData)
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundStyle(highlight ? BeagleTheme.stateError : BeagleTheme.textData)
+                .frame(minWidth: 36, minHeight: 32)
                 .padding(.horizontal, BeagleSpacing.xs)
-                .padding(.vertical, BeagleSpacing.xxs)
                 .background(
-                    RoundedRectangle(cornerRadius: BeagleRadius.sm)
-                        .fill(BeagleTheme.surface2)
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(highlight
+                              ? BeagleTheme.stateError.opacity(0.12)
+                              : Color.white.opacity(0.08))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(
+                                    highlight ? BeagleTheme.stateError.opacity(0.25) : Color.white.opacity(0.1),
+                                    lineWidth: 0.5
+                                )
+                        )
                 )
         }
         .buttonStyle(.plain)

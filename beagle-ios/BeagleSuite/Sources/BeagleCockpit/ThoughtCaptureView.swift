@@ -23,7 +23,7 @@ struct ThoughtCaptureView: View {
     @State private var captureMode: CaptureMode = .keyboard
     @State private var lastRefined: String?
     @State private var refinedPersisted = false
-    @State private var conversation = ConversationStore()
+    @State private var conversation: ConversationStore
     @State private var hermesPhase = ""
     @State private var hermesPhaseIndex = 0
     #if os(iOS)
@@ -32,10 +32,10 @@ struct ThoughtCaptureView: View {
     @FocusState private var inputFocused: Bool
 
     private static let hermesMessages = [
-        "HERMES receiving thought...",
-        "Identifying core insight...",
-        "Refining prose structure...",
-        "Mapping to hypergraph...",
+        "Receiving idea...",
+        "Clarifying the core thread...",
+        "Preparing memory for sync...",
+        "Linking it into the larger mind...",
     ]
 
     enum CaptureMode: String, CaseIterable {
@@ -52,25 +52,32 @@ struct ThoughtCaptureView: View {
 
         var label: String {
             switch self {
-            case .keyboard:  return "Type"
+            case .keyboard:  return "Write"
             case .voice:     return "Voice"
             case .clipboard: return "Paste"
-            case .chat:      return "Chat"
+            case .chat:      return "Talk"
             }
         }
     }
 
+    init() {
+        _conversation = State(initialValue: ConversationStore(preferLocal: false))
+    }
+
     var body: some View {
-        NavigationStack {
+        Group {
             if captureMode == .chat {
                 VStack(spacing: 0) {
                     modePicker
                         .padding(.horizontal, BeagleSpacing.lg)
                         .padding(.top, BeagleSpacing.md)
+                    talkModeCard
+                        .padding(.horizontal, BeagleSpacing.lg)
+                        .padding(.top, BeagleSpacing.sm)
                     ConversationView(conversation: conversation)
                 }
                 .background { captureBackground }
-                .navigationTitle("Capture")
+                .navigationTitle("Talk")
                 #if os(iOS)
                 .task { await speechRecognizer.setup() }
                 #endif
@@ -93,6 +100,14 @@ struct ThoughtCaptureView: View {
                 .background { captureBackground }
                 .navigationTitle("Capture")
             }
+        }
+        .task {
+            let projectSlug = cognitive.activeProjectSlug ?? "sounio"
+            conversation.projectSlug = projectSlug
+            let family = ProjectFamily.fromProjectSlug(projectSlug)
+            conversation.projectFamily = family
+            conversation.publicationScope = PublicationScope.forProjectFamily(family)
+            conversation.flowState = cognitive.flowState
         }
     }
 
@@ -139,6 +154,7 @@ struct ThoughtCaptureView: View {
     private var captureSection: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.md) {
             modePicker
+            ideaModeCard
 
             if captureMode == .voice {
                 GlassPanel(elevation: .raised) {
@@ -147,7 +163,7 @@ struct ThoughtCaptureView: View {
             } else {
                 BeagleInputBar(
                     text: $inputText,
-                    placeholder: "What are you thinking about?",
+                    placeholder: "Save an idea for Beagle...",
                     mode: .chat,
                     isEnabled: !cognitive.isCapturing,
                     onSubmit: { _ in
@@ -168,7 +184,7 @@ struct ThoughtCaptureView: View {
                 .symbolEffect(.pulse, isActive: true)
 
             VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
-                Text("HERMES")
+                Text("Bridge")
                     .font(BeagleFont.caption.font)
                     .fontWeight(.medium)
                     .foregroundStyle(BeagleTheme.postureWarm)
@@ -320,7 +336,7 @@ struct ThoughtCaptureView: View {
                 HStack(spacing: BeagleSpacing.xxs) {
                     Image(systemName: "sparkles")
                         .foregroundStyle(BeagleTheme.truthObserved)
-                    Text("HERMES refined")
+                    Text("Idea clarified")
                         .font(BeagleFont.caption.font)
                         .fontWeight(.medium)
                         .foregroundStyle(BeagleTheme.truthObserved)
@@ -339,13 +355,11 @@ struct ThoughtCaptureView: View {
                 // Persistence confirmation
                 HStack(spacing: BeagleSpacing.sm) {
                     if refinedPersisted {
-                        HStack(spacing: BeagleSpacing.xxs) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 11))
-                            Text("Stored in hypergraph")
-                                .font(BeagleFont.caption.font)
-                        }
-                        .foregroundStyle(BeagleTheme.truthObserved.opacity(0.7))
+                        PresencePill(
+                            label: currentRefinedResidencyLabel,
+                            systemImage: currentRefinedResidencyIcon,
+                            tint: currentRefinedResidencyTint
+                        )
                     }
 
                     Spacer()
@@ -379,7 +393,7 @@ struct ThoughtCaptureView: View {
                     let thoughtText = thought.refinedText ?? thought.rawText ?? ""
                     HStack(alignment: .top, spacing: BeagleSpacing.sm) {
                         Circle()
-                            .fill(thought.refinedText != nil ? BeagleTheme.truthObserved : BeagleTheme.truthDeclared)
+                            .fill(thought.residency == .clusterMemory ? BeagleTheme.truthObserved : BeagleTheme.truthDeclared)
                             .frame(width: 6, height: 6)
                             .padding(.top, 8)
 
@@ -388,10 +402,18 @@ struct ThoughtCaptureView: View {
                                 .font(BeagleFont.footnote.font)
                                 .foregroundStyle(BeagleTheme.textPrimary)
                                 .lineLimit(3)
-                            if let source = thought.source {
-                                Text(source)
-                                    .font(BeagleFont.dataSmall.font)
-                                    .foregroundStyle(BeagleTheme.textTertiary)
+                            HStack(spacing: BeagleSpacing.xs) {
+                                PresencePill(
+                                    label: thought.effectiveSyncState.label,
+                                    systemImage: thought.effectiveSyncState.systemImage,
+                                    tint: tint(for: thought.effectiveSyncState)
+                                )
+                                if let source = sourceLabel(for: thought.source) {
+                                    Text(source)
+                                        .font(BeagleFont.dataSmall.font)
+                                        .foregroundStyle(BeagleTheme.textTertiary)
+                                        .lineLimit(1)
+                                }
                             }
                         }
 
@@ -447,6 +469,128 @@ struct ThoughtCaptureView: View {
             inputText = content
         }
         #endif
+    }
+
+    private var talkModeCard: some View {
+        GlassPanel(elevation: .floating, truth: .observed) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    PresencePill(label: BuildInfo.previewLabel, systemImage: "sparkles.rectangle.stack.fill", tint: BeagleTheme.postureWarm)
+                    PresencePill(label: "Private by default", systemImage: "lock.shield.fill", tint: BeagleTheme.truthObserved)
+                    Spacer()
+                    TruthBadge(.observed, compact: true)
+                }
+
+                Text("Talk begins with the mind in your hand.")
+                    .font(BeagleFont.title3.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+
+                Text("This preview makes the provenance visible. Start privately, feel the response land, and only widen into the larger mind when the thread asks for more reach.")
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineSpacing(2)
+
+                CognitiveBridgeField(
+                    localWeight: 1.0,
+                    bridgeWeight: 0.72,
+                    clusterWeight: cognitive.serverReachable ? 0.58 : 0.24,
+                    emphasis: .talk
+                )
+
+                HStack(spacing: BeagleSpacing.xs) {
+                    PresencePill(label: "On Device", systemImage: "iphone", tint: BeagleTheme.truthObserved)
+                    PresencePill(label: "Cluster", systemImage: "server.rack", tint: BeagleTheme.truthRemembered)
+                }
+            }
+        }
+    }
+
+    private var ideaModeCard: some View {
+        GlassPanel(elevation: .floating, truth: .declared) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    PresencePill(label: BuildInfo.previewLabel, systemImage: "waveform.path.ecg.rectangle.fill", tint: BeagleTheme.postureWarm)
+                    PresencePill(label: "Promote deliberately", systemImage: "tray.and.arrow.up.fill", tint: BeagleTheme.postureWarm)
+                    Spacer()
+                    TruthBadge(.declared, compact: true)
+                }
+
+                Text("Ideas begin here.")
+                    .font(BeagleFont.title3.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+
+                Text("Ideas are not just notes. Capture the raw thread, clarify it, and choose whether it stays with you or becomes durable memory in the cluster. This build is meant to make that choice impossible to miss.")
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineSpacing(2)
+
+                CognitiveBridgeField(
+                    localWeight: 0.72,
+                    bridgeWeight: 1.0,
+                    clusterWeight: cognitive.serverReachable ? 0.92 : 0.34,
+                    emphasis: .ideas
+                )
+
+                HStack(spacing: BeagleSpacing.xs) {
+                    PresencePill(label: "Device only", systemImage: "iphone", tint: BeagleTheme.truthDeclared)
+                    PresencePill(label: "Cluster memory", systemImage: "server.rack", tint: BeagleTheme.truthObserved)
+                }
+            }
+        }
+    }
+
+    private var currentRefinedResidency: ThoughtResidency {
+        cognitive.recentThoughts.first?.residency ?? .deviceOnly
+    }
+
+    private var currentRefinedSyncState: IdeaSyncState {
+        cognitive.recentThoughts.first?.effectiveSyncState ?? .localOnly
+    }
+
+    private var currentRefinedResidencyLabel: String {
+        currentRefinedSyncState.label
+    }
+
+    private var currentRefinedResidencyIcon: String {
+        currentRefinedSyncState.systemImage
+    }
+
+    private var currentRefinedResidencyTint: Color {
+        switch currentRefinedSyncState {
+        case .localOnly:
+            return BeagleTheme.truthDeclared
+        case .queued:
+            return BeagleTheme.postureWarm
+        case .synced:
+            return BeagleTheme.truthObserved
+        case .delegated:
+            return BeagleTheme.truthRemembered
+        }
+    }
+
+    private func sourceLabel(for source: String?) -> String? {
+        guard let source else { return nil }
+        if source.contains("offline") { return "Saved offline" }
+        if source.contains("voice") { return "Voice" }
+        if source.contains("clipboard") { return "Pasted" }
+        if source.contains("keyboard") { return "Written" }
+        if source.contains("chat") { return "Talk" }
+        return source.replacingOccurrences(of: "ios-", with: "")
+    }
+
+    private func tint(for syncState: IdeaSyncState) -> Color {
+        switch syncState {
+        case .localOnly:
+            return BeagleTheme.truthDeclared
+        case .queued:
+            return BeagleTheme.postureWarm
+        case .synced:
+            return BeagleTheme.truthObserved
+        case .delegated:
+            return BeagleTheme.truthRemembered
+        }
     }
 }
 

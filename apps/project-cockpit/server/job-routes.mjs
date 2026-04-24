@@ -62,6 +62,8 @@ const publicCatalogPath = existsSync(runtimeCatalogPath)
   ? runtimeCatalogPath
   : path.join(rootDir, "public", "project-catalog.json");
 let hpcProjectCatalogCache = null;
+let hpcProjectCatalogCachedAt = 0;
+const HPC_CATALOG_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 // Known data mount profiles — maps short name → k8s volume + mountPath
 const MOUNT_PROFILES = {
@@ -139,15 +141,17 @@ function asNumericJobId(value) {
 }
 
 async function loadHpcProjectCatalog() {
-  if (hpcProjectCatalogCache) {
+  if (hpcProjectCatalogCache && (Date.now() - hpcProjectCatalogCachedAt) < HPC_CATALOG_TTL_MS) {
     return hpcProjectCatalogCache;
   }
   try {
     const raw = await fs.readFile(publicCatalogPath, "utf8");
     const parsed = JSON.parse(raw);
     hpcProjectCatalogCache = Array.isArray(parsed?.projects) ? parsed.projects : [];
+    hpcProjectCatalogCachedAt = Date.now();
   } catch {
     hpcProjectCatalogCache = [];
+    hpcProjectCatalogCachedAt = Date.now();
   }
   return hpcProjectCatalogCache;
 }

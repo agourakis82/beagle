@@ -67,14 +67,20 @@ public actor WebSocketClient {
 
     public func sendInput(_ text: String) {
         guard let task, state.isConnected else { return }
-        let json = "{\"type\":\"input\",\"data\":\(escapeJSON(text))}"
-        task.send(.string(json)) { _ in }
+        guard let data = try? JSONSerialization.data(withJSONObject: ["type": "input", "data": text]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        task.send(.string(json)) { error in
+            if let error { print("[WS] send error: \(error.localizedDescription)") }
+        }
     }
 
     public func sendResize(cols: Int, rows: Int) {
         guard let task, state.isConnected else { return }
-        let json = "{\"type\":\"resize\",\"cols\":\(cols),\"rows\":\(rows)}"
-        task.send(.string(json)) { _ in }
+        guard let data = try? JSONSerialization.data(withJSONObject: ["type": "resize", "cols": cols, "rows": rows]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        task.send(.string(json)) { error in
+            if let error { print("[WS] send error: \(error.localizedDescription)") }
+        }
     }
 
     // MARK: - Disconnect
@@ -181,7 +187,7 @@ public actor WebSocketClient {
             while !Task.isCancelled {
                 do {
                     let message = try await task.receive()
-                    handleMessage(message)
+                    self.handleMessage(message)
                 } catch {
                     if !Task.isCancelled && !self.userDisconnected {
                         // Unexpected disconnect — attempt reconnection
@@ -202,9 +208,9 @@ public actor WebSocketClient {
 
         reconnectTask = Task {
             for attempt in 1...Self.maxReconnectAttempts {
-                guard !Task.isCancelled && !self.userDisconnected else { return }
+                guard !Task.isCancelled && !userDisconnected else { return }
 
-                self.state = .reconnecting(attempt: attempt)
+                state = .reconnecting(attempt: attempt)
 
                 // Exponential backoff: 1s, 2s, 4s, 8s, ..., capped at 30s
                 let baseDelay = min(30.0, pow(2.0, Double(attempt - 1)))
@@ -212,14 +218,14 @@ public actor WebSocketClient {
                 let delay = baseDelay + jitter
                 try? await Task.sleep(for: .seconds(delay))
 
-                guard !Task.isCancelled && !self.userDisconnected else { return }
+                guard !Task.isCancelled && !userDisconnected else { return }
 
                 // Try to reconnect using the same multi-URL fallback
                 var connected = false
-                for base in self.baseURLs {
+                for base in baseURLs {
                     guard let url = Self.httpToWS(base: base, path: path) else { continue }
 
-                    let wsTask = self.session.webSocketTask(with: url)
+                    let wsTask = session.webSocketTask(with: url)
                     wsTask.resume()
 
                     do {
@@ -236,7 +242,8 @@ public actor WebSocketClient {
                             if let result = try await group.next() {
                                 group.cancelAll()
                                 if result {
-                                    self.setConnected(task: wsTask, source: base.host ?? "unknown")
+                                    self.task?.cancel()
+                                    setConnected(task: wsTask, source: base.host ?? "unknown")
                                     connected = true
                                 }
                             }
@@ -253,10 +260,10 @@ public actor WebSocketClient {
             }
 
             // All attempts exhausted
-            if !Task.isCancelled && !self.userDisconnected {
-                self.state = .failed("reconnection failed after \(Self.maxReconnectAttempts) attempts")
-                self.continuation?.yield(.exit(code: -1))
-                self.continuation?.finish()
+            if !Task.isCancelled && !userDisconnected {
+                state = .failed("reconnection failed after \(Self.maxReconnectAttempts) attempts")
+                continuation?.yield(.exit(code: -1))
+                continuation?.finish()
             }
         }
     }
@@ -335,16 +342,6 @@ public actor WebSocketClient {
         }
 
         return components.url
-    }
-
-    private func escapeJSON(_ string: String) -> String {
-        let escaped = string
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "\t", with: "\\t")
-        return "\"\(escaped)\""
     }
 
     private func parseExitCode(from detail: String?) -> Int? {

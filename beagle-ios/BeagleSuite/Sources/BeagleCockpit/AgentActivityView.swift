@@ -14,6 +14,7 @@ import SwiftUI
 import BeagleCore
 
 struct AgentActivityView: View {
+    @Environment(PhysioStore.self) private var physio
     @State private var store = AgentActivityStore()
     @State private var composeText = ""
     @State private var composeKind = "completed"
@@ -96,7 +97,7 @@ struct AgentActivityView: View {
                 let text = composeText.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { return }
                 composeText = ""
-                Task { _ = await store.post(kind: composeKind, content: text) }
+                Task { _ = await store.post(kind: composeKind, content: text, physio: physio) }
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 28))

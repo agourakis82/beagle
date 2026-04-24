@@ -23,29 +23,27 @@ struct HPCDashboardView: View {
     ]
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
-                    if hpc.jobQueue.mode == .stale, let error = hpc.jobQueue.error {
-                        hpcErrorBanner(error)
-                    }
-                    gpuOverview
-                    gpuHeatmap
-                    jobLauncher
-                    jobQueueGantt
-                    runningJobs
-                    if hpc.runningJobs.isEmpty && hpc.jobs.isEmpty {
-                        emptyJobsState
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
+                if hpc.jobQueue.mode == .stale, let error = hpc.jobQueue.error {
+                    hpcErrorBanner(error)
                 }
-                .padding(.horizontal, BeagleSpacing.lg)
-                .padding(.top, BeagleSpacing.md)
+                gpuOverview
+                gpuHeatmap
+                jobLauncher
+                jobQueueGantt
+                runningJobs
+                if hpc.runningJobs.isEmpty && hpc.jobs.isEmpty {
+                    emptyJobsState
+                }
             }
-            .background { HealthPulseGradient(truth: hpc.jobQueue.mode) }
-            .navigationTitle("Cluster")
-            .task { await hpc.refresh() }
-            .refreshable { await hpc.refresh() }
+            .padding(.horizontal, BeagleSpacing.lg)
+            .padding(.top, BeagleSpacing.md)
         }
+        .background { HealthPulseGradient(truth: hpc.jobQueue.mode) }
+        .navigationTitle("Cluster")
+        .task { await hpc.refresh() }
+        .refreshable { await hpc.refresh() }
     }
 
     // MARK: - GPU Overview bar

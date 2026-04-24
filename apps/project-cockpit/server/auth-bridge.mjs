@@ -28,6 +28,20 @@ const BEAGLE_PUBLIC_URL =
 const BEAGLE_INTERNAL_URL =
   process.env.PROJECT_COCKPIT_BEAGLE_INTERNAL_URL ||
   "http://beagle-core.beagle.svc.cluster.local:8080";
+const OPENROUTER_BASE_URL =
+  process.env.PROJECT_COCKPIT_OPENROUTER_BASE_URL ||
+  "https://openrouter.ai/api/v1";
+const SUBSCRIPTION_BRIDGE_URL = cleanValue(
+  process.env.PROJECT_COCKPIT_SUBSCRIPTION_BRIDGE_URL ||
+  process.env.BEAGLE_SUBSCRIPTION_BRIDGE_URL
+);
+const SUBSCRIPTION_BRIDGE_TOKEN = cleanValue(
+  process.env.PROJECT_COCKPIT_SUBSCRIPTION_BRIDGE_TOKEN ||
+  process.env.BEAGLE_SUBSCRIPTION_BRIDGE_TOKEN
+);
+const DEFAULT_WORKSPACE_SUBSCRIPTION_HOME =
+  process.env.PROJECT_COCKPIT_WORKSPACE_SUBSCRIPTION_HOME ||
+  "/workspace/.home/openvscode-server";
 const DYNAMO_INTERNAL_URL =
   process.env.PROJECT_COCKPIT_DYNAMO_INTERNAL_URL ||
   process.env.PROJECT_COCKPIT_DYNAMO_ENDPOINT ||
@@ -36,6 +50,22 @@ const DYNAMO_MODEL =
   process.env.PROJECT_COCKPIT_DYNAMO_MODEL ||
   process.env.BEAGLE_DYNAMO_MODEL ||
   "qwen2.5-0.5B-Instruct";
+const DISCUSSION_LAB_INTERNAL_URL =
+  process.env.PROJECT_COCKPIT_DISCUSSION_LAB_INTERNAL_URL ||
+  process.env.PROJECT_COCKPIT_DISCUSSION_LAB_ENDPOINT ||
+  "http://discussion-lab-serving.beagle.svc.cluster.local:8000";
+const DISCUSSION_LAB_MODEL =
+  process.env.PROJECT_COCKPIT_DISCUSSION_LAB_MODEL ||
+  process.env.BEAGLE_DISCUSSION_LAB_MODEL ||
+  "qwen2.5-3b-instruct";
+const SGLANG_INTERNAL_URL =
+  process.env.PROJECT_COCKPIT_SGLANG_INTERNAL_URL ||
+  process.env.PROJECT_COCKPIT_SGLANG_ENDPOINT ||
+  "http://sglang-serving.beagle.svc.cluster.local:30000";
+const SGLANG_MODEL =
+  process.env.PROJECT_COCKPIT_SGLANG_MODEL ||
+  process.env.BEAGLE_SGLANG_MODEL ||
+  DYNAMO_MODEL;
 const BEAGLE_ALLOWED_PROXY_PREFIXES = [
   "/api/v1/cognitive/",
   "/api/exocortex/process",
@@ -45,6 +75,9 @@ const BEAGLE_ALLOWED_PROXY_PREFIXES = [
 
 let tokenCache = null;
 let tokenCachedAt = 0;
+let tokenFetchInFlight = null;
+let secretCache = null;
+let secretCachedAt = 0;
 let adapterTokenCache = null;
 let adapterTokenCachedAt = 0;
 
@@ -70,33 +103,86 @@ export async function fetchOperatorToken() {
     return { token: tokenCache, source: "cache", age_ms: now - tokenCachedAt };
   }
 
-  // Try a known set of token keys in the secret
-  const candidateKeys = ["BEAGLE_OPERATOR_API_TOKEN", "BEAGLE_API_TOKEN", "operator-token"];
-  let raw, secret;
-  try {
-    raw = await runKubectl(["-n", NAMESPACE, "get", "secret", SECRET_NAME, "-o", "json"]);
-    secret = JSON.parse(raw);
-  } catch (e) {
-    return { error: `cannot read secret ${SECRET_NAME}: ${e.message}` };
+  // Promise coalescing: avoid cache stampede from concurrent requests
+  if (tokenFetchInFlight) return tokenFetchInFlight;
+  tokenFetchInFlight = _fetchOperatorTokenImpl().finally(() => { tokenFetchInFlight = null; });
+  return tokenFetchInFlight;
+}
+
+async function _fetchOperatorTokenImpl() {
+  const secretResult = await fetchSecretValue([
+    "BEAGLE_OPERATOR_API_TOKEN",
+    "BEAGLE_API_TOKEN",
+    "operator-token"
+  ]);
+  if (secretResult.error) {
+    return { error: secretResult.error };
   }
 
-  const data = secret.data || {};
-  let foundKey, foundToken;
-  for (const k of candidateKeys) {
-    if (data[k]) {
-      foundKey = k;
-      foundToken = Buffer.from(data[k], "base64").toString("utf8");
-      break;
+  const foundToken = secretResult.value;
+  const foundKey = secretResult.key;
+
+  tokenCache = foundToken;
+  tokenCachedAt = Date.now();
+  return { token: foundToken, source: "fresh", key: foundKey };
+}
+
+async function fetchSecretData({
+  namespace = NAMESPACE,
+  secretName = SECRET_NAME,
+  useCache = true
+} = {}) {
+  const now = Date.now();
+  const canUseSharedCache = namespace === NAMESPACE && secretName === SECRET_NAME;
+  if (useCache && canUseSharedCache && secretCache && (now - secretCachedAt) < TTL_MS) {
+    return { secret: secretCache, source: "cache", age_ms: now - secretCachedAt };
+  }
+
+  try {
+    const raw = await runKubectl(["-n", namespace, "get", "secret", secretName, "-o", "json"]);
+    const secret = JSON.parse(raw);
+    if (canUseSharedCache) {
+      secretCache = secret;
+      secretCachedAt = now;
+    }
+    return { secret, source: "fresh" };
+  } catch (e) {
+    return { error: `cannot read secret ${secretName}: ${e.message}` };
+  }
+}
+
+async function fetchSecretValue(candidateKeys = [], { namespace = NAMESPACE, secretName = SECRET_NAME } = {}) {
+  const secretResult = await fetchSecretData({ namespace, secretName, useCache: true });
+  if (secretResult.error) {
+    return { error: secretResult.error };
+  }
+
+  const data = secretResult.secret?.data || {};
+  for (const key of candidateKeys) {
+    if (data[key]) {
+      return {
+        key,
+        value: Buffer.from(data[key], "base64").toString("utf8"),
+        source: secretResult.source
+      };
     }
   }
 
-  if (!foundToken) {
-    return { error: `no token found in secret ${SECRET_NAME} (tried: ${candidateKeys.join(", ")})` };
-  }
+  return {
+    error: `no key found in secret ${secretName} (tried: ${candidateKeys.join(", ")})`
+  };
+}
 
-  tokenCache = foundToken;
-  tokenCachedAt = now;
-  return { token: foundToken, source: "fresh", key: foundKey };
+export async function fetchOpenRouterApiKey() {
+  const result = await fetchSecretValue(["OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY"]);
+  if (result.error) {
+    return { error: result.error };
+  }
+  return {
+    apiKey: result.value,
+    key: result.key,
+    source: result.source
+  };
 }
 
 export async function fetchDarwinHpcAdapterConfig() {
@@ -182,6 +268,17 @@ function parseJsonResponse(raw) {
   }
 }
 
+function cleanValue(value) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || "";
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value).trim();
+  }
+  return "";
+}
+
 function cleanString(value) {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -212,6 +309,244 @@ function cleanObjectString(value, fallback = "") {
   return cleaned || fallback;
 }
 
+function shellSingleQuote(value) {
+  return `'${String(value ?? "").replace(/'/g, `'\"'\"'`)}'`;
+}
+
+function encodeBase64Utf8(value) {
+  return Buffer.from(cleanString(value), "utf8").toString("base64");
+}
+
+function buildWorkspaceSubscriptionPrompt(system, prompt) {
+  const promptText = cleanString(prompt);
+  const systemText = cleanString(system);
+  if (!systemText) {
+    return promptText;
+  }
+  return [
+    "System guidance:",
+    systemText,
+    "",
+    "User message:",
+    promptText
+  ].join("\n");
+}
+
+function resolveWorkspaceSubscriptionTarget(catalog = {}, requestedSlug = "") {
+  const projects = Array.isArray(catalog?.projects) ? catalog.projects : [];
+  const normalizedRequested = cleanString(requestedSlug).toLowerCase();
+  const candidates = normalizedRequested
+    ? projects.filter(
+        (project) =>
+          cleanString(project?.projectSlug).toLowerCase() === normalizedRequested
+      )
+    : projects;
+
+  const withWorkspace = candidates.find(
+    (project) =>
+      cleanString(project?.workspacePod) &&
+      cleanString(project?.workspaceContainer) &&
+      cleanString(project?.workspaceRoot)
+  );
+  if (withWorkspace) {
+    return {
+      slug: cleanString(withWorkspace?.projectSlug),
+      namespace: cleanString(withWorkspace?.namespace) || NAMESPACE,
+      pod: cleanString(withWorkspace?.workspacePod),
+      container: cleanString(withWorkspace?.workspaceContainer),
+      workspaceRoot: cleanString(withWorkspace?.workspaceRoot),
+      workspaceHome:
+        cleanString(withWorkspace?.workspaceHome) || DEFAULT_WORKSPACE_SUBSCRIPTION_HOME
+    };
+  }
+
+  if (!normalizedRequested) {
+    return null;
+  }
+  return {
+    error: `project ${requestedSlug} does not expose a workspace subscription target`
+  };
+}
+
+function buildWorkspaceSubscriptionScript({ providerId, system, prompt, workspaceRoot, workspaceHome }) {
+  const requestB64 = encodeBase64Utf8(buildWorkspaceSubscriptionPrompt(system, prompt));
+  const rootQuoted = shellSingleQuote(workspaceRoot || "/workspace");
+  const homeQuoted = shellSingleQuote(workspaceHome || DEFAULT_WORKSPACE_SUBSCRIPTION_HOME);
+  const requestQuoted = shellSingleQuote(requestB64);
+  const promptBuild = [
+    `REQUEST_B64=${requestQuoted}`,
+    "REQUEST_TEXT=\"$(printf '%s' \"$REQUEST_B64\" | base64 -d)\""
+  ].join("\n");
+
+  if (providerId === "claude-code") {
+    return [
+      "set -eu",
+      `cd ${rootQuoted}`,
+      `export HOME=${homeQuoted}`,
+      "if [ -d /workspace/.home/openvscode-server ]; then export HOME=/workspace/.home/openvscode-server; fi",
+      promptBuild,
+      "unset ANTHROPIC_API_KEY",
+      "claude -p --output-format text \"$REQUEST_TEXT\""
+    ].join("\n");
+  }
+
+  if (providerId === "codex") {
+    return [
+      "set -eu",
+      `cd ${rootQuoted}`,
+      `export HOME=${homeQuoted}`,
+      "if [ -d /workspace/.home/openvscode-server ]; then export HOME=/workspace/.home/openvscode-server; fi",
+      promptBuild,
+      "unset OPENAI_API_KEY",
+      "TMP_LAST=\"$(mktemp)\"",
+      "trap 'rm -f \"$TMP_LAST\"' EXIT",
+      "codex exec --skip-git-repo-check --output-last-message \"$TMP_LAST\" \"$REQUEST_TEXT\" >/dev/null",
+      "cat \"$TMP_LAST\""
+    ].join("\n");
+  }
+
+  return "";
+}
+
+async function proxyWorkspaceSubscriptionCompletion({
+  prompt,
+  system = "",
+  provider = "",
+  projectSlug = "",
+  readCatalog = null
+}) {
+  const providerId = normalizeSubscriptionBridgeProvider(provider);
+  if (!providerId) {
+    return {
+      status: 400,
+      payload: {
+        error: `unknown workspace subscription provider: ${provider}`,
+        truthMode: "declared",
+        source: "workspace-subscription"
+      }
+    };
+  }
+
+  if (typeof readCatalog !== "function") {
+    return null;
+  }
+
+  let catalog = null;
+  try {
+    catalog = await readCatalog();
+  } catch (err) {
+    return {
+      status: 503,
+      payload: {
+        error: `cannot read project catalog: ${err.message}`,
+        truthMode: "stale",
+        source: "workspace-subscription"
+      }
+    };
+  }
+
+  const target =
+    resolveWorkspaceSubscriptionTarget(catalog, projectSlug) ||
+    resolveWorkspaceSubscriptionTarget(catalog, "sounio");
+  if (!target) {
+    return {
+      status: 503,
+      payload: {
+        error: "workspace subscription target unavailable",
+        truthMode: "stale",
+        source: "workspace-subscription"
+      }
+    };
+  }
+  if (target.error) {
+    return {
+      status: 409,
+      payload: {
+        error: target.error,
+        truthMode: "declared",
+        source: "workspace-subscription"
+      }
+    };
+  }
+
+  const promptText = cleanString(prompt);
+  if (!promptText) {
+    return {
+      status: 400,
+      payload: {
+        error: "prompt is required",
+        truthMode: "declared",
+        source: "workspace-subscription"
+      }
+    };
+  }
+
+  const script = buildWorkspaceSubscriptionScript({
+    providerId,
+    system,
+    prompt: promptText,
+    workspaceRoot: target.workspaceRoot,
+    workspaceHome: target.workspaceHome
+  });
+  if (!script) {
+    return {
+      status: 400,
+      payload: {
+        error: `workspace subscription provider not implemented: ${providerId}`,
+        truthMode: "declared",
+        source: "workspace-subscription"
+      }
+    };
+  }
+
+  try {
+    const stdout = await runKubectl(
+      [
+        "-n",
+        target.namespace,
+        "exec",
+        target.pod,
+        "-c",
+        target.container,
+        "--",
+        "sh",
+        "-lc",
+        script
+      ],
+      { timeoutMs: 240000 }
+    );
+    const responseText = cleanString(stdout);
+    return {
+      status: responseText ? 200 : 503,
+      payload: {
+        text: responseText,
+        response: responseText,
+        provider: providerId,
+        tier: providerId,
+        source: "workspace-subscription",
+        truthMode: responseText ? "observed" : "stale",
+        applied_discussion_profile: providerId,
+        agentKind: providerId,
+        podName: target.pod,
+        sessionId: `${target.slug || "workspace"}:${providerId}`,
+        workspaceRoot: target.workspaceRoot
+      }
+    };
+  } catch (err) {
+    return {
+      status: 503,
+      payload: {
+        error: err.message,
+        truthMode: "stale",
+        source: "workspace-subscription",
+        applied_discussion_profile: providerId,
+        podName: target.pod,
+        sessionId: `${target.slug || "workspace"}:${providerId}`
+      }
+    };
+  }
+}
+
 function extractDiscussionLabText(payload = {}) {
   const direct =
     cleanString(payload?.text) ||
@@ -224,6 +559,24 @@ function extractDiscussionLabText(payload = {}) {
   const firstChoice = choices[0] || {};
   return (
     cleanString(firstChoice?.message?.content) ||
+    cleanString(firstChoice?.delta?.content) ||
+    cleanString(firstChoice?.text)
+  );
+}
+
+function extractOpenRouterText(payload = {}) {
+  const direct =
+    cleanString(payload?.text) ||
+    cleanString(payload?.response) ||
+    cleanString(payload?.answer);
+  if (direct) {
+    return direct;
+  }
+  const choices = Array.isArray(payload?.choices) ? payload.choices : [];
+  const firstChoice = choices[0] || {};
+  return (
+    cleanString(firstChoice?.message?.content) ||
+    cleanString(firstChoice?.message?.reasoning) ||
     cleanString(firstChoice?.delta?.content) ||
     cleanString(firstChoice?.text)
   );
@@ -360,48 +713,207 @@ export async function proxyBeagleCompletion({
   }
   messages.push({ role: "user", content: promptText });
 
+  const candidates = [
+    { label: "dynamo", endpoint: DYNAMO_INTERNAL_URL, model: DYNAMO_MODEL },
+    {
+      label: "discussion-lab",
+      endpoint: DISCUSSION_LAB_INTERNAL_URL,
+      model: DISCUSSION_LAB_MODEL
+    },
+    { label: "sglang", endpoint: SGLANG_INTERNAL_URL, model: SGLANG_MODEL }
+  ];
+  let lastFailure = null;
+
+  for (const candidate of candidates) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 120000);
+    try {
+      const res = await fetch(`${candidate.endpoint}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          model: candidate.model,
+          messages,
+          temperature: 0.2
+        }),
+        signal: ctrl.signal
+      });
+
+      const payload = parseJsonResponse(await res.text());
+      const responseText = cleanString(
+        payload?.choices?.[0]?.message?.content ||
+          payload?.choices?.[0]?.text ||
+          payload?.output_text ||
+          payload?.text ||
+          payload?.response
+      );
+      const completionResult = {
+        status: res.status,
+        payload: {
+          text: responseText,
+          response: responseText,
+          provider: cleanString(payload?.model || candidate.model || candidate.label),
+          tier: cleanString(payload?.model || candidate.model || candidate.label),
+          source: inferCompletionSource(payload),
+          agentKind: cleanString(payload?.agentKind || payload?.agent_kind),
+          sessionId: cleanString(payload?.sessionId || payload?.session_id),
+          podName: cleanString(payload?.podName || payload?.pod_name),
+          usage: payload?.usage || {},
+          truthMode: res.ok && responseText ? "observed" : "stale",
+          raw: payload
+        },
+        completionPrompt,
+        beagleUrl: candidate.endpoint
+      };
+
+      if (res.ok && responseText) {
+        return completionResult;
+      }
+      lastFailure = {
+        ...completionResult,
+        payload: {
+          ...completionResult.payload,
+          error:
+            cleanString(payload?.error || payload?.message) ||
+            `completion backend ${candidate.label} returned HTTP ${res.status}`,
+          via: `cockpit-beagle-completion:${candidate.label}`
+        }
+      };
+    } catch (err) {
+      lastFailure = {
+        status: 503,
+        payload: {
+          error: err.message,
+          truthMode: "stale",
+          via: `cockpit-beagle-completion:${candidate.label}`,
+          beagle_url: candidate.endpoint
+        },
+        completionPrompt,
+        beagleUrl: candidate.endpoint
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return lastFailure || {
+    status: 503,
+    payload: {
+      error: "no completion backend available",
+      truthMode: "stale",
+      via: "cockpit-beagle-completion"
+    },
+    completionPrompt,
+    beagleUrl: DYNAMO_INTERNAL_URL
+  };
+}
+
+function normalizeCheapBridgeProvider(provider) {
+  const normalized = cleanString(provider).toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  if (["grok", "grok_fast", "grok-fast"].includes(normalized)) {
+    return "grok_fast";
+  }
+  if (["kimi", "kimi_k2", "kimi-k2", "moonshot"].includes(normalized)) {
+    return "kimi";
+  }
+  return "";
+}
+
+export async function proxyCheapProviderCompletion({
+  prompt,
+  system = "",
+  provider = "",
+  taskType = "chat_completion"
+}) {
+  const providerId = normalizeCheapBridgeProvider(provider);
+  if (!providerId) {
+    return {
+      status: 400,
+      payload: {
+        error: `unknown cheap provider: ${provider}`,
+        truthMode: "declared",
+        source: "cluster"
+      }
+    };
+  }
+
+  if (providerId === "kimi") {
+    return proxyOpenRouterCompletion({
+      prompt,
+      system,
+      model: "moonshotai/kimi-k2.6",
+      appliedDiscussionProfile: "kimi"
+    });
+  }
+
+  const tokenResult = await fetchOperatorToken();
+  if (tokenResult.error || !tokenResult.token) {
+    return {
+      status: 503,
+      payload: {
+        error: tokenResult.error || "beagle token unavailable",
+        truthMode: "stale",
+        source: "cluster"
+      }
+    };
+  }
+
+  const promptText = cleanString(prompt);
+  const systemText = cleanString(system);
+  const input = systemText ? `${systemText}\n\n${promptText}` : promptText;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 120000);
   try {
-    const res = await fetch(`${DYNAMO_INTERNAL_URL}/v1/chat/completions`, {
+    const requestId = `mobile-${providerId}-${Date.now()}`;
+    const res = await fetch(`${BEAGLE_INTERNAL_URL}/api/darwin/bridge/execute`, {
       method: "POST",
       headers: {
         Accept: "application/json",
-        "content-type": "application/json"
+        "content-type": "application/json",
+        "X-Beagle-Consumer": "beagle-operator",
+        Authorization: `Bearer ${tokenResult.token}`
       },
       body: JSON.stringify({
-        model: DYNAMO_MODEL,
-        messages,
-        temperature: 0.2
+        request_id: requestId,
+        bridge_kind: "cheap_api",
+        bridge_mode: "api_optional",
+        provider: providerId,
+        task_type: taskType,
+        payload: {
+          input
+        },
+        metadata: {
+          source: "project-cockpit-mobile-chat"
+        }
       }),
       signal: ctrl.signal
     });
-
     const payload = parseJsonResponse(await res.text());
-    const responseText = cleanString(
-      payload?.choices?.[0]?.message?.content ||
-        payload?.choices?.[0]?.text ||
-        payload?.output_text ||
-        payload?.text ||
-        payload?.response
-    );
+    const responseText = cleanString(payload?.output?.text || payload?.text || payload?.response);
+    const errorText = cleanString(payload?.error || payload?.message);
+    const statusText = cleanString(payload?.status).toLowerCase();
+    const ok = res.ok && statusText === "success" && responseText;
     return {
-      status: res.status,
+      status: ok ? 200 : res.ok ? 503 : res.status,
       payload: {
         text: responseText,
         response: responseText,
-        provider: cleanString(payload?.model || DYNAMO_MODEL || "dynamo"),
-        tier: cleanString(payload?.model || DYNAMO_MODEL || "dynamo"),
-        source: inferCompletionSource(payload),
-        agentKind: cleanString(payload?.agentKind || payload?.agent_kind),
-        sessionId: cleanString(payload?.sessionId || payload?.session_id),
-        podName: cleanString(payload?.podName || payload?.pod_name),
-        usage: payload?.usage || {},
-        truthMode: "observed",
-        raw: payload
-      },
-      completionPrompt,
-      beagleUrl: DYNAMO_INTERNAL_URL
+        provider: cleanObjectString(payload?.model, providerId),
+        tier: providerId,
+        source: "cluster",
+        usage: payload?.token_usage || null,
+        truthMode: ok ? "observed" : "stale",
+        beagle_url: `${BEAGLE_INTERNAL_URL}/api/darwin/bridge/execute`,
+        error:
+          errorText ||
+          (statusText && statusText !== "success" ? `bridge returned ${statusText}` : ""),
+        applied_discussion_profile: providerId === "grok_fast" ? "grok" : "kimi"
+      }
     };
   } catch (err) {
     return {
@@ -409,11 +921,277 @@ export async function proxyBeagleCompletion({
       payload: {
         error: err.message,
         truthMode: "stale",
-        via: "cockpit-beagle-completion",
-        beagle_url: DYNAMO_INTERNAL_URL
-      },
-      completionPrompt,
-      beagleUrl: DYNAMO_INTERNAL_URL
+        source: "cluster",
+        beagle_url: `${BEAGLE_INTERNAL_URL}/api/darwin/bridge/execute`
+      }
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function normalizeSubscriptionBridgeProvider(provider) {
+  const normalized = cleanString(provider).toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  if (["claude", "claude-code", "claudecode", "claude_max", "claude-max"].includes(normalized)) {
+    return "claude-code";
+  }
+  if (["codex", "codex-chat", "codex-pro", "chatgpt-pro"].includes(normalized)) {
+    return "codex";
+  }
+  return "";
+}
+
+export async function proxySubscriptionBridgeCompletion({
+  prompt,
+  system = "",
+  provider = "",
+  projectSlug = "",
+  projectFamily = "",
+  publicationScope = "",
+  readCatalog = null
+}) {
+  const providerId = normalizeSubscriptionBridgeProvider(provider);
+  if (!providerId) {
+    return {
+      status: 400,
+      payload: {
+        error: `unknown subscription bridge provider: ${provider}`,
+        truthMode: "declared",
+        source: "subscription-bridge"
+      }
+    };
+  }
+
+  const workspaceResult = await proxyWorkspaceSubscriptionCompletion({
+    prompt,
+    system,
+    provider: providerId,
+    projectSlug,
+    readCatalog
+  });
+  if (workspaceResult) {
+    return workspaceResult;
+  }
+
+  if (!SUBSCRIPTION_BRIDGE_URL) {
+    return {
+      status: 503,
+      payload: {
+        error: "subscription bridge not configured",
+        truthMode: "stale",
+        source: "subscription-bridge"
+      }
+    };
+  }
+
+  const promptText = cleanString(prompt);
+  const systemText = cleanString(system);
+  if (!promptText) {
+    return {
+      status: 400,
+      payload: {
+        error: "prompt is required",
+        truthMode: "declared",
+        source: "subscription-bridge"
+      }
+    };
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 180000);
+  try {
+    const headers = {
+      Accept: "application/json",
+      "content-type": "application/json"
+    };
+    if (SUBSCRIPTION_BRIDGE_TOKEN) {
+      headers.Authorization = `Bearer ${SUBSCRIPTION_BRIDGE_TOKEN}`;
+    }
+    const res = await fetch(`${SUBSCRIPTION_BRIDGE_URL.replace(/\/$/, "")}/v1/chat`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        provider: providerId,
+        prompt: promptText,
+        system: systemText,
+        project_slug: cleanString(projectSlug),
+        project_family: cleanString(projectFamily),
+        publication_scope: cleanString(publicationScope)
+      }),
+      signal: ctrl.signal
+    });
+    const payload = parseJsonResponse(await res.text());
+    const responseText = cleanString(payload?.response || payload?.text || payload?.answer);
+    const errorText =
+      cleanString(payload?.error?.message) ||
+      cleanString(payload?.error) ||
+      cleanString(payload?.message);
+    const ok = res.ok && responseText;
+    return {
+      status: ok ? 200 : res.status || 503,
+      payload: {
+        text: responseText,
+        response: responseText,
+        provider: cleanObjectString(payload?.model || payload?.provider, providerId),
+        tier: providerId,
+        source: "subscription-bridge",
+        usage: payload?.usage || null,
+        truthMode: ok ? "observed" : "stale",
+        bridge_url: SUBSCRIPTION_BRIDGE_URL,
+        error: errorText,
+        applied_discussion_profile: providerId,
+        agentKind: cleanString(payload?.agentKind || payload?.agent_kind || providerId),
+        sessionId: cleanString(payload?.sessionId || payload?.session_id),
+        podName: cleanString(payload?.podName || payload?.pod_name)
+      }
+    };
+  } catch (err) {
+    return {
+      status: 503,
+      payload: {
+        error: err.message,
+        truthMode: "stale",
+        source: "subscription-bridge",
+        bridge_url: SUBSCRIPTION_BRIDGE_URL
+      }
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function proxyOpenRouterCompletion({
+  prompt,
+  system = "",
+  model = "moonshotai/kimi-k2.6",
+  appliedDiscussionProfile = "kimi"
+}) {
+  const keyResult = await fetchOpenRouterApiKey();
+  if (keyResult.error || !keyResult.apiKey) {
+    return {
+      status: 503,
+      payload: {
+        error: keyResult.error || "openrouter api key unavailable",
+        truthMode: "stale",
+        source: "cluster"
+      }
+    };
+  }
+
+  const promptText = cleanString(prompt);
+  const systemText = cleanString(system);
+  if (!promptText) {
+    return {
+      status: 400,
+      payload: {
+        error: "prompt is required",
+        truthMode: "declared",
+        source: "cluster"
+      }
+    };
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120000);
+  try {
+    const modelCandidates = Array.from(new Set([
+      model,
+      "moonshotai/kimi-k2.5",
+      "moonshotai/kimi-k2",
+      "moonshotai/kimi-k2-0905"
+    ]));
+    let lastFailure = null;
+
+    for (const candidateModel of modelCandidates) {
+      const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "content-type": "application/json",
+          Authorization: `Bearer ${keyResult.apiKey}`
+        },
+        body: JSON.stringify({
+          model: candidateModel,
+          temperature: 0.2,
+          max_tokens: 512,
+          provider: {
+            allow_fallbacks: false
+          },
+          messages: [
+            ...(systemText ? [{ role: "system", content: systemText }] : []),
+            { role: "user", content: promptText }
+          ]
+        }),
+        signal: ctrl.signal
+      });
+      const payload = parseJsonResponse(await res.text());
+      const responseText = extractOpenRouterText(payload);
+      const errorText =
+        cleanString(payload?.error?.message) ||
+        cleanString(payload?.error) ||
+        cleanString(payload?.message);
+      const usage = payload?.usage
+        ? {
+            input_tokens: Number(payload.usage.prompt_tokens) || 0,
+            output_tokens: Number(payload.usage.completion_tokens) || 0,
+            total_tokens: Number(payload.usage.total_tokens) || 0
+          }
+        : null;
+      if (res.ok && responseText) {
+        return {
+          status: 200,
+          payload: {
+            text: responseText,
+            response: responseText,
+            provider: cleanObjectString(payload?.model, candidateModel),
+            tier: "kimi",
+            source: "cluster",
+            usage,
+            truthMode: "observed",
+            beagle_url: `${OPENROUTER_BASE_URL}/chat/completions`,
+            error: "",
+            applied_discussion_profile: appliedDiscussionProfile
+          }
+        };
+      }
+      lastFailure = {
+        status: res.status,
+        error: errorText || `openrouter returned ${res.status}`,
+        provider: cleanObjectString(payload?.model, candidateModel),
+        usage
+      };
+      if (![402, 429, 503].includes(res.status)) {
+        break;
+      }
+    }
+
+    return {
+      status: lastFailure?.status || 503,
+      payload: {
+        text: "",
+        response: "",
+        provider: cleanObjectString(lastFailure?.provider, model),
+        tier: "kimi",
+        source: "cluster",
+        usage: lastFailure?.usage || null,
+        truthMode: "stale",
+        beagle_url: `${OPENROUTER_BASE_URL}/chat/completions`,
+        error: lastFailure?.error || "openrouter completion failed",
+        applied_discussion_profile: appliedDiscussionProfile
+      }
+    };
+  } catch (err) {
+    return {
+      status: 503,
+      payload: {
+        error: err.message,
+        truthMode: "stale",
+        source: "cluster",
+        beagle_url: `${OPENROUTER_BASE_URL}/chat/completions`
+      }
     };
   } finally {
     clearTimeout(timer);
@@ -561,7 +1339,6 @@ export function registerAuthBridgeRoutes(app) {
       consumer_header_name: "X-Beagle-Consumer",
       consumer_header_value: "beagle-operator",
       beagle_url: BEAGLE_PUBLIC_URL,
-      cluster_internal_url: BEAGLE_INTERNAL_URL,
       cached: result.source === "cache",
       cache_ttl_ms: TTL_MS,
       caller,
@@ -574,7 +1351,6 @@ export function registerAuthBridgeRoutes(app) {
   app.get("/api/auth/beagle-discover", async (_req, res) => {
     res.json({
       beagle_url: BEAGLE_PUBLIC_URL,
-      cluster_internal_url: BEAGLE_INTERNAL_URL,
       auth: {
         consumer_header: "X-Beagle-Consumer",
         consumer_values: ["beagle-operator", "darwin-research"],

@@ -21,10 +21,14 @@ struct MetalClusterView: View {
 
     var body: some View {
         VStack(spacing: BeagleSpacing.md) {
-            nodeGrid
-            if let node = selectedNode {
-                nodeDetail(node)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            if nodes.isEmpty {
+                emptyClusterState
+            } else {
+                nodeGrid
+                if let node = selectedNode {
+                    nodeDetail(node)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
     }
@@ -156,11 +160,21 @@ struct MetalClusterView: View {
         }
     }
 
-    private var defaultNodes: [ClusterNode] {
-        [
-            ClusterNode(name: "r770", hostname: "r770", role: nil, healthy: true),
-            ClusterNode(name: "r740", hostname: "r740", role: nil, healthy: true),
-            ClusterNode(name: "t560", hostname: "t560", role: "ctrl", healthy: true)
-        ]
+    private var defaultNodes: [ClusterNode] { [] }
+
+    private var emptyClusterState: some View {
+        VStack(spacing: BeagleSpacing.md) {
+            Image(systemName: "server.rack")
+                .font(.system(size: 28))
+                .foregroundStyle(BeagleTheme.textTertiary)
+            Text("No cluster data available")
+                .font(BeagleFont.footnote.font)
+                .foregroundStyle(BeagleTheme.textSecondary)
+            Text("Waiting for node health reports")
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, BeagleSpacing.xl)
     }
 }

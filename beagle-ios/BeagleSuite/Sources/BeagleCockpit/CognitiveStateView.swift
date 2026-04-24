@@ -15,26 +15,24 @@ struct CognitiveStateView: View {
     @Environment(CatalogStore.self) private var catalog
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
-                    if cognitive.state.mode == .stale, let error = cognitive.state.error {
-                        errorBanner(error)
-                    }
-                    hrvSection
-                    triadSection
-                    jobsSection
-                    clusterGlance
+        ScrollView {
+            VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
+                if cognitive.state.mode == .stale, let error = cognitive.state.error {
+                    errorBanner(error)
                 }
-                .padding(.horizontal, BeagleSpacing.lg)
-                .padding(.top, BeagleSpacing.md)
+                hrvSection
+                triadSection
+                jobsSection
+                clusterGlance
             }
-            .background { HealthPulseGradient(truth: cognitive.state.mode) }
-            .navigationTitle("Home")
-            .sensoryFeedback(.success, trigger: cognitive.state.mode == .observed)
-            .task { await cognitive.refresh() }
-            .refreshable { await cognitive.refresh() }
+            .padding(.horizontal, BeagleSpacing.lg)
+            .padding(.top, BeagleSpacing.md)
         }
+        .background { HealthPulseGradient(truth: cognitive.state.mode) }
+        .navigationTitle("Cognitive State")
+        .sensoryFeedback(.success, trigger: cognitive.state.mode == .observed)
+        .task { await cognitive.refresh() }
+        .refreshable { await cognitive.refresh() }
     }
 
     private func errorBanner(_ error: String) -> some View {

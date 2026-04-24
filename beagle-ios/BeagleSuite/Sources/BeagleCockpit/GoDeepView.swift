@@ -28,6 +28,7 @@ struct GoDeepView: View {
     @State private var quickTake: String?
     @State private var savedToExocortex = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(CognitiveStore.self) private var cognitive
 
     var body: some View {
         NavigationStack {
@@ -52,7 +53,7 @@ struct GoDeepView: View {
             }
             .background { depthGradient }
             .navigationTitle("Go Deeper")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayModeIfAvailable(.inline)
             .toolbar { toolbarContent }
             .task {
                 guard !hasLaunched else { return }
@@ -89,13 +90,13 @@ struct GoDeepView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
+        ToolbarItem(placement: leadingToolbarPlacement) {
             Button { store.cancel(); dismiss() } label: {
                 Text(store.isRunning ? "Cancel" : "Close")
                     .foregroundStyle(BeagleTheme.textSecondary)
             }
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: trailingToolbarPlacement) {
             if !store.isRunning && store.hasAnyResult {
                 ShareLink(
                     item: store.exportText,
@@ -108,6 +109,22 @@ struct GoDeepView: View {
                 }
             }
         }
+    }
+
+    private var leadingToolbarPlacement: ToolbarItemPlacement {
+        #if os(macOS)
+        return .automatic
+        #else
+        return .topBarLeading
+        #endif
+    }
+
+    private var trailingToolbarPlacement: ToolbarItemPlacement {
+        #if os(macOS)
+        return .automatic
+        #else
+        return .topBarTrailing
+        #endif
     }
 
     // MARK: - Prompt Header
@@ -232,7 +249,7 @@ struct GoDeepView: View {
                         Button {
                             Task {
                                 savedToExocortex = true
-                                _ = await CognitiveStore().captureThought(
+                                _ = await cognitive.captureThought(
                                     text: synthesis,
                                     source: "go-deeper"
                                 )

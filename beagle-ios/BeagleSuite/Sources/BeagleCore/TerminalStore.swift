@@ -63,28 +63,29 @@ public final class TerminalStore {
             await client.connectAgent(slug: slug, kind: kind)
         }
 
-        streamTask = Task {
+        streamTask = Task { [weak self] in
+            guard let self else { return }
             let messages = await stream.value
             for await message in messages {
                 let newState = await client.state
-                connectionState = newState
+                self.connectionState = newState
 
                 switch message {
                 case .data(let text):
-                    processRawOutput(text, isStderr: false)
+                    self.processRawOutput(text, isStderr: false)
                 case .stderr(let text):
-                    processRawOutput(text, isStderr: true)
+                    self.processRawOutput(text, isStderr: true)
                 case .ready(let slug):
-                    appendStatusLine("● connected to \(slug)", isStderr: false)
+                    self.appendStatusLine("● connected to \(slug)", isStderr: false)
                 case .exit(let code, let detail):
-                    recordExit(code: code, detail: detail, fallback: "■ process exited (\(code))")
-                    connectionState = .disconnected
+                    self.recordExit(code: code, detail: detail, fallback: "■ process exited (\(code))")
+                    self.connectionState = .disconnected
                 }
             }
 
             // Stream ended
-            if connectionState.isConnected {
-                connectionState = .disconnected
+            if self.connectionState.isConnected {
+                self.connectionState = .disconnected
             }
         }
     }
@@ -100,27 +101,28 @@ public final class TerminalStore {
             await client.connectTerminal(slug: slug, sessionId: sessionId)
         }
 
-        streamTask = Task {
+        streamTask = Task { [weak self] in
+            guard let self else { return }
             let messages = await stream.value
             for await message in messages {
                 let newState = await client.state
-                connectionState = newState
+                self.connectionState = newState
 
                 switch message {
                 case .data(let text):
-                    processRawOutput(text, isStderr: false)
+                    self.processRawOutput(text, isStderr: false)
                 case .stderr(let text):
-                    processRawOutput(text, isStderr: true)
+                    self.processRawOutput(text, isStderr: true)
                 case .ready(let slug):
-                    appendStatusLine("● terminal ready: \(slug)", isStderr: false)
+                    self.appendStatusLine("● terminal ready: \(slug)", isStderr: false)
                 case .exit(let code, let detail):
-                    recordExit(code: code, detail: detail, fallback: "■ terminal exited (\(code))")
-                    connectionState = .disconnected
+                    self.recordExit(code: code, detail: detail, fallback: "■ terminal exited (\(code))")
+                    self.connectionState = .disconnected
                 }
             }
 
-            if connectionState.isConnected {
-                connectionState = .disconnected
+            if self.connectionState.isConnected {
+                self.connectionState = .disconnected
             }
         }
     }

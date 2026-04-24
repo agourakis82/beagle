@@ -71,6 +71,11 @@ Thumbs.db
 xcuserdata/
 DerivedData/
 
+# Beagle iOS local packaging artifacts
+beagle-ios/exportOptions*.plist
+beagle-ios/*.mobileprovision
+beagle-ios/*.dSYM.zip
+
 # Docker
 docker-compose.override.yml
 

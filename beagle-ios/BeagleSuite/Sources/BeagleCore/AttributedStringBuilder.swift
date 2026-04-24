@@ -27,7 +27,7 @@ public struct AttributedStringBuilder: Sendable {
     private let palette: TerminalColorPalette
     private let fontSize: CGFloat
 
-    public init(palette: TerminalColorPalette = .beagleDark, fontSize: CGFloat = 13) {
+    public init(palette: TerminalColorPalette = .beagleDark, fontSize: CGFloat = 14) {
         self.palette = palette
         self.fontSize = fontSize
     }

@@ -36,6 +36,7 @@ struct BeagleWidgetsBundle: WidgetBundle {
         #if os(iOS)
         AgentSessionActivityConfiguration()
         ResearchRunActivityConfiguration()
+        CognitiveActivityConfiguration()
         #endif
     }
 }
@@ -64,7 +65,7 @@ struct ClusterHealthEntry: TimelineEntry {
     let catalogProjects: [String]?   // project slugs for deep links
 }
 
-struct ClusterHealthProvider: @preconcurrency TimelineProvider {
+struct ClusterHealthProvider: TimelineProvider {
     typealias Entry = ClusterHealthEntry
 
     func placeholder(in context: Context) -> ClusterHealthEntry {
@@ -311,7 +312,7 @@ struct FlowStateEntry: TimelineEntry {
     let flowState: String
 }
 
-struct FlowStateProvider: @preconcurrency TimelineProvider {
+struct FlowStateProvider: TimelineProvider {
     typealias Entry = FlowStateEntry
 
     func placeholder(in context: Context) -> FlowStateEntry {
@@ -419,7 +420,7 @@ struct CaptureWidgetEntry: TimelineEntry {
     let thoughtCount: Int
 }
 
-struct CaptureWidgetProvider: @preconcurrency TimelineProvider {
+struct CaptureWidgetProvider: TimelineProvider {
     typealias Entry = CaptureWidgetEntry
 
     func placeholder(in context: Context) -> CaptureWidgetEntry {
@@ -592,6 +593,201 @@ struct ResearchRunActivityConfiguration: Widget {
                 Image(systemName: "flask.fill")
             }
         }
+    }
+}
+
+// MARK: - Live Activity: Cognitive State (HRV + Agent Posture)
+
+struct CognitiveActivityConfiguration: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: CognitiveActivityAttributes.self) { context in
+            // Lock screen / notification banner
+            CognitiveLockScreenView(state: context.state)
+                .activityBackgroundTint(BeagleTheme.surface1)
+                .activitySystemActionForegroundColor(
+                    BeagleTheme.color(forIntensity: context.state.intensity)
+                )
+        } dynamicIsland: { context in
+            DynamicIsland {
+                // Expanded: full cognitive dashboard
+                DynamicIslandExpandedRegion(.leading) {
+                    CognitiveReadinessGauge(
+                        readiness: context.state.readiness,
+                        intensity: context.state.intensity,
+                        size: 44
+                    )
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    VStack(alignment: .trailing, spacing: 4) {
+                        if let hrv = context.state.hrvMs {
+                            HStack(spacing: 3) {
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(BeagleTheme.color(forIntensity: context.state.intensity))
+                                Text("\(Int(hrv)) ms")
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            }
+                        }
+                        if context.state.agentCount > 0 {
+                            HStack(spacing: 3) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 9))
+                                Text("\(context.state.agentCount)")
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            }
+                            .foregroundStyle(BeagleTheme.truthObserved)
+                        }
+                    }
+                }
+                DynamicIslandExpandedRegion(.center) {
+                    Text(context.state.intensityLabel)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(BeagleTheme.color(forIntensity: context.state.intensity))
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if context.state.activeJobCount > 0 {
+                            HStack(spacing: 4) {
+                                Image(systemName: "gearshape.2.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                Text("\(context.state.activeJobCount) active job\(context.state.activeJobCount == 1 ? "" : "s")")
+                                    .font(.system(size: 11, weight: .regular))
+                                    .foregroundStyle(BeagleTheme.textSecondary)
+                            }
+                        }
+                        if let snippet = context.state.lastThoughtSnippet, !snippet.isEmpty {
+                            Text(snippet)
+                                .font(.system(size: 11))
+                                .foregroundStyle(BeagleTheme.textSecondary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+            } compactLeading: {
+                // Readiness as a small circular gauge
+                CognitiveReadinessGauge(
+                    readiness: context.state.readiness,
+                    intensity: context.state.intensity,
+                    size: 24
+                )
+            } compactTrailing: {
+                // Agent count when agents are active
+                if context.state.agentCount > 0 {
+                    HStack(spacing: 2) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 9))
+                        Text("\(context.state.agentCount)")
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    }
+                    .foregroundStyle(BeagleTheme.truthObserved)
+                } else {
+                    Text(context.state.intensity.prefix(3).uppercased())
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(BeagleTheme.color(forIntensity: context.state.intensity))
+                }
+            } minimal: {
+                CognitiveReadinessGauge(
+                    readiness: context.state.readiness,
+                    intensity: context.state.intensity,
+                    size: 20
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Cognitive Activity: Subviews
+
+private struct CognitiveReadinessGauge: View {
+    let readiness: Double?
+    let intensity: String
+    let size: CGFloat
+
+    private var fraction: Double {
+        readiness ?? 0
+    }
+
+    private var tint: Color {
+        BeagleTheme.color(forIntensity: intensity)
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(tint.opacity(0.2), lineWidth: size > 30 ? 4 : 2.5)
+            Circle()
+                .trim(from: 0, to: fraction)
+                .stroke(tint, style: StrokeStyle(
+                    lineWidth: size > 30 ? 4 : 2.5,
+                    lineCap: .round
+                ))
+                .rotationEffect(.degrees(-90))
+
+            if size >= 40 {
+                Text("\(Int((fraction * 100).rounded()))")
+                    .font(.system(size: size * 0.3, weight: .bold, design: .rounded))
+                    .foregroundStyle(tint)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+private struct CognitiveLockScreenView: View {
+    let state: CognitiveActivityAttributes.ContentState
+
+    private var tint: Color {
+        BeagleTheme.color(forIntensity: state.intensity)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                CognitiveReadinessGauge(
+                    readiness: state.readiness,
+                    intensity: state.intensity,
+                    size: 36
+                )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(state.lockScreenLine)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(tint)
+
+                    HStack(spacing: 8) {
+                        if let hrv = state.hrvMs {
+                            HStack(spacing: 3) {
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: 9))
+                                Text("\(Int(hrv)) ms")
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            }
+                            .foregroundStyle(BeagleTheme.textData)
+                        }
+                        if state.activeJobCount > 0 {
+                            HStack(spacing: 3) {
+                                Image(systemName: "gearshape.2.fill")
+                                    .font(.system(size: 9))
+                                Text("\(state.activeJobCount) job\(state.activeJobCount == 1 ? "" : "s")")
+                                    .font(.system(size: 11, weight: .regular))
+                            }
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                        }
+                    }
+                }
+
+                Spacer()
+            }
+
+            if let snippet = state.lastThoughtSnippet, !snippet.isEmpty {
+                Text(snippet)
+                    .font(.system(size: 11))
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(12)
     }
 }
 #endif

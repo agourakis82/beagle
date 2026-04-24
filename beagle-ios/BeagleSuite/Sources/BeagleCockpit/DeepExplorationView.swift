@@ -44,13 +44,22 @@ struct DeepExplorationView: View {
         }
         .background { DeepExplorationGradient(hasHistory: !sessions.isEmpty, isRunning: store.isRunning) }
         .navigationTitle("Go Deeper")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                NavigationLink(value: "triad-review") {
+                    Label("Triad Review", systemImage: "person.3.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                }
+            }
+        }
     }
 
     // MARK: - Header
 
     private var header: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
-            Text("Explore any question through 8 reasoning modalities simultaneously.")
+            Text("Explore any question through multiple reasoning modalities simultaneously.")
                 .font(BeagleFont.footnote.font)
                 .foregroundStyle(BeagleTheme.textSecondary)
                 .lineSpacing(2)

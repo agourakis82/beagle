@@ -53,11 +53,34 @@ public final class AgentActivityStore {
     // MARK: - Post
 
     /// Post a message from this iOS agent to the shared scratchpad.
-    public func post(kind: String, content: String) async -> Bool {
+    /// When `physio` is provided, the user's physiological snapshot is attached
+    /// so downstream consumers can distinguish human-in-flow entries from agent entries.
+    public func post(kind: String, content: String, physio: PhysioStore? = nil) async -> Bool {
+        let cs: ConsciousnessState? = {
+            guard let physio else { return nil }
+            let posture = physio.cognitivePosture
+            guard posture.hrv != nil || posture.readiness != nil else { return nil }
+            let hour = Calendar.current.component(.hour, from: .now)
+            let phase: String = switch hour {
+            case 5..<8: "dawn"
+            case 8..<12: "morning"
+            case 12..<16: "peak"
+            case 16..<19: "afternoon"
+            case 19..<22: "evening"
+            default: "night"
+            }
+            return ConsciousnessState(
+                hrvMs: posture.hrv,
+                readiness: posture.readiness,
+                intensity: posture.suggestedIntensity.rawValue,
+                circadianPhase: phase
+            )
+        }()
         let result = await cockpit.postAgentMessage(
             slug: slug,
             agent: "claude-code-ios",
-            text: "[\(kind)] \(content)"
+            text: "[\(kind)] \(content)",
+            consciousnessState: cs
         )
         if result.value?.ok == true {
             // Refresh to see our own message + any new ones

@@ -12,7 +12,13 @@ import {
   idempotent,
   withEnvelope
 } from "./contract.mjs";
-import { proxyBeagleCompletion, proxyDiscussionLabCompletion } from "./auth-bridge.mjs";
+import { getHpcResult, listHpcResults } from "./job-routes.mjs";
+import {
+  proxyBeagleCompletion,
+  proxyCheapProviderCompletion,
+  proxySubscriptionBridgeCompletion,
+  proxyDiscussionLabCompletion
+} from "./auth-bridge.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
 function cleanString(value) {
@@ -80,6 +86,34 @@ function deriveTruthMode(...values) {
   return "observed";
 }
 
+function normalizeCheapDiscussionProfile(value) {
+  const normalized = cleanString(value).toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  if (["grok", "grok_fast", "grok-fast"].includes(normalized)) {
+    return "grok";
+  }
+  if (["kimi", "kimi_k2", "kimi-k2", "moonshot"].includes(normalized)) {
+    return "kimi";
+  }
+  return "";
+}
+
+function normalizeSubscriptionDiscussionProfile(value) {
+  const normalized = cleanString(value).toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  if (["claude", "claude-code", "claudecode", "claude-max", "claude_max"].includes(normalized)) {
+    return "claude-code";
+  }
+  if (["codex", "codex-chat", "codex-pro", "chatgpt-pro"].includes(normalized)) {
+    return "codex";
+  }
+  return "";
+}
+
 function buildMeta(generatedAt, ...values) {
   return {
     generatedAt: cleanString(generatedAt) || new Date().toISOString(),
@@ -144,6 +178,85 @@ function derivePublicationScope(projectFamily, requested = "") {
     return "conference";
   }
   return "internal";
+}
+
+function normalizePhysioPolicy(raw = {}) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+
+  const modeLabel = cleanString(raw.modeLabel || raw.mode_label);
+  const routeLabel = cleanString(raw.routeLabel || raw.route_label);
+  const companionInstruction = cleanString(
+    raw.companionInstruction || raw.companion_instruction
+  );
+  const noteInstruction = cleanString(raw.noteInstruction || raw.note_instruction);
+  const pacingInstruction = cleanString(
+    raw.pacingInstruction || raw.pacing_instruction
+  );
+  const discussionProfile = cleanString(
+    raw.discussionProfile || raw.discussion_profile
+  ).toLowerCase();
+  const suggestedPlaceholder = cleanString(
+    raw.suggestedPlaceholder || raw.suggested_placeholder
+  );
+  const preferLocal =
+    raw.preferLocal === true || raw.prefer_local === true;
+
+  if (
+    !modeLabel &&
+    !routeLabel &&
+    !companionInstruction &&
+    !noteInstruction &&
+    !pacingInstruction &&
+    !discussionProfile &&
+    !suggestedPlaceholder &&
+    !preferLocal
+  ) {
+    return null;
+  }
+
+  return {
+    modeLabel,
+    routeLabel,
+    companionInstruction,
+    noteInstruction,
+    pacingInstruction,
+    discussionProfile,
+    suggestedPlaceholder,
+    preferLocal
+  };
+}
+
+function buildMobileChatSystem(system, flowState, physioPolicy) {
+  const lines = [];
+  const systemText = cleanString(system);
+  if (systemText) {
+    lines.push(systemText);
+  }
+  const normalizedFlowState = cleanString(flowState).toUpperCase();
+  if (normalizedFlowState) {
+    lines.push(`Flow state: ${normalizedFlowState}.`);
+  }
+  if (physioPolicy?.modeLabel) {
+    lines.push(`Companion mode: ${physioPolicy.modeLabel}.`);
+  }
+  if (physioPolicy?.routeLabel) {
+    lines.push(`Route posture: ${physioPolicy.routeLabel}.`);
+  }
+  if (physioPolicy?.companionInstruction) {
+    lines.push(`Companion behavior: ${physioPolicy.companionInstruction}`);
+  }
+  if (physioPolicy?.noteInstruction) {
+    lines.push(`Note behavior: ${physioPolicy.noteInstruction}`);
+  }
+  if (physioPolicy?.pacingInstruction) {
+    lines.push(`Pacing behavior: ${physioPolicy.pacingInstruction}`);
+  }
+  if (physioPolicy?.suggestedPlaceholder) {
+    lines.push(`Prompting stance: ${physioPolicy.suggestedPlaceholder}`);
+  }
+  return lines.filter(Boolean).join("\n\n");
 }
 
 function estimateTokenCount(prompt, system, response) {
@@ -228,6 +341,16 @@ function normalizeSession(session = {}) {
   const pods = Array.isArray(session.pods) ? session.pods : [];
   const primaryPod = pods[0] || {};
   const exists = Boolean(session.name);
+  const activity = session.activity && typeof session.activity === "object"
+    ? {
+        summary: cleanString(session.activity.summary || ""),
+        source: cleanString(session.activity.source || ""),
+        updatedAt: cleanString(session.activity.updatedAt || session.activity.updated_at || ""),
+        author: cleanString(session.activity.author || ""),
+        excerpt: cleanString(session.activity.excerpt || ""),
+        consciousnessState: session.activity.consciousnessState || null
+      }
+    : null;
 
   return {
     kind: cleanString(session.kind || ""),
@@ -243,8 +366,256 @@ function normalizeSession(session = {}) {
       phase: cleanString(pod.phase || ""),
       ready: Boolean(pod.ready),
       node: cleanString(pod.node || "")
-    }))
+    })),
+    activity
   };
+}
+
+function extractHpcResultRecords(payload = {}) {
+  const candidates = [
+    payload?.results,
+    payload?.data?.results,
+    payload?.data?.items,
+    payload?.data?.entries,
+    payload?.items,
+    payload?.entries,
+    payload?.data,
+    payload
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate;
+    }
+  }
+  return [];
+}
+
+function normalizeHpcResultRecord(record = {}) {
+  return {
+    jobId: cleanString(record.job_id || record.jobId),
+    submittedJobId: cleanString(record.submitted_job_id || record.submittedJobId),
+    publishedResultJobId: cleanString(
+      record.published_result_job_id || record.publishedResultJobId
+    ),
+    profileId: cleanString(record.profile_id || record.profileId),
+    requestedRunLabel: cleanString(
+      record.requested_run_label || record.requestedRunLabel || record.run_label || record.runLabel
+    ),
+    publishedResultRunLabel: cleanString(
+      record.published_result_run_label || record.publishedResultRunLabel || record.run_label || record.runLabel
+    ),
+    publicationState: cleanString(
+      record.publication_state ||
+      record.publicationState ||
+      record.state ||
+      record.run_scoped_publication?.publication_state ||
+      record.runScopedPublication?.publicationState
+    ),
+    finalJobState: cleanString(
+      record.final_job_state ||
+      record.finalJobState ||
+      record.state ||
+      record.run_scoped_publication?.final_job_state ||
+      record.runScopedPublication?.finalJobState
+    ),
+    manifestKey: cleanString(
+      record.published_result_manifest_key ||
+      record.publishedResultManifestKey ||
+      record.artifact_manifest_key ||
+      record.artifactManifestKey
+    ),
+    resultManifestObjectKey: cleanString(
+      record.result_manifest_object_key ||
+      record.resultManifestObjectKey ||
+      record.artifact_object_key ||
+      record.artifactObjectKey
+    ),
+    resultLookupScope: cleanString(
+      record.result_lookup_scope || record.resultLookupScope
+    ),
+    nodeList: cleanString(record.node_list || record.nodeList),
+    sourcePhase: cleanString(record.source_phase || record.sourcePhase),
+    retentionScope: cleanString(record.retention_scope || record.retentionScope),
+    latestResultAt: latestIso(
+      record.updated_at,
+      record.updatedAt,
+      record.completed_at,
+      record.completedAt,
+      record.published_at,
+      record.publishedAt,
+      record.publication_time,
+      record.publicationTime,
+      record.end_time,
+      record.endTime,
+      record.start_time,
+      record.startTime,
+      record.submitted_at,
+      record.submittedAt,
+      record.submit_time,
+      record.submitTime,
+      record.created_at,
+      record.createdAt,
+      record.run_scoped_publication?.updated_at,
+      record.runScopedPublication?.updatedAt,
+      record.run_scoped_publication?.published_at,
+      record.runScopedPublication?.publishedAt,
+      record.run_result_identity_receipt?.updated_at,
+      record.runResultIdentityReceipt?.updatedAt,
+      record.deterministic_result_binding?.updated_at,
+      record.deterministicResultBinding?.updatedAt
+    ),
+    via: cleanString(record.via)
+  };
+}
+
+function preferNonEmptyValue(current, fallback) {
+  if (typeof current === "string") {
+    return current.trim() ? current : fallback;
+  }
+  if (current !== null && current !== undefined) {
+    return current;
+  }
+  return fallback;
+}
+
+function mergeNormalizedHpcResultRecords(primary = {}, fallback = {}) {
+  const merged = {};
+  const keys = new Set([...Object.keys(fallback || {}), ...Object.keys(primary || {})]);
+  for (const key of keys) {
+    merged[key] = preferNonEmptyValue(primary[key], fallback[key]);
+  }
+  return merged;
+}
+
+function compareLatestResult(left = {}, right = {}) {
+  const leftTime = Date.parse(cleanString(left.latestResultAt || "")) || 0;
+  const rightTime = Date.parse(cleanString(right.latestResultAt || "")) || 0;
+  return rightTime - leftTime;
+}
+
+function buildLaneResultSummary(slug, workstreamId, result = {}) {
+  const lookupJobId = cleanString(
+    result.submittedJobId || result.jobId || result.publishedResultJobId
+  );
+  const resultJobId = cleanString(result.publishedResultJobId || result.jobId);
+  const runLabel = cleanString(
+    result.publishedResultRunLabel || result.requestedRunLabel
+  );
+  const profileId = cleanString(result.profileId);
+  const publicationState = cleanString(result.publicationState);
+  const finalJobState = cleanString(result.finalJobState);
+  const manifestKey = cleanString(result.manifestKey);
+  const resultManifestObjectKey = cleanString(result.resultManifestObjectKey);
+  const nodeList = cleanString(result.nodeList);
+  const sourcePhase = cleanString(result.sourcePhase);
+  const retentionScope = cleanString(result.retentionScope);
+  const resultReady = Boolean(
+    manifestKey || resultManifestObjectKey || resultJobId
+  );
+  const stateParts = [publicationState, finalJobState].filter(Boolean);
+
+  let signalLine = "No published result has returned yet.";
+  if (runLabel && stateParts.length > 0) {
+    signalLine = `Latest returned work: ${runLabel} · ${stateParts.join(" · ")}`;
+  } else if (runLabel) {
+    signalLine = `Latest returned work: ${runLabel}`;
+  } else if (profileId && stateParts.length > 0) {
+    signalLine = `Latest ${profileId} result is ${stateParts.join(" · ")}`;
+  } else if (profileId) {
+    signalLine = `Latest returned work came through ${profileId}`;
+  } else if (stateParts.length > 0) {
+    signalLine = `Latest returned work is ${stateParts.join(" · ")}`;
+  }
+  const qualifiers = [nodeList, sourcePhase, retentionScope].filter(Boolean);
+  if (qualifiers.length > 0 && signalLine !== "No published result has returned yet.") {
+    signalLine = `${signalLine} · ${qualifiers.join(" · ")}`;
+  }
+
+  let recommendedAction = resultReady
+    ? "Open what came back and decide whether it deserves promotion."
+    : "Keep watching this lane until the latest run resolves into a published result.";
+  if (!lookupJobId) {
+    recommendedAction = "Run new work in this lane so Beagle has something concrete to bring back.";
+  }
+
+  return {
+    projectSlug: slug,
+    workstreamId,
+    lookupJobId,
+    submittedJobId: cleanString(result.submittedJobId),
+    publishedResultJobId: cleanString(result.publishedResultJobId),
+    profileId,
+    requestedRunLabel: cleanString(result.requestedRunLabel),
+    publishedResultRunLabel: runLabel,
+    publicationState,
+    finalJobState,
+    manifestKey,
+    resultManifestObjectKey,
+    resultLookupScope: cleanString(result.resultLookupScope),
+    latestResultAt: cleanString(result.latestResultAt),
+    resultReady,
+    signalLine,
+    recommendedAction,
+    resultRoute: lookupJobId ? `/api/projects/${slug}/hpc/results/${lookupJobId}` : "",
+    manifestRoute: lookupJobId
+      ? `/api/projects/${slug}/hpc/results/${lookupJobId}/manifest`
+      : "",
+    artifactRoute: lookupJobId
+      ? `/api/projects/${slug}/hpc/jobs/${lookupJobId}/artifact`
+      : "",
+    stdoutRoute: lookupJobId
+      ? `/api/projects/${slug}/hpc/jobs/${lookupJobId}/stdout-object`
+      : "",
+    via: cleanString(result.via || "cockpit-darwin-hpc")
+  };
+}
+
+async function buildProjectLaneResultSummary(project = {}) {
+  const slug = cleanString(project?.projectSlug || project?.slug);
+  const workstreamId = cleanString(
+    project?.workstreamId ||
+    project?.workspace?.workstreamId ||
+    project?.workspaceState?.workstreamId ||
+    ""
+  );
+  if (!slug || !workstreamId) {
+    return null;
+  }
+
+  try {
+    const listPayload = await listHpcResults({ workstream_id: workstreamId });
+    const latest = extractHpcResultRecords(listPayload)
+      .map(normalizeHpcResultRecord)
+      .filter(
+        (entry) =>
+          cleanString(entry.jobId || entry.submittedJobId || entry.publishedResultJobId)
+      )
+      .sort(compareLatestResult)[0];
+
+    if (!latest) {
+      return null;
+    }
+
+    const detailLookupId = cleanString(
+      latest.submittedJobId || latest.jobId || latest.publishedResultJobId
+    );
+    let detailed = latest;
+    if (detailLookupId) {
+      try {
+        const detailPayload = await getHpcResult(slug, detailLookupId);
+        detailed = mergeNormalizedHpcResultRecords(
+          normalizeHpcResultRecord(detailPayload?.data || detailPayload),
+          latest
+        );
+      } catch {
+        detailed = latest;
+      }
+    }
+
+    return buildLaneResultSummary(slug, workstreamId, detailed);
+  } catch {
+    return null;
+  }
 }
 
 function inferClusterHealth(catalog = {}) {
@@ -292,41 +663,90 @@ async function completeChatRequest(req, deps) {
     req.body?.requires_high_quality === true || req.body?.requiresHighQuality === true;
   const offlineRequired =
     req.body?.offline_required === true || req.body?.offlineRequired === true;
+  const requestedFlowState = cleanString(
+    req.body?.flowState || req.body?.flow_state
+  );
+  const requestedPhysioPolicy = normalizePhysioPolicy(
+    req.body?.physioPolicy || req.body?.physio_policy
+  );
   const requestedDiscussionProfile = cleanString(
     req.body?.discussionProfile || req.body?.discussion_profile
   );
+  const effectiveDiscussionProfile =
+    requestedDiscussionProfile ||
+    cleanString(requestedPhysioPolicy?.discussionProfile);
+  const effectiveSystem = buildMobileChatSystem(
+    req.body?.system,
+    requestedFlowState,
+    requestedPhysioPolicy
+  );
+  let appliedDiscussionProfile = effectiveDiscussionProfile || "cluster";
 
   let result;
-  if (
-    requestedDiscussionProfile &&
+  const subscriptionProfile = normalizeSubscriptionDiscussionProfile(effectiveDiscussionProfile);
+  const cheapProviderProfile = normalizeCheapDiscussionProfile(effectiveDiscussionProfile);
+  if (subscriptionProfile) {
+    appliedDiscussionProfile = subscriptionProfile;
+    result = await proxySubscriptionBridgeCompletion({
+      prompt,
+      system: effectiveSystem,
+      provider: subscriptionProfile,
+      projectSlug: cleanString(req.body?.projectSlug || req.body?.project_slug),
+      projectFamily: cleanString(req.body?.projectFamily || req.body?.project_family),
+      publicationScope: cleanString(req.body?.publicationScope || req.body?.publication_scope),
+      readCatalog: deps.readCatalog
+    });
+  } else if (cheapProviderProfile) {
+    appliedDiscussionProfile = cheapProviderProfile;
+    result = await proxyCheapProviderCompletion({
+      prompt,
+      system: effectiveSystem,
+      provider: cheapProviderProfile
+    });
+  } else if (
+    effectiveDiscussionProfile &&
     !["cluster", "cluster-default", "default"].includes(
-      requestedDiscussionProfile.toLowerCase()
+      effectiveDiscussionProfile.toLowerCase()
     )
   ) {
     const catalog = await deps.readCatalog();
-    const profile = findDiscussionLabProfile(catalog, requestedDiscussionProfile);
+    const profile = findDiscussionLabProfile(catalog, effectiveDiscussionProfile);
     if (!profile) {
-      throw contractFailure(
-        ErrorCode.NOT_FOUND,
-        `unknown discussion profile: ${requestedDiscussionProfile}`
-      );
+      if (["qwen3b", "yi6b"].includes(effectiveDiscussionProfile.toLowerCase())) {
+        appliedDiscussionProfile = "cluster";
+        result = await proxyBeagleCompletion({
+          prompt,
+          system: effectiveSystem,
+          requires_math: requiresMath,
+          requires_high_quality: requiresHighQuality,
+          offline_required: offlineRequired
+        });
+      } else {
+        throw contractFailure(
+          ErrorCode.NOT_FOUND,
+          `unknown discussion profile: ${effectiveDiscussionProfile}`
+        );
+      }
+    } else {
+      const profileStatus = cleanString(profile?.status || "").toLowerCase();
+      if (profileStatus !== "available") {
+        throw contractFailure(
+          ErrorCode.CONFLICT,
+          `discussion profile ${cleanString(profile?.id || requestedDiscussionProfile)} is ${profileStatus || "unavailable"}`
+        );
+      }
+      appliedDiscussionProfile = cleanString(profile?.id) || effectiveDiscussionProfile;
+      result = await proxyDiscussionLabCompletion({
+        prompt,
+        system: effectiveSystem,
+        profile
+      });
     }
-    const profileStatus = cleanString(profile?.status || "").toLowerCase();
-    if (profileStatus !== "available") {
-      throw contractFailure(
-        ErrorCode.CONFLICT,
-        `discussion profile ${cleanString(profile?.id || requestedDiscussionProfile)} is ${profileStatus || "unavailable"}`
-      );
-    }
-    result = await proxyDiscussionLabCompletion({
-      prompt,
-      system,
-      profile
-    });
   } else {
+    appliedDiscussionProfile = "cluster";
     result = await proxyBeagleCompletion({
       prompt,
-      system,
+      system: effectiveSystem,
       requires_math: requiresMath,
       requires_high_quality: requiresHighQuality,
       offline_required: offlineRequired
@@ -363,9 +783,18 @@ async function completeChatRequest(req, deps) {
     agentKind: cleanString(result.payload?.agentKind || result.payload?.agent_kind),
     sessionId: cleanString(result.payload?.sessionId || result.payload?.session_id),
     podName: cleanString(result.payload?.podName || result.payload?.pod_name),
+    conversationMode:
+      cleanString(result.payload?.conversationMode || result.payload?.conversation_mode)
+      || cleanString(requestedPhysioPolicy?.modeLabel),
+    appliedDiscussionProfile:
+      cleanString(result.payload?.appliedDiscussionProfile || result.payload?.applied_discussion_profile)
+      || appliedDiscussionProfile,
+    flowState:
+      cleanString(result.payload?.flowState || result.payload?.flow_state)
+      || requestedFlowState.toUpperCase(),
     tokensUsed: Number.isFinite(totalTokens) && totalTokens > 0
       ? totalTokens
-      : estimateTokenCount(prompt, system, responseText),
+      : estimateTokenCount(prompt, effectiveSystem, responseText),
     generatedAt,
     truthMode: cleanString(result.payload?.truthMode) || "observed",
     beagleUrl: cleanString(result.payload?.beagle_url || result.beagleUrl || "")
@@ -424,9 +853,24 @@ export function registerMobileRoutes(app, deps) {
             if (!slug) {
               return null;
             }
-            const [clientSessions, agentSessions] = await Promise.all([
+            const resolvedProject = await deps.getProjectOrThrow(slug).catch(() => entry);
+            const laneProject = {
+              projectSlug: cleanString(
+                resolvedProject?.projectSlug || resolvedProject?.slug || slug
+              ),
+              slug,
+              workstreamId: cleanString(
+                resolvedProject?.workstreamId ||
+                resolvedProject?.workspace?.workstreamId ||
+                resolvedProject?.workspaceState?.workstreamId ||
+                entry?.workstreamId ||
+                entry?.workspace?.workstreamId
+              )
+            };
+            const [clientSessions, agentSessions, laneResult] = await Promise.all([
               deps.listProjectSessions(slug),
-              listAgentSessions(slug).catch(() => [])
+              listAgentSessions(slug).catch(() => []),
+              buildProjectLaneResultSummary(laneProject)
             ]);
             const activeClientSessions = Array.isArray(clientSessions?.active)
               ? clientSessions.active.map(normalizeClientSession)
@@ -437,7 +881,8 @@ export function registerMobileRoutes(app, deps) {
             return {
               slug,
               activeClientSessions,
-              activeAgentSessions
+              activeAgentSessions,
+              laneResult
             };
           })
         );
@@ -459,7 +904,10 @@ export function registerMobileRoutes(app, deps) {
               filtered.map((entry) =>
                 entry.activeClientSessions.map((session) => session.lastMemorySyncAt)
               )
-            )
+            ),
+            laneResults: filtered
+              .map((entry) => entry.laneResult)
+              .filter(Boolean)
           },
           meta: buildMeta(generatedAt, catalog)
         };
@@ -517,6 +965,17 @@ export function registerMobileRoutes(app, deps) {
           new Date().toISOString();
         const goWorkNowPacket = goWorkNow?.goWorkNow || {};
         const operatingPosture = goWorkNow?.operatingPosture || null;
+        const laneProject = {
+          projectSlug: cleanString(project?.projectSlug || project?.slug || req.params.slug),
+          slug: cleanString(project?.projectSlug || project?.slug || req.params.slug),
+          workstreamId: cleanString(
+            project?.workstreamId ||
+            project?.workspace?.workstreamId ||
+            goWorkNowPacket?.workspaceState?.workstreamId ||
+            goWorkNowPacket?.workspace?.workstreamId
+          )
+        };
+        const laneResult = await buildProjectLaneResultSummary(laneProject);
 
         return {
           data: {
@@ -533,6 +992,7 @@ export function registerMobileRoutes(app, deps) {
             operatingPosture,
             workspaceState: goWorkNowPacket?.workspaceState || null,
             latestObservedOperation: goWorkNowPacket?.latestObservedOperation || null,
+            laneResult,
             actions: normalizeActionList(project, goWorkNowPacket, operatingPosture),
             generatedAt
           },
@@ -646,7 +1106,8 @@ export function registerMobileRoutes(app, deps) {
             : ["mobile-idea"],
           project_family: projectFamily,
           publication_scope: publicationScope,
-          promotion_state: "synced"
+          promotion_state: "synced",
+          consciousness_state: req.body?.consciousness_state || req.body?.consciousnessState
         });
         appendScratchpadEntry(project.projectSlug, entry);
         await annotateClientSession(req, deps, project.projectSlug, "mobile-idea:saved");
@@ -985,6 +1446,9 @@ export function registerMobileRoutes(app, deps) {
             agentKind: completion.agentKind || null,
             sessionId: completion.sessionId || null,
             podName: completion.podName || null,
+            conversation_mode: completion.conversationMode || null,
+            applied_discussion_profile: completion.appliedDiscussionProfile || null,
+            flow_state: completion.flowState || null,
             tokens_used: completion.tokensUsed
           },
           meta: buildMeta(completion.generatedAt, {
@@ -1009,6 +1473,9 @@ export function registerMobileRoutes(app, deps) {
         agentKind: completion.agentKind || null,
         sessionId: completion.sessionId || null,
         podName: completion.podName || null,
+        conversation_mode: completion.conversationMode || null,
+        applied_discussion_profile: completion.appliedDiscussionProfile || null,
+        flow_state: completion.flowState || null,
         tokens_used: completion.tokensUsed,
         truthMode: completion.truthMode
       });
