@@ -107,6 +107,51 @@ struct QueryPhysioTool: Tool {
 }
 
 @available(iOS 26, macOS 26, *)
+struct SearchBySomaticStateTool: Tool {
+    let name = "searchBySomaticState"
+    let description = "Search the researcher's thoughts by body state, not content. Find what was captured during flow, stress, late night, morning clarity, deep work, or emotional lows."
+
+    @Generable
+    struct Arguments {
+        @Guide(description: "Body state to search for: flow, stress, night, morning, deepwork, or emotional_low")
+        var bodyState: String
+    }
+
+    func call(arguments: Arguments) async throws -> String {
+        let query: SomaticRetrieval.SomaticQuery
+        switch arguments.bodyState.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "flow":
+            query = .flow
+        case "stress":
+            query = .stress
+        case "night", "night_insight", "nightinsight", "late_night", "latenight":
+            query = .nightInsight
+        case "morning", "morning_clarity", "morningclarity":
+            query = .morningClarity
+        case "deepwork", "deep_work", "deep work":
+            query = .deepWork
+        case "emotional_low", "emotionallow", "emotional low", "low":
+            query = .emotionalLow
+        default:
+            query = .flow
+        }
+
+        let matches = await MainActor.run {
+            ExocortexToolContext.shared.cognitive?.somaticSearch(query: query) ?? []
+        }
+        if matches.isEmpty {
+            return "No thoughts found matching body state '\(arguments.bodyState)'. This may mean no somatic snapshots were captured yet, or no thoughts match the criteria."
+        }
+        let formatted = matches.prefix(5).enumerated().map { i, m in
+            let pct = Int((m.somaticScore * 100).rounded())
+            let text = m.thought.refinedText ?? m.thought.rawText ?? ""
+            return "[\(i + 1)] (\(pct)% somatic match, \(m.matchReason)) \(text)"
+        }.joined(separator: "\n")
+        return "Found \(matches.count) thoughts from '\(arguments.bodyState)' state:\n\(formatted)"
+    }
+}
+
+@available(iOS 26, macOS 26, *)
 struct SuggestExplorationTool: Tool {
     let name = "suggestExploration"
     let description = "Suggest a topic for deep multi-modal exploration when an idea is worth investigating further."

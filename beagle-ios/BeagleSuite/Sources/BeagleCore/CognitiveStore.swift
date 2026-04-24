@@ -40,8 +40,14 @@ public final class CognitiveStore {
     /// Total thoughts ever captured (persisted count).
     public var totalThoughtCount: Int = 0
 
+    /// Somatic snapshots taken at thought capture time (body state context).
+    public var somaticSnapshots: [SomaticSnapshot] = []
+
     /// The project that should receive idea writes on the mobile boundary.
     public var activeProjectSlug: String?
+
+    /// Reference to the physio store for somatic snapshot capture.
+    public weak var physioStore: PhysioStore?
 
     public init() {}
 
@@ -155,6 +161,14 @@ public final class CognitiveStore {
         totalThoughtCount += 1
         SemanticSearchEngine.shared.index(thoughts: recentThoughts)
 
+        // Take somatic snapshot from PhysioStore at capture time
+        if let physio = physioStore {
+            let snapshot = SomaticSnapshot(from: physio.cognitivePosture)
+            somaticSnapshots.append(snapshot)
+            // Keep snapshots bounded
+            if somaticSnapshots.count > 200 { somaticSnapshots.removeFirst() }
+        }
+
         // Persist to SwiftData
         modelContext?.insert(persisted)
         try? modelContext?.save()
@@ -252,6 +266,17 @@ public final class CognitiveStore {
         // Fallback: substring match with synthetic similarity of 0.5
         return SemanticSearchEngine.substringSearch(query: query, in: recentThoughts)
             .map { (thought: $0, similarity: 0.5) }
+    }
+
+    // MARK: - Somatic search
+
+    /// Search recent thoughts by somatic (body) state rather than content.
+    public func somaticSearch(query: SomaticRetrieval.SomaticQuery) -> [SomaticMatch] {
+        SomaticRetrieval.shared.search(
+            query: query,
+            thoughts: recentThoughts,
+            postures: somaticSnapshots
+        )
     }
 
     // MARK: - Derived

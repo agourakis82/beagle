@@ -104,10 +104,12 @@ struct BeagleCockpitApp: App {
     @Environment(\.modelContext) private var modelContext
 
     private func bootstrap() async {
-        // Wire persistence into stores
+        // Wire persistence and physio reference into stores
         cognitive.modelContext = modelContext
+        cognitive.physioStore = physio
         SemanticSearchEngine.shared.warmup()
         cognitive.loadPersistedThoughts()
+        DreamSynthesisEngine.shared.loadPersistedInsights()
         cognitive.activeProjectSlug = launchOverrides.projectSlug ?? cognitive.activeProjectSlug ?? "sounio"
 
         // Auth bridge first — gets token from cockpit

@@ -113,7 +113,7 @@ public final class FoundationModelsAgent {
         do {
             let session = LanguageModelSession(
                 model: .default,
-                tools: [SearchMemoryTool(), CaptureThoughtTool(), QueryPhysioTool(), SuggestExplorationTool()],
+                tools: [SearchMemoryTool(), CaptureThoughtTool(), QueryPhysioTool(), SearchBySomaticStateTool(), SuggestExplorationTool()],
                 instructions: """
                 You are Beagle, a personal scientific exocortex. You assist a researcher \
                 with thought capture, deep exploration, and cognitive awareness. You have \

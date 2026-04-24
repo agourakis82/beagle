@@ -33,6 +33,7 @@ struct HomeView: View {
     @State private var homeSummary: Truthful<MobileHomeSummary>?
     @State private var workLanes: [ProjectLaneState] = []
     @State private var inputFocusRequest = 0
+    @State private var metacognitive = MetacognitiveDialogue.shared
     #if os(iOS)
     @State private var speechRecognizer = SpeechRecognizer()
     #endif
@@ -56,6 +57,10 @@ struct HomeView: View {
                     activeAgentsStrip
                     shellPresenceCard
                     greetingSection
+                    if DreamSynthesisEngine.shared.hasUnreadInsights {
+                        overnightInsightsCard
+                    }
+                    metacognitiveStrip
                     livingBriefingCard
                     previewSignalCard
                     #if os(iOS)
@@ -148,6 +153,7 @@ struct HomeView: View {
             _ = await (c, g, p)
             await refreshWorkLanes()
             applyPhysioConversationContext()
+            runMetacognitiveCheck()
             generateProvocations()
         }
         .onChange(of: cognitive.recentThoughts.count) { oldCount, newCount in
@@ -1361,6 +1367,156 @@ struct HomeView: View {
         .animation(.easeOut(duration: 0.6).delay(0.2), value: hasAppeared)
     }
 
+    // MARK: - Overnight Insights (Dream Synthesis)
+
+    private var overnightInsightsCard: some View {
+        let engine = DreamSynthesisEngine.shared
+        let unread = engine.overnightInsights.filter { !$0.isRead }
+        let dreamTint = Color(red: 0.45, green: 0.35, blue: 0.75)
+
+        return GlassPanel(elevation: .floating, truth: .remembered) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "moon.stars.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [dreamTint, Color(red: 0.6, green: 0.5, blue: 0.85)],
+                                startPoint: .topLeading, endPoint: .bottomTrailing
+                            )
+                        )
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Your exocortex dreamed last night")
+                            .font(BeagleFont.caption.font)
+                            .fontWeight(.medium)
+                            .foregroundStyle(dreamTint)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+                        if let last = engine.lastDreamSession {
+                            Text(last, style: .relative)
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                        }
+                    }
+                    Spacer()
+                    TruthBadge(.remembered, compact: true)
+                }
+
+                ForEach(unread.prefix(5)) { insight in
+                    VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                        HStack(spacing: BeagleSpacing.xxs) {
+                            sleepStageBadge(insight.sleepStage)
+                            if let hrv = insight.hrvAtGeneration {
+                                Text("HRV \(Int(hrv))")
+                                    .font(BeagleFont.caption2.font)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                            }
+                        }
+
+                        Text(insight.text)
+                            .font(BeagleFont.footnote.font)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                            .lineSpacing(2)
+
+                        HStack(spacing: BeagleSpacing.sm) {
+                            Button {
+                                Task {
+                                    await cognitive.captureThought(text: insight.text, source: "dream-synthesis")
+                                    engine.markRead(insight.id)
+                                    #if os(iOS)
+                                    BeagleHaptics.capture()
+                                    #endif
+                                }
+                            } label: {
+                                HStack(spacing: BeagleSpacing.xxs) {
+                                    Image(systemName: "arrow.down.doc")
+                                        .font(.system(size: 11))
+                                    Text("Capture")
+                                        .font(BeagleFont.caption2.font)
+                                }
+                                .foregroundStyle(dreamTint)
+                            }
+                            .buttonStyle(.plain)
+
+                            GoDeepButton(prompt: "Explore this overnight insight: \(insight.text)")
+
+                            Spacer()
+
+                            Button {
+                                engine.markRead(insight.id)
+                            } label: {
+                                Image(systemName: "checkmark.circle")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, BeagleSpacing.xs)
+
+                    if insight.id != unread.prefix(5).last?.id {
+                        Divider().overlay(dreamTint.opacity(0.08))
+                    }
+                }
+
+                if unread.count > 1 {
+                    Button {
+                        withAnimation(BeagleMotion.snappy) {
+                            engine.markAllRead()
+                        }
+                    } label: {
+                        HStack(spacing: BeagleSpacing.xxs) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 12))
+                            Text("Mark all read")
+                                .font(BeagleFont.caption.font)
+                        }
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .opacity(hasAppeared ? 1 : 0)
+        .offset(y: hasAppeared ? 0 : 12)
+        .animation(.easeOut(duration: 0.6).delay(0.18), value: hasAppeared)
+    }
+
+    private func sleepStageBadge(_ stage: String) -> some View {
+        let (label, icon): (String, String) = {
+            switch stage {
+            case "deep-rem-phase":
+                return ("REM", "moon.zzz.fill")
+            case "core-sleep":
+                return ("Core", "moon.fill")
+            case "light-sleep":
+                return ("Light", "moon.haze.fill")
+            case "quantum-dream":
+                return ("Quantum", "atom")
+            case "serendipity-dream":
+                return ("Serendipity", "sparkle")
+            default:
+                return ("Dream", "moon.stars")
+            }
+        }()
+
+        return HStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+            Text(label)
+                .font(BeagleFont.caption2.font)
+                .fontWeight(.medium)
+        }
+        .foregroundStyle(Color(red: 0.55, green: 0.45, blue: 0.8))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            Capsule()
+                .fill(Color(red: 0.45, green: 0.35, blue: 0.75).opacity(0.10))
+        )
+    }
+
     // MARK: - Serendipity Card (unexpected connections)
 
     private func serendipityCard(_ insight: String) -> some View {
@@ -1576,6 +1732,15 @@ struct HomeView: View {
 
         generateProvocations()
         generateInspirationLayer()
+        runMetacognitiveCheck()
+
+        // Dream Synthesis — if the exocortex hasn't dreamed recently, run a synthesis pass
+        if DreamSynthesisEngine.shared.shouldDreamAgain && cognitive.recentThoughts.count >= 3 {
+            await DreamSynthesisEngine.shared.synthesize(
+                thoughts: cognitive.recentThoughts,
+                cognitivePosture: physio.cognitivePosture
+            )
+        }
 
         #if os(iOS)
         // Start ambient triage loop: periodically sends fragments to cluster for filtering
@@ -2702,6 +2867,175 @@ struct HomeView: View {
     }
 
     // MARK: - Provocation generation (on-device LLM)
+
+    // MARK: - Metacognitive Dialogue
+
+    @ViewBuilder
+    private var metacognitiveStrip: some View {
+        if !metacognitive.observations.isEmpty && currentIntensity != .minimal {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 11))
+                        .foregroundStyle(metacognitiveAccentColor)
+                    Text("Metacognition")
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
+
+                ForEach(Array(metacognitive.observations.enumerated()), id: \.element.id) { index, observation in
+                    metacognitiveCard(observation, index: index)
+                }
+            }
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+
+    private func metacognitiveCard(_ observation: MetacognitiveObservation, index: Int) -> some View {
+        HStack(alignment: .top, spacing: BeagleSpacing.sm) {
+            ZStack {
+                Circle()
+                    .fill(metacognitiveCardColor(observation.severity).opacity(0.1))
+                    .frame(width: 34, height: 34)
+                Image(systemName: metacognitiveIcon(observation.severity))
+                    .font(.system(size: 14))
+                    .foregroundStyle(metacognitiveCardColor(observation.severity))
+            }
+
+            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                Text(observation.message)
+                    .font(BeagleFont.subheadline.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: BeagleSpacing.sm) {
+                    if observation.action != .none {
+                        Button {
+                            handleMetacognitiveAction(observation.action)
+                            metacognitive.dismiss(observation.id)
+                        } label: {
+                            Text(metacognitiveActionLabel(observation.action))
+                                .font(BeagleFont.caption.font)
+                                .fontWeight(.medium)
+                                .foregroundStyle(metacognitiveCardColor(observation.severity))
+                        }
+                        .buttonStyle(ScalePress())
+                    }
+
+                    Spacer()
+
+                    Button {
+                        withAnimation(.easeOut(duration: 0.25)) {
+                            metacognitive.dismiss(observation.id)
+                        }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                    }
+                    .buttonStyle(ScalePress())
+                }
+            }
+        }
+        .padding(.horizontal, BeagleSpacing.md)
+        .padding(.vertical, BeagleSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg, style: .continuous)
+                .fill(metacognitiveCardColor(observation.severity).opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: BeagleRadius.lg, style: .continuous)
+                        .strokeBorder(metacognitiveCardColor(observation.severity).opacity(0.1), lineWidth: 0.5)
+                )
+        )
+        .staggeredAppear(index: index, delay: 0.08)
+    }
+
+    private var metacognitiveAccentColor: Color {
+        switch metacognitive.currentState {
+        case .flow: return BeagleTheme.truthObserved
+        case .nominal: return BeagleTheme.textSecondary
+        case .surfaceThinking: return .orange
+        case .stagnating: return .yellow
+        case .fatigued: return BeagleTheme.truthStale
+        }
+    }
+
+    private func metacognitiveIcon(_ severity: MetacognitiveObservation.Severity) -> String {
+        switch severity {
+        case .celebration: return "sparkles"
+        case .suggestion: return "lightbulb.fill"
+        case .nudge: return "arrow.right.circle.fill"
+        case .gentle: return "heart.fill"
+        }
+    }
+
+    private func metacognitiveCardColor(_ severity: MetacognitiveObservation.Severity) -> Color {
+        switch severity {
+        case .celebration: return BeagleTheme.truthObserved
+        case .suggestion: return .orange
+        case .nudge: return .yellow
+        case .gentle: return BeagleTheme.truthRemembered
+        }
+    }
+
+    private func metacognitiveActionLabel(_ action: MetacognitiveObservation.SuggestedAction) -> String {
+        switch action {
+        case .tryQuantumMode: return "Try Quantum Mode"
+        case .injectSerendipity: return "Inject Chaos"
+        case .reduceIntensity: return "Ease Off"
+        case .promptCapture: return "Capture a Thought"
+        case .suggestGoDeep: return "Go Deep"
+        case .quickCapture: return "Quick Capture"
+        case .none: return ""
+        }
+    }
+
+    private func handleMetacognitiveAction(_ action: MetacognitiveObservation.SuggestedAction) {
+        switch action {
+        case .tryQuantumMode:
+            // Navigate to deep exploration
+            selectedTab = 2
+        case .injectSerendipity:
+            chaosProvocation = SerendipityEngine.shared.generateProvocation()
+        case .reduceIntensity:
+            // Gentle hint — no forced action, just acknowledged
+            break
+        case .promptCapture:
+            inputFocusRequest += 1
+        case .suggestGoDeep:
+            selectedTab = 2
+        case .quickCapture:
+            inputFocusRequest += 1
+        case .none:
+            break
+        }
+    }
+
+    private func runMetacognitiveCheck() {
+        let thoughts = cognitive.recentThoughts
+        let stagnation = SerendipityEngine.shared.detectStagnation(thoughts: thoughts)
+        let posture = physio.cognitivePosture
+
+        // Compute time since last thought capture
+        let timeSinceLastCapture: TimeInterval? = {
+            guard let latest = thoughts.first,
+                  let dateString = latest.createdAt else { return nil }
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            guard let date = formatter.date(from: dateString) ?? ISO8601DateFormatter().date(from: dateString) else { return nil }
+            return Date().timeIntervalSince(date)
+        }()
+
+        metacognitive.observe(
+            consciousnessScore: cognitive.lastConsciousnessScore,
+            stagnation: stagnation,
+            posture: posture,
+            thoughtCount: thoughts.count,
+            timeSinceLastCapture: timeSinceLastCapture
+        )
+    }
 
     @State private var isGeneratingProvocations = false
 
