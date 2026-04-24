@@ -24,6 +24,9 @@ public final class CognitiveStore {
     public var activeJobs: [ScienceJob] = []
     public var lastTriad: Truthful<TriadResult>?
 
+    /// Latest PCI consciousness score from a Triad review.
+    public private(set) var lastConsciousnessScore: ConsciousnessScore?
+
     public var isLoading = false
     public var isCapturing = false
     public var isReviewingTriad = false
@@ -191,6 +194,9 @@ public final class CognitiveStore {
 
         let result = await BeagleClient.shared.runTriad(prompt: draft)
         lastTriad = result
+        if let triadResult = result.value {
+            lastConsciousnessScore = ConsciousnessMetrics.shared.computePCI(from: triadResult)
+        }
         return result.value
     }
 

@@ -184,6 +184,11 @@ struct TriadReviewView: View {
                 }
             }
 
+            // Consciousness metric (PCI proxy)
+            if let score = cognitive.lastConsciousnessScore, score.agentCount > 0 {
+                consciousnessCard(score)
+            }
+
             // Real feedback
             feedbackSection
         }
@@ -220,6 +225,80 @@ struct TriadReviewView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Consciousness Score Card
+
+    private func consciousnessCard(_ score: ConsciousnessScore) -> some View {
+        GlassPanel(elevation: .floating, truth: score.pci >= 0.7 ? .observed : .declared) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                sectionLabel("Consciousness Metric (PCI)")
+
+                HStack(spacing: BeagleSpacing.lg) {
+                    // Gauge
+                    Gauge(value: score.pci, in: 0...1) {
+                        EmptyView()
+                    } currentValueLabel: {
+                        Text(score.shortLabel)
+                            .font(BeagleFont.dataProminent.font)
+                            .fontWeight(.bold)
+                            .foregroundStyle(pciColor(score.pci))
+                    } minimumValueLabel: {
+                        Text("0")
+                            .font(BeagleFont.dataSmall.font)
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                    } maximumValueLabel: {
+                        Text("1")
+                            .font(BeagleFont.dataSmall.font)
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                    }
+                    .gaugeStyle(.accessoryCircular)
+                    .tint(pciGradient(score.pci))
+                    .frame(width: 64, height: 64)
+
+                    VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                        Text(score.description)
+                            .font(BeagleFont.headline.font)
+                            .foregroundStyle(pciColor(score.pci))
+
+                        HStack(spacing: BeagleSpacing.md) {
+                            pciMetricLabel("Diff", value: score.differentiation)
+                            pciMetricLabel("Intg", value: score.integration)
+                            pciMetricLabel("Cplx", value: score.complexity)
+                        }
+                    }
+                }
+            }
+        }
+        .transition(.asymmetric(insertion: .push(from: .bottom).combined(with: .opacity), removal: .opacity))
+    }
+
+    private func pciMetricLabel(_ label: String, value: Double) -> some View {
+        VStack(spacing: 2) {
+            Text(String(format: "%.2f", value))
+                .font(BeagleFont.data.font)
+                .fontWeight(.medium)
+                .foregroundStyle(BeagleTheme.textPrimary)
+            Text(label)
+                .font(BeagleFont.dataSmall.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+        }
+    }
+
+    private func pciColor(_ pci: Double) -> Color {
+        if pci >= 0.7 { return BeagleTheme.truthObserved }
+        if pci >= 0.4 { return BeagleTheme.postureWarm }
+        return BeagleTheme.textTertiary
+    }
+
+    private func pciGradient(_ pci: Double) -> Gradient {
+        if pci >= 0.7 {
+            return Gradient(colors: [BeagleTheme.truthObserved.opacity(0.6), BeagleTheme.truthObserved])
+        }
+        if pci >= 0.4 {
+            return Gradient(colors: [BeagleTheme.postureWarm.opacity(0.6), BeagleTheme.postureWarm])
+        }
+        return Gradient(colors: [BeagleTheme.textTertiary.opacity(0.4), BeagleTheme.textTertiary])
     }
 
     // MARK: - Feedback (real UI with ratings)

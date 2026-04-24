@@ -25,6 +25,7 @@ struct HomeView: View {
     @State private var greeting = ""
     @State private var hasAppeared = false
     @State private var serendipityInsight: String?
+    @State private var chaosProvocation: SerendipityProvocation?
     @State private var morningBrief: String?
     @State private var searchText = ""
     @State private var milestoneToShow: Int?
@@ -79,6 +80,9 @@ struct HomeView: View {
                     }
                     if let insight = serendipityInsight, currentIntensity != .minimal, morningBriefIntensity != .minimal {
                         serendipityCard(insight)
+                    }
+                    if let chaos = chaosProvocation, currentIntensity != .minimal {
+                        chaosSerendipityCard(chaos)
                     }
                     if currentIntensity != .minimal, morningBriefIntensity != .minimal {
                         noveltySection
@@ -1403,6 +1407,83 @@ struct HomeView: View {
         .animation(.easeOut(duration: 0.6).delay(0.35), value: hasAppeared)
     }
 
+    // MARK: - Chaos Serendipity Card (Lorenz attractor thought-loop rescue)
+
+    private func chaosSerendipityCard(_ provocation: SerendipityProvocation) -> some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            HStack(spacing: BeagleSpacing.xs) {
+                Image(systemName: "butterfly")
+                    .font(.system(size: 14))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Color.orange, Color(hue: 30/360, saturation: 0.8, brightness: 0.95)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
+                    )
+
+                Text("Chaos Injection")
+                    .font(BeagleFont.caption.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+
+                Spacer()
+
+                Text(provocation.domain)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(Color.orange.opacity(0.7))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule().fill(Color.orange.opacity(0.08))
+                    )
+            }
+
+            Text(provocation.text)
+                .font(BeagleFont.footnote.font)
+                .foregroundStyle(BeagleTheme.textSecondary)
+                .lineSpacing(2)
+                .italic()
+
+            if let score = provocation.stagnationScore {
+                Text("Stagnation: \(Int(score * 100))%")
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
+
+            Button {
+                Task {
+                    _ = await cognitive.captureThought(text: provocation.text, source: "serendipity-engine")
+                }
+                withAnimation(BeagleMotion.slow) { chaosProvocation = nil }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 11))
+                    Text("Capture this")
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.medium)
+                }
+                .foregroundStyle(Color.orange)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, BeagleSpacing.lg)
+        .padding(.vertical, BeagleSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .fill(Color.orange.opacity(0.03))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .strokeBorder(Color.orange.opacity(0.08), lineWidth: 1)
+        )
+        .opacity(hasAppeared ? 1 : 0)
+        .offset(y: hasAppeared ? 0 : 12)
+        .animation(.easeOut(duration: 0.6).delay(0.4), value: hasAppeared)
+    }
+
     // MARK: - Generate Morning Brief + Serendipity
 
     private func generateInspirationLayer() {
@@ -1446,6 +1527,11 @@ struct HomeView: View {
             )
             if let insight, !insight.isEmpty {
                 withAnimation(BeagleMotion.slow) { serendipityInsight = insight }
+            }
+
+            // Lorenz attractor chaos injection -- detect thought loops and provoke
+            if let provocation = SerendipityEngine.shared.checkAndProvoke(thoughts: cognitive.recentThoughts) {
+                withAnimation(BeagleMotion.slow) { chaosProvocation = provocation }
             }
         }
     }

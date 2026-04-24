@@ -90,6 +90,19 @@ public final class GoDeepStore {
     public var synthesis: String?
     public var isSynthesizing = false
 
+    // MARK: - Quantum Mode
+
+    /// When true, `goDeeper` explores the question through multiple hypotheses
+    /// in superposition, runs each through the enabled modalities, then
+    /// interferes and collapses to the strongest.
+    public var quantumMode = false
+
+    /// Hypotheses currently in superposition (only populated when quantumMode is on).
+    public var hypotheses: [QuantumHypothesisEngine.Hypothesis] = []
+
+    /// Interference result after all hypotheses have been explored (quantum mode only).
+    public var interferenceResult: QuantumHypothesisEngine.InterferenceResult?
+
     // MARK: - Configuration
 
     /// Default to the lanes that are currently returning promptly on the
@@ -133,6 +146,12 @@ public final class GoDeepStore {
     public func goDeeper(prompt: String) {
         runTask?.cancel()
         clearState()
+
+        // Dispatch to quantum path when enabled
+        if quantumMode {
+            goDeeperQuantum(prompt: prompt)
+            return
+        }
 
         let modalities = Array(enabledModalities).sorted { $0.rawValue < $1.rawValue }
         let session = GoDeepSession(prompt: prompt, modalities: modalities)
@@ -320,6 +339,144 @@ public final class GoDeepStore {
         }
     }
 
+    // MARK: - Quantum Go Deeper
+
+    /// Quantum-mode exploration: generate hypotheses in superposition,
+    /// explore each through the enabled modalities, interfere, and collapse.
+    private func goDeeperQuantum(prompt: String) {
+        let modalities = Array(enabledModalities).sorted { $0.rawValue < $1.rawValue }
+        let session = GoDeepSession(prompt: prompt, modalities: modalities)
+        activeSession = session
+        isRunning = true
+        synthesis = nil
+        isSynthesizing = false
+
+        let engine = QuantumHypothesisEngine.shared
+
+        runTask = Task { [weak self, client] in
+            guard let self else { return }
+
+            // 1. Generate hypotheses in superposition
+            var hyps = await engine.superpose(question: prompt)
+            self.hypotheses = hyps
+
+            // Total work: one modality run per hypothesis, plus interference + collapse + synthesis
+            self.totalCount = hyps.count
+            self.completedCount = 0
+
+            // Initialize modality states for UI (one per hypothesis, using the first modality as proxy)
+            let proxyModality = modalities.first ?? .quantumReasoning
+            self.modalityStates = hyps.map { hyp in
+                var state = ModalityState(modality: proxyModality)
+                state.phase = .thinking("Exploring: \(hyp.perspective)...")
+                state.startedAt = .now
+                return state
+            }
+
+            // Start Live Activity
+            self.onResearchStart?(session.id.uuidString, "Quantum Go Deeper", "exocortex")
+
+            // 2. Explore each hypothesis through backend quantum reasoning in parallel
+            await withTaskGroup(of: (Int, GoDeepResult).self) { group in
+                for (idx, hyp) in hyps.enumerated() {
+                    let hypothesisPrompt = "[\(hyp.perspective)] \(prompt)"
+                    group.addTask { [client] in
+                        let result = await Self.executeModality(
+                            .quantumReasoning,
+                            prompt: hypothesisPrompt,
+                            client: client
+                        )
+                        return (idx, result)
+                    }
+                }
+
+                for await (idx, result) in group {
+                    guard !Task.isCancelled else { return }
+
+                    // Update hypothesis text with actual result
+                    let resultText = result.summary
+                    engine.evolve(&hyps, at: idx, withText: resultText)
+                    self.hypotheses = hyps
+
+                    // Update modality state for UI
+                    if idx < self.modalityStates.count {
+                        self.modalityStates[idx].completedAt = .now
+                        if result.isError {
+                            self.modalityStates[idx].phase = .failed(resultText)
+                        } else {
+                            self.modalityStates[idx].phase = .resolved(result)
+                        }
+                    }
+
+                    self.completedCount += 1
+                    self.onResearchUpdate?(
+                        self.completedCount,
+                        self.totalCount,
+                        max(0, (self.totalCount - self.completedCount) * 15)
+                    )
+                }
+            }
+
+            guard !Task.isCancelled else { return }
+
+            // 3. Interference — find constructive and destructive patterns
+            let interference = engine.interfere(hyps)
+            self.interferenceResult = interference
+
+            // 4. Collapse — amplify the strongest
+            engine.collapse(&hyps)
+            self.hypotheses = hyps
+
+            // 5. Synthesis — combine the collapsed state into a unified answer
+            self.isSynthesizing = true
+
+            let rankedSummaries = hyps
+                .sorted { $0.probability > $1.probability }
+                .map { "[\($0.perspective) | p=\(String(format: "%.2f", $0.probability))] \($0.text)" }
+
+            var emergentNote = ""
+            if !interference.novelEmergent.isEmpty {
+                emergentNote = "\n\nEmergent tensions:\n" + interference.novelEmergent.joined(separator: "\n")
+            }
+
+            let synthesisPrompt = """
+            Quantum hypothesis exploration for: "\(prompt)"
+
+            Hypotheses after interference and collapse (ordered by probability):
+            \(rankedSummaries.joined(separator: "\n"))
+
+            Constructive reinforcements: \(interference.constructive.count)
+            Destructive interferences: \(interference.destructive.count)\(emergentNote)
+
+            Synthesize: which hypothesis "won" the collapse and why? \
+            Integrate the strongest signal, note any emergent insights from destructive interference, \
+            and provide a concise 3-4 sentence conclusion. Be direct.
+            """
+
+            let llm = LocalLLMEngine.shared
+            if llm.isReady, let result = try? await llm.respond(to: synthesisPrompt) {
+                self.synthesis = result
+            } else {
+                let cloudResult = await client.chat(
+                    prompt: synthesisPrompt,
+                    system: "You are a quantum hypothesis synthesis agent. Collapse multi-perspective explorations into decisive insights."
+                )
+                self.synthesis = cloudResult.value?.response
+            }
+
+            self.isSynthesizing = false
+            self.onResearchEnd?(self.synthesis != nil ? "quantum-complete" : "no synthesis")
+
+            self.isRunning = false
+            if var session = self.activeSession {
+                session.completedAt = .now
+                self.activeSession = session
+                self.recentSessions.insert(session, at: 0)
+                if self.recentSessions.count > 10 { self.recentSessions.removeLast() }
+            }
+        }
+    }
+
     // MARK: - Cancel
 
     public func cancel() {
@@ -335,6 +492,8 @@ public final class GoDeepStore {
         synthesis = nil
         completedCount = 0
         totalCount = 0
+        hypotheses = []
+        interferenceResult = nil
     }
 
     // MARK: - Derived
@@ -356,6 +515,28 @@ public final class GoDeepStore {
     public var exportText: String {
         guard let session = activeSession else { return "" }
         var lines: [String] = ["# Go Deeper: \(session.prompt)", ""]
+
+        // Quantum hypotheses section (when quantum mode was used)
+        if !hypotheses.isEmpty {
+            lines.append("## Quantum Hypotheses")
+            for hyp in hypotheses.sorted(by: { $0.probability > $1.probability }) {
+                let prob = String(format: "%.0f%%", hyp.probability * 100)
+                let status = hyp.isCollapsed ? "collapsed" : "superposed"
+                lines.append("- [\(prob), \(status)] **\(hyp.perspective)**: \(hyp.text)")
+            }
+            lines.append("")
+
+            if let interference = interferenceResult {
+                if !interference.novelEmergent.isEmpty {
+                    lines.append("### Emergent Insights")
+                    for insight in interference.novelEmergent {
+                        lines.append("- \(insight)")
+                    }
+                    lines.append("")
+                }
+            }
+        }
+
         for state in modalityStates {
             if let result = state.result {
                 lines.append("## \(state.modality.displayName)")
