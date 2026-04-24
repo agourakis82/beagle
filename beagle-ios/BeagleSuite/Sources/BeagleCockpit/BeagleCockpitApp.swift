@@ -203,48 +203,11 @@ struct RootView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        ZStack {
-            ShellPresenceBackground(presence: shellPresence)
-            contentLayer
-        }
-        .task {
-            guard !hasInitializedTabSelection else { return }
-            selectedTab = normalizedTabIndex(launchOverrides.selectedTab ?? 0)
-            hasInitializedTabSelection = true
-        }
-        .onChange(of: selectedTab) { _, newValue in
-            persistedSelectedTab = normalizedTabIndex(newValue)
-        }
-        .safeAreaInset(edge: .top) {
-            VStack(spacing: BeagleSpacing.sm) {
-                ShellPresenceBanner(
-                    presence: shellPresence,
-                    selectedTabTitle: selectedTabTitle,
-                    runningAgentCount: runningAgentCount,
-                    runningJobCount: cognitive.runningJobCount,
-                    laneLabel: currentLaneState?.displayName ?? currentLaneLabel,
-                    mindLabel: currentLaneState?.leadMindLabel ?? currentMindLabel,
-                    objectiveLabel: currentLaneState?.currentFocus ?? currentObjectiveLabel,
-                    compact: shellBannerIsCompact
-                )
-                .onTapGesture { showCognitiveState = true }
-                if let error = bootError {
-                    authErrorBanner(error)
-                }
-            }
-            .padding(.horizontal, BeagleSpacing.lg)
-            .padding(.top, sizeClass == .regular ? BeagleSpacing.md : BeagleSpacing.xs)
-            .padding(.bottom, BeagleSpacing.xs)
-            .background(Color.clear)
-        }
-    }
-
-    private var contentLayer: some View {
         Group {
             if sizeClass == .regular {
                 iPadLayout
             } else {
-                tabContent
+                BeagleSurface(bootError: $bootError)
             }
         }
     }

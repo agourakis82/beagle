@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		00F812AB7229A6E94A452495 /* BeagleWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5D747E9BE19D4C2DAFD1E6 /* BeagleWatchApp.swift */; };
 		0DD04528F8D0BA08681233BE /* FoundationModelsAgent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1160A4CA5DCDC7BF7C91604C /* FoundationModelsAgent.swift */; };
+		B3AGL3SURF000000000001 /* BeagleSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3AGL3SURF000000000002 /* BeagleSurface.swift */; };
 		E1C0C0RTEX000000000001 /* ExocortexTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C0C0RTEX000000000002 /* ExocortexTools.swift */; };
 		1B55247C99EAB1B670864938 /* PostureGradientBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49590C3934C2C786F704ADB3 /* PostureGradientBackground.swift */; };
 		232DEFB048E340F8FE242BDB /* TerminalContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */; };
@@ -83,6 +84,7 @@
 		0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSettingsView.swift; sourceTree = "<group>"; };
 		0F5D747E9BE19D4C2DAFD1E6 /* BeagleWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleWatchApp.swift; sourceTree = "<group>"; };
 		1160A4CA5DCDC7BF7C91604C /* FoundationModelsAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelsAgent.swift; sourceTree = "<group>"; };
+		B3AGL3SURF000000000002 /* BeagleSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleSurface.swift; sourceTree = "<group>"; };
 		E1C0C0RTEX000000000002 /* ExocortexTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExocortexTools.swift; sourceTree = "<group>"; };
 		1627EC91F819B45D2929869B /* MetalClusterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalClusterView.swift; sourceTree = "<group>"; };
 		180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThoughtCaptureView.swift; sourceTree = "<group>"; };
@@ -178,6 +180,7 @@
 				57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */,
 				4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */,
 				95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */,
+				B3AGL3SURF000000000002 /* BeagleSurface.swift */,
 				1160A4CA5DCDC7BF7C91604C /* FoundationModelsAgent.swift */,
 				E1C0C0RTEX000000000002 /* ExocortexTools.swift */,
 				8C802020558042DE65886DB3 /* BeagleAppIntents.swift */,
@@ -455,6 +458,7 @@
 				4DA6AD62DD347FAACCB96433 /* DeepExplorationView.swift in Sources */,
 				558DF95BA7821C7D9511DA64 /* DiagnosticsRunner.swift in Sources */,
 				FD773EBDECB3C46EB77F7469 /* DiagnosticsView.swift in Sources */,
+				B3AGL3SURF000000000001 /* BeagleSurface.swift in Sources */,
 				0DD04528F8D0BA08681233BE /* FoundationModelsAgent.swift in Sources */,
 				E1C0C0RTEX000000000001 /* ExocortexTools.swift in Sources */,
 				955AF5DFA3C5E28DE9E71AAF /* GoDeepButton.swift in Sources */,
