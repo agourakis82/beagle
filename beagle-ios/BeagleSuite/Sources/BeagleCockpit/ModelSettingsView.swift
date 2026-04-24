@@ -407,6 +407,9 @@ struct ModelSettingsView: View {
         case .ssm:          return "waveform.path"
         case .multilingual: return "globe"
         case .fast:         return "hare"
+        case .rnn:          return "arrow.trianglehead.2.clockwise"
+        case .diffusion:    return "aqi.medium"
+        case .moe:          return "square.grid.3x3"
         }
     }
 
@@ -419,6 +422,9 @@ struct ModelSettingsView: View {
         case .ssm:          return BeagleTheme.postureWarm
         case .multilingual: return BeagleTheme.textData
         case .fast:         return BeagleTheme.truthDeclared
+        case .rnn:          return Color(hue: 170/360, saturation: 0.7, brightness: 0.8) // teal
+        case .diffusion:    return Color(hue: 260/360, saturation: 0.5, brightness: 0.9) // violet
+        case .moe:          return Color(hue: 40/360, saturation: 0.8, brightness: 0.9) // amber
         }
     }
 
@@ -438,6 +444,12 @@ struct ModelSettingsView: View {
             return "Strong Portuguese, French, Spanish alongside English. Use for multilingual drafting."
         case .fast:
             return "Quick answers, low memory, fast loading. Use as fallback or for simple questions."
+        case .rnn:
+            return "Recurrent architectures — RWKV, xLSTM. Infinite context, constant memory, biological memory dynamics."
+        case .diffusion:
+            return "Diffusion language models — generate text via denoising, not autoregression. Fundamentally different thinking."
+        case .moe:
+            return "Mixture of Experts — sparse activation means huge knowledge with small compute. Only a fraction of parameters fire per token."
         }
     }
 
