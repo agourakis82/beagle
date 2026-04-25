@@ -1,0 +1,40 @@
+FROM rust:1.89-bookworm AS builder
+
+WORKDIR /workspace
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends pkg-config libssl-dev python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml ./
+COPY apps ./apps
+COPY crates ./crates
+COPY beagle-bin ./beagle-bin
+COPY docs ./docs
+
+RUN cargo build --release -p beagle-monorepo --bin core_server --features memory
+
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --system --uid 10001 --create-home --home-dir /home/beagle beagle
+
+WORKDIR /srv/beagle
+
+ENV BEAGLE_BIND_ADDR=0.0.0.0:8080 \
+    BEAGLE_DATA_DIR=/var/lib/beagle \
+    BEAGLE_PROFILE=cluster
+
+COPY --from=builder /workspace/target/release/core_server /usr/local/bin/core_server
+
+RUN mkdir -p /var/lib/beagle \
+    && chown -R beagle:beagle /var/lib/beagle /home/beagle
+
+USER beagle
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/core_server"]
