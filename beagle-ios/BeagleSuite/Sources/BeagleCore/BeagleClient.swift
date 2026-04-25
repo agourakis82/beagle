@@ -385,6 +385,17 @@ public actor BeagleClient {
         ], timeout: 120)
     }
 
+    // MARK: - Round Table (exotic model debate)
+
+    /// Orchestrate exotic reasoning crates to debate a topic.
+    /// Each voice runs in parallel on the backend; results include interference + PCI.
+    public func roundTable(prompt: String, voices: [String]) async -> Truthful<RoundTableResult> {
+        await post(RoundTableResult.self, path: "/api/v1/round-table", body: [
+            "prompt": prompt,
+            "voices": voices
+        ], timeout: 180)
+    }
+
     // MARK: - Science Jobs
 
     public func startScienceJob(kind: String) async -> Truthful<ScienceJob> {

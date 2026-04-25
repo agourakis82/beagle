@@ -28,6 +28,15 @@ import FoundationModels
 public final class FoundationModelsAgent {
     public static let shared = FoundationModelsAgent()
 
+    #if canImport(FoundationModels)
+    /// Persistent session — keeps conversation history across turns.
+    @available(iOS 26, macOS 26, visionOS 26, *)
+    private var _session: LanguageModelSession?
+    #endif
+
+    /// Guard against re-entrant async calls on the same session.
+    private var isResponding = false
+
     private init() {}
 
     /// Whether Apple Intelligence / Foundation Models are available on this device.
@@ -93,43 +102,57 @@ public final class FoundationModelsAgent {
     /// Respond to a prompt using Foundation Models with exocortex tool access.
     /// Returns nil if unavailable (caller should fall back to cloud agent).
     ///
-    /// Before invoking Foundation Models, checks if the Mamba draft model (Tier -1)
-    /// can handle the prompt directly. Simple prompts (greetings, classification,
-    /// short factual) are answered at Tier -1 for sub-10ms latency.
-    public func respond(to prompt: String) async -> String? {
-        // Tier -1 pre-screening: if Mamba is loaded, check prompt complexity
-        if LocalLLMEngine.shared.mambaLoaded {
-            let complexity = await LocalLLMEngine.shared.triagePrompt(prompt)
-            if complexity == .simple {
-                if let mambaResult = try? await LocalLLMEngine.shared.mambaGenerate(prompt: prompt) {
-                    return mambaResult
-                }
-            }
-        }
+    /// The session is kept alive across calls so the model remembers prior turns.
+    /// Pass `conversationHistory` to seed context from persisted messages when
+    /// the session is first created (e.g. after app relaunch).
+    public func respond(to prompt: String, conversationHistory: [String] = []) async -> String? {
+        guard !isResponding else { return nil }
+        isResponding = true
+        defer { isResponding = false }
 
         #if canImport(FoundationModels)
         guard #available(iOS 26, macOS 26, visionOS 26, *) else { return nil }
         guard isAvailable else { return nil }
         do {
-            let session = LanguageModelSession(
-                model: .default,
-                tools: [SearchMemoryTool(), CaptureThoughtTool(), QueryPhysioTool(), SearchBySomaticStateTool(), SuggestExplorationTool()],
-                instructions: """
+            // Reuse existing session or create one with history context
+            if _session == nil {
+                var instructions = """
                 You are Beagle, a personal scientific exocortex. You assist a researcher \
                 with thought capture, deep exploration, and cognitive awareness. You have \
                 access to their recent thoughts, physiological state, and can save new \
                 insights. Adapt your depth and tone to their cognitive readiness. Be warm, \
-                insightful, and concise.
+                insightful, and concise. Remember everything from this conversation.
                 """
-            )
+                if !conversationHistory.isEmpty {
+                    instructions += "\n\nPrior conversation context:\n"
+                    instructions += conversationHistory.suffix(20).joined(separator: "\n")
+                }
+                _session = LanguageModelSession(
+                    model: .default,
+                    tools: [SearchMemoryTool(), CaptureThoughtTool(), QueryPhysioTool(), SearchBySomaticStateTool(), SuggestExplorationTool()],
+                    instructions: instructions
+                )
+            }
+            guard let session = _session else { return nil }
             let response = try await session.respond(to: prompt)
             return response.content
         } catch {
             print("[FoundationModelsAgent] respond error: \(error)")
+            // Reset session on error so next call creates a fresh one
+            _session = nil
             return nil
         }
         #else
         return nil
+        #endif
+    }
+
+    /// Reset the persistent session (e.g. when user clears conversation).
+    public func resetSession() {
+        #if canImport(FoundationModels)
+        if #available(iOS 26, macOS 26, visionOS 26, *) {
+            _session = nil
+        }
         #endif
     }
 

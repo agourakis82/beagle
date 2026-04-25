@@ -74,6 +74,11 @@ struct ChatBubbleView: View {
 
     private var assistantBubble: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Voice header for Round Table messages
+            if let voiceName = message.voiceName {
+                voiceHeader(voiceName)
+            }
+
             if message.isStreaming && message.content.isEmpty {
                 streamingPlaceholder
             } else {
@@ -84,12 +89,68 @@ struct ChatBubbleView: View {
         .padding(.vertical, BeagleSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                .fill(BeagleTheme.surface2)
+                .fill(message.voiceName != nil ? voiceFill : BeagleTheme.surface2)
         )
         .overlay(
             RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                .strokeBorder(
+                    message.voiceName != nil ? voiceTint.opacity(0.2) : Color.white.opacity(0.06),
+                    lineWidth: 1
+                )
         )
+    }
+
+    // MARK: - Voice header (Round Table)
+
+    private func voiceHeader(_ name: String) -> some View {
+        HStack(spacing: BeagleSpacing.xs) {
+            Image(systemName: voiceIcon(for: name))
+                .font(.system(size: 10, weight: .semibold))
+            Text(name.capitalized)
+                .font(BeagleFont.caption.font)
+                .fontWeight(.semibold)
+        }
+        .foregroundStyle(voiceTint)
+        .padding(.bottom, BeagleSpacing.xs)
+    }
+
+    private var voiceTint: Color {
+        guard let name = message.voiceName?.lowercased() else { return BeagleTheme.textSecondary }
+        switch name {
+        case "consciousness": return Color(hue: 0.55, saturation: 0.6, brightness: 0.9) // teal
+        case "mirror":        return Color(hue: 0.6, saturation: 0.5, brightness: 0.85)  // blue
+        case "paradox":       return Color(hue: 0.8, saturation: 0.5, brightness: 0.9)   // purple
+        case "void":          return Color(hue: 0.0, saturation: 0.0, brightness: 0.65)   // gray
+        case "reality":       return Color(hue: 0.1, saturation: 0.7, brightness: 0.9)    // amber
+        case "noetic":        return Color(hue: 0.35, saturation: 0.5, brightness: 0.85)  // green
+        case "quantum":       return Color(hue: 0.7, saturation: 0.6, brightness: 0.9)    // indigo
+        case "fractal":       return Color(hue: 0.3, saturation: 0.6, brightness: 0.8)    // lime
+        case "cosmo":         return Color(hue: 0.15, saturation: 0.5, brightness: 0.9)   // gold
+        default:
+            return name.lowercased().contains("synthesis")
+                ? BeagleTheme.truthObserved
+                : BeagleTheme.textSecondary
+        }
+    }
+
+    private var voiceFill: Color {
+        voiceTint.opacity(0.06)
+    }
+
+    private func voiceIcon(for name: String) -> String {
+        switch name.lowercased() {
+        case "consciousness": return "brain"
+        case "mirror":        return "eye"
+        case "paradox":       return "infinity"
+        case "void":          return "circle.dotted"
+        case "reality":       return "cube.transparent"
+        case "noetic":        return "network"
+        case "quantum":       return "waveform"
+        case "fractal":       return "leaf"
+        case "cosmo":         return "globe"
+        default:
+            return name.lowercased().contains("synthesis") ? "sparkles" : "circle"
+        }
     }
 
     private var streamingPlaceholder: some View {

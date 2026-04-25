@@ -17,7 +17,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_USER_SCRIPT_SANDBOXING: true
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: 2
+    CURRENT_PROJECT_VERSION: 28
     ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
 packages:
@@ -39,6 +39,8 @@ targets:
         product: BeagleCore
       - target: BeagleWidgets
         platformFilter: iOS
+      - target: BeagleShare
+        platformFilter: iOS
     info:
       path: BeagleCockpit-Info.plist
       properties:
@@ -55,6 +57,7 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         NSMicrophoneUsageDescription: "Beagle uses the microphone for voice commands."
+        NSHealthShareUsageDescription: "Beagle reads recovery signals like HRV, sleep, and workouts so the exocortex can adapt to your actual state."
         NSSpeechRecognitionUsageDescription: "Beagle uses speech recognition for voice commands."
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
@@ -84,9 +87,9 @@ targets:
     entitlements:
       path: Entitlements/BeagleCockpit.entitlements
       properties:
+        com.apple.developer.healthkit: true
         com.apple.security.application-groups:
           - group.dev.sounio.cockpit
-        aps-environment: development
         com.apple.developer.kernel.increased-memory-limit: true
 
   # ── BeagleWidgets (Widget Extension for BeagleCockpit) ────────
@@ -113,6 +116,40 @@ targets:
         ITSAppUsesNonExemptEncryption: false
     entitlements:
       path: Entitlements/BeagleWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.dev.sounio.cockpit
+
+  # ── BeagleShare (Share Extension — capture from any app) ──────
+  BeagleShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: BeagleSuite/Sources/BeagleShare
+    dependencies:
+      - package: BeagleSuite
+        product: BeagleCore
+    info:
+      path: BeagleShare-Info.plist
+      properties:
+        CFBundleDisplayName: Beagle Capture
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 5
+              NSExtensionActivationSupportsImageWithMaxCount: 3
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.sounio.cockpit.share
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: S9DPGW22A8
+        GENERATE_INFOPLIST_FILE: false
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: Entitlements/BeagleShare.entitlements
       properties:
         com.apple.security.application-groups:
           - group.dev.sounio.cockpit
@@ -152,6 +189,7 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: S9DPGW22A8
         GENERATE_INFOPLIST_FILE: true
+        ASSETCATALOG_COMPILER_APPICON_NAME: BeagleWatchAppIcon
         INFOPLIST_KEY_CFBundleDisplayName: BeagleWatch
         INFOPLIST_KEY_NSHealthShareUsageDescription: "Beagle monitors HRV to suggest flow-state focus modes."
         ITSAppUsesNonExemptEncryption: false

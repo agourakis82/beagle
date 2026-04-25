@@ -2,48 +2,30 @@
 //  BeagleSurface.swift
 //  BeagleCockpit
 //
-//  The unified thinking surface. Not a dashboard. Not a chat app.
-//  A single intelligent field where everything begins.
+//  The Mind tab. A real conversation with memory.
 //
-//  You type. The exocortex understands.
-//  Results emerge below. The supercomputer is behind the glass.
+//  Foundation Models (on-device) is the primary responder.
+//  When unavailable, falls back to cloud HERMES.
+//  All responses go through ConversationStore — persistent, searchable, real.
 //
 
 import SwiftUI
+import SwiftData
 import BeagleCore
-
-// MARK: - Surface mode (what's showing below the input)
-
-enum SurfaceMode: Equatable {
-    case resting            // just the field + greeting
-    case thinking           // HERMES refining a thought
-    case conversation       // chat with the exocortex
-    case deepExploration    // GoDeep multi-modal results
-    case terminal           // live cluster terminal
-    case results            // search results, agent output, etc.
-    case readiness          // cognitive state / HRV / sleep
-}
-
-// MARK: - The surface
 
 struct BeagleSurface: View {
     @Environment(CatalogStore.self) private var catalog
     @Environment(CognitiveStore.self) private var cognitive
     @Environment(PhysioStore.self) private var physio
-    @State private var inputText = ""
-    @State private var mode: SurfaceMode = .resting
-    @State private var greeting = ""
-    @State private var showProjectPicker = false
-    @State private var showAgentPanel = false
-    @State private var showReadiness = false
-    @State private var terminal = TerminalStore()
-    @State private var terminalInputText = ""
-    @State private var conversation = ConversationStore(preferLocal: false)
-    @State private var deepStore = GoDeepStore()
-    @State private var lastCapture: ThoughtCapture?
-    @State private var searchResults: [(thought: ThoughtCapture, similarity: Double)] = []
-    @FocusState private var inputFocused: Bool
+    @Environment(\.modelContext) private var modelContext
     @Binding var bootError: String?
+
+    @State private var conversation = ConversationStore(preferLocal: false)
+    @State private var showSettings = false
+    @State private var showCognitiveState = false
+    @State private var showProjectPicker = false
+    @State private var metacogNudge: MetacognitiveObservation?
+    @State private var serendipityProvocation: SerendipityProvocation?
 
     var body: some View {
         ZStack {
@@ -54,39 +36,23 @@ struct BeagleSurface: View {
             )
 
             VStack(spacing: 0) {
-                // Spacer pushes content to center when resting
-                if mode == .resting {
-                    Spacer()
+                // Header bar: project context + settings
+                headerBar
+
+                // Metacognitive nudge (stagnation, flow, fatigue)
+                if let nudge = metacogNudge {
+                    metacogNudgeView(nudge)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                // Greeting — one warm line, not a card
-                if mode == .resting {
-                    greetingLine
-                        .padding(.bottom, BeagleSpacing.xl)
+                // Serendipity provocation
+                if let provocation = serendipityProvocation {
+                    serendipityChip(provocation)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                // Dream insights float above the field
-                if mode == .resting && DreamSynthesisEngine.shared.hasUnreadInsights {
-                    dreamBadge
-                        .padding(.bottom, BeagleSpacing.md)
-                }
-
-                // The field — always present, always centered when resting
-                inputField
-                    .padding(.horizontal, BeagleSpacing.lg)
-
-                // Results grow below the field
-                if mode != .resting {
-                    resultArea
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-
-                if mode == .resting {
-                    Spacer()
-                }
-
-                // Context bar at the bottom — not tabs, just truth
-                contextBar
+                // The conversation — this is the whole point
+                ConversationView(conversation: conversation)
             }
 
             // Error banner if backend unreachable
@@ -94,24 +60,35 @@ struct BeagleSurface: View {
                 VStack {
                     errorBanner(error)
                         .padding(.horizontal, BeagleSpacing.lg)
-                        .padding(.top, BeagleSpacing.xl)
+                        .padding(.top, 60) // below header
                     Spacer()
                 }
             }
         }
-        .sheet(isPresented: $showReadiness) {
+        .task {
+            wireConversation()
+        }
+        .onChange(of: conversation.messages.count) {
+            runMetacognitiveCheck()
+        }
+        .sheet(isPresented: $showSettings) {
             NavigationStack {
-                CognitiveStateView()
+                ModelSettingsView()
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { showReadiness = false }
+                            Button("Done") { showSettings = false }
                         }
                     }
             }
         }
-        .sheet(isPresented: $showAgentPanel) {
+        .sheet(isPresented: $showCognitiveState) {
             NavigationStack {
-                AgentSessionView(slug: activeSlug)
+                CognitiveStateView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showCognitiveState = false }
+                        }
+                    }
             }
         }
         .sheet(isPresented: $showProjectPicker) {
@@ -122,304 +99,77 @@ struct BeagleSurface: View {
                     }
             }
         }
-        .task {
-            greeting = buildGreeting()
-        }
     }
 
-    // MARK: - Greeting
+    // MARK: - Header bar (project + readiness + settings)
 
-    private var greetingLine: some View {
-        Text(greeting)
-            .font(BeagleFont.title2.font)
-            .foregroundStyle(BeagleTheme.textSecondary)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, BeagleSpacing.xl)
-    }
-
-    // MARK: - Input field
-
-    private var inputField: some View {
+    private var headerBar: some View {
         HStack(spacing: BeagleSpacing.sm) {
-            TextField("What's on your mind?", text: $inputText, axis: .vertical)
-                .font(BeagleFont.body.font)
-                .foregroundStyle(BeagleTheme.textPrimary)
-                .lineLimit(1...6)
-                .focused($inputFocused)
-                .onSubmit { handleInput() }
-                .submitLabel(.send)
-
-            if !inputText.isEmpty {
-                Button(action: handleInput) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 28))
-                        .foregroundStyle(BeagleTheme.truthObserved)
-                }
-                .transition(.scale.combined(with: .opacity))
-            }
-        }
-        .padding(.horizontal, BeagleSpacing.md)
-        .padding(.vertical, BeagleSpacing.sm + 2)
-        .background(
-            RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                .fill(.ultraThinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                .strokeBorder(
-                    inputFocused ? BeagleTheme.truthObserved.opacity(0.3) : Color.white.opacity(0.08),
-                    lineWidth: 1
-                )
-        )
-        .animation(.easeOut(duration: 0.2), value: inputText.isEmpty)
-    }
-
-    // MARK: - Result area (grows below input based on mode)
-
-    @ViewBuilder
-    private var resultArea: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: BeagleSpacing.md) {
-                // Processing indicator
-                if isProcessing {
-                    HStack(spacing: BeagleSpacing.sm) {
-                        ProgressView()
-                            .tint(BeagleTheme.truthObserved)
-                        Text("Thinking...")
-                            .font(BeagleFont.caption.font)
-                            .foregroundStyle(BeagleTheme.textSecondary)
-                    }
-                    .padding(.top, BeagleSpacing.md)
-                }
-
-                switch mode {
-                case .resting:
-                    EmptyView()
-
-                case .thinking:
-                    thinkingView
-
-                case .conversation:
-                    // Foundation Models response (on-device, with tools)
-                    if let response = responseText {
-                        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
-                            Text(response)
-                                .font(BeagleFont.body.font)
-                                .foregroundStyle(BeagleTheme.textPrimary)
-                                .textSelection(.enabled)
-                                .lineSpacing(3)
-                        }
-                        .padding(BeagleSpacing.md)
-                        .background(
-                            RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                                .fill(.ultraThinMaterial)
-                        )
-                    }
-
-                    // Cloud conversation fallback
-                    if !conversation.messages.isEmpty {
-                        ConversationView(conversation: conversation)
-                    }
-
-                case .deepExploration:
-                    GoDeepView(store: deepStore, prompt: inputText)
-
-                case .terminal:
-                    VStack(spacing: 0) {
-                        TerminalContentView(
-                            terminal: terminal,
-                            onReconnect: {
-                                terminal.connectTerminal(slug: activeSlug)
-                            }
-                        )
-                        .frame(minHeight: 400)
-
-                        // Terminal input bar
-                        BeagleInputBar(
-                            text: $terminalInputText,
-                            placeholder: "> command",
-                            mode: .terminal,
-                            isEnabled: terminal.connectionState.isConnected,
-                            onSubmit: { text in
-                                terminal.sendInput(text + "\n")
-                            },
-                            onSpecialKey: { key in
-                                terminal.sendInput(key.escapeSequence)
-                            }
-                        )
-                    }
-
-                case .results:
-                    resultsView
-
-                case .readiness:
-                    CognitiveStateView()
-                }
-
-                // Back to resting button
-                if mode != .resting && !isProcessing {
-                    Button {
-                        withAnimation(BeagleMotion.snappy) {
-                            mode = .resting
-                            responseText = nil
-                        }
-                    } label: {
-                        HStack(spacing: BeagleSpacing.xs) {
-                            Image(systemName: "xmark.circle")
-                                .font(.system(size: 12))
-                            Text("Clear")
-                                .font(BeagleFont.caption.font)
-                        }
-                        .foregroundStyle(BeagleTheme.textTertiary)
-                        .padding(.horizontal, BeagleSpacing.md)
-                        .padding(.vertical, BeagleSpacing.xs)
-                        .background(Capsule().fill(.ultraThinMaterial))
-                    }
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, BeagleSpacing.sm)
-                }
-            }
-            .padding(.horizontal, BeagleSpacing.lg)
-            .padding(.top, BeagleSpacing.md)
-            .padding(.bottom, BeagleSpacing.jumbo)
-        }
-    }
-
-    // MARK: - Thinking (HERMES refining)
-
-    private var thinkingView: some View {
-        VStack(alignment: .leading, spacing: BeagleSpacing.md) {
-            if cognitive.isCapturing {
-                HStack(spacing: BeagleSpacing.sm) {
-                    ProgressView()
-                        .tint(BeagleTheme.postureWarm)
-                    Text("Refining...")
-                        .font(BeagleFont.caption.font)
-                        .foregroundStyle(BeagleTheme.textSecondary)
-                }
-            }
-
-            if let capture = lastCapture {
-                VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
-                    if let refined = capture.refinedText {
-                        Text(refined)
-                            .font(BeagleFont.body.font)
-                            .foregroundStyle(BeagleTheme.textPrimary)
-                    }
-                    if let translated = capture.translatedText {
-                        HStack(spacing: BeagleSpacing.xxs) {
-                            Image(systemName: "globe")
-                                .font(.system(size: 10))
-                            Text(translated)
-                                .font(BeagleFont.caption.font)
-                                .italic()
-                        }
-                        .foregroundStyle(BeagleTheme.textTertiary)
-                    }
-                }
-                .padding(BeagleSpacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: BeagleRadius.md)
-                        .fill(.ultraThinMaterial)
-                )
-            }
-        }
-    }
-
-    // MARK: - Results (search, agent output)
-
-    private var resultsView: some View {
-        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
-            if !searchResults.isEmpty {
-                ForEach(searchResults.prefix(5), id: \.thought.id) { match in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(match.thought.refinedText ?? match.thought.rawText ?? "")
-                            .font(BeagleFont.body.font)
-                            .foregroundStyle(BeagleTheme.textPrimary)
-                            .lineLimit(3)
-                        Text("\(Int(match.similarity * 100))% match")
-                            .font(BeagleFont.caption2.font)
-                            .foregroundStyle(BeagleTheme.textTertiary)
-                    }
-                    .padding(BeagleSpacing.sm)
-                    .background(
-                        RoundedRectangle(cornerRadius: BeagleRadius.md)
-                            .fill(.ultraThinMaterial)
-                    )
-                }
-            }
-        }
-    }
-
-    // MARK: - Dream badge (compact, not a huge card)
-
-    private var dreamBadge: some View {
-        Button {
-            // TODO: expand dream insights
-        } label: {
-            HStack(spacing: BeagleSpacing.xs) {
-                Image(systemName: "moon.stars.fill")
-                    .font(.system(size: 12))
-                Text("\(DreamSynthesisEngine.shared.unreadCount) overnight insight\(DreamSynthesisEngine.shared.unreadCount == 1 ? "" : "s")")
-                    .font(BeagleFont.caption.font)
-                    .fontWeight(.medium)
-            }
-            .foregroundStyle(Color(hue: 270/360, saturation: 0.5, brightness: 0.9))
-            .padding(.horizontal, BeagleSpacing.md)
-            .padding(.vertical, BeagleSpacing.xs)
-            .background(
-                Capsule().fill(.ultraThinMaterial)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Context bar (bottom — project, agents, physio)
-
-    private var contextBar: some View {
-        HStack(spacing: 0) {
-            // Project
+            // Project context
             Button { showProjectPicker = true } label: {
-                VStack(spacing: 2) {
+                HStack(spacing: BeagleSpacing.xxs) {
                     Image(systemName: "scope")
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                     Text(activeSlug)
-                        .font(BeagleFont.caption2.font)
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.medium)
                 }
                 .foregroundStyle(BeagleTheme.truthObserved)
-                .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
 
-            // Agents
-            Button { showAgentPanel = true } label: {
-                VStack(spacing: 2) {
-                    Image(systemName: runningAgentCount > 0 ? "bolt.fill" : "bolt")
-                        .font(.system(size: 14))
-                    Text(runningAgentCount > 0 ? "\(runningAgentCount) mind\(runningAgentCount == 1 ? "" : "s")" : "agents")
+            Spacer()
+
+            // Dream insights badge
+            if DreamSynthesisEngine.shared.hasUnreadInsights {
+                dreamBadge
+            }
+
+            // Running agents indicator
+            if runningAgentCount > 0 {
+                HStack(spacing: BeagleSpacing.xxs) {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 10))
+                    Text("\(runningAgentCount)")
                         .font(BeagleFont.caption2.font)
                 }
-                .foregroundStyle(runningAgentCount > 0 ? BeagleTheme.postureWarm : BeagleTheme.textTertiary)
-                .frame(maxWidth: .infinity)
+                .foregroundStyle(BeagleTheme.postureWarm)
             }
-            .buttonStyle(.plain)
 
             // Readiness
-            Button { showReadiness = true } label: {
-                VStack(spacing: 2) {
+            Button { showCognitiveState = true } label: {
+                HStack(spacing: BeagleSpacing.xxs) {
                     Image(systemName: "heart.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 10))
                     Text(readinessLabel)
                         .font(BeagleFont.caption2.font)
                 }
                 .foregroundStyle(readinessColor)
-                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+
+            // Settings
+            Button { showSettings = true } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 14))
+                    .foregroundStyle(BeagleTheme.textTertiary)
             }
             .buttonStyle(.plain)
         }
+        .padding(.horizontal, BeagleSpacing.lg)
         .padding(.vertical, BeagleSpacing.sm)
-        .background(.ultraThinMaterial)
+    }
+
+    // MARK: - Dream badge
+
+    private var dreamBadge: some View {
+        HStack(spacing: BeagleSpacing.xxs) {
+            Image(systemName: "moon.stars.fill")
+                .font(.system(size: 10))
+            Text("\(DreamSynthesisEngine.shared.unreadCount)")
+                .font(BeagleFont.caption2.font)
+        }
+        .foregroundStyle(Color(hue: 270/360, saturation: 0.5, brightness: 0.9))
     }
 
     // MARK: - Error banner
@@ -451,53 +201,140 @@ struct BeagleSurface: View {
         )
     }
 
-    // MARK: - Input handling (intelligent routing)
+    // MARK: - Wire conversation on appear
 
-    @State private var isProcessing = false
-    @State private var responseText: String?
+    private func wireConversation() {
+        let slug = cognitive.activeProjectSlug ?? catalog.primaryProject?.projectSlug ?? "sounio"
+        conversation.modelContext = modelContext
+        conversation.projectSlug = slug
+        conversation.projectFamily = ProjectFamily.fromProjectSlug(slug)
+        conversation.publicationScope = PublicationScope.forProjectFamily(
+            ProjectFamily.fromProjectSlug(slug)
+        )
+        // Derive flow state from readiness
+        if let r = physio.cognitivePosture.readiness {
+            if r >= 0.7 { conversation.flowState = "FLOW" }
+            else if r < 0.3 { conversation.flowState = "STRESS" }
+            else { conversation.flowState = "NORMAL" }
+        }
+        conversation.loadPersistedConversation()
 
-    private func handleInput() {
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        // Configure Foundation Models with stores
+        #if canImport(FoundationModels)
+        if #available(iOS 26, macOS 26, visionOS 26, *) {
+            FoundationModelsAgent.shared.configure(cognitive: cognitive, physio: physio)
+        }
+        #endif
+    }
 
-        let capturedText = text
-        inputText = ""
-        inputFocused = false
-        isProcessing = true
+    // MARK: - Metacognitive nudge view
 
-        // Quick escape hatches — explicit commands that don't need AI
-        let lower = capturedText.lowercased()
-        if lower == "terminal" || lower == "shell" || lower == "tmux" {
-            withAnimation(BeagleMotion.snappy) { mode = .terminal }
-            terminal.connectTerminal(slug: activeSlug)
-            isProcessing = false
-            return
+    private func metacogNudgeView(_ nudge: MetacognitiveObservation) -> some View {
+        HStack(spacing: BeagleSpacing.sm) {
+            Image(systemName: nudge.severity == .celebration ? "sparkles" : "brain")
+                .font(.system(size: 12))
+                .foregroundStyle(nudge.severity == .celebration ? BeagleTheme.truthObserved : BeagleTheme.postureWarm)
+
+            Text(nudge.message)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.textSecondary)
+                .lineLimit(2)
+
+            Spacer(minLength: 0)
+
+            Button {
+                withAnimation(BeagleMotion.snappy) {
+                    metacogNudge = nil
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10))
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, BeagleSpacing.lg)
+        .padding(.vertical, BeagleSpacing.xs)
+        .background(.ultraThinMaterial)
+    }
+
+    // MARK: - Serendipity chip
+
+    private func serendipityChip(_ provocation: SerendipityProvocation) -> some View {
+        Button {
+            // Send the provocation as a conversation prompt
+            Task { await conversation.sendMessage(provocation.text) }
+            withAnimation(BeagleMotion.snappy) {
+                serendipityProvocation = nil
+            }
+        } label: {
+            HStack(spacing: BeagleSpacing.xs) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 11))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(provocation.domain)
+                        .font(BeagleFont.caption2.font)
+                        .fontWeight(.semibold)
+                    Text(provocation.text)
+                        .font(BeagleFont.caption.font)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 9))
+            }
+            .foregroundStyle(Color(hue: 270/360, saturation: 0.4, brightness: 0.85))
+            .padding(.horizontal, BeagleSpacing.lg)
+            .padding(.vertical, BeagleSpacing.xs)
+            .background(.ultraThinMaterial)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Metacognitive check
+
+    private func runMetacognitiveCheck() {
+        // Only check after assistant responses (every 2nd message)
+        guard conversation.messages.count >= 2,
+              conversation.messages.last?.role == .assistant else { return }
+
+        let metacog = MetacognitiveDialogue.shared
+        let stagnation = SerendipityEngine.shared.detectStagnation(
+            thoughts: cognitive.recentThoughts
+        )
+        let timeSinceCapture: TimeInterval? = cognitive.recentThoughts.first.flatMap { thought in
+            guard let dateStr = thought.createdAt,
+                  let date = ISO8601DateFormatter().date(from: dateStr) else { return nil }
+            return Date().timeIntervalSince(date)
         }
 
-        // Everything else → Foundation Models with tools
-        // The model decides: capture thought? search memory? check physio? go deep?
-        withAnimation(BeagleMotion.snappy) { mode = .conversation }
+        metacog.observe(
+            consciousnessScore: cognitive.lastConsciousnessScore,
+            stagnation: stagnation,
+            posture: physio.cognitivePosture,
+            thoughtCount: cognitive.recentThoughts.count,
+            timeSinceLastCapture: timeSinceCapture
+        )
 
-        Task {
-            // Try Foundation Models first (on-device, free, has tools)
-            let agentResponse = await FoundationModelsAgent.shared.respond(to: capturedText)
+        // Show the most important observation as a nudge
+        withAnimation(BeagleMotion.snappy) {
+            metacogNudge = metacog.observations.first
+        }
 
-            if let response = agentResponse, !response.isEmpty {
-                // The model responded — it may have called tools (search, capture, physio)
-                responseText = response
-                isProcessing = false
-                return
+        // If stagnating, offer a serendipity provocation
+        if metacog.currentState == .stagnating {
+            let keywords = cognitive.recentThoughts.prefix(3).compactMap {
+                $0.refinedText ?? $0.rawText
             }
-
-            // Fallback: if Foundation Models unavailable, use cloud conversation
-            let slug = cognitive.activeProjectSlug ?? "sounio"
-            conversation = ConversationStore(preferLocal: false)
-            conversation.projectSlug = slug
-            let family = ProjectFamily.fromProjectSlug(slug)
-            conversation.projectFamily = family
-            conversation.publicationScope = PublicationScope.forProjectFamily(family)
-            await conversation.sendMessage(capturedText)
-            isProcessing = false
+            withAnimation(BeagleMotion.snappy) {
+                serendipityProvocation = SerendipityEngine.shared.generateProvocation(
+                    avoiding: keywords
+                )
+            }
+        } else {
+            withAnimation(BeagleMotion.snappy) {
+                serendipityProvocation = nil
+            }
         }
     }
 
@@ -530,29 +367,9 @@ struct BeagleSurface: View {
         if r >= 0.4 { return BeagleTheme.postureWarm }
         return BeagleTheme.stateError
     }
-
-    private func buildGreeting() -> String {
-        let hour = Calendar.current.component(.hour, from: .now)
-        let posture = physio.cognitivePosture
-
-        if hour < 5 { return "The night holds its own wisdom." }
-        if hour < 9 {
-            if let sleep = posture.sleepQuality, sleep < 0.3 {
-                return "Gentle morning. Be kind to yourself."
-            }
-            if let r = posture.readiness, r > 0.7 {
-                return "Sharp morning. Your mind is ready."
-            }
-            return "Good morning."
-        }
-        if hour < 13 { return "What are you thinking about?" }
-        if hour < 18 { return "The afternoon is yours." }
-        if hour < 22 { return "Evening mind." }
-        return "Late thoughts are the deepest."
-    }
 }
 
-// MARK: - Simplified background (no more ShellPresenceBackground monster)
+// MARK: - Simplified background
 
 private struct ShellPresenceGradient: View {
     let presence: BeaglePresenceState

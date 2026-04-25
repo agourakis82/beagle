@@ -43,9 +43,6 @@ struct BeagleCockpitApp: App {
                 .environment(physio)
                 .environment(hpc)
                 .modelContainer(for: [PersistedThought.self, PersistedMessage.self, PersistedDeepSession.self])
-                .task {
-                    await bootstrap()
-                }
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }
@@ -101,40 +98,7 @@ struct BeagleCockpitApp: App {
         }
     }
 
-    @Environment(\.modelContext) private var modelContext
-
-    private func bootstrap() async {
-        // Wire persistence and physio reference into stores
-        cognitive.modelContext = modelContext
-        cognitive.physioStore = physio
-        SemanticSearchEngine.shared.warmup()
-        cognitive.loadPersistedThoughts()
-        DreamSynthesisEngine.shared.loadPersistedInsights()
-        cognitive.activeProjectSlug = launchOverrides.projectSlug ?? cognitive.activeProjectSlug ?? "sounio"
-
-        // Auth bridge first — gets token from cockpit
-        let authReady = await BeagleClient.shared.ensureAuth()
-        // Parallel refresh
-        async let catalogTask: () = catalog.refresh()
-        async let cognitiveTask: () = cognitive.refresh()
-        async let physioTask: () = physio.refresh()
-        async let warmTask: () = FoundationModelsAgent.shared.prewarm()
-        _ = await (catalogTask, cognitiveTask, physioTask, warmTask)
-        cognitive.activeProjectSlug =
-            launchOverrides.projectSlug
-            ?? cognitive.activeProjectSlug
-            ?? catalog.primaryProject?.projectSlug
-            ?? "sounio"
-        // Check if data loaded — if not, show error
-        if catalog.executive.mode == .stale {
-            if !authReady {
-                let authStatus = await BeagleClient.shared.authBootstrapStatus()
-                bootError = authStatus.error ?? "Could not fetch beagle-core credentials."
-            } else {
-                bootError = "Could not reach cockpit over the public gateway or private fallback path."
-            }
-        }
-    }
+    // bootstrap() moved to RootView where modelContext is properly available
 
     private func navigateToProject(_ slug: String) {
         // Find or create the project to navigate to
@@ -201,15 +165,79 @@ struct RootView: View {
     @State private var hasInitializedTabSelection = false
     @State private var showCognitiveState = false
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         Group {
             if sizeClass == .regular {
                 iPadLayout
             } else {
-                BeagleSurface(bootError: $bootError)
+                iPhoneLayout
             }
         }
+        .task {
+            await bootstrap()
+        }
+    }
+
+    // MARK: - Bootstrap (runs inside model container scope)
+
+    private func bootstrap() async {
+        cognitive.modelContext = modelContext
+        cognitive.physioStore = physio
+        SemanticSearchEngine.shared.warmup()
+        cognitive.loadPersistedThoughts()
+        DreamSynthesisEngine.shared.loadPersistedInsights()
+        cognitive.activeProjectSlug = launchOverrides.projectSlug ?? cognitive.activeProjectSlug ?? "sounio"
+
+        let authReady = await BeagleClient.shared.ensureAuth()
+        async let catalogTask: () = catalog.refresh()
+        async let cognitiveTask: () = cognitive.refresh()
+        async let physioTask: () = physio.refresh()
+        async let warmTask: () = FoundationModelsAgent.shared.prewarm()
+        _ = await (catalogTask, cognitiveTask, physioTask, warmTask)
+        cognitive.activeProjectSlug =
+            launchOverrides.projectSlug
+            ?? cognitive.activeProjectSlug
+            ?? catalog.primaryProject?.projectSlug
+            ?? "sounio"
+        if catalog.executive.mode == .stale {
+            if !authReady {
+                let authStatus = await BeagleClient.shared.authBootstrapStatus()
+                bootError = authStatus.error ?? "Could not fetch beagle-core credentials."
+            } else {
+                bootError = "Could not reach cockpit over the public gateway or private fallback path."
+            }
+        }
+    }
+
+    // MARK: - iPhone Layout (4 tabs)
+
+    private var iPhoneLayout: some View {
+        TabView(selection: $selectedTab) {
+            Tab("Mind", systemImage: "brain.head.profile", value: 0) {
+                BeagleSurface(bootError: $bootError)
+            }
+            Tab("Capture", systemImage: "mic.fill", value: 1) {
+                NavigationStack {
+                    ThoughtCaptureView()
+                }
+            }
+            Tab("Deep", systemImage: "sparkles", value: 2) {
+                NavigationStack {
+                    DeepExplorationView()
+                        .navigationDestination(for: String.self) { _ in
+                            TriadReviewView()
+                        }
+                }
+            }
+            Tab("Work", systemImage: "apple.terminal", value: 3) {
+                NavigationStack {
+                    WorkView(bootError: $bootError)
+                }
+            }
+        }
+        .tint(BeagleTheme.truthObserved)
     }
 
     // MARK: - iPad Layout (sidebar + detail)
@@ -325,63 +353,8 @@ struct RootView: View {
         }
     }
 
-    private var tabContent: some View {
-        TabView(selection: $selectedTab) {
-            // Tab 0: Mind — orient, think, remember
-            NavigationStack {
-                HomeView()
-            }
-            .tabItem { Label("Mind", systemImage: "brain.head.profile") }
-            .badge(cognitive.runningJobCount > 0 ? cognitive.runningJobCount : 0)
-            .tag(0)
-
-            // Tab 1: Capture — raw thought before it evaporates
-            NavigationStack {
-                ThoughtCaptureView()
-            }
-            .tabItem { Label("Capture", systemImage: "mic.fill") }
-            .tag(1)
-
-            // Tab 2: Deep — test ideas against themselves
-            NavigationStack {
-                DeepExplorationView()
-                    .navigationDestination(for: String.self) { _ in
-                        TriadReviewView()
-                    }
-            }
-            .tabItem { Label("Deep", systemImage: "sparkles") }
-            .tag(2)
-
-            // Tab 3: Work — dev without Termius
-            NavigationStack(path: $path) {
-                AgentSessionView(slug: cognitive.activeProjectSlug ?? catalog.primaryProject?.projectSlug ?? "sounio")
-                    .navigationDestination(for: Project.self) { project in
-                        ControlRoomView(slug: project.projectSlug)
-                    }
-            }
-            .tabItem { Label("Work", systemImage: "apple.terminal") }
-            .badge(runningAgentCount > 0 ? runningAgentCount : 0)
-            .tag(3)
-        }
-        .tint(BeagleTheme.truthObserved)
-        .sheet(isPresented: $showCognitiveState) {
-            NavigationStack {
-                CognitiveStateView()
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { showCognitiveState = false }
-                        }
-                    }
-            }
-        }
-    }
-
     private var runningAgentCount: Int {
         cognitive.state.value?.agentSessions?.filter { ($0.readyReplicas ?? 0) > 0 }.count ?? 0
-    }
-
-    private func normalizedTabIndex(_ value: Int) -> Int {
-        (0...3).contains(value) ? value : 0
     }
 
     private var shellPresence: BeaglePresenceState {

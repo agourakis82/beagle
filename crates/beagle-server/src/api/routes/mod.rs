@@ -24,6 +24,7 @@ pub mod nodes;
 pub mod parallel_research;
 pub mod quantum_endpoint;
 pub mod reasoning_endpoint;
+pub mod round_table;
 pub mod research;
 pub mod science_jobs;
 pub mod search;

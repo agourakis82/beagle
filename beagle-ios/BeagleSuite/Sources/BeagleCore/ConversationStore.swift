@@ -32,6 +32,8 @@ public struct ChatMessage: Identifiable, Sendable {
     public var agentKind: String?
     public var sessionId: String?
     public var podName: String?
+    /// Round Table: voice identity (e.g. "consciousness", "paradox", "quantum")
+    public var voiceName: String?
 
     public init(
         id: UUID = UUID(),
@@ -45,7 +47,8 @@ public struct ChatMessage: Identifiable, Sendable {
         source: String? = nil,
         agentKind: String? = nil,
         sessionId: String? = nil,
-        podName: String? = nil
+        podName: String? = nil,
+        voiceName: String? = nil
     ) {
         self.id = id
         self.role = role
@@ -59,6 +62,7 @@ public struct ChatMessage: Identifiable, Sendable {
         self.agentKind = agentKind
         self.sessionId = sessionId
         self.podName = podName
+        self.voiceName = voiceName
     }
 }
 
@@ -313,6 +317,36 @@ public final class ConversationStore {
                 try? await Task.sleep(for: .milliseconds(35))
                 if Task.isCancelled { return }
             }
+        }
+    }
+
+    // MARK: - Insert local response (Foundation Models, Mamba, etc.)
+
+    /// Insert a locally-generated response into the conversation and persist it.
+    /// Used when Foundation Models or other on-device models produce a response
+    /// outside of the normal send flow.
+    public func insertUserMessage(_ text: String) {
+        let msg = ChatMessage(role: .user, content: text, isLocal: true)
+        messages.append(msg)
+        persist(message: msg)
+    }
+
+    public func insertLocalResponse(content: String, source: String = "foundation-models", model: String? = nil) {
+        let msg = ChatMessage(
+            role: .assistant,
+            content: content,
+            model: model ?? source,
+            isLocal: true,
+            source: source
+        )
+        messages.append(msg)
+        persist(message: msg)
+    }
+
+    /// Build conversation history as strings for seeding an LLM context.
+    public func historyForContext(maxTurns: Int = 20) -> [String] {
+        messages.suffix(maxTurns).map { msg in
+            "\(msg.role == .user ? "User" : "Beagle"): \(msg.content)"
         }
     }
 

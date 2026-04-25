@@ -1211,6 +1211,28 @@ public struct TriadScores: Codable, Sendable {
     public let judge: Double?
 }
 
+// MARK: - Round Table (exotic model debate)
+
+public struct RoundTableResult: Codable, Sendable {
+    public let voices: [RoundTableVoice]?
+    public let interference: RoundTableInterference?
+    public let pciScore: Double?
+    public let synthesis: String?
+}
+
+public struct RoundTableVoice: Codable, Sendable, Identifiable {
+    public var id: String { name }
+    public let name: String
+    public let perspective: String?
+    public let content: String
+}
+
+public struct RoundTableInterference: Codable, Sendable {
+    public let constructive: [String]?
+    public let destructive: [String]?
+    public let emergentInsights: [String]?
+}
+
 // MARK: - Thought Capture
 
 public struct ThoughtCapture: Codable, Sendable, Identifiable {

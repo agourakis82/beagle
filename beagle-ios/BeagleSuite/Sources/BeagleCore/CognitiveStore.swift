@@ -10,6 +10,7 @@
 import Foundation
 import Observation
 import SwiftData
+import CoreSpotlight
 
 @Observable
 @MainActor
@@ -173,6 +174,9 @@ public final class CognitiveStore {
         modelContext?.insert(persisted)
         try? modelContext?.save()
 
+        // Index to Spotlight for system-wide search
+        indexToSpotlight(thought)
+
         return thought
     }
 
@@ -295,6 +299,42 @@ public final class CognitiveStore {
 
     public var runningJobCount: Int {
         activeJobs.filter(\.isRunning).count
+    }
+
+    // MARK: - Spotlight indexing
+
+    private func indexToSpotlight(_ thought: ThoughtCapture) {
+        let title = thought.refinedText ?? thought.rawText ?? ""
+        guard !title.isEmpty else { return }
+
+        let attributes = CSSearchableItemAttributeSet(contentType: .text)
+        attributes.title = String(title.prefix(120))
+        attributes.contentDescription = thought.rawText
+        attributes.keywords = extractKeywords(from: title)
+
+        let item = CSSearchableItem(
+            uniqueIdentifier: "thought-\(thought.id)",
+            domainIdentifier: "dev.sounio.cockpit.thoughts",
+            attributeSet: attributes
+        )
+        item.expirationDate = Calendar.current.date(byAdding: .year, value: 1, to: Date())
+
+        CSSearchableIndex.default().indexSearchableItems([item]) { error in
+            if let error { print("[Spotlight] indexing failed: \(error)") }
+        }
+    }
+
+    private func extractKeywords(from text: String) -> [String] {
+        let stopWords: Set<String> = ["the", "a", "an", "is", "are", "was", "were", "be", "been",
+                                       "being", "have", "has", "had", "do", "does", "did", "will",
+                                       "would", "could", "should", "may", "might", "can", "shall",
+                                       "to", "of", "in", "for", "on", "with", "at", "by", "from",
+                                       "as", "into", "through", "during", "before", "after",
+                                       "de", "do", "da", "dos", "das", "em", "no", "na", "um", "uma",
+                                       "que", "para", "com", "por", "se", "como", "mais", "ou", "mas"]
+        return text.lowercased()
+            .components(separatedBy: .alphanumerics.inverted)
+            .filter { $0.count >= 4 && !stopWords.contains($0) }
     }
 
     // MARK: - Shared helpers
