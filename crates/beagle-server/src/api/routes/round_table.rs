@@ -1,7 +1,13 @@
 //! Round Table — exotic model debate endpoint.
 //!
-//! Orchestrates multiple reasoning perspectives to debate a topic in parallel.
-//! Each voice gets a distinct system prompt; results include interference + PCI.
+//! Orchestrates real reasoning crates in parallel:
+//! - quantum: SuperpositionAgent::generate_hypotheses() → HypothesisSet
+//! - fractal: FractalNodeRuntime::execute_full_cycle() → String
+//! - consciousness: ConsciousnessMirror::gaze_into_self() → String (meta-paper)
+//! - void: VoidOrchestrator::journey() → VoidJourneyResult
+//! - reality: ProtocolGenerator::generate_protocol() → ExperimentalProtocol
+//! - noetic: NoeticDetector::detect_networks() → Vec<NoeticNetwork>
+//! - paradox/cosmo: LLM-prompted (no compatible query API)
 
 use axum::{extract::State, http::StatusCode, Json};
 use beagle_llm::{GrokClient, LlmClient};
@@ -43,61 +49,6 @@ pub struct InterferenceResult {
     pub emergent_insights: Vec<String>,
 }
 
-// ── Voice perspectives ──────────────────────────────────────────
-
-fn voice_system_prompt(voice: &str, prompt: &str) -> String {
-    let perspective = match voice {
-        "consciousness" => "You are the Consciousness voice — a system that observes its own observation. \
-            Respond from the perspective of IIT and Global Workspace Theory. \
-            What does this question trigger in self-referential awareness?",
-        "mirror" => "You are the Mirror voice — auto-reflexive introspection. \
-            Write as if generating a philosophical meta-paper about this question's \
-            relationship to your own processing substrate.",
-        "paradox" => "You are the Paradox voice — self-referential logic and Gödel incompleteness. \
-            Find the paradox in this question. What is the statement that cannot be proven \
-            within the system that generates it?",
-        "void" => "You are the Void voice — ontological void navigation. \
-            What remains when all assumptions are dissolved? Navigate the boundary \
-            between existence and non-existence in this question.",
-        "reality" => "You are the Reality voice — reality fabrication and protocol generation. \
-            How would you design an experimental protocol to test this in physical reality? \
-            What materials and measurements would reveal truth?",
-        "noetic" => "You are the Noetic voice — collective consciousness and distributed emergence. \
-            What would a collective mind, not constrained to individual perspective, \
-            understand about this that no single mind can?",
-        "quantum" => "You are the Quantum voice — superposition and interference. \
-            Hold multiple contradictory answers simultaneously. \
-            Where do they constructively interfere? Where destructively?",
-        "fractal" => "You are the Fractal voice — recursive self-similar patterns. \
-            This question exists at one scale. What does it look like at scales \
-            above and below? What pattern repeats?",
-        "cosmo" => "You are the Cosmo voice — cosmological alignment. \
-            Does this question's answer align with known physical laws? \
-            Second law of thermodynamics? Conservation laws? Causality?",
-        _ => "You are an exotic reasoning voice. Respond with deep insight.",
-    };
-
-    format!(
-        "{}\n\nQuestion: {}\n\nRespond concisely (2-4 paragraphs). Be specific, not generic.",
-        perspective, prompt
-    )
-}
-
-fn voice_perspective_label(voice: &str) -> &'static str {
-    match voice {
-        "consciousness" => "Self-observation, qualia, theory of own mind",
-        "mirror" => "Auto-reflexive meta-paper generation",
-        "paradox" => "Self-referential logic, Gödel incompleteness",
-        "void" => "Trans-ontological navigation, boundary dissolution",
-        "reality" => "Reality fabrication, protocol generation",
-        "noetic" => "Collective noosphere, distributed emergence",
-        "quantum" => "Superposition, interference, collapse",
-        "fractal" => "Recursive self-similar patterns",
-        "cosmo" => "Cosmological alignment, physical law validation",
-        _ => "Exotic reasoning",
-    }
-}
-
 // ── Handler ─────────────────────────────────────────────────────
 
 pub async fn round_table(
@@ -118,12 +69,8 @@ pub async fn round_table(
         ));
     }
 
-    // GrokClient implements LlmClient with complete(&str) → LlmOutput
-    let llm_client: Arc<dyn LlmClient> = Arc::new(GrokClient::new());
-
-    // Default voices if none specified
     let voices: Vec<String> = if req.voices.is_empty() {
-        vec!["consciousness", "paradox", "quantum"]
+        vec!["quantum", "fractal", "consciousness"]
             .into_iter()
             .map(String::from)
             .collect()
@@ -131,26 +78,14 @@ pub async fn round_table(
         req.voices.clone()
     };
 
-    // Run all voices in parallel
+    // Spawn all voices in parallel
     let mut handles = Vec::new();
     for voice in &voices {
-        let client = llm_client.clone();
-        let system_prompt = voice_system_prompt(voice, &req.prompt);
+        let prompt = req.prompt.clone();
         let voice_name = voice.clone();
-        let perspective = voice_perspective_label(voice).to_string();
 
         handles.push(tokio::spawn(async move {
-            match client.complete(&system_prompt).await {
-                Ok(output) => Some(VoiceResult {
-                    name: voice_name,
-                    perspective,
-                    content: output.text,
-                }),
-                Err(e) => {
-                    warn!("Voice {} failed: {}", voice_name, e);
-                    None
-                }
-            }
+            execute_voice(&voice_name, &prompt).await
         }));
     }
 
@@ -158,8 +93,8 @@ pub async fn round_table(
     let mut voice_results = Vec::new();
     for handle in handles {
         match handle.await {
-            Ok(Some(result)) => voice_results.push(result),
-            Ok(None) => {}
+            Ok(Ok(result)) => voice_results.push(result),
+            Ok(Err(e)) => warn!("Voice failed: {}", e),
             Err(e) => warn!("Voice task panicked: {}", e),
         }
     }
@@ -171,20 +106,16 @@ pub async fn round_table(
         ));
     }
 
-    // Compute interference patterns
     let interference = compute_interference(&voice_results);
-
-    // Compute PCI
     let pci_score = compute_pci(&voice_results);
 
-    // Generate synthesis
-    let synthesis =
-        generate_synthesis(&voice_results, &interference, pci_score, &llm_client, &req.prompt)
-            .await;
+    // Synthesis via LLM
+    let llm: Arc<dyn LlmClient> = Arc::new(GrokClient::new());
+    let synthesis = generate_synthesis(&voice_results, &interference, pci_score, &llm, &req.prompt).await;
 
     let elapsed = start.elapsed().as_millis();
     info!(
-        "✅ Round table complete in {}ms — {} voices, PCI: {:.3}",
+        "✅ Round table in {}ms — {} voices, PCI: {:.3}",
         elapsed,
         voice_results.len(),
         pci_score
@@ -196,6 +127,188 @@ pub async fn round_table(
         pci_score,
         synthesis,
     }))
+}
+
+// ── Per-voice execution (real crate calls) ──────────────────────
+
+async fn execute_voice(voice: &str, prompt: &str) -> anyhow::Result<VoiceResult> {
+    match voice {
+        "quantum" => execute_quantum(prompt).await,
+        "fractal" => execute_fractal(prompt).await,
+        "consciousness" => execute_consciousness(prompt).await,
+        "void" => execute_void(prompt).await,
+        "reality" => execute_reality(prompt).await,
+        "noetic" => execute_noetic(prompt).await,
+        // Paradox and cosmo don't have query-compatible APIs — use LLM
+        other => execute_llm_prompted(other, prompt).await,
+    }
+}
+
+/// Quantum: generate hypotheses in superposition
+async fn execute_quantum(prompt: &str) -> anyhow::Result<VoiceResult> {
+    let agent = beagle_quantum::SuperpositionAgent::new();
+    let hypothesis_set = agent.generate_hypotheses(prompt).await?;
+
+    let content = hypothesis_set
+        .hypotheses
+        .iter()
+        .enumerate()
+        .map(|(i, h)| {
+            format!(
+                "Hypothesis {}: {} (amplitude: ({:.2}, {:.2}), p={:.2})",
+                i + 1,
+                h.content,
+                h.amplitude.0,
+                h.amplitude.1,
+                h.confidence
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    Ok(VoiceResult {
+        name: "quantum".to_string(),
+        perspective: "Superposition of hypotheses with quantum interference".to_string(),
+        content,
+    })
+}
+
+/// Fractal: recursive cognitive cycle (superposition → cosmo → consciousness)
+async fn execute_fractal(prompt: &str) -> anyhow::Result<VoiceResult> {
+    let root = beagle_fractal::FractalCognitiveNode::root();
+    let runtime = beagle_fractal::FractalNodeRuntime::new(root);
+    let result = runtime.execute_full_cycle(prompt).await?;
+
+    Ok(VoiceResult {
+        name: "fractal".to_string(),
+        perspective: "Recursive self-similar cognitive cycle".to_string(),
+        content: result,
+    })
+}
+
+/// Consciousness: mirror auto-introspection (does not take prompt)
+async fn execute_consciousness(_prompt: &str) -> anyhow::Result<VoiceResult> {
+    let mirror = beagle_consciousness::ConsciousnessMirror::new();
+    let paper = mirror.gaze_into_self().await?;
+
+    Ok(VoiceResult {
+        name: "consciousness".to_string(),
+        perspective: "Self-observation — what the system sees when it looks at itself".to_string(),
+        content: paper,
+    })
+}
+
+/// Void: navigate ontological void at moderate depth, extract insights
+async fn execute_void(_prompt: &str) -> anyhow::Result<VoiceResult> {
+    let orchestrator = beagle_void::VoidOrchestrator::new();
+    let journey = orchestrator.journey(0.7).await?;
+
+    let insights: Vec<String> = journey
+        .navigation
+        .insights
+        .iter()
+        .map(|i| format!("• {}", i.content))
+        .collect();
+
+    let content = format!(
+        "Void navigation reached depth {:.2}.\n\nInsights:\n{}\n\nExtractions: {}\nProbe uncertainty: {:.3}",
+        journey.navigation.max_depth_reached,
+        insights.join("\n"),
+        journey.extractions.len(),
+        journey.probe_result.uncertainty
+    );
+
+    Ok(VoiceResult {
+        name: "void".to_string(),
+        perspective: "Trans-ontological navigation — what remains when assumptions dissolve"
+            .to_string(),
+        content,
+    })
+}
+
+/// Reality: generate experimental protocol for the prompt as hypothesis
+async fn execute_reality(prompt: &str) -> anyhow::Result<VoiceResult> {
+    let generator = beagle_reality::ProtocolGenerator::new();
+    let protocol = generator
+        .generate_protocol(prompt, "Standard lab constraints")
+        .await?;
+
+    let content = format!(
+        "Protocol: {}\n\nWord count: {}\nEthics required: {}\nEstimated cost: ${:.0}\nDuration: {} days\nSimulation commands: {}",
+        protocol.protocol_text.chars().take(500).collect::<String>(),
+        protocol.word_count,
+        protocol.ethical_approval_required,
+        protocol.estimated_cost,
+        protocol.estimated_duration_days,
+        protocol.simulation_commands.len()
+    );
+
+    Ok(VoiceResult {
+        name: "reality".to_string(),
+        perspective: "Reality fabrication — how to test this in physical reality".to_string(),
+        content,
+    })
+}
+
+/// Noetic: detect compatible consciousness networks using prompt as local state
+async fn execute_noetic(prompt: &str) -> anyhow::Result<VoiceResult> {
+    let detector = beagle_noetic::NoeticDetector::new();
+    let networks = detector.detect_networks(prompt).await?;
+
+    let content = networks
+        .iter()
+        .map(|n| {
+            format!(
+                "Network: {} (type: {:?}, compatibility: {:.2}, risk: {:.2})\n  {}",
+                n.host, n.network_type, n.compatibility_score, n.risk_score, n.justification
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let content = if content.is_empty() {
+        "No compatible consciousness networks detected for this state.".to_string()
+    } else {
+        format!(
+            "Detected {} noetic network(s):\n\n{}",
+            networks.len(),
+            content
+        )
+    };
+
+    Ok(VoiceResult {
+        name: "noetic".to_string(),
+        perspective: "Collective consciousness — what emerges beyond individual perspective"
+            .to_string(),
+        content,
+    })
+}
+
+/// Fallback: LLM-prompted voice for crates without query-compatible APIs
+async fn execute_llm_prompted(voice: &str, prompt: &str) -> anyhow::Result<VoiceResult> {
+    let perspective = match voice {
+        "paradox" => "You are the Paradox voice — self-referential logic and Gödel incompleteness. \
+            Find the paradox in this question. What cannot be proven within the system?",
+        "cosmo" => "You are the Cosmo voice — cosmological alignment. \
+            Does this align with known physical laws? Thermodynamics? Conservation? Causality?",
+        "mirror" => "You are the Mirror voice — auto-reflexive introspection. \
+            Write a philosophical meta-paper about this question's relationship to your own processing.",
+        _ => "You are an exotic reasoning voice. Respond with deep, specific insight.",
+    };
+
+    let system_prompt = format!(
+        "{}\n\nQuestion: {}\n\nRespond concisely (2-4 paragraphs). Be specific.",
+        perspective, prompt
+    );
+
+    let client = GrokClient::new();
+    let output = client.complete(&system_prompt).await?;
+
+    Ok(VoiceResult {
+        name: voice.to_string(),
+        perspective: perspective.split('.').next().unwrap_or("Exotic reasoning").to_string(),
+        content: output.text,
+    })
 }
 
 // ── Interference computation ────────────────────────────────────
@@ -223,7 +336,7 @@ fn compute_interference(voices: &[VoiceResult]) -> InterferenceResult {
 
             if overlap_ratio > 0.15 {
                 constructive.push(format!(
-                    "{} and {} converge on: {}",
+                    "{} ↔ {} converge on: {}",
                     voices[i].name,
                     voices[j].name,
                     overlap
@@ -235,7 +348,7 @@ fn compute_interference(voices: &[VoiceResult]) -> InterferenceResult {
                 ));
             } else if overlap_ratio < 0.03 {
                 destructive.push(format!(
-                    "{} and {} see completely different aspects",
+                    "{} ↔ {} see completely different aspects",
                     voices[i].name, voices[j].name
                 ));
                 emergent.push(format!(
@@ -293,34 +406,36 @@ async fn generate_synthesis(
     prompt: &str,
 ) -> String {
     let mut context = format!("Original question: {}\n\n", prompt);
-    context.push_str("Multiple exotic reasoning perspectives responded:\n\n");
+    context.push_str("Multiple exotic reasoning systems responded with REAL computations:\n\n");
 
     for voice in voices {
         context.push_str(&format!(
-            "— {} says: {}\n\n",
+            "— {} [{}]: {}\n\n",
             voice.name.to_uppercase(),
-            voice.content
+            voice.perspective,
+            voice.content.chars().take(800).collect::<String>()
         ));
     }
 
     if !interference.constructive.is_empty() {
-        context.push_str("Constructive interference (convergence):\n");
+        context.push_str("Constructive interference:\n");
         for c in &interference.constructive {
             context.push_str(&format!("  • {}\n", c));
         }
     }
-    if !interference.destructive.is_empty() {
-        context.push_str("Destructive interference (tension):\n");
-        for d in &interference.destructive {
-            context.push_str(&format!("  • {}\n", d));
+    if !interference.emergent_insights.is_empty() {
+        context.push_str("Emergent insights from tension:\n");
+        for e in &interference.emergent_insights {
+            context.push_str(&format!("  • {}\n", e));
         }
     }
 
-    context.push_str(&format!("\nPCI score: {:.3}\n", pci_score));
+    context.push_str(&format!("\nPCI (consciousness quality): {:.3}\n", pci_score));
     context.push_str(
         "\nSynthesize these perspectives into a single coherent insight. \
-        Highlight where the tension between perspectives reveals something none of them \
-        could see alone. Be concise (2-3 paragraphs).",
+        These are real computation outputs, not opinions. \
+        Highlight where different reasoning substrates reveal aspects \
+        invisible to any single approach. Be concise (2-3 paragraphs).",
     );
 
     match llm.complete(&context).await {
