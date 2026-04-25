@@ -78,7 +78,8 @@ impl GrokClient {
         if force_heavy || req.max_tokens.unwrap_or(0) > 16000 {
             "grok-4-heavy".to_string()
         } else {
-            "grok-3".to_string()
+            // grok-4-1-fast-reasoning: reasoning-capable, ~3s latency, much better than grok-3
+            "grok-4-1-fast-reasoning".to_string()
         }
     }
 

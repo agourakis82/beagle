@@ -26,7 +26,7 @@ static GROK3_CLIENT: Lazy<Option<GrokClient>> = Lazy::new(|| {
     std::env::var("XAI_API_KEY")
         .or_else(|_| std::env::var("GROK_API_KEY"))
         .ok()
-        .map(|key| GrokClient::with_model(&key, GrokModel::Grok3))
+        .map(|key| GrokClient::with_model(&key, GrokModel::Grok41FastReasoning))
 });
 
 /// Cliente Grok 4 global (contexto grande, para queries complexas)
