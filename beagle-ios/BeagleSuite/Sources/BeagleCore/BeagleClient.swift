@@ -25,8 +25,9 @@ public actor BeagleClient {
 
     /// beagle-server URLs — tried in sequence.
     private var baseURLs: [URL] = [
-        URL(string: "http://beagle-core.tail21cbc4.ts.net")!,            // Tailnet (HTTP, verified)
-        URL(string: "http://beagle-core.beagle.svc.cluster.local:8080")! // In-cluster pod network
+        URL(string: "https://beagle.chiuratto.ai")!,                      // Public gateway (works from any device)
+        URL(string: "http://beagle-core.tail21cbc4.ts.net")!,             // Tailnet (when on VPN)
+        URL(string: "http://beagle-core.beagle.svc.cluster.local:8080")!  // In-cluster pod network
     ]
 
     /// Auth token for beagle-core consumer API.
