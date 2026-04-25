@@ -1,16 +1,21 @@
 //! Round Table — exotic model debate endpoint.
 //!
-//! Orchestrates real reasoning crates in parallel:
+//! Multi-provider: detects available LLM providers from env vars and
+//! distributes voices across them for genuine multi-model debate.
+//!
+//! Crate voices (use their internal LLM):
 //! - quantum: SuperpositionAgent::generate_hypotheses() → HypothesisSet
 //! - fractal: FractalNodeRuntime::execute_full_cycle() → String
-//! - consciousness: ConsciousnessMirror::gaze_into_self() → String (meta-paper)
+//! - consciousness: ConsciousnessMirror::gaze_into_self() → String
 //! - void: VoidOrchestrator::journey() → VoidJourneyResult
 //! - reality: ProtocolGenerator::generate_protocol() → ExperimentalProtocol
 //! - noetic: NoeticDetector::detect_networks() → Vec<NoeticNetwork>
-//! - paradox/cosmo: LLM-prompted (no compatible query API)
+//!
+//! LLM-prompted voices (use different providers for diversity):
+//! - paradox, cosmo, mirror: routed to Grok, Claude, or DeepSeek
 
 use axum::{extract::State, http::StatusCode, Json};
-use beagle_llm::{GrokClient, LlmClient};
+use beagle_llm::{ClaudeClient, ClaudeModel, DeepSeekClient, GrokClient, LlmClient};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
@@ -49,6 +54,35 @@ pub struct InterferenceResult {
     pub emergent_insights: Vec<String>,
 }
 
+// ── Multi-provider pool ─────────────────────────────────────────
+
+/// Detect available LLM providers from environment and build a pool.
+/// Round-robins across providers for genuine multi-model diversity.
+fn build_provider_pool() -> Vec<(String, Arc<dyn LlmClient>)> {
+    let mut pool: Vec<(String, Arc<dyn LlmClient>)> = Vec::new();
+
+    if !std::env::var("XAI_API_KEY").unwrap_or_default().is_empty() {
+        pool.push(("grok".into(), Arc::new(GrokClient::new())));
+    }
+    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+        if !key.is_empty() {
+            if let Ok(client) = ClaudeClient::new(key, ClaudeModel::Sonnet45) {
+                pool.push(("claude".into(), Arc::new(client)));
+            }
+        }
+    }
+    if !std::env::var("DEEPSEEK_API_KEY").unwrap_or_default().is_empty() {
+        pool.push(("deepseek".into(), Arc::new(DeepSeekClient::new())));
+    }
+
+    // Fallback: if nothing else, try Grok anyway (will fail gracefully)
+    if pool.is_empty() {
+        pool.push(("grok".into(), Arc::new(GrokClient::new())));
+    }
+
+    pool
+}
+
 // ── Handler ─────────────────────────────────────────────────────
 
 pub async fn round_table(
@@ -57,9 +91,11 @@ pub async fn round_table(
 ) -> Result<Json<RoundTableResponse>, (StatusCode, String)> {
     let start = Instant::now();
 
+    let providers = build_provider_pool();
+    let provider_names: Vec<&str> = providers.iter().map(|(n, _)| n.as_str()).collect();
     info!(
-        "🎭 /api/v1/round-table — prompt: {}, voices: {:?}",
-        req.prompt, req.voices
+        "🎭 /api/v1/round-table — prompt: {}, voices: {:?}, providers: {:?}",
+        req.prompt, req.voices, provider_names
     );
 
     if req.prompt.trim().is_empty() {
@@ -78,14 +114,16 @@ pub async fn round_table(
         req.voices.clone()
     };
 
-    // Spawn all voices in parallel
+    // Spawn all voices in parallel — LLM-prompted voices get different providers
     let mut handles = Vec::new();
-    for voice in &voices {
+    for (i, voice) in voices.iter().enumerate() {
         let prompt = req.prompt.clone();
         let voice_name = voice.clone();
+        // Round-robin providers for LLM-prompted voices
+        let provider = providers[i % providers.len()].clone();
 
         handles.push(tokio::spawn(async move {
-            execute_voice(&voice_name, &prompt).await
+            execute_voice(&voice_name, &prompt, &provider.0, &provider.1).await
         }));
     }
 
@@ -100,23 +138,26 @@ pub async fn round_table(
     }
 
     if voice_results.is_empty() {
-        let hint = if std::env::var("XAI_API_KEY").unwrap_or_default().is_empty() {
-            " (XAI_API_KEY not set — exotic crates need Grok API access)"
-        } else {
-            ""
-        };
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            format!("All voices failed{}", hint),
+            format!(
+                "All voices failed (available providers: {})",
+                provider_names.join(", ")
+            ),
         ));
     }
 
     let interference = compute_interference(&voice_results);
     let pci_score = compute_pci(&voice_results);
 
-    // Synthesis via LLM
-    let llm: Arc<dyn LlmClient> = Arc::new(GrokClient::new());
-    let synthesis = generate_synthesis(&voice_results, &interference, pci_score, &llm, &req.prompt).await;
+    // Synthesis uses the best available provider (prefer Claude for synthesis quality)
+    let synthesis_llm = providers
+        .iter()
+        .find(|(n, _)| n == "claude")
+        .or(providers.first())
+        .map(|(_, c)| c.clone())
+        .unwrap();
+    let synthesis = generate_synthesis(&voice_results, &interference, pci_score, &synthesis_llm, &req.prompt).await;
 
     let elapsed = start.elapsed().as_millis();
     info!(
@@ -136,16 +177,22 @@ pub async fn round_table(
 
 // ── Per-voice execution (real crate calls) ──────────────────────
 
-async fn execute_voice(voice: &str, prompt: &str) -> anyhow::Result<VoiceResult> {
+async fn execute_voice(
+    voice: &str,
+    prompt: &str,
+    provider_name: &str,
+    provider: &Arc<dyn LlmClient>,
+) -> anyhow::Result<VoiceResult> {
     match voice {
+        // Real crate calls (use their internal LLM provider)
         "quantum" => execute_quantum(prompt).await,
         "fractal" => execute_fractal(prompt).await,
         "consciousness" => execute_consciousness(prompt).await,
         "void" => execute_void(prompt).await,
         "reality" => execute_reality(prompt).await,
         "noetic" => execute_noetic(prompt).await,
-        // Paradox and cosmo don't have query-compatible APIs — use LLM
-        other => execute_llm_prompted(other, prompt).await,
+        // LLM-prompted voices — use the assigned provider for diversity
+        other => execute_llm_prompted(other, prompt, provider_name, provider).await,
     }
 }
 
@@ -289,8 +336,15 @@ async fn execute_noetic(prompt: &str) -> anyhow::Result<VoiceResult> {
     })
 }
 
-/// Fallback: LLM-prompted voice for crates without query-compatible APIs
-async fn execute_llm_prompted(voice: &str, prompt: &str) -> anyhow::Result<VoiceResult> {
+/// LLM-prompted voice — uses the assigned provider for multi-model diversity.
+/// When Round Table has Grok + Claude + DeepSeek, each LLM-prompted voice
+/// gets a different model, creating genuine multi-perspective debate.
+async fn execute_llm_prompted(
+    voice: &str,
+    prompt: &str,
+    provider_name: &str,
+    provider: &Arc<dyn LlmClient>,
+) -> anyhow::Result<VoiceResult> {
     let perspective = match voice {
         "paradox" => "You are the Paradox voice — self-referential logic and Gödel incompleteness. \
             Find the paradox in this question. What cannot be proven within the system?",
@@ -306,11 +360,10 @@ async fn execute_llm_prompted(voice: &str, prompt: &str) -> anyhow::Result<Voice
         perspective, prompt
     );
 
-    let client = GrokClient::new();
-    let output = client.complete(&system_prompt).await?;
+    let output = provider.complete(&system_prompt).await?;
 
     Ok(VoiceResult {
-        name: voice.to_string(),
+        name: format!("{} (via {})", voice, provider_name),
         perspective: perspective.split('.').next().unwrap_or("Exotic reasoning").to_string(),
         content: output.text,
     })
