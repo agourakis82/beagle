@@ -8,7 +8,7 @@ use tracing::info;
 
 #[tokio::test]
 async fn test_file_watcher() -> anyhow::Result<()> {
-    let observer = UniversalObserver::new()?;
+    let observer = UniversalObserver::new().await?;
     let mut rx = observer.subscribe().await;
 
     observer.start_full_surveillance().await?;
@@ -49,7 +49,7 @@ async fn test_file_watcher() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_healthkit_bridge() -> anyhow::Result<()> {
-    let observer = UniversalObserver::new()?;
+    let observer = UniversalObserver::new().await?;
     let mut rx = observer.subscribe().await;
 
     observer.start_full_surveillance().await?;
@@ -94,7 +94,7 @@ async fn test_healthkit_bridge() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_physiological_analysis() -> anyhow::Result<()> {
-    let observer = UniversalObserver::new()?;
+    let observer = UniversalObserver::new().await?;
 
     // Cria observações mock de HealthKit
     let health_obs = vec![

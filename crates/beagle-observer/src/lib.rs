@@ -273,12 +273,8 @@ pub struct UniversalObserver {
 
 impl UniversalObserver {
     /// Create new universal observer
-    pub fn new() -> Result<Self> {
-        // Use tokio runtime to create the async SystemObserver
-        let rt = tokio::runtime::Handle::try_current()
-            .unwrap_or_else(|_| tokio::runtime::Runtime::new().unwrap().handle().clone());
-
-        let inner = rt.block_on(async { SystemObserver::new(ObserverConfig::default()).await })?;
+    pub async fn new() -> Result<Self> {
+        let inner = SystemObserver::new(ObserverConfig::default()).await?;
 
         Ok(Self {
             inner,

@@ -152,7 +152,7 @@ mod tests {
             ctx: Arc::new(Mutex::new(ctx)),
             jobs: Arc::new(JobRegistry::new()),
             science_jobs: Arc::new(ScienceJobRegistry::new()),
-            observer: Arc::new(UniversalObserver::new().unwrap()),
+            observer: Arc::new(UniversalObserver::new().await.unwrap()),
         }
     }
 

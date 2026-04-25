@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let ctx = BeagleContext::new(cfg).await?;
-    let observer = UniversalObserver::new().context("Falha ao criar UniversalObserver")?;
+    let observer = UniversalObserver::new().await.context("Falha ao criar UniversalObserver")?;
 
     let state = AppState {
         ctx: Arc::new(Mutex::new(ctx)),
