@@ -32,7 +32,6 @@ targets:
     supportedDestinations: [iOS, macOS]
     sources:
       - path: BeagleSuite/Sources/BeagleCockpit
-      - path: BeagleSuite/Sources/BeagleIntents
       - path: Assets.xcassets
     dependencies:
       - package: BeagleSuite
@@ -58,6 +57,7 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSMicrophoneUsageDescription: "Beagle uses the microphone for voice commands."
         NSHealthShareUsageDescription: "Beagle reads recovery signals like HRV, sleep, and workouts so the exocortex can adapt to your actual state."
+        NSHealthUpdateUsageDescription: "Beagle records cognitive state snapshots alongside your thoughts so the exocortex can correlate insights with your physiological state."
         NSSpeechRecognitionUsageDescription: "Beagle uses speech recognition for voice commands."
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
