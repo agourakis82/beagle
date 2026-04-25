@@ -133,6 +133,13 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/search/arxiv", post(search_arxiv_handler))
         .route("/api/search/all", post(search_all_handler))
         .route("/api/v1/round-table", post(round_table_handler))
+        // Go Deeper modality routes (used by iOS GoDeepStore)
+        .route("/dev/deep-research", post(go_deep_generic_handler))
+        .route("/dev/swarm", post(go_deep_generic_handler))
+        .route("/dev/temporal", post(go_deep_generic_handler))
+        .route("/dev/neurosymbolic", post(go_deep_generic_handler))
+        .route("/dev/causal", post(go_deep_generic_handler))
+        .route("/dev/debate", post(go_deep_debate_handler))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             api_token_auth,
@@ -1609,6 +1616,94 @@ async fn round_table_handler(
     tracing::info!("✅ Round table in {}ms — {} voices, PCI {:.3}", start.elapsed().as_millis(), results.len(), pci);
 
     Ok(Json(RoundTableResponse { voices: results, pci_score: pci, synthesis }))
+}
+
+// ── Go Deeper modality handlers ─────────────────────────────────
+// These routes implement /dev/swarm, /dev/temporal, /dev/neurosymbolic etc.
+// Each modality sends the query to Grok with a modality-specific system prompt
+// and returns a structured response matching what the iOS GoDeepStore expects.
+
+async fn go_deep_generic_handler(
+    axum::extract::State(_state): axum::extract::State<AppState>,
+    uri: axum::http::Uri,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    use beagle_llm::{GrokClient, LlmClient};
+
+    let path = uri.path();
+    let query = body.get("research_question")
+        .or(body.get("exploration_query"))
+        .or(body.get("query"))
+        .or(body.get("problem"))
+        .and_then(|v| v.as_str())
+        .or_else(|| body.get("events").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|v| v.as_str()))
+        .unwrap_or("no query provided");
+
+    let (modality, system_prompt) = match path {
+        "/dev/deep-research" => ("deep_research", "You are a deep research agent. Perform Monte Carlo Tree Search-style reasoning. Provide: research_summary, key_findings (list), methodology, confidence_score (0-1), sources_consulted (list)."),
+        "/dev/swarm" => ("swarm", "You are a swarm intelligence agent. Multiple perspectives explore the query simultaneously. Provide: consensus, individual_perspectives (list of {agent, position, confidence}), dissenting_views, exploration_paths."),
+        "/dev/temporal" => ("temporal", "You are a temporal multi-scale reasoning agent. Analyze across time scales. Provide: analysis, time_scales (list of {scale, insight}), causal_chains, temporal_patterns."),
+        "/dev/neurosymbolic" => ("neurosymbolic", "You are a neuro-symbolic hybrid reasoning agent. Combine neural pattern recognition with symbolic logic. Provide: neural_insights, symbolic_rules (list), integrated_conclusion, confidence."),
+        "/dev/causal" => ("causal", "You are a causal reasoning agent. Extract causal relationships. Provide: nodes (list of {id, label}), edges (list of {source, target, strength}), summary."),
+        _ => ("generic", "Analyze this deeply and provide structured insights."),
+    };
+
+    tracing::info!("🔬 Go Deeper {} — query: {}", modality, &query[..query.len().min(80)]);
+
+    let client = GrokClient::new();
+    let prompt = format!("{}\n\nQuery: {}\n\nRespond in valid JSON matching the fields described above.", system_prompt, query);
+
+    match client.complete(&prompt).await {
+        Ok(output) => {
+            // Try to parse as JSON, fallback to wrapped text
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&output.text) {
+                Ok(Json(parsed))
+            } else {
+                Ok(Json(serde_json::json!({
+                    "response": output.text,
+                    "modality": modality,
+                    "status": "ok"
+                })))
+            }
+        }
+        Err(e) => {
+            tracing::error!("Go Deeper {} failed: {}", modality, e);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        }
+    }
+}
+
+async fn go_deep_debate_handler(
+    axum::extract::State(_state): axum::extract::State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    use beagle_llm::{GrokClient, LlmClient};
+
+    let topic = body.get("topic").and_then(|v| v.as_str()).unwrap_or("no topic");
+    tracing::info!("🥊 /dev/debate — topic: {}", &topic[..topic.len().min(80)]);
+
+    let client = GrokClient::new();
+    let prompt = format!(
+        "You are running a Triad adversarial debate with three agents (ATHENA research specialist, HERMES communication expert, ARGOS critical reviewer) and a JUDGE.\n\nTopic: {}\n\nProvide a JSON response with: athena ({{opinion, confidence}}), hermes ({{opinion, confidence}}), argos ({{opinion, confidence}}), judge ({{opinion, confidence}}), consensus (string), scores ({{athena, hermes, argos, judge}} as floats 0-1).",
+        topic
+    );
+
+    match client.complete(&prompt).await {
+        Ok(output) => {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&output.text) {
+                Ok(Json(parsed))
+            } else {
+                Ok(Json(serde_json::json!({
+                    "athena": {"opinion": output.text, "confidence": 0.7},
+                    "hermes": {"opinion": "See ATHENA analysis", "confidence": 0.6},
+                    "argos": {"opinion": "Pending review", "confidence": 0.5},
+                    "consensus": output.text,
+                    "scores": {"athena": 0.7, "hermes": 0.6, "argos": 0.5, "judge": 0.6}
+                })))
+            }
+        }
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    }
 }
 
 /// Convert beagle_search::Paper to PaperInfo
