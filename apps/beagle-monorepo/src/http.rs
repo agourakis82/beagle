@@ -132,6 +132,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/search/pubmed", post(search_pubmed_handler))
         .route("/api/search/arxiv", post(search_arxiv_handler))
         .route("/api/search/all", post(search_all_handler))
+        .route("/api/v1/round-table", post(round_table_handler))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             api_token_auth,
@@ -1485,6 +1486,129 @@ fn convert_to_response(result: beagle_search::SearchResult) -> SearchResponse {
         backend: result.backend,
         search_time_ms: result.search_time_ms,
     }
+}
+
+// ── Round Table ─────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct RoundTableRequest {
+    prompt: String,
+    #[serde(default)]
+    voices: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct RoundTableResponse {
+    voices: Vec<RoundTableVoice>,
+    pci_score: f64,
+    synthesis: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct RoundTableVoice {
+    name: String,
+    perspective: String,
+    content: String,
+}
+
+async fn round_table_handler(
+    axum::extract::State(_state): axum::extract::State<AppState>,
+    Json(req): Json<RoundTableRequest>,
+) -> Result<Json<RoundTableResponse>, (StatusCode, String)> {
+    use beagle_llm::{GrokClient, LlmClient};
+    use std::sync::Arc;
+
+    let start = std::time::Instant::now();
+    tracing::info!("🎭 /api/v1/round-table — prompt: {}, voices: {:?}", req.prompt, req.voices);
+
+    if req.prompt.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Prompt cannot be empty".to_string()));
+    }
+
+    let voices = if req.voices.is_empty() {
+        vec!["consciousness", "paradox", "quantum"].iter().map(|s| s.to_string()).collect()
+    } else {
+        req.voices.clone()
+    };
+
+    let llm: Arc<dyn LlmClient> = Arc::new(GrokClient::new());
+
+    // Run all voices in parallel
+    let mut handles = Vec::new();
+    for voice in &voices {
+        let client = llm.clone();
+        let voice_name = voice.clone();
+        let prompt = req.prompt.clone();
+
+        let perspective = match voice.as_str() {
+            "consciousness" => "You are the Consciousness voice — IIT and Global Workspace Theory. What does this trigger in self-referential awareness?",
+            "paradox" => "You are the Paradox voice — Gödel incompleteness. Find the paradox. What cannot be proven within the system?",
+            "quantum" => "You are the Quantum voice — superposition and interference. Hold contradictions simultaneously. Where do they interfere?",
+            "void" => "You are the Void voice — ontological void. What remains when all assumptions dissolve?",
+            "reality" => "You are the Reality voice — design an experimental protocol to test this in physical reality.",
+            "noetic" => "You are the Noetic voice — collective consciousness. What would a collective mind understand that no individual can?",
+            "fractal" => "You are the Fractal voice — recursive patterns. What does this look like at scales above and below?",
+            "cosmo" => "You are the Cosmo voice — does this align with physical laws? Thermodynamics? Conservation? Causality?",
+            _ => "You are an exotic reasoning voice. Respond with deep insight.",
+        };
+
+        let system_prompt = format!("{}\n\nQuestion: {}\n\nRespond concisely (2-3 paragraphs).", perspective, prompt);
+
+        handles.push(tokio::spawn(async move {
+            match client.complete(&system_prompt).await {
+                Ok(output) => Some(RoundTableVoice {
+                    name: voice_name,
+                    perspective: perspective.split('.').next().unwrap_or("").to_string(),
+                    content: output.text,
+                }),
+                Err(e) => {
+                    tracing::warn!("Voice {} failed: {}", voice_name, e);
+                    None
+                }
+            }
+        }));
+    }
+
+    let mut results = Vec::new();
+    for handle in handles {
+        if let Ok(Some(r)) = handle.await { results.push(r); }
+    }
+
+    if results.is_empty() {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "All voices failed".to_string()));
+    }
+
+    // Simple PCI
+    let pci = if results.len() >= 2 {
+        let mut j = 0.0;
+        let mut p = 0;
+        for i in 0..results.len() {
+            for k in (i+1)..results.len() {
+                let a: std::collections::HashSet<&str> = results[i].content.split_whitespace().collect();
+                let b: std::collections::HashSet<&str> = results[k].content.split_whitespace().collect();
+                j += a.intersection(&b).count() as f64 / a.union(&b).count().max(1) as f64;
+                p += 1;
+            }
+        }
+        let avg = j / p.max(1) as f64;
+        ((1.0 - avg) * 0.5 + avg * 0.3 + (results.len() as f64 / 9.0).min(1.0) * 0.2).min(1.0)
+    } else { 0.0 };
+
+    // Synthesis
+    let mut ctx = format!("Synthesize these {} perspectives on: {}\n\n", results.len(), req.prompt);
+    for v in &results {
+        ctx.push_str(&format!("— {}: {}\n\n", v.name.to_uppercase(), &v.content[..v.content.len().min(400)]));
+    }
+    ctx.push_str("Synthesize into 2 paragraphs. What does the collision reveal?");
+
+    let synthesis = match llm.complete(&ctx).await {
+        Ok(o) => o.text,
+        Err(_) => format!("{} voices responded with PCI {:.2}", results.len(), pci),
+    };
+
+    tracing::info!("✅ Round table in {}ms — {} voices, PCI {:.3}", start.elapsed().as_millis(), results.len(), pci);
+
+    Ok(Json(RoundTableResponse { voices: results, pci_score: pci, synthesis }))
 }
 
 /// Convert beagle_search::Paper to PaperInfo
