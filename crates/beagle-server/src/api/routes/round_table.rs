@@ -15,7 +15,9 @@
 //! - paradox, cosmo, mirror: routed to Grok, Claude, or DeepSeek
 
 use axum::{extract::State, http::StatusCode, Json};
-use beagle_llm::{ClaudeClient, ClaudeModel, DeepSeekClient, GrokClient, LlmClient};
+use beagle_llm::{
+    ClaudeCliClient, CodexCliClient, GrokClient, LlmClient, OpenRouterClient,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
@@ -56,26 +58,37 @@ pub struct InterferenceResult {
 
 // ── Multi-provider pool ─────────────────────────────────────────
 
-/// Detect available LLM providers from environment and build a pool.
+/// Detect available LLM providers and build a pool.
+/// Prefers subscription-based CLIs (Claude Max, Codex Pro, Kimi) over API keys.
 /// Round-robins across providers for genuine multi-model diversity.
 fn build_provider_pool() -> Vec<(String, Arc<dyn LlmClient>)> {
     let mut pool: Vec<(String, Arc<dyn LlmClient>)> = Vec::new();
 
+    // 1. Claude Code via Max subscription (CLI — no per-token cost)
+    if ClaudeCliClient::check_available() {
+        if let Ok(client) = ClaudeCliClient::new() {
+            pool.push(("claude-code".into(), Arc::new(client)));
+        }
+    }
+
+    // 2. Codex (GPT 5.5) via Pro Max subscription (CLI — no per-token cost)
+    if CodexCliClient::check_available() {
+        if let Ok(client) = CodexCliClient::new() {
+            pool.push(("codex".into(), Arc::new(client)));
+        }
+    }
+
+    // 3. Kimi K2.6 via OpenRouter subscription
+    if OpenRouterClient::check_available() {
+        pool.push(("kimi".into(), Arc::new(OpenRouterClient::new())));
+    }
+
+    // 4. Grok via API key (fallback — unlimited on xAI)
     if !std::env::var("XAI_API_KEY").unwrap_or_default().is_empty() {
         pool.push(("grok".into(), Arc::new(GrokClient::new())));
     }
-    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
-        if !key.is_empty() {
-            if let Ok(client) = ClaudeClient::new(key, ClaudeModel::Sonnet45) {
-                pool.push(("claude".into(), Arc::new(client)));
-            }
-        }
-    }
-    if !std::env::var("DEEPSEEK_API_KEY").unwrap_or_default().is_empty() {
-        pool.push(("deepseek".into(), Arc::new(DeepSeekClient::new())));
-    }
 
-    // Fallback: if nothing else, try Grok anyway (will fail gracefully)
+    // Fallback: if nothing at all, try Grok anyway
     if pool.is_empty() {
         pool.push(("grok".into(), Arc::new(GrokClient::new())));
     }
@@ -150,10 +163,12 @@ pub async fn round_table(
     let interference = compute_interference(&voice_results);
     let pci_score = compute_pci(&voice_results);
 
-    // Synthesis uses the best available provider (prefer Claude for synthesis quality)
+    // Synthesis uses the best available provider
+    // Prefer Claude Code (Max sub), then Codex, then Kimi, then Grok
     let synthesis_llm = providers
         .iter()
-        .find(|(n, _)| n == "claude")
+        .find(|(n, _)| n == "claude-code")
+        .or_else(|| providers.iter().find(|(n, _)| n == "codex"))
         .or(providers.first())
         .map(|(_, c)| c.clone())
         .unwrap();
