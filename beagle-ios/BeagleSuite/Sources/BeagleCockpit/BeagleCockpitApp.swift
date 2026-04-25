@@ -277,7 +277,7 @@ struct RootView: View {
                 Group {
                     switch sidebarSelection {
                     case .mind:
-                        HomeView()
+                        BeagleSurface(bootError: $bootError)
                     case .capture:
                         ThoughtCaptureView()
                     case .deep:
@@ -286,14 +286,11 @@ struct RootView: View {
                                 TriadReviewView()
                             }
                     case .work:
-                        AgentSessionView(slug: cognitive.activeProjectSlug ?? catalog.primaryProject?.projectSlug ?? "sounio")
-                            .navigationDestination(for: Project.self) { project in
-                                ControlRoomView(slug: project.projectSlug)
-                            }
+                        WorkView(bootError: $bootError)
                     case .settings:
                         ModelSettingsView()
                     case nil:
-                        HomeView()
+                        BeagleSurface(bootError: $bootError)
                     }
                 }
             }

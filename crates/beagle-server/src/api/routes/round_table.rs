@@ -100,9 +100,14 @@ pub async fn round_table(
     }
 
     if voice_results.is_empty() {
+        let hint = if std::env::var("XAI_API_KEY").unwrap_or_default().is_empty() {
+            " (XAI_API_KEY not set — exotic crates need Grok API access)"
+        } else {
+            ""
+        };
         return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "All voices failed".to_string(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("All voices failed{}", hint),
         ));
     }
 
