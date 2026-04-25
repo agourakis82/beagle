@@ -25,7 +25,25 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let ctx = BeagleContext::new(cfg).await?;
-    let observer = UniversalObserver::new().await.context("Falha ao criar UniversalObserver")?;
+    // Observer can hang on some platforms (filesystem watchers, dbus).
+    // Wrap in timeout — if it hangs, start the server without it.
+    let observer = match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        UniversalObserver::new()
+    ).await {
+        Ok(Ok(obs)) => {
+            info!("UniversalObserver initialized");
+            obs
+        }
+        Ok(Err(e)) => {
+            tracing::warn!("UniversalObserver failed: {}, using dummy", e);
+            UniversalObserver::dummy()
+        }
+        Err(_) => {
+            tracing::warn!("UniversalObserver timed out after 5s, using dummy");
+            UniversalObserver::dummy()
+        }
+    };
 
     let state = AppState {
         ctx: Arc::new(Mutex::new(ctx)),
