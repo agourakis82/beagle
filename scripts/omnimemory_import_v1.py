@@ -4,6 +4,8 @@
 This script is intentionally dependency-light. It normalizes common JSON,
 JSONL, Markdown, and text exports into canonical JSONL, classifies basic
 privacy risk, and deduplicates by content hash with optional fuzzy matching.
+It can also salvage explicit local app cache blobs when requested, but only
+as a best-effort extraction path with provenance marked as non-export cache.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from typing import Any, Iterable
 
 
 SUPPORTED_SUFFIXES = {".json", ".jsonl", ".txt", ".md"}
+BINARY_CACHE_SUFFIXES = {".data", ".ldb", ".log", ""}
 PIPELINE_VERSION = "omnimemory_import_pipeline_v1"
 
 SECRET_PATTERNS = [
@@ -211,12 +214,6 @@ def normalize_candidate(candidate: dict[str, Any], source_platform: str, source_
     return conversation_id, title, created_at, updated_at, turns, text
 
 
-def iter_input_files(input_path: Path) -> list[Path]:
-    if input_path.is_file():
-        return [input_path]
-    return sorted(path for path in input_path.rglob("*") if path.is_file() and path.suffix.lower() in SUPPORTED_SUFFIXES)
-
-
 def read_text_file(path: Path) -> str:
     raw = path.read_bytes()
     if b"\x00" in raw:
@@ -224,8 +221,60 @@ def read_text_file(path: Path) -> str:
     return raw.decode("utf-8")
 
 
-def parse_file(path: Path, source_platform: str) -> Iterable[tuple[dict[str, Any], str]]:
-    text = read_text_file(path)
+def printable_strings_from_binary(raw: bytes, min_length: int) -> list[str]:
+    ascii_pattern = re.compile(rb"[\x20-\x7e\n\r\t]{" + str(min_length).encode("ascii") + rb",}")
+    strings = [match.group(0).decode("utf-8", "ignore").strip() for match in ascii_pattern.finditer(raw)]
+
+    try:
+        utf16_text = raw.decode("utf-16-le", "ignore")
+    except Exception:  # noqa: BLE001 - best effort only.
+        utf16_text = ""
+    if utf16_text:
+        utf16_pattern = re.compile(r"[\x20-\x7e\n\r\t]{" + str(min_length) + r",}")
+        strings.extend(match.group(0).strip() for match in utf16_pattern.finditer(utf16_text))
+
+    clean: list[str] = []
+    seen: set[str] = set()
+    for value in strings:
+        value = re.sub(r"\s+", " ", value).strip()
+        if len(value) < min_length:
+            continue
+        digest = sha256_text(value)
+        if digest in seen:
+            continue
+        seen.add(digest)
+        clean.append(value)
+    return clean
+
+
+def parse_file(
+    path: Path,
+    source_platform: str,
+    *,
+    include_binary_cache: bool = False,
+    binary_min_string: int = 240,
+) -> Iterable[tuple[dict[str, Any], str]]:
+    try:
+        text = read_text_file(path)
+    except (UnicodeDecodeError, ValueError) as exc:
+        if not include_binary_cache:
+            raise
+        raw = path.read_bytes()
+        strings = printable_strings_from_binary(raw, binary_min_string)
+        if not strings:
+            raise ValueError("binary cache had no recoverable long strings") from exc
+        for index, value in enumerate(strings):
+            yield {
+                "title": f"{path.name or path.parent.name} recovered string {index + 1}",
+                "text": value,
+                "id": f"{path.name or path.parent.name}:{index + 1}",
+                "metadata": {
+                    "cache_extraction": True,
+                    "binary_min_string": binary_min_string,
+                    "source_kind": "local_app_cache",
+                },
+            }, f"binary-string:{index}"
+        return
     suffix = path.suffix.lower()
     if suffix == ".jsonl":
         for line_number, line in enumerate(text.splitlines(), start=1):
@@ -240,12 +289,37 @@ def parse_file(path: Path, source_platform: str) -> Iterable[tuple[dict[str, Any
     yield {"title": path.stem, "text": text}, "text:0"
 
 
-def build_records(input_path: Path, source_platform: str) -> tuple[list[CanonicalRecord], list[dict[str, Any]]]:
+def iter_input_files(input_path: Path, include_binary_cache: bool = False, limit_files: int | None = None) -> list[Path]:
+    if input_path.is_file():
+        return [input_path]
+    suffixes = SUPPORTED_SUFFIXES | (BINARY_CACHE_SUFFIXES if include_binary_cache else set())
+    files = sorted(path for path in input_path.rglob("*") if path.is_file() and path.suffix.lower() in suffixes)
+    if limit_files is not None:
+        return files[:limit_files]
+    return files
+
+
+def build_records(
+    input_path: Path,
+    source_platform: str,
+    *,
+    include_binary_cache: bool = False,
+    binary_min_string: int = 240,
+    limit_files: int | None = None,
+    limit_records: int | None = None,
+) -> tuple[list[CanonicalRecord], list[dict[str, Any]]]:
     records: list[CanonicalRecord] = []
     errors: list[dict[str, Any]] = []
-    for path in iter_input_files(input_path):
+    for path in iter_input_files(input_path, include_binary_cache=include_binary_cache, limit_files=limit_files):
         try:
-            parsed = list(parse_file(path, source_platform))
+            parsed = list(
+                parse_file(
+                    path,
+                    source_platform,
+                    include_binary_cache=include_binary_cache,
+                    binary_min_string=binary_min_string,
+                )
+            )
         except Exception as exc:  # noqa: BLE001 - report and continue.
             errors.append({"file": str(path), "error": str(exc)})
             continue
@@ -275,12 +349,15 @@ def build_records(input_path: Path, source_platform: str) -> tuple[list[Canonica
                         privacy_tags=privacy_tags,
                         provenance={
                             "imported_via": PIPELINE_VERSION,
-                            "explicit_user_export": True,
+                            "explicit_user_export": not bool(candidate.get("metadata", {}).get("cache_extraction")),
                             "source_location": location,
+                            "source_kind": candidate.get("metadata", {}).get("source_kind", "explicit_export"),
                         },
-                        metadata={},
+                        metadata=candidate.get("metadata", {}) if isinstance(candidate.get("metadata"), dict) else {},
                     )
                 )
+                if limit_records is not None and len(records) >= limit_records:
+                    return records, errors
             except Exception as exc:  # noqa: BLE001 - report and continue.
                 errors.append({"file": str(path), "location": location, "error": str(exc)})
     return records, errors
@@ -344,7 +421,14 @@ def prepare(args: argparse.Namespace) -> int:
     output_path.mkdir(parents=True, exist_ok=True)
 
     source_platform = args.source_platform.strip().lower()
-    records, errors = build_records(input_path, source_platform)
+    records, errors = build_records(
+        input_path,
+        source_platform,
+        include_binary_cache=args.include_binary_cache,
+        binary_min_string=args.binary_min_string,
+        limit_files=args.limit_files,
+        limit_records=args.limit_records,
+    )
     unique, duplicates = dedupe_records(records, args.fuzzy_threshold)
 
     write_jsonl(output_path / "canonical_records.jsonl", unique)
@@ -374,7 +458,14 @@ def prepare(args: argparse.Namespace) -> int:
         "source_platform": source_platform,
         "input": str(input_path),
         "output": str(output_path),
-        "files": [str(path) for path in iter_input_files(input_path)],
+        "files": [
+            str(path)
+            for path in iter_input_files(
+                input_path,
+                include_binary_cache=args.include_binary_cache,
+                limit_files=args.limit_files,
+            )
+        ],
         "canonical_records": "canonical_records.jsonl",
         "duplicates": "duplicates.jsonl",
         "validation_report": "validation_report.json",
@@ -407,6 +498,19 @@ def main(argv: list[str]) -> int:
         default=0.985,
         help="SequenceMatcher duplicate threshold; set 0 to disable fuzzy dedupe",
     )
+    prepare_parser.add_argument(
+        "--include-binary-cache",
+        action="store_true",
+        help="best-effort salvage of local app cache blobs; marks provenance as local_app_cache",
+    )
+    prepare_parser.add_argument(
+        "--binary-min-string",
+        type=int,
+        default=240,
+        help="minimum printable string length for binary cache extraction",
+    )
+    prepare_parser.add_argument("--limit-files", type=int, default=None, help="maximum files to scan")
+    prepare_parser.add_argument("--limit-records", type=int, default=None, help="maximum records to emit before dedupe")
     prepare_parser.set_defaults(func=prepare)
     args = parser.parse_args(argv)
     return args.func(args)

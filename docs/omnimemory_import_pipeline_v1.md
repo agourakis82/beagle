@@ -29,6 +29,15 @@ Accepted v1 input forms:
 - `.txt`
 - `.md`
 
+There is also an explicit recovery mode for local app cache blobs:
+
+- `.data`
+- `.ldb`
+- `.log`
+- extensionless IndexedDB blob files
+
+This mode is off by default and must be invoked with `--include-binary-cache`. It is best-effort only: encrypted/high-entropy caches may produce no records, and recovered records are marked as `provenance.explicit_user_export = false` and `provenance.source_kind = "local_app_cache"`.
+
 Expected source platforms:
 
 - `chatgpt`
@@ -88,6 +97,19 @@ Outputs:
 - `manifest.json`
 - `validation_report.json`
 
+For a deliberately authorized local cache pilot, keep the extraction bounded:
+
+```bash
+python3 scripts/omnimemory_import_v1.py prepare \
+  --input ~/Library/Application\ Support/Claude/IndexedDB/https_claude.ai_0.indexeddb.blob/1/70/7097 \
+  --source-platform claude-cache \
+  --output .beagle/omnimemory-import/claude-cache-pilot-20260426 \
+  --include-binary-cache \
+  --binary-min-string 500 \
+  --limit-records 25 \
+  --fuzzy-threshold 0.99
+```
+
 Validation includes:
 
 - UTF-8 readability
@@ -122,6 +144,8 @@ Every record gets:
 - `privacy_class`
 - `privacy_tags`
 - `provenance.explicit_user_export = true`
+
+Cache-recovered records are lower-confidence than official exports. Use them for small pilots and continuity recovery, not for full historical import, unless they pass manual review.
 
 ## Phase 4: Chronoself Linking
 
