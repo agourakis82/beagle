@@ -168,6 +168,15 @@ function publicDiscoveryEnabled(): boolean {
     return process.env.MCP_PUBLIC_DISCOVERY === "true" || isOAuthEnabled();
 }
 
+function clientIdFromHttpHeaders(headers: unknown, fallback: string): string {
+    return (
+        headerValue(headers, "x-client-id") ??
+        headerValue(headers, "cf-connecting-ip") ??
+        headerValue(headers, "x-forwarded-for")?.split(",")[0]?.trim() ??
+        fallback
+    );
+}
+
 function createMcpServer(context: RuntimeContext): Server {
     const server = new Server(
         {
@@ -630,6 +639,11 @@ async function authorizeHttpJsonRpcRequest(
         if (!tool) {
             continue;
         }
+        const toolArgs = (params as { arguments?: unknown } | undefined)?.arguments;
+        const argKeys =
+            toolArgs && typeof toolArgs === "object" && !Array.isArray(toolArgs)
+                ? Object.keys(toolArgs)
+                : [];
 
         const token = extractToken(headerValue(req.headers, "authorization"));
         const authResult = await validateAuth(token);
@@ -637,6 +651,17 @@ async function authorizeHttpJsonRpcRequest(
             const statusCode = authResult.statusCode && authResult.statusCode >= 400
                 ? authResult.statusCode
                 : 401;
+            await writeToolAudit(context, {
+                clientId: clientIdFromHttpHeaders(
+                    req.headers,
+                    authResult.clientId ?? "unauthenticated-http-agent",
+                ),
+                tool,
+                scopes: authResult.scopes,
+                status: "denied",
+                summary: `Denied ${tool.name}; ${authResult.errorCode ?? "invalid_token"}.`,
+                argKeys,
+            });
             return {
                 allowed: false,
                 statusCode,
@@ -657,6 +682,17 @@ async function authorizeHttpJsonRpcRequest(
 
         const scopeCheck = assertRequiredScopes(authResult.scopes, tool.requiredScopes ?? []);
         if (!scopeCheck.allowed) {
+            await writeToolAudit(context, {
+                clientId: clientIdFromHttpHeaders(
+                    req.headers,
+                    authResult.clientId ?? "oauth-http-agent",
+                ),
+                tool,
+                scopes: authResult.scopes,
+                status: "denied",
+                summary: `Denied ${tool.name}; missing scopes: ${scopeCheck.missing.join(", ")}`,
+                argKeys,
+            });
             return {
                 allowed: false,
                 statusCode: 403,

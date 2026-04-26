@@ -4,8 +4,28 @@ Last updated: 2026-04-26
 
 ## Public Endpoint Checklist
 
-1. Point `mcp.agourakis.com` to the Beagle MCP service over HTTPS.
-2. Verify DNS and TLS:
+1. Point `mcp.agourakis.com` to the Beagle MCP service over HTTPS through the dedicated `beagle-production` Cloudflare Tunnel.
+2. Use the MCP-only Kubernetes manifest for the first public rollout:
+
+```bash
+kubectl create namespace cloudflare-system --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n cloudflare-system create secret generic cloudflared-credentials \
+  --from-file=credentials.json=/path/to/beagle-production-credentials.json
+kubectl apply -f k8s/cloudflare-mcp-public.yaml
+```
+
+Do not apply the broad Cloudflare routing manifest for this connector launch unless `api`, `ws`, `tracing`, `metrics`, `dashboard`, root, and `www` origins have been revalidated.
+
+3. If using Terraform for DNS, apply only the minimal MCP module:
+
+```bash
+terraform -chdir=terraform/mcp-public init
+terraform -chdir=terraform/mcp-public apply \
+  -var='cloudflare_zone_id=ZONE_ID' \
+  -var='beagle_tunnel_cname=TUNNEL_ID.cfargotunnel.com'
+```
+
+4. Verify DNS and TLS:
 
 ```bash
 dig +short mcp.agourakis.com
@@ -14,7 +34,7 @@ curl -fsS https://mcp.agourakis.com/ready
 curl -fsS https://mcp.agourakis.com/.well-known/mcp
 ```
 
-3. Configure Beagle MCP:
+5. Configure Beagle MCP:
 
 ```bash
 MCP_TRANSPORT=http
@@ -89,6 +109,7 @@ With a token missing required scopes, protected tool calls should return `403 in
 
 ```bash
 kubectl -n beagle rollout status deploy/beagle-mcp-server
+kubectl -n cloudflare-system rollout status deploy/cloudflared-mcp
 kubectl -n beagle exec deploy/beagle-mcp-server -- wget -qO- http://localhost:3000/ready
 kubectl -n beagle exec deploy/beagle-mcp-server -- wget -qO- http://localhost:3000/.well-known/mcp
 ```

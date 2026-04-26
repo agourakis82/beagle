@@ -156,6 +156,25 @@ test("missing OAuth scope produces insufficient-scope challenge metadata", async
     });
 });
 
+test("public scope policy reserves destructive scope without exposing it", async () => {
+    const auth = await loadAuth({
+        MCP_REQUIRE_AUTH: "true",
+        MCP_ALLOW_LEGACY_BEARER: "false",
+        MCP_OAUTH_ISSUER: "https://auth.example.com/",
+        MCP_OAUTH_JWKS_URI: "https://auth.example.com/.well-known/jwks.json",
+        MCP_OAUTH_AUDIENCE: "https://mcp.agourakis.com/mcp",
+        MCP_TOOL_SURFACE: "trusted_full",
+    });
+
+    const policy = auth.scopePolicy();
+
+    assert.equal(policy.auth_mode, "oauth_jwt_resource_server");
+    assert.equal(policy.tool_surface, "trusted_full");
+    assert.equal(policy.destructive_scope, null);
+    assert.equal(policy.destructive_scope_reserved, "admin:destructive");
+    assert.ok(!policy.default_scopes.includes("admin:destructive"));
+});
+
 async function loadAuth(env: Record<string, string>): Promise<AuthModule> {
     for (const key of AUTH_ENV_KEYS) {
         delete process.env[key];

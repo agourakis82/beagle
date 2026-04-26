@@ -52,6 +52,13 @@ kubectl -n beagle create secret generic beagle-mcp-oauth \
 
 Use the exact issuer string from Auth0 metadata, including the trailing slash.
 
+After creating or updating this secret, restart the MCP deployment so protected-resource metadata and JWT validation are active:
+
+```bash
+kubectl -n beagle rollout restart deploy/beagle-mcp-server
+kubectl -n beagle rollout status deploy/beagle-mcp-server
+```
+
 ## Beagle MCP Runtime
 
 The public deployment should run with:
@@ -66,6 +73,8 @@ MCP_ALLOW_LEGACY_BEARER=false
 ```
 
 The private/local launcher can still use a trusted bearer token through stdio or tailnet-only paths.
+
+The public `mcp.agourakis.com` endpoint should not allow the legacy bearer path.
 
 ## Claude Acceptance
 

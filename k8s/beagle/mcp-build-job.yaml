@@ -23,6 +23,9 @@ spec:
       initContainers:
         - name: clone
           image: alpine/git:latest
+          env:
+            - name: BEAGLE_GIT_BRANCH
+              value: codex/beagle-mcp-public-claude
           command:
             - /bin/sh
             - -lc
@@ -38,10 +41,13 @@ spec:
       containers:
         - name: kaniko
           image: gcr.io/kaniko-project/executor:latest
+          env:
+            - name: BEAGLE_IMAGE_TAG
+              value: public-claude-20260426
           args:
             - "--dockerfile=/workspace/beagle-mcp-server/Dockerfile"
             - "--context=dir:///workspace"
-            - "--destination=192.168.3.207:5003/beagle-mcp-server:stable"
+            - "--destination=192.168.3.207:5003/beagle-mcp-server:$(BEAGLE_IMAGE_TAG)"
             - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"

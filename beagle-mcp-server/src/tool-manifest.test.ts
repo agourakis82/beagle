@@ -8,6 +8,10 @@ import {
     validateToolDefinitions,
 } from "./tool-manifest.js";
 
+const TRUSTED_FULL_TOOL_COUNT = 23;
+const TRUSTED_FULL_TOOL_MANIFEST_HASH =
+    "sha256:0777b33845fff733281aec11aeacd875ea32db3ce62b3245a14c957f8dbbdd1c";
+
 test("all MCP tools expose annotations, scopes, and risk levels", () => {
     const tools = defineTools({} as BeagleClient);
     validateToolDefinitions(tools);
@@ -25,16 +29,28 @@ test("all MCP tools expose annotations, scopes, and risk levels", () => {
 });
 
 test("tool manifest hash is stable and covers annotations", () => {
-    const tools = defineTools({} as BeagleClient);
-    const hashA = computeToolManifestHash(tools);
-    const hashB = computeToolManifestHash([...tools].reverse());
+    const previousSurface = process.env.MCP_TOOL_SURFACE;
+    process.env.MCP_TOOL_SURFACE = "trusted_full";
+    try {
+        const tools = defineTools({} as BeagleClient);
+        const hashA = computeToolManifestHash(tools);
+        const hashB = computeToolManifestHash([...tools].reverse());
 
-    assert.match(hashA, /^sha256:[a-f0-9]{64}$/);
-    assert.equal(hashA, hashB);
+        assert.match(hashA, /^sha256:[a-f0-9]{64}$/);
+        assert.equal(hashA, hashB);
+        assert.equal(tools.length, TRUSTED_FULL_TOOL_COUNT);
+        assert.equal(hashA, TRUSTED_FULL_TOOL_MANIFEST_HASH);
 
-    const manifest = toolManifest(tools);
-    assert.equal(manifest.length, tools.length);
-    assert.ok(manifest.every((entry) => entry.annotations.title.length > 0));
+        const manifest = toolManifest(tools);
+        assert.equal(manifest.length, tools.length);
+        assert.ok(manifest.every((entry) => entry.annotations.title.length > 0));
+    } finally {
+        if (previousSurface === undefined) {
+            delete process.env.MCP_TOOL_SURFACE;
+        } else {
+            process.env.MCP_TOOL_SURFACE = previousSurface;
+        }
+    }
 });
 
 test("standard search and fetch tools are exposed for hosted connectors", () => {
