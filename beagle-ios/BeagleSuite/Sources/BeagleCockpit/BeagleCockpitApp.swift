@@ -200,8 +200,9 @@ struct RootView: View {
         async let catalogTask: () = catalog.refresh()
         async let cognitiveTask: () = cognitive.refresh()
         async let physioTask: () = physio.refresh()
+        async let sharedQueueTask: () = cognitive.drainSharedThoughtQueue()
         async let warmTask: () = FoundationModelsAgent.shared.prewarm()
-        _ = await (catalogTask, cognitiveTask, physioTask, warmTask)
+        _ = await (catalogTask, cognitiveTask, physioTask, sharedQueueTask, warmTask)
         cognitive.activeProjectSlug =
             launchOverrides.projectSlug
             ?? cognitive.activeProjectSlug

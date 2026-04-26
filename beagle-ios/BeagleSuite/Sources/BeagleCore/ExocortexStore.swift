@@ -14,6 +14,10 @@ import SwiftData
 @MainActor
 public final class ExocortexStore {
     public var home: Truthful<ExocortexHomeSnapshot> = .declared(.bootstrap, source: "bootstrap")
+    public var projectionStatus: Truthful<MemoryProjectionStatus>?
+    public var lastGraphRagQuery: Truthful<GraphRagQueryResponse>?
+    public var lastAssistedImport: Truthful<AssistedImportBatchResult>?
+    public var mcpTools: Truthful<MCPToolListResult>?
     public var isLoading = false
     public var modelContext: ModelContext?
 
@@ -36,6 +40,41 @@ public final class ExocortexStore {
             cache(snapshot)
         }
         isLoading = false
+    }
+
+    public func refreshProjectionStatus() async {
+        projectionStatus = await client.memoryProjectionStatus()
+    }
+
+    @discardableResult
+    public func queryGraphMemory(
+        _ query: String,
+        scope: String? = nil,
+        maxItems: Int = 5
+    ) async -> Truthful<GraphRagQueryResponse> {
+        let result = await client.graphRagQuery(query: query, scope: scope, maxItems: maxItems)
+        lastGraphRagQuery = result
+        return result
+    }
+
+    @discardableResult
+    public func assistedImport(_ request: AssistedImportBatchRequest) async -> Truthful<AssistedImportBatchResult> {
+        let result = await client.assistedImportBatch(request)
+        lastAssistedImport = result
+        if result.value?.status == "imported" {
+            await refresh(platform: request.sourceSurface)
+        }
+        return result
+    }
+
+    public func refreshMCPToolList(
+        using mcpClient: BeagleMCPClient = .shared
+    ) async {
+        do {
+            mcpTools = .observed(try await mcpClient.listTools(), source: mcpClient.endpointHost)
+        } catch {
+            mcpTools = .staleError(error.localizedDescription, source: mcpClient.endpointHost)
+        }
     }
 
     public func loadCachedHome() {

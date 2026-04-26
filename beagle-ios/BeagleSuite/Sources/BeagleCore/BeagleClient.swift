@@ -22,6 +22,7 @@ public actor BeagleClient {
 
     private let session: URLSession
     private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
 
     /// beagle-server URLs — tried in sequence.
     private var baseURLs: [URL] = [
@@ -48,6 +49,7 @@ public actor BeagleClient {
         ]
         self.session = URLSession(configuration: config)
         self.decoder = JSONDecoder()
+        self.encoder = JSONEncoder()
     }
 
     public func configure(baseURLs: [URL], consumerId: String? = nil, token: String? = nil) {
@@ -160,6 +162,81 @@ public actor BeagleClient {
                 request.timeoutInterval = timeout
                 applyAuth(&request)
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                print("[BeagleClient] \(debugLabel) requesting: \(url)")
+                let (data, response) = try await session.data(for: request)
+                responseData = data
+
+                guard let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode) else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    let bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
+                    lastError = formatError(statusCode: statusCode, data: data, fallback: "HTTP \(statusCode)")
+                    print("[BeagleClient] \(debugLabel) ❌ HTTP \(statusCode)")
+                    print("[BeagleClient] Response body: \(bodyText.prefix(300))")
+                    continue
+                }
+
+                let decoded = try decoder.decode(T.self, from: data)
+                print("[BeagleClient] \(debugLabel) ✅ success")
+                return .observed(decoded, source: url.host)
+            } catch {
+                lastError = error.localizedDescription
+                let bodyText: String
+                if let data = responseData {
+                    bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
+                } else {
+                    bodyText = "<no response data>"
+                }
+                print("[BeagleClient] \(debugLabel) ❌ error: \(error.localizedDescription)")
+                print("[BeagleClient] Response body: \(bodyText.prefix(300))")
+                continue
+            }
+        }
+        print("[BeagleClient] \(debugLabel) all URLs failed: \(lastError)")
+        return .staleError(lastError)
+    }
+
+    public func postEncoded<T: Decodable & Sendable, Body: Encodable & Sendable>(
+        _ type: T.Type,
+        path: String,
+        body: Body,
+        timeout: TimeInterval = 120,
+        requiresAuth: Bool = true
+    ) async -> Truthful<T> {
+        if requiresAuth {
+            let authReady = await ensureAuth()
+            guard authReady else {
+                let authError = authBootstrapError ?? "Auth bootstrap failed"
+                print("[BeagleClient] [\(type)] POST \(path) auth blocked: \(authError)")
+                return .staleError(authError)
+            }
+        }
+
+        let payload: Data
+        do {
+            payload = try encoder.encode(body)
+        } catch {
+            return .staleError("Failed to encode request: \(error.localizedDescription)")
+        }
+
+        var lastError = "beagle-server unreachable"
+        let debugLabel = "[\(type)] POST \(path)"
+        print("[BeagleClient] \(debugLabel) starting...")
+
+        for base in baseURLs {
+            guard let url = URL(string: path, relativeTo: base) else {
+                print("[BeagleClient] \(debugLabel) failed to construct URL with base: \(base)")
+                continue
+            }
+            var responseData: Data?
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.timeoutInterval = timeout
+                applyAuth(&request)
+                request.httpBody = payload
 
                 print("[BeagleClient] \(debugLabel) requesting: \(url)")
                 let (data, response) = try await session.data(for: request)
@@ -364,17 +441,93 @@ public actor BeagleClient {
         return fallback
     }
 
+    private func assistedSourceSurface(for source: String) -> String {
+        let normalized = source
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-")
+        if normalized.hasPrefix("beagle-") {
+            return normalized
+        }
+        if normalized.contains("watch") {
+            return "beagle-watchos"
+        }
+        if normalized.contains("siri") || normalized.contains("shortcut") {
+            return "beagle-siri"
+        }
+        if normalized.contains("share") {
+            return "beagle-share-extension"
+        }
+        if normalized.contains("vision") {
+            return "beagle-visionos"
+        }
+        if normalized.contains("mac") {
+            return "beagle-macos"
+        }
+        if normalized.contains("ipad") {
+            return "beagle-ipados"
+        }
+        return "beagle-ios"
+    }
+
     // MARK: - Thought Capture
 
-    /// Capture a thought via HERMES system prompt → beagle-server.
+    /// Capture a thought as cluster-canonical GraphRAG++ memory.
     public func captureThought(text: String, source: String = "ios") async -> Truthful<ChatResponse> {
-        let hermesPrompt = """
-        You are HERMES. Refine the following thought fragment into a structured memory while preserving the original insight. Output only the refined text.
+        let surface = assistedSourceSurface(for: source)
+        let sessionId = "\(surface)-\(UUID().uuidString.lowercased())"
+        let request = AssistedImportBatchRequest(
+            sourcePlatform: "beagle-apple",
+            sourceSurface: surface,
+            importScope: "current_conversation",
+            sessionId: sessionId,
+            turns: [
+                AssistedImportTurn(
+                    role: "user",
+                    content: text,
+                    timestamp: ISO8601DateFormatter().string(from: .now),
+                    model: nil
+                )
+            ],
+            tags: [
+                "apple-capture",
+                "surface:\(surface)",
+                "graphrag++"
+            ],
+            metadata: .object([
+                "principal": .string("beagle-apple-app"),
+                "source": .string(source),
+                "surface_claimed": .string(surface),
+                "surface_observed": .string("beagle-apple-client")
+            ]),
+            coverage: .object(["visible_turns": .number(1)]),
+            privacyClass: "sensitive",
+            title: "Apple capture \(sessionId)",
+            confidenceScore: 0.74
+        )
 
-        Source: \(source)
-        Thought: \(text)
-        """
-        return await llmComplete(prompt: hermesPrompt)
+        let result = await assistedImportBatch(request)
+        guard let importResult = result.value else {
+            return .staleError(result.error ?? "Assisted import failed", source: result.source)
+        }
+        let atoms = importResult.projection?.atomsCreated ?? 0
+        let episodes = importResult.projection?.episodesCreated ?? 0
+        let response = importResult.status == "imported"
+            ? "Captured into cluster GraphRAG++ memory (\(episodes) episode, \(atoms) atoms)."
+            : (importResult.reason ?? "Capture was not imported.")
+        return Truthful(
+            value: ChatResponse(
+                response: response,
+                model: "beagle-graphrag++",
+                source: importResult.sourceSurface,
+                sessionId: importResult.sessionId,
+                conversationMode: "assisted_import"
+            ),
+            mode: result.mode,
+            observedAt: result.observedAt,
+            source: result.source,
+            error: result.error
+        )
     }
 
     // MARK: - Triad (adversarial review)
@@ -472,6 +625,45 @@ public actor BeagleClient {
             ExocortexHomeSnapshot.self,
             path: "/api/exocortex/v1/home\(suffix)",
             timeout: 20
+        )
+    }
+
+    public func memoryProjectionStatus() async -> Truthful<MemoryProjectionStatus> {
+        await fetch(
+            MemoryProjectionStatus.self,
+            path: "/api/exocortex/v1/memory/projection/status",
+            timeout: 20
+        )
+    }
+
+    public func graphRagQuery(
+        query: String,
+        scope: String? = nil,
+        maxItems: Int = 5
+    ) async -> Truthful<GraphRagQueryResponse> {
+        var body: [String: any Sendable] = [
+            "query": query,
+            "max_items": maxItems
+        ]
+        if let scope, !scope.isEmpty {
+            body["scope"] = scope
+        }
+        return await post(
+            GraphRagQueryResponse.self,
+            path: "/api/exocortex/v1/graphrag/query",
+            body: body,
+            timeout: 60
+        )
+    }
+
+    public func assistedImportBatch(
+        _ request: AssistedImportBatchRequest
+    ) async -> Truthful<AssistedImportBatchResult> {
+        await postEncoded(
+            AssistedImportBatchResult.self,
+            path: "/api/exocortex/v1/memory/assisted-import",
+            body: request,
+            timeout: 120
         )
     }
 

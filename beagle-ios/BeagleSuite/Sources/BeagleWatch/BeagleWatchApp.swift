@@ -218,7 +218,7 @@ struct PulseView: View {
 // MARK: - Quick Capture View
 
 /// Capture a thought from your wrist. One tap, speak, done.
-/// The thought flows into the exocortex — HERMES refines it later.
+/// The thought flows into cluster-canonical GraphRAG++ memory.
 struct QuickCaptureView: View {
     @State private var capturedText: String?
     @State private var isCaptured = false
@@ -243,7 +243,7 @@ struct QuickCaptureView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 8)
 
-                    Text("HERMES will refine")
+                    Text("Cluster memory queued")
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                 }

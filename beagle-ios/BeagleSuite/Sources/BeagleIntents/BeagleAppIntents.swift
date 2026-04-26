@@ -174,7 +174,7 @@ public struct ClusterHealthIntent: AppIntent {
 
 public struct CaptureThoughtIntent: AppIntent {
     public static let title: LocalizedStringResource = "Capture Thought"
-    public static let description = IntentDescription("Capture a thought into your exocortex. HERMES refines it, then it's stored in the hypergraph.")
+    public static let description = IntentDescription("Capture a thought into the cluster-canonical Beagle GraphRAG++ memory.")
     public static let openAppWhenRun: Bool = false
 
     @Parameter(title: "Thought", requestValueDialog: "What are you thinking?")

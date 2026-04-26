@@ -13,7 +13,7 @@ import BeagleCore
 
 struct CaptureThoughtIntent: AppIntent {
     static let title: LocalizedStringResource = "Capture Thought"
-    static let description: IntentDescription = "Capture a thought to the Beagle exocortex"
+    static let description: IntentDescription = "Capture a thought to cluster GraphRAG++ memory"
     static let openAppWhenRun = false
 
     @Parameter(title: "Thought")

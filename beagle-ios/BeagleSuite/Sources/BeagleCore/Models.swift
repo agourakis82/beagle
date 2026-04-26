@@ -1767,6 +1767,30 @@ public struct ChatResponse: Decodable, Sendable {
         case podNameSnake = "pod_name"
     }
 
+    public init(
+        response: String?,
+        tokensUsed: Int? = nil,
+        model: String? = nil,
+        source: String? = nil,
+        agentKind: String? = nil,
+        sessionId: String? = nil,
+        podName: String? = nil,
+        conversationMode: String? = nil,
+        appliedDiscussionProfile: String? = nil,
+        flowState: String? = nil
+    ) {
+        self.response = response
+        self.tokensUsed = tokensUsed
+        self.model = model
+        self.source = source
+        self.agentKind = agentKind
+        self.sessionId = sessionId
+        self.podName = podName
+        self.conversationMode = conversationMode
+        self.appliedDiscussionProfile = appliedDiscussionProfile
+        self.flowState = flowState
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         response =

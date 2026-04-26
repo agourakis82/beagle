@@ -208,6 +208,7 @@ public struct OmniConversation: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let sourcePlatform: String
     public let importedAt: String
+    public let sessionId: String?
     public let originalDate: String?
     public let rawContentRef: String
     public let extracted: OmniExtraction
@@ -215,11 +216,15 @@ public struct OmniConversation: Codable, Equatable, Sendable, Identifiable {
     public let linkedMemoryEvents: [String]
     public let confidenceScore: Double
     public let title: String?
+    public let privacyClass: String?
+    public let tags: [String]?
+    public let metadata: ExocortexJSONValue?
 
     enum CodingKeys: String, CodingKey {
         case id
         case sourcePlatform = "source_platform"
         case importedAt = "imported_at"
+        case sessionId = "session_id"
         case originalDate = "original_date"
         case rawContentRef = "raw_content_ref"
         case extracted
@@ -227,6 +232,364 @@ public struct OmniConversation: Codable, Equatable, Sendable, Identifiable {
         case linkedMemoryEvents = "linked_memory_events"
         case confidenceScore = "confidence_score"
         case title
+        case privacyClass = "privacy_class"
+        case tags
+        case metadata
+    }
+}
+
+public struct MemoryRelation: Codable, Equatable, Sendable {
+    public let subject: String
+    public let predicate: String
+    public let object: String
+    public let confidence: Double
+}
+
+public struct MemoryEpisode: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let source: String
+    public let sourcePlatform: String?
+    public let sessionId: String?
+    public let sourceRef: String
+    public let contentHash: String
+    public let privacyClass: String
+    public let provenance: ExocortexJSONValue?
+    public let tags: [String]
+    public let title: String?
+    public let linkedChronoselfCommits: [String]
+    public let occurredAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case source
+        case sourcePlatform = "source_platform"
+        case sessionId = "session_id"
+        case sourceRef = "source_ref"
+        case contentHash = "content_hash"
+        case privacyClass = "privacy_class"
+        case provenance
+        case tags
+        case title
+        case linkedChronoselfCommits = "linked_chronoself_commits"
+        case occurredAt = "occurred_at"
+    }
+}
+
+public struct MemoryAtom: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let episodeId: String
+    public let atomType: String
+    public let text: String
+    public let normalizedText: String
+    public let sourceRefs: [String]
+    public let relations: [MemoryRelation]
+    public let tags: [String]
+    public let confidence: Double
+    public let privacyClass: String
+    public let occurredAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case episodeId = "episode_id"
+        case atomType = "atom_type"
+        case text
+        case normalizedText = "normalized_text"
+        case sourceRefs = "source_refs"
+        case relations
+        case tags
+        case confidence
+        case privacyClass = "privacy_class"
+        case occurredAt = "occurred_at"
+    }
+}
+
+public struct MemoryProjectionRun: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let schemaVersion: String
+    public let sourceCount: Int
+    public let episodesCreated: Int
+    public let atomsCreated: Int
+    public let duplicates: Int
+    public let errors: [String]
+    public let projectionHash: String
+    public let status: String
+    public let degradedReason: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case schemaVersion = "schema_version"
+        case sourceCount = "source_count"
+        case episodesCreated = "episodes_created"
+        case atomsCreated = "atoms_created"
+        case duplicates
+        case errors
+        case projectionHash = "projection_hash"
+        case status
+        case degradedReason = "degraded_reason"
+    }
+}
+
+public struct MemoryProjectionStatus: Codable, Equatable, Sendable {
+    public let status: String
+    public let schemaVersion: String
+    public let episodeCount: Int
+    public let atomCount: Int
+    public let latestRun: MemoryProjectionRun?
+    public let freshness: String
+    public let retrievalMode: String
+    public let degradedReason: String
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case schemaVersion = "schema_version"
+        case episodeCount = "episode_count"
+        case atomCount = "atom_count"
+        case latestRun = "latest_run"
+        case freshness
+        case retrievalMode = "retrieval_mode"
+        case degradedReason = "degraded_reason"
+    }
+}
+
+public struct GraphRagEvidence: Codable, Equatable, Sendable {
+    public let atomId: String
+    public let episodeId: String
+    public let atomType: String
+    public let text: String
+    public let score: Double
+    public let sourceRefs: [String]
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case atomId = "atom_id"
+        case episodeId = "episode_id"
+        case atomType = "atom_type"
+        case text
+        case score
+        case sourceRefs = "source_refs"
+        case provenance
+    }
+}
+
+public struct GraphRagTemporalContext: Codable, Equatable, Sendable {
+    public let newestEvidenceAt: String?
+    public let oldestEvidenceAt: String?
+    public let matchedEpisodeCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case newestEvidenceAt = "newest_evidence_at"
+        case oldestEvidenceAt = "oldest_evidence_at"
+        case matchedEpisodeCount = "matched_episode_count"
+    }
+}
+
+public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
+    public let summary: String
+    public let evidence: [GraphRagEvidence]
+    public let atoms: [MemoryAtom]
+    public let episodes: [MemoryEpisode]
+    public let relations: [MemoryRelation]
+    public let temporalContext: GraphRagTemporalContext
+    public let provenance: ExocortexJSONValue?
+    public let confidence: Double
+    public let degradedReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case summary
+        case evidence
+        case atoms
+        case episodes
+        case relations
+        case temporalContext = "temporal_context"
+        case provenance
+        case confidence
+        case degradedReason = "degraded_reason"
+    }
+}
+
+public struct ExocortexAuditEvent: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let clientId: String
+    public let action: String
+    public let toolName: String?
+    public let riskLevel: String
+    public let requiredScopes: [String]
+    public let grantedScopes: [String]
+    public let status: String
+    public let source: String
+    public let targetRef: String?
+    public let summary: String?
+    public let metadata: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case clientId = "client_id"
+        case action
+        case toolName = "tool_name"
+        case riskLevel = "risk_level"
+        case requiredScopes = "required_scopes"
+        case grantedScopes = "granted_scopes"
+        case status
+        case source
+        case targetRef = "target_ref"
+        case summary
+        case metadata
+    }
+}
+
+public struct ExocortexMemoryEvent: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let source: String
+    public let kind: String
+    public let contentRef: String?
+    public let summary: String
+    public let tags: [String]
+    public let metadata: ExocortexJSONValue?
+    public let linkedChronoselfCommits: [String]
+    public let confidence: Double
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case source
+        case kind
+        case contentRef = "content_ref"
+        case summary
+        case tags
+        case metadata
+        case linkedChronoselfCommits = "linked_chronoself_commits"
+        case confidence
+    }
+}
+
+public struct AssistedImportTurn: Codable, Equatable, Sendable {
+    public let role: String
+    public let content: String
+    public let timestamp: String?
+    public let model: String?
+
+    public init(role: String, content: String, timestamp: String? = nil, model: String? = nil) {
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp
+        self.model = model
+    }
+}
+
+public struct AssistedImportBatchRequest: Codable, Equatable, Sendable {
+    public let sourcePlatform: String
+    public let sourceSurface: String
+    public let importScope: String
+    public let sessionId: String
+    public let projectRef: String?
+    public let batchIndex: Int
+    public let batchTotal: Int
+    public let turns: [AssistedImportTurn]
+    public let tags: [String]
+    public let metadata: ExocortexJSONValue?
+    public let coverage: ExocortexJSONValue?
+    public let extracted: OmniExtraction?
+    public let privacyClass: String
+    public let title: String?
+    public let originalDate: String?
+    public let confidenceScore: Double?
+    public let createChronoselfCommit: Bool?
+
+    public init(
+        sourcePlatform: String,
+        sourceSurface: String = "beagle-apple-app",
+        importScope: String = "current_conversation",
+        sessionId: String,
+        projectRef: String? = nil,
+        batchIndex: Int = 1,
+        batchTotal: Int = 1,
+        turns: [AssistedImportTurn],
+        tags: [String] = [],
+        metadata: ExocortexJSONValue? = nil,
+        coverage: ExocortexJSONValue? = nil,
+        extracted: OmniExtraction? = nil,
+        privacyClass: String = "sensitive",
+        title: String? = nil,
+        originalDate: String? = nil,
+        confidenceScore: Double? = nil,
+        createChronoselfCommit: Bool? = false
+    ) {
+        self.sourcePlatform = sourcePlatform
+        self.sourceSurface = sourceSurface
+        self.importScope = importScope
+        self.sessionId = sessionId
+        self.projectRef = projectRef
+        self.batchIndex = batchIndex
+        self.batchTotal = batchTotal
+        self.turns = turns
+        self.tags = tags
+        self.metadata = metadata
+        self.coverage = coverage
+        self.extracted = extracted
+        self.privacyClass = privacyClass
+        self.title = title
+        self.originalDate = originalDate
+        self.confidenceScore = confidenceScore
+        self.createChronoselfCommit = createChronoselfCommit
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sourcePlatform = "source_platform"
+        case sourceSurface = "source_surface"
+        case importScope = "import_scope"
+        case sessionId = "session_id"
+        case projectRef = "project_ref"
+        case batchIndex = "batch_index"
+        case batchTotal = "batch_total"
+        case turns
+        case tags
+        case metadata
+        case coverage
+        case extracted
+        case privacyClass = "privacy_class"
+        case title
+        case originalDate = "original_date"
+        case confidenceScore = "confidence_score"
+        case createChronoselfCommit = "create_chronoself_commit"
+    }
+}
+
+public struct AssistedImportBatchResult: Codable, Equatable, Sendable {
+    public let status: String
+    public let reason: String?
+    public let sessionId: String
+    public let sourcePlatform: String
+    public let sourceSurface: String
+    public let batchIndex: Int
+    public let batchTotal: Int
+    public let privacyClass: String
+    public let omnimemory: OmniConversation?
+    public let projection: MemoryProjectionRun?
+    public let memoryEvent: ExocortexMemoryEvent?
+    public let auditEvent: ExocortexAuditEvent?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case reason
+        case sessionId = "session_id"
+        case sourcePlatform = "source_platform"
+        case sourceSurface = "source_surface"
+        case batchIndex = "batch_index"
+        case batchTotal = "batch_total"
+        case privacyClass = "privacy_class"
+        case omnimemory
+        case projection
+        case memoryEvent = "memory_event"
+        case auditEvent = "audit_event"
     }
 }
 
@@ -327,6 +690,7 @@ public struct TrustContext: Codable, Equatable, Sendable {
     public let destructiveActions: String
     public let toolManifestHash: String?
     public let lastAuditEventId: String?
+    public let memoryProjectionStatus: MemoryProjectionStatus?
 
     enum CodingKeys: String, CodingKey {
         case mcpStatus = "mcp_status"
@@ -335,6 +699,7 @@ public struct TrustContext: Codable, Equatable, Sendable {
         case destructiveActions = "destructive_actions"
         case toolManifestHash = "tool_manifest_hash"
         case lastAuditEventId = "last_audit_event_id"
+        case memoryProjectionStatus = "memory_projection_status"
     }
 }
 

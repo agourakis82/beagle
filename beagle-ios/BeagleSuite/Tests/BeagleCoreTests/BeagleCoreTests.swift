@@ -177,3 +177,123 @@ import Foundation
     #expect(snapshot.trustContext?.activeScopes.contains("memory:write") == true)
     #expect(snapshot.trustContext?.toolManifestHash == "sha256:abc")
 }
+
+@Test func exocortexHomeDecodesMemoryProjectionStatus() throws {
+    let json = """
+    {
+      "generated_at": "2026-04-26T16:30:00Z",
+      "today_brief": "Projected home",
+      "current_self": {
+        "id": "v1",
+        "label": "GraphRAG Self",
+        "period_start": "2026-04-26T16:30:00Z",
+        "period_end": null,
+        "dominant_beliefs": [],
+        "core_values": [],
+        "cognitive_style": "continuity",
+        "risk_tolerance": 0.5,
+        "source_commit_id": null
+      },
+      "memory_signals": ["decision: GraphRAG++ first"],
+      "open_loops": [],
+      "active_project_ref": "beagle",
+      "body_context": null,
+      "recommended_next_action": "Continue",
+      "cluster_truth": "observed",
+      "omnimemory_status": "1 imports, 1 episodes, 2 atoms projected",
+      "temporal_phase": null,
+      "trust_context": {
+        "mcp_status": "audit-log-observed",
+        "active_scopes": ["exocortex:read"],
+        "audit_freshness": "2026-04-26T16:30:00Z",
+        "destructive_actions": "locked",
+        "tool_manifest_hash": "sha256:e633",
+        "last_audit_event_id": "audit-1",
+        "memory_projection_status": {
+          "status": "fresh",
+          "schema_version": "beagle-memory-projection-v1.2",
+          "episode_count": 1,
+          "atom_count": 2,
+          "latest_run": {
+            "id": "run-1",
+            "created_at": "2026-04-26T16:30:00Z",
+            "schema_version": "beagle-memory-projection-v1.2",
+            "source_count": 1,
+            "episodes_created": 1,
+            "atoms_created": 2,
+            "duplicates": 0,
+            "errors": [],
+            "projection_hash": "sha256:projection",
+            "status": "projected",
+            "degraded_reason": "lexical+graph+temporal"
+          },
+          "freshness": "2026-04-26T16:30:00Z",
+          "retrieval_mode": "hybrid lexical+graph+temporal",
+          "degraded_reason": "real embedding backend not configured"
+        }
+      }
+    }
+    """.data(using: .utf8)!
+
+    let snapshot = try JSONDecoder().decode(ExocortexHomeSnapshot.self, from: json)
+
+    #expect(snapshot.trustContext?.memoryProjectionStatus?.atomCount == 2)
+    #expect(snapshot.trustContext?.memoryProjectionStatus?.latestRun?.projectionHash == "sha256:projection")
+}
+
+@Test func graphRagAndAssistedImportModelsDecodeClusterContracts() throws {
+    let graphJson = """
+    {
+      "summary": "Found 1 GraphRAG++ projected memory match.",
+      "evidence": [{
+        "atom_id": "atom-1",
+        "episode_id": "episode-1",
+        "atom_type": "decision",
+        "text": "GraphRAG++ persistente primeiro.",
+        "score": 0.9,
+        "source_refs": ["omnimemory:1"],
+        "provenance": {"source_surface": "claude-ios"}
+      }],
+      "atoms": [],
+      "episodes": [],
+      "relations": [{"subject": "beagle", "predicate": "has_episode", "object": "episode-1", "confidence": 0.72}],
+      "temporal_context": {
+        "newest_evidence_at": "2026-04-26T16:30:00Z",
+        "oldest_evidence_at": "2026-04-26T16:30:00Z",
+        "matched_episode_count": 1
+      },
+      "provenance": {"retrieval_mode": "hybrid lexical+graph+temporal"},
+      "confidence": 0.9,
+      "degraded_reason": "real embedding backend not configured"
+    }
+    """.data(using: .utf8)!
+    let graph = try JSONDecoder().decode(GraphRagQueryResponse.self, from: graphJson)
+    #expect(graph.evidence.first?.atomType == "decision")
+    #expect(graph.temporalContext.matchedEpisodeCount == 1)
+
+    let request = AssistedImportBatchRequest(
+        sourcePlatform: "claude",
+        sourceSurface: "claude-ios",
+        sessionId: "visible-1",
+        turns: [AssistedImportTurn(role: "user", content: "Import this visible context")],
+        tags: ["surface:claude-ios"]
+    )
+    let encoded = try JSONEncoder().encode(request)
+    let payload = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    #expect(payload?["source_platform"] as? String == "claude")
+    #expect(payload?["source_surface"] as? String == "claude-ios")
+    #expect(payload?["privacy_class"] as? String == "sensitive")
+}
+
+@Test func mcpPKCEURLDoesNotNeedClientSecret() throws {
+    let request = try #require(BeagleMCPClient.auth0PKCEAuthorizationURL(
+        domain: "beagle-mcp.us.auth0.com",
+        clientId: "native-client-id",
+        redirectURI: "beagle://auth/callback"
+    ))
+    let absolute = request.authorizationURL.absoluteString
+    #expect(absolute.contains("code_challenge="))
+    #expect(absolute.contains("code_challenge_method=S256"))
+    #expect(!absolute.contains("client_secret"))
+    #expect(request.codeVerifier.count >= 43)
+}

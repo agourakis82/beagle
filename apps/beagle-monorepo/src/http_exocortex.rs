@@ -568,6 +568,73 @@ pub struct ImportConversationRequest {
     pub metadata: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct AssistedImportTurn {
+    pub role: String,
+    pub content: String,
+    #[serde(default)]
+    pub timestamp: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AssistedImportBatchRequest {
+    pub source_platform: String,
+    #[serde(default = "default_assisted_source_surface")]
+    pub source_surface: String,
+    #[serde(default = "default_assisted_import_scope")]
+    pub import_scope: String,
+    pub session_id: String,
+    #[serde(default)]
+    pub project_ref: Option<String>,
+    #[serde(default = "default_one_u32")]
+    pub batch_index: u32,
+    #[serde(default = "default_one_u32")]
+    pub batch_total: u32,
+    #[serde(default)]
+    pub turns: Vec<AssistedImportTurn>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+    #[serde(default)]
+    pub coverage: serde_json::Value,
+    #[serde(default)]
+    pub extracted: Option<OmniExtraction>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub original_date: Option<String>,
+    #[serde(default)]
+    pub confidence_score: Option<f64>,
+    #[serde(default)]
+    pub create_chronoself_commit: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AssistedImportBatchResponse {
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub session_id: String,
+    pub source_platform: String,
+    pub source_surface: String,
+    pub batch_index: u32,
+    pub batch_total: u32,
+    pub privacy_class: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub omnimemory: Option<OmniConversation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projection: Option<MemoryProjectionRun>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_event: Option<MemoryEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit_event: Option<AuditEvent>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TemporalAnalyzeRequest {
     pub topic: String,
@@ -661,6 +728,10 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(omnimemory_import_handler),
         )
         .route(
+            "/api/exocortex/v1/memory/assisted-import",
+            post(memory_assisted_import_handler),
+        )
+        .route(
             "/api/exocortex/v1/temporal/analyze",
             post(temporal_analyze_handler),
         )
@@ -739,6 +810,16 @@ async fn omnimemory_import_handler(
     repo.ensure().map_err(internal_error)?;
     let imported = repo.import_conversation(req).map_err(internal_error)?;
     Ok(Json(imported))
+}
+
+async fn memory_assisted_import_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<AssistedImportBatchRequest>,
+) -> Result<Json<AssistedImportBatchResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let result = repo.assisted_import_batch(req).map_err(internal_error)?;
+    Ok(Json(result))
 }
 
 async fn temporal_analyze_handler(
@@ -1009,6 +1090,276 @@ impl ExocortexRepository {
         })?;
         self.write_snapshot(HOME_SNAPSHOT, &home)?;
         Ok(imported)
+    }
+
+    fn assisted_import_batch(
+        &self,
+        req: AssistedImportBatchRequest,
+    ) -> anyhow::Result<AssistedImportBatchResponse> {
+        self.ensure()?;
+        anyhow::ensure!(
+            !req.turns.is_empty(),
+            "assisted import requires at least one visible turn"
+        );
+
+        let source_platform = normalize_source_platform(&req.source_platform);
+        let source_surface = if req.source_surface.trim().is_empty() {
+            default_assisted_source_surface()
+        } else {
+            req.source_surface.trim().to_lowercase()
+        };
+        let import_scope = if req.import_scope.trim().is_empty() {
+            default_assisted_import_scope()
+        } else {
+            req.import_scope.trim().to_lowercase()
+        };
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        let base_metadata = ensure_object(req.metadata);
+        let tool_manifest_hash = base_metadata
+            .get("tool_manifest_hash")
+            .and_then(|value| value.as_str())
+            .map(str::to_string);
+        let principal = base_metadata
+            .get("principal")
+            .and_then(|value| value.as_str())
+            .unwrap_or(&source_surface)
+            .to_string();
+        let surface_observed = base_metadata
+            .get("surface_observed")
+            .and_then(|value| value.as_str())
+            .unwrap_or("cluster-core")
+            .to_string();
+
+        if privacy_class == "restricted" {
+            let audit = self.create_audit_event(CreateAuditEventRequest {
+                client_id: Some(principal.clone()),
+                action: Some("memory.assisted_import".to_string()),
+                tool_name: Some("beagle_assisted_import_batch".to_string()),
+                risk_level: Some("write".to_string()),
+                required_scopes: vec!["memory:write".to_string()],
+                granted_scopes: metadata_string_array(&base_metadata, "scopes"),
+                status: Some("rejected".to_string()),
+                source: Some(source_surface.clone()),
+                target_ref: None,
+                summary: Some(
+                    "Rejected restricted assisted import before OmniMemory write.".to_string(),
+                ),
+                metadata: Some(serde_json::json!({
+                    "source_platform": source_platform,
+                    "source_surface": source_surface,
+                    "surface_claimed": source_surface,
+                    "surface_observed": surface_observed,
+                    "principal": principal,
+                    "session_id": req.session_id,
+                    "batch_index": req.batch_index,
+                    "batch_total": req.batch_total,
+                    "privacy_class": privacy_class,
+                    "tool_manifest_hash": tool_manifest_hash,
+                    "restricted_default_policy": "reject_without_explicit_human_review",
+                })),
+            })?;
+            return Ok(AssistedImportBatchResponse {
+                status: "rejected".to_string(),
+                reason: Some(
+                    "restricted payloads require explicit human review before import".to_string(),
+                ),
+                session_id: req.session_id,
+                source_platform,
+                source_surface,
+                batch_index: req.batch_index,
+                batch_total: req.batch_total,
+                privacy_class,
+                omnimemory: None,
+                projection: None,
+                memory_event: None,
+                audit_event: Some(audit),
+            });
+        }
+
+        let raw_content = assisted_raw_content(&req.turns);
+        let mut tags = req.tags.clone();
+        merge_unique(
+            &mut tags,
+            vec![
+                source_platform.clone(),
+                source_surface.clone(),
+                import_scope.clone(),
+                "assisted-import".to_string(),
+                "graphrag-projection".to_string(),
+                format!("privacy:{}", privacy_class),
+            ],
+            32,
+        );
+        if let Some(project) = req
+            .project_ref
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            let project_tag = format!("project:{}", project.trim());
+            if !tags.contains(&project_tag) {
+                tags.push(project_tag);
+            }
+        }
+        let first_timestamp = req.turns.iter().find_map(|turn| turn.timestamp.clone());
+        let mut metadata = base_metadata.clone();
+        metadata.insert(
+            "import_scope".to_string(),
+            serde_json::Value::String(import_scope.clone()),
+        );
+        metadata.insert(
+            "source_surface".to_string(),
+            serde_json::Value::String(source_surface.clone()),
+        );
+        metadata.insert(
+            "surface_claimed".to_string(),
+            serde_json::Value::String(source_surface.clone()),
+        );
+        metadata.insert(
+            "surface_observed".to_string(),
+            serde_json::Value::String(surface_observed.clone()),
+        );
+        metadata.insert(
+            "principal".to_string(),
+            serde_json::Value::String(principal.clone()),
+        );
+        metadata.insert(
+            "session_id".to_string(),
+            serde_json::Value::String(req.session_id.clone()),
+        );
+        metadata.insert(
+            "batch_index".to_string(),
+            serde_json::json!(req.batch_index),
+        );
+        metadata.insert(
+            "batch_total".to_string(),
+            serde_json::json!(req.batch_total),
+        );
+        metadata.insert("coverage".to_string(), req.coverage.clone());
+        metadata.insert(
+            "explicit_import_only".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        metadata.insert(
+            "privacy_class".to_string(),
+            serde_json::Value::String(privacy_class.clone()),
+        );
+        if let Some(project_ref) = req.project_ref.clone() {
+            metadata.insert(
+                "project_ref".to_string(),
+                serde_json::Value::String(project_ref),
+            );
+        }
+        if let Some(hash) = tool_manifest_hash.clone() {
+            metadata.insert(
+                "tool_manifest_hash".to_string(),
+                serde_json::Value::String(hash),
+            );
+        }
+
+        let imported = self.import_conversation(ImportConversationRequest {
+            source_platform: source_platform.clone(),
+            session_id: Some(req.session_id.clone()),
+            original_date: req.original_date.or(first_timestamp),
+            raw_content,
+            title: req.title.or_else(|| {
+                Some(format!(
+                    "{} {} {} batch {}/{}",
+                    source_platform, import_scope, req.session_id, req.batch_index, req.batch_total
+                ))
+            }),
+            tags: tags.clone(),
+            extracted: req.extracted,
+            confidence_score: Some(req.confidence_score.unwrap_or(0.76).clamp(0.0, 1.0)),
+            create_chronoself_commit: req.create_chronoself_commit,
+            privacy_class: Some(privacy_class.clone()),
+            metadata: Some(serde_json::Value::Object(metadata.clone())),
+        })?;
+        let source_refs = vec![
+            format!("omnimemory:{}", imported.id),
+            imported.raw_content_ref.clone(),
+        ];
+        let projection = match self
+            .read_recent_jsonl::<MemoryProjectionRun>(MEMORY_PROJECTION_RUNS_LOG, 1)?
+            .into_iter()
+            .next()
+        {
+            Some(run) => run,
+            None => self.project_memory(ProjectMemoryRequest {
+                rebuild: false,
+                source_refs: source_refs.clone(),
+            })?,
+        };
+        let summary = format!(
+            "Assisted import batch {}/{} from {} via {}",
+            req.batch_index, req.batch_total, source_platform, source_surface
+        );
+        let memory_event = self.create_memory_event(CreateMemoryEventRequest {
+            source: Some(source_surface.clone()),
+            kind: Some("assisted_import_batch".to_string()),
+            content_ref: Some(format!("omnimemory:{}", imported.id)),
+            summary: Some(summary.clone()),
+            tags: tags.clone(),
+            metadata: Some(serde_json::json!({
+                "source_platform": source_platform,
+                "source_surface": source_surface,
+                "surface_claimed": source_surface,
+                "surface_observed": surface_observed,
+                "principal": principal,
+                "import_scope": import_scope,
+                "session_id": req.session_id,
+                "project_ref": req.project_ref,
+                "batch_index": req.batch_index,
+                "batch_total": req.batch_total,
+                "privacy_class": privacy_class,
+                "coverage": req.coverage,
+                "omnimemory_source_refs": source_refs,
+                "projection": projection,
+                "tool_manifest_hash": tool_manifest_hash,
+            })),
+            linked_chronoself_commits: imported.linked_chronoself_commits.clone(),
+            confidence: Some(req.confidence_score.unwrap_or(0.76).clamp(0.0, 1.0)),
+        })?;
+        let audit = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some(principal.clone()),
+            action: Some("memory.assisted_import".to_string()),
+            tool_name: Some("beagle_assisted_import_batch".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: metadata_string_array(&base_metadata, "scopes"),
+            status: Some("success".to_string()),
+            source: Some(source_surface.clone()),
+            target_ref: Some(format!("omnimemory:{}", imported.id)),
+            summary: Some(summary),
+            metadata: Some(serde_json::json!({
+                "source_platform": source_platform,
+                "source_surface": source_surface,
+                "surface_claimed": source_surface,
+                "surface_observed": surface_observed,
+                "principal": principal,
+                "session_id": req.session_id,
+                "batch_index": req.batch_index,
+                "batch_total": req.batch_total,
+                "privacy_class": privacy_class,
+                "tool_manifest_hash": tool_manifest_hash,
+                "memory_event_id": memory_event.id,
+                "projection_run_id": projection.id,
+            })),
+        })?;
+
+        Ok(AssistedImportBatchResponse {
+            status: "imported".to_string(),
+            reason: None,
+            session_id: req.session_id,
+            source_platform,
+            source_surface,
+            batch_index: req.batch_index,
+            batch_total: req.batch_total,
+            privacy_class,
+            omnimemory: Some(imported),
+            projection: Some(projection),
+            memory_event: Some(memory_event),
+            audit_event: Some(audit),
+        })
     }
 
     fn project_memory(&self, req: ProjectMemoryRequest) -> anyhow::Result<MemoryProjectionRun> {
@@ -2107,6 +2458,65 @@ fn metadata_string(value: &serde_json::Value, key: &str) -> Option<String> {
         .map(|value| value.to_string())
 }
 
+fn metadata_string_array(
+    metadata: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Vec<String> {
+    match metadata.get(key) {
+        Some(serde_json::Value::Array(values)) => values
+            .iter()
+            .filter_map(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .collect(),
+        Some(serde_json::Value::String(value)) if !value.trim().is_empty() => {
+            value.split_whitespace().map(ToOwned::to_owned).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn ensure_object(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+    match value {
+        serde_json::Value::Object(object) => object,
+        serde_json::Value::Null => serde_json::Map::new(),
+        other => {
+            let mut object = serde_json::Map::new();
+            object.insert("raw_metadata".to_string(), other);
+            object
+        }
+    }
+}
+
+fn assisted_raw_content(turns: &[AssistedImportTurn]) -> String {
+    turns
+        .iter()
+        .enumerate()
+        .map(|(index, turn)| {
+            let timestamp = turn
+                .timestamp
+                .as_deref()
+                .map(|value| format!(" @ {}", value))
+                .unwrap_or_default();
+            let model = turn
+                .model
+                .as_deref()
+                .map(|value| format!("/{}", value))
+                .unwrap_or_default();
+            format!(
+                "[{}:{}{}{}]\n{}",
+                index + 1,
+                turn.role.trim(),
+                model,
+                timestamp,
+                turn.content
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 fn project_slug(value: &str) -> String {
     value
         .trim()
@@ -2252,6 +2662,18 @@ struct ProjectionOutcome {
 
 fn default_sensitive_privacy_class() -> String {
     "sensitive".to_string()
+}
+
+fn default_assisted_source_surface() -> String {
+    "mcp-visible-context".to_string()
+}
+
+fn default_assisted_import_scope() -> String {
+    "current_conversation".to_string()
+}
+
+fn default_one_u32() -> u32 {
+    1
 }
 
 fn normalize_privacy_class(value: Option<&str>) -> String {
@@ -2770,5 +3192,139 @@ mod tests {
         let status = repo.memory_projection_status().unwrap();
         assert_eq!(status.episode_count, 0);
         assert_eq!(status.atom_count, 0);
+    }
+
+    #[test]
+    fn assisted_import_batch_creates_omnimemory_projection_memory_and_audit() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        let result = repo
+            .assisted_import_batch(AssistedImportBatchRequest {
+                source_platform: "Claude".to_string(),
+                source_surface: "claude-ios".to_string(),
+                import_scope: "current_conversation".to_string(),
+                session_id: "claude-ios-visible-1".to_string(),
+                project_ref: Some("beagle".to_string()),
+                batch_index: 1,
+                batch_total: 1,
+                turns: vec![
+                    AssistedImportTurn {
+                        role: "user".to_string(),
+                        content: "Decisão: Beagle deve usar GraphRAG++ persistente como núcleo."
+                            .to_string(),
+                        timestamp: Some("2026-04-26T16:30:00Z".to_string()),
+                        model: None,
+                    },
+                    AssistedImportTurn {
+                        role: "assistant".to_string(),
+                        content:
+                            "Hipótese: Claude iOS deve importar contexto visível via MCP para Episode+Atom."
+                                .to_string(),
+                        timestamp: Some("2026-04-26T16:31:00Z".to_string()),
+                        model: Some("claude-sonnet-4".to_string()),
+                    },
+                ],
+                tags: vec!["surface:claude-ios".to_string()],
+                metadata: serde_json::json!({
+                    "principal": "claude-connector",
+                    "surface_observed": "anthropic-cloud",
+                    "scopes": ["exocortex:read", "memory:write"],
+                    "tool_manifest_hash": "sha256:test"
+                }),
+                coverage: serde_json::json!({"visible_turns": 2}),
+                extracted: Some(OmniExtraction {
+                    decisions: vec![
+                        "Beagle deve usar GraphRAG++ persistente como núcleo.".to_string(),
+                    ],
+                    hypotheses: vec![
+                        "Claude iOS deve importar contexto visível via MCP para Episode+Atom."
+                            .to_string(),
+                    ],
+                    projects_mentioned: vec!["beagle".to_string()],
+                    ..Default::default()
+                }),
+                privacy_class: Some("sensitive".to_string()),
+                title: Some("Claude iOS visible context".to_string()),
+                original_date: None,
+                confidence_score: Some(0.88),
+                create_chronoself_commit: Some(false),
+            })
+            .unwrap();
+
+        assert_eq!(result.status, "imported");
+        assert_eq!(result.source_platform, "claude");
+        assert_eq!(result.source_surface, "claude-ios");
+        assert_eq!(result.privacy_class, "sensitive");
+        assert!(result.omnimemory.is_some());
+        assert!(result.projection.as_ref().unwrap().atoms_created >= 2);
+        assert_eq!(
+            result.memory_event.as_ref().unwrap().kind,
+            "assisted_import_batch"
+        );
+        assert_eq!(result.audit_event.as_ref().unwrap().status, "success");
+
+        let status = repo.memory_projection_status().unwrap();
+        assert_eq!(status.episode_count, 1);
+        assert!(status.atom_count >= 2);
+        let query = repo
+            .graphrag_query(GraphRagQueryRequest {
+                query: "GraphRAG núcleo Claude iOS".to_string(),
+                scope: None,
+                max_items: Some(5),
+            })
+            .unwrap();
+        assert!(!query.evidence.is_empty());
+        assert!(query
+            .evidence
+            .iter()
+            .any(|item| item.provenance["metadata"]["source_surface"] == "claude-ios"));
+    }
+
+    #[test]
+    fn assisted_import_rejects_restricted_payload_before_omnimemory_write() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        let result = repo
+            .assisted_import_batch(AssistedImportBatchRequest {
+                source_platform: "ChatGPT".to_string(),
+                source_surface: "chatgpt-web".to_string(),
+                import_scope: "current_conversation".to_string(),
+                session_id: "restricted-visible-1".to_string(),
+                project_ref: None,
+                batch_index: 1,
+                batch_total: 1,
+                turns: vec![AssistedImportTurn {
+                    role: "user".to_string(),
+                    content: "Restricted payload".to_string(),
+                    timestamp: None,
+                    model: None,
+                }],
+                tags: Vec::new(),
+                metadata: serde_json::json!({"principal": "chatgpt-connector"}),
+                coverage: serde_json::Value::Null,
+                extracted: None,
+                privacy_class: Some("restricted".to_string()),
+                title: None,
+                original_date: None,
+                confidence_score: None,
+                create_chronoself_commit: None,
+            })
+            .unwrap();
+
+        assert_eq!(result.status, "rejected");
+        assert!(result.omnimemory.is_none());
+        assert_eq!(result.audit_event.as_ref().unwrap().status, "rejected");
+        assert_eq!(
+            repo.read_recent_jsonl::<OmniConversation>(OMNIMEMORY_LOG, 10)
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(
+            repo.read_recent_jsonl::<AuditEvent>(AUDIT_LOG, 10)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }

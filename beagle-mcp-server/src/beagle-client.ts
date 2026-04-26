@@ -300,6 +300,10 @@ export class BeagleClient {
         return this.request("POST", "/api/exocortex/v1/omnimemory/imports", body, 120000);
     }
 
+    async assistedImportBatch(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/memory/assisted-import", body, 120000);
+    }
+
     async projectMemory(body: unknown): Promise<unknown> {
         return this.request("POST", "/api/exocortex/v1/memory/project", body, 120000);
     }

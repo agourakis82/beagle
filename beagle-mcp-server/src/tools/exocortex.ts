@@ -504,59 +504,7 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
             },
             handler: async (args: unknown) => {
                 const parsed = AssistedImportBatchSchema.parse(args ?? {});
-                if (parsed.privacy_class === "restricted") {
-                    return sanitizeOutput({
-                        status: "rejected",
-                        reason: "restricted payloads require explicit human review before import",
-                        session_id: parsed.session_id,
-                        source_platform: parsed.source_platform,
-                        batch_index: parsed.batch_index,
-                        batch_total: parsed.batch_total,
-                    });
-                }
-
-                const imported = await client.omnimemoryImport(enrichOmniImport(assistedImportPayload(parsed)));
-                const sourceRefs = omnimemorySourceRefs(imported);
-                const projection = await client.projectMemory({
-                    rebuild: false,
-                    source_refs: sourceRefs,
-                });
-                const memoryEvent = await client.memoryEvent({
-                    kind: "assisted_import_batch",
-                    summary: `Assisted import batch ${parsed.batch_index}/${parsed.batch_total} from ${parsed.source_platform}`,
-                    tags: uniqueNonEmpty([
-                        ...parsed.tags,
-                        "assisted-import",
-                        "graphrag-projection",
-                        parsed.source_platform,
-                        parsed.project_ref ? `project:${parsed.project_ref}` : undefined,
-                    ]),
-                    metadata: {
-                        source_platform: parsed.source_platform,
-                        source_surface: parsed.source_surface,
-                        import_scope: parsed.import_scope,
-                        session_id: parsed.session_id,
-                        project_ref: parsed.project_ref,
-                        batch_index: parsed.batch_index,
-                        batch_total: parsed.batch_total,
-                        privacy_class: parsed.privacy_class,
-                        coverage: parsed.coverage,
-                        omnimemory_source_refs: sourceRefs,
-                        projection,
-                    },
-                });
-
-                return sanitizeOutput({
-                    status: "imported",
-                    session_id: parsed.session_id,
-                    source_platform: parsed.source_platform,
-                    batch_index: parsed.batch_index,
-                    batch_total: parsed.batch_total,
-                    privacy_class: parsed.privacy_class,
-                    omnimemory: imported,
-                    projection,
-                    memory_event: memoryEvent,
-                });
+                return sanitizeOutput(await client.assistedImportBatch(parsed));
             },
         },
         {

@@ -81,6 +81,24 @@ public final class CognitiveStore {
         }
     }
 
+    /// Drain the Share Extension's transient handoff queue into cluster memory.
+    /// The queue is only a local bridge; successful captures are removed.
+    public func drainSharedThoughtQueue(appGroupId: String = "group.dev.sounio.cockpit") async {
+        guard let defaults = UserDefaults(suiteName: appGroupId) else { return }
+        let pending = defaults.array(forKey: "pendingSharedThoughts") as? [[String: String]] ?? []
+        guard !pending.isEmpty else { return }
+
+        var retry: [[String: String]] = []
+        for item in pending {
+            let content = item["content"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !content.isEmpty else { continue }
+            if await captureThought(text: content, source: item["source"] ?? "share-extension") == nil {
+                retry.append(item)
+            }
+        }
+        defaults.set(retry, forKey: "pendingSharedThoughts")
+    }
+
     // MARK: - Refresh cognitive state
 
     public func refresh() async {
