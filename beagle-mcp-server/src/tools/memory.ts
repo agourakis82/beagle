@@ -60,6 +60,51 @@ function uniqueTags(tags: string[]): string[] {
     return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)));
 }
 
+function metadataString(
+    metadata: Record<string, unknown>,
+    key: string,
+): string | undefined {
+    const value = metadata[key];
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function inferSourceSurface(source: string, metadata: Record<string, unknown>): string {
+    const explicit = metadataString(metadata, "source_surface");
+    if (explicit) return explicit;
+
+    const normalized = source.trim().toLowerCase().replace(/\s+/g, "_");
+    if (normalized.includes("claude") && normalized.includes("mobile")) {
+        return "claude-ios";
+    }
+    if (normalized.includes("claude") && normalized.includes("ios")) {
+        return "claude-ios";
+    }
+    if (normalized.includes("chatgpt") && normalized.includes("ios")) {
+        return "chatgpt-ios";
+    }
+    if (normalized.includes("claude")) {
+        return "claude";
+    }
+    if (normalized.includes("chatgpt")) {
+        return "chatgpt";
+    }
+    return normalized || "mcp-visible-context";
+}
+
+function projectRefFromTags(tags: string[]): string | undefined {
+    const projectTag = tags.find((tag) => tag.toLowerCase().startsWith("project:"));
+    return projectTag?.slice("project:".length).trim() || undefined;
+}
+
+function assistedPrivacyClass(metadata: Record<string, unknown>): "public" | "sensitive" | "restricted" {
+    const value = metadataString(metadata, "privacy_class")?.toLowerCase().replace(/-/g, "_");
+    if (value === "public") return "public";
+    if (value === "restricted" || value === "secret" || value === "credential") {
+        return "restricted";
+    }
+    return "sensitive";
+}
+
 export function memoryTools(client: BeagleClient): McpTool[] {
     return [
         {
@@ -124,9 +169,9 @@ Use this to:
 - Build continuous learning corpus
 
 Each turn will be:
-- Chunked and embedded (vector store)
-- Added to the knowledge graph (hypergraph)
-- Tagged with source and metadata
+- Imported through the canonical GraphRAG++ assisted import path
+- Projected into Episode+Atom memory where allowed by privacy policy
+- Tagged with source, surface, provenance, and metadata
 
 Note: Ingest turns incrementally as the conversation progresses.`,
             inputSchema: {
@@ -207,40 +252,71 @@ Note: Ingest turns incrementally as the conversation progresses.`,
                     `hash:${contentHash.slice(0, 12)}`,
                 ]);
 
-                const result = await client.memoryIngestChat(
-                    source,
+                const sourceSurface = inferSourceSurface(source, metadata);
+                const assistedTags = uniqueTags([
+                    ...enrichedTags,
+                    `surface:${sourceSurface}`,
+                    "assisted-import",
+                    "graphrag++",
+                ]);
+                const assisted = await client.assistedImportBatch({
+                    source_platform: source,
+                    source_surface: sourceSurface,
                     session_id,
                     turns,
-                    enrichedTags,
-                    enrichedMetadata,
-                );
-                await client
-                    .memoryEvent({
-                        source: "mcp",
-                        kind: "chat_ingest",
-                        content_ref: `memory_session:${session_id}`,
-                        summary: `Ingested ${turns.length} turns from ${source}.`,
-                        tags: enrichedTags,
-                        metadata: {
-                            session_id,
-                            source,
-                            content_hash: `sha256:${contentHash}`,
-                            provenance: enrichedMetadata.provenance,
-                            privacy_class: enrichedMetadata.privacy_class,
-                            dedupe: enrichedMetadata.dedupe,
-                            turn_count: turns.length,
-                            original_metadata: metadata,
-                        },
-                        confidence: 0.82,
-                    })
-                    .catch(() => undefined);
+                    tags: assistedTags,
+                    metadata: {
+                        ...enrichedMetadata,
+                        legacy_tool: "beagle_memory_ingest_chat",
+                        surface_claimed: sourceSurface,
+                        surface_observed:
+                            metadataString(metadata, "surface_observed") ?? "anthropic-cloud",
+                    },
+                    privacy_class: assistedPrivacyClass(enrichedMetadata),
+                    import_scope:
+                        metadataString(metadata, "import_scope") ?? "current_conversation",
+                    project_ref:
+                        metadataString(metadata, "project_ref") ?? projectRefFromTags(tags),
+                    confidence_score:
+                        typeof metadata.confidence_score === "number"
+                            ? metadata.confidence_score
+                            : 0.82,
+                    title:
+                        metadataString(metadata, "title")
+                        ?? `${source} ${session_id} MCP import`,
+                }) as {
+                    status?: string;
+                    reason?: string;
+                    projection?: {
+                        id?: string;
+                        episodes_created?: number;
+                        atoms_created?: number;
+                        duplicates?: number;
+                        status?: string;
+                    };
+                    memory_event?: { id?: string };
+                    audit_event?: { id?: string };
+                };
 
                 return sanitizeOutput({
-                    status: result.status,
-                    session_id: result.session_id,
+                    status: assisted.status ?? "imported",
+                    reason: assisted.reason,
+                    session_id,
+                    source_surface: sourceSurface,
                     content_hash: `sha256:${contentHash}`,
-                    num_turns: result.num_turns,
-                    num_chunks: result.num_chunks,
+                    num_turns: turns.length,
+                    num_chunks: turns.length,
+                    projection: assisted.projection
+                        ? {
+                            id: assisted.projection.id,
+                            status: assisted.projection.status,
+                            episodes_created: assisted.projection.episodes_created,
+                            atoms_created: assisted.projection.atoms_created,
+                            duplicates: assisted.projection.duplicates,
+                        }
+                        : undefined,
+                    memory_event_id: assisted.memory_event?.id,
+                    audit_event_id: assisted.audit_event?.id,
                 });
             },
         },

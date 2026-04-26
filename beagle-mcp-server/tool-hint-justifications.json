@@ -93,7 +93,7 @@
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Writes imported chat turns into Beagle memory and records a memory event.",
+        "read_only_justification": "Writes imported chat turns into Beagle memory through the GraphRAG++ assisted import path, producing Episode+Atom projection and audit records.",
         "open_world_justification": "Writes only to the private Beagle cluster and does not affect external systems.",
         "destructive_justification": "Appends memory records and does not delete or overwrite existing records."
       }
