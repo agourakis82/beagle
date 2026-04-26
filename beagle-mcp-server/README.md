@@ -94,11 +94,57 @@ npm run build
 
 ## Usage
 
-### For Claude Desktop / Claude Code
+### For Local Agents: Claude Code, Codex, Claude Desktop
 
-#### 1. Configure Claude Desktop MCP
+Local agents should use the stdio launcher. The launcher speaks MCP over stdio
+to the local agent, then talks to the cluster-canonical Beagle Core over the
+tailnet. It does not store canonical memory on the workstation.
 
-Create or edit `~/.config/Claude/claude_desktop_config.json` (macOS/Linux) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+#### 1. Create a local-only env file
+
+Create `~/.beagle/mcp-local.env` with `0600` permissions. Keep this file out of
+Git and out of prompts.
+
+```bash
+mkdir -p ~/.beagle
+chmod 700 ~/.beagle
+cat > ~/.beagle/mcp-local.env <<'EOF'
+BEAGLE_CORE_URL=http://beagle-core.tail21cbc4.ts.net
+BEAGLE_COCKPIT_URL=http://project-cockpit.tail21cbc4.ts.net
+BEAGLE_CORE_API_TOKEN=...
+MCP_TRANSPORT=stdio
+MCP_TOOL_SURFACE=trusted_full
+MCP_CLIENT_SURFACE=local_tailnet_full
+MCP_ALLOW_LEGACY_BEARER=true
+MCP_REQUIRE_AUTH=false
+MCP_DEFAULT_SCOPES=exocortex:read,memory:write,chronoself:write,research:run,agent:start
+EOF
+chmod 600 ~/.beagle/mcp-local.env
+```
+
+#### 2. Configure Claude Code
+
+```bash
+claude mcp add-json -s user beagle-local \
+  '{"type":"stdio","command":"/absolute/path/to/beagle/scripts/beagle-mcp-local","args":[],"env":{"MCP_CLIENT_TYPE":"claude-code","MCP_DEFAULT_CLIENT_ID":"claude-code-local"}}'
+
+claude mcp get beagle-local
+```
+
+#### 3. Configure Codex
+
+```bash
+codex mcp add beagle \
+  --env MCP_CLIENT_TYPE=codex \
+  --env MCP_DEFAULT_CLIENT_ID=codex-local \
+  -- /absolute/path/to/beagle/scripts/beagle-mcp-local
+
+codex mcp get beagle
+```
+
+#### 4. Configure Claude Desktop, if desired
+
+Create or edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -107,26 +153,24 @@ Create or edit `~/.config/Claude/claude_desktop_config.json` (macOS/Linux) or `%
       "command": "/absolute/path/to/beagle/scripts/beagle-mcp-local",
       "args": [],
       "env": {
-        "BEAGLE_CORE_URL": "https://beagle.chiuratto.ai",
-        "BEAGLE_CORE_API_TOKEN": "..."
+        "MCP_CLIENT_TYPE": "claude-desktop",
+        "MCP_DEFAULT_CLIENT_ID": "claude-desktop-local"
       }
     }
   }
 }
 ```
 
-#### 2. Restart Claude Desktop
+#### 5. Verify Connection
 
-The MCP server will start automatically when you open a conversation.
-
-#### 3. Verify Connection
-
-In Claude Desktop, type:
+In the client, ask:
 ```
 Use beagle_memory_query to search for "test"
 ```
 
-If the tool is available, you'll see it in the autocomplete.
+For write verification, import a short visible-context note through
+`beagle_assisted_import_batch`; it should create OmniMemory, Episode+Atom, and
+audit records on the cluster PVC.
 
 ---
 

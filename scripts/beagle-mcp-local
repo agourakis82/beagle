@@ -7,11 +7,23 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MCP_DIR="${ROOT_DIR}/beagle-mcp-server"
+ENV_FILE="${BEAGLE_MCP_LOCAL_ENV:-${HOME}/.beagle/mcp-local.env}"
+
+if [[ -f "${ENV_FILE}" ]]; then
+  # shellcheck disable=SC1090
+  set -a
+  source "${ENV_FILE}"
+  set +a
+fi
 
 export MCP_TRANSPORT="${MCP_TRANSPORT:-stdio}"
-export MCP_CLIENT_TYPE="${MCP_CLIENT_TYPE:-claude}"
-export BEAGLE_CORE_URL="${BEAGLE_CORE_URL:-https://beagle.chiuratto.ai}"
-export BEAGLE_COCKPIT_URL="${BEAGLE_COCKPIT_URL:-https://beagle.chiuratto.ai}"
+export MCP_CLIENT_TYPE="${MCP_CLIENT_TYPE:-local}"
+export MCP_CLIENT_SURFACE="${MCP_CLIENT_SURFACE:-local_tailnet_full}"
+export MCP_TOOL_SURFACE="${MCP_TOOL_SURFACE:-trusted_full}"
+export MCP_ALLOW_LEGACY_BEARER="${MCP_ALLOW_LEGACY_BEARER:-true}"
+export MCP_DEFAULT_CLIENT_ID="${MCP_DEFAULT_CLIENT_ID:-local-tailnet-agent}"
+export BEAGLE_CORE_URL="${BEAGLE_CORE_URL:-http://beagle-core.tail21cbc4.ts.net}"
+export BEAGLE_COCKPIT_URL="${BEAGLE_COCKPIT_URL:-http://project-cockpit.tail21cbc4.ts.net}"
 
 if [[ ! -d "${MCP_DIR}/node_modules" ]]; then
   npm --prefix "${MCP_DIR}" install
