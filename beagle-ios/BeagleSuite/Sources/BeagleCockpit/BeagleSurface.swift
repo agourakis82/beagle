@@ -12,6 +12,9 @@
 import SwiftUI
 import SwiftData
 import BeagleCore
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct BeagleSurface: View {
     @Environment(CatalogStore.self) private var catalog
@@ -21,6 +24,7 @@ struct BeagleSurface: View {
     @Binding var bootError: String?
 
     @State private var conversation = ConversationStore(preferLocal: false)
+    @State private var exocortex = ExocortexStore()
     @State private var showSettings = false
     @State private var showCognitiveState = false
     @State private var showProjectPicker = false
@@ -51,6 +55,10 @@ struct BeagleSurface: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
+                exocortexHomeCard
+                    .padding(.horizontal, BeagleSpacing.lg)
+                    .padding(.bottom, BeagleSpacing.sm)
+
                 // The conversation — this is the whole point
                 ConversationView(conversation: conversation)
             }
@@ -67,6 +75,11 @@ struct BeagleSurface: View {
         }
         .task {
             wireConversation()
+            exocortex.modelContext = modelContext
+            exocortex.loadCachedHome()
+            async let homeRefresh: Void = exocortex.refresh(activeProjectSlug: activeSlug, platform: platformName)
+            async let bodyRefresh: Void = physio.refresh()
+            _ = await (homeRefresh, bodyRefresh)
         }
         .onChange(of: conversation.messages.count) {
             runMetacognitiveCheck()
@@ -99,6 +112,256 @@ struct BeagleSurface: View {
                     }
             }
         }
+    }
+
+    // MARK: - Exocortex Home
+
+    private var exocortexHomeCard: some View {
+        GlassPanel(elevation: .floating, truth: exocortex.home.mode) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                HStack(alignment: .center, spacing: BeagleSpacing.sm) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(BeagleTheme.color(for: exocortex.home.mode))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("EXOCORTEX HOME")
+                            .font(BeagleFont.caption2.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                        Text(home.currentSelf.label)
+                            .font(BeagleFont.footnote.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: BeagleSpacing.sm)
+
+                    TruthBadge(exocortex.home.mode, compact: true)
+
+                    Button {
+                        Task {
+                            async let homeRefresh: Void = exocortex.refresh(activeProjectSlug: activeSlug, platform: platformName)
+                            async let bodyRefresh: Void = physio.refresh()
+                            _ = await (homeRefresh, bodyRefresh)
+                        }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .help("Refresh Exocortex Home")
+                    .disabled(exocortex.isLoading)
+                }
+
+                hardwareStrip
+
+                Text(home.todayBrief)
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let bodyLine = bodyContextLine {
+                    bodyContextRow(bodyLine)
+                }
+
+                if let trustLine = trustContextLine {
+                    trustContextRow(trustLine)
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: BeagleSpacing.md) {
+                        homeSignal(
+                            icon: "scope",
+                            title: home.activeProjectRef ?? activeSlug,
+                            detail: home.temporalPhase ?? home.omnimemoryStatus
+                        )
+                        homeSignal(
+                            icon: "point.3.connected.trianglepath.dotted",
+                            title: "\(home.memorySignals.count) memory signals",
+                            detail: agentContextDetail
+                        )
+                        homeSignal(
+                            icon: "applewatch",
+                            title: bodyLoopTitle,
+                            detail: bodyLoopDetail
+                        )
+                        homeSignal(
+                            icon: "arrow.forward.circle.fill",
+                            title: "Next",
+                            detail: home.recommendedNextAction
+                        )
+                    }
+
+                    VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                        homeSignal(
+                            icon: "scope",
+                            title: home.activeProjectRef ?? activeSlug,
+                            detail: home.temporalPhase ?? home.omnimemoryStatus
+                        )
+                        homeSignal(
+                            icon: "point.3.connected.trianglepath.dotted",
+                            title: "\(home.memorySignals.count) memory signals",
+                            detail: agentContextDetail
+                        )
+                        homeSignal(
+                            icon: "applewatch",
+                            title: bodyLoopTitle,
+                            detail: bodyLoopDetail
+                        )
+                        homeSignal(
+                            icon: "arrow.forward.circle.fill",
+                            title: "Next",
+                            detail: home.recommendedNextAction
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var hardwareStrip: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: BeagleSpacing.xs) {
+                hardwarePill(
+                    icon: "iphone.gen3",
+                    title: phoneSurfaceLabel,
+                    detail: "capture"
+                )
+                hardwarePill(
+                    icon: "applewatch",
+                    title: watchSurfaceLabel,
+                    detail: readinessStatusLabel
+                )
+                hardwarePill(
+                    icon: "server.rack",
+                    title: "cluster truth",
+                    detail: home.clusterTruth
+                )
+            }
+
+            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    hardwarePill(
+                        icon: "iphone.gen3",
+                        title: phoneSurfaceLabel,
+                        detail: "capture"
+                    )
+                    hardwarePill(
+                        icon: "applewatch",
+                        title: watchSurfaceLabel,
+                        detail: readinessStatusLabel
+                    )
+                }
+                hardwarePill(
+                    icon: "server.rack",
+                    title: "cluster truth",
+                    detail: home.clusterTruth
+                )
+            }
+        }
+    }
+
+    private func hardwarePill(icon: String, title: String, detail: String) -> some View {
+        HStack(spacing: BeagleSpacing.xxs) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(BeagleTheme.truthObserved)
+            Text(title)
+                .font(BeagleFont.caption2.font)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(detail)
+                .font(BeagleFont.caption2.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .foregroundStyle(BeagleTheme.textSecondary)
+        .padding(.horizontal, BeagleSpacing.xs)
+        .padding(.vertical, 5)
+        .background(
+            Capsule(style: .continuous)
+                .fill(BeagleTheme.surface1.opacity(0.48))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(BeagleTheme.hairline.opacity(0.65), lineWidth: 0.6)
+        )
+    }
+
+    private func bodyContextRow(_ line: String) -> some View {
+        HStack(alignment: .top, spacing: BeagleSpacing.xs) {
+            Image(systemName: "waveform.path.ecg")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(readinessColor)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Body context")
+                    .font(BeagleFont.caption2.font)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                Text(line)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func trustContextRow(_ line: String) -> some View {
+        HStack(alignment: .top, spacing: BeagleSpacing.xs) {
+            Image(systemName: "checkmark.shield")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(BeagleTheme.truthObserved)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("MCP trust")
+                    .font(BeagleFont.caption2.font)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                Text(line)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var home: ExocortexHomeSnapshot {
+        exocortex.home.value ?? .bootstrap
+    }
+
+    private func homeSignal(icon: String, title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: BeagleSpacing.xxs) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(BeagleTheme.truthObserved)
+                Text(title)
+                    .font(BeagleFont.caption.font)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            Text(detail)
+                .font(BeagleFont.caption2.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Header bar (project + readiness + settings)
@@ -344,6 +607,22 @@ struct BeagleSurface: View {
         cognitive.activeProjectSlug ?? catalog.primaryProject?.projectSlug ?? "sounio"
     }
 
+    private var platformName: String {
+        #if os(iOS)
+        #if canImport(UIKit)
+        return UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+        #else
+        return "iOS"
+        #endif
+        #elseif os(macOS)
+        return "macOS"
+        #elseif os(visionOS)
+        return "visionOS"
+        #else
+        return "Apple"
+        #endif
+    }
+
     private var runningAgentCount: Int {
         cognitive.state.value?.agentSessions?.filter { ($0.readyReplicas ?? 0) > 0 }.count ?? 0
     }
@@ -366,6 +645,85 @@ struct BeagleSurface: View {
         if r >= 0.7 { return BeagleTheme.truthObserved }
         if r >= 0.4 { return BeagleTheme.postureWarm }
         return BeagleTheme.stateError
+    }
+
+    private var phoneSurfaceLabel: String {
+        if home.bodyContext?.localizedCaseInsensitiveContains("iPhone 17 Pro Max") == true {
+            return "iPhone 17 Pro Max"
+        }
+        return platformName
+    }
+
+    private var watchSurfaceLabel: String {
+        if home.bodyContext?.localizedCaseInsensitiveContains("Apple Watch Ultra 2") == true {
+            return "Watch Ultra 2"
+        }
+        return physio.isAvailable ? "HealthKit" : "Watch loop"
+    }
+
+    private var readinessStatusLabel: String {
+        if readinessLabel != "—" {
+            return readinessLabel
+        }
+        switch physio.summary.authorizationState {
+        case .authorized:
+            return physio.summary.readiness == .unavailable ? "waiting" : physio.summary.readiness.rawValue
+        case .requesting:
+            return "requesting"
+        case .denied:
+            return "denied"
+        case .error:
+            return "error"
+        case .unavailable:
+            return "unavailable"
+        case .idle:
+            return "ready"
+        }
+    }
+
+    private var bodyContextLine: String? {
+        if let clusterLine = home.bodyContext?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !clusterLine.isEmpty {
+            return clusterLine
+        }
+        if physio.summary.isMeaningful || physio.summary.authorizationState != .idle {
+            return physio.summary.bodyLine
+        }
+        return nil
+    }
+
+    private var trustContextLine: String? {
+        guard let trust = home.trustContext else { return nil }
+        let scopeCount = trust.activeScopes.count
+        let hashLabel = trust.toolManifestHash.map { String($0.suffix(12)) } ?? "no hash"
+        return "\(trust.mcpStatus) · \(scopeCount) scopes · \(hashLabel) · destructive locked"
+    }
+
+    private var agentContextDetail: String {
+        if let agent = home.agentContext {
+            if let last = agent.lastAgentWrite, !last.isEmpty {
+                return "\(agent.mcpStatus) · last \(last)"
+            }
+            return "\(agent.mcpStatus) · \(agent.activeSessions) sessions"
+        }
+        return home.clusterTruth
+    }
+
+    private var bodyLoopTitle: String {
+        if readinessLabel != "—" {
+            return "Body \(readinessLabel)"
+        }
+        if physio.summary.authorizationState == .authorized {
+            return physio.summary.readiness.title
+        }
+        return "Body loop"
+    }
+
+    private var bodyLoopDetail: String {
+        if physio.summary.isMeaningful {
+            return physio.summary.detailLine
+        }
+        return bodyContextLine ?? "Waiting for Ultra 2 and HealthKit samples."
     }
 }
 

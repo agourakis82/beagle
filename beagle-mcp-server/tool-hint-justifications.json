@@ -1,0 +1,282 @@
+{
+  "$schema": "https://developers.openai.com/apps-sdk/schemas/tool-hint-justifications.v1.json",
+  "schema_version": 1,
+  "tools": {
+    "search": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Searches Beagle memory and context and returns result identifiers without writing data.",
+        "open_world_justification": "Operates against the private Beagle cluster and does not publish or modify external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "fetch": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Retrieves a Beagle result or canonical resource and does not mutate state.",
+        "open_world_justification": "Reads only private Beagle resources and does not affect public internet state.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_llm_complete": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Sends a prompt through Beagle's model router and may create provider usage records.",
+        "open_world_justification": "May call configured external model providers through Beagle's routing layer.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_pipeline_run": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Starts an asynchronous Beagle research pipeline and records a new run.",
+        "open_world_justification": "The pipeline may use external model or research providers configured behind Beagle.",
+        "destructive_justification": "Creates a run but does not delete or overwrite existing records."
+      }
+    },
+    "beagle_pipeline_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads pipeline status and artifacts without changing the run.",
+        "open_world_justification": "Reads private Beagle run state and does not modify external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_list_recent_runs": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Lists recent Beagle run metadata without modifying any run.",
+        "open_world_justification": "Reads private Beagle metadata and does not modify public or third-party state.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_memory_query": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Queries Beagle memory and returns matching context without writing memory.",
+        "open_world_justification": "Reads private Beagle memory and does not publish or modify external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_memory_ingest_chat": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes imported chat turns into Beagle memory and records a memory event.",
+        "open_world_justification": "Writes only to the private Beagle cluster and does not affect external systems.",
+        "destructive_justification": "Appends memory records and does not delete or overwrite existing records."
+      }
+    },
+    "beagle_feedback_tag": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes feedback metadata for an existing Beagle run.",
+        "open_world_justification": "Updates private Beagle feedback state and does not publish externally.",
+        "destructive_justification": "Adds feedback metadata and does not delete or revoke data."
+      }
+    },
+    "beagle_tag_experiment_run": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes an experimental condition tag for a Beagle run.",
+        "open_world_justification": "Updates private Beagle experiment metadata and does not affect public systems.",
+        "destructive_justification": "Adds experiment metadata and does not delete or overwrite run artifacts."
+      }
+    },
+    "beagle_exocortex_home": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads the current Exocortex Home snapshot without changing cluster state.",
+        "open_world_justification": "Reads private Beagle state and does not modify external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_chronoself_current": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads the current Chronoself version without creating commits.",
+        "open_world_justification": "Reads private Beagle identity state and does not publish externally.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_chronoself_commits": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Lists immutable Chronoself commits without modifying them.",
+        "open_world_justification": "Reads private Beagle commit metadata and does not modify external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_chronoself_create_commit": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Appends a new Chronoself commit to the Beagle identity log.",
+        "open_world_justification": "Writes only to private Beagle Chronoself state and does not publish externally.",
+        "destructive_justification": "Creates an append-only commit and does not delete or overwrite prior commits."
+      }
+    },
+    "beagle_omnimemory_import": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Imports conversation or raw content into Beagle OmniMemory.",
+        "open_world_justification": "Writes to private Beagle memory and does not modify external services.",
+        "destructive_justification": "Appends imported memory and does not delete or overwrite existing memory."
+      }
+    },
+    "beagle_temporal_analyze": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Runs a TemporalAI analysis that may create an analysis record.",
+        "open_world_justification": "Operates inside the private Beagle cluster and does not publish externally.",
+        "destructive_justification": "Creates analysis output and does not delete or overwrite canonical logs."
+      }
+    },
+    "beagle_go_deeper": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Runs a deeper analysis workflow and may create research output.",
+        "open_world_justification": "May call external research or model providers through Beagle depending on modality.",
+        "destructive_justification": "Creates research output and does not delete or overwrite existing records."
+      }
+    },
+    "beagle_round_table": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Runs a multi-agent deliberation workflow and may record generated output.",
+        "open_world_justification": "May call configured external model providers through Beagle's agent layer.",
+        "destructive_justification": "Creates deliberation output and does not delete or overwrite existing records."
+      }
+    },
+    "beagle_agent_sessions": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Lists existing agent sessions for a project without starting new sessions.",
+        "open_world_justification": "Reads private Beagle cockpit state and does not modify external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_agent_session_start": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Starts a Beagle agent session for a project and records the new session.",
+        "open_world_justification": "May start an agent that uses external tools or model providers configured by Beagle.",
+        "destructive_justification": "Starts a session but does not delete, revoke, or perform irreversible admin actions."
+      }
+    },
+    "beagle_start_science_job": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Starts a scientific computation job and records a new job ID.",
+        "open_world_justification": "The job may use external data or compute providers configured behind Beagle.",
+        "destructive_justification": "Starts a job but does not delete or overwrite existing job artifacts."
+      }
+    },
+    "beagle_get_science_job_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads science job status without modifying the job.",
+        "open_world_justification": "Reads private Beagle job state and does not publish externally.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_get_science_job_artifacts": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Retrieves science job artifact metadata without changing artifacts.",
+        "open_world_justification": "Reads private Beagle artifact metadata and does not modify external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    }
+  }
+}

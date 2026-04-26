@@ -112,6 +112,19 @@ public final class PersistedDeepSession {
     public var isComplete: Bool { completedAt != nil }
 }
 
+// MARK: - Persisted Exocortex Home Snapshot Cache
+
+@Model
+public final class PersistedExocortexHomeSnapshot {
+    public var payload: String
+    public var capturedAt: Date
+
+    public init(payload: String, capturedAt: Date = .now) {
+        self.payload = payload
+        self.capturedAt = capturedAt
+    }
+}
+
 // MARK: - Container Configuration
 
 public enum PersistenceConfig {
@@ -120,6 +133,7 @@ public enum PersistenceConfig {
             PersistedThought.self,
             PersistedMessage.self,
             PersistedDeepSession.self,
+            PersistedExocortexHomeSnapshot.self,
         ])
         let config = ModelConfiguration(
             "BeagleExocortex",

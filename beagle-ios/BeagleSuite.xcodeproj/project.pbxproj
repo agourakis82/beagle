@@ -31,12 +31,16 @@
 		955AF5DFA3C5E28DE9E71AAF /* GoDeepButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */; };
 		9CC023D0D4B249261F286235 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
 		9CC466E7952DB6517E30310A /* BeagleVisionOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */; };
+		B3A500000000000000000001 /* SpatialTriadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3A500000000000000000002 /* SpatialTriadView.swift */; };
+		B3A500000000000000000003 /* HyperbolicGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3A500000000000000000004 /* HyperbolicGraphView.swift */; };
+		B3A500000000000000000005 /* SpatialThoughtsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3A500000000000000000006 /* SpatialThoughtsView.swift */; };
 		9D3E9AC3F435A2A585B1F48B /* ChatBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189F9DCDE0C15DEF48A24B21 /* ChatBubbleView.swift */; };
 		A3ED060D3B5CB1EB7489B82E /* TriadReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */; };
 		A7E50EC5008FE3C119415E16 /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */; };
 		AFF447F376A1DA08356C28E0 /* HPCDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */; };
 		B153B877BF3BB76F401EF7EF /* ModelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */; };
 		B29E7F8F8148C1AF28D130D0 /* BeagleCockpitApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */; };
+		B3A17E0B0000000000000001 /* WorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3A17E0B0000000000000002 /* WorkView.swift */; };
 		B4C18225A382E1164A752BEC /* GoDeepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FADF6A9C3533B785FE38619 /* GoDeepView.swift */; };
 		BB19063FBD1E753D7FD91FAA /* PresencePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C4128C7822635F0B4D0B966 /* PresencePill.swift */; };
 		BD252AA03538ED12C4AFE5D7 /* BeagleWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */; };
@@ -105,6 +109,9 @@
 		58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriadReviewView.swift; sourceTree = "<group>"; };
 		5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HPCDashboardView.swift; sourceTree = "<group>"; };
 		5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleVisionOSApp.swift; sourceTree = "<group>"; };
+		B3A500000000000000000002 /* SpatialTriadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialTriadView.swift; sourceTree = "<group>"; };
+		B3A500000000000000000004 /* HyperbolicGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HyperbolicGraphView.swift; sourceTree = "<group>"; };
+		B3A500000000000000000006 /* SpatialThoughtsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialThoughtsView.swift; sourceTree = "<group>"; };
 		639809058407AA2A7F31CBFA /* ConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationView.swift; sourceTree = "<group>"; };
 		67516A1FA21422BE9A964B96 /* BeagleVisionOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BeagleVisionOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6E25761501AE3C48683C921A /* BeagleSuite */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BeagleSuite; path = BeagleSuite; sourceTree = SOURCE_ROOT; };
@@ -118,6 +125,7 @@
 		95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 		AB312C9D46D9321BC2DD8F95 /* CognitiveBridgeField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CognitiveBridgeField.swift; sourceTree = "<group>"; };
 		B4EBFAF926379A760494FDDE /* PlatformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformView.swift; sourceTree = "<group>"; };
+		B3A17E0B0000000000000002 /* WorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkView.swift; sourceTree = "<group>"; };
 		BF024B3743049659F7073E6C /* AgentActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityView.swift; sourceTree = "<group>"; };
 		CE66E5A63CE01CAC1A04AF63 /* BeagleWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = BeagleWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D4E5BFBC8407D4C833BA3F95 /* CognitiveStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CognitiveStateView.swift; sourceTree = "<group>"; };
@@ -203,6 +211,7 @@
 				47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */,
 				180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */,
 				58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */,
+				B3A17E0B0000000000000002 /* WorkView.swift */,
 			);
 			name = BeagleCockpit;
 			path = BeagleSuite/Sources/BeagleCockpit;
@@ -235,6 +244,9 @@
 			isa = PBXGroup;
 			children = (
 				5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */,
+				B3A500000000000000000004 /* HyperbolicGraphView.swift */,
+				B3A500000000000000000006 /* SpatialThoughtsView.swift */,
+				B3A500000000000000000002 /* SpatialTriadView.swift */,
 			);
 			name = BeagleVisionOS;
 			path = BeagleSuite/Sources/BeagleVisionOS;
@@ -480,6 +492,7 @@
 				232DEFB048E340F8FE242BDB /* TerminalContentView.swift in Sources */,
 				DBDE230C56BD951ED91BCF5C /* ThoughtCaptureView.swift in Sources */,
 				A3ED060D3B5CB1EB7489B82E /* TriadReviewView.swift in Sources */,
+				B3A17E0B0000000000000001 /* WorkView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -496,6 +509,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				9CC466E7952DB6517E30310A /* BeagleVisionOSApp.swift in Sources */,
+				B3A500000000000000000003 /* HyperbolicGraphView.swift in Sources */,
+				B3A500000000000000000005 /* SpatialThoughtsView.swift in Sources */,
+				B3A500000000000000000001 /* SpatialTriadView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

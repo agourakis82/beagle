@@ -10,7 +10,9 @@
 import Foundation
 import Observation
 import SwiftData
+#if canImport(CoreSpotlight)
 import CoreSpotlight
+#endif
 
 @Observable
 @MainActor
@@ -303,6 +305,7 @@ public final class CognitiveStore {
 
     // MARK: - Spotlight indexing
 
+    #if canImport(CoreSpotlight)
     private func indexToSpotlight(_ thought: ThoughtCapture) {
         let title = thought.refinedText ?? thought.rawText ?? ""
         guard !title.isEmpty else { return }
@@ -323,6 +326,9 @@ public final class CognitiveStore {
             if let error { print("[Spotlight] indexing failed: \(error)") }
         }
     }
+    #else
+    private func indexToSpotlight(_ thought: ThoughtCapture) {}
+    #endif
 
     private func extractKeywords(from text: String) -> [String] {
         let stopWords: Set<String> = ["the", "a", "an", "is", "are", "was", "were", "be", "been",

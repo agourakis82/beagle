@@ -453,6 +453,28 @@ public actor BeagleClient {
         await post(ChatResponse.self, path: "/api/memory/query", body: ["query": query])
     }
 
+    // MARK: - Exocortex v1
+
+    public func exocortexHome(
+        activeProjectSlug: String? = nil,
+        platform: String = "apple"
+    ) async -> Truthful<ExocortexHomeSnapshot> {
+        var queryItems: [String] = []
+        if let activeProjectSlug,
+           let encoded = activeProjectSlug.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            queryItems.append("active_project_slug=\(encoded)")
+        }
+        if let encoded = platform.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            queryItems.append("platform=\(encoded)")
+        }
+        let suffix = queryItems.isEmpty ? "" : "?\(queryItems.joined(separator: "&"))"
+        return await fetch(
+            ExocortexHomeSnapshot.self,
+            path: "/api/exocortex/v1/home\(suffix)",
+            timeout: 20
+        )
+    }
+
     // MARK: - Literature Search
 
     public func searchPubMed(query: String) async -> Truthful<ChatResponse> {

@@ -74,6 +74,15 @@ resource "cloudflare_record" "api" {
   ttl     = 1
 }
 
+resource "cloudflare_record" "mcp" {
+  zone_id = var.cloudflare_zone_id
+  name    = "mcp"
+  value   = cloudflare_tunnel.beagle_production.cname
+  type    = "CNAME"
+  proxied = true
+  ttl     = 1
+}
+
 resource "cloudflare_record" "ws" {
   zone_id = var.cloudflare_zone_id
   name    = "ws"

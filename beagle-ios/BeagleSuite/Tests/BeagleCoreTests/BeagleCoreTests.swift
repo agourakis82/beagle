@@ -94,3 +94,86 @@ import Foundation
     #expect(message.contains("truth=stale"))
     #expect(message.contains("requestId=resume-42"))
 }
+
+@Test func exocortexHomeDecodesLegacySnapshotWithoutTrustContext() throws {
+    let json = """
+    {
+      "generated_at": "2026-04-25T12:00:00Z",
+      "today_brief": "Legacy home",
+      "current_self": {
+        "id": "v1",
+        "label": "Legacy Self",
+        "period_start": "2026-04-25T12:00:00Z",
+        "period_end": null,
+        "dominant_beliefs": [],
+        "core_values": [],
+        "cognitive_style": "continuity",
+        "risk_tolerance": 0.5,
+        "source_commit_id": null
+      },
+      "memory_signals": [],
+      "open_loops": [],
+      "active_project_ref": "sounio",
+      "body_context": null,
+      "recommended_next_action": "Continue",
+      "cluster_truth": "observed",
+      "omnimemory_status": "0 imports indexed",
+      "temporal_phase": null
+    }
+    """.data(using: .utf8)!
+
+    let snapshot = try JSONDecoder().decode(ExocortexHomeSnapshot.self, from: json)
+
+    #expect(snapshot.currentSelf.label == "Legacy Self")
+    #expect(snapshot.agentContext == nil)
+    #expect(snapshot.trustContext == nil)
+}
+
+@Test func exocortexHomeDecodesTrustAndAgentContext() throws {
+    let json = """
+    {
+      "generated_at": "2026-04-25T12:00:00Z",
+      "today_brief": "Audited home",
+      "current_self": {
+        "id": "v1",
+        "label": "Audited Self",
+        "period_start": "2026-04-25T12:00:00Z",
+        "period_end": null,
+        "dominant_beliefs": [],
+        "core_values": [],
+        "cognitive_style": "continuity",
+        "risk_tolerance": 0.5,
+        "source_commit_id": null
+      },
+      "memory_signals": ["MCP wrote memory"],
+      "open_loops": [],
+      "active_project_ref": "sounio",
+      "body_context": "iPhone 17 Pro Max + Apple Watch Ultra 2",
+      "recommended_next_action": "Review audit",
+      "cluster_truth": "observed",
+      "omnimemory_status": "1 imports indexed",
+      "temporal_phase": "Integration",
+      "agent_context": {
+        "active_sessions": 1,
+        "recent_observations": ["Stored memory"],
+        "last_agent_write": "beagle_memory_ingest_chat",
+        "mcp_status": "audited"
+      },
+      "trust_context": {
+        "mcp_status": "audit-log-observed",
+        "active_scopes": ["exocortex:read", "memory:write"],
+        "audit_freshness": "2026-04-25T12:00:00Z",
+        "destructive_actions": "locked",
+        "tool_manifest_hash": "sha256:abc",
+        "last_audit_event_id": "audit-1"
+      }
+    }
+    """.data(using: .utf8)!
+
+    let snapshot = try JSONDecoder().decode(ExocortexHomeSnapshot.self, from: json)
+
+    #expect(snapshot.agentContext?.mcpStatus == "audited")
+    #expect(snapshot.agentContext?.lastAgentWrite == "beagle_memory_ingest_chat")
+    #expect(snapshot.trustContext?.activeScopes.contains("memory:write") == true)
+    #expect(snapshot.trustContext?.toolManifestHash == "sha256:abc")
+}

@@ -126,10 +126,19 @@ struct SpatialMindView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(SpatialSection.allCases, selection: $selectedSection) { section in
-                Label(section.rawValue, systemImage: section.icon)
-                    .font(BeagleTheme.uiFont(size: 15, weight: .medium))
-                    .foregroundStyle(BeagleTheme.textPrimary)
+            List(SpatialSection.allCases) { section in
+                Button {
+                    selectedSection = section
+                } label: {
+                    Label(section.rawValue, systemImage: section.icon)
+                        .font(BeagleTheme.uiFont(size: 15, weight: .medium))
+                        .foregroundStyle(
+                            selectedSection == section
+                            ? BeagleTheme.truthObserved
+                            : BeagleTheme.textPrimary
+                        )
+                }
+                .buttonStyle(.plain)
             }
             .navigationTitle("Beagle")
             .listStyle(.sidebar)
@@ -215,6 +224,7 @@ struct SpatialMindDashboard: View {
     @Environment(CatalogStore.self) private var catalog
     @Environment(CognitiveStore.self) private var cognitive
     @Environment(PhysioStore.self) private var physio
+    @State private var exocortex = ExocortexStore()
 
     var body: some View {
         ScrollView {
@@ -223,6 +233,9 @@ struct SpatialMindDashboard: View {
                 // Cognitive posture header
                 cognitiveHeader
                     .padding(.top)
+
+                exocortexSpatialCard
+                    .padding(.horizontal)
 
                 // Always-on projects grid
                 if !catalog.alwaysOnProjects.isEmpty {
@@ -305,6 +318,64 @@ struct SpatialMindDashboard: View {
             SpatialProjectView(slug: project.projectSlug)
         }
         .background(.regularMaterial)
+        .task {
+            await exocortex.refresh(
+                activeProjectSlug: catalog.primaryProject?.projectSlug ?? cognitive.activeProjectSlug,
+                platform: "visionOS"
+            )
+        }
+    }
+
+    private var exocortexSpatialCard: some View {
+        let snapshot = exocortex.home.value ?? .bootstrap
+        return GlassPanel(elevated: true, truth: exocortex.home.mode) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(BeagleTheme.color(for: exocortex.home.mode))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("CHRONOSELF")
+                            .font(BeagleTheme.uiFont(size: 11, weight: .semibold))
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                        Text(snapshot.currentSelf.label)
+                            .font(BeagleTheme.uiFont(size: 17, weight: .semibold))
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                    }
+                    Spacer()
+                    TruthBadge(exocortex.home.mode, compact: true)
+                }
+
+                Text(snapshot.todayBrief)
+                    .font(BeagleTheme.uiFont(size: 14))
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineLimit(3)
+
+                HStack(alignment: .top, spacing: 18) {
+                    spatialHomeSignal("phase", snapshot.temporalPhase ?? snapshot.omnimemoryStatus)
+                    spatialHomeSignal("trust", snapshot.trustContext?.mcpStatus ?? snapshot.clusterTruth)
+                    spatialHomeSignal("next", snapshot.recommendedNextAction)
+                }
+
+                if let agent = snapshot.agentContext,
+                   let last = agent.lastAgentWrite {
+                    spatialHomeSignal("agent write", "\(agent.mcpStatus) · \(last)")
+                }
+            }
+        }
+    }
+
+    private func spatialHomeSignal(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased())
+                .font(BeagleTheme.uiFont(size: 10, weight: .semibold))
+                .foregroundStyle(BeagleTheme.textTertiary)
+            Text(value)
+                .font(BeagleTheme.uiFont(size: 13))
+                .foregroundStyle(BeagleTheme.textSecondary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var cognitiveHeader: some View {

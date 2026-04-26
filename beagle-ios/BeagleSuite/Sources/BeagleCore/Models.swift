@@ -948,6 +948,30 @@ public struct AgentSession: Codable, Sendable {
     public let action: String?
     public let activity: AgentSessionActivity?
 
+    public init(
+        kind: String?,
+        name: String?,
+        replicas: Int?,
+        readyReplicas: Int?,
+        createdAt: String?,
+        pods: [AgentPod]?,
+        status: String?,
+        truthMode: String?,
+        action: String?,
+        activity: AgentSessionActivity? = nil
+    ) {
+        self.kind = kind
+        self.name = name
+        self.replicas = replicas
+        self.readyReplicas = readyReplicas
+        self.createdAt = createdAt
+        self.pods = pods
+        self.status = status
+        self.truthMode = truthMode
+        self.action = action
+        self.activity = activity
+    }
+
     public var isRunning: Bool { (readyReplicas ?? 0) > 0 }
     public var podName: String? { pods?.first?.name }
     public var phase: AgentSessionPhase {
@@ -1218,6 +1242,11 @@ public struct RoundTableResult: Codable, Sendable {
     public let interference: RoundTableInterference?
     public let pciScore: Double?
     public let synthesis: String?
+
+    enum CodingKeys: String, CodingKey {
+        case voices, interference, synthesis
+        case pciScore = "pci_score"
+    }
 }
 
 public struct RoundTableVoice: Codable, Sendable, Identifiable {

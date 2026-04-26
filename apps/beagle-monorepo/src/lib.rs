@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod http;
+pub mod http_exocortex;
 pub mod http_memory;
 pub mod jobs;
 pub mod pipeline;

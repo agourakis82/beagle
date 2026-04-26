@@ -1411,7 +1411,7 @@ struct HomeView: View {
                         HStack(spacing: BeagleSpacing.sm) {
                             Button {
                                 Task {
-                                    await cognitive.captureThought(text: insight.text, source: "dream-synthesis")
+                                    _ = await cognitive.captureThought(text: insight.text, source: "dream-synthesis")
                                     engine.markRead(insight.id)
                                     #if os(iOS)
                                     BeagleHaptics.capture()

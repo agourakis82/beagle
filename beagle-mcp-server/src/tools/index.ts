@@ -19,24 +19,238 @@ import { scienceJobTools } from "./science-jobs.js";
 import { memoryTools } from "./memory.js";
 import { feedbackTools } from "./feedback.js";
 import { experimentalTools } from "./experimental.js";
+import { exocortexTools } from "./exocortex.js";
+import { standardTools } from "./standard.js";
 
 export interface McpTool {
     name: string;
     description: string;
     inputSchema: Record<string, unknown>; // JSON Schema
+    annotations?: McpToolAnnotations;
+    requiredScopes?: string[];
+    riskLevel?: McpToolRiskLevel;
     handler: (args: unknown) => Promise<unknown>;
 }
 
+export interface McpToolAnnotations {
+    title: string;
+    readOnlyHint: boolean;
+    destructiveHint: boolean;
+    idempotentHint: boolean;
+    openWorldHint: boolean;
+}
+
+export type McpToolRiskLevel = "read" | "write" | "run" | "experimental";
+export type McpToolSurface = "review_safe" | "trusted_full";
+
+type ToolPolicy = {
+    annotations: McpToolAnnotations;
+    requiredScopes: string[];
+    riskLevel: McpToolRiskLevel;
+};
+
+const READ_EXOCORTEX = ["exocortex:read"];
+const WRITE_MEMORY = ["exocortex:read", "memory:write"];
+const WRITE_CHRONOSELF = ["exocortex:read", "chronoself:write"];
+const RUN_RESEARCH = ["exocortex:read", "research:run"];
+const START_AGENT = ["exocortex:read", "agent:start"];
+
+function annotations(
+    title: string,
+    readOnlyHint: boolean,
+    openWorldHint: boolean,
+    idempotentHint: boolean,
+): McpToolAnnotations {
+    return {
+        title,
+        readOnlyHint,
+        destructiveHint: false,
+        idempotentHint,
+        openWorldHint,
+    };
+}
+
+const TOOL_POLICIES: Record<string, ToolPolicy> = {
+    search: {
+        annotations: annotations("Search Beagle Exocortex", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    fetch: {
+        annotations: annotations("Fetch Beagle Exocortex Result", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_llm_complete: {
+        annotations: annotations("Complete with Beagle LLM Router", false, true, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_pipeline_run: {
+        annotations: annotations("Start Beagle Pipeline", false, true, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_pipeline_status: {
+        annotations: annotations("Read Pipeline Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_list_recent_runs: {
+        annotations: annotations("List Recent Runs", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_memory_query: {
+        annotations: annotations("Query Beagle Memory", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_memory_ingest_chat: {
+        annotations: annotations("Ingest Chat into Memory", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_feedback_tag: {
+        annotations: annotations("Tag Run Feedback", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_tag_experiment_run: {
+        annotations: annotations("Tag Experiment Run", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_exocortex_home: {
+        annotations: annotations("Read Exocortex Home", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_chronoself_current: {
+        annotations: annotations("Read Current Chronoself", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_chronoself_commits: {
+        annotations: annotations("Read Chronoself Commits", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_chronoself_create_commit: {
+        annotations: annotations("Create Chronoself Commit", false, false, false),
+        requiredScopes: WRITE_CHRONOSELF,
+        riskLevel: "write",
+    },
+    beagle_omnimemory_import: {
+        annotations: annotations("Import OmniMemory Conversation", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_temporal_analyze: {
+        annotations: annotations("Run TemporalAI Analysis", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_go_deeper: {
+        annotations: annotations("Run Go Deeper", false, true, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_round_table: {
+        annotations: annotations("Convoke Round Table", false, true, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_agent_sessions: {
+        annotations: annotations("List Agent Sessions", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_agent_session_start: {
+        annotations: annotations("Start Agent Session", false, true, false),
+        requiredScopes: START_AGENT,
+        riskLevel: "run",
+    },
+    beagle_start_science_job: {
+        annotations: annotations("Start Science Job", false, true, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_get_science_job_status: {
+        annotations: annotations("Read Science Job Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_get_science_job_artifacts: {
+        annotations: annotations("Read Science Job Artifacts", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_serendipity_toggle: {
+        annotations: annotations("Toggle Serendipity Engine", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "experimental",
+    },
+    beagle_serendipity_perturb_prompt: {
+        annotations: annotations("Perturb Prompt", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "experimental",
+    },
+    beagle_void_break_loop: {
+        annotations: annotations("Apply Void Break Loop", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "experimental",
+    },
+};
+
+const REVIEW_SAFE_TOOL_NAMES = new Set([
+    "search",
+    "fetch",
+    "beagle_exocortex_home",
+    "beagle_chronoself_current",
+    "beagle_chronoself_commits",
+    "beagle_memory_query",
+    "beagle_pipeline_status",
+    "beagle_list_recent_runs",
+    "beagle_get_science_job_status",
+    "beagle_get_science_job_artifacts",
+]);
+
+function applyPolicy(tool: McpTool): McpTool {
+    const policy = TOOL_POLICIES[tool.name];
+    if (!policy) {
+        return tool;
+    }
+    return {
+        ...tool,
+        annotations: policy.annotations,
+        requiredScopes: policy.requiredScopes,
+        riskLevel: policy.riskLevel,
+    };
+}
+
 export function defineTools(client: BeagleClient): McpTool[] {
-    return [
+    const tools = [
+        ...standardTools(client),
         // Core tools (canonical set)
         ...llmTools(client),
         ...pipelineTools(client),
         ...memoryTools(client),
         ...feedbackTools(client),
+        ...exocortexTools(client),
 
         // Extended tools
         ...scienceJobTools(client),
         ...experimentalTools(client),
-    ];
+    ].map(applyPolicy);
+
+    const surface = toolSurface();
+    if (surface === "review_safe") {
+        return tools.filter((tool) => REVIEW_SAFE_TOOL_NAMES.has(tool.name));
+    }
+    return tools;
+}
+
+export function toolSurface(): McpToolSurface {
+    return process.env.MCP_TOOL_SURFACE === "review_safe" ? "review_safe" : "trusted_full";
 }

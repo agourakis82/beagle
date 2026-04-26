@@ -41,16 +41,15 @@ export function addOpenAiMetadata(tool: {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations?: unknown;
+  _meta?: Record<string, unknown>;
 }): Record<string, unknown> {
   return {
     ...tool,
-    inputSchema: {
-      ...tool.inputSchema,
-      _meta: {
+    _meta: {
+      ...(tool._meta ?? {}),
         'openai/toolInvocation/invoking': `Calling ${tool.name}...`,
         'openai/toolInvocation/invoked': `${tool.name} completed`,
-      },
     },
   };
 }
-

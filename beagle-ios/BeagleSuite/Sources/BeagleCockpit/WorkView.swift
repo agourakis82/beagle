@@ -48,9 +48,11 @@ struct WorkView: View {
         }
         .background(Color(red: 0.02, green: 0.03, blue: 0.06))
         .navigationTitle("Work")
+        #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: toolbarPlacement) {
                 Menu {
                     Button {
                         showAgentSession = true
@@ -87,6 +89,14 @@ struct WorkView: View {
     }
 
     // MARK: - Quick access strip
+
+    private var toolbarPlacement: ToolbarItemPlacement {
+        #if os(macOS)
+        return .automatic
+        #else
+        return .topBarTrailing
+        #endif
+    }
 
     private var quickAccessStrip: some View {
         HStack(spacing: 0) {

@@ -14,26 +14,30 @@ export interface BeagleConfig {
 export class BeagleClient {
     private timeout: number;
     private maxRetries: number;
+    private cockpitBaseUrl?: string;
 
     constructor(
         public baseUrl: string,
         private authToken?: string,
         timeout = 60000, // 60s default
         maxRetries = 2,
+        cockpitBaseUrl?: string,
     ) {
         // Remove trailing slash
         this.baseUrl = baseUrl.replace(/\/$/, "");
+        this.cockpitBaseUrl = cockpitBaseUrl?.replace(/\/$/, "");
         this.timeout = timeout;
         this.maxRetries = maxRetries;
     }
 
-    private async request<T>(
+    async request<T>(
         method: string,
         path: string,
         body?: unknown,
         customTimeout?: number,
+        baseUrl = this.baseUrl,
     ): Promise<T> {
-        const url = `${this.baseUrl}${path}`;
+        const url = `${baseUrl}${path}`;
         const timeoutMs = customTimeout || this.timeout;
 
         const headers: Record<string, string> = {
@@ -222,43 +226,154 @@ export class BeagleClient {
 
     async memoryQuery(
         query: string,
-        topK = 5,
+        maxItems = 5,
+        scope?: string,
     ): Promise<{
-        results: Array<{
-            id: string;
+        summary: string;
+        highlights: Array<{
             source: string;
+            date?: string;
             snippet: string;
-            score?: number;
-            metadata?: Record<string, unknown>;
+            run_id?: string;
+            session_id?: string;
+            relevance: number;
         }>;
+        links: unknown[];
     }> {
         return this.request("POST", "/api/memory/query", {
             query,
-            top_k: topK,
+            scope,
+            max_items: maxItems,
         });
     }
 
     async memoryIngestChat(
         source: string,
-        conversationId: string,
-        turnIndex: number,
-        role: "user" | "assistant" | "system",
-        text: string,
-        subjectHint?: string,
-        tags?: string[],
+        sessionId: string,
+        turns: Array<{
+            role: "user" | "assistant" | "system";
+            content: string;
+            timestamp?: string;
+            model?: string;
+        }>,
+        tags: string[] = [],
+        metadata: Record<string, unknown> = {},
     ): Promise<{
-        stored: boolean;
-        memory_id?: string;
+        status: string;
+        session_id: string;
+        num_turns: number;
+        num_chunks: number;
     }> {
         return this.request("POST", "/api/memory/ingest_chat", {
             source,
-            conversation_id: conversationId,
-            turn_index: turnIndex,
-            role,
-            text,
-            subject_hint: subjectHint,
+            session_id: sessionId,
+            turns,
             tags,
+            metadata,
         });
+    }
+
+    async exocortexHome(activeProjectSlug?: string, platform?: string): Promise<unknown> {
+        const params = new URLSearchParams();
+        if (activeProjectSlug) params.set("active_project_slug", activeProjectSlug);
+        if (platform) params.set("platform", platform);
+        const suffix = params.toString() ? `?${params}` : "";
+        return this.request("GET", `/api/exocortex/v1/home${suffix}`);
+    }
+
+    async chronoselfCurrent(): Promise<unknown> {
+        return this.request("GET", "/api/exocortex/v1/chronoself/current");
+    }
+
+    async chronoselfCommits(limit = 20): Promise<unknown> {
+        return this.request(
+            "GET",
+            `/api/exocortex/v1/chronoself/commits?limit=${encodeURIComponent(String(limit))}`,
+        );
+    }
+
+    async chronoselfCreateCommit(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/chronoself/commits", body);
+    }
+
+    async omnimemoryImport(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/omnimemory/imports", body, 120000);
+    }
+
+    async temporalAnalyze(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/temporal/analyze", body, 120000);
+    }
+
+    async auditEvent(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/audit/events", body, 30000);
+    }
+
+    async recentAuditEvents(limit = 25): Promise<unknown> {
+        return this.request(
+            "GET",
+            `/api/exocortex/v1/audit/events?limit=${encodeURIComponent(String(limit))}`,
+            undefined,
+            30000,
+        );
+    }
+
+    async memoryEvent(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/memory/events", body, 30000);
+    }
+
+    async recentMemoryEvents(limit = 25): Promise<unknown> {
+        return this.request(
+            "GET",
+            `/api/exocortex/v1/memory/events?limit=${encodeURIComponent(String(limit))}`,
+            undefined,
+            30000,
+        );
+    }
+
+    async activeProjects(): Promise<unknown> {
+        return this.request("GET", "/api/exocortex/v1/projects/active", undefined, 30000);
+    }
+
+    async goDeeper(modality: string, query: string): Promise<unknown> {
+        const pathByModality: Record<string, string> = {
+            deep_research: "/dev/deep-research",
+            swarm: "/dev/swarm",
+            temporal: "/dev/temporal",
+            neurosymbolic: "/dev/neurosymbolic",
+            causal: "/dev/causal",
+        };
+        const path = pathByModality[modality] || "/dev/deep-research";
+        return this.request("POST", path, { query, research_question: query }, 180000);
+    }
+
+    async roundTable(prompt: string, voices: string[] = []): Promise<unknown> {
+        return this.request("POST", "/api/v1/round-table", { prompt, voices }, 180000);
+    }
+
+    async agentSessions(projectSlug: string): Promise<unknown> {
+        const baseUrl = this.cockpitBaseUrl || this.baseUrl;
+        return this.request(
+            "GET",
+            `/api/mobile/v1/projects/${encodeURIComponent(projectSlug)}/agent-sessions`,
+            undefined,
+            30000,
+            baseUrl,
+        );
+    }
+
+    async startAgentSession(
+        projectSlug: string,
+        kind: string,
+        objective?: string,
+    ): Promise<unknown> {
+        const baseUrl = this.cockpitBaseUrl || this.baseUrl;
+        return this.request(
+            "POST",
+            `/api/mobile/v1/projects/${encodeURIComponent(projectSlug)}/agent-sessions`,
+            { agentKind: kind, kind, objective },
+            60000,
+            baseUrl,
+        );
     }
 
     async tagRun(

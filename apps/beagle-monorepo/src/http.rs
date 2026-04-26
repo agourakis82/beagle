@@ -122,6 +122,7 @@ pub fn build_router(state: AppState) -> Router {
             get(science_job_artifacts_handler),
         )
         .merge(crate::http_memory::memory_routes())
+        .merge(crate::http_exocortex::exocortex_routes())
         .route("/api/pcs/reason", post(pcs_reason_handler))
         .route("/api/fractal/grow", post(fractal_grow_handler))
         .route("/api/worldmodel/predict", post(worldmodel_predict_handler))
@@ -1518,6 +1519,206 @@ struct RoundTableVoice {
     content: String,
 }
 
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    value.chars().take(max_chars).collect()
+}
+
+fn normalize_round_table_voices(requested: &[String]) -> Vec<String> {
+    const ALLOWED_VOICES: [&str; 8] = [
+        "consciousness",
+        "paradox",
+        "quantum",
+        "void",
+        "reality",
+        "noetic",
+        "fractal",
+        "cosmo",
+    ];
+
+    let requested = if requested.is_empty() {
+        vec![
+            "consciousness".to_string(),
+            "paradox".to_string(),
+            "quantum".to_string(),
+        ]
+    } else {
+        requested.to_vec()
+    };
+
+    let mut voices = Vec::new();
+    for voice in requested {
+        let normalized = voice.trim().to_lowercase();
+        if ALLOWED_VOICES.contains(&normalized.as_str()) && !voices.contains(&normalized) {
+            voices.push(normalized);
+        }
+        if voices.len() == 5 {
+            break;
+        }
+    }
+    voices
+}
+
+fn first_string(value: Option<&serde_json::Value>, keys: &[&str]) -> Option<String> {
+    let value = value?;
+    keys.iter()
+        .filter_map(|key| value.get(*key)?.as_str())
+        .map(str::trim)
+        .find(|text| !text.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn string_list(value: Option<&serde_json::Value>, key: &str) -> Vec<String> {
+    match value.and_then(|v| v.get(key)) {
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| item.as_str())
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(ToOwned::to_owned)
+            .collect(),
+        Some(serde_json::Value::String(text)) => text
+            .split(['\n', ';'])
+            .map(|line| line.trim().trim_start_matches(['-', '*', '•', ' ']))
+            .filter(|line| !line.is_empty())
+            .map(ToOwned::to_owned)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn text_points(text: &str, limit: usize) -> Vec<String> {
+    text.lines()
+        .map(|line| line.trim().trim_start_matches(['-', '*', '•', ' ']))
+        .filter(|line| !line.is_empty())
+        .take(limit)
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn first_insight(parsed: Option<&serde_json::Value>, text: &str, keys: &[&str]) -> String {
+    first_string(parsed, keys)
+        .or_else(|| text_points(text, 1).into_iter().next())
+        .unwrap_or_else(|| truncate_chars(text.trim(), 700))
+}
+
+fn go_deep_ios_response(
+    path: &str,
+    parsed: Option<&serde_json::Value>,
+    output_text: &str,
+) -> serde_json::Value {
+    let fallback_result = parsed
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({ "response": output_text }));
+
+    match path {
+        "/dev/deep-research" => {
+            let best_hypothesis = first_insight(
+                parsed,
+                output_text,
+                &[
+                    "best_hypothesis",
+                    "research_summary",
+                    "summary",
+                    "analysis",
+                    "response",
+                ],
+            );
+            let iterations = parsed
+                .and_then(|v| v.get("iterations"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1);
+            let tree_size = parsed
+                .and_then(|v| v.get("tree_size"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or_else(|| string_list(parsed, "key_findings").len().max(1) as u64);
+
+            serde_json::json!({
+                "tree_size": tree_size,
+                "best_hypothesis": best_hypothesis,
+                "iterations": iterations,
+                "result": fallback_result,
+            })
+        }
+        "/dev/swarm" => {
+            let mut consensus = string_list(parsed, "consensus");
+            if consensus.is_empty() {
+                consensus = string_list(parsed, "key_findings");
+            }
+            if consensus.is_empty() {
+                consensus = text_points(output_text, 3);
+            }
+            if consensus.is_empty() {
+                consensus.push(truncate_chars(output_text.trim(), 700));
+            }
+
+            let n_agents = parsed
+                .and_then(|v| v.get("n_agents").or_else(|| v.get("nAgents")))
+                .and_then(|v| v.as_u64())
+                .or_else(|| {
+                    parsed
+                        .and_then(|v| v.get("individual_perspectives"))
+                        .and_then(|v| v.as_array())
+                        .map(|items| items.len() as u64)
+                })
+                .unwrap_or(3);
+            let iterations = parsed
+                .and_then(|v| v.get("iterations"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1);
+
+            serde_json::json!({
+                "consensus": consensus,
+                "iterations": iterations,
+                "n_agents": n_agents,
+                "result": fallback_result,
+            })
+        }
+        "/dev/temporal" => {
+            let summary = first_insight(
+                parsed,
+                output_text,
+                &["summary", "analysis", "temporal_patterns", "response"],
+            );
+            serde_json::json!({ "summary": summary, "result": fallback_result })
+        }
+        "/dev/neurosymbolic" => {
+            let summary = first_insight(
+                parsed,
+                output_text,
+                &[
+                    "summary",
+                    "integrated_conclusion",
+                    "neural_insights",
+                    "response",
+                ],
+            );
+            serde_json::json!({ "summary": summary, "result": fallback_result })
+        }
+        "/dev/causal" => {
+            if parsed
+                .and_then(|v| v.get("nodes"))
+                .and_then(|v| v.as_array())
+                .is_some()
+            {
+                fallback_result
+            } else {
+                let summary =
+                    first_insight(parsed, output_text, &["summary", "analysis", "response"]);
+                serde_json::json!({
+                    "nodes": [],
+                    "edges": [],
+                    "summary": summary,
+                    "result": fallback_result,
+                })
+            }
+        }
+        _ => {
+            let summary = first_insight(parsed, output_text, &["summary", "analysis", "response"]);
+            serde_json::json!({ "summary": summary, "result": fallback_result })
+        }
+    }
+}
+
 async fn round_table_handler(
     axum::extract::State(_state): axum::extract::State<AppState>,
     Json(req): Json<RoundTableRequest>,
@@ -1526,17 +1727,26 @@ async fn round_table_handler(
     use std::sync::Arc;
 
     let start = std::time::Instant::now();
-    tracing::info!("🎭 /api/v1/round-table — prompt: {}, voices: {:?}", req.prompt, req.voices);
+    tracing::info!(
+        "🎭 /api/v1/round-table — prompt: {}, voices: {:?}",
+        req.prompt,
+        req.voices
+    );
 
     if req.prompt.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "Prompt cannot be empty".to_string()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Prompt cannot be empty".to_string(),
+        ));
     }
 
-    let voices = if req.voices.is_empty() {
-        vec!["consciousness", "paradox", "quantum"].iter().map(|s| s.to_string()).collect()
-    } else {
-        req.voices.clone()
-    };
+    let voices = normalize_round_table_voices(&req.voices);
+    if voices.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "No supported voices requested".to_string(),
+        ));
+    }
 
     let llm: Arc<dyn LlmClient> = Arc::new(GrokClient::new());
 
@@ -1559,7 +1769,10 @@ async fn round_table_handler(
             _ => "You are an exotic reasoning voice. Respond with deep insight.",
         };
 
-        let system_prompt = format!("{}\n\nQuestion: {}\n\nRespond concisely (2-3 paragraphs).", perspective, prompt);
+        let system_prompt = format!(
+            "{}\n\nQuestion: {}\n\nRespond concisely (2-3 paragraphs).",
+            perspective, prompt
+        );
 
         handles.push(tokio::spawn(async move {
             match client.complete(&system_prompt).await {
@@ -1578,11 +1791,16 @@ async fn round_table_handler(
 
     let mut results = Vec::new();
     for handle in handles {
-        if let Ok(Some(r)) = handle.await { results.push(r); }
+        if let Ok(Some(r)) = handle.await {
+            results.push(r);
+        }
     }
 
     if results.is_empty() {
-        return Err((StatusCode::SERVICE_UNAVAILABLE, "All voices failed".to_string()));
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "All voices failed".to_string(),
+        ));
     }
 
     // Simple PCI
@@ -1590,21 +1808,33 @@ async fn round_table_handler(
         let mut j = 0.0;
         let mut p = 0;
         for i in 0..results.len() {
-            for k in (i+1)..results.len() {
-                let a: std::collections::HashSet<&str> = results[i].content.split_whitespace().collect();
-                let b: std::collections::HashSet<&str> = results[k].content.split_whitespace().collect();
+            for k in (i + 1)..results.len() {
+                let a: std::collections::HashSet<&str> =
+                    results[i].content.split_whitespace().collect();
+                let b: std::collections::HashSet<&str> =
+                    results[k].content.split_whitespace().collect();
                 j += a.intersection(&b).count() as f64 / a.union(&b).count().max(1) as f64;
                 p += 1;
             }
         }
         let avg = j / p.max(1) as f64;
         ((1.0 - avg) * 0.5 + avg * 0.3 + (results.len() as f64 / 9.0).min(1.0) * 0.2).min(1.0)
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
     // Synthesis
-    let mut ctx = format!("Synthesize these {} perspectives on: {}\n\n", results.len(), req.prompt);
+    let mut ctx = format!(
+        "Synthesize these {} perspectives on: {}\n\n",
+        results.len(),
+        req.prompt
+    );
     for v in &results {
-        ctx.push_str(&format!("— {}: {}\n\n", v.name.to_uppercase(), &v.content[..v.content.len().min(400)]));
+        ctx.push_str(&format!(
+            "— {}: {}\n\n",
+            v.name.to_uppercase(),
+            truncate_chars(&v.content, 400)
+        ));
     }
     ctx.push_str("Synthesize into 2 paragraphs. What does the collision reveal?");
 
@@ -1613,9 +1843,18 @@ async fn round_table_handler(
         Err(_) => format!("{} voices responded with PCI {:.2}", results.len(), pci),
     };
 
-    tracing::info!("✅ Round table in {}ms — {} voices, PCI {:.3}", start.elapsed().as_millis(), results.len(), pci);
+    tracing::info!(
+        "✅ Round table in {}ms — {} voices, PCI {:.3}",
+        start.elapsed().as_millis(),
+        results.len(),
+        pci
+    );
 
-    Ok(Json(RoundTableResponse { voices: results, pci_score: pci, synthesis }))
+    Ok(Json(RoundTableResponse {
+        voices: results,
+        pci_score: pci,
+        synthesis,
+    }))
 }
 
 // ── Go Deeper modality handlers ─────────────────────────────────
@@ -1631,12 +1870,18 @@ async fn go_deep_generic_handler(
     use beagle_llm::{GrokClient, LlmClient};
 
     let path = uri.path();
-    let query = body.get("research_question")
+    let query = body
+        .get("research_question")
         .or(body.get("exploration_query"))
         .or(body.get("query"))
         .or(body.get("problem"))
         .and_then(|v| v.as_str())
-        .or_else(|| body.get("events").and_then(|v| v.as_array()).and_then(|a| a.first()).and_then(|v| v.as_str()))
+        .or_else(|| {
+            body.get("events")
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.first())
+                .and_then(|v| v.as_str())
+        })
         .unwrap_or("no query provided");
 
     let (modality, system_prompt) = match path {
@@ -1648,23 +1893,26 @@ async fn go_deep_generic_handler(
         _ => ("generic", "Analyze this deeply and provide structured insights."),
     };
 
-    tracing::info!("🔬 Go Deeper {} — query: {}", modality, &query[..query.len().min(80)]);
+    tracing::info!(
+        "🔬 Go Deeper {} — query: {}",
+        modality,
+        truncate_chars(query, 80)
+    );
 
     let client = GrokClient::new();
-    let prompt = format!("{}\n\nQuery: {}\n\nRespond in valid JSON matching the fields described above.", system_prompt, query);
+    let prompt = format!(
+        "{}\n\nQuery: {}\n\nRespond in valid JSON matching the fields described above.",
+        system_prompt, query
+    );
 
     match client.complete(&prompt).await {
         Ok(output) => {
-            // Try to parse as JSON, fallback to wrapped text
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&output.text) {
-                Ok(Json(parsed))
-            } else {
-                Ok(Json(serde_json::json!({
-                    "response": output.text,
-                    "modality": modality,
-                    "status": "ok"
-                })))
-            }
+            let parsed = serde_json::from_str::<serde_json::Value>(&output.text).ok();
+            Ok(Json(go_deep_ios_response(
+                path,
+                parsed.as_ref(),
+                &output.text,
+            )))
         }
         Err(e) => {
             tracing::error!("Go Deeper {} failed: {}", modality, e);
@@ -1679,8 +1927,11 @@ async fn go_deep_debate_handler(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     use beagle_llm::{GrokClient, LlmClient};
 
-    let topic = body.get("topic").and_then(|v| v.as_str()).unwrap_or("no topic");
-    tracing::info!("🥊 /dev/debate — topic: {}", &topic[..topic.len().min(80)]);
+    let topic = body
+        .get("topic")
+        .and_then(|v| v.as_str())
+        .unwrap_or("no topic");
+    tracing::info!("🥊 /dev/debate — topic: {}", truncate_chars(topic, 80));
 
     let client = GrokClient::new();
     let prompt = format!(
@@ -1702,7 +1953,7 @@ async fn go_deep_debate_handler(
                 })))
             }
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
 
@@ -1718,5 +1969,57 @@ fn convert_paper_to_info(paper: &beagle_search::Paper) -> PaperInfo {
         pdf_url: paper.pdf_url.clone(),
         source: paper.source.clone(),
         citation: paper.citation(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_chars_respects_utf8_boundaries() {
+        let value = format!("{}é🚀", "a".repeat(399));
+        let truncated = truncate_chars(&value, 400);
+        assert_eq!(truncated.chars().count(), 400);
+        assert!(truncated.ends_with('é'));
+    }
+
+    #[test]
+    fn go_deep_deep_research_shape_matches_swift_contract() {
+        let parsed = serde_json::json!({
+            "research_summary": "Beagle precisa parecer continuidade.",
+            "key_findings": ["Home primeiro", "MCP como sistema nervoso"]
+        });
+        let response = go_deep_ios_response("/dev/deep-research", Some(&parsed), "fallback");
+        assert!(
+            response
+                .get("tree_size")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                >= 1
+        );
+        assert_eq!(
+            response.get("best_hypothesis").and_then(|v| v.as_str()),
+            Some("Beagle precisa parecer continuidade.")
+        );
+        assert!(response.get("iterations").is_some());
+    }
+
+    #[test]
+    fn round_table_voices_are_deduped_allowed_and_capped() {
+        let voices = normalize_round_table_voices(&[
+            "Quantum".to_string(),
+            "quantum".to_string(),
+            "invalid".to_string(),
+            "void".to_string(),
+            "reality".to_string(),
+            "noetic".to_string(),
+            "fractal".to_string(),
+            "cosmo".to_string(),
+        ]);
+        assert_eq!(
+            voices,
+            vec!["quantum", "void", "reality", "noetic", "fractal"]
+        );
     }
 }

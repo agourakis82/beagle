@@ -11,8 +11,6 @@ use axum::{
     Json,
 };
 use serde::Serialize;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use crate::http::AppState;
@@ -119,19 +117,21 @@ mod tests {
     use beagle_config::BeagleConfig;
     use beagle_core::BeagleContext;
     use beagle_observer::UniversalObserver;
-    use tower::ServiceExt; // for `oneshot`
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use tower::util::ServiceExt; // for `oneshot`
 
     async fn dummy_handler() -> &'static str {
         "ok"
     }
 
-    fn create_test_state(api_token: Option<String>, profile: &str) -> AppState {
-        let mut cfg = BeagleConfig {
+    async fn create_test_state(api_token: Option<String>, profile: &str) -> AppState {
+        let cfg = BeagleConfig {
             profile: profile.to_string(),
             safe_mode: true,
             api_token,
             llm: Default::default(),
-            storage: beagle_config::model::StorageConfig {
+            storage: beagle_config::StorageConfig {
                 data_dir: beagle_config::beagle_data_dir()
                     .to_string_lossy()
                     .to_string(),
@@ -142,11 +142,7 @@ mod tests {
             observer: Default::default(),
         };
 
-        let ctx = BeagleContext {
-            cfg,
-            router: beagle_llm::TieredRouter::new(Default::default()),
-            llm_stats: beagle_llm::LlmStatsRegistry::new(),
-        };
+        let ctx = BeagleContext::new_with_mocks(cfg);
 
         AppState {
             ctx: Arc::new(Mutex::new(ctx)),
@@ -158,7 +154,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_with_valid_token() {
-        let state = create_test_state(Some("test-secret-token".to_string()), "dev");
+        let state = create_test_state(Some("test-secret-token".to_string()), "dev").await;
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
@@ -180,7 +176,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_with_invalid_token() {
-        let state = create_test_state(Some("test-secret-token".to_string()), "dev");
+        let state = create_test_state(Some("test-secret-token".to_string()), "dev").await;
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
@@ -202,7 +198,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_without_header() {
-        let state = create_test_state(Some("test-secret-token".to_string()), "dev");
+        let state = create_test_state(Some("test-secret-token".to_string()), "dev").await;
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
@@ -220,7 +216,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_with_no_token_configured_dev() {
-        let state = create_test_state(None, "dev");
+        let state = create_test_state(None, "dev").await;
 
         let app = Router::new()
             .route("/test", get(dummy_handler))

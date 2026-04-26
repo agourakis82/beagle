@@ -42,7 +42,12 @@ struct BeagleCockpitApp: App {
                 .environment(cognitive)
                 .environment(physio)
                 .environment(hpc)
-                .modelContainer(for: [PersistedThought.self, PersistedMessage.self, PersistedDeepSession.self])
+                .modelContainer(for: [
+                    PersistedThought.self,
+                    PersistedMessage.self,
+                    PersistedDeepSession.self,
+                    PersistedExocortexHomeSnapshot.self,
+                ])
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }
@@ -155,6 +160,7 @@ struct RootView: View {
     let launchOverrides: LaunchOverrides
     @Environment(CatalogStore.self) private var catalog
     @Environment(CognitiveStore.self) private var cognitive
+    @Environment(PhysioStore.self) private var physio
     @AppStorage("selectedTab") private var persistedSelectedTab = 0
     @AppStorage("lastAgentKind") private var lastAgentKindRaw = "claude-code"
     @AppStorage("lastAgentObjective") private var lastAgentObjective = ""

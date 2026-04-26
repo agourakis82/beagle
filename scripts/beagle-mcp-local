@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Local stdio launcher for Claude Desktop, Claude Code, Cursor, Codex, and other
+# desktop MCP clients. The process speaks stdio to the local agent and talks to
+# the remote cluster/core over HTTP.
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MCP_DIR="${ROOT_DIR}/beagle-mcp-server"
+
+export MCP_TRANSPORT="${MCP_TRANSPORT:-stdio}"
+export MCP_CLIENT_TYPE="${MCP_CLIENT_TYPE:-claude}"
+export BEAGLE_CORE_URL="${BEAGLE_CORE_URL:-https://beagle.chiuratto.ai}"
+export BEAGLE_COCKPIT_URL="${BEAGLE_COCKPIT_URL:-https://beagle.chiuratto.ai}"
+
+if [[ ! -d "${MCP_DIR}/node_modules" ]]; then
+  npm --prefix "${MCP_DIR}" install
+fi
+
+if [[ ! -f "${MCP_DIR}/dist/index.js" ]]; then
+  npm --prefix "${MCP_DIR}" run build
+fi
+
+exec node "${MCP_DIR}/dist/index.js"
