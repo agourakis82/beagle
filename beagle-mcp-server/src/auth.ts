@@ -85,6 +85,16 @@ export async function validateAuth(token?: string): Promise<AuthValidationResult
         }
     }
 
+    if (!ALLOW_LEGACY_BEARER) {
+        return authFailure(
+            oauthConfigured
+                ? "Legacy bearer tokens are disabled"
+                : "OAuth validation is not configured and legacy bearer tokens are disabled",
+            oauthConfigured ? "invalid_token" : "server_error",
+            oauthConfigured ? 401 : 500,
+        );
+    }
+
     const legacyResult = validateLegacyBearer(cleanToken);
     if (legacyResult.valid) {
         return legacyResult;

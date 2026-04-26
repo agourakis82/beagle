@@ -130,6 +130,21 @@ test("OAuth production mode rejects legacy bearer tokens when disabled", async (
     });
 });
 
+test("public OAuth-only mode stays closed when OAuth metadata is missing", async () => {
+    const auth = await loadAuth({
+        MCP_REQUIRE_AUTH: "true",
+        MCP_AUTH_TOKEN: "legacy-secret",
+        MCP_ALLOW_LEGACY_BEARER: "false",
+    });
+
+    const result = await auth.validateAuth("legacy-secret");
+
+    assert.equal(result.valid, false);
+    assert.equal(result.statusCode, 500);
+    assert.equal(result.errorCode, "server_error");
+    assert.match(result.error ?? "", /OAuth validation is not configured/);
+});
+
 test("missing OAuth scope produces insufficient-scope challenge metadata", async () => {
     await withJwksFixture(async (fixture) => {
         const auth = await loadAuth({
