@@ -794,11 +794,14 @@ function manifest(context: RuntimeContext, port: number) {
     const baseUrl = publicBaseUrl(port);
     const authorizationServerUrl =
         process.env.MCP_AUTHORIZATION_SERVER_URL || process.env.MCP_OAUTH_ISSUER;
+    const resourceDocumentation =
+        process.env.MCP_RESOURCE_DOCUMENTATION_URL || `${baseUrl}/connector`;
     return {
         name: SERVER_NAME,
         version: SERVER_VERSION,
         description: "Beagle Exocortex MCP nervous system",
         protocol: "model-context-protocol",
+        resource_documentation: resourceDocumentation,
         manifest_version: context.ledgerState.manifest_version,
         toolset_id: context.ledgerState.toolset_id,
         security_profile: context.ledgerState.security_profile,
@@ -818,6 +821,7 @@ function manifest(context: RuntimeContext, port: number) {
             oauth_resource_server: isOAuthEnabled(),
             authorization_server: authorizationServerUrl,
             protected_resource_metadata: `${baseUrl}/.well-known/oauth-protected-resource`,
+            resource_documentation: resourceDocumentation,
             destructive_actions:
                 "not enabled in v1 without explicit future scope and audit log",
             scope_policy: scopePolicy(),
