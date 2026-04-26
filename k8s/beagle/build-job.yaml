@@ -23,8 +23,13 @@ spec:
       initContainers:
         - name: clone
           image: alpine/git:latest
-          command: ["git", "clone", "--depth=1", "--branch=feat/ios-terminal-quality-pass",
-                    "https://github.com/agourakis82/beagle.git", "/workspace"]
+          env:
+            - name: BEAGLE_GIT_BRANCH
+              value: codex/beagle-mcp-public-claude
+          command:
+            - /bin/sh
+            - -lc
+            - git clone --depth=1 --branch="${BEAGLE_GIT_BRANCH:-main}" https://github.com/agourakis82/beagle.git /workspace
           volumeMounts:
             - name: workspace
               mountPath: /workspace
@@ -36,10 +41,14 @@ spec:
       containers:
         - name: kaniko
           image: gcr.io/kaniko-project/executor:latest
+          env:
+            - name: BEAGLE_IMAGE_TAG
+              value: graphrag-v12-cdec218
           args:
             - "--dockerfile=/workspace/apps/beagle-monorepo/Dockerfile.core_server"
             - "--context=dir:///workspace"
-            - "--destination=ttl.sh/beagle-core-roundtable:24h"
+            - "--destination=192.168.3.207:5003/beagle-core-exocortex:$(BEAGLE_IMAGE_TAG)"
+            - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"
             - "--verbosity=info"

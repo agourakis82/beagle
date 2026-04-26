@@ -12,6 +12,17 @@ This is not scraping. The user exports or supplies conversation files intentiona
 
 MCP public access proved that external agents can talk to Beagle. The next bottleneck is memory density: Beagle must remember its own history, design philosophy, decisions, research threads, and agent interactions.
 
+## Storage Authority
+
+All canonical Beagle memory state lives in the cluster, not on the MacBook:
+
+- Runtime source of truth: `/var/lib/beagle/exocortex` inside `beagle-core`.
+- Kubernetes backing store: PVC `beagle-data`.
+- Code, schemas, manifests, and docs: GitHub.
+- Private conversation payloads and projected memory JSONL files: never committed to GitHub.
+
+Local files on the MacBook are allowed only as short-lived source exports before upload/import. After successful cluster ingest, local staging files should be deleted.
+
 The priority sequence remains:
 
 1. OmniMemory import of historical conversations.
@@ -84,10 +95,11 @@ Each normalized record is written as JSONL with this shape:
 Run:
 
 ```bash
+# Run from a cluster workspace/pod that mounts the beagle-data PVC, not from the MacBook.
 python3 scripts/omnimemory_import_v1.py prepare \
-  --input ~/Downloads/beagle_exports \
+  --input /var/lib/beagle/exocortex/import-sources/chatgpt \
   --source-platform chatgpt \
-  --output .beagle/omnimemory-import/chatgpt-20260426
+  --output /var/lib/beagle/exocortex/import-staging/chatgpt-20260426
 ```
 
 Outputs:
@@ -100,10 +112,11 @@ Outputs:
 For a deliberately authorized local cache pilot, keep the extraction bounded:
 
 ```bash
+# Run from a cluster workspace/pod that mounts the beagle-data PVC after explicitly copying the source export there.
 python3 scripts/omnimemory_import_v1.py prepare \
-  --input ~/Library/Application\ Support/Claude/IndexedDB/https_claude.ai_0.indexeddb.blob/1/70/7097 \
+  --input /var/lib/beagle/exocortex/import-sources/claude-cache-pilot \
   --source-platform claude-cache \
-  --output .beagle/omnimemory-import/claude-cache-pilot-20260426 \
+  --output /var/lib/beagle/exocortex/import-staging/claude-cache-pilot-20260426 \
   --include-binary-cache \
   --binary-min-string 500 \
   --limit-records 25 \

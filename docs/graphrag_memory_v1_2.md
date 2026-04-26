@@ -30,6 +30,8 @@ Append-only logs under `/var/lib/beagle/exocortex` remain the source of truth:
 
 Indexes, embeddings, graph stores, and caches are derived. They must be reconstructible from append-only logs.
 
+The MacBook is not a memory authority. It is only a development console and temporary operator surface. Runtime Exocortex state must be written through `beagle-core` in the cluster, backed by the `beagle-data` PVC. GitHub stores code, manifests, docs, and schema history; it must not store private memory JSONL payloads.
+
 ## Privacy Defaults
 
 MCP assisted import defaults to `sensitive`.
