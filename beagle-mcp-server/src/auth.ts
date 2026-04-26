@@ -114,7 +114,8 @@ export function assertRequiredScopes(
 export function scopePolicy() {
     return {
         default_scopes: BASIC_SCOPES,
-        destructive_scope: "admin:destructive",
+        destructive_scope: null,
+        destructive_scope_reserved: "admin:destructive",
         destructive_actions: "locked in v1.1; no exposed tool has destructiveHint=true",
         auth_mode: isOAuthEnabled()
             ? "oauth_jwt_resource_server"

@@ -737,7 +737,7 @@ function protectedResourceMetadata(port: number) {
     return {
         resource,
         authorization_servers: [authorizationServerUrl],
-        scopes_supported: [...scopePolicy().default_scopes, scopePolicy().destructive_scope],
+        scopes_supported: scopePolicy().default_scopes,
         bearer_methods_supported: ["header"],
         resource_documentation:
             process.env.MCP_RESOURCE_DOCUMENTATION_URL ||
