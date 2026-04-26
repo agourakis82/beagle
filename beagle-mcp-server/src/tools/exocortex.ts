@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import crypto from "node:crypto";
 import { BeagleClient } from "../beagle-client.js";
 import { sanitizeOutput } from "../security.js";
 import { McpTool } from "./index.js";
@@ -152,6 +153,53 @@ function normalizeOmniImport(input: OmniImportInput): OmniImportRequest {
     };
 }
 
+function sha256Text(value: string): string {
+    return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function enrichOmniImport(input: OmniImportRequest): OmniImportRequest {
+    const contentHash = sha256Text(input.raw_content);
+    const existingSignals =
+        input.extracted?.identity_signals &&
+        typeof input.extracted.identity_signals === "object" &&
+        !Array.isArray(input.extracted.identity_signals)
+            ? input.extracted.identity_signals
+            : {};
+    return {
+        ...input,
+        tags: uniqueNonEmpty([
+            ...(input.tags ?? []),
+            `source:${input.source_platform}`,
+            `hash:${contentHash.slice(0, 12)}`,
+        ]),
+        extracted: {
+            ...(input.extracted ?? {
+                key_insights: [],
+                decisions: [],
+                hypotheses: [],
+                belief_changes: [],
+                projects_mentioned: [],
+                unresolved_questions: [],
+            }),
+            identity_signals: {
+                ...existingSignals,
+                provenance: {
+                    source_platform: input.source_platform,
+                    imported_via: "mcp",
+                    content_hash: `sha256:${contentHash}`,
+                    explicit_import_only: true,
+                },
+                privacy_class: "personal_private",
+                dedupe: {
+                    strategy: "source_platform_raw_content_hash",
+                    key: `${input.source_platform}:sha256:${contentHash}`,
+                    content_hash: `sha256:${contentHash}`,
+                },
+            },
+        },
+    };
+}
+
 export function exocortexTools(client: BeagleClient): McpTool[] {
     return [
         {
@@ -285,7 +333,9 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
             },
             handler: async (args: unknown) => {
                 const parsed = OmniImportSchema.parse(args ?? {});
-                return sanitizeOutput(await client.omnimemoryImport(normalizeOmniImport(parsed)));
+                return sanitizeOutput(
+                    await client.omnimemoryImport(enrichOmniImport(normalizeOmniImport(parsed))),
+                );
             },
         },
         {

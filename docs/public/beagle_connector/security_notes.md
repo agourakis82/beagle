@@ -18,7 +18,7 @@ Minimum scopes:
 - `research:run`
 - `agent:start`
 
-Irreversible destructive actions are locked out of v1.1 unless a future `admin:destructive` scope and explicit audit policy are added.
+Irreversible destructive actions are locked out of v1.2 unless a future `admin:destructive` scope and explicit audit policy are added.
 
 ## Public Trusted-Full Surface
 
@@ -35,3 +35,15 @@ Tool calls are written to the Beagle append-only audit event API when the core i
 ## Network Exposure
 
 `mcp.agourakis.com` is the public connector URL. Tailnet URLs are operational/admin paths and should not be submitted as public connector endpoints.
+
+## Capability Ledger
+
+Beagle MCP v1.2 exposes a capability ledger in `/.well-known/mcp` and `beagle://mcp/manifest/current`. The ledger includes `manifest_version`, `toolset_id`, `security_profile`, client surfaces, scopes, tool annotations, and the reserved destructive-action policy. On startup, the MCP server registers the active tool manifest as an append-only audit event in Beagle Core.
+
+Client surfaces:
+
+- `claude_trusted_full`: OAuth public connector with broad non-destructive read/write/run access.
+- `chatgpt_review_safe`: review-safe surface focused on search, fetch, Home, memory query, audit, and trust context.
+- `local_tailnet_full`: local/tailnet agent surface for stdio and private launcher usage.
+
+No surface exposes `admin:destructive` in v1.2.

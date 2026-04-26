@@ -26,6 +26,7 @@ const AUTH_ENV_KEYS = [
     "MCP_TOKEN_SCOPE_MAP",
     "MCP_PUBLIC_BASE_URL",
     "MCP_RESOURCE_METADATA_URL",
+    "MCP_CLIENT_SURFACE",
 ];
 
 test("Auth0-style JWT validation accepts scoped OAuth access tokens", async () => {
@@ -48,6 +49,10 @@ test("Auth0-style JWT validation accepts scoped OAuth access tokens", async () =
         assert.equal(result.valid, true);
         assert.equal(result.authType, "oauth");
         assert.equal(result.clientId, "claude-mcp-test");
+        assert.equal(result.principal?.auth_type, "oauth");
+        assert.equal(result.principal?.client_id, "claude-mcp-test");
+        assert.equal(result.principal?.subject, "auth0|beagle-test");
+        assert.equal(result.principal?.client_surface, "claude_trusted_full");
         assert.deepEqual(result.scopes, ["exocortex:read", "memory:write"]);
     });
 });
@@ -170,6 +175,7 @@ test("public scope policy reserves destructive scope without exposing it", async
 
     assert.equal(policy.auth_mode, "oauth_jwt_resource_server");
     assert.equal(policy.tool_surface, "trusted_full");
+    assert.equal(policy.client_surface, "claude_trusted_full");
     assert.equal(policy.destructive_scope, null);
     assert.equal(policy.destructive_scope_reserved, "admin:destructive");
     assert.ok(!policy.default_scopes.includes("admin:destructive"));

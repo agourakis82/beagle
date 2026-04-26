@@ -12,7 +12,7 @@ It provides:
 
 - ✅ **Official `@modelcontextprotocol/sdk` implementation**
 - ✅ **23 canonical tools**, including standard `search`/`fetch` for hosted connectors
-- ✅ **9 resources** for current home, Chronoself, recent memory, active projects, cluster truth, MCP audit, and trust state
+- ✅ **14 resources** for current home, Chronoself, recent memory, active projects, cluster truth, MCP audit, capability ledger, agent activity, and trust state
 - ✅ **6 prompts** for daily brief, imports, deliberation, temporal analysis, deep research, and Veritas review
 - ✅ **Automatic retries** with exponential backoff
 - ✅ **Configurable timeouts** (default: 60s)
@@ -45,7 +45,12 @@ It provides:
 - `beagle://projects/active`
 - `beagle://cluster/truth`
 - `beagle://mcp/tool_manifest`
+- `beagle://mcp/manifest/current`
+- `beagle://mcp/manifest/history`
 - `beagle://mcp/audit/recent`
+- `beagle://agents/current`
+- `beagle://agents/recent`
+- `beagle://capabilities/current`
 - `beagle://trust/current`
 
 ### Prompts
@@ -185,8 +190,9 @@ See `.env.example` for all available options. Key variables:
 | `MCP_ENABLE_AUTH` | `false` | Require MCP bearer auth |
 | `MCP_REQUIRE_AUTH` | `false` | Alias for `MCP_ENABLE_AUTH` |
 | `MCP_RATE_LIMIT_PER_MINUTE` | `120` | Per-token/requester rate limit |
-| `MCP_DEFAULT_SCOPES` | broad v1.1 scopes | Scopes granted to the main trusted bearer token |
+| `MCP_DEFAULT_SCOPES` | broad v1.2 scopes | Scopes granted to the main trusted bearer token |
 | `MCP_TOKEN_SCOPE_MAP` | (empty) | Optional JSON map of additional bearer tokens to client IDs and scopes |
+| `MCP_CLIENT_SURFACE` | inferred | `claude_trusted_full`, `chatgpt_review_safe`, or `local_tailnet_full` |
 | `MCP_PUBLIC_BASE_URL` | local HTTP URL | Public HTTPS origin advertised to hosted clients |
 | `MCP_PUBLIC_DISCOVERY` | `false` | Allow unauthenticated initialize/list discovery for connector setup |
 | `MCP_TOOL_SURFACE` | `trusted_full` | `review_safe` exposes read/search/status tools; `trusted_full` exposes all scoped tools |
@@ -199,12 +205,13 @@ See `.env.example` for all available options. Key variables:
 | `HTTP_MAX_RETRIES` | `2` | Max retry attempts for failed requests |
 | `MCP_TRANSPORT` | `stdio` | Transport protocol (`stdio` or `http`) |
 
-### Trust Model v1.1
+### Trust Model v1.2
 
 - Every MCP tool is published with explicit `annotations`, `requiredScopes`, and `riskLevel`.
-- `/.well-known/mcp` exposes `tool_manifest_hash`, counts, scope policy, and destructive-action policy.
+- `/.well-known/mcp` exposes `manifest_version`, `toolset_id`, `security_profile`, `client_surfaces`, `tool_manifest_hash`, counts, scope policy, and destructive-action policy.
+- The active tool manifest is registered as an append-only audit event when the server starts.
 - Tool calls write append-only audit events to `beagle-core` at `/api/exocortex/v1/audit/events`.
-- Destructive tools are intentionally absent in v1.1; `admin:destructive` is reserved for a future explicit flow.
+- Destructive tools are intentionally absent in v1.2; `admin:destructive` is reserved for a future explicit flow.
 - If `MCP_AUTHORIZATION_SERVER_URL` is set, the server also exposes `/.well-known/oauth-protected-resource` for compatible clients.
 
 ### Timeouts by Tool

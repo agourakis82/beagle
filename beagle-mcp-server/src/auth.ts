@@ -8,6 +8,7 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { logger } from "./logger.js";
 import { BASIC_SCOPES } from "./tool-manifest.js";
+import { activeClientSurface } from "./client-profile.js";
 
 const AUTH_TOKEN = process.env.MCP_AUTH_TOKEN || process.env.BEAGLE_CORE_API_TOKEN;
 const ENABLE_AUTH =
@@ -28,6 +29,18 @@ export interface AuthValidationResult {
     clientId?: string;
     scopes: string[];
     authType?: "none" | "bearer" | "oauth";
+    principal?: McpPrincipal;
+}
+
+export interface McpPrincipal {
+    id: string;
+    auth_type: "none" | "bearer" | "oauth";
+    client_surface: string;
+    scopes: string[];
+    client_id?: string;
+    subject?: string;
+    issuer?: string;
+    audience?: string | string[];
 }
 
 /**
@@ -35,7 +48,19 @@ export interface AuthValidationResult {
  */
 export async function validateAuth(token?: string): Promise<AuthValidationResult> {
     if (!isAuthEnabled()) {
-        return { valid: true, clientId: "stdio", scopes: [...BASIC_SCOPES], authType: "none" };
+        const scopes = [...BASIC_SCOPES];
+        return {
+            valid: true,
+            clientId: "stdio",
+            scopes,
+            authType: "none",
+            principal: {
+                id: "stdio",
+                auth_type: "none",
+                client_surface: activeClientSurface(),
+                scopes,
+            },
+        };
     }
 
     if (!token) {
@@ -117,6 +142,7 @@ export function scopePolicy() {
         destructive_scope: null,
         destructive_scope_reserved: "admin:destructive",
         destructive_actions: "locked in v1.1; no exposed tool has destructiveHint=true",
+        client_surface: activeClientSurface(),
         auth_mode: isOAuthEnabled()
             ? "oauth_jwt_resource_server"
             : isAuthEnabled()
@@ -154,11 +180,20 @@ export function wwwAuthenticateHeader(options: {
 
 function validateLegacyBearer(cleanToken: string): AuthValidationResult {
     if (AUTH_TOKEN && cleanToken === AUTH_TOKEN) {
+        const scopes = parseScopeList(process.env.MCP_DEFAULT_SCOPES) ?? [...BASIC_SCOPES];
+        const clientId = process.env.MCP_DEFAULT_CLIENT_ID || "trusted-agent";
         return {
             valid: true,
-            clientId: process.env.MCP_DEFAULT_CLIENT_ID || "trusted-agent",
-            scopes: parseScopeList(process.env.MCP_DEFAULT_SCOPES) ?? [...BASIC_SCOPES],
+            clientId,
+            scopes,
             authType: "bearer",
+            principal: {
+                id: clientId,
+                client_id: clientId,
+                auth_type: "bearer",
+                client_surface: activeClientSurface(),
+                scopes,
+            },
         };
     }
     return mappedTokenAuth(cleanToken);
@@ -184,6 +219,7 @@ async function validateOAuthJwt(cleanToken: string): Promise<AuthValidationResul
             clientId: clientIdFromPayload(payload),
             scopes,
             authType: "oauth",
+            principal: principalFromPayload(payload, scopes),
         };
     } catch (error) {
         return authFailure(
@@ -221,13 +257,34 @@ function mappedTokenAuth(cleanToken: string): AuthValidationResult {
             return authFailure("Invalid authorization token", "invalid_token", 401);
         }
         if (Array.isArray(entry)) {
-            return { valid: true, clientId: "mapped-agent", scopes: entry, authType: "bearer" };
+            return {
+                valid: true,
+                clientId: "mapped-agent",
+                scopes: entry,
+                authType: "bearer",
+                principal: {
+                    id: "mapped-agent",
+                    client_id: "mapped-agent",
+                    auth_type: "bearer",
+                    client_surface: activeClientSurface(),
+                    scopes: entry,
+                },
+            };
         }
+        const clientId = entry.client_id ?? entry.clientId ?? "mapped-agent";
+        const scopes = entry.scopes ?? [];
         return {
             valid: true,
-            clientId: entry.client_id ?? entry.clientId ?? "mapped-agent",
-            scopes: entry.scopes ?? [],
+            clientId,
+            scopes,
             authType: "bearer",
+            principal: {
+                id: clientId,
+                client_id: clientId,
+                auth_type: "bearer",
+                client_surface: activeClientSurface(),
+                scopes,
+            },
         };
     } catch (error) {
         logger.warn("MCP_TOKEN_SCOPE_MAP is not valid JSON", { error });
@@ -314,6 +371,23 @@ function clientIdFromPayload(payload: JWTPayload): string {
         stringClaim(payload.sub) ??
         "oauth-agent"
     );
+}
+
+function principalFromPayload(payload: JWTPayload, scopes: string[]): McpPrincipal {
+    const clientId = clientIdFromPayload(payload);
+    return {
+        id: clientId,
+        client_id:
+            stringClaim(payload.client_id) ??
+            stringClaim(payload.azp) ??
+            clientId,
+        subject: stringClaim(payload.sub),
+        issuer: stringClaim(payload.iss),
+        audience: payload.aud,
+        auth_type: "oauth",
+        client_surface: activeClientSurface(),
+        scopes,
+    };
 }
 
 function stringClaim(value: unknown): string | undefined {

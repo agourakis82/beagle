@@ -43,7 +43,7 @@ spec:
           image: gcr.io/kaniko-project/executor:latest
           env:
             - name: BEAGLE_IMAGE_TAG
-              value: public-claude-20260426
+              value: public-claude-v12-20260426
           args:
             - "--dockerfile=/workspace/beagle-mcp-server/Dockerfile"
             - "--context=dir:///workspace"

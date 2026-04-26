@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod";
+import crypto from "node:crypto";
 import { BeagleClient } from "../beagle-client.js";
 import { McpTool } from "./index.js";
 import { sanitizeOutput } from "../security.js";
@@ -47,6 +48,17 @@ const IngestChatSchema = z.object({
     tags: z.array(z.string()).optional().default([]).describe("Tags for categorization"),
     metadata: z.record(z.unknown()).optional().default({}).describe("Arbitrary metadata"),
 });
+
+function sha256Json(value: unknown): string {
+    return crypto
+        .createHash("sha256")
+        .update(JSON.stringify(value))
+        .digest("hex");
+}
+
+function uniqueTags(tags: string[]): string[] {
+    return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)));
+}
 
 export function memoryTools(client: BeagleClient): McpTool[] {
     return [
@@ -169,13 +181,38 @@ Note: Ingest turns incrementally as the conversation progresses.`,
                     tags,
                     metadata,
                 } = IngestChatSchema.parse(args);
+                const contentHash = sha256Json({ source, session_id, turns });
+                const enrichedMetadata = {
+                    ...metadata,
+                    provenance: {
+                        source,
+                        session_id,
+                        imported_via: "mcp",
+                        content_hash: `sha256:${contentHash}`,
+                    },
+                    privacy_class:
+                        typeof metadata.privacy_class === "string"
+                            ? metadata.privacy_class
+                            : "personal_private",
+                    dedupe: {
+                        strategy: "source_session_content_hash",
+                        key: `${source}:${session_id}:sha256:${contentHash}`,
+                        content_hash: `sha256:${contentHash}`,
+                    },
+                };
+                const enrichedTags = uniqueTags([
+                    ...tags,
+                    `source:${source}`,
+                    `session:${session_id}`,
+                    `hash:${contentHash.slice(0, 12)}`,
+                ]);
 
                 const result = await client.memoryIngestChat(
                     source,
                     session_id,
                     turns,
-                    tags,
-                    metadata,
+                    enrichedTags,
+                    enrichedMetadata,
                 );
                 await client
                     .memoryEvent({
@@ -183,10 +220,14 @@ Note: Ingest turns incrementally as the conversation progresses.`,
                         kind: "chat_ingest",
                         content_ref: `memory_session:${session_id}`,
                         summary: `Ingested ${turns.length} turns from ${source}.`,
-                        tags: [...tags, `source:${source}`],
+                        tags: enrichedTags,
                         metadata: {
                             session_id,
                             source,
+                            content_hash: `sha256:${contentHash}`,
+                            provenance: enrichedMetadata.provenance,
+                            privacy_class: enrichedMetadata.privacy_class,
+                            dedupe: enrichedMetadata.dedupe,
                             turn_count: turns.length,
                             original_metadata: metadata,
                         },
@@ -197,6 +238,7 @@ Note: Ingest turns incrementally as the conversation progresses.`,
                 return sanitizeOutput({
                     status: result.status,
                     session_id: result.session_id,
+                    content_hash: `sha256:${contentHash}`,
                     num_turns: result.num_turns,
                     num_chunks: result.num_chunks,
                 });

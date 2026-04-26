@@ -8,6 +8,7 @@ use beagle_config::beagle_data_dir;
 use beagle_memory::{ChatSession, MemoryQuery};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 use tracing::{error, warn};
@@ -44,6 +45,8 @@ pub struct MemoryQueryRequest {
 struct AppendOnlyMemorySession {
     source: String,
     session_id: String,
+    #[serde(default)]
+    content_hash: Option<String>,
     turns: Vec<beagle_memory::ChatTurn>,
     tags: Vec<String>,
     metadata: serde_json::Value,
@@ -184,9 +187,19 @@ async fn fallback_ingest_chat(
         .with_context(|| format!("create fallback memory dir {}", root.display()))?;
 
     let num_turns = session.turns.len();
+    let session_hash = fallback_session_hash(&session)?;
+    if let Some(existing) = find_fallback_session_by_hash(root, &session_hash).await? {
+        return Ok(MemoryIngestChatResponse {
+            status: "duplicate".to_string(),
+            session_id: existing.session_id,
+            num_turns: existing.turns.len(),
+            num_chunks: existing.turns.len(),
+        });
+    }
     let stored = AppendOnlyMemorySession {
         source: session.source,
         session_id: session.session_id.clone(),
+        content_hash: Some(format!("sha256:{}", session_hash)),
         turns: session.turns,
         tags: session.tags,
         metadata: session.metadata,
@@ -211,6 +224,45 @@ async fn fallback_ingest_chat(
         num_turns,
         num_chunks: num_turns,
     })
+}
+
+async fn find_fallback_session_by_hash(
+    root: &Path,
+    session_hash: &str,
+) -> anyhow::Result<Option<AppendOnlyMemorySession>> {
+    let file = fallback_memory_file(root);
+    let Ok(contents) = tokio::fs::read_to_string(&file).await else {
+        return Ok(None);
+    };
+    let wanted = format!("sha256:{}", session_hash);
+    for line in contents.lines().filter(|line| !line.trim().is_empty()) {
+        let Ok(session) = serde_json::from_str::<AppendOnlyMemorySession>(line) else {
+            continue;
+        };
+        if session.content_hash.as_deref() == Some(wanted.as_str()) {
+            return Ok(Some(session));
+        }
+    }
+    Ok(None)
+}
+
+fn fallback_session_hash(session: &ChatSession) -> anyhow::Result<String> {
+    let canonical = serde_json::to_vec(&serde_json::json!({
+        "source": &session.source,
+        "session_id": &session.session_id,
+        "turns": &session.turns,
+    }))?;
+    let mut hasher = Sha256::new();
+    hasher.update(canonical);
+    Ok(hex_digest(hasher.finalize()))
+}
+
+fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
+    bytes
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{:02x}", byte))
+        .collect()
 }
 
 async fn fallback_query_memory(
@@ -325,9 +377,11 @@ mod tests {
             metadata: serde_json::json!({"kind": "test"}),
         };
 
-        let ingest = fallback_ingest_chat(temp.path(), session).await.unwrap();
+        let ingest = fallback_ingest_chat(temp.path(), session.clone()).await.unwrap();
         assert_eq!(ingest.status, "ok");
         assert_eq!(ingest.num_turns, 1);
+        let duplicate = fallback_ingest_chat(temp.path(), session).await.unwrap();
+        assert_eq!(duplicate.status, "duplicate");
 
         let result = fallback_query_memory(
             temp.path(),

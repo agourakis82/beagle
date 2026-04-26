@@ -735,6 +735,18 @@ impl ExocortexRepository {
             .extracted
             .unwrap_or_else(|| extract_conversation_signals(&req.raw_content, &req.tags));
         let raw_hash = content_hash(req.raw_content.as_bytes());
+        let raw_content_ref = format!("sha256:{}", raw_hash);
+        let source_platform = normalize_source_platform(&req.source_platform);
+        if let Some(existing) = self
+            .read_recent_jsonl::<OmniConversation>(OMNIMEMORY_LOG, usize::MAX)?
+            .into_iter()
+            .find(|conversation| {
+                conversation.raw_content_ref == raw_content_ref
+                    && conversation.source_platform == source_platform
+            })
+        {
+            return Ok(existing);
+        }
         let imported_at = Utc::now().to_rfc3339();
         let mut linked_chronoself_commits = Vec::new();
         if req.create_chronoself_commit.unwrap_or(false)
@@ -774,10 +786,10 @@ impl ExocortexRepository {
         }
         let imported = OmniConversation {
             id: Uuid::new_v4().to_string(),
-            source_platform: normalize_source_platform(&req.source_platform),
+            source_platform,
             imported_at,
             original_date: req.original_date,
-            raw_content_ref: format!("sha256:{}", raw_hash),
+            raw_content_ref,
             extracted,
             linked_chronoself_commits,
             linked_memory_events: Vec::new(),
@@ -1649,6 +1661,24 @@ mod tests {
             .unwrap();
         assert_eq!(imported.source_platform, "chatgpt");
         assert_eq!(imported.linked_chronoself_commits.len(), 1);
+        let duplicate = repo
+            .import_conversation(ImportConversationRequest {
+                source_platform: "ChatGPT".to_string(),
+                original_date: None,
+                raw_content: "Decisão: Beagle precisa de MCP como sistema nervoso do exocortex."
+                    .to_string(),
+                title: Some("MCP decision duplicate".to_string()),
+                tags: vec!["project:sounio".to_string()],
+                extracted: None,
+                confidence_score: Some(0.8),
+                create_chronoself_commit: Some(true),
+            })
+            .unwrap();
+        assert_eq!(duplicate.id, imported.id);
+        let imports = repo
+            .read_recent_jsonl::<OmniConversation>(OMNIMEMORY_LOG, 10)
+            .unwrap();
+        assert_eq!(imports.len(), 1);
     }
 
     #[test]

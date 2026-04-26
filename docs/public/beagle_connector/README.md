@@ -20,8 +20,9 @@ Discovery:
 - Searches Beagle OmniMemory and recent exocortex context through `search`.
 - Fetches canonical Beagle resources through `fetch`, including Home, current Chronoself, recent memory, active projects, and trust context.
 - Exposes a trusted-full non-destructive surface for hosted Claude first: memory writes, Chronoself commits, research runs, Round Table, and agent sessions are controlled by OAuth scopes.
-- Keeps irreversible destructive actions locked out of v1.1; `admin:destructive` is reserved for a future explicit flow.
+- Keeps irreversible destructive actions locked out of v1.2; `admin:destructive` is reserved for a future explicit flow.
 - Writes append-only audit events for tool calls when the cluster is reachable.
+- Publishes a capability ledger with `manifest_version`, `toolset_id`, `security_profile`, client surfaces, and manifest history resources.
 
 ## Public Trusted-Full Mode
 
@@ -35,6 +36,19 @@ MCP_ALLOW_LEGACY_BEARER=false
 ```
 
 `trusted_full` still exposes no destructive tools. Read/write/run capabilities require OAuth scopes such as `exocortex:read`, `memory:write`, `chronoself:write`, `research:run`, and `agent:start`.
+
+## Capability Ledger
+
+Beagle MCP v1.2 exposes:
+
+- `beagle://mcp/manifest/current`
+- `beagle://mcp/manifest/history`
+- `beagle://agents/current`
+- `beagle://agents/recent`
+- `beagle://capabilities/current`
+- `beagle://trust/current`
+
+These resources let hosted agents see the current toolset, security profile, client surface, destructive-action lock, and recent audited MCP activity.
 
 ## Health and Body Context
 

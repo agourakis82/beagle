@@ -10,6 +10,7 @@ import { sanitizeOutput } from "./security.js";
 import { McpTool, toolSurface } from "./tools/index.js";
 import { scopePolicy } from "./auth.js";
 import { computeToolManifestHash, toolManifest } from "./tool-manifest.js";
+import { capabilityManifest, CapabilityLedgerState } from "./capability-ledger.js";
 
 export interface McpResourceDef {
     uri: string;
@@ -19,7 +20,11 @@ export interface McpResourceDef {
     read: () => Promise<unknown>;
 }
 
-export function defineResources(client: BeagleClient, tools: McpTool[] = []): McpResourceDef[] {
+export function defineResources(
+    client: BeagleClient,
+    tools: McpTool[] = [],
+    ledgerState?: CapabilityLedgerState,
+): McpResourceDef[] {
     return [
         {
             uri: "beagle://home",
@@ -98,12 +103,86 @@ export function defineResources(client: BeagleClient, tools: McpTool[] = []): Mc
             }),
         },
         {
+            uri: "beagle://mcp/manifest/current",
+            name: "Current MCP Capability Manifest",
+            description:
+                "Current capability ledger manifest: version, toolset id, security profile, client surfaces, scopes, and tools.",
+            mimeType: "application/json",
+            read: async () =>
+                capabilityManifest(
+                    tools,
+                    ledgerState ?? {
+                        manifest_version: "beagle-mcp-v1.2",
+                        toolset_id: computeToolManifestHash(tools),
+                        security_profile: "sott-non-destructive-oauth-audited",
+                        active_client_surface: "local_tailnet_full",
+                        client_surfaces: [],
+                    },
+                ),
+        },
+        {
+            uri: "beagle://mcp/manifest/history",
+            name: "MCP Manifest History",
+            description:
+                "Recent append-only manifest registration events from the Beagle core audit log.",
+            mimeType: "application/json",
+            read: async () => ({
+                filter_hint: "action == mcp/tool_manifest",
+                recent_audit_events: await client.recentAuditEvents(50),
+            }),
+        },
+        {
             uri: "beagle://mcp/audit/recent",
             name: "Recent MCP Audit Events",
             description:
                 "Recent append-only audit events written by MCP tool calls.",
             mimeType: "application/json",
             read: async () => client.recentAuditEvents(25),
+        },
+        {
+            uri: "beagle://agents/current",
+            name: "Current MCP Agent Surface",
+            description:
+                "Current MCP principal/capability surface inferred from runtime policy.",
+            mimeType: "application/json",
+            read: async () => ({
+                active_client_surface: ledgerState?.active_client_surface,
+                scope_policy: scopePolicy(),
+                tool_surface: toolSurface(),
+                destructive_actions: "locked",
+            }),
+        },
+        {
+            uri: "beagle://agents/recent",
+            name: "Recent MCP Agent Activity",
+            description:
+                "Recent agent-shaped MCP audit events and active project sessions.",
+            mimeType: "application/json",
+            read: async () => ({
+                recent_audit_events: await client.recentAuditEvents(50),
+                active_projects: await client.activeProjects(),
+            }),
+        },
+        {
+            uri: "beagle://capabilities/current",
+            name: "Current MCP Capabilities",
+            description:
+                "Current MCP capability grants, surfaces, scopes, destructive-action policy, and tool manifest.",
+            mimeType: "application/json",
+            read: async () => ({
+                capability_manifest: capabilityManifest(
+                    tools,
+                    ledgerState ?? {
+                        manifest_version: "beagle-mcp-v1.2",
+                        toolset_id: computeToolManifestHash(tools),
+                        security_profile: "sott-non-destructive-oauth-audited",
+                        active_client_surface: "local_tailnet_full",
+                        client_surfaces: [],
+                    },
+                ),
+                scope_policy: scopePolicy(),
+                tool_surface: toolSurface(),
+            }),
         },
         {
             uri: "beagle://trust/current",

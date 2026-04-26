@@ -33,9 +33,14 @@ import { defineResources, McpResourceDef, readResourceAsText } from "./resources
 import { definePrompts, McpPromptDef } from "./prompts.js";
 import {
     computeToolManifestHash,
-    toolManifest,
     validateToolDefinitions,
 } from "./tool-manifest.js";
+import {
+    capabilityManifest,
+    CapabilityLedgerState,
+    createCapabilityLedgerState,
+} from "./capability-ledger.js";
+import { activeClientSurfacePolicy } from "./client-profile.js";
 import { logger } from "./logger.js";
 import {
     assertRequiredScopes,
@@ -43,6 +48,7 @@ import {
     extractToken,
     isAuthEnabled,
     isOAuthEnabled,
+    McpPrincipal,
     scopePolicy,
     validateAuth,
     wwwAuthenticateHeader,
@@ -71,6 +77,7 @@ interface RuntimeContext {
     resources: McpResourceDef[];
     prompts: McpPromptDef[];
     toolManifestHash: string;
+    ledgerState: CapabilityLedgerState;
 }
 
 function numberEnv(name: string, fallback: number): number {
@@ -89,12 +96,14 @@ function createRuntimeContext(): RuntimeContext {
     const tools = defineTools(client);
     validateToolDefinitions(tools);
     const toolManifestHash = computeToolManifestHash(tools);
+    const ledgerState = createCapabilityLedgerState(tools);
     return {
         client,
         tools,
-        resources: defineResources(client, tools),
+        resources: defineResources(client, tools, ledgerState),
         prompts: definePrompts(),
         toolManifestHash,
+        ledgerState,
     };
 }
 
@@ -116,7 +125,7 @@ async function authorizeRequest(
     extra: { requestInfo?: { headers?: unknown }; sessionId?: string },
     action: string,
     options: { allowAnonymousDiscovery?: boolean } = {},
-): Promise<{ clientId: string; remaining?: number; scopes: string[] }> {
+): Promise<{ clientId: string; remaining?: number; scopes: string[]; principal?: McpPrincipal }> {
     const meta = requestMeta(request);
     const headers = extra.requestInfo?.headers;
     const authHeader =
@@ -161,7 +170,12 @@ async function authorizeRequest(
         remaining: rateLimitResult.remaining,
         scopes: authResult.scopes,
     });
-    return { clientId, remaining: rateLimitResult.remaining, scopes: authResult.scopes };
+    return {
+        clientId,
+        remaining: rateLimitResult.remaining,
+        scopes: authResult.scopes,
+        principal: authResult.principal,
+    };
 }
 
 function publicDiscoveryEnabled(): boolean {
@@ -224,7 +238,7 @@ function createMcpServer(context: RuntimeContext): Server {
     });
 
     server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-        const { clientId, remaining, scopes } = await authorizeRequest(request, extra, "tools/call");
+        const { clientId, remaining, scopes, principal } = await authorizeRequest(request, extra, "tools/call");
         const { name, arguments: args } = request.params;
         const tool = context.tools.find((candidate) => candidate.name === name);
         if (!tool) {
@@ -239,6 +253,7 @@ function createMcpServer(context: RuntimeContext): Server {
                 clientId,
                 tool,
                 scopes,
+                principal,
                 status: "denied",
                 summary: `Denied ${name}; missing scopes: ${scopeCheck.missing.join(", ")}`,
                 argKeys: args ? Object.keys(args) : [],
@@ -256,11 +271,12 @@ function createMcpServer(context: RuntimeContext): Server {
         });
 
         try {
-            const result = await tool.handler(args);
+            const result = await runToolWithTimeout(tool, args);
             await writeToolAudit(context, {
                 clientId,
                 tool,
                 scopes,
+                principal,
                 status: "success",
                 summary: `MCP tool ${name} completed.`,
                 argKeys: args ? Object.keys(args) : [],
@@ -269,10 +285,7 @@ function createMcpServer(context: RuntimeContext): Server {
                 content: [
                     {
                         type: "text",
-                        text:
-                            typeof result === "string"
-                                ? result
-                                : JSON.stringify(result, null, 2),
+                        text: boundedToolResponseText(tool, result),
                     },
                 ],
             };
@@ -282,6 +295,7 @@ function createMcpServer(context: RuntimeContext): Server {
                 clientId,
                 tool,
                 scopes,
+                principal,
                 status: "error",
                 summary: `MCP tool ${name} failed: ${error instanceof Error ? error.message : String(error)}`,
                 argKeys: args ? Object.keys(args) : [],
@@ -377,6 +391,7 @@ async function writeToolAudit(
         clientId: string;
         tool: McpTool;
         scopes: string[];
+        principal?: McpPrincipal;
         status: "success" | "error" | "denied";
         summary: string;
         argKeys: string[];
@@ -394,8 +409,17 @@ async function writeToolAudit(
             source: "mcp",
             summary: event.summary,
             metadata: {
+                event_kind: "ToolCallEvent",
                 arg_keys: event.argKeys,
                 annotations: event.tool.annotations,
+                client_surface: activeClientSurfacePolicy(),
+                egress_classification: event.tool.annotations?.openWorldHint
+                    ? "open_world"
+                    : "private_cluster",
+                manifest_version: context.ledgerState.manifest_version,
+                toolset_id: context.ledgerState.toolset_id,
+                security_profile: context.ledgerState.security_profile,
+                principal: event.principal,
                 tool_manifest_hash: context.toolManifestHash,
             },
         });
@@ -406,6 +430,47 @@ async function writeToolAudit(
             error,
         });
     }
+}
+
+function toolTimeoutMs(tool: McpTool): number {
+    const explicit = Number.parseInt(process.env.MCP_TOOL_TIMEOUT_MS || "", 10);
+    if (Number.isFinite(explicit) && explicit > 0) {
+        return explicit;
+    }
+    if (tool.riskLevel === "run") return 180_000;
+    if (tool.riskLevel === "write") return 90_000;
+    return 60_000;
+}
+
+async function runToolWithTimeout(tool: McpTool, args: unknown): Promise<unknown> {
+    const timeoutMs = toolTimeoutMs(tool);
+    let timeout: NodeJS.Timeout | undefined;
+    try {
+        return await Promise.race([
+            tool.handler(args),
+            new Promise<never>((_, reject) => {
+                timeout = setTimeout(
+                    () => reject(new Error(`Tool '${tool.name}' timed out after ${timeoutMs}ms`)),
+                    timeoutMs,
+                );
+            }),
+        ]);
+    } finally {
+        if (timeout) clearTimeout(timeout);
+    }
+}
+
+function boundedToolResponseText(tool: McpTool, result: unknown): string {
+    const raw = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+    const defaultLimit = tool.annotations?.openWorldHint ? 60_000 : 120_000;
+    const limit = Number.parseInt(
+        process.env.MCP_MAX_TOOL_RESPONSE_CHARS || String(defaultLimit),
+        10,
+    );
+    if (!Number.isFinite(limit) || limit <= 0 || raw.length <= limit) {
+        return raw;
+    }
+    return `${raw.slice(0, limit)}\n\n[TRUNCATED_BY_BEAGLE_MCP: ${raw.length - limit} chars omitted; use a narrower query or fetch a specific resource.]`;
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -658,6 +723,7 @@ async function authorizeHttpJsonRpcRequest(
                 ),
                 tool,
                 scopes: authResult.scopes,
+                principal: authResult.principal,
                 status: "denied",
                 summary: `Denied ${tool.name}; ${authResult.errorCode ?? "invalid_token"}.`,
                 argKeys,
@@ -689,6 +755,7 @@ async function authorizeHttpJsonRpcRequest(
                 ),
                 tool,
                 scopes: authResult.scopes,
+                principal: authResult.principal,
                 status: "denied",
                 summary: `Denied ${tool.name}; missing scopes: ${scopeCheck.missing.join(", ")}`,
                 argKeys,
@@ -732,6 +799,12 @@ function manifest(context: RuntimeContext, port: number) {
         version: SERVER_VERSION,
         description: "Beagle Exocortex MCP nervous system",
         protocol: "model-context-protocol",
+        manifest_version: context.ledgerState.manifest_version,
+        toolset_id: context.ledgerState.toolset_id,
+        security_profile: context.ledgerState.security_profile,
+        client_surfaces: context.ledgerState.client_surfaces,
+        active_client_surface: context.ledgerState.active_client_surface,
+        latest_manifest_event_id: context.ledgerState.latest_manifest_event_id,
         transports: {
             stdio: true,
             streamable_http: {
@@ -750,6 +823,7 @@ function manifest(context: RuntimeContext, port: number) {
             scope_policy: scopePolicy(),
         },
         tool_surface: toolSurface(),
+        capability_ledger: capabilityManifest(context.tools, context.ledgerState),
         counts: {
             tools: context.tools.length,
             resources: context.resources.length,
@@ -780,6 +854,39 @@ function protectedResourceMetadata(port: number) {
             `${baseUrl}/connector`,
         mcp_endpoint: `${baseUrl}${MCP_PATH}`,
     };
+}
+
+async function recordToolManifestEvent(context: RuntimeContext): Promise<void> {
+    try {
+        const event = await context.client.auditEvent({
+            client_id: "beagle-mcp-server",
+            action: "mcp/tool_manifest",
+            risk_level: "read",
+            required_scopes: [],
+            granted_scopes: [],
+            status: "success",
+            source: "mcp",
+            target_ref: context.toolManifestHash,
+            summary: `Registered MCP tool manifest ${context.ledgerState.manifest_version}.`,
+            metadata: {
+                event_kind: "ToolManifestEvent",
+                ...capabilityManifest(context.tools, context.ledgerState),
+                counts: {
+                    tools: context.tools.length,
+                    resources: context.resources.length,
+                    prompts: context.prompts.length,
+                },
+            },
+        });
+        if (event && typeof event === "object" && "id" in event) {
+            const id = (event as { id?: unknown }).id;
+            if (typeof id === "string") {
+                context.ledgerState.latest_manifest_event_id = id;
+            }
+        }
+    } catch (error) {
+        logger.warn("Failed to register MCP tool manifest event", { error });
+    }
 }
 
 async function startHttpServer(context: RuntimeContext) {
@@ -820,6 +927,10 @@ async function startHttpServer(context: RuntimeContext) {
                     resources: context.resources.length,
                     prompts: context.prompts.length,
                     tool_manifest_hash: context.toolManifestHash,
+                    manifest_version: context.ledgerState.manifest_version,
+                    toolset_id: context.ledgerState.toolset_id,
+                    security_profile: context.ledgerState.security_profile,
+                    latest_manifest_event_id: context.ledgerState.latest_manifest_event_id,
                 });
                 return;
             }
@@ -926,6 +1037,8 @@ async function main() {
     const context = createRuntimeContext();
     const clientInfo = getClientInfo();
     const transportType = getTransportType(clientInfo.type);
+
+    await recordToolManifestEvent(context);
 
     logger.info("Starting BEAGLE MCP Server", {
         version: SERVER_VERSION,

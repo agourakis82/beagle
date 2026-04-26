@@ -74,11 +74,43 @@ export function validateToolDefinitions(tools: McpTool[]): void {
         if (FORBIDDEN_DESCRIPTION_PATTERNS.some((pattern) => pattern.test(tool.description))) {
             errors.push(`${tool.name}: description resembles tool-poisoning instructions`);
         }
+        const schemaTextError = forbiddenTextInJson(tool.inputSchema);
+        if (schemaTextError) {
+            errors.push(`${tool.name}: input schema ${schemaTextError}`);
+        }
     }
 
     if (errors.length > 0) {
         throw new Error(`Invalid MCP tool manifest:\n${errors.join("\n")}`);
     }
+}
+
+function forbiddenTextInJson(value: unknown): string | undefined {
+    if (typeof value === "string") {
+        if (hasHiddenControlText(value)) {
+            return "contains hidden control characters";
+        }
+        if (FORBIDDEN_DESCRIPTION_PATTERNS.some((pattern) => pattern.test(value))) {
+            return "resembles tool-poisoning instructions";
+        }
+        return undefined;
+    }
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            const error = forbiddenTextInJson(item);
+            if (error) return error;
+        }
+        return undefined;
+    }
+    if (value && typeof value === "object") {
+        for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+            const keyError = forbiddenTextInJson(key);
+            if (keyError) return keyError;
+            const childError = forbiddenTextInJson(child);
+            if (childError) return childError;
+        }
+    }
+    return undefined;
 }
 
 function hasHiddenControlText(value: string): boolean {

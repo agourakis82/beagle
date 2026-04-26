@@ -19,7 +19,7 @@ Scopes:
 - `research:run`
 - `agent:start`
 
-Do not add `admin:destructive` for v1.1.
+Do not add `admin:destructive` for v1.2.
 
 ## Auth0 Application for Claude
 
