@@ -55,6 +55,7 @@ data/corpus/papers/*.pdf
 
 # Config file with data path
 .beagle-data-path
+.beagle/
 
 # Logs
 *.log
