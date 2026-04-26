@@ -146,6 +146,16 @@ const TOOL_POLICIES: Record<string, ToolPolicy> = {
         requiredScopes: WRITE_MEMORY,
         riskLevel: "write",
     },
+    beagle_assisted_import_batch: {
+        annotations: annotations("Import Assisted Memory Batch", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_memory_project_graph: {
+        annotations: annotations("Project GraphRAG++ Memory", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
     beagle_temporal_analyze: {
         annotations: annotations("Run TemporalAI Analysis", false, false, false),
         requiredScopes: RUN_RESEARCH,

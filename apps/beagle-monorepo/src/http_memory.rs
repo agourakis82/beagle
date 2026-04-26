@@ -1,6 +1,7 @@
 //! Memory endpoints for BEAGLE HTTP API
 
 use crate::http::AppState;
+use crate::http_exocortex::query_projected_memory_for_memory_api;
 use anyhow::Context;
 use axum::http::StatusCode;
 use axum::{extract::State, routing::post, Json, Router};
@@ -119,6 +120,15 @@ pub async fn memory_query_handler(
         scope: req.scope,
         max_items: req.max_items,
     };
+
+    match query_projected_memory_for_memory_api(query.clone()) {
+        Ok(Some(result)) => return Ok(Json(result)),
+        Ok(None) => {}
+        Err(error) => warn!(
+            "GraphRAG++ projected memory unavailable, falling back to legacy memory query: {}",
+            error
+        ),
+    }
 
     #[cfg(feature = "memory")]
     {
@@ -377,7 +387,9 @@ mod tests {
             metadata: serde_json::json!({"kind": "test"}),
         };
 
-        let ingest = fallback_ingest_chat(temp.path(), session.clone()).await.unwrap();
+        let ingest = fallback_ingest_chat(temp.path(), session.clone())
+            .await
+            .unwrap();
         assert_eq!(ingest.status, "ok");
         assert_eq!(ingest.num_turns, 1);
         let duplicate = fallback_ingest_chat(temp.path(), session).await.unwrap();

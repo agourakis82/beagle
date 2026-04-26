@@ -41,6 +41,7 @@ test("MCP resources include manifest, agent, capability, and trust surfaces", ()
 
     assert.ok(uris.has("beagle://mcp/manifest/current"));
     assert.ok(uris.has("beagle://mcp/manifest/history"));
+    assert.ok(uris.has("beagle://memory/graph/status"));
     assert.ok(uris.has("beagle://agents/current"));
     assert.ok(uris.has("beagle://agents/recent"));
     assert.ok(uris.has("beagle://capabilities/current"));

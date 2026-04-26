@@ -35,13 +35,18 @@ const OmniTurnSchema = z.object({
     model: z.string().optional(),
 });
 
+const PrivacyClassSchema = z.enum(["public", "sensitive", "restricted"]);
+
 const OmniRawImportSchema = z.object({
     source_platform: z.string(),
+    session_id: z.string().optional(),
     original_date: z.string().optional(),
     raw_content: z.string(),
     title: z.string().optional(),
     tags: z.array(z.string()).optional(),
     extracted: z.record(z.unknown()).optional(),
+    privacy_class: PrivacyClassSchema.optional(),
+    metadata: z.record(z.unknown()).optional(),
     confidence_score: z.number().min(0).max(1).optional(),
     create_chronoself_commit: z.boolean().optional(),
 });
@@ -52,6 +57,7 @@ const OmniConversationImportSchema = z.object({
     turns: z.array(OmniTurnSchema).min(1),
     tags: z.array(z.string()).optional(),
     metadata: z.record(z.unknown()).optional(),
+    privacy_class: PrivacyClassSchema.optional(),
     original_date: z.string().optional(),
     title: z.string().optional(),
     confidence_score: z.number().min(0).max(1).optional(),
@@ -62,6 +68,7 @@ const OmniImportSchema = z.union([OmniRawImportSchema, OmniConversationImportSch
 
 type OmniImportInput = z.infer<typeof OmniImportSchema>;
 type OmniImportRequest = z.infer<typeof OmniRawImportSchema>;
+type AssistedImportBatchInput = z.infer<typeof AssistedImportBatchSchema>;
 
 const TemporalAnalyzeSchema = z.object({
     topic: z.string(),
@@ -90,6 +97,33 @@ const AgentStartSchema = z.object({
     project_slug: z.string().default("sounio"),
     kind: z.string().default("claude-code"),
     objective: z.string().optional(),
+});
+
+const ProjectMemorySchema = z.object({
+    rebuild: z.boolean().optional().default(false),
+    source_refs: z.array(z.string()).optional().default([]),
+});
+
+const AssistedImportBatchSchema = z.object({
+    source_platform: z.string().min(1),
+    source_surface: z.string().min(1).default("mcp-visible-context"),
+    import_scope: z
+        .enum(["current_conversation", "visible_project", "user_supplied_export"])
+        .default("current_conversation"),
+    session_id: z.string().min(1),
+    project_ref: z.string().optional(),
+    batch_index: z.number().int().min(1).default(1),
+    batch_total: z.number().int().min(1).default(1),
+    turns: z.array(OmniTurnSchema).min(1),
+    tags: z.array(z.string()).optional().default([]),
+    metadata: z.record(z.unknown()).optional().default({}),
+    coverage: z.record(z.unknown()).optional().default({}),
+    extracted: z.record(z.unknown()).optional(),
+    privacy_class: PrivacyClassSchema.default("sensitive"),
+    title: z.string().optional(),
+    original_date: z.string().optional(),
+    confidence_score: z.number().min(0).max(1).optional(),
+    create_chronoself_commit: z.boolean().optional().default(false),
 });
 
 function uniqueNonEmpty(values: Array<string | undefined>): string[] {
@@ -125,6 +159,7 @@ function normalizeOmniImport(input: OmniImportInput): OmniImportRequest {
 
     return {
         source_platform: input.source,
+        session_id: input.session_id,
         original_date: input.original_date ?? firstTimestamp,
         raw_content: rawContent,
         title: input.title ?? `${input.source} conversation ${input.session_id}`,
@@ -148,6 +183,8 @@ function normalizeOmniImport(input: OmniImportInput): OmniImportRequest {
                 metadata,
             },
         },
+        privacy_class: input.privacy_class ?? "sensitive",
+        metadata,
         confidence_score: input.confidence_score ?? 0.7,
         create_chronoself_commit: input.create_chronoself_commit ?? false,
     };
@@ -167,10 +204,16 @@ function enrichOmniImport(input: OmniImportRequest): OmniImportRequest {
             : {};
     return {
         ...input,
+        privacy_class: input.privacy_class ?? "sensitive",
+        metadata: {
+            ...(input.metadata ?? {}),
+            privacy_class: input.privacy_class ?? "sensitive",
+        },
         tags: uniqueNonEmpty([
             ...(input.tags ?? []),
             `source:${input.source_platform}`,
             `hash:${contentHash.slice(0, 12)}`,
+            `privacy:${input.privacy_class ?? "sensitive"}`,
         ]),
         extracted: {
             ...(input.extracted ?? {
@@ -189,7 +232,7 @@ function enrichOmniImport(input: OmniImportRequest): OmniImportRequest {
                     content_hash: `sha256:${contentHash}`,
                     explicit_import_only: true,
                 },
-                privacy_class: "personal_private",
+                privacy_class: input.privacy_class ?? "sensitive",
                 dedupe: {
                     strategy: "source_platform_raw_content_hash",
                     key: `${input.source_platform}:sha256:${contentHash}`,
@@ -197,6 +240,74 @@ function enrichOmniImport(input: OmniImportRequest): OmniImportRequest {
                 },
             },
         },
+    };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function omnimemorySourceRefs(imported: unknown): string[] {
+    if (!isRecord(imported)) {
+        return [];
+    }
+    const refs: string[] = [];
+    if (typeof imported.id === "string" && imported.id.trim().length > 0) {
+        refs.push(`omnimemory:${imported.id}`);
+    }
+    if (typeof imported.raw_content_ref === "string" && imported.raw_content_ref.trim().length > 0) {
+        refs.push(imported.raw_content_ref);
+    }
+    return refs;
+}
+
+function assistedRawContent(input: AssistedImportBatchInput): string {
+    return input.turns
+        .map((turn, index) => {
+            const timestamp = turn.timestamp ? ` @ ${turn.timestamp}` : "";
+            const model = turn.model ? `/${turn.model}` : "";
+            return `[${index + 1}:${turn.role}${model}${timestamp}]\n${turn.content}`;
+        })
+        .join("\n\n");
+}
+
+function assistedImportPayload(input: AssistedImportBatchInput): OmniImportRequest {
+    const tags = uniqueNonEmpty([
+        ...input.tags,
+        input.source_platform,
+        input.source_surface,
+        input.import_scope,
+        input.project_ref ? `project:${input.project_ref}` : undefined,
+        "assisted-import",
+        "graphrag-projection",
+    ]);
+    const firstTimestamp = input.turns.find((turn) => turn.timestamp)?.timestamp;
+    const metadata = {
+        ...input.metadata,
+        import_scope: input.import_scope,
+        source_surface: input.source_surface,
+        session_id: input.session_id,
+        project_ref: input.project_ref,
+        batch_index: input.batch_index,
+        batch_total: input.batch_total,
+        coverage: input.coverage,
+        explicit_import_only: true,
+    };
+
+    return {
+        source_platform: input.source_platform,
+        session_id: input.session_id,
+        original_date: input.original_date ?? firstTimestamp,
+        raw_content: assistedRawContent(input),
+        title:
+            input.title ??
+            `${input.source_platform} ${input.import_scope} ${input.session_id} batch ${input.batch_index}/${input.batch_total}`,
+        tags,
+        extracted: input.extracted,
+        privacy_class: input.privacy_class,
+        metadata,
+        confidence_score: input.confidence_score ?? 0.76,
+        create_chronoself_commit: input.create_chronoself_commit,
     };
 }
 
@@ -327,6 +438,11 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                     title: { type: "string" },
                     tags: { type: "array", items: { type: "string" } },
                     extracted: { type: "object", additionalProperties: true },
+                    privacy_class: {
+                        type: "string",
+                        enum: ["public", "sensitive", "restricted"],
+                        default: "sensitive",
+                    },
                     confidence_score: { type: "number", minimum: 0, maximum: 1 },
                     create_chronoself_commit: { type: "boolean" },
                 },
@@ -336,6 +452,127 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                 return sanitizeOutput(
                     await client.omnimemoryImport(enrichOmniImport(normalizeOmniImport(parsed))),
                 );
+            },
+        },
+        {
+            name: "beagle_assisted_import_batch",
+            description:
+                "Import visible or user-supplied conversation context as projected GraphRAG++ memory with episode and atom records.",
+            inputSchema: {
+                type: "object",
+                required: ["source_platform", "session_id", "turns"],
+                properties: {
+                    source_platform: { type: "string" },
+                    source_surface: { type: "string", default: "mcp-visible-context" },
+                    import_scope: {
+                        type: "string",
+                        enum: ["current_conversation", "visible_project", "user_supplied_export"],
+                        default: "current_conversation",
+                    },
+                    session_id: { type: "string" },
+                    project_ref: { type: "string" },
+                    batch_index: { type: "number", minimum: 1, default: 1 },
+                    batch_total: { type: "number", minimum: 1, default: 1 },
+                    turns: {
+                        type: "array",
+                        minItems: 1,
+                        items: {
+                            type: "object",
+                            required: ["role", "content"],
+                            properties: {
+                                role: { type: "string" },
+                                content: { type: "string" },
+                                timestamp: { type: "string" },
+                                model: { type: "string" },
+                            },
+                        },
+                    },
+                    tags: { type: "array", items: { type: "string" } },
+                    metadata: { type: "object", additionalProperties: true },
+                    coverage: { type: "object", additionalProperties: true },
+                    extracted: { type: "object", additionalProperties: true },
+                    privacy_class: {
+                        type: "string",
+                        enum: ["public", "sensitive", "restricted"],
+                        default: "sensitive",
+                    },
+                    title: { type: "string" },
+                    original_date: { type: "string" },
+                    confidence_score: { type: "number", minimum: 0, maximum: 1 },
+                    create_chronoself_commit: { type: "boolean", default: false },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = AssistedImportBatchSchema.parse(args ?? {});
+                if (parsed.privacy_class === "restricted") {
+                    return sanitizeOutput({
+                        status: "rejected",
+                        reason: "restricted payloads require explicit human review before import",
+                        session_id: parsed.session_id,
+                        source_platform: parsed.source_platform,
+                        batch_index: parsed.batch_index,
+                        batch_total: parsed.batch_total,
+                    });
+                }
+
+                const imported = await client.omnimemoryImport(enrichOmniImport(assistedImportPayload(parsed)));
+                const sourceRefs = omnimemorySourceRefs(imported);
+                const projection = await client.projectMemory({
+                    rebuild: false,
+                    source_refs: sourceRefs,
+                });
+                const memoryEvent = await client.memoryEvent({
+                    kind: "assisted_import_batch",
+                    summary: `Assisted import batch ${parsed.batch_index}/${parsed.batch_total} from ${parsed.source_platform}`,
+                    tags: uniqueNonEmpty([
+                        ...parsed.tags,
+                        "assisted-import",
+                        "graphrag-projection",
+                        parsed.source_platform,
+                        parsed.project_ref ? `project:${parsed.project_ref}` : undefined,
+                    ]),
+                    metadata: {
+                        source_platform: parsed.source_platform,
+                        source_surface: parsed.source_surface,
+                        import_scope: parsed.import_scope,
+                        session_id: parsed.session_id,
+                        project_ref: parsed.project_ref,
+                        batch_index: parsed.batch_index,
+                        batch_total: parsed.batch_total,
+                        privacy_class: parsed.privacy_class,
+                        coverage: parsed.coverage,
+                        omnimemory_source_refs: sourceRefs,
+                        projection,
+                    },
+                });
+
+                return sanitizeOutput({
+                    status: "imported",
+                    session_id: parsed.session_id,
+                    source_platform: parsed.source_platform,
+                    batch_index: parsed.batch_index,
+                    batch_total: parsed.batch_total,
+                    privacy_class: parsed.privacy_class,
+                    omnimemory: imported,
+                    projection,
+                    memory_event: memoryEvent,
+                });
+            },
+        },
+        {
+            name: "beagle_memory_project_graph",
+            description:
+                "Run the idempotent GraphRAG++ projection over OmniMemory imports and memory events.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    rebuild: { type: "boolean", default: false },
+                    source_refs: { type: "array", items: { type: "string" } },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = ProjectMemorySchema.parse(args ?? {});
+                return sanitizeOutput(await client.projectMemory(parsed));
             },
         },
         {

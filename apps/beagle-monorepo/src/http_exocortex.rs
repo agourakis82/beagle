@@ -30,11 +30,15 @@ const OMNIMEMORY_LOG: &str = "omni_conversations.jsonl";
 const TEMPORAL_LOG: &str = "temporal_analyses.jsonl";
 const AUDIT_LOG: &str = "audit_events.jsonl";
 const MEMORY_EVENTS_LOG: &str = "memory_events.jsonl";
+const MEMORY_EPISODES_LOG: &str = "memory_episodes.jsonl";
+const MEMORY_ATOMS_LOG: &str = "memory_atoms.jsonl";
+const MEMORY_PROJECTION_RUNS_LOG: &str = "memory_projection_runs.jsonl";
 const AGENT_OBSERVATIONS_LOG: &str = "agent_observations.jsonl";
 const PROJECT_STATES_LOG: &str = "project_states.jsonl";
 const CAUSAL_HYPOTHESES_LOG: &str = "causal_hypotheses.jsonl";
 const CURRENT_SELF_SNAPSHOT: &str = "current_self.json";
 const HOME_SNAPSHOT: &str = "home_snapshot.json";
+const MEMORY_PROJECTION_SCHEMA: &str = "beagle-memory-projection-v1.2";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextSnapshot {
@@ -135,7 +139,7 @@ pub struct CoreValue {
     pub strength: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OmniExtraction {
     #[serde(default)]
     pub key_insights: Vec<String>,
@@ -161,6 +165,8 @@ pub struct OmniConversation {
     pub source_platform: String,
     pub imported_at: String,
     #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
     pub original_date: Option<String>,
     pub raw_content_ref: String,
     pub extracted: OmniExtraction,
@@ -171,6 +177,149 @@ pub struct OmniConversation {
     pub confidence_score: f64,
     #[serde(default)]
     pub title: Option<String>,
+    #[serde(default = "default_sensitive_privacy_class")]
+    pub privacy_class: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryRelation {
+    pub subject: String,
+    pub predicate: String,
+    pub object: String,
+    pub confidence: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEpisode {
+    pub id: String,
+    pub created_at: String,
+    pub source: String,
+    #[serde(default)]
+    pub source_platform: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    pub source_ref: String,
+    pub content_hash: String,
+    pub privacy_class: String,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub linked_chronoself_commits: Vec<String>,
+    #[serde(default)]
+    pub occurred_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryAtom {
+    pub id: String,
+    pub created_at: String,
+    pub episode_id: String,
+    pub atom_type: String,
+    pub text: String,
+    pub normalized_text: String,
+    #[serde(default)]
+    pub source_refs: Vec<String>,
+    #[serde(default)]
+    pub relations: Vec<MemoryRelation>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub confidence: f64,
+    pub privacy_class: String,
+    #[serde(default)]
+    pub occurred_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryProjectionRun {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub source_count: usize,
+    pub episodes_created: usize,
+    pub atoms_created: usize,
+    pub duplicates: usize,
+    #[serde(default)]
+    pub errors: Vec<String>,
+    pub projection_hash: String,
+    pub status: String,
+    pub degraded_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryProjectionStatus {
+    pub status: String,
+    pub schema_version: String,
+    pub episode_count: usize,
+    pub atom_count: usize,
+    #[serde(default)]
+    pub latest_run: Option<MemoryProjectionRun>,
+    pub freshness: String,
+    pub retrieval_mode: String,
+    pub degraded_reason: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProjectMemoryRequest {
+    #[serde(default)]
+    pub rebuild: bool,
+    #[serde(default)]
+    pub source_refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GraphRagQueryRequest {
+    pub query: String,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub max_items: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphRagEvidence {
+    pub atom_id: String,
+    pub episode_id: String,
+    pub atom_type: String,
+    pub text: String,
+    pub score: f64,
+    #[serde(default)]
+    pub source_refs: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphRagTemporalContext {
+    pub newest_evidence_at: Option<String>,
+    pub oldest_evidence_at: Option<String>,
+    pub matched_episode_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphRagQueryResponse {
+    pub summary: String,
+    #[serde(default)]
+    pub evidence: Vec<GraphRagEvidence>,
+    #[serde(default)]
+    pub atoms: Vec<MemoryAtom>,
+    #[serde(default)]
+    pub episodes: Vec<MemoryEpisode>,
+    #[serde(default)]
+    pub relations: Vec<MemoryRelation>,
+    pub temporal_context: GraphRagTemporalContext,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    pub confidence: f64,
+    #[serde(default)]
+    pub degraded_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -331,6 +480,8 @@ pub struct TrustContext {
     pub tool_manifest_hash: Option<String>,
     #[serde(default)]
     pub last_audit_event_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_projection_status: Option<MemoryProjectionStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -397,6 +548,8 @@ pub struct CreateCommitRequest {
 pub struct ImportConversationRequest {
     pub source_platform: String,
     #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
     pub original_date: Option<String>,
     pub raw_content: String,
     #[serde(default)]
@@ -409,6 +562,10 @@ pub struct ImportConversationRequest {
     pub confidence_score: Option<f64>,
     #[serde(default)]
     pub create_chronoself_commit: Option<bool>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -514,6 +671,18 @@ pub fn exocortex_routes() -> Router<AppState> {
         .route(
             "/api/exocortex/v1/memory/events",
             get(memory_events_handler).post(memory_event_create_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/project",
+            post(memory_project_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/projection/status",
+            get(memory_projection_status_handler),
+        )
+        .route(
+            "/api/exocortex/v1/graphrag/query",
+            post(graphrag_query_handler),
         )
         .route(
             "/api/exocortex/v1/projects/active",
@@ -624,6 +793,35 @@ async fn memory_event_create_handler(
     repo.ensure().map_err(internal_error)?;
     let event = repo.create_memory_event(req).map_err(internal_error)?;
     Ok(Json(event))
+}
+
+async fn memory_project_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<ProjectMemoryRequest>,
+) -> Result<Json<MemoryProjectionRun>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let run = repo.project_memory(req).map_err(internal_error)?;
+    Ok(Json(run))
+}
+
+async fn memory_projection_status_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<MemoryProjectionStatus>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let status = repo.memory_projection_status().map_err(internal_error)?;
+    Ok(Json(status))
+}
+
+async fn graphrag_query_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<GraphRagQueryRequest>,
+) -> Result<Json<GraphRagQueryResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let response = repo.graphrag_query(req).map_err(internal_error)?;
+    Ok(Json(response))
 }
 
 async fn active_projects_handler(
@@ -788,6 +986,7 @@ impl ExocortexRepository {
             id: Uuid::new_v4().to_string(),
             source_platform,
             imported_at,
+            session_id: req.session_id,
             original_date: req.original_date,
             raw_content_ref,
             extracted,
@@ -795,14 +994,436 @@ impl ExocortexRepository {
             linked_memory_events: Vec::new(),
             confidence_score: req.confidence_score.unwrap_or(0.68),
             title: req.title,
+            privacy_class: normalize_privacy_class(req.privacy_class.as_deref()),
+            tags: req.tags,
+            metadata: req.metadata.unwrap_or(serde_json::Value::Null),
         };
         self.append_jsonl(OMNIMEMORY_LOG, &imported)?;
+        let _ = self.project_memory(ProjectMemoryRequest {
+            rebuild: false,
+            source_refs: vec![format!("omnimemory:{}", imported.id)],
+        })?;
         let home = self.build_home_snapshot(HomeQuery {
             active_project_slug: imported.extracted.projects_mentioned.first().cloned(),
             platform: Some(imported.source_platform.clone()),
         })?;
         self.write_snapshot(HOME_SNAPSHOT, &home)?;
         Ok(imported)
+    }
+
+    fn project_memory(&self, req: ProjectMemoryRequest) -> anyhow::Result<MemoryProjectionRun> {
+        self.ensure()?;
+        let source_filter = req.source_refs;
+        let imports = self.read_recent_jsonl::<OmniConversation>(OMNIMEMORY_LOG, usize::MAX)?;
+        let memory_events = self.read_recent_jsonl::<MemoryEvent>(MEMORY_EVENTS_LOG, usize::MAX)?;
+        let before_episodes =
+            self.read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, usize::MAX)?;
+        let before_atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?;
+        let mut episodes_created = 0;
+        let mut atoms_created = 0;
+        let mut duplicates = 0;
+        let mut source_count = 0;
+        let mut errors = Vec::new();
+
+        for import in &imports {
+            let source_ref = format!("omnimemory:{}", import.id);
+            if !source_filter.is_empty()
+                && !source_filter.contains(&source_ref)
+                && !source_filter.contains(&import.raw_content_ref)
+            {
+                continue;
+            }
+            source_count += 1;
+            match self.project_import(import) {
+                Ok(outcome) => {
+                    episodes_created += outcome.episodes_created;
+                    atoms_created += outcome.atoms_created;
+                    duplicates += outcome.duplicates;
+                }
+                Err(error) => errors.push(format!("{}: {:#}", source_ref, error)),
+            }
+        }
+
+        for event in &memory_events {
+            let source_ref = format!("memory_event:{}", event.id);
+            if !source_filter.is_empty()
+                && !source_filter.contains(&source_ref)
+                && event
+                    .content_ref
+                    .as_ref()
+                    .map(|content_ref| !source_filter.contains(content_ref))
+                    .unwrap_or(true)
+            {
+                continue;
+            }
+            source_count += 1;
+            match self.project_memory_event(event) {
+                Ok(outcome) => {
+                    episodes_created += outcome.episodes_created;
+                    atoms_created += outcome.atoms_created;
+                    duplicates += outcome.duplicates;
+                }
+                Err(error) => errors.push(format!("{}: {:#}", source_ref, error)),
+            }
+        }
+
+        let after_episodes =
+            self.read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, usize::MAX)?;
+        let after_atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?;
+        let projection_hash = projection_hash(&after_episodes, &after_atoms)?;
+        let run = MemoryProjectionRun {
+            id: Uuid::new_v4().to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            schema_version: MEMORY_PROJECTION_SCHEMA.to_string(),
+            source_count,
+            episodes_created,
+            atoms_created,
+            duplicates,
+            errors,
+            projection_hash,
+            status: if episodes_created > 0 || atoms_created > 0 || req.rebuild {
+                "projected".to_string()
+            } else {
+                "unchanged".to_string()
+            },
+            degraded_reason: "lexical+graph+temporal retrieval active; real embedding backend not configured in GraphRAG++ projection v1.2".to_string(),
+        };
+        if before_episodes.len() != after_episodes.len()
+            || before_atoms.len() != after_atoms.len()
+            || req.rebuild
+        {
+            self.append_jsonl(MEMORY_PROJECTION_RUNS_LOG, &run)?;
+        }
+        let home = self.build_home_snapshot(HomeQuery {
+            active_project_slug: None,
+            platform: Some("graphrag++".to_string()),
+        })?;
+        self.write_snapshot(HOME_SNAPSHOT, &home)?;
+        Ok(run)
+    }
+
+    fn project_import(&self, import: &OmniConversation) -> anyhow::Result<ProjectionOutcome> {
+        if import.privacy_class == "restricted" {
+            return Ok(ProjectionOutcome::default());
+        }
+        let source_ref = format!("omnimemory:{}", import.id);
+        let existing_episode = self.find_episode_by_source_ref(&source_ref)?;
+        if existing_episode.is_some() {
+            return Ok(ProjectionOutcome {
+                duplicates: 1,
+                ..Default::default()
+            });
+        }
+        let episode = MemoryEpisode {
+            id: stable_id("episode", &[&source_ref, &import.raw_content_ref]),
+            created_at: Utc::now().to_rfc3339(),
+            source: "omnimemory".to_string(),
+            source_platform: Some(import.source_platform.clone()),
+            session_id: import.session_id.clone(),
+            source_ref: source_ref.clone(),
+            content_hash: import.raw_content_ref.clone(),
+            privacy_class: import.privacy_class.clone(),
+            provenance: serde_json::json!({
+                "source": "omnimemory",
+                "source_platform": import.source_platform,
+                "raw_content_ref": import.raw_content_ref,
+                "imported_at": import.imported_at,
+                "metadata": import.metadata,
+            }),
+            tags: import.tags.clone(),
+            title: import.title.clone(),
+            linked_chronoself_commits: import.linked_chronoself_commits.clone(),
+            occurred_at: import
+                .original_date
+                .clone()
+                .or_else(|| Some(import.imported_at.clone())),
+        };
+        self.append_jsonl(MEMORY_EPISODES_LOG, &episode)?;
+        let atoms = atoms_from_import(import, &episode);
+        let mut atoms_created = 0;
+        for atom in atoms {
+            if self.find_atom_by_id(&atom.id)?.is_none() {
+                self.append_jsonl(MEMORY_ATOMS_LOG, &atom)?;
+                atoms_created += 1;
+            }
+        }
+        Ok(ProjectionOutcome {
+            episodes_created: 1,
+            atoms_created,
+            duplicates: 0,
+        })
+    }
+
+    fn project_memory_event(&self, event: &MemoryEvent) -> anyhow::Result<ProjectionOutcome> {
+        let privacy = normalize_privacy_class(
+            event
+                .metadata
+                .get("privacy_class")
+                .and_then(|value| value.as_str()),
+        );
+        if privacy == "restricted" {
+            return Ok(ProjectionOutcome::default());
+        }
+        let source_ref = format!("memory_event:{}", event.id);
+        if self.find_episode_by_source_ref(&source_ref)?.is_some() {
+            return Ok(ProjectionOutcome {
+                duplicates: 1,
+                ..Default::default()
+            });
+        }
+        let content_hash = event
+            .content_ref
+            .clone()
+            .unwrap_or_else(|| format!("sha256:{}", content_hash(event.summary.as_bytes())));
+        let episode = MemoryEpisode {
+            id: stable_id("episode", &[&source_ref, &content_hash]),
+            created_at: Utc::now().to_rfc3339(),
+            source: event.source.clone(),
+            source_platform: Some(event.source.clone()),
+            session_id: metadata_string(&event.metadata, "session_id"),
+            source_ref: source_ref.clone(),
+            content_hash,
+            privacy_class: privacy.clone(),
+            provenance: serde_json::json!({
+                "source": event.source,
+                "kind": event.kind,
+                "content_ref": event.content_ref,
+                "metadata": event.metadata,
+            }),
+            tags: event.tags.clone(),
+            title: Some(event.kind.clone()),
+            linked_chronoself_commits: event.linked_chronoself_commits.clone(),
+            occurred_at: Some(event.created_at.clone()),
+        };
+        self.append_jsonl(MEMORY_EPISODES_LOG, &episode)?;
+        let atom = MemoryAtom {
+            id: stable_id("atom", &[&episode.id, "memory_event", &event.summary]),
+            created_at: Utc::now().to_rfc3339(),
+            episode_id: episode.id.clone(),
+            atom_type: "memory_event".to_string(),
+            text: truncate_chars(&event.summary, 500),
+            normalized_text: normalize_text(&event.summary),
+            source_refs: vec![source_ref],
+            relations: relations_for_tags(&event.tags, &episode.id),
+            tags: event.tags.clone(),
+            confidence: event.confidence,
+            privacy_class: privacy,
+            occurred_at: Some(event.created_at.clone()),
+        };
+        if self.find_atom_by_id(&atom.id)?.is_none() {
+            self.append_jsonl(MEMORY_ATOMS_LOG, &atom)?;
+            Ok(ProjectionOutcome {
+                episodes_created: 1,
+                atoms_created: 1,
+                duplicates: 0,
+            })
+        } else {
+            Ok(ProjectionOutcome {
+                episodes_created: 1,
+                atoms_created: 0,
+                duplicates: 1,
+            })
+        }
+    }
+
+    fn memory_projection_status(&self) -> anyhow::Result<MemoryProjectionStatus> {
+        self.ensure()?;
+        let episodes = self.read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, usize::MAX)?;
+        let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?;
+        let latest_run = self
+            .read_recent_jsonl::<MemoryProjectionRun>(MEMORY_PROJECTION_RUNS_LOG, 1)?
+            .into_iter()
+            .next();
+        let freshness = latest_run
+            .as_ref()
+            .map(|run| run.created_at.clone())
+            .unwrap_or_else(|| "never".to_string());
+        Ok(MemoryProjectionStatus {
+            status: if atoms.is_empty() {
+                "empty".to_string()
+            } else {
+                "fresh".to_string()
+            },
+            schema_version: MEMORY_PROJECTION_SCHEMA.to_string(),
+            episode_count: episodes.len(),
+            atom_count: atoms.len(),
+            latest_run,
+            freshness,
+            retrieval_mode: if atoms.is_empty() {
+                "append-only fallback".to_string()
+            } else {
+                "hybrid lexical+graph+temporal".to_string()
+            },
+            degraded_reason: "real embedding backend not configured in GraphRAG++ projection v1.2"
+                .to_string(),
+        })
+    }
+
+    fn graphrag_query(&self, req: GraphRagQueryRequest) -> anyhow::Result<GraphRagQueryResponse> {
+        self.ensure()?;
+        let max_items = req.max_items.unwrap_or(5).clamp(1, 20);
+        let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?;
+        let episodes = self.read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, usize::MAX)?;
+        if atoms.is_empty() {
+            return Ok(GraphRagQueryResponse {
+                summary: format!(
+                    "No GraphRAG++ projected memory matches found for '{}'.",
+                    req.query
+                ),
+                evidence: Vec::new(),
+                atoms: Vec::new(),
+                episodes: Vec::new(),
+                relations: Vec::new(),
+                temporal_context: GraphRagTemporalContext {
+                    newest_evidence_at: None,
+                    oldest_evidence_at: None,
+                    matched_episode_count: 0,
+                },
+                provenance: serde_json::json!({
+                    "schema_version": MEMORY_PROJECTION_SCHEMA,
+                    "retrieval_mode": "append-only fallback"
+                }),
+                confidence: 0.0,
+                degraded_reason: Some("no projected memory atoms available".to_string()),
+            });
+        }
+
+        let query_tokens = tokenize(&req.query);
+        let scope = req.scope.as_ref().map(|scope| scope.to_lowercase());
+        let mut scored = atoms
+            .iter()
+            .filter(|atom| {
+                scope
+                    .as_ref()
+                    .map(|scope| {
+                        atom.tags
+                            .iter()
+                            .any(|tag| tag.to_lowercase().contains(scope))
+                            || atom.atom_type.to_lowercase().contains(scope)
+                    })
+                    .unwrap_or(true)
+            })
+            .filter_map(|atom| {
+                let score = atom_score(atom, &query_tokens);
+                (score > 0.0).then_some((atom.clone(), score))
+            })
+            .collect::<Vec<_>>();
+        scored.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.0.occurred_at.cmp(&a.0.occurred_at))
+        });
+        scored.truncate(max_items);
+
+        let mut matched_episodes = Vec::<MemoryEpisode>::new();
+        let mut evidence = Vec::<GraphRagEvidence>::new();
+        let mut relations = Vec::<MemoryRelation>::new();
+        for (atom, score) in &scored {
+            if let Some(episode) = episodes
+                .iter()
+                .find(|episode| episode.id == atom.episode_id)
+            {
+                if !matched_episodes.iter().any(|item| item.id == episode.id) {
+                    matched_episodes.push(episode.clone());
+                }
+                evidence.push(GraphRagEvidence {
+                    atom_id: atom.id.clone(),
+                    episode_id: atom.episode_id.clone(),
+                    atom_type: atom.atom_type.clone(),
+                    text: atom.text.clone(),
+                    score: *score,
+                    source_refs: atom.source_refs.clone(),
+                    provenance: episode.provenance.clone(),
+                });
+            }
+            for relation in &atom.relations {
+                if !relations.iter().any(|existing| {
+                    existing.subject == relation.subject
+                        && existing.predicate == relation.predicate
+                        && existing.object == relation.object
+                }) {
+                    relations.push(relation.clone());
+                }
+            }
+        }
+        let newest = evidence
+            .iter()
+            .filter_map(|item| {
+                matched_episodes
+                    .iter()
+                    .find(|episode| episode.id == item.episode_id)
+                    .and_then(|episode| episode.occurred_at.clone())
+            })
+            .max();
+        let oldest = evidence
+            .iter()
+            .filter_map(|item| {
+                matched_episodes
+                    .iter()
+                    .find(|episode| episode.id == item.episode_id)
+                    .and_then(|episode| episode.occurred_at.clone())
+            })
+            .min();
+        let confidence = if evidence.is_empty() {
+            0.0
+        } else {
+            (evidence.iter().map(|item| item.score).sum::<f64>() / evidence.len() as f64)
+                .clamp(0.0, 1.0)
+        };
+        let summary = if evidence.is_empty() {
+            format!(
+                "No GraphRAG++ projected memory matches found for '{}'.",
+                req.query
+            )
+        } else {
+            format!(
+                "Found {} GraphRAG++ projected memory match(es) across {} episode(s) for '{}'.",
+                evidence.len(),
+                matched_episodes.len(),
+                req.query
+            )
+        };
+
+        let matched_episode_count = matched_episodes.len();
+        Ok(GraphRagQueryResponse {
+            summary,
+            evidence,
+            atoms: scored.into_iter().map(|(atom, _)| atom).collect(),
+            episodes: matched_episodes,
+            relations,
+            temporal_context: GraphRagTemporalContext {
+                newest_evidence_at: newest,
+                oldest_evidence_at: oldest,
+                matched_episode_count,
+            },
+            provenance: serde_json::json!({
+                "schema_version": MEMORY_PROJECTION_SCHEMA,
+                "retrieval_mode": "hybrid lexical+graph+temporal",
+                "embedding_backend": "not_configured",
+            }),
+            confidence,
+            degraded_reason: Some(
+                "real embedding backend not configured; using lexical+graph+temporal scoring"
+                    .to_string(),
+            ),
+        })
+    }
+
+    fn find_episode_by_source_ref(
+        &self,
+        source_ref: &str,
+    ) -> anyhow::Result<Option<MemoryEpisode>> {
+        Ok(self
+            .read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, usize::MAX)?
+            .into_iter()
+            .find(|episode| episode.source_ref == source_ref))
+    }
+
+    fn find_atom_by_id(&self, atom_id: &str) -> anyhow::Result<Option<MemoryAtom>> {
+        Ok(self
+            .read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?
+            .into_iter()
+            .find(|atom| atom.id == atom_id))
     }
 
     fn analyze_temporal(&self, req: TemporalAnalyzeRequest) -> anyhow::Result<TemporalAnalysis> {
@@ -1082,6 +1703,7 @@ impl ExocortexRepository {
         let current_self = self.current_self()?;
         let commits = self.read_recent_jsonl::<ChronoselfCommit>(CHRONOSELF_LOG, 5)?;
         let imports = self.read_recent_jsonl::<OmniConversation>(OMNIMEMORY_LOG, 5)?;
+        let projected_atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, 5)?;
         let analyses = self.read_recent_jsonl::<TemporalAnalysis>(TEMPORAL_LOG, 3)?;
         let audit_events = self.read_recent_jsonl::<AuditEvent>(AUDIT_LOG, 10)?;
         let memory_events = self.read_recent_jsonl::<MemoryEvent>(MEMORY_EVENTS_LOG, 5)?;
@@ -1101,14 +1723,15 @@ impl ExocortexRepository {
                     .find_map(|commit| commit.context_snapshot.active_project_ids.first().cloned())
             })
             .or_else(|| Some("sounio".to_string()));
-        let memory_signals = commits
+        let memory_signals = projected_atoms
             .iter()
-            .filter_map(|commit| {
+            .map(|atom| format!("{}: {}", atom.atom_type, atom.text))
+            .chain(commits.iter().filter_map(|commit| {
                 commit
                     .summary
                     .clone()
                     .or_else(|| commit.identity_delta.cognitive_style_shift.clone())
-            })
+            }))
             .chain(
                 imports
                     .iter()
@@ -1187,6 +1810,7 @@ impl ExocortexRepository {
                 "audited".to_string()
             },
         });
+        let projection_status = self.memory_projection_status().ok();
         let trust_context = Some(TrustContext {
             mcp_status: if audit_events.is_empty() {
                 "no-audit-events-yet".to_string()
@@ -1205,6 +1829,7 @@ impl ExocortexRepository {
             tool_manifest_hash: latest_audit
                 .and_then(|event| metadata_string(&event.metadata, "tool_manifest_hash")),
             last_audit_event_id: latest_audit.map(|event| event.id.clone()),
+            memory_projection_status: projection_status.clone(),
         });
         let temporal_phase = temporal_phase.or_else(|| {
             causal_hypotheses
@@ -1221,7 +1846,17 @@ impl ExocortexRepository {
             body_context,
             recommended_next_action,
             cluster_truth: "observed".to_string(),
-            omnimemory_status: format!("{} imports indexed", imports.len()),
+            omnimemory_status: projection_status
+                .as_ref()
+                .map(|status| {
+                    format!(
+                        "{} imports, {} episodes, {} atoms projected",
+                        imports.len(),
+                        status.episode_count,
+                        status.atom_count
+                    )
+                })
+                .unwrap_or_else(|| format!("{} imports indexed", imports.len())),
             temporal_phase,
             agent_context,
             trust_context,
@@ -1555,6 +2190,263 @@ fn import_matches_topic(import: &OmniConversation, topic_lc: &str) -> bool {
     haystack.contains(topic_lc)
 }
 
+pub(crate) fn query_projected_memory_for_memory_api(
+    query: beagle_memory::MemoryQuery,
+) -> anyhow::Result<Option<beagle_memory::MemoryResult>> {
+    let repo = ExocortexRepository::default();
+    repo.ensure()?;
+    let status = repo.memory_projection_status()?;
+    if status.atom_count == 0 {
+        return Ok(None);
+    }
+    let response = repo.graphrag_query(GraphRagQueryRequest {
+        query: query.query,
+        scope: query.scope,
+        max_items: query.max_items,
+    })?;
+    Ok(Some(graphrag_to_memory_result(response)))
+}
+
+fn graphrag_to_memory_result(response: GraphRagQueryResponse) -> beagle_memory::MemoryResult {
+    let highlights = response
+        .evidence
+        .iter()
+        .map(|evidence| {
+            let episode = response
+                .episodes
+                .iter()
+                .find(|episode| episode.id == evidence.episode_id);
+            beagle_memory::MemoryResultHighlight {
+                source: episode
+                    .map(|episode| episode.source.clone())
+                    .unwrap_or_else(|| "graphrag++".to_string()),
+                date: episode
+                    .and_then(|episode| episode.occurred_at.as_deref())
+                    .and_then(|date| chrono::DateTime::parse_from_rfc3339(date).ok())
+                    .map(|date| date.with_timezone(&Utc)),
+                snippet: evidence.text.clone(),
+                run_id: None,
+                session_id: episode.and_then(|episode| episode.session_id.clone()),
+                relevance: evidence.score as f32,
+            }
+        })
+        .collect();
+    beagle_memory::MemoryResult {
+        summary: response.summary,
+        highlights,
+        links: response
+            .evidence
+            .iter()
+            .flat_map(|evidence| evidence.source_refs.clone())
+            .map(serde_json::Value::String)
+            .collect(),
+    }
+}
+
+#[derive(Debug, Default)]
+struct ProjectionOutcome {
+    episodes_created: usize,
+    atoms_created: usize,
+    duplicates: usize,
+}
+
+fn default_sensitive_privacy_class() -> String {
+    "sensitive".to_string()
+}
+
+fn normalize_privacy_class(value: Option<&str>) -> String {
+    match value
+        .unwrap_or("sensitive")
+        .trim()
+        .to_lowercase()
+        .replace('-', "_")
+        .as_str()
+    {
+        "public" => "public".to_string(),
+        "restricted" | "secret" | "credential" => "restricted".to_string(),
+        _ => "sensitive".to_string(),
+    }
+}
+
+fn projection_hash(episodes: &[MemoryEpisode], atoms: &[MemoryAtom]) -> anyhow::Result<String> {
+    let mut hasher = Sha256::new();
+    hasher.update(MEMORY_PROJECTION_SCHEMA.as_bytes());
+    hasher.update(serde_json::to_vec(episodes)?);
+    hasher.update(serde_json::to_vec(atoms)?);
+    Ok(format!("sha256:{}", hex_digest(hasher.finalize())))
+}
+
+fn stable_id(prefix: &str, parts: &[&str]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(prefix.as_bytes());
+    for part in parts {
+        hasher.update(b"\0");
+        hasher.update(part.as_bytes());
+    }
+    format!("{}:{}", prefix, hex_digest(hasher.finalize()))
+}
+
+fn atoms_from_import(import: &OmniConversation, episode: &MemoryEpisode) -> Vec<MemoryAtom> {
+    let mut atoms = Vec::new();
+    push_atoms(
+        &mut atoms,
+        "insight",
+        &import.extracted.key_insights,
+        import,
+        episode,
+    );
+    push_atoms(
+        &mut atoms,
+        "decision",
+        &import.extracted.decisions,
+        import,
+        episode,
+    );
+    push_atoms(
+        &mut atoms,
+        "hypothesis",
+        &import.extracted.hypotheses,
+        import,
+        episode,
+    );
+    push_atoms(
+        &mut atoms,
+        "belief_change",
+        &import.extracted.belief_changes,
+        import,
+        episode,
+    );
+    push_atoms(
+        &mut atoms,
+        "open_question",
+        &import.extracted.unresolved_questions,
+        import,
+        episode,
+    );
+    push_atoms(
+        &mut atoms,
+        "project",
+        &import.extracted.projects_mentioned,
+        import,
+        episode,
+    );
+    atoms
+}
+
+fn push_atoms(
+    atoms: &mut Vec<MemoryAtom>,
+    atom_type: &str,
+    values: &[String],
+    import: &OmniConversation,
+    episode: &MemoryEpisode,
+) {
+    for value in values {
+        let text = truncate_chars(value, 500);
+        let atom = MemoryAtom {
+            id: stable_id("atom", &[&episode.id, atom_type, &text]),
+            created_at: Utc::now().to_rfc3339(),
+            episode_id: episode.id.clone(),
+            atom_type: atom_type.to_string(),
+            normalized_text: normalize_text(&text),
+            text,
+            source_refs: vec![episode.source_ref.clone(), import.raw_content_ref.clone()],
+            relations: relations_for_import(import, episode),
+            tags: import.tags.clone(),
+            confidence: import.confidence_score,
+            privacy_class: import.privacy_class.clone(),
+            occurred_at: episode.occurred_at.clone(),
+        };
+        atoms.push(atom);
+    }
+}
+
+fn relations_for_import(import: &OmniConversation, episode: &MemoryEpisode) -> Vec<MemoryRelation> {
+    let mut relations = relations_for_tags(&import.tags, &episode.id);
+    for project in &import.extracted.projects_mentioned {
+        relations.push(MemoryRelation {
+            subject: project.clone(),
+            predicate: "mentioned_in".to_string(),
+            object: episode.id.clone(),
+            confidence: 0.78,
+        });
+    }
+    for decision in &import.extracted.decisions {
+        for hypothesis in &import.extracted.hypotheses {
+            relations.push(MemoryRelation {
+                subject: truncate_chars(decision, 120),
+                predicate: "informs_hypothesis".to_string(),
+                object: truncate_chars(hypothesis, 120),
+                confidence: 0.58,
+            });
+        }
+    }
+    relations
+}
+
+fn relations_for_tags(tags: &[String], episode_id: &str) -> Vec<MemoryRelation> {
+    tags.iter()
+        .filter_map(|tag| tag.strip_prefix("project:"))
+        .map(|project| MemoryRelation {
+            subject: project.to_string(),
+            predicate: "has_episode".to_string(),
+            object: episode_id.to_string(),
+            confidence: 0.72,
+        })
+        .collect()
+}
+
+fn normalize_text(value: &str) -> String {
+    value
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn tokenize(value: &str) -> Vec<String> {
+    value
+        .to_lowercase()
+        .split(|ch: char| !ch.is_alphanumeric())
+        .filter(|token| token.len() > 2)
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn atom_score(atom: &MemoryAtom, query_tokens: &[String]) -> f64 {
+    if query_tokens.is_empty() {
+        return 0.0;
+    }
+    let text = atom.normalized_text.as_str();
+    let token_hits = query_tokens
+        .iter()
+        .filter(|token| text.contains(token.as_str()))
+        .count();
+    if token_hits == 0 {
+        return 0.0;
+    }
+    let lexical = token_hits as f64 / query_tokens.len() as f64;
+    let type_boost = match atom.atom_type.as_str() {
+        "decision" => 0.12,
+        "hypothesis" => 0.10,
+        "belief_change" => 0.09,
+        "project" => 0.06,
+        _ => 0.0,
+    };
+    let graph_boost = if atom.relations.is_empty() { 0.0 } else { 0.08 };
+    let recency_boost = atom
+        .occurred_at
+        .as_deref()
+        .and_then(|date| chrono::DateTime::parse_from_rfc3339(date).ok())
+        .map(|date| {
+            let age_days = (Utc::now() - date.with_timezone(&Utc)).num_days().max(0) as f64;
+            (0.08 / (1.0 + age_days / 30.0)).clamp(0.0, 0.08)
+        })
+        .unwrap_or(0.0);
+    (lexical * 0.72 + type_boost + graph_boost + recency_boost)
+        .min(1.0)
+        .max(0.0)
+}
+
 fn truncate_chars(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
 }
@@ -1649,6 +2541,7 @@ mod tests {
         let imported = repo
             .import_conversation(ImportConversationRequest {
                 source_platform: "ChatGPT".to_string(),
+                session_id: None,
                 original_date: None,
                 raw_content: "Decisão: Beagle precisa de MCP como sistema nervoso do exocortex."
                     .to_string(),
@@ -1657,6 +2550,8 @@ mod tests {
                 extracted: None,
                 confidence_score: Some(0.8),
                 create_chronoself_commit: Some(true),
+                privacy_class: None,
+                metadata: None,
             })
             .unwrap();
         assert_eq!(imported.source_platform, "chatgpt");
@@ -1664,6 +2559,7 @@ mod tests {
         let duplicate = repo
             .import_conversation(ImportConversationRequest {
                 source_platform: "ChatGPT".to_string(),
+                session_id: None,
                 original_date: None,
                 raw_content: "Decisão: Beagle precisa de MCP como sistema nervoso do exocortex."
                     .to_string(),
@@ -1672,6 +2568,8 @@ mod tests {
                 extracted: None,
                 confidence_score: Some(0.8),
                 create_chronoself_commit: Some(true),
+                privacy_class: None,
+                metadata: None,
             })
             .unwrap();
         assert_eq!(duplicate.id, imported.id);
@@ -1757,5 +2655,120 @@ mod tests {
             .recent_events
             .iter()
             .any(|event| event.contains("iPhone")));
+    }
+
+    #[test]
+    fn omnimemory_import_creates_projected_episode_and_atoms() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        let imported = repo
+            .import_conversation(ImportConversationRequest {
+                source_platform: "Claude".to_string(),
+                session_id: Some("visible-project-1".to_string()),
+                original_date: Some("2026-04-26T16:00:00Z".to_string()),
+                raw_content: "Decisão: Beagle Memory v1.2 deve priorizar GraphRAG++ persistente.\nHipótese: Episode+Atom melhora recuperação temporal.".to_string(),
+                title: Some("GraphRAG++ decision".to_string()),
+                tags: vec!["project:beagle".to_string()],
+                extracted: None,
+                confidence_score: Some(0.86),
+                create_chronoself_commit: None,
+                privacy_class: None,
+                metadata: Some(serde_json::json!({"import_scope": "visible_project"})),
+            })
+            .unwrap();
+
+        let episodes = repo
+            .read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, 10)
+            .unwrap();
+        let atoms = repo
+            .read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, 10)
+            .unwrap();
+        assert_eq!(episodes.len(), 1);
+        assert_eq!(
+            episodes[0].source_ref,
+            format!("omnimemory:{}", imported.id)
+        );
+        assert!(atoms.iter().any(|atom| atom.atom_type == "decision"));
+        assert!(atoms.iter().any(|atom| atom.atom_type == "hypothesis"));
+
+        let duplicate_run = repo
+            .project_memory(ProjectMemoryRequest {
+                rebuild: false,
+                source_refs: Vec::new(),
+            })
+            .unwrap();
+        assert!(duplicate_run.duplicates >= 1);
+        assert_eq!(
+            repo.read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, 10)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn graphrag_query_returns_projected_evidence_with_provenance() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        repo.import_conversation(ImportConversationRequest {
+            source_platform: "Claude".to_string(),
+            session_id: Some("session-graphrag".to_string()),
+            original_date: Some("2026-04-26T16:00:00Z".to_string()),
+            raw_content: "Decisão: GraphRAG++ persistente deve ser o núcleo do exocortex Beagle."
+                .to_string(),
+            title: Some("Persistent memory".to_string()),
+            tags: vec!["project:beagle".to_string()],
+            extracted: Some(OmniExtraction {
+                decisions: vec![
+                    "GraphRAG++ persistente deve ser o núcleo do exocortex Beagle.".to_string(),
+                ],
+                projects_mentioned: vec!["beagle".to_string()],
+                ..Default::default()
+            }),
+            confidence_score: Some(0.9),
+            create_chronoself_commit: None,
+            privacy_class: Some("sensitive".to_string()),
+            metadata: None,
+        })
+        .unwrap();
+
+        let result = repo
+            .graphrag_query(GraphRagQueryRequest {
+                query: "núcleo exocortex GraphRAG".to_string(),
+                scope: None,
+                max_items: Some(5),
+            })
+            .unwrap();
+        assert_eq!(result.evidence.len(), 1);
+        assert_eq!(result.evidence[0].atom_type, "decision");
+        assert!(result
+            .relations
+            .iter()
+            .any(|relation| relation.subject == "beagle"));
+        assert!(result.degraded_reason.is_some());
+    }
+
+    #[test]
+    fn restricted_import_is_not_projected() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        repo.import_conversation(ImportConversationRequest {
+            source_platform: "manual".to_string(),
+            session_id: Some("restricted-session".to_string()),
+            original_date: None,
+            raw_content: "Decisão: este payload restrito não deve virar átomo.".to_string(),
+            title: Some("Restricted pilot".to_string()),
+            tags: vec!["project:beagle".to_string()],
+            extracted: None,
+            confidence_score: Some(0.8),
+            create_chronoself_commit: None,
+            privacy_class: Some("restricted".to_string()),
+            metadata: None,
+        })
+        .unwrap();
+
+        let status = repo.memory_projection_status().unwrap();
+        assert_eq!(status.episode_count, 0);
+        assert_eq!(status.atom_count, 0);
     }
 }

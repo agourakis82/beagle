@@ -300,6 +300,18 @@ export class BeagleClient {
         return this.request("POST", "/api/exocortex/v1/omnimemory/imports", body, 120000);
     }
 
+    async projectMemory(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/memory/project", body, 120000);
+    }
+
+    async memoryProjectionStatus(): Promise<unknown> {
+        return this.request("GET", "/api/exocortex/v1/memory/projection/status", undefined, 30000);
+    }
+
+    async graphRagQuery(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/graphrag/query", body, 60000);
+    }
+
     async temporalAnalyze(body: unknown): Promise<unknown> {
         return this.request("POST", "/api/exocortex/v1/temporal/analyze", body, 120000);
     }

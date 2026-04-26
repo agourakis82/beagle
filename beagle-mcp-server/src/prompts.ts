@@ -85,10 +85,16 @@ Rules:
             get: async ({ source_platform, project }) => ({
                 description: "Conversation import workflow",
                 messages: [
-                    message(`Import the provided transcript with beagle_omnimemory_import.
+                    message(`Import the provided transcript with beagle_assisted_import_batch, not as a loose transcript.
 
 source_platform: ${source_platform || "manual"}
 project: ${project || "unspecified"}
+
+Defaults:
+- privacy_class: sensitive
+- import_scope: user_supplied_export when the transcript is an export
+- import_scope: current_conversation when only visible context is available
+- restricted content must be skipped unless the user explicitly approves a later review workflow
 
 Extract:
 - key insights
@@ -98,7 +104,49 @@ Extract:
 - unresolved questions
 - projects mentioned
 
-Then create a Chronoself commit when the transcript changes priorities, self-model, research direction, or project commitments.`),
+Then run beagle_memory_project_graph for the new source_ref when needed and create a Chronoself commit when the transcript changes priorities, self-model, research direction, or project commitments.`),
+                ],
+            }),
+        },
+        {
+            name: "import_visible_project",
+            description:
+                "Capture the currently visible project context as GraphRAG++ memory without requiring a full account export.",
+            arguments: [
+                {
+                    name: "source_platform",
+                    description: "claude, chatgpt, grok, gemini, codex, or manual.",
+                    required: true,
+                },
+                {
+                    name: "project",
+                    description: "Project slug, title, or stable reference.",
+                    required: true,
+                },
+                {
+                    name: "session_id",
+                    description: "Stable session or thread identifier for this import batch.",
+                    required: true,
+                },
+            ],
+            get: async ({ source_platform, project, session_id }) => ({
+                description: "Visible project import workflow",
+                messages: [
+                    message(`Use beagle_assisted_import_batch to capture only the project context visible in this client.
+
+source_platform: ${source_platform || "manual"}
+project_ref: ${project || "<project>"}
+session_id: ${session_id || "<session_id>"}
+import_scope: visible_project
+privacy_class: sensitive
+
+Capture:
+- decisions and priority changes
+- hypotheses and open questions
+- project entities and relationships
+- next actions with provenance
+
+After import, query beagle://memory/graph/status or run beagle_memory_query to confirm the projected atoms are retrievable.`),
                 ],
             }),
         },

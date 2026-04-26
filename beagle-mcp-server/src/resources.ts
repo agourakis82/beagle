@@ -60,6 +60,14 @@ export function defineResources(
                 client.memoryQuery("recent Beagle Exocortex memory signals", 10),
         },
         {
+            uri: "beagle://memory/graph/status",
+            name: "GraphRAG++ Memory Projection Status",
+            description:
+                "Projection freshness, episode and atom counts, schema version, and degraded retrieval status.",
+            mimeType: "application/json",
+            read: async () => client.memoryProjectionStatus(),
+        },
+        {
             uri: "beagle://projects/active",
             name: "Active Projects",
             description:

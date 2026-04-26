@@ -182,6 +182,30 @@
         "destructive_justification": "Appends imported memory and does not delete or overwrite existing memory."
       }
     },
+    "beagle_assisted_import_batch": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes visible or user-supplied conversation context into projected Beagle memory.",
+        "open_world_justification": "Writes only to the private Beagle cluster and does not affect external systems.",
+        "destructive_justification": "Appends episode, atom, and auditable memory records without deleting or overwriting existing memory."
+      }
+    },
+    "beagle_memory_project_graph": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Runs an idempotent projection that may append new derived episode and atom records.",
+        "open_world_justification": "Operates only on private Beagle logs and derived memory state.",
+        "destructive_justification": "Does not delete canonical logs or replace existing memory; derived indexes remain reconstructible."
+      }
+    },
     "beagle_temporal_analyze": {
       "annotations": {
         "readOnlyHint": false,
