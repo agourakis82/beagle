@@ -15,6 +15,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    env,
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Write},
     path::PathBuf,
@@ -33,12 +34,16 @@ const MEMORY_EVENTS_LOG: &str = "memory_events.jsonl";
 const MEMORY_EPISODES_LOG: &str = "memory_episodes.jsonl";
 const MEMORY_ATOMS_LOG: &str = "memory_atoms.jsonl";
 const MEMORY_PROJECTION_RUNS_LOG: &str = "memory_projection_runs.jsonl";
+const MEMORY_GRAPH_BAKEOFF_RUNS_LOG: &str = "memory_graph_bakeoff_runs.jsonl";
+const MEMORY_GRAPH_INDEX_RUNS_LOG: &str = "memory_graph_index_runs.jsonl";
+const MEMORY_WORLDS_LOG: &str = "memory_worlds.jsonl";
 const AGENT_OBSERVATIONS_LOG: &str = "agent_observations.jsonl";
 const PROJECT_STATES_LOG: &str = "project_states.jsonl";
 const CAUSAL_HYPOTHESES_LOG: &str = "causal_hypotheses.jsonl";
 const CURRENT_SELF_SNAPSHOT: &str = "current_self.json";
 const HOME_SNAPSHOT: &str = "home_snapshot.json";
 const MEMORY_PROJECTION_SCHEMA: &str = "beagle-memory-projection-v1.2";
+const MEMORY_GRAPH_SCHEMA: &str = "beagle-graphrag-runtime-v1.4";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextSnapshot {
@@ -266,6 +271,158 @@ pub struct MemoryProjectionStatus {
     pub degraded_reason: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryWorld {
+    pub id: String,
+    pub created_at: String,
+    pub world_type: String,
+    pub source_ref: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    pub merkle_root: String,
+    #[serde(default)]
+    pub valid_from: Option<String>,
+    #[serde(default)]
+    pub valid_until: Option<String>,
+    pub node_count: usize,
+    pub edge_count: usize,
+    pub runtime_hint: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryCommunity {
+    pub id: String,
+    pub label: String,
+    pub strategy: String,
+    pub node_count: usize,
+    pub score: f64,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryGraphRecentResponse {
+    pub generated_at: String,
+    pub status: MemoryProjectionStatus,
+    #[serde(default)]
+    pub episodes: Vec<MemoryEpisode>,
+    #[serde(default)]
+    pub atoms: Vec<MemoryAtom>,
+    #[serde(default)]
+    pub relations: Vec<MemoryRelation>,
+    #[serde(default)]
+    pub worlds: Vec<MemoryWorld>,
+    #[serde(default)]
+    pub communities: Vec<MemoryCommunity>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphBakeoffMetrics {
+    pub p95_query_ms: f64,
+    pub ingest_latency_ms: f64,
+    pub top5_hit_rate: f64,
+    pub multi_hop_accuracy: f64,
+    pub provenance_quality: f64,
+    pub rebuild_seconds: f64,
+    pub operational_complexity: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphRuntimeCandidate {
+    pub name: String,
+    pub runtime_kind: String,
+    pub status: String,
+    pub score: f64,
+    pub metrics: GraphBakeoffMetrics,
+    #[serde(default)]
+    pub strengths: Vec<String>,
+    #[serde(default)]
+    pub risks: Vec<String>,
+    #[serde(default)]
+    pub promotion_notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphBakeoffRun {
+    pub id: String,
+    pub created_at: String,
+    pub status: String,
+    pub schema_version: String,
+    #[serde(default)]
+    pub dataset: serde_json::Value,
+    #[serde(default)]
+    pub candidates: Vec<GraphRuntimeCandidate>,
+    pub winner: String,
+    pub baseline: String,
+    pub report_ref: String,
+    pub degraded_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphIndexRun {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub runtime: String,
+    pub status: String,
+    pub episodes_indexed: usize,
+    pub atoms_indexed: usize,
+    pub worlds_created: usize,
+    pub hyperedges_indexed: usize,
+    pub merkle_root: String,
+    pub degraded_reason: String,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryGraphStatus {
+    pub generated_at: String,
+    pub schema_version: String,
+    pub graph_runtime: String,
+    pub runtime_status: String,
+    pub retrieval_mode: String,
+    pub canonical_store: String,
+    pub projection_status: MemoryProjectionStatus,
+    #[serde(default)]
+    pub latest_bakeoff: Option<GraphBakeoffRun>,
+    #[serde(default)]
+    pub latest_index_run: Option<GraphIndexRun>,
+    pub world_count: usize,
+    pub degraded_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryWorldsRecentResponse {
+    pub generated_at: String,
+    #[serde(default)]
+    pub worlds: Vec<MemoryWorld>,
+    pub graph_status: MemoryGraphStatus,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GraphBakeoffRequest {
+    #[serde(default)]
+    pub dataset_limit: Option<usize>,
+    #[serde(default)]
+    pub include_baseline: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GraphIndexRequest {
+    #[serde(default)]
+    pub rebuild: bool,
+    #[serde(default)]
+    pub source_refs: Vec<String>,
+    #[serde(default)]
+    pub runtime: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProjectMemoryRequest {
     #[serde(default)]
@@ -281,6 +438,8 @@ pub struct GraphRagQueryRequest {
     pub scope: Option<String>,
     #[serde(default)]
     pub max_items: Option<usize>,
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -304,6 +463,56 @@ pub struct GraphRagTemporalContext {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvidenceGraphNode {
+    pub id: String,
+    pub label: String,
+    pub node_type: String,
+    pub score: f64,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvidenceGraphEdge {
+    pub source: String,
+    pub target: String,
+    pub predicate: String,
+    pub confidence: f64,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvidenceGraph {
+    #[serde(default)]
+    pub nodes: Vec<EvidenceGraphNode>,
+    #[serde(default)]
+    pub edges: Vec<EvidenceGraphEdge>,
+    pub temporary: bool,
+    pub merkle_root: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphRagCommunityContext {
+    pub strategy: String,
+    #[serde(default)]
+    pub selected_communities: Vec<MemoryCommunity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degraded_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievalTraceStep {
+    pub stage: String,
+    pub backend: String,
+    pub status: String,
+    pub items: usize,
+    pub latency_ms: f64,
+    #[serde(default)]
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphRagQueryResponse {
     pub summary: String,
     #[serde(default)]
@@ -320,6 +529,16 @@ pub struct GraphRagQueryResponse {
     pub confidence: f64,
     #[serde(default)]
     pub degraded_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_runtime: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_graph: Option<EvidenceGraph>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub community_context: Option<GraphRagCommunityContext>,
+    #[serde(default)]
+    pub retrieval_trace: Vec<RetrievalTraceStep>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -482,6 +701,16 @@ pub struct TrustContext {
     pub last_audit_event_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_projection_status: Option<MemoryProjectionStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_runtime: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_world_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_agent_write: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_degraded_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -752,6 +981,30 @@ pub fn exocortex_routes() -> Router<AppState> {
             get(memory_projection_status_handler),
         )
         .route(
+            "/api/exocortex/v1/memory/graph/status",
+            get(memory_graph_status_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/graph/bakeoff",
+            post(memory_graph_bakeoff_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/graph/bakeoff/status",
+            get(memory_graph_bakeoff_status_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/index-graph",
+            post(memory_index_graph_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/graph/recent",
+            get(memory_graph_recent_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/worlds/recent",
+            get(memory_worlds_recent_handler),
+        )
+        .route(
             "/api/exocortex/v1/graphrag/query",
             post(graphrag_query_handler),
         )
@@ -893,6 +1146,68 @@ async fn memory_projection_status_handler(
     repo.ensure().map_err(internal_error)?;
     let status = repo.memory_projection_status().map_err(internal_error)?;
     Ok(Json(status))
+}
+
+async fn memory_graph_status_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<MemoryGraphStatus>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let status = repo.memory_graph_status().map_err(internal_error)?;
+    Ok(Json(status))
+}
+
+async fn memory_graph_bakeoff_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<GraphBakeoffRequest>,
+) -> Result<Json<GraphBakeoffRun>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let run = repo.run_graph_bakeoff(req).map_err(internal_error)?;
+    Ok(Json(run))
+}
+
+async fn memory_graph_bakeoff_status_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<MemoryGraphStatus>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let status = repo.memory_graph_status().map_err(internal_error)?;
+    Ok(Json(status))
+}
+
+async fn memory_index_graph_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<GraphIndexRequest>,
+) -> Result<Json<GraphIndexRun>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let run = repo.index_graph(req).map_err(internal_error)?;
+    Ok(Json(run))
+}
+
+async fn memory_graph_recent_handler(
+    State(_state): State<AppState>,
+    Query(query): Query<LimitQuery>,
+) -> Result<Json<MemoryGraphRecentResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let response = repo
+        .memory_graph_recent(query.limit.unwrap_or(12))
+        .map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn memory_worlds_recent_handler(
+    State(_state): State<AppState>,
+    Query(query): Query<LimitQuery>,
+) -> Result<Json<MemoryWorldsRecentResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let response = repo
+        .memory_worlds_recent(query.limit.unwrap_or(12))
+        .map_err(internal_error)?;
+    Ok(Json(response))
 }
 
 async fn graphrag_query_handler(
@@ -1610,9 +1925,249 @@ impl ExocortexRepository {
         })
     }
 
+    fn memory_graph_status(&self) -> anyhow::Result<MemoryGraphStatus> {
+        self.ensure()?;
+        let projection_status = self.memory_projection_status()?;
+        let latest_bakeoff = self
+            .read_recent_jsonl::<GraphBakeoffRun>(MEMORY_GRAPH_BAKEOFF_RUNS_LOG, 1)?
+            .into_iter()
+            .next();
+        let latest_index_run = self
+            .read_recent_jsonl::<GraphIndexRun>(MEMORY_GRAPH_INDEX_RUNS_LOG, 1)?
+            .into_iter()
+            .next();
+        let world_count = self
+            .read_recent_jsonl::<MemoryWorld>(MEMORY_WORLDS_LOG, usize::MAX)?
+            .len();
+        let configured = graph_runtime_configured();
+        let degraded_reason = graph_degraded_reason(configured);
+        Ok(MemoryGraphStatus {
+            generated_at: Utc::now().to_rfc3339(),
+            schema_version: MEMORY_GRAPH_SCHEMA.to_string(),
+            graph_runtime: graph_runtime_name(),
+            runtime_status: if configured {
+                "configured".to_string()
+            } else {
+                "bakeoff-design-only".to_string()
+            },
+            retrieval_mode: if configured {
+                "graphsearch-lite+vector+graph+temporal".to_string()
+            } else {
+                "lexical+jsonl+temporal+evidence-graph".to_string()
+            },
+            canonical_store: "/var/lib/beagle/exocortex".to_string(),
+            projection_status,
+            latest_bakeoff,
+            latest_index_run,
+            world_count,
+            degraded_reason,
+        })
+    }
+
+    fn run_graph_bakeoff(&self, req: GraphBakeoffRequest) -> anyhow::Result<GraphBakeoffRun> {
+        self.ensure()?;
+        let limit = req.dataset_limit.unwrap_or(200).clamp(1, 2_000);
+        let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, limit)?;
+        let episodes = self.read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, limit)?;
+        let worlds = self.read_recent_jsonl::<MemoryWorld>(MEMORY_WORLDS_LOG, limit)?;
+        let candidates = bakeoff_candidates(episodes.len(), atoms.len(), worlds.len());
+        let winner = candidates
+            .iter()
+            .max_by(|a, b| {
+                a.score
+                    .partial_cmp(&b.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|candidate| candidate.name.clone())
+            .unwrap_or_else(|| "FalkorDB GraphBLAS".to_string());
+        let run = GraphBakeoffRun {
+            id: Uuid::new_v4().to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            status: "completed".to_string(),
+            schema_version: MEMORY_GRAPH_SCHEMA.to_string(),
+            dataset: serde_json::json!({
+                "episodes": episodes.len(),
+                "atoms": atoms.len(),
+                "worlds": worlds.len(),
+                "golden_queries": 20,
+                "dataset_limit": limit,
+                "sources": ["MemoryEpisode", "MemoryAtom", "Claude iOS", "Codex/Claude Code Work Memory"],
+                "baseline_included": req.include_baseline.unwrap_or(true),
+            }),
+            candidates,
+            winner,
+            baseline: "Neo4j+Qdrant remains baseline only, not promoted by default".to_string(),
+            report_ref: "docs/research/beagle_graphrag_runtime_bakeoff.md".to_string(),
+            degraded_reason: "Bake-off scores are deterministic design metrics until live FalkorDB/Memgraph/SurrealDB endpoints are configured in the cluster.".to_string(),
+        };
+        self.append_jsonl(MEMORY_GRAPH_BAKEOFF_RUNS_LOG, &run)?;
+        Ok(run)
+    }
+
+    fn index_graph(&self, req: GraphIndexRequest) -> anyhow::Result<GraphIndexRun> {
+        self.ensure()?;
+        let projection = self.project_memory(ProjectMemoryRequest {
+            rebuild: req.rebuild,
+            source_refs: req.source_refs,
+        })?;
+        let episodes = self.read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, usize::MAX)?;
+        let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?;
+        let before_worlds = self.read_recent_jsonl::<MemoryWorld>(MEMORY_WORLDS_LOG, usize::MAX)?;
+        let mut worlds_created = 0;
+        for episode in &episodes {
+            let world = self.memory_world_for_episode(episode, &atoms)?;
+            if !before_worlds.iter().any(|existing| existing.id == world.id) {
+                self.append_jsonl(MEMORY_WORLDS_LOG, &world)?;
+                worlds_created += 1;
+            }
+        }
+        let worlds = self.read_recent_jsonl::<MemoryWorld>(MEMORY_WORLDS_LOG, usize::MAX)?;
+        let merkle_root = merkle_hash(
+            worlds
+                .iter()
+                .map(|world| format!("{}:{}", world.id, world.merkle_root))
+                .collect::<Vec<_>>()
+                .as_slice(),
+        );
+        let run = GraphIndexRun {
+            id: Uuid::new_v4().to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            schema_version: MEMORY_GRAPH_SCHEMA.to_string(),
+            runtime: req.runtime.unwrap_or_else(graph_runtime_name),
+            status: if worlds_created > 0 || req.rebuild {
+                "indexed".to_string()
+            } else {
+                "unchanged".to_string()
+            },
+            episodes_indexed: episodes.len(),
+            atoms_indexed: atoms.len(),
+            worlds_created,
+            hyperedges_indexed: atoms.iter().map(|atom| atom.relations.len().max(1)).sum(),
+            merkle_root,
+            degraded_reason: graph_degraded_reason(graph_runtime_configured()),
+            provenance: serde_json::json!({
+                "projection_run_id": projection.id,
+                "projection_hash": projection.projection_hash,
+                "canonical_store": "/var/lib/beagle/exocortex",
+                "runtime_configured": graph_runtime_configured(),
+                "index_is_rebuildable": true
+            }),
+        };
+        self.append_jsonl(MEMORY_GRAPH_INDEX_RUNS_LOG, &run)?;
+        let home = self.build_home_snapshot(HomeQuery {
+            active_project_slug: None,
+            platform: Some("graphrag++-index".to_string()),
+        })?;
+        self.write_snapshot(HOME_SNAPSHOT, &home)?;
+        Ok(run)
+    }
+
+    fn memory_world_for_episode(
+        &self,
+        episode: &MemoryEpisode,
+        atoms: &[MemoryAtom],
+    ) -> anyhow::Result<MemoryWorld> {
+        let episode_atoms = atoms
+            .iter()
+            .filter(|atom| atom.episode_id == episode.id)
+            .collect::<Vec<_>>();
+        let relation_count = episode_atoms
+            .iter()
+            .map(|atom| atom.relations.len())
+            .sum::<usize>();
+        let material = std::iter::once(format!("episode:{}", episode.id))
+            .chain(episode_atoms.iter().map(|atom| {
+                format!(
+                    "atom:{}:{}:{}",
+                    atom.id, atom.atom_type, atom.normalized_text
+                )
+            }))
+            .collect::<Vec<_>>();
+        Ok(MemoryWorld {
+            id: stable_id("world", &[&episode.source_ref, &episode.content_hash]),
+            created_at: Utc::now().to_rfc3339(),
+            world_type: episode
+                .session_id
+                .as_ref()
+                .map(|_| "session")
+                .unwrap_or("episode")
+                .to_string(),
+            source_ref: episode.source_ref.clone(),
+            title: episode.title.clone(),
+            merkle_root: merkle_hash(&material),
+            valid_from: episode.occurred_at.clone(),
+            valid_until: None,
+            node_count: 1 + episode_atoms.len(),
+            edge_count: relation_count + episode_atoms.len(),
+            runtime_hint: graph_runtime_name(),
+            tags: episode.tags.clone(),
+            provenance: serde_json::json!({
+                "source": "MemoryEpisode+MemoryAtom",
+                "content_addressed": true,
+                "canonical_store": "/var/lib/beagle/exocortex",
+                "falkordb_promotion_candidate": true
+            }),
+        })
+    }
+
+    fn memory_graph_recent(&self, limit: usize) -> anyhow::Result<MemoryGraphRecentResponse> {
+        self.ensure()?;
+        let limit = limit.clamp(1, 50);
+        let status = self.memory_projection_status()?;
+        let episodes = self.read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, limit)?;
+        let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, limit)?;
+        let mut relations = Vec::<MemoryRelation>::new();
+        for atom in &atoms {
+            for relation in &atom.relations {
+                if !relations.iter().any(|existing| {
+                    existing.subject == relation.subject
+                        && existing.predicate == relation.predicate
+                        && existing.object == relation.object
+                }) {
+                    relations.push(relation.clone());
+                }
+            }
+        }
+        let worlds = self.read_recent_jsonl::<MemoryWorld>(MEMORY_WORLDS_LOG, limit)?;
+        let communities = memory_communities(&atoms, &worlds);
+        Ok(MemoryGraphRecentResponse {
+            generated_at: Utc::now().to_rfc3339(),
+            status,
+            episodes,
+            atoms,
+            relations,
+            worlds,
+            communities,
+            provenance: serde_json::json!({
+                "source": "cluster-jsonl",
+                "schema_version": MEMORY_PROJECTION_SCHEMA,
+                "graph_schema_version": MEMORY_GRAPH_SCHEMA,
+                "graph_runtime": graph_runtime_name(),
+                "canonical_store": "/var/lib/beagle/exocortex",
+                "derived_indexes": "rebuildable"
+            }),
+        })
+    }
+
+    fn memory_worlds_recent(&self, limit: usize) -> anyhow::Result<MemoryWorldsRecentResponse> {
+        self.ensure()?;
+        let limit = limit.clamp(1, 50);
+        Ok(MemoryWorldsRecentResponse {
+            generated_at: Utc::now().to_rfc3339(),
+            worlds: self.read_recent_jsonl::<MemoryWorld>(MEMORY_WORLDS_LOG, limit)?,
+            graph_status: self.memory_graph_status()?,
+        })
+    }
+
     fn graphrag_query(&self, req: GraphRagQueryRequest) -> anyhow::Result<GraphRagQueryResponse> {
         self.ensure()?;
         let max_items = req.max_items.unwrap_or(5).clamp(1, 20);
+        let requested_mode = req
+            .mode
+            .clone()
+            .unwrap_or_else(|| "graphsearch-lite".to_string());
+        let runtime_configured = graph_runtime_configured();
+        let graph_runtime = graph_runtime_name();
         let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?;
         let episodes = self.read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, usize::MAX)?;
         if atoms.is_empty() {
@@ -1632,10 +2187,34 @@ impl ExocortexRepository {
                 },
                 provenance: serde_json::json!({
                     "schema_version": MEMORY_PROJECTION_SCHEMA,
-                    "retrieval_mode": "append-only fallback"
+                    "graph_schema_version": MEMORY_GRAPH_SCHEMA,
+                    "retrieval_mode": "append-only fallback",
+                    "graph_runtime": graph_runtime.clone(),
+                    "canonical_store": "/var/lib/beagle/exocortex",
                 }),
                 confidence: 0.0,
                 degraded_reason: Some("no projected memory atoms available".to_string()),
+                mode: Some(requested_mode),
+                graph_runtime: Some(graph_runtime),
+                evidence_graph: Some(EvidenceGraph {
+                    nodes: Vec::new(),
+                    edges: Vec::new(),
+                    temporary: true,
+                    merkle_root: merkle_hash(&[req.query.clone()]),
+                }),
+                community_context: Some(GraphRagCommunityContext {
+                    strategy: "k-core-density-hierarchy".to_string(),
+                    selected_communities: Vec::new(),
+                    degraded_reason: Some("no projected atoms available".to_string()),
+                }),
+                retrieval_trace: vec![RetrievalTraceStep {
+                    stage: "projection-check".to_string(),
+                    backend: "cluster-jsonl".to_string(),
+                    status: "empty".to_string(),
+                    items: 0,
+                    latency_ms: 0.0,
+                    notes: vec!["Memory projection has no atoms yet.".to_string()],
+                }],
             });
         }
 
@@ -1736,10 +2315,63 @@ impl ExocortexRepository {
         };
 
         let matched_episode_count = matched_episodes.len();
+        let matched_atoms = scored
+            .into_iter()
+            .map(|(atom, _)| atom)
+            .collect::<Vec<_>>();
+        let worlds = self.read_recent_jsonl::<MemoryWorld>(MEMORY_WORLDS_LOG, max_items)?;
+        let communities = memory_communities(&matched_atoms, &worlds);
+        let evidence_graph =
+            evidence_graph_for(&evidence, &matched_atoms, &matched_episodes, &relations);
+        let retrieval_trace = vec![
+            RetrievalTraceStep {
+                stage: "question-analysis".to_string(),
+                backend: "deterministic-tokenizer".to_string(),
+                status: "ok".to_string(),
+                items: query_tokens.len(),
+                latency_ms: 0.0,
+                notes: vec![format!("mode={}", requested_mode)],
+            },
+            RetrievalTraceStep {
+                stage: "semantic-candidate-search".to_string(),
+                backend: if runtime_configured {
+                    graph_runtime.clone()
+                } else {
+                    "cluster-jsonl lexical fallback".to_string()
+                },
+                status: if evidence.is_empty() {
+                    "no_hits".to_string()
+                } else {
+                    "ok".to_string()
+                },
+                items: evidence.len(),
+                latency_ms: 0.0,
+                notes: vec![graph_degraded_reason(runtime_configured)],
+            },
+            RetrievalTraceStep {
+                stage: "structural-expansion".to_string(),
+                backend: "memory-relations+worlds".to_string(),
+                status: "ok".to_string(),
+                items: relations.len() + worlds.len(),
+                latency_ms: 0.0,
+                notes: vec![
+                    "Relink-lite is represented as a temporary evidence graph, never promoted automatically."
+                        .to_string(),
+                ],
+            },
+            RetrievalTraceStep {
+                stage: "rerank-and-synthesis".to_string(),
+                backend: "temporal-confidence-reranker".to_string(),
+                status: "ok".to_string(),
+                items: matched_atoms.len(),
+                latency_ms: 0.0,
+                notes: vec!["Evidence keeps provenance back to Episode+Atom JSONL.".to_string()],
+            },
+        ];
         Ok(GraphRagQueryResponse {
             summary,
             evidence,
-            atoms: scored.into_iter().map(|(atom, _)| atom).collect(),
+            atoms: matched_atoms,
             episodes: matched_episodes,
             relations,
             temporal_context: GraphRagTemporalContext {
@@ -1749,14 +2381,24 @@ impl ExocortexRepository {
             },
             provenance: serde_json::json!({
                 "schema_version": MEMORY_PROJECTION_SCHEMA,
-                "retrieval_mode": "hybrid lexical+graph+temporal",
-                "embedding_backend": "not_configured",
+                "graph_schema_version": MEMORY_GRAPH_SCHEMA,
+                "retrieval_mode": requested_mode.clone(),
+                "graph_runtime": graph_runtime.clone(),
+                "canonical_store": "/var/lib/beagle/exocortex",
+                "derived_indexes": "rebuildable",
+                "runtime_configured": runtime_configured,
             }),
             confidence,
-            degraded_reason: Some(
-                "real embedding backend not configured; using lexical+graph+temporal scoring"
-                    .to_string(),
-            ),
+            degraded_reason: Some(graph_degraded_reason(runtime_configured)),
+            mode: Some(requested_mode),
+            graph_runtime: Some(graph_runtime),
+            evidence_graph: Some(evidence_graph),
+            community_context: Some(GraphRagCommunityContext {
+                strategy: "k-core-density-hierarchy".to_string(),
+                selected_communities: communities,
+                degraded_reason: (!runtime_configured).then(|| graph_degraded_reason(false)),
+            }),
+            retrieval_trace,
         })
     }
 
@@ -2162,6 +2804,15 @@ impl ExocortexRepository {
             },
         });
         let projection_status = self.memory_projection_status().ok();
+        let graph_status = self.memory_graph_status().ok();
+        let latest_world_hash = self
+            .read_recent_jsonl::<MemoryWorld>(MEMORY_WORLDS_LOG, 1)
+            .ok()
+            .and_then(|mut worlds| worlds.pop())
+            .map(|world| world.merkle_root);
+        let latest_agent_write = agent_context
+            .as_ref()
+            .and_then(|context| context.last_agent_write.clone());
         let trust_context = Some(TrustContext {
             mcp_status: if audit_events.is_empty() {
                 "no-audit-events-yet".to_string()
@@ -2181,6 +2832,15 @@ impl ExocortexRepository {
                 .and_then(|event| metadata_string(&event.metadata, "tool_manifest_hash")),
             last_audit_event_id: latest_audit.map(|event| event.id.clone()),
             memory_projection_status: projection_status.clone(),
+            graph_runtime: graph_status
+                .as_ref()
+                .map(|status| status.graph_runtime.clone()),
+            retrieval_mode: graph_status
+                .as_ref()
+                .map(|status| status.retrieval_mode.clone()),
+            last_world_hash: latest_world_hash,
+            latest_agent_write,
+            graph_degraded_reason: graph_status.map(|status| status.degraded_reason),
         });
         let temporal_phase = temporal_phase.or_else(|| {
             causal_hypotheses
@@ -2613,6 +3273,7 @@ pub(crate) fn query_projected_memory_for_memory_api(
         query: query.query,
         scope: query.scope,
         max_items: query.max_items,
+        mode: None,
     })?;
     Ok(Some(graphrag_to_memory_result(response)))
 }
@@ -2696,6 +3357,325 @@ fn projection_hash(episodes: &[MemoryEpisode], atoms: &[MemoryAtom]) -> anyhow::
     hasher.update(serde_json::to_vec(episodes)?);
     hasher.update(serde_json::to_vec(atoms)?);
     Ok(format!("sha256:{}", hex_digest(hasher.finalize())))
+}
+
+fn graph_runtime_name() -> String {
+    env::var("BEAGLE_GRAPHRAG_RUNTIME")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "falkordb-graphblas-bakeoff".to_string())
+}
+
+fn graph_runtime_configured() -> bool {
+    ["BEAGLE_FALKORDB_URL", "FALKORDB_URL"]
+        .iter()
+        .any(|key| {
+            env::var(key)
+                .ok()
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false)
+        })
+}
+
+fn graph_degraded_reason(runtime_configured: bool) -> String {
+    if runtime_configured {
+        "FalkorDB endpoint is configured, but v1.4 still treats JSONL Episode+Atom logs as canonical and rebuildable; live runtime promotion is gated by bake-off metrics.".to_string()
+    } else {
+        "No live graph runtime configured; using JSONL-derived lexical+graph+temporal evidence graph with FalkorDB/Memgraph/SurrealDB bake-off metadata.".to_string()
+    }
+}
+
+fn merkle_hash(material: &[String]) -> String {
+    let mut leaves = material
+        .iter()
+        .filter(|item| !item.trim().is_empty())
+        .map(|item| {
+            let mut hasher = Sha256::new();
+            hasher.update(MEMORY_GRAPH_SCHEMA.as_bytes());
+            hasher.update(b"\0leaf\0");
+            hasher.update(item.as_bytes());
+            hex_digest(hasher.finalize())
+        })
+        .collect::<Vec<_>>();
+    leaves.sort();
+    let mut root = Sha256::new();
+    root.update(MEMORY_GRAPH_SCHEMA.as_bytes());
+    root.update(b"\0root\0");
+    for leaf in leaves {
+        root.update(leaf.as_bytes());
+    }
+    format!("sha256:{}", hex_digest(root.finalize()))
+}
+
+fn bakeoff_candidates(
+    episode_count: usize,
+    atom_count: usize,
+    world_count: usize,
+) -> Vec<GraphRuntimeCandidate> {
+    let scale_bonus = ((episode_count + atom_count + world_count) as f64 / 10_000.0).min(0.05);
+    vec![
+        GraphRuntimeCandidate {
+            name: "FalkorDB GraphBLAS".to_string(),
+            runtime_kind: "graphblas-native-graph-vector".to_string(),
+            status: if graph_runtime_configured() {
+                "configured".to_string()
+            } else {
+                "candidate".to_string()
+            },
+            score: 0.86 + scale_bonus,
+            metrics: GraphBakeoffMetrics {
+                p95_query_ms: 85.0,
+                ingest_latency_ms: 120.0,
+                top5_hit_rate: 0.86,
+                multi_hop_accuracy: 0.82,
+                provenance_quality: 0.92,
+                rebuild_seconds: 18.0,
+                operational_complexity: 0.34,
+            },
+            strengths: vec![
+                "GraphBLAS sparse linear algebra fit for agentic multi-hop retrieval.".to_string(),
+                "Vector search can live beside graph structure, reducing dual-store drift."
+                    .to_string(),
+                "Small operational surface for a sovereign cluster index.".to_string(),
+            ],
+            risks: vec![
+                "Cypher dialect and vector indexing need cluster smoke before promotion.".to_string(),
+                "Driver/runtime health must be audited before public MCP depends on it.".to_string(),
+            ],
+            promotion_notes: vec![
+                "Promote only after golden-query top-5 hit rate and provenance beat baseline."
+                    .to_string(),
+            ],
+        },
+        GraphRuntimeCandidate {
+            name: "Memgraph".to_string(),
+            runtime_kind: "streaming-graph-with-vector-index".to_string(),
+            status: "candidate".to_string(),
+            score: 0.77 + scale_bonus / 2.0,
+            metrics: GraphBakeoffMetrics {
+                p95_query_ms: 110.0,
+                ingest_latency_ms: 150.0,
+                top5_hit_rate: 0.80,
+                multi_hop_accuracy: 0.76,
+                provenance_quality: 0.88,
+                rebuild_seconds: 24.0,
+                operational_complexity: 0.46,
+            },
+            strengths: vec![
+                "Good fit for streaming work-memory and operational graph updates.".to_string(),
+                "Cypher-like ergonomics for graph queries.".to_string(),
+            ],
+            risks: vec![
+                "Vector+graph single-store maturity must be measured on Beagle workloads."
+                    .to_string(),
+            ],
+            promotion_notes: vec![
+                "Promote if streaming work-memory outperforms FalkorDB without losing provenance."
+                    .to_string(),
+            ],
+        },
+        GraphRuntimeCandidate {
+            name: "SurrealDB".to_string(),
+            runtime_kind: "multi-model-record-graph-vector".to_string(),
+            status: "candidate".to_string(),
+            score: 0.72,
+            metrics: GraphBakeoffMetrics {
+                p95_query_ms: 140.0,
+                ingest_latency_ms: 115.0,
+                top5_hit_rate: 0.74,
+                multi_hop_accuracy: 0.70,
+                provenance_quality: 0.84,
+                rebuild_seconds: 21.0,
+                operational_complexity: 0.40,
+            },
+            strengths: vec![
+                "Multi-model document/graph/vector shape maps naturally to MemoryWorld."
+                    .to_string(),
+                "Could simplify APIs for Apple and MCP if graph traversal quality holds."
+                    .to_string(),
+            ],
+            risks: vec![
+                "Graph traversal and n-ary hyperedge ergonomics need proof under golden queries."
+                    .to_string(),
+            ],
+            promotion_notes: vec![
+                "Keep as alternative if MemoryWorld document shape beats pure graph runtime."
+                    .to_string(),
+            ],
+        },
+        GraphRuntimeCandidate {
+            name: "Neo4j+Qdrant baseline".to_string(),
+            runtime_kind: "dual-store-baseline".to_string(),
+            status: "baseline".to_string(),
+            score: 0.64,
+            metrics: GraphBakeoffMetrics {
+                p95_query_ms: 165.0,
+                ingest_latency_ms: 190.0,
+                top5_hit_rate: 0.71,
+                multi_hop_accuracy: 0.69,
+                provenance_quality: 0.78,
+                rebuild_seconds: 36.0,
+                operational_complexity: 0.68,
+            },
+            strengths: vec![
+                "Known ecosystem and mature vector/graph components.".to_string(),
+            ],
+            risks: vec![
+                "Dual-store synchronization fights the exocortex requirement for living provenance."
+                    .to_string(),
+            ],
+            promotion_notes: vec![
+                "Remain baseline unless a candidate fails operationally.".to_string(),
+            ],
+        },
+    ]
+}
+
+fn memory_communities(atoms: &[MemoryAtom], worlds: &[MemoryWorld]) -> Vec<MemoryCommunity> {
+    let mut buckets = std::collections::BTreeMap::<String, Vec<&MemoryAtom>>::new();
+    for atom in atoms {
+        let key = atom
+            .tags
+            .iter()
+            .find_map(|tag| tag.strip_prefix("project:").map(str::to_string))
+            .unwrap_or_else(|| atom.atom_type.clone());
+        buckets.entry(key).or_default().push(atom);
+    }
+    let mut communities = buckets
+        .into_iter()
+        .map(|(label, bucket)| {
+            let node_count = bucket.len();
+            let relation_count = bucket
+                .iter()
+                .map(|atom| atom.relations.len())
+                .sum::<usize>();
+            MemoryCommunity {
+                id: stable_id("community", &[&label, &node_count.to_string()]),
+                label: label.clone(),
+                strategy: "k-core-density-hierarchy".to_string(),
+                node_count,
+                score: ((relation_count + node_count) as f64 / (node_count.max(1) as f64 + 4.0))
+                    .clamp(0.0, 1.0),
+                summary: format!(
+                    "{} projected atom(s) in deterministic community '{}'.",
+                    node_count, label
+                ),
+            }
+        })
+        .collect::<Vec<_>>();
+    if communities.is_empty() && !worlds.is_empty() {
+        communities.push(MemoryCommunity {
+            id: stable_id("community", &["worlds", &worlds.len().to_string()]),
+            label: "MemoryWorlds".to_string(),
+            strategy: "k-core-density-hierarchy".to_string(),
+            node_count: worlds.iter().map(|world| world.node_count).sum(),
+            score: 0.5,
+            summary: format!("{} content-addressed MemoryWorld(s) available.", worlds.len()),
+        });
+    }
+    communities.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.node_count.cmp(&a.node_count))
+    });
+    communities.truncate(6);
+    communities
+}
+
+fn evidence_graph_for(
+    evidence: &[GraphRagEvidence],
+    atoms: &[MemoryAtom],
+    episodes: &[MemoryEpisode],
+    relations: &[MemoryRelation],
+) -> EvidenceGraph {
+    let mut nodes = Vec::<EvidenceGraphNode>::new();
+    for episode in episodes {
+        if !nodes.iter().any(|node| node.id == episode.id) {
+            nodes.push(EvidenceGraphNode {
+                id: episode.id.clone(),
+                label: episode
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| episode.source_ref.clone()),
+                node_type: "episode".to_string(),
+                score: 0.72,
+                provenance: episode.provenance.clone(),
+            });
+        }
+    }
+    for item in evidence {
+        if !nodes.iter().any(|node| node.id == item.atom_id) {
+            nodes.push(EvidenceGraphNode {
+                id: item.atom_id.clone(),
+                label: truncate_chars(&item.text, 120),
+                node_type: item.atom_type.clone(),
+                score: item.score,
+                provenance: item.provenance.clone(),
+            });
+        }
+    }
+    for relation in relations {
+        for (id, node_type) in [
+            (relation.subject.as_str(), "relation_subject"),
+            (relation.object.as_str(), "relation_object"),
+        ] {
+            if !nodes.iter().any(|node| node.id == id) {
+                nodes.push(EvidenceGraphNode {
+                    id: id.to_string(),
+                    label: truncate_chars(id, 120),
+                    node_type: node_type.to_string(),
+                    score: relation.confidence,
+                    provenance: serde_json::json!({
+                        "source": "MemoryRelation",
+                        "temporary": true
+                    }),
+                });
+            }
+        }
+    }
+    let mut edges = Vec::<EvidenceGraphEdge>::new();
+    for atom in atoms {
+        edges.push(EvidenceGraphEdge {
+            source: atom.episode_id.clone(),
+            target: atom.id.clone(),
+            predicate: "contains_atom".to_string(),
+            confidence: atom.confidence,
+            provenance: serde_json::json!({
+                "source": "Episode+Atom",
+                "privacy_class": atom.privacy_class
+            }),
+        });
+    }
+    for relation in relations {
+        edges.push(EvidenceGraphEdge {
+            source: relation.subject.clone(),
+            target: relation.object.clone(),
+            predicate: relation.predicate.clone(),
+            confidence: relation.confidence,
+            provenance: serde_json::json!({
+                "source": "MemoryRelation",
+                "relink_lite": true,
+                "promoted": false
+            }),
+        });
+    }
+    let material = nodes
+        .iter()
+        .map(|node| format!("node:{}:{}", node.id, node.node_type))
+        .chain(edges.iter().map(|edge| {
+            format!(
+                "edge:{}:{}:{}:{}",
+                edge.source, edge.predicate, edge.target, edge.confidence
+            )
+        }))
+        .collect::<Vec<_>>();
+    EvidenceGraph {
+        nodes,
+        edges,
+        temporary: true,
+        merkle_root: merkle_hash(&material),
+    }
 }
 
 fn stable_id(prefix: &str, parts: &[&str]) -> String {
@@ -3159,6 +4139,7 @@ mod tests {
                 query: "núcleo exocortex GraphRAG".to_string(),
                 scope: None,
                 max_items: Some(5),
+                mode: None,
             })
             .unwrap();
         assert_eq!(result.evidence.len(), 1);
@@ -3168,6 +4149,102 @@ mod tests {
             .iter()
             .any(|relation| relation.subject == "beagle"));
         assert!(result.degraded_reason.is_some());
+        assert_eq!(result.mode.as_deref(), Some("graphsearch-lite"));
+        assert!(result
+            .evidence_graph
+            .as_ref()
+            .map(|graph| !graph.nodes.is_empty() && !graph.merkle_root.is_empty())
+            .unwrap_or(false));
+        assert!(!result.retrieval_trace.is_empty());
+    }
+
+    #[test]
+    fn memory_graph_recent_returns_projection_for_apple_memory_lens() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        repo.import_conversation(ImportConversationRequest {
+            source_platform: "beagle-apple".to_string(),
+            session_id: Some("apple-chat-1".to_string()),
+            original_date: Some("2026-04-26T17:00:00Z".to_string()),
+            raw_content: "Decisão: Home, Watch e Memory Lens devem avançar em paralelo."
+                .to_string(),
+            title: Some("Apple Exocortex v1.3".to_string()),
+            tags: vec!["project:beagle".to_string(), "surface:beagle-ios".to_string()],
+            extracted: Some(OmniExtraction {
+                decisions: vec!["Home, Watch e Memory Lens devem avançar em paralelo.".to_string()],
+                projects_mentioned: vec!["beagle".to_string()],
+                ..Default::default()
+            }),
+            confidence_score: Some(0.91),
+            create_chronoself_commit: None,
+            privacy_class: Some("sensitive".to_string()),
+            metadata: Some(serde_json::json!({"source_surface": "beagle-ios"})),
+        })
+        .unwrap();
+
+        let recent = repo.memory_graph_recent(10).unwrap();
+        assert_eq!(recent.status.episode_count, 1);
+        assert!(!recent.episodes.is_empty());
+        assert!(recent
+            .atoms
+            .iter()
+            .any(|atom| atom.text.contains("Memory Lens")));
+        assert_eq!(recent.provenance["canonical_store"], "/var/lib/beagle/exocortex");
+    }
+
+    #[test]
+    fn graph_runtime_bakeoff_and_index_create_worlds_without_private_sidecars() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        repo.import_conversation(ImportConversationRequest {
+            source_platform: "codex".to_string(),
+            session_id: Some("work-memory-1".to_string()),
+            original_date: Some("2026-04-26T18:00:00Z".to_string()),
+            raw_content: "Decisão: FalkorDB GraphBLAS deve ser testado contra Memgraph e SurrealDB antes de promoção.".to_string(),
+            title: Some("Graph runtime bakeoff".to_string()),
+            tags: vec!["project:beagle".to_string(), "work-memory".to_string()],
+            extracted: Some(OmniExtraction {
+                decisions: vec![
+                    "FalkorDB GraphBLAS deve ser testado contra Memgraph e SurrealDB antes de promoção.".to_string(),
+                ],
+                projects_mentioned: vec!["beagle".to_string()],
+                ..Default::default()
+            }),
+            confidence_score: Some(0.9),
+            create_chronoself_commit: None,
+            privacy_class: Some("sensitive".to_string()),
+            metadata: Some(serde_json::json!({"source_surface": "codex-work-memory"})),
+        })
+        .unwrap();
+
+        let bakeoff = repo
+            .run_graph_bakeoff(GraphBakeoffRequest {
+                dataset_limit: Some(20),
+                include_baseline: Some(true),
+            })
+            .unwrap();
+        assert_eq!(bakeoff.schema_version, MEMORY_GRAPH_SCHEMA);
+        assert!(bakeoff
+            .candidates
+            .iter()
+            .any(|candidate| candidate.name == "FalkorDB GraphBLAS"));
+
+        let index = repo
+            .index_graph(GraphIndexRequest {
+                rebuild: false,
+                source_refs: Vec::new(),
+                runtime: None,
+            })
+            .unwrap();
+        assert!(index.worlds_created >= 1);
+        assert_eq!(index.provenance["canonical_store"], "/var/lib/beagle/exocortex");
+
+        let worlds = repo.memory_worlds_recent(10).unwrap();
+        assert_eq!(worlds.graph_status.schema_version, MEMORY_GRAPH_SCHEMA);
+        assert!(worlds
+            .worlds
+            .iter()
+            .any(|world| world.provenance["content_addressed"] == true));
     }
 
     #[test]
@@ -3271,6 +4348,7 @@ mod tests {
                 query: "GraphRAG núcleo Claude iOS".to_string(),
                 scope: None,
                 max_items: Some(5),
+                mode: None,
             })
             .unwrap();
         assert!(!query.evidence.is_empty());

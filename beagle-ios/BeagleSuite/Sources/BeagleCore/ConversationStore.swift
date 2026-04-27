@@ -74,9 +74,11 @@ public final class ConversationStore {
 
     public private(set) var messages: [ChatMessage] = []
     public private(set) var isStreaming: Bool = false
+    public private(set) var autoImportState: ConversationAutoImportState = .idle
 
     /// Whether to prefer on-device model when available.
     public var preferLocal: Bool = true
+    public var autoImportsConversationMemory: Bool = true
     public var projectSlug: String
     public var projectFamily: ProjectFamily?
     public var publicationScope: PublicationScope?
@@ -85,6 +87,8 @@ public final class ConversationStore {
 
     private let client: BeagleClient
     private let llm = LocalLLMEngine.shared
+    private let assistedImportEncoder = JSONEncoder()
+    private let conversationImportSessionId = "beagle-apple-chat-\(UUID().uuidString.lowercased())"
 
     public init(
         client: BeagleClient = .shared,
@@ -201,6 +205,11 @@ public final class ConversationStore {
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
             messages[idx].isStreaming = false
             persist(message: messages[idx])
+            await autoImportExchange(
+                user: userMessage,
+                assistant: messages[idx],
+                sourceSurface: "beagle-apple-local"
+            )
         }
         isStreaming = false
     }
@@ -250,6 +259,11 @@ public final class ConversationStore {
                 await revealText(fullText, for: assistantId)
                 messages[idx].isStreaming = false
                 persist(message: messages[idx])
+                await autoImportExchange(
+                    user: userMessage,
+                    assistant: messages[idx],
+                    sourceSurface: "beagle-apple-cloud"
+                )
             } else {
                 messages[idx].content = result.error ?? "No response received."
                 messages[idx].isStreaming = false
@@ -341,6 +355,15 @@ public final class ConversationStore {
         )
         messages.append(msg)
         persist(message: msg)
+        if let user = messages.dropLast().last(where: { $0.role == .user }) {
+            Task {
+                await self.autoImportExchange(
+                    user: user,
+                    assistant: msg,
+                    sourceSurface: AssistedImportRequestFactory.sourceSurface(for: source)
+                )
+            }
+        }
     }
 
     /// Build conversation history as strings for seeding an LLM context.
@@ -424,5 +447,103 @@ public final class ConversationStore {
         )
         modelContext.insert(persisted)
         try? modelContext.save()
+    }
+
+    private func autoImportExchange(
+        user: ChatMessage,
+        assistant: ChatMessage,
+        sourceSurface: String
+    ) async {
+        guard autoImportsConversationMemory else { return }
+        let assistantText = assistant.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let userText = user.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !userText.isEmpty, !assistantText.isEmpty else { return }
+
+        let request = AssistedImportRequestFactory.conversationExchange(
+            userText: userText,
+            assistantText: assistantText,
+            sourceSurface: sourceSurface,
+            sessionId: conversationImportSessionId,
+            projectRef: projectSlug,
+            model: assistant.model,
+            flowState: flowState,
+            bodySummary: physioContext,
+            agentKind: assistant.agentKind,
+            podName: assistant.podName
+        )
+
+        if request.privacyClass == "restricted" {
+            enqueueAssistedImportOutbox(request, reason: "restricted_privacy_guard")
+            autoImportState = ConversationAutoImportState(
+                status: "blocked",
+                sessionId: request.sessionId,
+                queuedCount: queuedOutboxCount(),
+                restrictedCount: restrictedOutboxCount(),
+                lastError: "Restricted content held locally for explicit review."
+            )
+            return
+        }
+
+        autoImportState = ConversationAutoImportState(
+            status: "importing",
+            sessionId: request.sessionId,
+            queuedCount: queuedOutboxCount(),
+            restrictedCount: restrictedOutboxCount()
+        )
+        let result = await client.assistedImportBatch(request)
+        guard let importResult = result.value, importResult.status == "imported" else {
+            enqueueAssistedImportOutbox(request, reason: result.error ?? result.value?.reason ?? "auto_import_failed")
+            autoImportState = ConversationAutoImportState(
+                status: "queued",
+                sessionId: request.sessionId,
+                queuedCount: queuedOutboxCount(),
+                restrictedCount: restrictedOutboxCount(),
+                lastError: result.error ?? result.value?.reason
+            )
+            return
+        }
+        let atoms = importResult.projection?.atomsCreated ?? 0
+        let episodes = importResult.projection?.episodesCreated ?? 0
+        autoImportState = ConversationAutoImportState(
+            status: "imported",
+            sessionId: importResult.sessionId,
+            lastImportedAt: AssistedImportRequestFactory.isoTimestamp(),
+            lastSummary: "\(episodes) episode, \(atoms) atoms",
+            queuedCount: queuedOutboxCount(),
+            restrictedCount: restrictedOutboxCount()
+        )
+    }
+
+    private func enqueueAssistedImportOutbox(_ request: AssistedImportBatchRequest, reason: String) {
+        guard
+            let modelContext,
+            let data = try? assistedImportEncoder.encode(request),
+            let payload = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+        modelContext.insert(PersistedAssistedImportOutbox(
+            payload: payload,
+            reason: reason,
+            privacyClass: request.privacyClass,
+            sourceSurface: request.sourceSurface
+        ))
+        try? modelContext.save()
+    }
+
+    private func queuedOutboxCount() -> Int {
+        guard let modelContext else { return 0 }
+        let descriptor = FetchDescriptor<PersistedAssistedImportOutbox>()
+        return (try? modelContext.fetchCount(descriptor)) ?? 0
+    }
+
+    private func restrictedOutboxCount() -> Int {
+        guard let modelContext else { return 0 }
+        let descriptor = FetchDescriptor<PersistedAssistedImportOutbox>(
+            predicate: #Predicate<PersistedAssistedImportOutbox> { item in
+                item.privacyClass == "restricted"
+            }
+        )
+        return (try? modelContext.fetchCount(descriptor)) ?? 0
     }
 }

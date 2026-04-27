@@ -47,6 +47,7 @@ struct BeagleCockpitApp: App {
                     PersistedMessage.self,
                     PersistedDeepSession.self,
                     PersistedExocortexHomeSnapshot.self,
+                    PersistedAssistedImportOutbox.self,
                 ])
                 .onOpenURL { url in
                     handleDeepLink(url)
@@ -191,6 +192,9 @@ struct RootView: View {
     private func bootstrap() async {
         cognitive.modelContext = modelContext
         cognitive.physioStore = physio
+        #if canImport(WatchConnectivity)
+        WatchExocortexBridge.shared.activate()
+        #endif
         SemanticSearchEngine.shared.warmup()
         cognitive.loadPersistedThoughts()
         DreamSynthesisEngine.shared.loadPersistedInsights()

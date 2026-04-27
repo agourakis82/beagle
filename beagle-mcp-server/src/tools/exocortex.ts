@@ -104,6 +104,48 @@ const ProjectMemorySchema = z.object({
     source_refs: z.array(z.string()).optional().default([]),
 });
 
+const GraphBakeoffSchema = z.object({
+    dataset_limit: z.number().int().min(1).max(2000).optional().default(200),
+    include_baseline: z.boolean().optional().default(true),
+});
+
+const GraphIndexSchema = z.object({
+    rebuild: z.boolean().optional().default(false),
+    source_refs: z.array(z.string()).optional().default([]),
+    runtime: z.string().optional(),
+});
+
+const GraphRagQuerySchema = z.object({
+    query: z.string().min(1),
+    scope: z.string().optional(),
+    max_items: z.number().int().min(1).max(20).optional().default(5),
+    mode: z
+        .enum(["graphsearch-lite", "drift-lite", "local", "global", "hybrid"])
+        .optional()
+        .default("graphsearch-lite"),
+});
+
+const WorkMemoryCaptureSchema = z.object({
+    agent_kind: z.string().min(1).default("codex"),
+    source_surface: z.string().min(1).optional(),
+    session_id: z.string().min(1),
+    project_slug: z.string().min(1).default("beagle"),
+    repo: z.string().optional(),
+    branch: z.string().optional(),
+    phase: z
+        .enum(["start", "plan", "decision", "diff", "test", "summary", "next_action"])
+        .default("summary"),
+    summary: z.string().min(1),
+    plan: z.array(z.string()).optional().default([]),
+    decisions: z.array(z.string()).optional().default([]),
+    tests_run: z.array(z.string()).optional().default([]),
+    diff_summary: z.string().optional(),
+    next_action: z.string().optional(),
+    tags: z.array(z.string()).optional().default([]),
+    metadata: z.record(z.unknown()).optional().default({}),
+    privacy_class: PrivacyClassSchema.default("sensitive"),
+});
+
 const AssistedImportBatchSchema = z.object({
     source_platform: z.string().min(1),
     source_surface: z.string().min(1).default("mcp-visible-context"),
@@ -308,6 +350,86 @@ function assistedImportPayload(input: AssistedImportBatchInput): OmniImportReque
         metadata,
         confidence_score: input.confidence_score ?? 0.76,
         create_chronoself_commit: input.create_chronoself_commit,
+    };
+}
+
+function workMemoryCapturePayload(input: z.infer<typeof WorkMemoryCaptureSchema>): AssistedImportBatchInput {
+    const sourceSurface = input.source_surface ?? `${input.agent_kind}-work-memory`;
+    const lines = [
+        `Phase: ${input.phase}`,
+        `Summary: ${input.summary}`,
+        input.repo ? `Repo: ${input.repo}` : undefined,
+        input.branch ? `Branch: ${input.branch}` : undefined,
+        input.plan.length ? `Plan:\n${input.plan.map((item) => `- ${item}`).join("\n")}` : undefined,
+        input.decisions.length
+            ? `Decisions:\n${input.decisions.map((item) => `- ${item}`).join("\n")}`
+            : undefined,
+        input.tests_run.length
+            ? `Tests:\n${input.tests_run.map((item) => `- ${item}`).join("\n")}`
+            : undefined,
+        input.diff_summary ? `Diff: ${input.diff_summary}` : undefined,
+        input.next_action ? `Next action: ${input.next_action}` : undefined,
+    ].filter((line): line is string => Boolean(line));
+
+    const tags = uniqueNonEmpty([
+        ...input.tags,
+        "work-memory",
+        "graphrag++",
+        `agent:${input.agent_kind}`,
+        `phase:${input.phase}`,
+        `project:${input.project_slug}`,
+        input.repo ? `repo:${input.repo}` : undefined,
+        input.branch ? `branch:${input.branch}` : undefined,
+    ]);
+
+    return {
+        source_platform: input.agent_kind,
+        source_surface: sourceSurface,
+        import_scope: "visible_project",
+        session_id: input.session_id,
+        project_ref: input.project_slug,
+        batch_index: 1,
+        batch_total: 1,
+        turns: [
+            {
+                role: "assistant",
+                content: lines.join("\n\n"),
+                timestamp: new Date().toISOString(),
+                model: input.agent_kind,
+            },
+        ],
+        tags,
+        metadata: {
+            ...input.metadata,
+            principal: input.metadata.principal ?? input.agent_kind,
+            source_platform: input.agent_kind,
+            source_surface: sourceSurface,
+            surface_claimed: sourceSurface,
+            work_memory: true,
+            project_slug: input.project_slug,
+            repo: input.repo,
+            branch: input.branch,
+            phase: input.phase,
+            tests_run: input.tests_run,
+            diff_summary: input.diff_summary,
+            next_action: input.next_action,
+        },
+        coverage: {
+            work_memory_fields: lines.length,
+            visible_project_only: true,
+        },
+        extracted: {
+            key_insights: [input.summary],
+            decisions: input.decisions,
+            hypotheses: [],
+            belief_changes: [],
+            projects_mentioned: [input.project_slug],
+            unresolved_questions: input.next_action ? [input.next_action] : [],
+        },
+        privacy_class: input.privacy_class,
+        title: `${input.agent_kind} work memory ${input.phase}: ${input.project_slug}`,
+        confidence_score: 0.82,
+        create_chronoself_commit: false,
     };
 }
 
@@ -521,6 +643,82 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
             handler: async (args: unknown) => {
                 const parsed = ProjectMemorySchema.parse(args ?? {});
                 return sanitizeOutput(await client.projectMemory(parsed));
+            },
+        },
+        {
+            name: "beagle_memory_graph_status",
+            description:
+                "Read the living GraphRAG++ runtime status: current graph runtime hypothesis, projection freshness, MemoryWorld count, latest bake-off, and degraded mode.",
+            inputSchema: { type: "object", properties: {} },
+            handler: async () => sanitizeOutput(await client.memoryGraphStatus()),
+        },
+        {
+            name: "beagle_memory_bakeoff_status",
+            description:
+                "Read the latest FalkorDB vs Memgraph vs SurrealDB GraphRAG++ bake-off status and candidate metrics.",
+            inputSchema: { type: "object", properties: {} },
+            handler: async () => sanitizeOutput(await client.memoryGraphBakeoffStatus()),
+        },
+        {
+            name: "beagle_graphrag_query",
+            description:
+                "Query Beagle's GraphRAG++ living memory with evidence graph, temporal context, provenance, community context, and retrieval trace.",
+            inputSchema: {
+                type: "object",
+                required: ["query"],
+                properties: {
+                    query: { type: "string" },
+                    scope: { type: "string" },
+                    max_items: { type: "number", minimum: 1, maximum: 20, default: 5 },
+                    mode: {
+                        type: "string",
+                        enum: ["graphsearch-lite", "drift-lite", "local", "global", "hybrid"],
+                        default: "graphsearch-lite",
+                    },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = GraphRagQuerySchema.parse(args ?? {});
+                return sanitizeOutput(await client.graphRagQuery(parsed));
+            },
+        },
+        {
+            name: "beagle_work_memory_capture",
+            description:
+                "Capture Claude Code/Codex work memory into the same Episode+Atom GraphRAG++ memory loop: plan, decisions, tests, diffs, summary, and next action.",
+            inputSchema: {
+                type: "object",
+                required: ["session_id", "summary"],
+                properties: {
+                    agent_kind: { type: "string", default: "codex" },
+                    source_surface: { type: "string" },
+                    session_id: { type: "string" },
+                    project_slug: { type: "string", default: "beagle" },
+                    repo: { type: "string" },
+                    branch: { type: "string" },
+                    phase: {
+                        type: "string",
+                        enum: ["start", "plan", "decision", "diff", "test", "summary", "next_action"],
+                        default: "summary",
+                    },
+                    summary: { type: "string" },
+                    plan: { type: "array", items: { type: "string" } },
+                    decisions: { type: "array", items: { type: "string" } },
+                    tests_run: { type: "array", items: { type: "string" } },
+                    diff_summary: { type: "string" },
+                    next_action: { type: "string" },
+                    tags: { type: "array", items: { type: "string" } },
+                    metadata: { type: "object", additionalProperties: true },
+                    privacy_class: {
+                        type: "string",
+                        enum: ["public", "sensitive", "restricted"],
+                        default: "sensitive",
+                    },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = WorkMemoryCaptureSchema.parse(args ?? {});
+                return sanitizeOutput(await client.assistedImportBatch(workMemoryCapturePayload(parsed)));
             },
         },
         {

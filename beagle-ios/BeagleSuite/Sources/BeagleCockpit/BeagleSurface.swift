@@ -28,6 +28,7 @@ struct BeagleSurface: View {
     @State private var showSettings = false
     @State private var showCognitiveState = false
     @State private var showProjectPicker = false
+    @State private var showMemoryLens = false
     @State private var metacogNudge: MetacognitiveObservation?
     @State private var serendipityProvocation: SerendipityProvocation?
 
@@ -78,8 +79,12 @@ struct BeagleSurface: View {
             exocortex.modelContext = modelContext
             exocortex.loadCachedHome()
             async let homeRefresh: Void = exocortex.refresh(activeProjectSlug: activeSlug, platform: platformName)
+            async let projectionRefresh: Void = exocortex.refreshProjectionStatus()
+            async let graphStatusRefresh: Void = exocortex.refreshGraphStatus()
+            async let graphRefresh: Void = exocortex.refreshRecentGraph(limit: 12)
+            async let worldsRefresh: Void = exocortex.refreshRecentWorlds(limit: 12)
             async let bodyRefresh: Void = physio.refresh()
-            _ = await (homeRefresh, bodyRefresh)
+            _ = await (homeRefresh, projectionRefresh, graphStatusRefresh, graphRefresh, worldsRefresh, bodyRefresh)
         }
         .onChange(of: conversation.messages.count) {
             runMetacognitiveCheck()
@@ -109,6 +114,16 @@ struct BeagleSurface: View {
                 PlatformView()
                     .navigationDestination(for: Project.self) { project in
                         ControlRoomView(slug: project.projectSlug)
+                    }
+            }
+        }
+        .sheet(isPresented: $showMemoryLens) {
+            NavigationStack {
+                MemoryLensSheet(exocortex: exocortex, activeProjectSlug: activeSlug)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showMemoryLens = false }
+                        }
                     }
             }
         }
@@ -143,8 +158,12 @@ struct BeagleSurface: View {
                     Button {
                         Task {
                             async let homeRefresh: Void = exocortex.refresh(activeProjectSlug: activeSlug, platform: platformName)
+                            async let projectionRefresh: Void = exocortex.refreshProjectionStatus()
+                            async let graphStatusRefresh: Void = exocortex.refreshGraphStatus()
+                            async let graphRefresh: Void = exocortex.refreshRecentGraph(limit: 12)
+                            async let worldsRefresh: Void = exocortex.refreshRecentWorlds(limit: 12)
                             async let bodyRefresh: Void = physio.refresh()
-                            _ = await (homeRefresh, bodyRefresh)
+                            _ = await (homeRefresh, projectionRefresh, graphStatusRefresh, graphRefresh, worldsRefresh, bodyRefresh)
                         }
                     } label: {
                         Image(systemName: "arrow.clockwise")
@@ -172,6 +191,8 @@ struct BeagleSurface: View {
                     trustContextRow(trustLine)
                 }
 
+                memoryProjectionStrip
+
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: BeagleSpacing.md) {
                         homeSignal(
@@ -183,6 +204,11 @@ struct BeagleSurface: View {
                             icon: "point.3.connected.trianglepath.dotted",
                             title: "\(home.memorySignals.count) memory signals",
                             detail: agentContextDetail
+                        )
+                        homeSignal(
+                            icon: "externaldrive.connected.to.line.below",
+                            title: autoImportTitle,
+                            detail: autoImportDetail
                         )
                         homeSignal(
                             icon: "applewatch",
@@ -208,6 +234,11 @@ struct BeagleSurface: View {
                             detail: agentContextDetail
                         )
                         homeSignal(
+                            icon: "externaldrive.connected.to.line.below",
+                            title: autoImportTitle,
+                            detail: autoImportDetail
+                        )
+                        homeSignal(
                             icon: "applewatch",
                             title: bodyLoopTitle,
                             detail: bodyLoopDetail
@@ -221,6 +252,39 @@ struct BeagleSurface: View {
                 }
             }
         }
+    }
+
+    private var memoryProjectionStrip: some View {
+        Button {
+            showMemoryLens = true
+        } label: {
+            HStack(spacing: BeagleSpacing.xs) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(BeagleTheme.truthObserved)
+                    .frame(width: 16)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("GraphRAG++ memory")
+                        .font(BeagleFont.caption2.font)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                    Text(memoryProjectionLine)
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: BeagleSpacing.sm)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(.plain)
     }
 
     private var hardwareStrip: some View {
@@ -699,6 +763,49 @@ struct BeagleSurface: View {
         return "\(trust.mcpStatus) · \(scopeCount) scopes · \(hashLabel) · destructive locked"
     }
 
+    private var memoryProjectionLine: String {
+        let status = exocortex.recentGraph?.value?.status
+            ?? exocortex.projectionStatus?.value
+            ?? home.trustContext?.memoryProjectionStatus
+        guard let status else {
+            return "Projection not observed yet; tap to inspect cluster memory."
+        }
+        let runtime = home.trustContext?.graphRuntime ?? exocortex.graphStatus?.value?.graphRuntime ?? "jsonl"
+        let mode = home.trustContext?.retrievalMode ?? exocortex.graphStatus?.value?.retrievalMode ?? status.retrievalMode
+        let degrade = home.trustContext?.graphDegradedReason ?? exocortex.graphStatus?.value?.degradedReason ?? status.degradedReason
+        let hash = home.trustContext?.lastWorldHash.map { " · \($0.prefix(18))" } ?? ""
+        return "\(runtime) · \(mode) · \(status.episodeCount) episodes · \(status.atomCount) atoms · \(degrade)\(hash)"
+    }
+
+    private var autoImportTitle: String {
+        switch conversation.autoImportState.status {
+        case "imported":
+            return "Auto-memory"
+        case "importing":
+            return "Importing"
+        case "blocked":
+            return "Privacy held"
+        case "queued":
+            return "Queued"
+        default:
+            return "Auto-memory"
+        }
+    }
+
+    private var autoImportDetail: String {
+        let state = conversation.autoImportState
+        if let summary = state.lastSummary, state.status == "imported" {
+            return "\(summary) · GraphRAG++"
+        }
+        if state.restrictedCount > 0 {
+            return "\(state.restrictedCount) restricted · explicit review"
+        }
+        if state.queuedCount > 0 {
+            return "\(state.queuedCount) queued · cluster retry"
+        }
+        return "Every completed exchange becomes Episode+Atom."
+    }
+
     private var agentContextDetail: String {
         if let agent = home.agentContext {
             if let last = agent.lastAgentWrite, !last.isEmpty {
@@ -724,6 +831,370 @@ struct BeagleSurface: View {
             return physio.summary.detailLine
         }
         return bodyContextLine ?? "Waiting for Ultra 2 and HealthKit samples."
+    }
+}
+
+// MARK: - Memory Lens
+
+private struct MemoryLensSheet: View {
+    let exocortex: ExocortexStore
+    let activeProjectSlug: String
+    @State private var query = ""
+    @State private var isSearching = false
+    @State private var selectedTab: LensTab = .evidence
+
+    private enum LensTab: String, CaseIterable, Identifiable {
+        case evidence = "Evidence"
+        case timeline = "Timeline"
+        case worlds = "Worlds"
+        case work = "Work"
+        case contradictions = "Contradictions"
+
+        var id: String { rawValue }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+                header
+                lensPicker
+                switch selectedTab {
+                case .evidence:
+                    evidenceTab
+                case .timeline:
+                    timelineTab
+                case .worlds:
+                    worldsTab
+                case .work:
+                    workTab
+                case .contradictions:
+                    contradictionsTab
+                }
+            }
+            .padding(BeagleSpacing.lg)
+        }
+        .navigationTitle("Memory Lens")
+        .background(BeagleTheme.surface0.ignoresSafeArea())
+        .task {
+            async let graphStatus: Void = exocortex.refreshGraphStatus()
+            async let recentGraph: Void = exocortex.refreshRecentGraph(limit: 16)
+            async let worlds: Void = exocortex.refreshRecentWorlds(limit: 16)
+            _ = await (graphStatus, recentGraph, worlds)
+        }
+    }
+
+    private var header: some View {
+        let graphStatus = exocortex.graphStatus?.value
+        let status = graphStatus?.projectionStatus
+            ?? exocortex.recentGraph?.value?.status
+            ?? exocortex.projectionStatus?.value
+        return GlassPanel(truth: exocortex.graphStatus?.mode ?? exocortex.recentGraph?.mode ?? exocortex.projectionStatus?.mode ?? .declared) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                Text((graphStatus?.graphRuntime ?? "GRAPHRAG++").uppercased())
+                    .font(BeagleFont.caption2.font)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                Text(statusLine(status))
+                    .font(BeagleFont.callout.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let graphStatus {
+                    Text("\(graphStatus.retrievalMode) · \(graphStatus.worldCount) worlds")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let degraded = graphStatus?.degradedReason ?? status?.degradedReason, !degraded.isEmpty {
+                    Text(degraded)
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var lensPicker: some View {
+        Picker("Lens", selection: $selectedTab) {
+            ForEach(LensTab.allCases) { tab in
+                Text(tab.rawValue).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var evidenceTab: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+            queryBar
+            if let graph = exocortex.lastGraphRagQuery?.value {
+                graphResult(graph)
+            }
+            recentGraph
+        }
+    }
+
+    private var timelineTab: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            sectionTitle("RECENT EPISODES")
+            let episodes = exocortex.recentGraph?.value?.episodes ?? []
+            if episodes.isEmpty {
+                emptyRow("No projected episodes yet.")
+            } else {
+                ForEach(episodes.prefix(16)) { episode in
+                    GlassPanel(truth: .remembered) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(episode.title ?? episode.sourceRef)
+                                .font(BeagleFont.caption.font)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                                .lineLimit(2)
+                            Text("\(episode.source) · \(episode.sourcePlatform ?? "unknown") · \(episode.occurredAt ?? episode.createdAt)")
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .lineLimit(1)
+                            Text(episode.tags.prefix(5).joined(separator: " · "))
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var worldsTab: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            sectionTitle("MEMORY WORLDS")
+            let worlds = exocortex.recentWorlds?.value?.worlds ?? exocortex.recentGraph?.value?.worlds ?? []
+            if worlds.isEmpty {
+                emptyRow("No content-addressed MemoryWorlds yet. Index the graph after the next import.")
+            } else {
+                ForEach(worlds.prefix(16)) { world in
+                    GlassPanel(truth: .observed) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(world.worldType.uppercased())
+                                    .font(BeagleFont.caption2.font)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(BeagleTheme.truthObserved)
+                                Spacer()
+                                Text("\(world.nodeCount)n \(world.edgeCount)e")
+                                    .font(BeagleFont.caption2.font)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                            }
+                            Text(world.title ?? world.sourceRef)
+                                .font(BeagleFont.caption.font)
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                                .lineLimit(2)
+                            Text(world.merkleRoot)
+                                .font(BeagleFont.caption2.font.monospaced())
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var workTab: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            sectionTitle("WORK MEMORY")
+            let workAtoms = (exocortex.recentGraph?.value?.atoms ?? []).filter { atom in
+                let haystack = (atom.tags + [atom.atomType, atom.text]).joined(separator: " ").lowercased()
+                return haystack.contains("work-memory")
+                    || haystack.contains("codex")
+                    || haystack.contains("claude-code")
+                    || haystack.contains("agent:")
+            }
+            if let latest = exocortex.home.value?.trustContext?.latestAgentWrite {
+                Text("latest agent write · \(latest)")
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+            }
+            if workAtoms.isEmpty {
+                emptyRow("No Codex or Claude Code work-memory atoms observed yet.")
+            } else {
+                ForEach(workAtoms.prefix(12)) { atom in
+                    memoryAtomRow(atom)
+                }
+            }
+        }
+    }
+
+    private var contradictionsTab: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            sectionTitle("CONTRADICTIONS")
+            let relations = (exocortex.recentGraph?.value?.relations ?? []).filter {
+                $0.predicate.lowercased().contains("contradict")
+                    || $0.predicate.lowercased().contains("conflict")
+                    || $0.predicate.lowercased().contains("tension")
+            }
+            if relations.isEmpty {
+                emptyRow("No explicit contradiction relations observed in the recent graph.")
+            } else {
+                ForEach(relations.indices, id: \.self) { index in
+                    relationRow(relations[index])
+                }
+            }
+        }
+    }
+
+    private var queryBar: some View {
+        HStack(spacing: BeagleSpacing.sm) {
+            TextField("Search decisions, hypotheses, evidence...", text: $query)
+                .textFieldStyle(.plain)
+                .font(BeagleFont.callout.font)
+                .padding(.horizontal, BeagleSpacing.sm)
+                .padding(.vertical, BeagleSpacing.xs)
+                .background(
+                    RoundedRectangle(cornerRadius: BeagleRadius.sm)
+                        .fill(BeagleTheme.surface1.opacity(0.72))
+                )
+
+            Button {
+                Task { await runQuery() }
+            } label: {
+                Image(systemName: isSearching ? "hourglass" : "magnifyingglass")
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSearching)
+        }
+    }
+
+    private var recentGraph: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            sectionTitle("RECENT PROJECTED ATOMS")
+
+            let atoms = exocortex.recentGraph?.value?.atoms ?? []
+            if atoms.isEmpty {
+                emptyRow("No projected atoms yet. Capture or import context to wake the graph.")
+            } else {
+                ForEach(atoms.prefix(12)) { atom in
+                    memoryAtomRow(atom)
+                }
+            }
+        }
+    }
+
+    private func graphResult(_ result: GraphRagQueryResponse) -> some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            Text("QUERY RESULT")
+                .font(BeagleFont.caption2.font)
+                .fontWeight(.semibold)
+                .foregroundStyle(BeagleTheme.textTertiary)
+            Text(result.summary)
+                .font(BeagleFont.callout.font)
+                .foregroundStyle(BeagleTheme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(result.evidence.prefix(6), id: \.atomId) { evidence in
+                GlassPanel(truth: .observed) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(evidence.atomType.uppercased())
+                            .font(BeagleFont.caption2.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.truthObserved)
+                        Text(evidence.text)
+                            .font(BeagleFont.caption.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("score \(String(format: "%.2f", evidence.score)) · \(evidence.episodeId)")
+                            .font(BeagleFont.caption2.font)
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                    }
+                }
+            }
+            if let graph = result.evidenceGraph {
+                Text("evidence graph · \(graph.nodes.count) nodes · \(graph.edges.count) edges · \(graph.merkleRoot)")
+                    .font(BeagleFont.caption2.font.monospaced())
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .lineLimit(2)
+            }
+            if let trace = result.retrievalTrace, !trace.isEmpty {
+                ForEach(trace.prefix(4)) { step in
+                    Text("\(step.stage) · \(step.backend) · \(step.status) · \(step.items)")
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private func memoryAtomRow(_ atom: MemoryAtom) -> some View {
+        GlassPanel(truth: .remembered) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(atom.atomType.uppercased())
+                        .font(BeagleFont.caption2.font)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                    Spacer()
+                    Text(atom.privacyClass)
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
+                Text(atom.text)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(atom.tags.prefix(4).joined(separator: " · "))
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private func emptyRow(_ message: String) -> some View {
+        Text(message)
+            .font(BeagleFont.caption.font)
+            .foregroundStyle(BeagleTheme.textTertiary)
+            .padding(.vertical, BeagleSpacing.sm)
+    }
+
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text)
+            .font(BeagleFont.caption2.font)
+            .fontWeight(.semibold)
+            .foregroundStyle(BeagleTheme.textTertiary)
+    }
+
+    private func relationRow(_ relation: MemoryRelation) -> some View {
+        GlassPanel(truth: .remembered) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(relation.predicate.uppercased())
+                    .font(BeagleFont.caption2.font)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(BeagleTheme.truthDeclared)
+                Text(relation.subject)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .lineLimit(2)
+                Text(relation.object)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineLimit(2)
+                Text("confidence \(String(format: "%.2f", relation.confidence))")
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
+        }
+    }
+
+    private func statusLine(_ status: MemoryProjectionStatus?) -> String {
+        guard let status else { return "Projection status unavailable." }
+        return "\(status.status) · \(status.episodeCount) episodes · \(status.atomCount) atoms · \(status.retrievalMode)"
+    }
+
+    private func runQuery() async {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isSearching = true
+        _ = await exocortex.queryGraphMemory(trimmed, scope: activeProjectSlug, maxItems: 8, mode: "graphsearch-lite")
+        isSearching = false
     }
 }
 

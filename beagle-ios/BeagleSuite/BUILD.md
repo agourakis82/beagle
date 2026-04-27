@@ -46,66 +46,27 @@ If build fails due to Swift 6 strict concurrency:
 
 ---
 
-## Step 3 — Create the app targets
+## Step 3 — Use the tracked app project
 
-The SPM package only defines the shared library. The **apps** (BeagleCockpit, BeagleVisionOS, BeagleWatch, BeagleWidgets) need proper Xcode app targets. Create them manually — this is a one-time setup.
+The app targets already exist in Git:
 
-### 3a. BeagleCockpit (iOS + iPadOS + macOS)
+- `beagle-ios/BeagleSuite.xcodeproj`
+- `beagle-ios/project.yml` (XcodeGen source of truth when `xcodegen` is installed)
+- `BeagleCockpit`, `BeagleVisionOS`, `BeagleWatch`, `BeagleWidgets`, and `BeagleShare`
 
-In Xcode:
-1. **File → New → Project**
-2. Choose **iOS App** (or **Multiplatform App** for shared iOS/macOS)
-3. Configure:
-   - Product Name: `BeagleCockpit`
-   - Team: select your Apple Developer team
-   - Organization Identifier: `dev.sounio`
-   - Bundle Identifier: `dev.sounio.cockpit`
-   - Interface: **SwiftUI**
-   - Language: **Swift**
-   - **Minimum Deployments: iOS 26, iPadOS 26, macOS 26**
-4. Save inside `beagle-ios/` (NOT inside BeagleSuite/)
-5. Delete the auto-generated `ContentView.swift` and `BeagleCockpitApp.swift`
-6. **File → Add Files...** → select `BeagleSuite/Sources/BeagleCockpit/*` — check "Create groups"
-7. **Project Settings → Package Dependencies → Add Local...** → select `BeagleSuite/` folder
-8. Select your app target → **Frameworks, Libraries, and Embedded Content** → add `BeagleCore`
+Do not recreate targets manually. Open the project from the repo root:
 
-### 3b. BeagleVisionOS
+```bash
+xed beagle-ios/BeagleSuite.xcodeproj
+```
 
-Same process, but:
-- Template: **visionOS App**
-- Product Name: `BeagleVisionOS`
-- Bundle ID: `dev.sounio.cockpit.vision`
-- Minimum: **visionOS 26**
-- Add files from `BeagleSuite/Sources/BeagleVisionOS/*`
-- Link `BeagleCore`
+For CI or local verification on a Mac with Xcode:
 
-### 3c. BeagleWatch
+```bash
+./scripts/build_beagle_apple.sh
+```
 
-- Template: **watchOS App** (standalone — not paired with iOS app)
-- Product Name: `BeagleWatch`
-- Bundle ID: `dev.sounio.cockpit.watch`
-- Minimum: **watchOS 26**
-- Add files from `BeagleSuite/Sources/BeagleWatch/*`
-- Link `BeagleCore`
-- Add HealthKit capability (Signing & Capabilities → + Capability → HealthKit)
-
-### 3d. BeagleWidgets (Widget Extension)
-
-This is an **extension** of BeagleCockpit:
-1. Select BeagleCockpit project → **File → New → Target**
-2. Choose **Widget Extension**
-3. Product Name: `BeagleWidgets`
-4. Include Live Activity: **Yes**
-5. Embed in Application: **BeagleCockpit**
-6. Delete auto-generated widget files
-7. Add files from `BeagleSuite/Sources/BeagleWidgets/*`
-8. Link `BeagleCore` to the widget target too
-
-### 3e. BeagleIntents (App Intents Extension)
-
-App Intents can live in the main app target — no separate extension needed. Just add the files:
-1. Select BeagleCockpit target → **File → Add Files**
-2. Add `BeagleSuite/Sources/BeagleIntents/*`
+The shared Swift package still owns `BeagleCore`; app targets link that package and render the same cluster-canonical Exocortex state.
 
 ---
 

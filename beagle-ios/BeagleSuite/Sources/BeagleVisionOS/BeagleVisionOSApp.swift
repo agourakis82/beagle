@@ -257,26 +257,24 @@ struct SpatialMindDashboard: View {
                     .padding(.horizontal)
                 }
 
-                // Recent thoughts
-                if !cognitive.recentThoughts.isEmpty {
+                // Projected GraphRAG++ memory from the cluster canonical store
+                if let atoms = exocortex.recentGraph?.value?.atoms, !atoms.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("RECENT THOUGHTS")
+                        Text("PROJECTED MEMORY")
                             .font(BeagleTheme.uiFont(size: 11, weight: .semibold))
                             .tracking(1.2)
                             .foregroundStyle(BeagleTheme.textTertiary)
 
-                        ForEach(cognitive.recentThoughts.prefix(5)) { thought in
+                        ForEach(atoms.prefix(5)) { atom in
                             GlassPanel(truth: .observed) {
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Text(thought.refinedText ?? thought.rawText ?? "")
+                                    Text(atom.text)
                                         .font(BeagleTheme.uiFont(size: 14))
                                         .foregroundStyle(BeagleTheme.textPrimary)
                                         .lineLimit(3)
-                                    if let ts = thought.createdAt {
-                                        Text(ts)
-                                            .font(BeagleTheme.dataFont(size: 11))
-                                            .foregroundStyle(BeagleTheme.textTertiary)
-                                    }
+                                    Text("\(atom.atomType) · \(atom.privacyClass)")
+                                        .font(BeagleTheme.dataFont(size: 11))
+                                        .foregroundStyle(BeagleTheme.textTertiary)
                                 }
                             }
                         }
@@ -319,10 +317,12 @@ struct SpatialMindDashboard: View {
         }
         .background(.regularMaterial)
         .task {
-            await exocortex.refresh(
+            async let homeRefresh: Void = exocortex.refresh(
                 activeProjectSlug: catalog.primaryProject?.projectSlug ?? cognitive.activeProjectSlug,
                 platform: "visionOS"
             )
+            async let graphRefresh: Void = exocortex.refreshRecentGraph(limit: 18)
+            _ = await (homeRefresh, graphRefresh)
         }
     }
 

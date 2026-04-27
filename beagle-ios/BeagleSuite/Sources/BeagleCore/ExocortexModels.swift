@@ -357,6 +357,311 @@ public struct MemoryProjectionStatus: Codable, Equatable, Sendable {
     }
 }
 
+public struct MemoryWorld: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let worldType: String
+    public let sourceRef: String
+    public let title: String?
+    public let merkleRoot: String
+    public let validFrom: String?
+    public let validUntil: String?
+    public let nodeCount: Int
+    public let edgeCount: Int
+    public let runtimeHint: String
+    public let tags: [String]
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case worldType = "world_type"
+        case sourceRef = "source_ref"
+        case title
+        case merkleRoot = "merkle_root"
+        case validFrom = "valid_from"
+        case validUntil = "valid_until"
+        case nodeCount = "node_count"
+        case edgeCount = "edge_count"
+        case runtimeHint = "runtime_hint"
+        case tags
+        case provenance
+    }
+}
+
+public struct MemoryCommunity: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let label: String
+    public let strategy: String
+    public let nodeCount: Int
+    public let score: Double
+    public let summary: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case label
+        case strategy
+        case nodeCount = "node_count"
+        case score
+        case summary
+    }
+}
+
+public struct MemoryGraphRecentResponse: Codable, Equatable, Sendable {
+    public let generatedAt: String
+    public let status: MemoryProjectionStatus
+    public let episodes: [MemoryEpisode]
+    public let atoms: [MemoryAtom]
+    public let relations: [MemoryRelation]
+    public let worlds: [MemoryWorld]?
+    public let communities: [MemoryCommunity]?
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case generatedAt = "generated_at"
+        case status
+        case episodes
+        case atoms
+        case relations
+        case worlds
+        case communities
+        case provenance
+    }
+}
+
+public struct GraphBakeoffMetrics: Codable, Equatable, Sendable {
+    public let p95QueryMs: Double
+    public let ingestLatencyMs: Double
+    public let top5HitRate: Double
+    public let multiHopAccuracy: Double
+    public let provenanceQuality: Double
+    public let rebuildSeconds: Double
+    public let operationalComplexity: Double
+
+    enum CodingKeys: String, CodingKey {
+        case p95QueryMs = "p95_query_ms"
+        case ingestLatencyMs = "ingest_latency_ms"
+        case top5HitRate = "top5_hit_rate"
+        case multiHopAccuracy = "multi_hop_accuracy"
+        case provenanceQuality = "provenance_quality"
+        case rebuildSeconds = "rebuild_seconds"
+        case operationalComplexity = "operational_complexity"
+    }
+}
+
+public struct GraphRuntimeCandidate: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { name }
+    public let name: String
+    public let runtimeKind: String
+    public let status: String
+    public let score: Double
+    public let metrics: GraphBakeoffMetrics
+    public let strengths: [String]
+    public let risks: [String]
+    public let promotionNotes: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case runtimeKind = "runtime_kind"
+        case status
+        case score
+        case metrics
+        case strengths
+        case risks
+        case promotionNotes = "promotion_notes"
+    }
+}
+
+public struct GraphBakeoffRun: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let status: String
+    public let schemaVersion: String
+    public let dataset: ExocortexJSONValue?
+    public let candidates: [GraphRuntimeCandidate]
+    public let winner: String
+    public let baseline: String
+    public let reportRef: String
+    public let degradedReason: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case status
+        case schemaVersion = "schema_version"
+        case dataset
+        case candidates
+        case winner
+        case baseline
+        case reportRef = "report_ref"
+        case degradedReason = "degraded_reason"
+    }
+}
+
+public struct GraphIndexRun: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let schemaVersion: String
+    public let runtime: String
+    public let status: String
+    public let episodesIndexed: Int
+    public let atomsIndexed: Int
+    public let worldsCreated: Int
+    public let hyperedgesIndexed: Int
+    public let merkleRoot: String
+    public let degradedReason: String
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case schemaVersion = "schema_version"
+        case runtime
+        case status
+        case episodesIndexed = "episodes_indexed"
+        case atomsIndexed = "atoms_indexed"
+        case worldsCreated = "worlds_created"
+        case hyperedgesIndexed = "hyperedges_indexed"
+        case merkleRoot = "merkle_root"
+        case degradedReason = "degraded_reason"
+        case provenance
+    }
+}
+
+public struct MemoryGraphStatus: Codable, Equatable, Sendable {
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let graphRuntime: String
+    public let runtimeStatus: String
+    public let retrievalMode: String
+    public let canonicalStore: String
+    public let projectionStatus: MemoryProjectionStatus
+    public let latestBakeoff: GraphBakeoffRun?
+    public let latestIndexRun: GraphIndexRun?
+    public let worldCount: Int
+    public let degradedReason: String
+
+    enum CodingKeys: String, CodingKey {
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case graphRuntime = "graph_runtime"
+        case runtimeStatus = "runtime_status"
+        case retrievalMode = "retrieval_mode"
+        case canonicalStore = "canonical_store"
+        case projectionStatus = "projection_status"
+        case latestBakeoff = "latest_bakeoff"
+        case latestIndexRun = "latest_index_run"
+        case worldCount = "world_count"
+        case degradedReason = "degraded_reason"
+    }
+}
+
+public struct MemoryWorldsRecentResponse: Codable, Equatable, Sendable {
+    public let generatedAt: String
+    public let worlds: [MemoryWorld]
+    public let graphStatus: MemoryGraphStatus
+
+    enum CodingKeys: String, CodingKey {
+        case generatedAt = "generated_at"
+        case worlds
+        case graphStatus = "graph_status"
+    }
+}
+
+public struct ConversationAutoImportState: Codable, Equatable, Sendable {
+    public let status: String
+    public let sessionId: String?
+    public let lastImportedAt: String?
+    public let lastSummary: String?
+    public let queuedCount: Int
+    public let restrictedCount: Int
+    public let lastError: String?
+
+    public init(
+        status: String,
+        sessionId: String? = nil,
+        lastImportedAt: String? = nil,
+        lastSummary: String? = nil,
+        queuedCount: Int = 0,
+        restrictedCount: Int = 0,
+        lastError: String? = nil
+    ) {
+        self.status = status
+        self.sessionId = sessionId
+        self.lastImportedAt = lastImportedAt
+        self.lastSummary = lastSummary
+        self.queuedCount = queuedCount
+        self.restrictedCount = restrictedCount
+        self.lastError = lastError
+    }
+
+    public static let idle = ConversationAutoImportState(status: "idle")
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case sessionId = "session_id"
+        case lastImportedAt = "last_imported_at"
+        case lastSummary = "last_summary"
+        case queuedCount = "queued_count"
+        case restrictedCount = "restricted_count"
+        case lastError = "last_error"
+    }
+}
+
+public struct AgentWorkMemorySnapshot: Codable, Equatable, Sendable {
+    public let projectSlug: String
+    public let repo: String?
+    public let branch: String?
+    public let sessionId: String
+    public let agentKind: String
+    public let objective: String?
+    public let planSummary: String?
+    public let diffSummary: String?
+    public let testsSummary: String?
+    public let decisionSummary: String?
+    public let createdAt: String
+
+    public init(
+        projectSlug: String,
+        repo: String? = nil,
+        branch: String? = nil,
+        sessionId: String,
+        agentKind: String,
+        objective: String? = nil,
+        planSummary: String? = nil,
+        diffSummary: String? = nil,
+        testsSummary: String? = nil,
+        decisionSummary: String? = nil,
+        createdAt: String
+    ) {
+        self.projectSlug = projectSlug
+        self.repo = repo
+        self.branch = branch
+        self.sessionId = sessionId
+        self.agentKind = agentKind
+        self.objective = objective
+        self.planSummary = planSummary
+        self.diffSummary = diffSummary
+        self.testsSummary = testsSummary
+        self.decisionSummary = decisionSummary
+        self.createdAt = createdAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case projectSlug = "project_slug"
+        case repo
+        case branch
+        case sessionId = "session_id"
+        case agentKind = "agent_kind"
+        case objective
+        case planSummary = "plan_summary"
+        case diffSummary = "diff_summary"
+        case testsSummary = "tests_summary"
+        case decisionSummary = "decision_summary"
+        case createdAt = "created_at"
+    }
+}
+
 public struct GraphRagEvidence: Codable, Equatable, Sendable {
     public let atomId: String
     public let episodeId: String
@@ -389,6 +694,76 @@ public struct GraphRagTemporalContext: Codable, Equatable, Sendable {
     }
 }
 
+public struct EvidenceGraphNode: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let label: String
+    public let nodeType: String
+    public let score: Double
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case label
+        case nodeType = "node_type"
+        case score
+        case provenance
+    }
+}
+
+public struct EvidenceGraphEdge: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { "\(source)-\(predicate)-\(target)" }
+    public let source: String
+    public let target: String
+    public let predicate: String
+    public let confidence: Double
+    public let provenance: ExocortexJSONValue?
+}
+
+public struct EvidenceGraph: Codable, Equatable, Sendable {
+    public let nodes: [EvidenceGraphNode]
+    public let edges: [EvidenceGraphEdge]
+    public let temporary: Bool
+    public let merkleRoot: String
+
+    enum CodingKeys: String, CodingKey {
+        case nodes
+        case edges
+        case temporary
+        case merkleRoot = "merkle_root"
+    }
+}
+
+public struct GraphRagCommunityContext: Codable, Equatable, Sendable {
+    public let strategy: String
+    public let selectedCommunities: [MemoryCommunity]
+    public let degradedReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case strategy
+        case selectedCommunities = "selected_communities"
+        case degradedReason = "degraded_reason"
+    }
+}
+
+public struct RetrievalTraceStep: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { "\(stage)-\(backend)-\(items)" }
+    public let stage: String
+    public let backend: String
+    public let status: String
+    public let items: Int
+    public let latencyMs: Double
+    public let notes: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case stage
+        case backend
+        case status
+        case items
+        case latencyMs = "latency_ms"
+        case notes
+    }
+}
+
 public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
     public let summary: String
     public let evidence: [GraphRagEvidence]
@@ -399,6 +774,11 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
     public let provenance: ExocortexJSONValue?
     public let confidence: Double
     public let degradedReason: String?
+    public let mode: String?
+    public let graphRuntime: String?
+    public let evidenceGraph: EvidenceGraph?
+    public let communityContext: GraphRagCommunityContext?
+    public let retrievalTrace: [RetrievalTraceStep]?
 
     enum CodingKeys: String, CodingKey {
         case summary
@@ -410,6 +790,11 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
         case provenance
         case confidence
         case degradedReason = "degraded_reason"
+        case mode
+        case graphRuntime = "graph_runtime"
+        case evidenceGraph = "evidence_graph"
+        case communityContext = "community_context"
+        case retrievalTrace = "retrieval_trace"
     }
 }
 
@@ -691,6 +1076,11 @@ public struct TrustContext: Codable, Equatable, Sendable {
     public let toolManifestHash: String?
     public let lastAuditEventId: String?
     public let memoryProjectionStatus: MemoryProjectionStatus?
+    public let graphRuntime: String?
+    public let retrievalMode: String?
+    public let lastWorldHash: String?
+    public let latestAgentWrite: String?
+    public let graphDegradedReason: String?
 
     enum CodingKeys: String, CodingKey {
         case mcpStatus = "mcp_status"
@@ -700,6 +1090,11 @@ public struct TrustContext: Codable, Equatable, Sendable {
         case toolManifestHash = "tool_manifest_hash"
         case lastAuditEventId = "last_audit_event_id"
         case memoryProjectionStatus = "memory_projection_status"
+        case graphRuntime = "graph_runtime"
+        case retrievalMode = "retrieval_mode"
+        case lastWorldHash = "last_world_hash"
+        case latestAgentWrite = "latest_agent_write"
+        case graphDegradedReason = "graph_degraded_reason"
     }
 }
 

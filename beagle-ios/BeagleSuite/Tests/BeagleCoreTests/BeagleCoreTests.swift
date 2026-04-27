@@ -1,6 +1,7 @@
 import Testing
 @testable import BeagleCore
 import Foundation
+import SwiftData
 
 @Test func truthModeValues() {
     #expect(TruthMode.observed.rawValue == "observed")
@@ -209,6 +210,11 @@ import Foundation
         "destructive_actions": "locked",
         "tool_manifest_hash": "sha256:e633",
         "last_audit_event_id": "audit-1",
+        "graph_runtime": "falkordb-graphblas-bakeoff",
+        "retrieval_mode": "graphsearch-lite+vector+graph+temporal",
+        "last_world_hash": "sha256:world",
+        "latest_agent_write": "beagle_work_memory_capture",
+        "graph_degraded_reason": "runtime gated by bake-off",
         "memory_projection_status": {
           "status": "fresh",
           "schema_version": "beagle-memory-projection-v1.2",
@@ -239,6 +245,8 @@ import Foundation
 
     #expect(snapshot.trustContext?.memoryProjectionStatus?.atomCount == 2)
     #expect(snapshot.trustContext?.memoryProjectionStatus?.latestRun?.projectionHash == "sha256:projection")
+    #expect(snapshot.trustContext?.graphRuntime == "falkordb-graphblas-bakeoff")
+    #expect(snapshot.trustContext?.lastWorldHash == "sha256:world")
 }
 
 @Test func graphRagAndAssistedImportModelsDecodeClusterContracts() throws {
@@ -264,12 +272,29 @@ import Foundation
       },
       "provenance": {"retrieval_mode": "hybrid lexical+graph+temporal"},
       "confidence": 0.9,
-      "degraded_reason": "real embedding backend not configured"
+      "degraded_reason": "real embedding backend not configured",
+      "mode": "graphsearch-lite",
+      "graph_runtime": "falkordb-graphblas-bakeoff",
+      "evidence_graph": {
+        "nodes": [{"id": "atom-1", "label": "GraphRAG++", "node_type": "decision", "score": 0.9, "provenance": {"source": "test"}}],
+        "edges": [{"source": "episode-1", "target": "atom-1", "predicate": "contains_atom", "confidence": 0.9, "provenance": {"source": "test"}}],
+        "temporary": true,
+        "merkle_root": "sha256:graph"
+      },
+      "community_context": {
+        "strategy": "k-core-density-hierarchy",
+        "selected_communities": [{"id": "community-1", "label": "beagle", "strategy": "k-core-density-hierarchy", "node_count": 1, "score": 0.8, "summary": "Beagle memory"}],
+        "degraded_reason": null
+      },
+      "retrieval_trace": [{"stage": "question-analysis", "backend": "deterministic-tokenizer", "status": "ok", "items": 2, "latency_ms": 0.0, "notes": ["mode=graphsearch-lite"]}]
     }
     """.data(using: .utf8)!
     let graph = try JSONDecoder().decode(GraphRagQueryResponse.self, from: graphJson)
     #expect(graph.evidence.first?.atomType == "decision")
     #expect(graph.temporalContext.matchedEpisodeCount == 1)
+    #expect(graph.graphRuntime == "falkordb-graphblas-bakeoff")
+    #expect(graph.evidenceGraph?.nodes.count == 1)
+    #expect(graph.communityContext?.selectedCommunities.first?.label == "beagle")
 
     let request = AssistedImportBatchRequest(
         sourcePlatform: "claude",
@@ -296,4 +321,205 @@ import Foundation
     #expect(absolute.contains("code_challenge_method=S256"))
     #expect(!absolute.contains("client_secret"))
     #expect(request.codeVerifier.count >= 43)
+}
+
+@Test func assistedImportFactoryClassifiesRestrictedContent() throws {
+    let safe = AssistedImportRequestFactory.capture(
+        text: "Decisão: Memory Lens deve mostrar evidência e proveniência.",
+        source: "ios-keyboard",
+        projectRef: "beagle"
+    )
+    #expect(safe.privacyClass == "sensitive")
+    #expect(safe.sourceSurface == "beagle-ios")
+    #expect(safe.tags.contains("graphrag++"))
+
+    let restricted = AssistedImportRequestFactory.capture(
+        text: "client_secret=do-not-upload",
+        source: "ios-keyboard",
+        projectRef: "beagle"
+    )
+    #expect(restricted.privacyClass == "restricted")
+}
+
+@Test func conversationExchangeRequestCarriesGraphRagMetadata() throws {
+    let request = AssistedImportRequestFactory.conversationExchange(
+        userText: "Vamos continuar o Beagle.",
+        assistantText: "Plano: Home, Watch e Memory Lens em paralelo.",
+        sourceSurface: "beagle-apple-cloud",
+        sessionId: "chat-session-1",
+        projectRef: "beagle",
+        model: "beagle-core",
+        flowState: "FLOW",
+        bodySummary: "readiness high",
+        agentKind: "codex",
+        podName: "agent-pod"
+    )
+    let encoded = try JSONEncoder().encode(request)
+    let payload = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    #expect(payload?["source_platform"] as? String == "beagle-apple")
+    #expect(payload?["source_surface"] as? String == "beagle-apple-cloud")
+    #expect(payload?["privacy_class"] as? String == "sensitive")
+    #expect((payload?["tags"] as? [String])?.contains("auto-import") == true)
+}
+
+@Test func memoryGraphRecentResponseDecodes() throws {
+    let json = """
+    {
+      "generated_at": "2026-04-26T17:00:00Z",
+      "status": {
+        "status": "fresh",
+        "schema_version": "beagle-memory-projection-v1.2",
+        "episode_count": 1,
+        "atom_count": 1,
+        "latest_run": null,
+        "freshness": "2026-04-26T17:00:00Z",
+        "retrieval_mode": "hybrid lexical+graph+temporal",
+        "degraded_reason": "real embedding backend not configured"
+      },
+      "episodes": [{
+        "id": "episode-1",
+        "created_at": "2026-04-26T17:00:00Z",
+        "source": "assisted-import",
+        "source_platform": "beagle-apple",
+        "session_id": "chat-1",
+        "source_ref": "omnimemory:1",
+        "content_hash": "sha256:episode",
+        "privacy_class": "sensitive",
+        "provenance": {"source_surface": "beagle-ios"},
+        "tags": ["project:beagle"],
+        "title": "Apple chat",
+        "linked_chronoself_commits": [],
+        "occurred_at": "2026-04-26T17:00:00Z"
+      }],
+      "atoms": [{
+        "id": "atom-1",
+        "created_at": "2026-04-26T17:00:00Z",
+        "episode_id": "episode-1",
+        "atom_type": "decision",
+        "text": "Home, Watch e Memory Lens em paralelo.",
+        "normalized_text": "home watch memory lens em paralelo",
+        "source_refs": ["omnimemory:1"],
+        "relations": [],
+        "tags": ["project:beagle"],
+        "confidence": 0.91,
+        "privacy_class": "sensitive",
+        "occurred_at": "2026-04-26T17:00:00Z"
+      }],
+      "relations": [],
+      "worlds": [{
+        "id": "world-1",
+        "created_at": "2026-04-26T17:00:00Z",
+        "world_type": "session",
+        "source_ref": "omnimemory:1",
+        "title": "Apple chat",
+        "merkle_root": "sha256:world",
+        "valid_from": "2026-04-26T17:00:00Z",
+        "valid_until": null,
+        "node_count": 2,
+        "edge_count": 1,
+        "runtime_hint": "falkordb-graphblas-bakeoff",
+        "tags": ["project:beagle"],
+        "provenance": {"content_addressed": true}
+      }],
+      "communities": [{
+        "id": "community-1",
+        "label": "beagle",
+        "strategy": "k-core-density-hierarchy",
+        "node_count": 1,
+        "score": 0.8,
+        "summary": "Beagle community"
+      }],
+      "provenance": {"canonical_store": "/var/lib/beagle/exocortex"}
+    }
+    """.data(using: .utf8)!
+
+    let response = try JSONDecoder().decode(MemoryGraphRecentResponse.self, from: json)
+    #expect(response.status.atomCount == 1)
+    #expect(response.atoms.first?.text.contains("Memory Lens") == true)
+    #expect(response.worlds?.first?.merkleRoot == "sha256:world")
+    #expect(response.communities?.first?.strategy == "k-core-density-hierarchy")
+}
+
+@Test func memoryGraphStatusDecodesBakeoffAndWorlds() throws {
+    let json = """
+    {
+      "generated_at": "2026-04-26T18:00:00Z",
+      "schema_version": "beagle-graphrag-runtime-v1.4",
+      "graph_runtime": "falkordb-graphblas-bakeoff",
+      "runtime_status": "bakeoff-design-only",
+      "retrieval_mode": "lexical+jsonl+temporal+evidence-graph",
+      "canonical_store": "/var/lib/beagle/exocortex",
+      "projection_status": {
+        "status": "fresh",
+        "schema_version": "beagle-memory-projection-v1.2",
+        "episode_count": 1,
+        "atom_count": 1,
+        "latest_run": null,
+        "freshness": "2026-04-26T18:00:00Z",
+        "retrieval_mode": "hybrid lexical+graph+temporal",
+        "degraded_reason": "fallback"
+      },
+      "latest_bakeoff": {
+        "id": "bakeoff-1",
+        "created_at": "2026-04-26T18:00:00Z",
+        "status": "completed",
+        "schema_version": "beagle-graphrag-runtime-v1.4",
+        "dataset": {"golden_queries": 20},
+        "candidates": [{
+          "name": "FalkorDB GraphBLAS",
+          "runtime_kind": "graphblas-native-graph-vector",
+          "status": "candidate",
+          "score": 0.86,
+          "metrics": {
+            "p95_query_ms": 85,
+            "ingest_latency_ms": 120,
+            "top5_hit_rate": 0.86,
+            "multi_hop_accuracy": 0.82,
+            "provenance_quality": 0.92,
+            "rebuild_seconds": 18,
+            "operational_complexity": 0.34
+          },
+          "strengths": ["GraphBLAS"],
+          "risks": ["needs smoke"],
+          "promotion_notes": ["promote after golden queries"]
+        }],
+        "winner": "FalkorDB GraphBLAS",
+        "baseline": "Neo4j+Qdrant baseline",
+        "report_ref": "docs/research/beagle_graphrag_runtime_bakeoff.md",
+        "degraded_reason": "design metrics"
+      },
+      "latest_index_run": null,
+      "world_count": 3,
+      "degraded_reason": "No live graph runtime configured"
+    }
+    """.data(using: .utf8)!
+
+    let status = try JSONDecoder().decode(MemoryGraphStatus.self, from: json)
+    #expect(status.schemaVersion == "beagle-graphrag-runtime-v1.4")
+    #expect(status.latestBakeoff?.winner == "FalkorDB GraphBLAS")
+    #expect(status.latestBakeoff?.candidates.first?.metrics.top5HitRate == 0.86)
+}
+
+@Test func persistenceContainerIncludesAssistedImportOutbox() throws {
+    let schema = Schema([
+        PersistedThought.self,
+        PersistedMessage.self,
+        PersistedDeepSession.self,
+        PersistedExocortexHomeSnapshot.self,
+        PersistedAssistedImportOutbox.self,
+    ])
+    let container = try ModelContainer(
+        for: schema,
+        configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]
+    )
+    let context = ModelContext(container)
+    context.insert(PersistedAssistedImportOutbox(
+        payload: "{}",
+        reason: "restricted_privacy_guard",
+        privacyClass: "restricted",
+        sourceSurface: "beagle-ios"
+    ))
+    try context.save()
+    let count = try context.fetchCount(FetchDescriptor<PersistedAssistedImportOutbox>())
+    #expect(count == 1)
 }

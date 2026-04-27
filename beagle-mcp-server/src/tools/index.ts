@@ -156,6 +156,26 @@ const TOOL_POLICIES: Record<string, ToolPolicy> = {
         requiredScopes: WRITE_MEMORY,
         riskLevel: "write",
     },
+    beagle_memory_graph_status: {
+        annotations: annotations("Read GraphRAG++ Runtime Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_memory_bakeoff_status: {
+        annotations: annotations("Read GraphRAG++ Bake-Off Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_graphrag_query: {
+        annotations: annotations("Query GraphRAG++ Memory", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_work_memory_capture: {
+        annotations: annotations("Capture Agent Work Memory", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
     beagle_temporal_analyze: {
         annotations: annotations("Run TemporalAI Analysis", false, false, false),
         requiredScopes: RUN_RESEARCH,
@@ -220,6 +240,9 @@ const REVIEW_SAFE_TOOL_NAMES = new Set([
     "beagle_chronoself_current",
     "beagle_chronoself_commits",
     "beagle_memory_query",
+    "beagle_memory_graph_status",
+    "beagle_memory_bakeoff_status",
+    "beagle_graphrag_query",
     "beagle_pipeline_status",
     "beagle_list_recent_runs",
     "beagle_get_science_job_status",

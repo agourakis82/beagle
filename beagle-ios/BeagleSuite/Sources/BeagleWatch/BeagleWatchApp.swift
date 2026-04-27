@@ -29,6 +29,9 @@ struct BeagleWatchApp: App {
                 .environment(catalog)
                 .environment(hrv)
                 .task {
+                    #if canImport(WatchConnectivity)
+                    WatchExocortexBridge.shared.activate()
+                    #endif
                     await catalog.refresh()
                     await hrv.start()
                 }
@@ -220,6 +223,8 @@ struct PulseView: View {
 /// Capture a thought from your wrist. One tap, speak, done.
 /// The thought flows into cluster-canonical GraphRAG++ memory.
 struct QuickCaptureView: View {
+    @Environment(HRVMonitor.self) private var hrv
+    @State private var draftText = ""
     @State private var capturedText: String?
     @State private var isCaptured = false
 
@@ -265,22 +270,18 @@ struct QuickCaptureView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 8)
 
-                    // Dictation button (system TextFieldLink for watchOS dictation)
+                    TextField("Dictate thought", text: $draftText)
+                        .font(.system(size: 12))
+                        .textInputAutocapitalization(.sentences)
+
                     Button {
-                        // On watchOS 26, use system dictation
-                        // The captured text would be sent to BeagleClient
-                        capturedText = "Thought captured via Watch"
-                        Task {
-                            _ = await BeagleClient.shared.captureThought(
-                                text: capturedText ?? "",
-                                source: "apple-watch"
-                            )
-                        }
+                        submitCapture()
                     } label: {
                         Label("Speak", systemImage: "mic.fill")
                     }
                     .buttonStyle(.bordered)
                     .tint(BeagleTheme.truthRemembered)
+                    .disabled(draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
@@ -294,6 +295,27 @@ struct QuickCaptureView: View {
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()
+        }
+    }
+
+    private func submitCapture() {
+        let text = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        capturedText = text
+        isCaptured.toggle()
+        draftText = ""
+        let bodySummary = "watch_hrv=\(Int(hrv.latestHRV.rounded()))ms flow_state=\(hrv.flowState.rawValue)"
+        Task {
+            #if canImport(WatchConnectivity)
+            let sentToPhone = await WatchExocortexBridge.shared.sendCapture(
+                WatchExocortexCapture(text: text, bodySummary: bodySummary)
+            )
+            if !sentToPhone {
+                _ = await BeagleClient.shared.captureThought(text: "\(text)\n\n[\(bodySummary)]", source: "apple-watch")
+            }
+            #else
+            _ = await BeagleClient.shared.captureThought(text: "\(text)\n\n[\(bodySummary)]", source: "apple-watch")
+            #endif
         }
     }
 }

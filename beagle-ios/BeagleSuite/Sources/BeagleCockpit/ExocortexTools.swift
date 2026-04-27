@@ -30,6 +30,19 @@ struct SearchMemoryTool: Tool {
     }
 
     func call(arguments: Arguments) async throws -> String {
+        let cluster = await BeagleClient.shared.graphRagQuery(
+            query: arguments.query,
+            scope: nil,
+            maxItems: 5
+        )
+        if let graph = cluster.value, !graph.evidence.isEmpty {
+            let formatted = graph.evidence.prefix(5).enumerated().map { i, evidence in
+                let pct = Int((evidence.score * 100).rounded())
+                return "[\(i + 1)] (\(pct)% \(evidence.atomType)) \(evidence.text)"
+            }.joined(separator: "\n")
+            return "Cluster GraphRAG++ found \(graph.evidence.count) matches:\n\(formatted)"
+        }
+
         let results = await MainActor.run {
             SemanticSearchEngine.shared.search(query: arguments.query, limit: 5)
         }

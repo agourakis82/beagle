@@ -312,6 +312,31 @@ export class BeagleClient {
         return this.request("GET", "/api/exocortex/v1/memory/projection/status", undefined, 30000);
     }
 
+    async memoryGraphStatus(): Promise<unknown> {
+        return this.request("GET", "/api/exocortex/v1/memory/graph/status", undefined, 30000);
+    }
+
+    async memoryGraphBakeoff(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/memory/graph/bakeoff", body, 120000);
+    }
+
+    async memoryGraphBakeoffStatus(): Promise<unknown> {
+        return this.request("GET", "/api/exocortex/v1/memory/graph/bakeoff/status", undefined, 30000);
+    }
+
+    async indexGraph(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/memory/index-graph", body, 120000);
+    }
+
+    async memoryWorldsRecent(limit = 12): Promise<unknown> {
+        return this.request(
+            "GET",
+            `/api/exocortex/v1/memory/worlds/recent?limit=${encodeURIComponent(String(limit))}`,
+            undefined,
+            30000,
+        );
+    }
+
     async graphRagQuery(body: unknown): Promise<unknown> {
         return this.request("POST", "/api/exocortex/v1/graphrag/query", body, 60000);
     }

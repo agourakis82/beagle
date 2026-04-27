@@ -1,5 +1,18 @@
 # Beagle MCP Tool Manifest Changelog
 
+## beagle-mcp-v1.4-graphrag-runtime
+
+- Tool count: 29
+- Tool manifest hash: `sha256:2de2ca00307cdde27e6fab412bf56e07c827885c73a65e1885dd09fb929d5d67`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from public surfaces.
+- Added GraphRAG++ living-memory tools:
+  - `beagle_memory_graph_status`
+  - `beagle_memory_bakeoff_status`
+  - `beagle_graphrag_query`
+  - `beagle_work_memory_capture`
+- These tools expose runtime/bake-off status, evidence-graph retrieval and Codex/Claude Code work-memory capture while keeping JSONL on the cluster PVC as the canonical store.
+
 ## beagle-mcp-v1.2
 
 - Tool count: 25

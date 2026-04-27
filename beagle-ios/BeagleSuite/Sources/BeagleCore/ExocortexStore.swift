@@ -15,6 +15,10 @@ import SwiftData
 public final class ExocortexStore {
     public var home: Truthful<ExocortexHomeSnapshot> = .declared(.bootstrap, source: "bootstrap")
     public var projectionStatus: Truthful<MemoryProjectionStatus>?
+    public var graphStatus: Truthful<MemoryGraphStatus>?
+    public var bakeoffStatus: Truthful<MemoryGraphStatus>?
+    public var recentGraph: Truthful<MemoryGraphRecentResponse>?
+    public var recentWorlds: Truthful<MemoryWorldsRecentResponse>?
     public var lastGraphRagQuery: Truthful<GraphRagQueryResponse>?
     public var lastAssistedImport: Truthful<AssistedImportBatchResult>?
     public var mcpTools: Truthful<MCPToolListResult>?
@@ -46,13 +50,30 @@ public final class ExocortexStore {
         projectionStatus = await client.memoryProjectionStatus()
     }
 
+    public func refreshGraphStatus() async {
+        graphStatus = await client.memoryGraphStatus()
+    }
+
+    public func refreshBakeoffStatus() async {
+        bakeoffStatus = await client.memoryGraphBakeoffStatus()
+    }
+
+    public func refreshRecentGraph(limit: Int = 12) async {
+        recentGraph = await client.memoryGraphRecent(limit: limit)
+    }
+
+    public func refreshRecentWorlds(limit: Int = 12) async {
+        recentWorlds = await client.memoryWorldsRecent(limit: limit)
+    }
+
     @discardableResult
     public func queryGraphMemory(
         _ query: String,
         scope: String? = nil,
-        maxItems: Int = 5
+        maxItems: Int = 5,
+        mode: String = "graphsearch-lite"
     ) async -> Truthful<GraphRagQueryResponse> {
-        let result = await client.graphRagQuery(query: query, scope: scope, maxItems: maxItems)
+        let result = await client.graphRagQuery(query: query, scope: scope, maxItems: maxItems, mode: mode)
         lastGraphRagQuery = result
         return result
     }

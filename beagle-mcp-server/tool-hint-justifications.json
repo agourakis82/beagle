@@ -206,6 +206,54 @@
         "destructive_justification": "Does not delete canonical logs or replace existing memory; derived indexes remain reconstructible."
       }
     },
+    "beagle_memory_graph_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads GraphRAG++ runtime, projection, bake-off, and MemoryWorld status without mutating memory.",
+        "open_world_justification": "Reads only private Beagle cluster status and does not affect external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_memory_bakeoff_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads the latest FalkorDB/Memgraph/SurrealDB bake-off metrics without starting a new run.",
+        "open_world_justification": "Reads private Beagle cluster metrics and does not call or alter third-party systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_graphrag_query": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Queries GraphRAG++ memory and returns evidence graph, provenance, and retrieval trace without writing memory.",
+        "open_world_justification": "Reads private Beagle memory and does not publish or modify external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_work_memory_capture": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Captures a Codex/Claude Code work-memory note into append-only Episode+Atom memory.",
+        "open_world_justification": "Writes only to the private Beagle cluster and does not affect external systems.",
+        "destructive_justification": "Appends work-memory records and audit metadata without deleting or overwriting canonical logs."
+      }
+    },
     "beagle_temporal_analyze": {
       "annotations": {
         "readOnlyHint": false,

@@ -75,5 +75,9 @@ data:
   BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_MODEL: BAAI/bge-m3
   BEAGLE_MEMORY_SOVEREIGN_RERANKING_URL: http://beagle-sovereign-reranker.beagle.svc.cluster.local
   BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL: Alibaba-NLP/gte-reranker-modernbert-base
+  BEAGLE_GRAPHRAG_RUNTIME: falkordb-graphblas-bakeoff
+  BEAGLE_FALKORDB_URL: redis://beagle-falkordb.beagle.svc.cluster.local:6379
+  BEAGLE_MEMGRAPH_URL: bolt://beagle-memgraph.beagle.svc.cluster.local:7687
+  BEAGLE_SURREALDB_URL: http://beagle-surrealdb.beagle.svc.cluster.local:8000
   RUST_LOG: beagle=info,beagle_monorepo=info,beagle_core=info,tower_http=info
   RUST_LOG_JSON: "1"

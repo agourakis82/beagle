@@ -441,70 +441,26 @@ public actor BeagleClient {
         return fallback
     }
 
-    private func assistedSourceSurface(for source: String) -> String {
-        let normalized = source
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "_", with: "-")
-        if normalized.hasPrefix("beagle-") {
-            return normalized
-        }
-        if normalized.contains("watch") {
-            return "beagle-watchos"
-        }
-        if normalized.contains("siri") || normalized.contains("shortcut") {
-            return "beagle-siri"
-        }
-        if normalized.contains("share") {
-            return "beagle-share-extension"
-        }
-        if normalized.contains("vision") {
-            return "beagle-visionos"
-        }
-        if normalized.contains("mac") {
-            return "beagle-macos"
-        }
-        if normalized.contains("ipad") {
-            return "beagle-ipados"
-        }
-        return "beagle-ios"
-    }
-
     // MARK: - Thought Capture
 
     /// Capture a thought as cluster-canonical GraphRAG++ memory.
     public func captureThought(text: String, source: String = "ios") async -> Truthful<ChatResponse> {
-        let surface = assistedSourceSurface(for: source)
-        let sessionId = "\(surface)-\(UUID().uuidString.lowercased())"
-        let request = AssistedImportBatchRequest(
-            sourcePlatform: "beagle-apple",
-            sourceSurface: surface,
-            importScope: "current_conversation",
-            sessionId: sessionId,
-            turns: [
-                AssistedImportTurn(
-                    role: "user",
-                    content: text,
-                    timestamp: ISO8601DateFormatter().string(from: .now),
-                    model: nil
-                )
-            ],
-            tags: [
-                "apple-capture",
-                "surface:\(surface)",
-                "graphrag++"
-            ],
-            metadata: .object([
-                "principal": .string("beagle-apple-app"),
-                "source": .string(source),
-                "surface_claimed": .string(surface),
-                "surface_observed": .string("beagle-apple-client")
-            ]),
-            coverage: .object(["visible_turns": .number(1)]),
-            privacyClass: "sensitive",
-            title: "Apple capture \(sessionId)",
-            confidenceScore: 0.74
+        let request = AssistedImportRequestFactory.capture(
+            text: text,
+            source: source
         )
+        if request.privacyClass == "restricted" {
+            return .declared(
+                ChatResponse(
+                    response: "Restricted content was not uploaded. It must stay in the local outbox until you explicitly review it.",
+                    model: "beagle-local-privacy-guard",
+                    source: request.sourceSurface,
+                    sessionId: request.sessionId,
+                    conversationMode: "restricted_local_only"
+                ),
+                source: request.sourceSurface
+            )
+        }
 
         let result = await assistedImportBatch(request)
         guard let importResult = result.value else {
@@ -636,14 +592,76 @@ public actor BeagleClient {
         )
     }
 
+    public func memoryGraphStatus() async -> Truthful<MemoryGraphStatus> {
+        await fetch(
+            MemoryGraphStatus.self,
+            path: "/api/exocortex/v1/memory/graph/status",
+            timeout: 20
+        )
+    }
+
+    public func memoryGraphBakeoffStatus() async -> Truthful<MemoryGraphStatus> {
+        await fetch(
+            MemoryGraphStatus.self,
+            path: "/api/exocortex/v1/memory/graph/bakeoff/status",
+            timeout: 20
+        )
+    }
+
+    public func runMemoryGraphBakeoff(datasetLimit: Int = 200) async -> Truthful<GraphBakeoffRun> {
+        await post(
+            GraphBakeoffRun.self,
+            path: "/api/exocortex/v1/memory/graph/bakeoff",
+            body: [
+                "dataset_limit": max(1, min(datasetLimit, 2000)),
+                "include_baseline": true
+            ],
+            timeout: 120
+        )
+    }
+
+    public func indexMemoryGraph(rebuild: Bool = false, runtime: String? = nil) async -> Truthful<GraphIndexRun> {
+        var body: [String: any Sendable] = [
+            "rebuild": rebuild,
+            "source_refs": [String]()
+        ]
+        if let runtime, !runtime.isEmpty {
+            body["runtime"] = runtime
+        }
+        return await post(
+            GraphIndexRun.self,
+            path: "/api/exocortex/v1/memory/index-graph",
+            body: body,
+            timeout: 120
+        )
+    }
+
+    public func memoryGraphRecent(limit: Int = 12) async -> Truthful<MemoryGraphRecentResponse> {
+        await fetch(
+            MemoryGraphRecentResponse.self,
+            path: "/api/exocortex/v1/memory/graph/recent?limit=\(max(1, min(limit, 50)))",
+            timeout: 20
+        )
+    }
+
+    public func memoryWorldsRecent(limit: Int = 12) async -> Truthful<MemoryWorldsRecentResponse> {
+        await fetch(
+            MemoryWorldsRecentResponse.self,
+            path: "/api/exocortex/v1/memory/worlds/recent?limit=\(max(1, min(limit, 50)))",
+            timeout: 20
+        )
+    }
+
     public func graphRagQuery(
         query: String,
         scope: String? = nil,
-        maxItems: Int = 5
+        maxItems: Int = 5,
+        mode: String = "graphsearch-lite"
     ) async -> Truthful<GraphRagQueryResponse> {
         var body: [String: any Sendable] = [
             "query": query,
-            "max_items": maxItems
+            "max_items": maxItems,
+            "mode": mode
         ]
         if let scope, !scope.isEmpty {
             body["scope"] = scope

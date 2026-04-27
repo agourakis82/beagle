@@ -63,9 +63,25 @@ export function defineResources(
             uri: "beagle://memory/graph/status",
             name: "GraphRAG++ Memory Projection Status",
             description:
-                "Projection freshness, episode and atom counts, schema version, and degraded retrieval status.",
+                "Living GraphRAG++ status: runtime hypothesis, projection freshness, MemoryWorld count, latest bake-off, and degraded retrieval status.",
             mimeType: "application/json",
-            read: async () => client.memoryProjectionStatus(),
+            read: async () => client.memoryGraphStatus(),
+        },
+        {
+            uri: "beagle://memory/bakeoff/status",
+            name: "GraphRAG++ Runtime Bake-Off",
+            description:
+                "Latest FalkorDB/Memgraph/SurrealDB bake-off status and baseline comparison.",
+            mimeType: "application/json",
+            read: async () => client.memoryGraphBakeoffStatus(),
+        },
+        {
+            uri: "beagle://memory/worlds/recent",
+            name: "Recent MemoryWorlds",
+            description:
+                "Recent content-addressed MemoryWorlds generated from cluster-canonical Episode+Atom logs.",
+            mimeType: "application/json",
+            read: async () => client.memoryWorldsRecent(12),
         },
         {
             uri: "beagle://projects/active",
@@ -120,7 +136,7 @@ export function defineResources(
                 capabilityManifest(
                     tools,
                     ledgerState ?? {
-                        manifest_version: "beagle-mcp-v1.2",
+                        manifest_version: "beagle-mcp-v1.4-graphrag-runtime",
                         toolset_id: computeToolManifestHash(tools),
                         security_profile: "sott-non-destructive-oauth-audited",
                         active_client_surface: "local_tailnet_full",
@@ -181,7 +197,7 @@ export function defineResources(
                 capability_manifest: capabilityManifest(
                     tools,
                     ledgerState ?? {
-                        manifest_version: "beagle-mcp-v1.2",
+                        manifest_version: "beagle-mcp-v1.4-graphrag-runtime",
                         toolset_id: computeToolManifestHash(tools),
                         security_profile: "sott-non-destructive-oauth-audited",
                         active_client_surface: "local_tailnet_full",

@@ -19,6 +19,7 @@ struct WorkView: View {
     @State private var terminalInputText = ""
     @State private var showAgentSession = false
     @State private var showPlatform = false
+    @State private var workMemoryStatus = "Work memory idle"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,6 +43,20 @@ struct WorkView: View {
                     terminal.sendInput(key.escapeSequence)
                 }
             )
+
+            HStack(spacing: BeagleSpacing.xs) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(BeagleTheme.truthObserved)
+                Text(workMemoryStatus)
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .lineLimit(1)
+                Spacer()
+            }
+            .padding(.horizontal, BeagleSpacing.md)
+            .padding(.vertical, 4)
+            .background(BeagleTheme.surface1.opacity(0.5))
 
             // Quick access strip
             quickAccessStrip
@@ -106,6 +121,9 @@ struct WorkView: View {
             quickButton("Platform", icon: "server.rack", tint: BeagleTheme.textTertiary) {
                 showPlatform = true
             }
+            quickButton("Remember", icon: "externaldrive.connected.to.line.below", tint: BeagleTheme.truthObserved) {
+                Task { await recordWorkMemory() }
+            }
             quickButton("Reconnect", icon: "arrow.clockwise", tint: terminal.connectionState.isConnected ? BeagleTheme.truthObserved : BeagleTheme.stateError) {
                 connectTerminal()
             }
@@ -132,6 +150,35 @@ struct WorkView: View {
 
     private func connectTerminal() {
         terminal.connectTerminal(slug: activeSlug)
+    }
+
+    private func recordWorkMemory() async {
+        let project = catalog.projects.first(where: { $0.projectSlug == activeSlug })
+        let snapshot = AgentWorkMemorySnapshot(
+            projectSlug: activeSlug,
+            repo: project?.repoUrl,
+            branch: project?.branch ?? project?.preferredPrBase,
+            sessionId: "beagle-work-\(activeSlug)-\(UUID().uuidString.lowercased())",
+            agentKind: "beagle-apple-work",
+            objective: "Continue work on \(activeSlug) from the Beagle app Work surface.",
+            planSummary: "User opened Work surface with terminal and agent sessions available.",
+            diffSummary: nil,
+            testsSummary: nil,
+            decisionSummary: "Record current Work context as GraphRAG++ operational memory.",
+            createdAt: AssistedImportRequestFactory.isoTimestamp()
+        )
+        let request = AssistedImportRequestFactory.workMemory(snapshot)
+        guard request.privacyClass != "restricted" else {
+            workMemoryStatus = "Restricted work context held locally."
+            return
+        }
+        let result = await BeagleClient.shared.assistedImportBatch(request)
+        if let imported = result.value, imported.status == "imported" {
+            let atoms = imported.projection?.atomsCreated ?? 0
+            workMemoryStatus = "Work memory imported: \(atoms) atoms"
+        } else {
+            workMemoryStatus = result.error ?? result.value?.reason ?? "Work memory import failed"
+        }
     }
 
     // MARK: - Computed

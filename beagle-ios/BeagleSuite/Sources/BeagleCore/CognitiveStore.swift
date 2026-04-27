@@ -19,6 +19,7 @@ import CoreSpotlight
 public final class CognitiveStore {
 
     private static let isoFormatter = ISO8601DateFormatter()
+    private let assistedImportEncoder = JSONEncoder()
 
     public var state: Truthful<CognitiveState> = .declared(
         CognitiveState(hrv: nil, recentDrafts: nil, triadLatest: nil, agentSessions: nil, recentVoidJourneys: nil, recentFractalTrees: nil, recentPhiMeasurements: nil)
@@ -113,55 +114,75 @@ public final class CognitiveStore {
 
     // MARK: - Thought capture
 
-    /// Capture a thought → HERMES refinement → returns refined text.
-    /// Falls back to Foundation Models on-device if server unreachable.
+    /// Capture a thought into cluster-canonical GraphRAG++ memory.
+    /// SwiftData is only cache/outbox; canonical memory lives on the cluster.
     public func captureThought(text: String, source: String = "ios-keyboard") async -> ThoughtCapture? {
         isCapturing = true
         defer { isCapturing = false }
 
-        let result = await BeagleClient.shared.captureThought(text: text, source: source)
-
         let projectSlug = activeProjectSlug ?? "sounio"
-        let projectFamily = ProjectFamily.fromProjectSlug(projectSlug)
-        let publicationScope = PublicationScope.forProjectFamily(projectFamily)
+        let bodySummary = physioStore?.summary.detailLine
+        let request = AssistedImportRequestFactory.capture(
+            text: text,
+            source: source,
+            projectRef: projectSlug,
+            bodySummary: bodySummary,
+            metadata: [
+                "project_slug": .string(projectSlug)
+            ]
+        )
         var thought: ThoughtCapture
         let persisted = PersistedThought(rawText: text, source: source)
 
-        if let response = result.value, let refined = response.response {
-            let saveResult = await CockpitClient.shared.saveIdea(
-                slug: projectSlug,
-                text: text,
-                source: source,
-                refinedText: refined,
-                projectFamily: projectFamily,
-                publicationScope: publicationScope
-            )
-            let syncState =
-                saveResult.value?.syncState
-                ?? (saveResult.error == nil ? .synced : .localOnly)
-            thought = ThoughtCapture(
-                nodeId: saveResult.value?.nodeId,
-                refinedText: refined,
-                rawText: text,
-                source: source,
-                createdAt: Self.isoFormatter.string(from: .now),
-                syncedToServer: syncState.isClusterResident,
-                syncState: syncState
-            )
-            persisted.refinedText = refined
-            persisted.nodeId = saveResult.value?.nodeId
-            persisted.syncedToServer = syncState.isClusterResident
-        } else {
-            // Fallback: store raw thought locally
+        if request.privacyClass == "restricted" {
+            enqueueAssistedImportOutbox(request, reason: "restricted_privacy_guard")
             thought = ThoughtCapture(
                 nodeId: nil,
-                refinedText: nil,
+                refinedText: "Restricted content held locally for explicit review.",
                 rawText: text,
-                source: "\(source)-offline",
+                source: "\(source)-restricted",
                 createdAt: Self.isoFormatter.string(from: .now),
                 syncedToServer: false,
-                syncState: .localOnly
+                syncState: .queued
             )
+            persisted.refinedText = thought.refinedText
+            persisted.syncedToServer = false
+        } else {
+            let result = await BeagleClient.shared.assistedImportBatch(request)
+            if let importResult = result.value, importResult.status == "imported" {
+                let atoms = importResult.projection?.atomsCreated ?? 0
+                let episodes = importResult.projection?.episodesCreated ?? 0
+                let refined = "Captured into cluster GraphRAG++ memory (\(episodes) episode, \(atoms) atoms)."
+                let nodeId = importResult.omnimemory?.id
+                    ?? importResult.memoryEvent?.id
+                    ?? importResult.auditEvent?.id
+                    ?? importResult.sessionId
+                thought = ThoughtCapture(
+                    nodeId: nodeId,
+                    refinedText: refined,
+                    rawText: text,
+                    source: source,
+                    createdAt: Self.isoFormatter.string(from: .now),
+                    syncedToServer: true,
+                    syncState: .synced
+                )
+                persisted.refinedText = refined
+                persisted.nodeId = nodeId
+                persisted.syncedToServer = true
+            } else {
+                enqueueAssistedImportOutbox(request, reason: result.error ?? result.value?.reason ?? "cluster_import_failed")
+                thought = ThoughtCapture(
+                    nodeId: nil,
+                    refinedText: result.error ?? "Queued for cluster GraphRAG++ import.",
+                    rawText: text,
+                    source: "\(source)-queued",
+                    createdAt: Self.isoFormatter.string(from: .now),
+                    syncedToServer: false,
+                    syncState: .queued
+                )
+                persisted.refinedText = thought.refinedText
+                persisted.syncedToServer = false
+            }
         }
 
         // Bilingual processing: detect language and enqueue translation if Portuguese
@@ -186,11 +207,10 @@ public final class CognitiveStore {
         if let physio = physioStore {
             let snapshot = SomaticSnapshot(from: physio.cognitivePosture)
             somaticSnapshots.append(snapshot)
-            // Keep snapshots bounded
             if somaticSnapshots.count > 200 { somaticSnapshots.removeFirst() }
         }
 
-        // Persist to SwiftData
+        // Persist to SwiftData as cache/outbox-visible local recall.
         modelContext?.insert(persisted)
         try? modelContext?.save()
 
@@ -198,6 +218,23 @@ public final class CognitiveStore {
         indexToSpotlight(thought)
 
         return thought
+    }
+
+    private func enqueueAssistedImportOutbox(_ request: AssistedImportBatchRequest, reason: String) {
+        guard
+            let modelContext,
+            let data = try? assistedImportEncoder.encode(request),
+            let payload = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+        modelContext.insert(PersistedAssistedImportOutbox(
+            payload: payload,
+            reason: reason,
+            privacyClass: request.privacyClass,
+            sourceSurface: request.sourceSurface
+        ))
+        try? modelContext.save()
     }
 
     // MARK: - Bilingual translation callback
