@@ -1,0 +1,328 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Capture Codex/Claude Code work memory into the cluster-canonical Beagle
+# GraphRAG++ Episode+Atom loop. This script never writes canonical memory
+# locally; it only builds a transient payload and POSTs it to Beagle Core.
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="${BEAGLE_MCP_LOCAL_ENV:-${HOME}/.beagle/mcp-local.env}"
+
+if [[ -f "${ENV_FILE}" ]]; then
+  # shellcheck disable=SC1090
+  set -a
+  source "${ENV_FILE}"
+  set +a
+fi
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  scripts/beagle-work-memory-capture [options]
+
+Options:
+  --dry-run                 Print the payload instead of posting it.
+  --agent NAME              codex | claude-code | beagle-apple-work (default: codex)
+  --phase PHASE             start | plan | decision | diff | test | summary | next_action
+  --session-id ID           Stable session id. Generated if omitted.
+  --project SLUG            Project slug (default: beagle).
+  --repo REPO               Repository name or URL. Inferred from git if omitted.
+  --branch BRANCH           Git branch. Inferred from git if omitted.
+  --commit COMMIT           Git commit. Inferred from git if omitted.
+  --summary TEXT            Main work-memory summary. If omitted, stdin is used when piped.
+  --plan TEXT               Repeatable plan item.
+  --decision TEXT           Repeatable decision item.
+  --test TEXT               Repeatable test/check item.
+  --diff-summary TEXT       Diff summary or git diffstat.
+  --next-action TEXT        Next action to preserve.
+  --source-surface TEXT     Surface claim (default: <agent>-work-memory).
+  --tool-manifest-hash HASH Manifest hash. Fetched from public MCP if omitted.
+  --exit-code CODE          Optional process exit code.
+  --duration-seconds N      Optional session duration.
+  -h, --help                Show this help.
+USAGE
+}
+
+dry_run=false
+agent="${MCP_CLIENT_TYPE:-codex}"
+phase="summary"
+session_id=""
+project_slug="beagle"
+repo=""
+branch=""
+commit=""
+summary=""
+diff_summary=""
+next_action=""
+source_surface=""
+tool_manifest_hash="${BEAGLE_TOOL_MANIFEST_HASH:-}"
+exit_code=""
+duration_seconds=""
+plans=()
+decisions=()
+tests_run=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) dry_run=true; shift ;;
+    --agent) agent="${2:-}"; shift 2 ;;
+    --phase) phase="${2:-}"; shift 2 ;;
+    --session-id) session_id="${2:-}"; shift 2 ;;
+    --project) project_slug="${2:-}"; shift 2 ;;
+    --repo) repo="${2:-}"; shift 2 ;;
+    --branch) branch="${2:-}"; shift 2 ;;
+    --commit) commit="${2:-}"; shift 2 ;;
+    --summary) summary="${2:-}"; shift 2 ;;
+    --plan) plans+=("${2:-}"); shift 2 ;;
+    --decision) decisions+=("${2:-}"); shift 2 ;;
+    --test) tests_run+=("${2:-}"); shift 2 ;;
+    --diff-summary) diff_summary="${2:-}"; shift 2 ;;
+    --next-action) next_action="${2:-}"; shift 2 ;;
+    --source-surface) source_surface="${2:-}"; shift 2 ;;
+    --tool-manifest-hash) tool_manifest_hash="${2:-}"; shift 2 ;;
+    --exit-code) exit_code="${2:-}"; shift 2 ;;
+    --duration-seconds) duration_seconds="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+case "${phase}" in
+  start|plan|decision|diff|test|summary|next_action) ;;
+  *) echo "Invalid --phase '${phase}'" >&2; exit 2 ;;
+esac
+
+if [[ -z "${summary}" && ! -t 0 ]]; then
+  summary="$(cat)"
+fi
+
+if git_root="$(git -C "${ROOT_DIR}" rev-parse --show-toplevel 2>/dev/null)"; then
+  : "${repo:=$(git -C "${git_root}" config --get remote.origin.url 2>/dev/null || basename "${git_root}")}"
+  : "${branch:=$(git -C "${git_root}" branch --show-current 2>/dev/null || true)}"
+  : "${commit:=$(git -C "${git_root}" rev-parse --short HEAD 2>/dev/null || true)}"
+  if [[ -z "${diff_summary}" ]]; then
+    diff_summary="$(git -C "${git_root}" diff --stat 2>/dev/null || true)"
+  fi
+  changed_files="$(git -C "${git_root}" status --short 2>/dev/null || true)"
+else
+  git_root="${ROOT_DIR}"
+  changed_files=""
+fi
+
+repo="${repo:-beagle}"
+branch="${branch:-unknown}"
+commit="${commit:-unknown}"
+source_surface="${source_surface:-${agent}-work-memory}"
+session_id="${session_id:-${agent}-$(date -u +%Y%m%dT%H%M%SZ)-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
+summary="${summary:-${agent} ${phase} event for ${project_slug} at ${commit}}"
+core_url="${BEAGLE_CORE_URL:-http://beagle-core.tail21cbc4.ts.net}"
+api_token="${BEAGLE_CORE_API_TOKEN:-${BEAGLE_API_TOKEN:-}}"
+
+if [[ -z "${tool_manifest_hash}" ]] && command -v curl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+  tool_manifest_hash="$(
+    curl -fsS --max-time 5 https://mcp.agourakis.com/.well-known/mcp 2>/dev/null \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tool_manifest_hash",""))' 2>/dev/null \
+      || true
+  )"
+fi
+
+plans_text=""
+decisions_text=""
+tests_text=""
+if ((${#plans[@]} > 0)); then
+  plans_text="$(printf '%s\n' "${plans[@]}")"
+fi
+if ((${#decisions[@]} > 0)); then
+  decisions_text="$(printf '%s\n' "${decisions[@]}")"
+fi
+if ((${#tests_run[@]} > 0)); then
+  tests_text="$(printf '%s\n' "${tests_run[@]}")"
+fi
+
+restricted_blob="$(
+  printf '%s\n' "${summary}" "${diff_summary}" "${next_action}" "${plans_text}" "${decisions_text}" "${tests_text}" "${changed_files}" \
+    | tr '[:upper:]' '[:lower:]'
+)"
+if [[ "${restricted_blob}" == *"client_secret"* \
+  || "${restricted_blob}" == *"refresh_token"* \
+  || "${restricted_blob}" == *"private key"* \
+  || "${restricted_blob}" == *"-----begin"* \
+  || "${restricted_blob}" == *"bearer "* \
+  || "${restricted_blob}" == *"api_key"* \
+  || "${restricted_blob}" == *"password:"* \
+  || "${restricted_blob}" == *"passwd"* \
+  || "${restricted_blob}" == *"sk-"* \
+  || "${restricted_blob}" == *"ghp_"* ]]; then
+  echo "Refusing to upload restricted-looking work memory. Review/redact locally first." >&2
+  exit 3
+fi
+
+payload="$(mktemp)"
+response="$(mktemp)"
+trap 'rm -f "${payload}" "${response}"' EXIT
+
+export BEAGLE_WM_AGENT="${agent}"
+export BEAGLE_WM_PHASE="${phase}"
+export BEAGLE_WM_SESSION_ID="${session_id}"
+export BEAGLE_WM_PROJECT="${project_slug}"
+export BEAGLE_WM_REPO="${repo}"
+export BEAGLE_WM_BRANCH="${branch}"
+export BEAGLE_WM_COMMIT="${commit}"
+export BEAGLE_WM_SUMMARY="${summary}"
+export BEAGLE_WM_DIFF_SUMMARY="${diff_summary}"
+export BEAGLE_WM_NEXT_ACTION="${next_action}"
+export BEAGLE_WM_SOURCE_SURFACE="${source_surface}"
+export BEAGLE_WM_TOOL_MANIFEST_HASH="${tool_manifest_hash}"
+export BEAGLE_WM_EXIT_CODE="${exit_code}"
+export BEAGLE_WM_DURATION_SECONDS="${duration_seconds}"
+export BEAGLE_WM_CHANGED_FILES="${changed_files}"
+export BEAGLE_WM_PLANS="${plans_text}"
+export BEAGLE_WM_DECISIONS="${decisions_text}"
+export BEAGLE_WM_TESTS="${tests_text}"
+
+python3 >"${payload}" <<'PY'
+import json
+import os
+from datetime import datetime, timezone
+
+def lines(name):
+    return [line for line in os.environ.get(name, "").splitlines() if line.strip()]
+
+agent = os.environ["BEAGLE_WM_AGENT"]
+phase = os.environ["BEAGLE_WM_PHASE"]
+session_id = os.environ["BEAGLE_WM_SESSION_ID"]
+project = os.environ["BEAGLE_WM_PROJECT"]
+repo = os.environ["BEAGLE_WM_REPO"]
+branch = os.environ["BEAGLE_WM_BRANCH"]
+commit = os.environ["BEAGLE_WM_COMMIT"]
+summary = os.environ["BEAGLE_WM_SUMMARY"]
+diff_summary = os.environ.get("BEAGLE_WM_DIFF_SUMMARY", "")
+next_action = os.environ.get("BEAGLE_WM_NEXT_ACTION", "")
+source_surface = os.environ["BEAGLE_WM_SOURCE_SURFACE"]
+tool_manifest_hash = os.environ.get("BEAGLE_WM_TOOL_MANIFEST_HASH", "")
+exit_code = os.environ.get("BEAGLE_WM_EXIT_CODE", "")
+duration_seconds = os.environ.get("BEAGLE_WM_DURATION_SECONDS", "")
+changed_files = os.environ.get("BEAGLE_WM_CHANGED_FILES", "")
+plans = lines("BEAGLE_WM_PLANS")
+decisions = lines("BEAGLE_WM_DECISIONS")
+tests = lines("BEAGLE_WM_TESTS")
+now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+parts = [
+    f"Phase: {phase}",
+    f"Summary: {summary}",
+    f"Repo: {repo}",
+    f"Branch: {branch}",
+    f"Commit: {commit}",
+]
+if plans:
+    parts.append("Plan:\n" + "\n".join(f"- {item}" for item in plans))
+if decisions:
+    parts.append("Decisions:\n" + "\n".join(f"- {item}" for item in decisions))
+if tests:
+    parts.append("Tests:\n" + "\n".join(f"- {item}" for item in tests))
+if diff_summary:
+    parts.append("Diff:\n" + diff_summary)
+if changed_files:
+    parts.append("Changed files:\n" + changed_files)
+if exit_code:
+    parts.append(f"Exit code: {exit_code}")
+if duration_seconds:
+    parts.append(f"Duration seconds: {duration_seconds}")
+if next_action:
+    parts.append(f"Next action: {next_action}")
+
+tags = [
+    "work-memory",
+    "graphrag++",
+    f"agent:{agent}",
+    f"phase:{phase}",
+    f"project:{project}",
+    f"repo:{repo}",
+    f"branch:{branch}",
+    "v1.7",
+]
+
+metadata = {
+    "principal": agent,
+    "source_platform": agent,
+    "source_surface": source_surface,
+    "surface_claimed": source_surface,
+    "surface_observed": "local_tailnet_full",
+    "work_memory": True,
+    "project_slug": project,
+    "repo": repo,
+    "branch": branch,
+    "commit": commit,
+    "phase": phase,
+    "changed_files": changed_files.splitlines(),
+    "exit_code": exit_code or None,
+    "duration_seconds": duration_seconds or None,
+}
+if tool_manifest_hash:
+    metadata["tool_manifest_hash"] = tool_manifest_hash
+
+payload = {
+    "source_platform": agent,
+    "source_surface": source_surface,
+    "import_scope": "agent_work_session",
+    "session_id": session_id,
+    "project_ref": project,
+    "batch_index": 1,
+    "batch_total": 1,
+    "privacy_class": "sensitive",
+    "title": f"{agent} work memory {phase}: {project}",
+    "original_date": now,
+    "confidence_score": 0.86,
+    "create_chronoself_commit": False,
+    "tags": tags,
+    "metadata": metadata,
+    "coverage": {
+        "visible_project_only": True,
+        "work_memory_fields": len(parts),
+        "autopilot_v1_7": True,
+    },
+    "turns": [
+        {
+            "role": "assistant",
+            "content": "\n\n".join(parts),
+            "timestamp": now,
+            "model": agent,
+        }
+    ],
+    "extracted": {
+        "key_insights": [summary],
+        "decisions": decisions,
+        "hypotheses": [],
+        "belief_changes": [],
+        "projects_mentioned": [project],
+        "unresolved_questions": [next_action] if next_action else [],
+    },
+}
+print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+PY
+
+if [[ "${dry_run}" == "true" ]]; then
+  python3 -m json.tool "${payload}"
+  exit 0
+fi
+
+if [[ -z "${api_token}" ]]; then
+  echo "Missing BEAGLE_CORE_API_TOKEN or BEAGLE_API_TOKEN in ${ENV_FILE}." >&2
+  exit 4
+fi
+
+status="$(
+  curl -sS -o "${response}" -w "%{http_code}" \
+    -X POST "${core_url%/}/api/exocortex/v1/memory/assisted-import" \
+    -H "content-type: application/json" \
+    -H "authorization: Bearer ${api_token}" \
+    --data-binary @"${payload}"
+)"
+
+cat "${response}"
+printf '\n'
+if [[ "${status}" -lt 200 || "${status}" -ge 300 ]]; then
+  echo "beagle-work-memory-capture failed with HTTP ${status}" >&2
+  exit 5
+fi

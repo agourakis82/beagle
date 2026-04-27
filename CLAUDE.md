@@ -2,6 +2,37 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Beagle Work Memory Autopilot
+
+Beagle is the cluster-canonical exocortex. Local files, Claude Code, Codex, and
+Apple clients are only surfaces; canonical memory lives in the cluster
+GraphRAG++/JSONL/Merkle/Chronoself store.
+
+When working with Claude Code, preserve work memory at session start, after a
+real plan, after important decisions, after meaningful diffs/tests, and at final
+summary/next action.
+
+Preferred wrapper:
+
+```bash
+scripts/beagle-agent-session --agent claude-code -- claude
+```
+
+Manual capture:
+
+```bash
+scripts/beagle-work-memory-capture \
+  --agent claude-code \
+  --phase summary \
+  --summary "What changed and why" \
+  --test "command that passed or failed" \
+  --next-action "What the next agent should do"
+```
+
+If `claude` is not on PATH, do not install it automatically. Surface the missing
+CLI clearly. The scripts must never print tokens and must never store canonical
+memory on the workstation.
+
 ## Quick Start Commands
 
 ### Environment Setup

@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Wrap a local coding agent session and capture start/end work memory in Beagle.
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CAPTURE="${ROOT_DIR}/scripts/beagle-work-memory-capture"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  scripts/beagle-agent-session --agent codex|claude-code [options] -- <command> [args...]
+
+Options:
+  --agent NAME        codex or claude-code.
+  --project SLUG      Project slug (default: beagle).
+  --session-id ID     Stable session id. Generated if omitted.
+  --summary TEXT      Start-session objective.
+  --repo REPO         Repository name or URL. Inferred by capture script.
+  --branch BRANCH     Git branch. Inferred by capture script.
+  -h, --help          Show this help.
+
+Examples:
+  scripts/beagle-agent-session --agent codex -- codex
+  scripts/beagle-agent-session --agent claude-code -- claude
+USAGE
+}
+
+agent=""
+project_slug="beagle"
+session_id=""
+summary=""
+repo_value=""
+branch_value=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --agent) agent="${2:-}"; shift 2 ;;
+    --project) project_slug="${2:-}"; shift 2 ;;
+    --session-id) session_id="${2:-}"; shift 2 ;;
+    --summary) summary="${2:-}"; shift 2 ;;
+    --repo) repo_value="${2:-}"; shift 2 ;;
+    --branch) branch_value="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; break ;;
+    *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+case "${agent}" in
+  codex|claude-code) ;;
+  *) echo "--agent must be codex or claude-code" >&2; exit 2 ;;
+esac
+
+if [[ $# -eq 0 ]]; then
+  if [[ "${agent}" == "codex" ]]; then
+    set -- codex
+  else
+    set -- claude
+  fi
+fi
+
+command_name="$1"
+if ! command -v "${command_name}" >/dev/null 2>&1; then
+  if [[ "${agent}" == "claude-code" && "${command_name}" == "claude" ]]; then
+    cat >&2 <<'MSG'
+Claude Code CLI (`claude`) is not on PATH.
+
+Install or expose the Claude Code CLI, then rerun:
+  scripts/beagle-agent-session --agent claude-code -- claude
+
+This wrapper will not install Claude Code automatically.
+MSG
+  else
+    echo "Command not found: ${command_name}" >&2
+  fi
+  exit 127
+fi
+
+session_id="${session_id:-${agent}-$(date -u +%Y%m%dT%H%M%SZ)-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
+summary="${summary:-Starting ${agent} work session for ${project_slug}.}"
+started_at="$(date +%s)"
+
+echo "Beagle work-memory session: ${session_id}" >&2
+
+"${CAPTURE}" \
+  --agent "${agent}" \
+  --phase start \
+  --session-id "${session_id}" \
+  --project "${project_slug}" \
+  --repo "${repo_value}" \
+  --branch "${branch_value}" \
+  --summary "${summary}" \
+  --next-action "Record plan, diffs, tests, final summary, and next action for this work session." \
+  >/dev/null || echo "Warning: Beagle start capture failed; continuing session." >&2
+
+set +e
+"$@"
+status=$?
+set -e
+
+ended_at="$(date +%s)"
+duration="$((ended_at - started_at))"
+if [[ "${status}" -eq 0 ]]; then
+  final_summary="${agent} session completed successfully."
+  next_action="Review imported work memory and continue from the final summary."
+else
+  final_summary="${agent} session ended with exit code ${status}."
+  next_action="Inspect failure, logs, and changed files before continuing."
+fi
+
+"${CAPTURE}" \
+  --agent "${agent}" \
+  --phase summary \
+  --session-id "${session_id}" \
+  --project "${project_slug}" \
+  --repo "${repo_value}" \
+  --branch "${branch_value}" \
+  --summary "${final_summary}" \
+  --test "agent_exit_code=${status}" \
+  --duration-seconds "${duration}" \
+  --exit-code "${status}" \
+  --next-action "${next_action}" \
+  >/dev/null || echo "Warning: Beagle final capture failed." >&2
+
+exit "${status}"

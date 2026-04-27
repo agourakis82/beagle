@@ -142,6 +142,29 @@ codex mcp add beagle \
 codex mcp get beagle
 ```
 
+#### 3b. Optional Work-Memory Wrappers
+
+For sessions that should automatically capture start/end work memory into the
+cluster-canonical GraphRAG++ loop:
+
+```bash
+alias beagle-codex='/absolute/path/to/beagle/scripts/beagle-agent-session --agent codex -- codex'
+alias beagle-claude-code='/absolute/path/to/beagle/scripts/beagle-agent-session --agent claude-code -- claude'
+```
+
+Manual capture for plan/test/diff milestones:
+
+```bash
+/absolute/path/to/beagle/scripts/beagle-work-memory-capture \
+  --agent codex \
+  --phase test \
+  --summary "Ran v1.7 checks" \
+  --test "swift test"
+```
+
+The wrappers only create transient payloads and POST them to Beagle Core. They
+do not store canonical memory on the workstation.
+
 #### 4. Configure Claude Desktop, if desired
 
 Create or edit `~/Library/Application Support/Claude/claude_desktop_config.json`:

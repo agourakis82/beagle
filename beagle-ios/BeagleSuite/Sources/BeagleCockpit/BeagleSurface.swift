@@ -193,6 +193,24 @@ struct BeagleSurface: View {
 
                 memoryProjectionStrip
 
+                if let agentLine = latestAgentWriteLine {
+                    memoryContextRow(
+                        icon: "hammer",
+                        title: "Latest work memory",
+                        line: agentLine,
+                        tint: BeagleTheme.truthObserved
+                    )
+                }
+
+                if let grokLine = latestGrokImportLine {
+                    memoryContextRow(
+                        icon: "tray.and.arrow.down",
+                        title: "Latest Grok signal",
+                        line: grokLine,
+                        tint: BeagleTheme.truthRemembered
+                    )
+                }
+
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: BeagleSpacing.md) {
                         homeSignal(
@@ -389,6 +407,28 @@ struct BeagleSurface: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("MCP trust")
+                    .font(BeagleFont.caption2.font)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                Text(line)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func memoryContextRow(icon: String, title: String, line: String, tint: Color) -> some View {
+        HStack(alignment: .top, spacing: BeagleSpacing.xs) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
                     .font(BeagleFont.caption2.font)
                     .fontWeight(.semibold)
                     .foregroundStyle(BeagleTheme.textTertiary)
@@ -783,6 +823,35 @@ struct BeagleSurface: View {
         return "\(runtime) · \(mode) · \(status.episodeCount) episodes · \(status.atomCount) atoms · \(degrade)\(hash)\(candidate)"
     }
 
+    private var latestAgentWriteLine: String? {
+        if let latest = home.trustContext?.latestAgentWrite?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !latest.isEmpty {
+            return latest
+        }
+        if let latest = home.agentContext?.lastAgentWrite?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !latest.isEmpty {
+            return latest
+        }
+        if let atom = exocortex.recentGraph?.value?.atoms.first(where: isWorkMemoryAtom) {
+            return "\(atom.atomType) · \(atom.text)"
+        }
+        return nil
+    }
+
+    private var latestGrokImportLine: String? {
+        if let signal = home.memorySignals.first(where: { $0.localizedCaseInsensitiveContains("grok") }) {
+            return signal
+        }
+        if let episode = exocortex.recentGraph?.value?.episodes.first(where: isGrokEpisode) {
+            let when = episode.occurredAt ?? episode.createdAt
+            return "\(episode.title ?? episode.sourceRef) · \(when)"
+        }
+        if let atom = exocortex.recentGraph?.value?.atoms.first(where: isGrokAtom) {
+            return "\(atom.atomType) · \(atom.text)"
+        }
+        return nil
+    }
+
     private var autoImportTitle: String {
         switch conversation.autoImportState.status {
         case "imported":
@@ -820,6 +889,29 @@ struct BeagleSurface: View {
             return "\(agent.mcpStatus) · \(agent.activeSessions) sessions"
         }
         return home.clusterTruth
+    }
+
+    private func isWorkMemoryAtom(_ atom: MemoryAtom) -> Bool {
+        let haystack = (atom.tags + [atom.atomType, atom.text]).joined(separator: " ").lowercased()
+        return haystack.contains("work-memory")
+            || haystack.contains("codex")
+            || haystack.contains("claude-code")
+            || haystack.contains("agent:")
+    }
+
+    private func isGrokEpisode(_ episode: MemoryEpisode) -> Bool {
+        let haystack = (episode.tags + [
+            episode.source,
+            episode.sourcePlatform ?? "",
+            episode.title ?? "",
+            episode.sourceRef
+        ]).joined(separator: " ").lowercased()
+        return haystack.contains("grok")
+    }
+
+    private func isGrokAtom(_ atom: MemoryAtom) -> Bool {
+        let haystack = (atom.tags + [atom.atomType, atom.text]).joined(separator: " ").lowercased()
+        return haystack.contains("grok")
     }
 
     private var bodyLoopTitle: String {
@@ -931,6 +1023,12 @@ private struct MemoryLensSheet: View {
                         .foregroundStyle(BeagleTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let latestWorkMemoryLine {
+                    lensContextLine("work memory · \(latestWorkMemoryLine)")
+                }
+                if let latestGrokImportLine {
+                    lensContextLine("grok import · \(latestGrokImportLine)")
+                }
                 if let degraded = graphStatus?.degradedReason ?? status?.degradedReason, !degraded.isEmpty {
                     Text(degraded)
                         .font(BeagleFont.caption.font)
@@ -1039,6 +1137,18 @@ private struct MemoryLensSheet: View {
                 Text("latest agent write · \(latest)")
                     .font(BeagleFont.caption.font)
                     .foregroundStyle(BeagleTheme.textSecondary)
+            }
+            if let latestWorkMemoryLine {
+                Text("latest work event · \(latestWorkMemoryLine)")
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let latestGrokImportLine {
+                Text("grok corpus signal · \(latestGrokImportLine)")
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if workAtoms.isEmpty {
                 emptyRow("No Codex or Claude Code work-memory atoms observed yet.")
@@ -1368,6 +1478,64 @@ private struct MemoryLensSheet: View {
     private func statusLine(_ status: MemoryProjectionStatus?) -> String {
         guard let status else { return "Projection status unavailable." }
         return "\(status.status) · \(status.episodeCount) episodes · \(status.atomCount) atoms · \(status.retrievalMode)"
+    }
+
+    private var latestWorkMemoryLine: String? {
+        if let latest = exocortex.home.value?.trustContext?.latestAgentWrite?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !latest.isEmpty {
+            return latest
+        }
+        if let latest = exocortex.home.value?.agentContext?.lastAgentWrite?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !latest.isEmpty {
+            return latest
+        }
+        if let atom = (exocortex.recentGraph?.value?.atoms ?? []).first(where: isWorkMemoryAtom) {
+            return "\(atom.atomType) · \(atom.text)"
+        }
+        return nil
+    }
+
+    private var latestGrokImportLine: String? {
+        if let signal = exocortex.home.value?.memorySignals.first(where: { $0.localizedCaseInsensitiveContains("grok") }) {
+            return signal
+        }
+        if let episode = (exocortex.recentGraph?.value?.episodes ?? []).first(where: isGrokEpisode) {
+            return "\(episode.title ?? episode.sourceRef) · \(episode.occurredAt ?? episode.createdAt)"
+        }
+        if let atom = (exocortex.recentGraph?.value?.atoms ?? []).first(where: isGrokAtom) {
+            return "\(atom.atomType) · \(atom.text)"
+        }
+        return nil
+    }
+
+    private func lensContextLine(_ text: String) -> some View {
+        Text(text)
+            .font(BeagleFont.caption.font)
+            .foregroundStyle(BeagleTheme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func isWorkMemoryAtom(_ atom: MemoryAtom) -> Bool {
+        let haystack = (atom.tags + [atom.atomType, atom.text]).joined(separator: " ").lowercased()
+        return haystack.contains("work-memory")
+            || haystack.contains("codex")
+            || haystack.contains("claude-code")
+            || haystack.contains("agent:")
+    }
+
+    private func isGrokEpisode(_ episode: MemoryEpisode) -> Bool {
+        let haystack = (episode.tags + [
+            episode.source,
+            episode.sourcePlatform ?? "",
+            episode.title ?? "",
+            episode.sourceRef
+        ]).joined(separator: " ").lowercased()
+        return haystack.contains("grok")
+    }
+
+    private func isGrokAtom(_ atom: MemoryAtom) -> Bool {
+        let haystack = (atom.tags + [atom.atomType, atom.text]).joined(separator: " ").lowercased()
+        return haystack.contains("grok")
     }
 
     private func runQuery() async {
