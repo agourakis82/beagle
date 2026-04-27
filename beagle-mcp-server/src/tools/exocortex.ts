@@ -120,9 +120,34 @@ const GraphRagQuerySchema = z.object({
     scope: z.string().optional(),
     max_items: z.number().int().min(1).max(20).optional().default(5),
     mode: z
-        .enum(["graphsearch-lite", "drift-lite", "local", "global", "hybrid"])
+        .enum(["graphsearch-lite", "drift-lite", "local", "global", "hybrid", "adaptive-federation"])
         .optional()
         .default("graphsearch-lite"),
+});
+
+const MemoryMeshQuerySchema = z.object({
+    query: z.string().min(1),
+    scope: z.string().optional(),
+    max_items: z.number().int().min(1).max(20).optional().default(8),
+    mode: z.string().optional().default("adaptive-federation"),
+});
+
+const MemoryEngineBakeoffRunSchema = z.object({
+    limit: z.number().int().min(1).max(10000).optional().default(1000),
+    domains: z.array(z.string()).optional(),
+});
+
+const MemoryCandidatesListSchema = z.object({
+    limit: z.number().int().min(1).max(100).optional().default(20),
+});
+
+const MemoryCandidateQuorumSchema = z.object({
+    candidate_id: z.string().min(1),
+    memory_approved: z.boolean().default(false),
+    temporal_approved: z.boolean().default(false),
+    critical_approved: z.boolean().default(false),
+    rationale: z.string().optional(),
+    reviewer: z.string().optional().default("mcp-agent"),
 });
 
 const WorkMemoryCaptureSchema = z.object({
@@ -680,6 +705,85 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
             handler: async (args: unknown) => {
                 const parsed = GraphRagQuerySchema.parse(args ?? {});
                 return sanitizeOutput(await client.graphRagQuery(parsed));
+            },
+        },
+        {
+            name: "beagle_memory_engine_status",
+            description:
+                "Read Beagle Memory Engine v1.5 federated runtime mesh status across online graph, analytics, vector, and ontology candidates.",
+            inputSchema: { type: "object", properties: {} },
+            handler: async () => sanitizeOutput(await client.memoryEngineStatus()),
+        },
+        {
+            name: "beagle_memory_mesh_query",
+            description:
+                "Query the federated Beagle Memory Engine mesh with adaptive runtime voting, core canonical merge, mesh trace, and degraded fallback.",
+            inputSchema: {
+                type: "object",
+                required: ["query"],
+                properties: {
+                    query: { type: "string" },
+                    scope: { type: "string" },
+                    max_items: { type: "number", minimum: 1, maximum: 20, default: 8 },
+                    mode: { type: "string", default: "adaptive-federation" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryMeshQuerySchema.parse(args ?? {});
+                return sanitizeOutput(await client.memoryMeshQuery(parsed));
+            },
+        },
+        {
+            name: "beagle_memory_bakeoff_run",
+            description:
+                "Start a cluster-only Beagle Memory Engine v1.5 shadow bake-off over sanitized real/synthetic golden queries and federated runtime candidates.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    limit: { type: "number", minimum: 1, maximum: 10000, default: 1000 },
+                    domains: { type: "array", items: { type: "string" } },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryEngineBakeoffRunSchema.parse(args ?? {});
+                return sanitizeOutput(await client.memoryEngineBakeoffRun(parsed));
+            },
+        },
+        {
+            name: "beagle_memory_candidates_list",
+            description:
+                "List candidate atoms/hyperedges proposed by the memory engine; candidates are excluded from active retrieval until strict Triad quorum promotion.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    limit: { type: "number", minimum: 1, maximum: 100, default: 20 },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryCandidatesListSchema.parse(args ?? {});
+                return sanitizeOutput(await client.memoryCandidates(parsed.limit));
+            },
+        },
+        {
+            name: "beagle_memory_candidate_quorum",
+            description:
+                "Record a strict Memory+Temporal+Critical Triad quorum decision for a candidate memory item without destructive actions.",
+            inputSchema: {
+                type: "object",
+                required: ["candidate_id"],
+                properties: {
+                    candidate_id: { type: "string" },
+                    memory_approved: { type: "boolean", default: false },
+                    temporal_approved: { type: "boolean", default: false },
+                    critical_approved: { type: "boolean", default: false },
+                    rationale: { type: "string" },
+                    reviewer: { type: "string", default: "mcp-agent" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryCandidateQuorumSchema.parse(args ?? {});
+                const { candidate_id, ...body } = parsed;
+                return sanitizeOutput(await client.memoryCandidateQuorum(candidate_id, body));
             },
         },
         {

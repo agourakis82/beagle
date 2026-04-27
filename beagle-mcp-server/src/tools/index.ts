@@ -171,6 +171,31 @@ const TOOL_POLICIES: Record<string, ToolPolicy> = {
         requiredScopes: READ_EXOCORTEX,
         riskLevel: "read",
     },
+    beagle_memory_engine_status: {
+        annotations: annotations("Read Federated Memory Engine Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_memory_mesh_query: {
+        annotations: annotations("Query Federated Memory Mesh", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_memory_bakeoff_run: {
+        annotations: annotations("Run Memory Runtime Bake-Off", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_memory_candidates_list: {
+        annotations: annotations("List Candidate Memory Items", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_memory_candidate_quorum: {
+        annotations: annotations("Record Candidate Memory Quorum", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
     beagle_work_memory_capture: {
         annotations: annotations("Capture Agent Work Memory", false, false, false),
         requiredScopes: WRITE_MEMORY,
@@ -243,6 +268,9 @@ const REVIEW_SAFE_TOOL_NAMES = new Set([
     "beagle_memory_graph_status",
     "beagle_memory_bakeoff_status",
     "beagle_graphrag_query",
+    "beagle_memory_engine_status",
+    "beagle_memory_mesh_query",
+    "beagle_memory_candidates_list",
     "beagle_pipeline_status",
     "beagle_list_recent_runs",
     "beagle_get_science_job_status",

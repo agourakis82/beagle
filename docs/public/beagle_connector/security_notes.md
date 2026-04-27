@@ -38,7 +38,7 @@ Tool calls are written to the Beagle append-only audit event API when the core i
 
 ## Capability Ledger
 
-Beagle MCP v1.2 exposes a capability ledger in `/.well-known/mcp` and `beagle://mcp/manifest/current`. The ledger includes `manifest_version`, `toolset_id`, `security_profile`, client surfaces, scopes, tool annotations, and the reserved destructive-action policy. On startup, the MCP server registers the active tool manifest as an append-only audit event in Beagle Core.
+Beagle MCP v1.5 exposes a capability ledger in `/.well-known/mcp` and `beagle://mcp/manifest/current`. The ledger includes `manifest_version`, `toolset_id`, `security_profile`, client surfaces, scopes, tool annotations, and the reserved destructive-action policy. On startup, the MCP server registers the active tool manifest as an append-only audit event in Beagle Core.
 
 Client surfaces:
 

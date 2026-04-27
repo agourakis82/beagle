@@ -760,7 +760,9 @@ struct BeagleSurface: View {
         guard let trust = home.trustContext else { return nil }
         let scopeCount = trust.activeScopes.count
         let hashLabel = trust.toolManifestHash.map { String($0.suffix(12)) } ?? "no hash"
-        return "\(trust.mcpStatus) · \(scopeCount) scopes · \(hashLabel) · destructive locked"
+        let mesh = trust.memoryEngineStatus.map { " · \($0)" } ?? ""
+        let quorum = trust.latestQuorumStatus.map { " · quorum \($0)" } ?? ""
+        return "\(trust.mcpStatus) · \(scopeCount) scopes · \(hashLabel)\(mesh)\(quorum) · destructive locked"
     }
 
     private var memoryProjectionLine: String {
@@ -774,7 +776,8 @@ struct BeagleSurface: View {
         let mode = home.trustContext?.retrievalMode ?? exocortex.graphStatus?.value?.retrievalMode ?? status.retrievalMode
         let degrade = home.trustContext?.graphDegradedReason ?? exocortex.graphStatus?.value?.degradedReason ?? status.degradedReason
         let hash = home.trustContext?.lastWorldHash.map { " · \($0.prefix(18))" } ?? ""
-        return "\(runtime) · \(mode) · \(status.episodeCount) episodes · \(status.atomCount) atoms · \(degrade)\(hash)"
+        let candidate = home.trustContext?.latestCandidateRef.map { " · candidate \($0.prefix(12))" } ?? ""
+        return "\(runtime) · \(mode) · \(status.episodeCount) episodes · \(status.atomCount) atoms · \(degrade)\(hash)\(candidate)"
     }
 
     private var autoImportTitle: String {
@@ -849,6 +852,8 @@ private struct MemoryLensSheet: View {
         case worlds = "Worlds"
         case work = "Work"
         case contradictions = "Contradictions"
+        case candidates = "Candidates"
+        case runtimeTrace = "Runtime"
 
         var id: String { rawValue }
     }
@@ -869,6 +874,10 @@ private struct MemoryLensSheet: View {
                     workTab
                 case .contradictions:
                     contradictionsTab
+                case .candidates:
+                    candidatesTab
+                case .runtimeTrace:
+                    runtimeTraceTab
                 }
             }
             .padding(BeagleSpacing.lg)
@@ -879,7 +888,8 @@ private struct MemoryLensSheet: View {
             async let graphStatus: Void = exocortex.refreshGraphStatus()
             async let recentGraph: Void = exocortex.refreshRecentGraph(limit: 16)
             async let worlds: Void = exocortex.refreshRecentWorlds(limit: 16)
-            _ = await (graphStatus, recentGraph, worlds)
+            async let candidates: Void = exocortex.refreshMemoryCandidates(limit: 20)
+            _ = await (graphStatus, recentGraph, worlds, candidates)
         }
     }
 
@@ -904,6 +914,15 @@ private struct MemoryLensSheet: View {
                         .foregroundStyle(BeagleTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let trust = exocortex.home.value?.trustContext {
+                    let mesh = trust.memoryEngineStatus ?? "mesh not observed"
+                    let candidate = trust.latestCandidateRef.map { " · candidate \($0.prefix(12))" } ?? ""
+                    let quorum = trust.latestQuorumStatus.map { " · quorum \($0)" } ?? ""
+                    Text("\(mesh)\(candidate)\(quorum)")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let degraded = graphStatus?.degradedReason ?? status?.degradedReason, !degraded.isEmpty {
                     Text(degraded)
                         .font(BeagleFont.caption.font)
@@ -920,7 +939,7 @@ private struct MemoryLensSheet: View {
                 Text(tab.rawValue).tag(tab)
             }
         }
-        .pickerStyle(.segmented)
+        .pickerStyle(.menu)
     }
 
     private var evidenceTab: some View {
@@ -1041,6 +1060,96 @@ private struct MemoryLensSheet: View {
         }
     }
 
+    private var candidatesTab: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            sectionTitle("CANDIDATE MEMORY")
+            let candidates = exocortex.memoryCandidates?.value?.candidates ?? []
+            if candidates.isEmpty {
+                emptyRow("No candidate atoms or hyperedges awaiting Triad quorum.")
+            } else {
+                ForEach(candidates.prefix(20)) { candidate in
+                    GlassPanel(truth: .declared) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(candidate.candidateType.uppercased())
+                                    .font(BeagleFont.caption2.font)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(BeagleTheme.truthDeclared)
+                                Spacer()
+                                Text(candidate.status)
+                                    .font(BeagleFont.caption2.font)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                            }
+                            Text(candidate.text)
+                                .font(BeagleFont.caption.font)
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("confidence \(String(format: "%.2f", candidate.confidence)) · \(candidate.privacyClass)")
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                            if let quorum = candidate.quorumRef {
+                                Text("quorum · \(quorum)")
+                                    .font(BeagleFont.caption2.font.monospaced())
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var runtimeTraceTab: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            sectionTitle("RUNTIME VOTES")
+            if let graph = exocortex.lastGraphRagQuery?.value, !graph.runtimeVotes.isEmpty {
+                ForEach(graph.runtimeVotes.prefix(12)) { vote in
+                    GlassPanel(truth: vote.status == "available" ? .observed : .declared) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(vote.runtime.uppercased())
+                                    .font(BeagleFont.caption2.font)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(BeagleTheme.truthObserved)
+                                Spacer()
+                                Text(String(format: "%.2f", vote.score))
+                                    .font(BeagleFont.caption2.font.monospaced())
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                            }
+                            Text("\(vote.role) · \(vote.status)")
+                                .font(BeagleFont.caption.font)
+                                .foregroundStyle(BeagleTheme.textSecondary)
+                            if !vote.notes.isEmpty {
+                                Text(vote.notes.prefix(3).joined(separator: " · "))
+                                    .font(BeagleFont.caption2.font)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                    .lineLimit(2)
+                            }
+                        }
+                    }
+                }
+            } else {
+                emptyRow("Run a Memory Lens query to see federated runtime votes.")
+            }
+
+            sectionTitle("MESH TRACE")
+            let trace = exocortex.lastGraphRagQuery?.value?.meshTrace
+                ?? exocortex.lastGraphRagQuery?.value?.retrievalTrace
+                ?? []
+            if trace.isEmpty {
+                emptyRow("No retrieval trace observed yet.")
+            } else {
+                ForEach(trace.prefix(12)) { step in
+                    Text("\(step.stage) · \(step.backend) · \(step.status) · \(step.items) items · \(String(format: "%.1f", step.latencyMs))ms")
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .lineLimit(2)
+                }
+            }
+        }
+    }
+
     private var queryBar: some View {
         HStack(spacing: BeagleSpacing.sm) {
             TextField("Search decisions, hypotheses, evidence...", text: $query)
@@ -1120,6 +1229,18 @@ private struct MemoryLensSheet: View {
                         .lineLimit(1)
                 }
             }
+            if !result.runtimeVotes.isEmpty {
+                Text("runtime votes · \(result.runtimeVotes.prefix(4).map { "\($0.runtime):\($0.status)" }.joined(separator: " · "))")
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .lineLimit(2)
+            }
+            if !result.candidateRefs.isEmpty {
+                Text("candidates · \(result.candidateRefs.prefix(4).joined(separator: " · "))")
+                    .font(BeagleFont.caption2.font.monospaced())
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .lineLimit(2)
+            }
         }
     }
 
@@ -1193,7 +1314,7 @@ private struct MemoryLensSheet: View {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         isSearching = true
-        _ = await exocortex.queryGraphMemory(trimmed, scope: activeProjectSlug, maxItems: 8, mode: "graphsearch-lite")
+        _ = await exocortex.queryGraphMemory(trimmed, scope: activeProjectSlug, maxItems: 8, mode: "adaptive-federation")
         isSearching = false
     }
 }

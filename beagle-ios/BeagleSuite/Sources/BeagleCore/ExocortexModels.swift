@@ -307,6 +307,68 @@ public struct MemoryAtom: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+public struct MemoryCandidate: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let candidateType: String
+    public let text: String
+    public let normalizedText: String
+    public let sourceRefs: [String]
+    public let relations: [MemoryRelation]
+    public let tags: [String]
+    public let provenance: ExocortexJSONValue?
+    public let confidence: Double
+    public let privacyClass: String
+    public let status: String
+    public let quorumRef: String?
+    public let promotedAtomId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case candidateType = "candidate_type"
+        case text
+        case normalizedText = "normalized_text"
+        case sourceRefs = "source_refs"
+        case relations
+        case tags
+        case provenance
+        case confidence
+        case privacyClass = "privacy_class"
+        case status
+        case quorumRef = "quorum_ref"
+        case promotedAtomId = "promoted_atom_id"
+    }
+}
+
+public struct MemoryCandidateListResponse: Codable, Equatable, Sendable {
+    public let candidates: [MemoryCandidate]
+}
+
+public struct CandidateQuorumDecision: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let candidateId: String
+    public let memoryApproved: Bool
+    public let temporalApproved: Bool
+    public let criticalApproved: Bool
+    public let status: String
+    public let rationale: String
+    public let reviewer: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case candidateId = "candidate_id"
+        case memoryApproved = "memory_approved"
+        case temporalApproved = "temporal_approved"
+        case criticalApproved = "critical_approved"
+        case status
+        case rationale
+        case reviewer
+    }
+}
+
 public struct MemoryProjectionRun: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let createdAt: String
@@ -764,6 +826,32 @@ public struct RetrievalTraceStep: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+public struct RuntimeVote: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { "\(runtime)-\(role)" }
+    public let runtime: String
+    public let role: String
+    public let status: String
+    public let score: Double
+    public let notes: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case runtime
+        case role
+        case status
+        case score
+        case notes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        runtime = try container.decode(String.self, forKey: .runtime)
+        role = try container.decode(String.self, forKey: .role)
+        status = try container.decode(String.self, forKey: .status)
+        score = try container.decode(Double.self, forKey: .score)
+        notes = try container.decodeIfPresent([String].self, forKey: .notes) ?? []
+    }
+}
+
 public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
     public let summary: String
     public let evidence: [GraphRagEvidence]
@@ -779,6 +867,9 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
     public let evidenceGraph: EvidenceGraph?
     public let communityContext: GraphRagCommunityContext?
     public let retrievalTrace: [RetrievalTraceStep]?
+    public let meshTrace: [RetrievalTraceStep]
+    public let runtimeVotes: [RuntimeVote]
+    public let candidateRefs: [String]
 
     enum CodingKeys: String, CodingKey {
         case summary
@@ -795,6 +886,30 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
         case evidenceGraph = "evidence_graph"
         case communityContext = "community_context"
         case retrievalTrace = "retrieval_trace"
+        case meshTrace = "mesh_trace"
+        case runtimeVotes = "runtime_votes"
+        case candidateRefs = "candidate_refs"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try container.decode(String.self, forKey: .summary)
+        evidence = try container.decodeIfPresent([GraphRagEvidence].self, forKey: .evidence) ?? []
+        atoms = try container.decodeIfPresent([MemoryAtom].self, forKey: .atoms) ?? []
+        episodes = try container.decodeIfPresent([MemoryEpisode].self, forKey: .episodes) ?? []
+        relations = try container.decodeIfPresent([MemoryRelation].self, forKey: .relations) ?? []
+        temporalContext = try container.decode(GraphRagTemporalContext.self, forKey: .temporalContext)
+        provenance = try container.decodeIfPresent(ExocortexJSONValue.self, forKey: .provenance)
+        confidence = try container.decode(Double.self, forKey: .confidence)
+        degradedReason = try container.decodeIfPresent(String.self, forKey: .degradedReason)
+        mode = try container.decodeIfPresent(String.self, forKey: .mode)
+        graphRuntime = try container.decodeIfPresent(String.self, forKey: .graphRuntime)
+        evidenceGraph = try container.decodeIfPresent(EvidenceGraph.self, forKey: .evidenceGraph)
+        communityContext = try container.decodeIfPresent(GraphRagCommunityContext.self, forKey: .communityContext)
+        retrievalTrace = try container.decodeIfPresent([RetrievalTraceStep].self, forKey: .retrievalTrace)
+        meshTrace = try container.decodeIfPresent([RetrievalTraceStep].self, forKey: .meshTrace) ?? []
+        runtimeVotes = try container.decodeIfPresent([RuntimeVote].self, forKey: .runtimeVotes) ?? []
+        candidateRefs = try container.decodeIfPresent([String].self, forKey: .candidateRefs) ?? []
     }
 }
 
@@ -1081,6 +1196,9 @@ public struct TrustContext: Codable, Equatable, Sendable {
     public let lastWorldHash: String?
     public let latestAgentWrite: String?
     public let graphDegradedReason: String?
+    public let memoryEngineStatus: String?
+    public let latestCandidateRef: String?
+    public let latestQuorumStatus: String?
 
     enum CodingKeys: String, CodingKey {
         case mcpStatus = "mcp_status"
@@ -1095,6 +1213,9 @@ public struct TrustContext: Codable, Equatable, Sendable {
         case lastWorldHash = "last_world_hash"
         case latestAgentWrite = "latest_agent_write"
         case graphDegradedReason = "graph_degraded_reason"
+        case memoryEngineStatus = "memory_engine_status"
+        case latestCandidateRef = "latest_candidate_ref"
+        case latestQuorumStatus = "latest_quorum_status"
     }
 }
 

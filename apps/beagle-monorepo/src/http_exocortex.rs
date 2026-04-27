@@ -5,7 +5,7 @@
 //! MCP agents render or mutate it through this contract.
 
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -37,6 +37,8 @@ const MEMORY_PROJECTION_RUNS_LOG: &str = "memory_projection_runs.jsonl";
 const MEMORY_GRAPH_BAKEOFF_RUNS_LOG: &str = "memory_graph_bakeoff_runs.jsonl";
 const MEMORY_GRAPH_INDEX_RUNS_LOG: &str = "memory_graph_index_runs.jsonl";
 const MEMORY_WORLDS_LOG: &str = "memory_worlds.jsonl";
+const MEMORY_CANDIDATES_LOG: &str = "memory_candidates.jsonl";
+const MEMORY_CANDIDATE_QUORUM_LOG: &str = "memory_candidate_quorum.jsonl";
 const AGENT_OBSERVATIONS_LOG: &str = "agent_observations.jsonl";
 const PROJECT_STATES_LOG: &str = "project_states.jsonl";
 const CAUSAL_HYPOTHESES_LOG: &str = "causal_hypotheses.jsonl";
@@ -44,6 +46,7 @@ const CURRENT_SELF_SNAPSHOT: &str = "current_self.json";
 const HOME_SNAPSHOT: &str = "home_snapshot.json";
 const MEMORY_PROJECTION_SCHEMA: &str = "beagle-memory-projection-v1.2";
 const MEMORY_GRAPH_SCHEMA: &str = "beagle-graphrag-runtime-v1.4";
+const MEMORY_MESH_SCHEMA: &str = "beagle-federated-memory-engine-v1.5";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextSnapshot {
@@ -405,6 +408,152 @@ pub struct MemoryWorldsRecentResponse {
     pub graph_status: MemoryGraphStatus,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryExportRequest {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub include_worlds: bool,
+    #[serde(default)]
+    pub include_candidates: bool,
+    #[serde(default)]
+    pub purpose: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryExportResponse {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub privacy_policy: String,
+    pub canonical_store: String,
+    #[serde(default)]
+    pub episodes: Vec<MemoryEpisode>,
+    #[serde(default)]
+    pub atoms: Vec<MemoryAtom>,
+    #[serde(default)]
+    pub worlds: Vec<MemoryWorld>,
+    #[serde(default)]
+    pub candidates: Vec<MemoryCandidate>,
+    #[serde(default)]
+    pub synthetic_golden_queries: Vec<GoldenQuery>,
+    pub merkle_root: String,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GoldenQuery {
+    pub id: String,
+    pub query: String,
+    pub domain: String,
+    #[serde(default)]
+    pub expected_signals: Vec<String>,
+    pub privacy_class: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryCandidate {
+    pub id: String,
+    pub created_at: String,
+    pub candidate_type: String,
+    pub text: String,
+    pub normalized_text: String,
+    #[serde(default)]
+    pub source_refs: Vec<String>,
+    #[serde(default)]
+    pub relations: Vec<MemoryRelation>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    pub confidence: f64,
+    pub privacy_class: String,
+    pub status: String,
+    #[serde(default)]
+    pub quorum_ref: Option<String>,
+    #[serde(default)]
+    pub promoted_atom_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateMemoryCandidateRequest {
+    pub candidate_type: String,
+    pub text: String,
+    #[serde(default)]
+    pub source_refs: Vec<String>,
+    #[serde(default)]
+    pub relations: Vec<MemoryRelation>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    #[serde(default)]
+    pub confidence: Option<f64>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryCandidateListResponse {
+    #[serde(default)]
+    pub candidates: Vec<MemoryCandidate>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CandidateQuorumRequest {
+    #[serde(default)]
+    pub memory_approved: bool,
+    #[serde(default)]
+    pub temporal_approved: bool,
+    #[serde(default)]
+    pub critical_approved: bool,
+    #[serde(default)]
+    pub rationale: Option<String>,
+    #[serde(default)]
+    pub reviewer: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandidateQuorumDecision {
+    pub id: String,
+    pub created_at: String,
+    pub candidate_id: String,
+    pub memory_approved: bool,
+    pub temporal_approved: bool,
+    pub critical_approved: bool,
+    pub status: String,
+    pub rationale: String,
+    #[serde(default)]
+    pub reviewer: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CandidatePromoteRequest {
+    #[serde(default)]
+    pub chronoself_commit_id: Option<String>,
+    #[serde(default)]
+    pub rationale: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandidatePromotionResponse {
+    pub candidate: MemoryCandidate,
+    pub promoted_atom: MemoryAtom,
+    pub quorum: CandidateQuorumDecision,
+    pub audit_event: AuditEvent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeVote {
+    pub runtime: String,
+    pub role: String,
+    pub status: String,
+    pub score: f64,
+    #[serde(default)]
+    pub notes: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct GraphBakeoffRequest {
     #[serde(default)]
@@ -539,6 +688,12 @@ pub struct GraphRagQueryResponse {
     pub community_context: Option<GraphRagCommunityContext>,
     #[serde(default)]
     pub retrieval_trace: Vec<RetrievalTraceStep>,
+    #[serde(default)]
+    pub mesh_trace: Vec<RetrievalTraceStep>,
+    #[serde(default)]
+    pub runtime_votes: Vec<RuntimeVote>,
+    #[serde(default)]
+    pub candidate_refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -711,6 +866,12 @@ pub struct TrustContext {
     pub latest_agent_write: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graph_degraded_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_engine_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_candidate_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_quorum_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -961,6 +1122,22 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(memory_assisted_import_handler),
         )
         .route(
+            "/api/exocortex/v1/memory/export",
+            post(memory_export_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/candidates",
+            get(memory_candidates_handler).post(memory_candidate_create_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/candidates/:candidate_id/quorum",
+            post(memory_candidate_quorum_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/candidates/:candidate_id/promote",
+            post(memory_candidate_promote_handler),
+        )
+        .route(
             "/api/exocortex/v1/temporal/analyze",
             post(temporal_analyze_handler),
         )
@@ -1073,6 +1250,64 @@ async fn memory_assisted_import_handler(
     repo.ensure().map_err(internal_error)?;
     let result = repo.assisted_import_batch(req).map_err(internal_error)?;
     Ok(Json(result))
+}
+
+async fn memory_export_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<MemoryExportRequest>,
+) -> Result<Json<MemoryExportResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let export = repo.export_sanitized_memory(req).map_err(internal_error)?;
+    Ok(Json(export))
+}
+
+async fn memory_candidates_handler(
+    State(_state): State<AppState>,
+    Query(query): Query<LimitQuery>,
+) -> Result<Json<MemoryCandidateListResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let candidates = repo
+        .read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, query.limit.unwrap_or(50))
+        .map_err(internal_error)?;
+    Ok(Json(MemoryCandidateListResponse { candidates }))
+}
+
+async fn memory_candidate_create_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<CreateMemoryCandidateRequest>,
+) -> Result<Json<MemoryCandidate>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let candidate = repo.create_memory_candidate(req).map_err(internal_error)?;
+    Ok(Json(candidate))
+}
+
+async fn memory_candidate_quorum_handler(
+    State(_state): State<AppState>,
+    Path(candidate_id): Path<String>,
+    Json(req): Json<CandidateQuorumRequest>,
+) -> Result<Json<CandidateQuorumDecision>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let decision = repo
+        .record_candidate_quorum(&candidate_id, req)
+        .map_err(internal_error)?;
+    Ok(Json(decision))
+}
+
+async fn memory_candidate_promote_handler(
+    State(_state): State<AppState>,
+    Path(candidate_id): Path<String>,
+    Json(req): Json<CandidatePromoteRequest>,
+) -> Result<Json<CandidatePromotionResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let response = repo
+        .promote_memory_candidate(&candidate_id, req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
 }
 
 async fn temporal_analyze_handler(
@@ -1964,6 +2199,71 @@ impl ExocortexRepository {
         })
     }
 
+    fn export_sanitized_memory(
+        &self,
+        req: MemoryExportRequest,
+    ) -> anyhow::Result<MemoryExportResponse> {
+        self.ensure()?;
+        let limit = req.limit.unwrap_or(1_000).clamp(1, 10_000);
+        let mut episodes = self
+            .read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, limit)?
+            .into_iter()
+            .filter(|episode| episode.privacy_class != "restricted")
+            .collect::<Vec<_>>();
+        let episode_ids = episodes
+            .iter()
+            .map(|episode| episode.id.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        let atoms = self
+            .read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, limit)?
+            .into_iter()
+            .filter(|atom| atom.privacy_class != "restricted")
+            .filter(|atom| episode_ids.contains(&atom.episode_id))
+            .collect::<Vec<_>>();
+        let worlds = if req.include_worlds {
+            self.read_recent_jsonl::<MemoryWorld>(MEMORY_WORLDS_LOG, limit)?
+        } else {
+            Vec::new()
+        };
+        let candidates = if req.include_candidates {
+            self.read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, limit)?
+                .into_iter()
+                .filter(|candidate| candidate.privacy_class != "restricted")
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let material = episodes
+            .iter()
+            .map(|episode| format!("episode:{}:{}", episode.id, episode.content_hash))
+            .chain(atoms.iter().map(|atom| format!("atom:{}:{}", atom.id, atom.normalized_text)))
+            .chain(worlds.iter().map(|world| format!("world:{}:{}", world.id, world.merkle_root)))
+            .chain(candidates.iter().map(|candidate| {
+                format!("candidate:{}:{}:{}", candidate.id, candidate.status, candidate.normalized_text)
+            }))
+            .collect::<Vec<_>>();
+        episodes.sort_by(|a, b| b.occurred_at.cmp(&a.occurred_at));
+        Ok(MemoryExportResponse {
+            id: Uuid::new_v4().to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            schema_version: MEMORY_MESH_SCHEMA.to_string(),
+            privacy_policy: "cluster-sanitized: restricted episodes/atoms/candidates are excluded before lab export".to_string(),
+            canonical_store: "/var/lib/beagle/exocortex".to_string(),
+            episodes,
+            atoms,
+            worlds,
+            candidates,
+            synthetic_golden_queries: synthetic_golden_queries(),
+            merkle_root: merkle_hash(&material),
+            provenance: serde_json::json!({
+                "purpose": req.purpose.unwrap_or_else(|| "beagle-memory-lab-bakeoff".to_string()),
+                "source": "beagle-core-export-api",
+                "private_data_policy": "cluster_only_no_github_no_macbook",
+                "schema_version": MEMORY_MESH_SCHEMA,
+            }),
+        })
+    }
+
     fn run_graph_bakeoff(&self, req: GraphBakeoffRequest) -> anyhow::Result<GraphBakeoffRun> {
         self.ensure()?;
         let limit = req.dataset_limit.unwrap_or(200).clamp(1, 2_000);
@@ -2215,6 +2515,18 @@ impl ExocortexRepository {
                     latency_ms: 0.0,
                     notes: vec!["Memory projection has no atoms yet.".to_string()],
                 }],
+                mesh_trace: vec![RetrievalTraceStep {
+                    stage: "federated-mesh-shortlist".to_string(),
+                    backend: "beagle-memory-engine".to_string(),
+                    status: "degraded".to_string(),
+                    items: 0,
+                    latency_ms: 0.0,
+                    notes: vec![
+                        "v1.5 mesh has no exported atoms to federate yet.".to_string(),
+                    ],
+                }],
+                runtime_votes: runtime_votes(false),
+                candidate_refs: Vec::new(),
             });
         }
 
@@ -2323,6 +2635,18 @@ impl ExocortexRepository {
         let communities = memory_communities(&matched_atoms, &worlds);
         let evidence_graph =
             evidence_graph_for(&evidence, &matched_atoms, &matched_episodes, &relations);
+        let candidate_refs = self
+            .read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, 20)?
+            .into_iter()
+            .filter(|candidate| {
+                candidate.status == "candidate"
+                    && query_tokens
+                        .iter()
+                        .any(|token| candidate.normalized_text.contains(token))
+            })
+            .map(|candidate| candidate.id)
+            .take(5)
+            .collect::<Vec<_>>();
         let retrieval_trace = vec![
             RetrievalTraceStep {
                 stage: "question-analysis".to_string(),
@@ -2368,6 +2692,30 @@ impl ExocortexRepository {
                 notes: vec!["Evidence keeps provenance back to Episode+Atom JSONL.".to_string()],
             },
         ];
+        let mesh_trace = vec![
+            RetrievalTraceStep {
+                stage: "adaptive-federation".to_string(),
+                backend: "beagle-memory-engine".to_string(),
+                status: if runtime_configured { "shortlist" } else { "degraded" }.to_string(),
+                items: evidence.len(),
+                latency_ms: 0.0,
+                notes: vec![
+                    "Home/search use shortlist federation; Memory Lens can fan out deeper.".to_string(),
+                    "Canonical authority remains JSONL+Merkle+Chronoself in beagle-core.".to_string(),
+                ],
+            },
+            RetrievalTraceStep {
+                stage: "candidate-memory-check".to_string(),
+                backend: "memory_candidates.jsonl".to_string(),
+                status: if candidate_refs.is_empty() { "no_candidates" } else { "candidate_refs" }.to_string(),
+                items: candidate_refs.len(),
+                latency_ms: 0.0,
+                notes: vec![
+                    "Candidates never enter active retrieval until Triad quorum promotes them."
+                        .to_string(),
+                ],
+            },
+        ];
         Ok(GraphRagQueryResponse {
             summary,
             evidence,
@@ -2399,6 +2747,9 @@ impl ExocortexRepository {
                 degraded_reason: (!runtime_configured).then(|| graph_degraded_reason(false)),
             }),
             retrieval_trace,
+            mesh_trace,
+            runtime_votes: runtime_votes(runtime_configured),
+            candidate_refs,
         })
     }
 
@@ -2417,6 +2768,29 @@ impl ExocortexRepository {
             .read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?
             .into_iter()
             .find(|atom| atom.id == atom_id))
+    }
+
+    fn find_memory_candidate(
+        &self,
+        candidate_id: &str,
+    ) -> anyhow::Result<Option<MemoryCandidate>> {
+        Ok(self
+            .read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, usize::MAX)?
+            .into_iter()
+            .find(|candidate| candidate.id == candidate_id))
+    }
+
+    fn latest_candidate_quorum(
+        &self,
+        candidate_id: &str,
+    ) -> anyhow::Result<Option<CandidateQuorumDecision>> {
+        Ok(self
+            .read_recent_jsonl::<CandidateQuorumDecision>(
+                MEMORY_CANDIDATE_QUORUM_LOG,
+                usize::MAX,
+            )?
+            .into_iter()
+            .find(|decision| decision.candidate_id == candidate_id))
     }
 
     fn analyze_temporal(&self, req: TemporalAnalyzeRequest) -> anyhow::Result<TemporalAnalysis> {
@@ -2569,6 +2943,208 @@ impl ExocortexRepository {
         })?;
         self.write_snapshot(HOME_SNAPSHOT, &home)?;
         Ok(event)
+    }
+
+    fn create_memory_candidate(
+        &self,
+        req: CreateMemoryCandidateRequest,
+    ) -> anyhow::Result<MemoryCandidate> {
+        self.ensure()?;
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        anyhow::ensure!(
+            privacy_class != "restricted",
+            "restricted memory candidates require explicit human review outside v1.5"
+        );
+        let normalized_text = normalize_text(&req.text);
+        let candidate = MemoryCandidate {
+            id: stable_id("candidate", &[&req.candidate_type, &normalized_text]),
+            created_at: Utc::now().to_rfc3339(),
+            candidate_type: req.candidate_type,
+            text: truncate_chars(&req.text, 1_200),
+            normalized_text,
+            source_refs: req.source_refs,
+            relations: req.relations,
+            tags: req.tags,
+            provenance: req.provenance,
+            confidence: req.confidence.unwrap_or(0.55).clamp(0.0, 1.0),
+            privacy_class,
+            status: "candidate".to_string(),
+            quorum_ref: None,
+            promoted_atom_id: None,
+        };
+        self.append_jsonl(MEMORY_CANDIDATES_LOG, &candidate)?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some("beagle-memory-engine".to_string()),
+            action: Some("memory.candidate_create".to_string()),
+            tool_name: Some("beagle_memory_candidates".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: vec!["memory:write".to_string()],
+            status: Some("success".to_string()),
+            source: Some("memory-engine".to_string()),
+            target_ref: Some(format!("memory_candidate:{}", candidate.id)),
+            summary: Some("Recorded candidate memory outside active retrieval.".to_string()),
+            metadata: Some(serde_json::json!({
+                "schema_version": MEMORY_MESH_SCHEMA,
+                "candidate_status": candidate.status,
+                "candidate_type": candidate.candidate_type,
+            })),
+        })?;
+        Ok(candidate)
+    }
+
+    fn record_candidate_quorum(
+        &self,
+        candidate_id: &str,
+        req: CandidateQuorumRequest,
+    ) -> anyhow::Result<CandidateQuorumDecision> {
+        self.ensure()?;
+        let candidate = self
+            .find_memory_candidate(candidate_id)?
+            .ok_or_else(|| anyhow::anyhow!("memory candidate not found: {}", candidate_id))?;
+        let approved = req.memory_approved && req.temporal_approved && req.critical_approved;
+        let decision = CandidateQuorumDecision {
+            id: Uuid::new_v4().to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            candidate_id: candidate.id.clone(),
+            memory_approved: req.memory_approved,
+            temporal_approved: req.temporal_approved,
+            critical_approved: req.critical_approved,
+            status: if approved { "approved" } else { "rejected" }.to_string(),
+            rationale: req
+                .rationale
+                .unwrap_or_else(|| "Triad memory quorum evaluated candidate.".to_string()),
+            reviewer: req.reviewer,
+        };
+        self.append_jsonl(MEMORY_CANDIDATE_QUORUM_LOG, &decision)?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some("triad-memory-quorum".to_string()),
+            action: Some("memory.candidate_quorum".to_string()),
+            tool_name: Some("beagle_memory_candidate_quorum".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: vec!["memory:write".to_string()],
+            status: Some(decision.status.clone()),
+            source: Some("triad-memory-quorum".to_string()),
+            target_ref: Some(format!("memory_candidate:{}", candidate.id)),
+            summary: Some(format!("Triad quorum {}", decision.status)),
+            metadata: Some(serde_json::json!({
+                "schema_version": MEMORY_MESH_SCHEMA,
+                "memory_approved": decision.memory_approved,
+                "temporal_approved": decision.temporal_approved,
+                "critical_approved": decision.critical_approved,
+                "candidate_id": candidate.id,
+            })),
+        })?;
+        Ok(decision)
+    }
+
+    fn promote_memory_candidate(
+        &self,
+        candidate_id: &str,
+        req: CandidatePromoteRequest,
+    ) -> anyhow::Result<CandidatePromotionResponse> {
+        self.ensure()?;
+        let candidate = self
+            .find_memory_candidate(candidate_id)?
+            .ok_or_else(|| anyhow::anyhow!("memory candidate not found: {}", candidate_id))?;
+        anyhow::ensure!(
+            candidate.status != "promoted",
+            "memory candidate already promoted"
+        );
+        let quorum = self
+            .latest_candidate_quorum(candidate_id)?
+            .ok_or_else(|| anyhow::anyhow!("candidate has no quorum decision: {}", candidate_id))?;
+        anyhow::ensure!(
+            quorum.status == "approved"
+                && quorum.memory_approved
+                && quorum.temporal_approved
+                && quorum.critical_approved,
+            "candidate promotion requires strict 3-of-3 Memory+Temporal+Critical quorum"
+        );
+        let source_ref = format!("memory_candidate:{}", candidate.id);
+        let candidate_hash = format!("sha256:{}", content_hash(candidate.text.as_bytes()));
+        if self.find_episode_by_source_ref(&source_ref)?.is_none() {
+            self.append_jsonl(
+                MEMORY_EPISODES_LOG,
+                &MemoryEpisode {
+                    id: stable_id("episode", &[&source_ref, &candidate_hash]),
+                    created_at: Utc::now().to_rfc3339(),
+                    source: "beagle-memory-engine".to_string(),
+                    source_platform: Some("beagle-memory-engine".to_string()),
+                    session_id: None,
+                    source_ref: source_ref.clone(),
+                    content_hash: candidate_hash.clone(),
+                    privacy_class: candidate.privacy_class.clone(),
+                    provenance: serde_json::json!({
+                        "candidate_id": candidate.id,
+                        "quorum_id": quorum.id,
+                        "promotion_rationale": req.rationale,
+                        "chronoself_commit_id": req.chronoself_commit_id,
+                        "source": "candidate-promotion"
+                    }),
+                    tags: candidate.tags.clone(),
+                    title: Some(format!("Promoted candidate: {}", candidate.candidate_type)),
+                    linked_chronoself_commits: req
+                        .chronoself_commit_id
+                        .clone()
+                        .into_iter()
+                        .collect(),
+                    occurred_at: Some(Utc::now().to_rfc3339()),
+                },
+            )?;
+        }
+        let promoted_atom = MemoryAtom {
+            id: stable_id("atom", &[&source_ref, &candidate.candidate_type, &candidate.normalized_text]),
+            created_at: Utc::now().to_rfc3339(),
+            episode_id: stable_id("episode", &[&source_ref, &candidate_hash]),
+            atom_type: candidate.candidate_type.clone(),
+            text: candidate.text.clone(),
+            normalized_text: candidate.normalized_text.clone(),
+            source_refs: std::iter::once(source_ref.clone())
+                .chain(candidate.source_refs.clone())
+                .collect(),
+            relations: candidate.relations.clone(),
+            tags: candidate.tags.clone(),
+            confidence: candidate.confidence,
+            privacy_class: candidate.privacy_class.clone(),
+            occurred_at: Some(Utc::now().to_rfc3339()),
+        };
+        if self.find_atom_by_id(&promoted_atom.id)?.is_none() {
+            self.append_jsonl(MEMORY_ATOMS_LOG, &promoted_atom)?;
+        }
+        let promoted_candidate = MemoryCandidate {
+            status: "promoted".to_string(),
+            quorum_ref: Some(quorum.id.clone()),
+            promoted_atom_id: Some(promoted_atom.id.clone()),
+            ..candidate
+        };
+        self.append_jsonl(MEMORY_CANDIDATES_LOG, &promoted_candidate)?;
+        let audit_event = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some("triad-memory-quorum".to_string()),
+            action: Some("memory.candidate_promote".to_string()),
+            tool_name: Some("beagle_memory_candidate_promote".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: vec!["memory:write".to_string()],
+            status: Some("success".to_string()),
+            source: Some("triad-memory-quorum".to_string()),
+            target_ref: Some(format!("memory_atom:{}", promoted_atom.id)),
+            summary: Some("Promoted candidate memory into active Episode+Atom projection.".to_string()),
+            metadata: Some(serde_json::json!({
+                "schema_version": MEMORY_MESH_SCHEMA,
+                "candidate_id": promoted_candidate.id,
+                "quorum_id": quorum.id,
+                "chronoself_commit_id": req.chronoself_commit_id,
+                "promotion_rationale": req.rationale,
+            })),
+        })?;
+        Ok(CandidatePromotionResponse {
+            candidate: promoted_candidate,
+            promoted_atom,
+            quorum,
+            audit_event,
+        })
     }
 
     fn active_projects(&self) -> anyhow::Result<Vec<ProjectState>> {
@@ -2813,6 +3389,14 @@ impl ExocortexRepository {
         let latest_agent_write = agent_context
             .as_ref()
             .and_then(|context| context.last_agent_write.clone());
+        let latest_candidate = self
+            .read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, 1)
+            .ok()
+            .and_then(|mut candidates| candidates.pop());
+        let latest_quorum = self
+            .read_recent_jsonl::<CandidateQuorumDecision>(MEMORY_CANDIDATE_QUORUM_LOG, 1)
+            .ok()
+            .and_then(|mut decisions| decisions.pop());
         let trust_context = Some(TrustContext {
             mcp_status: if audit_events.is_empty() {
                 "no-audit-events-yet".to_string()
@@ -2841,6 +3425,13 @@ impl ExocortexRepository {
             last_world_hash: latest_world_hash,
             latest_agent_write,
             graph_degraded_reason: graph_status.map(|status| status.degraded_reason),
+            memory_engine_status: Some(if graph_runtime_configured() {
+                "mesh-configured".to_string()
+            } else {
+                "mesh-degraded-jsonl-fallback".to_string()
+            }),
+            latest_candidate_ref: latest_candidate.map(|candidate| candidate.id),
+            latest_quorum_status: latest_quorum.map(|decision| decision.status),
         });
         let temporal_phase = temporal_phase.or_else(|| {
             causal_hypotheses
@@ -3360,14 +3951,21 @@ fn projection_hash(episodes: &[MemoryEpisode], atoms: &[MemoryAtom]) -> anyhow::
 }
 
 fn graph_runtime_name() -> String {
-    env::var("BEAGLE_GRAPHRAG_RUNTIME")
+    env::var("BEAGLE_MEMORY_ENGINE_RUNTIME")
+        .or_else(|_| env::var("BEAGLE_GRAPHRAG_RUNTIME"))
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "falkordb-graphblas-bakeoff".to_string())
+        .unwrap_or_else(|| "federated-living-memory-mesh".to_string())
 }
 
 fn graph_runtime_configured() -> bool {
-    ["BEAGLE_FALKORDB_URL", "FALKORDB_URL"]
+    [
+        "BEAGLE_MEMORY_ENGINE_URL",
+        "BEAGLE_FALKORDB_URL",
+        "FALKORDB_URL",
+        "BEAGLE_MEMGRAPH_URL",
+        "BEAGLE_KUZU_PATH",
+    ]
         .iter()
         .any(|key| {
             env::var(key)
@@ -3379,10 +3977,74 @@ fn graph_runtime_configured() -> bool {
 
 fn graph_degraded_reason(runtime_configured: bool) -> String {
     if runtime_configured {
-        "FalkorDB endpoint is configured, but v1.4 still treats JSONL Episode+Atom logs as canonical and rebuildable; live runtime promotion is gated by bake-off metrics.".to_string()
+        "Federated memory mesh is configured, but JSONL Episode+Atom logs remain canonical and rebuildable; live runtime votes are advisory until quorum promotion.".to_string()
     } else {
-        "No live graph runtime configured; using JSONL-derived lexical+graph+temporal evidence graph with FalkorDB/Memgraph/SurrealDB bake-off metadata.".to_string()
+        "No live federated memory runtime configured; using JSONL-derived lexical+graph+temporal evidence graph with mesh metadata.".to_string()
     }
+}
+
+fn runtime_votes(runtime_configured: bool) -> Vec<RuntimeVote> {
+    let status = if runtime_configured { "available" } else { "degraded" };
+    vec![
+        RuntimeVote {
+            runtime: "FalkorDB".to_string(),
+            role: "online-graph-vector".to_string(),
+            status: status.to_string(),
+            score: 0.86,
+            notes: vec!["GraphBLAS-oriented online graph candidate.".to_string()],
+        },
+        RuntimeVote {
+            runtime: "Memgraph".to_string(),
+            role: "online-streaming-graph".to_string(),
+            status: "candidate".to_string(),
+            score: 0.82,
+            notes: vec!["Atomic GraphRAG challenger for work-memory streams.".to_string()],
+        },
+        RuntimeVote {
+            runtime: "Kuzu".to_string(),
+            role: "analytics-rebuild".to_string(),
+            status: "candidate".to_string(),
+            score: 0.84,
+            notes: vec!["Columnar/embedded rebuild and deterministic graph analytics.".to_string()],
+        },
+        RuntimeVote {
+            runtime: "TypeDB".to_string(),
+            role: "ontology-validation".to_string(),
+            status: "validation-layer".to_string(),
+            score: 0.78,
+            notes: vec!["Schema, contradiction, and candidate promotion validation.".to_string()],
+        },
+    ]
+}
+
+fn synthetic_golden_queries() -> Vec<GoldenQuery> {
+    vec![
+        GoldenQuery {
+            id: "golden-science-evidence-001".to_string(),
+            query: "Which recent hypothesis has strongest evidence and what protocol step follows?".to_string(),
+            domain: "science-heavy".to_string(),
+            expected_signals: vec![
+                "hypothesis".to_string(),
+                "evidence".to_string(),
+                "next_action".to_string(),
+            ],
+            privacy_class: "synthetic".to_string(),
+        },
+        GoldenQuery {
+            id: "golden-temporal-chronoself-001".to_string(),
+            query: "What changed since the Claude iOS connector started writing memory?".to_string(),
+            domain: "temporal-chronoself".to_string(),
+            expected_signals: vec!["claude-ios".to_string(), "chronoself".to_string()],
+            privacy_class: "synthetic".to_string(),
+        },
+        GoldenQuery {
+            id: "golden-work-memory-001".to_string(),
+            query: "Which Codex or Claude Code work decision is blocking the next deploy?".to_string(),
+            domain: "work-memory".to_string(),
+            expected_signals: vec!["codex".to_string(), "claude-code".to_string(), "deploy".to_string()],
+            privacy_class: "synthetic".to_string(),
+        },
+    ]
 }
 
 fn merkle_hash(material: &[String]) -> String {
@@ -3502,6 +4164,169 @@ fn bakeoff_candidates(
                 "Keep as alternative if MemoryWorld document shape beats pure graph runtime."
                     .to_string(),
             ],
+        },
+        GraphRuntimeCandidate {
+            name: "ArangoDB".to_string(),
+            runtime_kind: "multi-model-graph-search-vector".to_string(),
+            status: "candidate".to_string(),
+            score: 0.75 + scale_bonus / 3.0,
+            metrics: GraphBakeoffMetrics {
+                p95_query_ms: 135.0,
+                ingest_latency_ms: 150.0,
+                top5_hit_rate: 0.78,
+                multi_hop_accuracy: 0.74,
+                provenance_quality: 0.86,
+                rebuild_seconds: 30.0,
+                operational_complexity: 0.54,
+            },
+            strengths: vec![
+                "Multi-model documents+graph can model MemoryWorlds without dual-store drift.".to_string(),
+            ],
+            risks: vec![
+                "Operational footprint and licensing need explicit review before hot-path promotion."
+                    .to_string(),
+            ],
+            promotion_notes: vec![
+                "Candidate for federated mesh document/graph slot, not automatic primary.".to_string(),
+            ],
+        },
+        GraphRuntimeCandidate {
+            name: "ArcadeDB".to_string(),
+            runtime_kind: "multi-model-graph-document".to_string(),
+            status: "experimental-scout".to_string(),
+            score: 0.66,
+            metrics: GraphBakeoffMetrics {
+                p95_query_ms: 170.0,
+                ingest_latency_ms: 180.0,
+                top5_hit_rate: 0.68,
+                multi_hop_accuracy: 0.67,
+                provenance_quality: 0.80,
+                rebuild_seconds: 38.0,
+                operational_complexity: 0.58,
+            },
+            strengths: vec!["Self-hostable multi-model scout for graph/document shape.".to_string()],
+            risks: vec!["Only promoted if it beats simpler candidates on real golden queries.".to_string()],
+            promotion_notes: vec!["Scout only until cluster adapter is proven.".to_string()],
+        },
+        GraphRuntimeCandidate {
+            name: "Kuzu".to_string(),
+            runtime_kind: "embedded-analytics-graph-vector".to_string(),
+            status: "candidate".to_string(),
+            score: 0.83 + scale_bonus / 2.0,
+            metrics: GraphBakeoffMetrics {
+                p95_query_ms: 95.0,
+                ingest_latency_ms: 90.0,
+                top5_hit_rate: 0.82,
+                multi_hop_accuracy: 0.80,
+                provenance_quality: 0.90,
+                rebuild_seconds: 16.0,
+                operational_complexity: 0.30,
+            },
+            strengths: vec![
+                "Strong fit for deterministic rebuild, analytics, and k-core/density hierarchy."
+                    .to_string(),
+            ],
+            risks: vec![
+                "May serve better as analytics/rebuild tier than always-on remote service."
+                    .to_string(),
+            ],
+            promotion_notes: vec![
+                "Preferred analytics/rebuild slot unless online graph candidates beat it clearly."
+                    .to_string(),
+            ],
+        },
+        GraphRuntimeCandidate {
+            name: "LanceDB".to_string(),
+            runtime_kind: "vector-multivector-late-interaction".to_string(),
+            status: "candidate".to_string(),
+            score: 0.79,
+            metrics: GraphBakeoffMetrics {
+                p95_query_ms: 90.0,
+                ingest_latency_ms: 95.0,
+                top5_hit_rate: 0.84,
+                multi_hop_accuracy: 0.62,
+                provenance_quality: 0.78,
+                rebuild_seconds: 18.0,
+                operational_complexity: 0.33,
+            },
+            strengths: vec!["Strong vector/multivector slot for research-depth retrieval.".to_string()],
+            risks: vec!["Needs graph runtime beside it for multi-hop and ontology constraints.".to_string()],
+            promotion_notes: vec!["Candidate for vector evidence shard, not graph authority.".to_string()],
+        },
+        GraphRuntimeCandidate {
+            name: "DuckDB-VSS".to_string(),
+            runtime_kind: "columnar-analytics-vector".to_string(),
+            status: "candidate".to_string(),
+            score: 0.76,
+            metrics: GraphBakeoffMetrics {
+                p95_query_ms: 120.0,
+                ingest_latency_ms: 70.0,
+                top5_hit_rate: 0.78,
+                multi_hop_accuracy: 0.58,
+                provenance_quality: 0.82,
+                rebuild_seconds: 12.0,
+                operational_complexity: 0.24,
+            },
+            strengths: vec!["Excellent Parquet/Arrow analytics slot for lab artifacts.".to_string()],
+            risks: vec!["Not a living graph runtime by itself.".to_string()],
+            promotion_notes: vec!["Use for metrics and rebuild analytics in the federated mesh.".to_string()],
+        },
+        GraphRuntimeCandidate {
+            name: "Postgres pgvectorscale".to_string(),
+            runtime_kind: "relational-vector-operational".to_string(),
+            status: "candidate".to_string(),
+            score: 0.70,
+            metrics: GraphBakeoffMetrics {
+                p95_query_ms: 155.0,
+                ingest_latency_ms: 130.0,
+                top5_hit_rate: 0.76,
+                multi_hop_accuracy: 0.56,
+                provenance_quality: 0.84,
+                rebuild_seconds: 28.0,
+                operational_complexity: 0.42,
+            },
+            strengths: vec!["Operationally familiar candidate for structured/vector side channel.".to_string()],
+            risks: vec!["Needs graph companion for MemoryWorld and hyperedge traversal.".to_string()],
+            promotion_notes: vec!["Keep as pragmatic structured-vector shard if research metrics justify it.".to_string()],
+        },
+        GraphRuntimeCandidate {
+            name: "TypeDB".to_string(),
+            runtime_kind: "ontology-validation".to_string(),
+            status: "validation-layer".to_string(),
+            score: 0.78,
+            metrics: GraphBakeoffMetrics {
+                p95_query_ms: 220.0,
+                ingest_latency_ms: 180.0,
+                top5_hit_rate: 0.60,
+                multi_hop_accuracy: 0.84,
+                provenance_quality: 0.93,
+                rebuild_seconds: 45.0,
+                operational_complexity: 0.55,
+            },
+            strengths: vec![
+                "Best fit for type constraints, contradiction checks, and candidate promotion."
+                    .to_string(),
+            ],
+            risks: vec!["Not treated as hot-path vector search runtime.".to_string()],
+            promotion_notes: vec!["Validation layer for candidate memory and Chronoself consistency.".to_string()],
+        },
+        GraphRuntimeCandidate {
+            name: "Experimental self-hosted scouts".to_string(),
+            runtime_kind: "scout-frontier".to_string(),
+            status: "scout".to_string(),
+            score: 0.55,
+            metrics: GraphBakeoffMetrics {
+                p95_query_ms: 300.0,
+                ingest_latency_ms: 300.0,
+                top5_hit_rate: 0.50,
+                multi_hop_accuracy: 0.50,
+                provenance_quality: 0.60,
+                rebuild_seconds: 60.0,
+                operational_complexity: 0.90,
+            },
+            strengths: vec!["Allows TigerGraph/HyperspaceDB-like scouts without contaminating production.".to_string()],
+            risks: vec!["Not promoted without self-hosted container, license note, and reproducible adapter.".to_string()],
+            promotion_notes: vec!["Scout-only lane; metrics can propose future inclusion.".to_string()],
         },
         GraphRuntimeCandidate {
             name: "Neo4j+Qdrant baseline".to_string(),
@@ -4404,5 +5229,106 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn memory_export_candidates_quorum_and_query_mesh_are_append_only() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        let imported = repo
+            .assisted_import_batch(AssistedImportBatchRequest {
+                source_platform: "codex".to_string(),
+                source_surface: "codex-local".to_string(),
+                import_scope: "work_memory".to_string(),
+                session_id: "codex-v15".to_string(),
+                project_ref: Some("beagle".to_string()),
+                batch_index: 1,
+                batch_total: 1,
+                turns: vec![AssistedImportTurn {
+                    role: "assistant".to_string(),
+                    content:
+                        "Decisão: v1.5 usa beagle-memory-engine federado sem mover a verdade canônica."
+                            .to_string(),
+                    timestamp: Some("2026-04-27T02:00:00Z".to_string()),
+                    model: Some("codex".to_string()),
+                }],
+                tags: vec!["project:beagle".to_string(), "work-memory".to_string()],
+                metadata: serde_json::json!({"principal": "codex", "branch": "codex/beagle-mcp-public-claude"}),
+                coverage: serde_json::Value::Null,
+                extracted: Some(OmniExtraction {
+                    decisions: vec![
+                        "v1.5 usa beagle-memory-engine federado sem mover a verdade canônica."
+                            .to_string(),
+                    ],
+                    projects_mentioned: vec!["beagle".to_string()],
+                    ..Default::default()
+                }),
+                privacy_class: Some("sensitive".to_string()),
+                title: Some("Codex v1.5 work memory".to_string()),
+                original_date: None,
+                confidence_score: Some(0.93),
+                create_chronoself_commit: Some(false),
+            })
+            .unwrap();
+        assert_eq!(imported.status, "imported");
+
+        let candidate = repo
+            .create_memory_candidate(CreateMemoryCandidateRequest {
+                candidate_type: "hyperedge".to_string(),
+                text: "Federated memory engine candidates require Triad quorum before active retrieval."
+                    .to_string(),
+                source_refs: vec!["memory-engine:bakeoff-shadow".to_string()],
+                relations: vec![MemoryRelation {
+                    subject: "candidate".to_string(),
+                    predicate: "requires".to_string(),
+                    object: "triad-quorum".to_string(),
+                    confidence: 0.91,
+                }],
+                tags: vec!["candidate".to_string(), "v1.5".to_string()],
+                provenance: serde_json::json!({"runtime": "beagle-memory-engine"}),
+                confidence: Some(0.84),
+                privacy_class: Some("sensitive".to_string()),
+            })
+            .unwrap();
+        let quorum = repo
+            .record_candidate_quorum(
+                &candidate.id,
+                CandidateQuorumRequest {
+                    memory_approved: true,
+                    temporal_approved: true,
+                    critical_approved: true,
+                    rationale: Some("All three Triad voices accept promotion eligibility.".to_string()),
+                    reviewer: Some("test".to_string()),
+                },
+            )
+            .unwrap();
+        assert_eq!(quorum.status, "approved");
+
+        let export = repo
+            .export_sanitized_memory(MemoryExportRequest {
+                limit: Some(100),
+                include_worlds: true,
+                include_candidates: true,
+                purpose: Some("memory-engine-test".to_string()),
+            })
+            .unwrap();
+        assert!(export.privacy_policy.contains("restricted"));
+        assert_eq!(export.candidates.len(), 1);
+        assert!(export
+            .synthetic_golden_queries
+            .iter()
+            .any(|query| query.domain == "work-memory"));
+
+        let query = repo
+            .graphrag_query(GraphRagQueryRequest {
+                query: "federated memory engine canonical truth".to_string(),
+                scope: None,
+                max_items: Some(5),
+                mode: Some("adaptive-federation".to_string()),
+            })
+            .unwrap();
+        assert!(!query.mesh_trace.is_empty());
+        assert!(!query.runtime_votes.is_empty());
+        assert!(query.candidate_refs.contains(&candidate.id));
     }
 }

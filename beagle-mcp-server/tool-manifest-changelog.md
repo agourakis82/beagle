@@ -1,5 +1,19 @@
 # Beagle MCP Tool Manifest Changelog
 
+## beagle-mcp-v1.5-federated-memory-engine
+
+- Tool count: 34
+- Tool manifest hash: `sha256:1d6e19bf6541cb05e4b1ba3bed9c8170c00e495e1e1f20e5f7453b5d9bdb7eb3`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from public, mobile, local-agent, and memory-engine surfaces.
+- Added federated living-memory tools:
+  - `beagle_memory_engine_status`
+  - `beagle_memory_mesh_query`
+  - `beagle_memory_bakeoff_run`
+  - `beagle_memory_candidates_list`
+  - `beagle_memory_candidate_quorum`
+- These tools expose the v1.5 memory-engine mesh, cluster-only bake-off runs, candidate memory items, and strict Triad quorum decisions while keeping JSONL/Merkle/Chronoself on the cluster PVC as the canonical authority.
+
 ## beagle-mcp-v1.4-graphrag-runtime
 
 - Tool count: 29

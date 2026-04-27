@@ -2,6 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: beagle-core-config
+  namespace: beagle
 data:
   # Runtime authority for the cluster MVP:
   # - binary: core_server
@@ -75,9 +76,18 @@ data:
   BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_MODEL: BAAI/bge-m3
   BEAGLE_MEMORY_SOVEREIGN_RERANKING_URL: http://beagle-sovereign-reranker.beagle.svc.cluster.local
   BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL: Alibaba-NLP/gte-reranker-modernbert-base
-  BEAGLE_GRAPHRAG_RUNTIME: falkordb-graphblas-bakeoff
+  BEAGLE_GRAPHRAG_RUNTIME: federated-living-memory-mesh
+  BEAGLE_MEMORY_ENGINE_RUNTIME: federated-living-memory-mesh
+  BEAGLE_MEMORY_ENGINE_URL: http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090
   BEAGLE_FALKORDB_URL: redis://beagle-falkordb.beagle.svc.cluster.local:6379
   BEAGLE_MEMGRAPH_URL: bolt://beagle-memgraph.beagle.svc.cluster.local:7687
   BEAGLE_SURREALDB_URL: http://beagle-surrealdb.beagle.svc.cluster.local:8000
+  BEAGLE_ARANGODB_URL: http://beagle-arangodb.beagle-memory-lab.svc.cluster.local:8529
+  BEAGLE_ARCADEDB_URL: http://beagle-arcadedb.beagle-memory-lab.svc.cluster.local:2480
+  BEAGLE_KUZU_PATH: /orangefs/beagle-memory-lab/kuzu
+  BEAGLE_LANCEDB_PATH: /orangefs/beagle-memory-lab/lancedb
+  BEAGLE_DUCKDB_VSS_PATH: /orangefs/beagle-memory-lab/beagle-memory.duckdb
+  BEAGLE_POSTGRES_VECTOR_URL: postgres://beagle-vector.beagle-memory-lab.svc.cluster.local:5432/beagle
+  BEAGLE_TYPEDB_URL: http://beagle-typedb.beagle-memory-lab.svc.cluster.local:1729
   RUST_LOG: beagle=info,beagle_monorepo=info,beagle_core=info,tower_http=info
   RUST_LOG_JSON: "1"

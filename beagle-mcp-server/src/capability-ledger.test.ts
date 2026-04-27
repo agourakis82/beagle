@@ -10,7 +10,7 @@ import {
 import { defineResources } from "./resources.js";
 import { defineTools } from "./tools/index.js";
 
-test("capability ledger exposes MCP v1.2 manifest and client surfaces", () => {
+test("capability ledger exposes MCP v1.5 manifest and client surfaces", () => {
     const previousAllowLegacy = process.env.MCP_ALLOW_LEGACY_BEARER;
     process.env.MCP_ALLOW_LEGACY_BEARER = "false";
     try {

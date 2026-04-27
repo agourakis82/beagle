@@ -652,6 +652,14 @@ public actor BeagleClient {
         )
     }
 
+    public func memoryCandidates(limit: Int = 20) async -> Truthful<MemoryCandidateListResponse> {
+        await fetch(
+            MemoryCandidateListResponse.self,
+            path: "/api/exocortex/v1/memory/candidates?limit=\(max(1, min(limit, 100)))",
+            timeout: 20
+        )
+    }
+
     public func graphRagQuery(
         query: String,
         scope: String? = nil,

@@ -215,6 +215,9 @@ import SwiftData
         "last_world_hash": "sha256:world",
         "latest_agent_write": "beagle_work_memory_capture",
         "graph_degraded_reason": "runtime gated by bake-off",
+        "memory_engine_status": "healthy",
+        "latest_candidate_ref": "candidate-1",
+        "latest_quorum_status": "approved",
         "memory_projection_status": {
           "status": "fresh",
           "schema_version": "beagle-memory-projection-v1.2",
@@ -247,6 +250,9 @@ import SwiftData
     #expect(snapshot.trustContext?.memoryProjectionStatus?.latestRun?.projectionHash == "sha256:projection")
     #expect(snapshot.trustContext?.graphRuntime == "falkordb-graphblas-bakeoff")
     #expect(snapshot.trustContext?.lastWorldHash == "sha256:world")
+    #expect(snapshot.trustContext?.memoryEngineStatus == "healthy")
+    #expect(snapshot.trustContext?.latestCandidateRef == "candidate-1")
+    #expect(snapshot.trustContext?.latestQuorumStatus == "approved")
 }
 
 @Test func graphRagAndAssistedImportModelsDecodeClusterContracts() throws {
@@ -286,7 +292,10 @@ import SwiftData
         "selected_communities": [{"id": "community-1", "label": "beagle", "strategy": "k-core-density-hierarchy", "node_count": 1, "score": 0.8, "summary": "Beagle memory"}],
         "degraded_reason": null
       },
-      "retrieval_trace": [{"stage": "question-analysis", "backend": "deterministic-tokenizer", "status": "ok", "items": 2, "latency_ms": 0.0, "notes": ["mode=graphsearch-lite"]}]
+      "retrieval_trace": [{"stage": "question-analysis", "backend": "deterministic-tokenizer", "status": "ok", "items": 2, "latency_ms": 0.0, "notes": ["mode=graphsearch-lite"]}],
+      "mesh_trace": [{"stage": "federation", "backend": "beagle-memory-engine", "status": "shadow", "items": 1, "latency_ms": 12.5, "notes": ["adaptive shortlist"]}],
+      "runtime_votes": [{"runtime": "falkordb", "role": "graphblas-hot-path", "status": "available", "score": 0.88, "notes": ["vector+graph"]}],
+      "candidate_refs": ["candidate-1"]
     }
     """.data(using: .utf8)!
     let graph = try JSONDecoder().decode(GraphRagQueryResponse.self, from: graphJson)
@@ -295,6 +304,9 @@ import SwiftData
     #expect(graph.graphRuntime == "falkordb-graphblas-bakeoff")
     #expect(graph.evidenceGraph?.nodes.count == 1)
     #expect(graph.communityContext?.selectedCommunities.first?.label == "beagle")
+    #expect(graph.meshTrace.first?.backend == "beagle-memory-engine")
+    #expect(graph.runtimeVotes.first?.runtime == "falkordb")
+    #expect(graph.candidateRefs == ["candidate-1"])
 
     let request = AssistedImportBatchRequest(
         sourcePlatform: "claude",
@@ -308,6 +320,34 @@ import SwiftData
     #expect(payload?["source_platform"] as? String == "claude")
     #expect(payload?["source_surface"] as? String == "claude-ios")
     #expect(payload?["privacy_class"] as? String == "sensitive")
+}
+
+@Test func memoryCandidateListDecodesTriadState() throws {
+    let json = """
+    {
+      "candidates": [{
+        "id": "candidate-1",
+        "created_at": "2026-04-26T18:00:00Z",
+        "candidate_type": "hyperedge",
+        "text": "FalkorDB should be promoted only after bake-off gates pass.",
+        "normalized_text": "falkordb should be promoted only after bake-off gates pass.",
+        "source_refs": ["memory-engine:run-1"],
+        "relations": [{"subject": "falkordb", "predicate": "requires", "object": "bakeoff", "confidence": 0.91}],
+        "tags": ["candidate", "graphrag++", "v1.5"],
+        "provenance": {"runtime": "beagle-memory-engine"},
+        "confidence": 0.82,
+        "privacy_class": "sensitive",
+        "status": "candidate",
+        "quorum_ref": "quorum-1",
+        "promoted_atom_id": null
+      }]
+    }
+    """.data(using: .utf8)!
+
+    let decoded = try JSONDecoder().decode(MemoryCandidateListResponse.self, from: json)
+    #expect(decoded.candidates.first?.candidateType == "hyperedge")
+    #expect(decoded.candidates.first?.relations.first?.predicate == "requires")
+    #expect(decoded.candidates.first?.quorumRef == "quorum-1")
 }
 
 @Test func mcpPKCEURLDoesNotNeedClientSecret() throws {

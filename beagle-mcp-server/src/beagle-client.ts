@@ -304,6 +304,32 @@ export class BeagleClient {
         return this.request("POST", "/api/exocortex/v1/memory/assisted-import", body, 120000);
     }
 
+    async memoryExport(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/memory/export", body, 120000);
+    }
+
+    async memoryCandidates(limit = 20): Promise<unknown> {
+        return this.request(
+            "GET",
+            `/api/exocortex/v1/memory/candidates?limit=${encodeURIComponent(String(limit))}`,
+            undefined,
+            30000,
+        );
+    }
+
+    async memoryCandidateCreate(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/memory/candidates", body, 30000);
+    }
+
+    async memoryCandidateQuorum(candidateId: string, body: unknown): Promise<unknown> {
+        return this.request(
+            "POST",
+            `/api/exocortex/v1/memory/candidates/${encodeURIComponent(candidateId)}/quorum`,
+            body,
+            30000,
+        );
+    }
+
     async projectMemory(body: unknown): Promise<unknown> {
         return this.request("POST", "/api/exocortex/v1/memory/project", body, 120000);
     }
@@ -339,6 +365,22 @@ export class BeagleClient {
 
     async graphRagQuery(body: unknown): Promise<unknown> {
         return this.request("POST", "/api/exocortex/v1/graphrag/query", body, 60000);
+    }
+
+    private memoryEngineUrl(): string {
+        return (process.env.BEAGLE_MEMORY_ENGINE_URL || "http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090").replace(/\/$/, "");
+    }
+
+    async memoryEngineStatus(): Promise<unknown> {
+        return this.request("GET", "/v1/runtimes/status", undefined, 30000, this.memoryEngineUrl());
+    }
+
+    async memoryMeshQuery(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/query", body, 120000, this.memoryEngineUrl());
+    }
+
+    async memoryEngineBakeoffRun(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/bakeoff/runs", body, 300000, this.memoryEngineUrl());
     }
 
     async temporalAnalyze(body: unknown): Promise<unknown> {

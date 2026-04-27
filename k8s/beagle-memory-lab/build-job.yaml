@@ -1,8 +1,8 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: beagle-core-build
-  namespace: beagle
+  name: beagle-memory-engine-build
+  namespace: beagle-memory-lab
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 3600
@@ -45,9 +45,9 @@ spec:
             - name: BEAGLE_IMAGE_TAG
               value: memory-v15-20260427
           args:
-            - "--dockerfile=/workspace/apps/beagle-monorepo/Dockerfile.core_server"
+            - "--dockerfile=/workspace/apps/beagle-memory-engine/Dockerfile"
             - "--context=dir:///workspace"
-            - "--destination=192.168.3.207:5003/beagle-core-exocortex:$(BEAGLE_IMAGE_TAG)"
+            - "--destination=192.168.3.207:5003/beagle-memory-engine:$(BEAGLE_IMAGE_TAG)"
             - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"
@@ -57,11 +57,11 @@ spec:
               mountPath: /workspace
           resources:
             requests:
-              cpu: "4"
-              memory: 8Gi
+              cpu: "2"
+              memory: 4Gi
             limits:
-              cpu: "8"
-              memory: 16Gi
+              cpu: "6"
+              memory: 12Gi
       volumes:
         - name: workspace
           emptyDir:

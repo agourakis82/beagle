@@ -30,7 +30,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: beagle-mcp-server
-          image: 192.168.3.207:5003/beagle-mcp-server:graphrag-v12-171f9a6
+          image: 192.168.3.207:5003/beagle-mcp-server:memory-v15-20260427
           imagePullPolicy: Always
           ports:
             - name: http
@@ -58,6 +58,8 @@ spec:
               value: http://beagle-core.beagle.svc.cluster.local:8080
             - name: BEAGLE_COCKPIT_URL
               value: http://project-cockpit.beagle.svc.cluster.local
+            - name: BEAGLE_MEMORY_ENGINE_URL
+              value: http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090
             - name: BEAGLE_CORE_API_TOKEN
               valueFrom:
                 secretKeyRef:

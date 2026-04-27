@@ -242,6 +242,66 @@
         "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
       }
     },
+    "beagle_memory_engine_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads federated memory-engine runtime health, readiness, and shortlist state without mutating memory.",
+        "open_world_justification": "Reads only private Beagle cluster status and does not affect external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_memory_mesh_query": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Queries the federated memory mesh and returns evidence, runtime votes, and trace data without writing canonical memory.",
+        "open_world_justification": "Reads private Beagle memory-engine indexes and canonical core state only.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_memory_bakeoff_run": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Starts a cluster-only bake-off run and writes run/artifact metadata.",
+        "open_world_justification": "Runs inside the private Beagle memory lab against sanitized export snapshots.",
+        "destructive_justification": "Creates bake-off artifacts without deleting, overwriting, or promoting canonical memory."
+      }
+    },
+    "beagle_memory_candidates_list": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Lists candidate atoms and hyperedges without promotion or canonical retrieval activation.",
+        "open_world_justification": "Reads private Beagle candidate logs and does not affect external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_memory_candidate_quorum": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Appends a Triad quorum decision for a candidate memory item.",
+        "open_world_justification": "Writes only to private Beagle append-only candidate/quorum logs.",
+        "destructive_justification": "Records approval/rejection metadata without deleting or overwriting canonical memory."
+      }
+    },
     "beagle_work_memory_capture": {
       "annotations": {
         "readOnlyHint": false,
