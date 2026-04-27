@@ -10,7 +10,7 @@ import {
 import { defineResources } from "./resources.js";
 import { defineTools } from "./tools/index.js";
 
-test("capability ledger exposes MCP v1.5 manifest and client surfaces", () => {
+test("capability ledger exposes MCP v1.6 manifest and client surfaces", () => {
     const previousAllowLegacy = process.env.MCP_ALLOW_LEGACY_BEARER;
     process.env.MCP_ALLOW_LEGACY_BEARER = "false";
     try {
@@ -42,6 +42,9 @@ test("MCP resources include manifest, agent, capability, and trust surfaces", ()
     assert.ok(uris.has("beagle://mcp/manifest/current"));
     assert.ok(uris.has("beagle://mcp/manifest/history"));
     assert.ok(uris.has("beagle://memory/graph/status"));
+    assert.ok(uris.has("beagle://memory/governance/status"));
+    assert.ok(uris.has("beagle://memory/contradictions/recent"));
+    assert.ok(uris.has("beagle://work/current"));
     assert.ok(uris.has("beagle://agents/current"));
     assert.ok(uris.has("beagle://agents/recent"));
     assert.ok(uris.has("beagle://capabilities/current"));

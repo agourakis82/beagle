@@ -330,6 +330,23 @@ export class BeagleClient {
         );
     }
 
+    async memoryGovernanceRun(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/memory/governance/run", body, 120000);
+    }
+
+    async memoryGovernanceStatus(): Promise<unknown> {
+        return this.request("GET", "/api/exocortex/v1/memory/governance/status", undefined, 30000);
+    }
+
+    async memoryContradictions(limit = 20): Promise<unknown> {
+        return this.request(
+            "GET",
+            `/api/exocortex/v1/memory/contradictions?limit=${encodeURIComponent(String(limit))}`,
+            undefined,
+            30000,
+        );
+    }
+
     async projectMemory(body: unknown): Promise<unknown> {
         return this.request("POST", "/api/exocortex/v1/memory/project", body, 120000);
     }
@@ -381,6 +398,14 @@ export class BeagleClient {
 
     async memoryEngineBakeoffRun(body: unknown): Promise<unknown> {
         return this.request("POST", "/v1/bakeoff/runs", body, 300000, this.memoryEngineUrl());
+    }
+
+    async memoryEngineEvalRun(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/evals/runs", body, 300000, this.memoryEngineUrl());
+    }
+
+    async memoryEngineGovernanceEvaluate(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/governance/evaluate", body, 120000, this.memoryEngineUrl());
     }
 
     async temporalAnalyze(body: unknown): Promise<unknown> {

@@ -10,7 +10,12 @@ import { sanitizeOutput } from "./security.js";
 import { McpTool, toolSurface } from "./tools/index.js";
 import { scopePolicy } from "./auth.js";
 import { computeToolManifestHash, toolManifest } from "./tool-manifest.js";
-import { capabilityManifest, CapabilityLedgerState } from "./capability-ledger.js";
+import {
+    capabilityManifest,
+    CapabilityLedgerState,
+    MCP_MANIFEST_VERSION,
+    MCP_SECURITY_PROFILE,
+} from "./capability-ledger.js";
 
 export interface McpResourceDef {
     uri: string;
@@ -84,6 +89,34 @@ export function defineResources(
             read: async () => client.memoryWorldsRecent(12),
         },
         {
+            uri: "beagle://memory/governance/status",
+            name: "Memory Governor Status",
+            description:
+                "Self-governing memory loop status: pending Triad items, promoted/rejected candidates, contradictions, and retrieval policy.",
+            mimeType: "application/json",
+            read: async () => client.memoryGovernanceStatus(),
+        },
+        {
+            uri: "beagle://memory/contradictions/recent",
+            name: "Recent Memory Contradictions",
+            description:
+                "Recent contradiction candidates detected by the Memory Governor before promotion into active memory.",
+            mimeType: "application/json",
+            read: async () => client.memoryContradictions(25),
+        },
+        {
+            uri: "beagle://work/current",
+            name: "Current Work Memory",
+            description:
+                "Current Codex/Claude Code work-memory view from recent memory events, audit events, and active projects.",
+            mimeType: "application/json",
+            read: async () => ({
+                recent_memory_events: await client.recentMemoryEvents(25),
+                recent_audit_events: await client.recentAuditEvents(25),
+                active_projects: await client.activeProjects(),
+            }),
+        },
+        {
             uri: "beagle://projects/active",
             name: "Active Projects",
             description:
@@ -136,9 +169,9 @@ export function defineResources(
                 capabilityManifest(
                     tools,
                     ledgerState ?? {
-                        manifest_version: "beagle-mcp-v1.4-graphrag-runtime",
+                        manifest_version: MCP_MANIFEST_VERSION,
                         toolset_id: computeToolManifestHash(tools),
-                        security_profile: "sott-non-destructive-oauth-audited",
+                        security_profile: MCP_SECURITY_PROFILE,
                         active_client_surface: "local_tailnet_full",
                         client_surfaces: [],
                     },
@@ -197,9 +230,9 @@ export function defineResources(
                 capability_manifest: capabilityManifest(
                     tools,
                     ledgerState ?? {
-                        manifest_version: "beagle-mcp-v1.4-graphrag-runtime",
+                        manifest_version: MCP_MANIFEST_VERSION,
                         toolset_id: computeToolManifestHash(tools),
-                        security_profile: "sott-non-destructive-oauth-audited",
+                        security_profile: MCP_SECURITY_PROFILE,
                         active_client_surface: "local_tailnet_full",
                         client_surfaces: [],
                     },

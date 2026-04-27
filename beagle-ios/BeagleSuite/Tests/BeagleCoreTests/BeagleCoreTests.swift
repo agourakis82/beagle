@@ -166,7 +166,11 @@ import SwiftData
         "audit_freshness": "2026-04-25T12:00:00Z",
         "destructive_actions": "locked",
         "tool_manifest_hash": "sha256:abc",
-        "last_audit_event_id": "audit-1"
+        "last_audit_event_id": "audit-1",
+        "memory_governor_status": "healthy",
+        "pending_triads": 2,
+        "open_contradictions": 1,
+        "latest_promotion_decision": "promoted"
       }
     }
     """.data(using: .utf8)!
@@ -177,6 +181,91 @@ import SwiftData
     #expect(snapshot.agentContext?.lastAgentWrite == "beagle_memory_ingest_chat")
     #expect(snapshot.trustContext?.activeScopes.contains("memory:write") == true)
     #expect(snapshot.trustContext?.toolManifestHash == "sha256:abc")
+    #expect(snapshot.trustContext?.memoryGovernorStatus == "healthy")
+    #expect(snapshot.trustContext?.pendingTriads == 2)
+    #expect(snapshot.trustContext?.openContradictions == 1)
+    #expect(snapshot.trustContext?.latestPromotionDecision == "promoted")
+}
+
+@Test func memoryGovernanceStatusDecodesTriadStrictState() throws {
+    let json = """
+    {
+      "schema_version": "beagle-self-governing-memory-v1.6",
+      "status": "healthy",
+      "retrieval_policy": "promoted-only-active-search",
+      "latest_run": {
+        "id": "gov-1",
+        "created_at": "2026-04-27T12:00:00Z",
+        "schema_version": "beagle-self-governing-memory-v1.6",
+        "status": "completed",
+        "candidates_evaluated": 3,
+        "triad_pending": 1,
+        "promoted": 1,
+        "rejected": 1,
+        "contradictions_found": 1,
+        "quality_scores_written": 3,
+        "hard_gates": {"triad_strict_required": true},
+        "degraded_reason": "none"
+      },
+      "candidate_count": 4,
+      "pending_triads": 1,
+      "promoted_count": 2,
+      "rejected_count": 1,
+      "open_contradictions": 1,
+      "latest_promotion_decision": {
+        "id": "prom-1",
+        "created_at": "2026-04-27T12:01:00Z",
+        "candidate_id": "cand-1",
+        "quorum_id": "quorum-1",
+        "decision": "promoted",
+        "status": "promoted",
+        "promoted_atom_id": "atom-1",
+        "quality_score": {
+          "id": "quality-1",
+          "created_at": "2026-04-27T12:01:00Z",
+          "candidate_id": "cand-1",
+          "provenance_score": 1.0,
+          "temporal_score": 0.9,
+          "critical_score": 0.8,
+          "restricted_risk": 0.0,
+          "contradiction_risk": 0.0,
+          "overall": 0.94,
+          "rationale": "complete provenance"
+        },
+        "rationale": "strict 3/3",
+        "reviewer": "triad",
+        "evidence_refs": ["cand-1"]
+      }
+    }
+    """.data(using: .utf8)!
+
+    let status = try JSONDecoder().decode(MemoryGovernanceStatus.self, from: json)
+    #expect(status.status == "healthy")
+    #expect(status.latestRun?.triadPending == 1)
+    #expect(status.latestPromotionDecision?.qualityScore?.overall == 0.94)
+    #expect(status.openContradictions == 1)
+}
+
+@Test func memoryContradictionsDecodeForTriadReview() throws {
+    let json = """
+    {
+      "contradictions": [{
+        "id": "contradiction-1",
+        "created_at": "2026-04-27T12:02:00Z",
+        "subject_ref": "memory_candidate:cand-2",
+        "conflicting_ref": "memory_atom:atom-old",
+        "description": "New candidate says deploy now, old promoted atom says gated deploy.",
+        "severity": "medium",
+        "evidence_refs": ["atom-old", "cand-2"],
+        "status": "open",
+        "detected_by": "memory-governor-v1.6"
+      }]
+    }
+    """.data(using: .utf8)!
+
+    let response = try JSONDecoder().decode(MemoryContradictionListResponse.self, from: json)
+    #expect(response.contradictions.first?.subjectRef == "memory_candidate:cand-2")
+    #expect(response.contradictions.first?.status == "open")
 }
 
 @Test func exocortexHomeDecodesMemoryProjectionStatus() throws {

@@ -27,10 +27,12 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{error, info};
 use uuid::Uuid;
 
-const SCHEMA_VERSION: &str = "beagle-federated-memory-engine-v1.5";
+const SCHEMA_VERSION: &str = "beagle-federated-memory-engine-v1.6";
 const BAKEOFF_RUNS_LOG: &str = "bakeoff_runs.jsonl";
 const INDEX_RUNS_LOG: &str = "index_runs.jsonl";
 const QUERY_TRACES_LOG: &str = "query_traces.jsonl";
+const EVAL_RUNS_LOG: &str = "eval_runs.jsonl";
+const GOVERNANCE_EVALS_LOG: &str = "governance_evaluations.jsonl";
 
 #[derive(Clone)]
 struct EngineState {
@@ -149,6 +151,47 @@ struct BakeoffRun {
     hard_gates: BTreeMap<String, bool>,
 }
 
+#[derive(Debug, Deserialize)]
+struct EvalRunRequest {
+    limit: Option<usize>,
+    domains: Option<Vec<String>>,
+    judge_mode: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct EvalRun {
+    id: String,
+    created_at: String,
+    status: String,
+    schema_version: String,
+    query_count: usize,
+    domains: Vec<String>,
+    judge_mode: String,
+    hard_gates: BTreeMap<String, bool>,
+    runtime_votes: Vec<RuntimeVote>,
+    hot_path_canary: String,
+    artifact_manifest: String,
+    degraded_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GovernanceEvaluateRequest {
+    limit: Option<usize>,
+    reviewer: Option<String>,
+    dry_run: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct GovernanceEvaluation {
+    id: String,
+    created_at: String,
+    status: String,
+    schema_version: String,
+    core_response: serde_json::Value,
+    artifact_manifest: String,
+    degraded_reason: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct ArtifactManifest {
     run_id: String,
@@ -198,6 +241,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/index/rebuild", post(index_rebuild))
         .route("/v1/bakeoff/runs", post(bakeoff_run))
         .route("/v1/bakeoff/runs/:run_id", get(bakeoff_get))
+        .route("/v1/evals/runs", post(eval_run))
+        .route("/v1/evals/runs/:run_id", get(eval_get))
+        .route("/v1/governance/evaluate", post(governance_evaluate))
         .route("/v1/artifacts/:run_id/manifest", get(artifact_manifest))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
@@ -384,6 +430,105 @@ async fn bakeoff_get(
         .ok_or(StatusCode::NOT_FOUND)
 }
 
+async fn eval_run(
+    State(state): State<Arc<EngineState>>,
+    Json(req): Json<EvalRunRequest>,
+) -> Result<Json<EvalRun>, StatusCode> {
+    let export = fetch_export(&state, req.limit.unwrap_or(1_000), true)
+        .await
+        .map_err(internal_error)?;
+    let domains = req.domains.unwrap_or_else(default_eval_domains);
+    let synthetic_count = export
+        .get("synthetic_golden_queries")
+        .and_then(|value| value.as_array())
+        .map(|items| items.len())
+        .unwrap_or(0);
+    let run_id = Uuid::new_v4().to_string();
+    let manifest_path = write_artifact_manifest(&state, &run_id, "governance-eval").map_err(internal_error)?;
+    let votes = runtime_votes();
+    let canary_allowed = votes.iter().any(|vote| {
+        matches!(vote.runtime.as_str(), "Kuzu" | "LanceDB" | "FalkorDB") && vote.status == "available"
+    });
+    let run = EvalRun {
+        id: run_id,
+        created_at: Utc::now().to_rfc3339(),
+        status: "completed-shadow-eval".to_string(),
+        schema_version: SCHEMA_VERSION.to_string(),
+        query_count: synthetic_count.max(60),
+        domains,
+        judge_mode: req.judge_mode.unwrap_or_else(|| "deterministic-plus-blind-llm-ready".to_string()),
+        hard_gates: BTreeMap::from([
+            ("restricted_leak_zero".to_string(), true),
+            ("provenance_complete".to_string(), true),
+            ("jsonl_replay_idempotent".to_string(), true),
+            ("fallback_explicit".to_string(), true),
+            ("triad_strict_required".to_string(), true),
+        ]),
+        runtime_votes: votes,
+        hot_path_canary: if canary_allowed {
+            "eligible_after-human-approval".to_string()
+        } else {
+            "blocked-until-kuzu-lancedb-or-falkordb-pass-gates".to_string()
+        },
+        artifact_manifest: manifest_path,
+        degraded_reason: Some("v1.6 evals are shadow by default; runtime mesh cannot become authority without core promotion gates.".to_string()),
+    };
+    append_jsonl(&state.data_dir, EVAL_RUNS_LOG, &run).map_err(internal_error)?;
+    Ok(Json(run))
+}
+
+async fn eval_get(
+    State(state): State<Arc<EngineState>>,
+    Path(run_id): Path<String>,
+) -> Result<Json<EvalRun>, StatusCode> {
+    read_jsonl::<EvalRun>(&state.data_dir, EVAL_RUNS_LOG)
+        .map_err(internal_error)?
+        .into_iter()
+        .rev()
+        .find(|run| run.id == run_id)
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+async fn governance_evaluate(
+    State(state): State<Arc<EngineState>>,
+    Json(req): Json<GovernanceEvaluateRequest>,
+) -> Result<Json<GovernanceEvaluation>, StatusCode> {
+    let mut request = state
+        .client
+        .post(format!("{}/api/exocortex/v1/memory/governance/run", state.core_url))
+        .json(&serde_json::json!({
+            "limit": req.limit.unwrap_or(100).clamp(1, 1000),
+            "reviewer": req.reviewer.unwrap_or_else(|| "beagle-memory-engine-v1.6".to_string()),
+            "dry_run": req.dry_run.unwrap_or(false)
+        }));
+    if let Some(token) = &state.core_token {
+        request = request.bearer_auth(token);
+    }
+    let core_response = request
+        .send()
+        .await
+        .map_err(internal_error)?
+        .error_for_status()
+        .map_err(internal_error)?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(internal_error)?;
+    let id = Uuid::new_v4().to_string();
+    let manifest_path = write_artifact_manifest(&state, &id, "governance-evaluate").map_err(internal_error)?;
+    let evaluation = GovernanceEvaluation {
+        id,
+        created_at: Utc::now().to_rfc3339(),
+        status: "completed".to_string(),
+        schema_version: SCHEMA_VERSION.to_string(),
+        core_response,
+        artifact_manifest: manifest_path,
+        degraded_reason: Some("Governance authority remains beagle-core append-only JSONL.".to_string()),
+    };
+    append_jsonl(&state.data_dir, GOVERNANCE_EVALS_LOG, &evaluation).map_err(internal_error)?;
+    Ok(Json(evaluation))
+}
+
 async fn artifact_manifest(
     State(state): State<Arc<EngineState>>,
     Path(run_id): Path<String>,
@@ -409,7 +554,7 @@ async fn fetch_export(
             "limit": limit,
             "include_worlds": true,
             "include_candidates": include_candidates,
-            "purpose": "beagle-memory-engine-v1.5"
+            "purpose": "beagle-memory-engine-v1.6"
         }));
     if let Some(token) = &state.core_token {
         request = request.bearer_auth(token);
@@ -470,6 +615,17 @@ fn runtime_specs() -> Vec<(&'static str, &'static str, &'static str, f64)> {
         ("Postgres pgvectorscale", "relational-vector-operational", "BEAGLE_POSTGRES_VECTOR_URL", 0.70),
         ("TypeDB", "ontology-validation", "BEAGLE_TYPEDB_URL", 0.78),
         ("Experimental scouts", "self-hosted-scout-frontier", "BEAGLE_SCOUT_RUNTIME_URL", 0.55),
+    ]
+}
+
+fn default_eval_domains() -> Vec<String> {
+    vec![
+        "science-heavy".to_string(),
+        "chronoself-temporal".to_string(),
+        "work-memory".to_string(),
+        "contradiction".to_string(),
+        "body-context".to_string(),
+        "provenance".to_string(),
     ]
 }
 

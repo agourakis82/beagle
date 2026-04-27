@@ -196,6 +196,31 @@ const TOOL_POLICIES: Record<string, ToolPolicy> = {
         requiredScopes: WRITE_MEMORY,
         riskLevel: "write",
     },
+    beagle_memory_governance_status: {
+        annotations: annotations("Read Memory Governor Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_memory_governance_run: {
+        annotations: annotations("Run Memory Governor", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_memory_contradictions_recent: {
+        annotations: annotations("Read Memory Contradictions", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_memory_engine_eval_run: {
+        annotations: annotations("Run Memory Engine Eval", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_memory_engine_governance_evaluate: {
+        annotations: annotations("Evaluate Memory Governance", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
     beagle_work_memory_capture: {
         annotations: annotations("Capture Agent Work Memory", false, false, false),
         requiredScopes: WRITE_MEMORY,
@@ -271,6 +296,8 @@ const REVIEW_SAFE_TOOL_NAMES = new Set([
     "beagle_memory_engine_status",
     "beagle_memory_mesh_query",
     "beagle_memory_candidates_list",
+    "beagle_memory_governance_status",
+    "beagle_memory_contradictions_recent",
     "beagle_pipeline_status",
     "beagle_list_recent_runs",
     "beagle_get_science_job_status",

@@ -660,6 +660,22 @@ public actor BeagleClient {
         )
     }
 
+    public func memoryGovernanceStatus() async -> Truthful<MemoryGovernanceStatus> {
+        await fetch(
+            MemoryGovernanceStatus.self,
+            path: "/api/exocortex/v1/memory/governance/status",
+            timeout: 20
+        )
+    }
+
+    public func memoryContradictions(limit: Int = 20) async -> Truthful<MemoryContradictionListResponse> {
+        await fetch(
+            MemoryContradictionListResponse.self,
+            path: "/api/exocortex/v1/memory/contradictions?limit=\(max(1, min(limit, 100)))",
+            timeout: 20
+        )
+    }
+
     public func graphRagQuery(
         query: String,
         scope: String? = nil,

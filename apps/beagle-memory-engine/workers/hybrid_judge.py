@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cluster-only hybrid judge scaffold for Beagle Memory Engine v1.5.
+"""Cluster-only hybrid judge scaffold for Beagle Memory Engine v1.6.
 
 The worker consumes sanitized JSON exports produced by beagle-core. It never
 reads the canonical PVC directly and should write only aggregate metrics or
@@ -27,7 +27,7 @@ def main() -> int:
         if item.get("privacy_class") == "restricted"
     ]
     result = {
-        "schema_version": "beagle-federated-memory-engine-v1.5",
+        "schema_version": "beagle-federated-memory-engine-v1.6",
         "restricted_leak_zero": len(restricted) == 0,
         "episode_count": len(episodes),
         "atom_count": len(atoms),

@@ -38,7 +38,7 @@ Tool calls are written to the Beagle append-only audit event API when the core i
 
 ## Capability Ledger
 
-Beagle MCP v1.5 exposes a capability ledger in `/.well-known/mcp` and `beagle://mcp/manifest/current`. The ledger includes `manifest_version`, `toolset_id`, `security_profile`, client surfaces, scopes, tool annotations, and the reserved destructive-action policy. On startup, the MCP server registers the active tool manifest as an append-only audit event in Beagle Core.
+Beagle MCP v1.6 exposes a capability ledger in `/.well-known/mcp` and `beagle://mcp/manifest/current`. The ledger includes `manifest_version`, `toolset_id`, `security_profile`, client surfaces, scopes, tool annotations, and the reserved destructive-action policy. On startup, the MCP server registers the active tool manifest as an append-only audit event in Beagle Core.
 
 Client surfaces:
 
@@ -46,4 +46,4 @@ Client surfaces:
 - `chatgpt_review_safe`: review-safe surface focused on search, fetch, Home, memory query, audit, and trust context.
 - `local_tailnet_full`: local/tailnet agent surface for stdio and private launcher usage.
 
-No surface exposes `admin:destructive` in v1.2.
+No surface exposes `admin:destructive` in v1.6.

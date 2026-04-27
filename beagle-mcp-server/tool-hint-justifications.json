@@ -302,6 +302,66 @@
         "destructive_justification": "Records approval/rejection metadata without deleting or overwriting canonical memory."
       }
     },
+    "beagle_memory_governance_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads Memory Governor status and promoted-only retrieval policy.",
+        "open_world_justification": "Reads private Beagle cluster state only.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_memory_governance_run": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Appends a governance run, quality scores, and contradiction candidates.",
+        "open_world_justification": "Operates only inside the private Beagle cluster.",
+        "destructive_justification": "Creates append-only governance records without deleting or overwriting canonical memory."
+      }
+    },
+    "beagle_memory_contradictions_recent": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads recent contradiction candidates without changing memory.",
+        "open_world_justification": "Reads private Beagle cluster state only.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_memory_engine_eval_run": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Starts a shadow memory eval run and writes evaluation artifacts.",
+        "open_world_justification": "Runs within Beagle's private memory lab and uses sanitized core export.",
+        "destructive_justification": "Creates eval artifacts only and cannot promote runtimes or delete memory."
+      }
+    },
+    "beagle_memory_engine_governance_evaluate": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Triggers a Memory Governor evaluation and records a lab artifact.",
+        "open_world_justification": "Operates inside Beagle's private cluster and does not publish externally.",
+        "destructive_justification": "Appends governance/eval records and does not delete or overwrite canonical memory."
+      }
+    },
     "beagle_work_memory_capture": {
       "annotations": {
         "readOnlyHint": false,

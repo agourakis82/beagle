@@ -1,5 +1,19 @@
 # Beagle MCP Tool Manifest Changelog
 
+## beagle-mcp-v1.6-self-governing-exocortex
+
+- Tool count: 39
+- Tool manifest hash: `sha256:a8a52919fd9995a8ea7ab742d1ba1a84ecc5a0da4f46140356035f9d6eaa9899`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from public, mobile, local-agent, memory-engine, and governance surfaces.
+- Added self-governing memory tools:
+  - `beagle_memory_governance_status`
+  - `beagle_memory_governance_run`
+  - `beagle_memory_contradictions_recent`
+  - `beagle_memory_engine_eval_run`
+  - `beagle_memory_engine_governance_evaluate`
+- These tools expose Triad Strict candidate governance, contradiction review, shadow evals, and memory-engine governance evaluation while keeping promoted memory authority in core JSONL/Merkle/Chronoself on the cluster PVC.
+
 ## beagle-mcp-v1.5-federated-memory-engine
 
 - Tool count: 34

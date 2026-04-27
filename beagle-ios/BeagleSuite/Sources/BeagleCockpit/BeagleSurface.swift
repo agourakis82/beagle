@@ -762,7 +762,10 @@ struct BeagleSurface: View {
         let hashLabel = trust.toolManifestHash.map { String($0.suffix(12)) } ?? "no hash"
         let mesh = trust.memoryEngineStatus.map { " · \($0)" } ?? ""
         let quorum = trust.latestQuorumStatus.map { " · quorum \($0)" } ?? ""
-        return "\(trust.mcpStatus) · \(scopeCount) scopes · \(hashLabel)\(mesh)\(quorum) · destructive locked"
+        let governor = trust.memoryGovernorStatus.map { " · governor \($0)" } ?? ""
+        let pending = trust.pendingTriads.map { " · triad \($0)" } ?? ""
+        let contradictions = trust.openContradictions.map { " · contradictions \($0)" } ?? ""
+        return "\(trust.mcpStatus) · \(scopeCount) scopes · \(hashLabel)\(mesh)\(governor)\(pending)\(contradictions)\(quorum) · destructive locked"
     }
 
     private var memoryProjectionLine: String {
@@ -889,7 +892,9 @@ private struct MemoryLensSheet: View {
             async let recentGraph: Void = exocortex.refreshRecentGraph(limit: 16)
             async let worlds: Void = exocortex.refreshRecentWorlds(limit: 16)
             async let candidates: Void = exocortex.refreshMemoryCandidates(limit: 20)
-            _ = await (graphStatus, recentGraph, worlds, candidates)
+            async let governance: Void = exocortex.refreshMemoryGovernanceStatus()
+            async let contradictions: Void = exocortex.refreshMemoryContradictions(limit: 20)
+            _ = await (graphStatus, recentGraph, worlds, candidates, governance, contradictions)
         }
     }
 
@@ -918,7 +923,10 @@ private struct MemoryLensSheet: View {
                     let mesh = trust.memoryEngineStatus ?? "mesh not observed"
                     let candidate = trust.latestCandidateRef.map { " · candidate \($0.prefix(12))" } ?? ""
                     let quorum = trust.latestQuorumStatus.map { " · quorum \($0)" } ?? ""
-                    Text("\(mesh)\(candidate)\(quorum)")
+                    let governor = trust.memoryGovernorStatus.map { " · governor \($0)" } ?? ""
+                    let triad = trust.pendingTriads.map { " · pending \($0)" } ?? ""
+                    let contradictions = trust.openContradictions.map { " · contradictions \($0)" } ?? ""
+                    Text("\(mesh)\(governor)\(triad)\(contradictions)\(candidate)\(quorum)")
                         .font(BeagleFont.caption.font)
                         .foregroundStyle(BeagleTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1045,12 +1053,38 @@ private struct MemoryLensSheet: View {
     private var contradictionsTab: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
             sectionTitle("CONTRADICTIONS")
+            let contradictions = exocortex.memoryContradictions?.value?.contradictions ?? []
             let relations = (exocortex.recentGraph?.value?.relations ?? []).filter {
                 $0.predicate.lowercased().contains("contradict")
                     || $0.predicate.lowercased().contains("conflict")
                     || $0.predicate.lowercased().contains("tension")
             }
-            if relations.isEmpty {
+            if !contradictions.isEmpty {
+                ForEach(contradictions.prefix(20)) { contradiction in
+                    GlassPanel(truth: .declared) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("CONTRADICTION")
+                                    .font(BeagleFont.caption2.font)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(BeagleTheme.truthDeclared)
+                                Spacer()
+                                Text("\(contradiction.severity) · \(contradiction.status)")
+                                    .font(BeagleFont.caption2.font)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                            }
+                            Text(contradiction.description)
+                                .font(BeagleFont.caption.font)
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("\(contradiction.subjectRef) ↔ \(contradiction.conflictingRef)")
+                                .font(BeagleFont.caption2.font.monospaced())
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            } else if relations.isEmpty {
                 emptyRow("No explicit contradiction relations observed in the recent graph.")
             } else {
                 ForEach(relations.indices, id: \.self) { index in
@@ -1062,7 +1096,27 @@ private struct MemoryLensSheet: View {
 
     private var candidatesTab: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
-            sectionTitle("CANDIDATE MEMORY")
+            sectionTitle("TRIAD REVIEW")
+            if let governance = exocortex.memoryGovernanceStatus?.value {
+                GlassPanel(truth: .observed) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(governance.status) · \(governance.candidateCount) candidates")
+                            .font(BeagleFont.caption.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                        Text("\(governance.pendingTriads) pending · \(governance.promotedCount) promoted · \(governance.rejectedCount) rejected · \(governance.openContradictions) contradictions")
+                            .font(BeagleFont.caption2.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let decision = governance.latestPromotionDecision {
+                            Text("latest \(decision.decision) · \(decision.rationale)")
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+            }
             let candidates = exocortex.memoryCandidates?.value?.candidates ?? []
             if candidates.isEmpty {
                 emptyRow("No candidate atoms or hyperedges awaiting Triad quorum.")
@@ -1088,10 +1142,16 @@ private struct MemoryLensSheet: View {
                                 .font(BeagleFont.caption2.font)
                                 .foregroundStyle(BeagleTheme.textTertiary)
                             if let quorum = candidate.quorumRef {
-                                Text("quorum · \(quorum)")
+                                Text("triad quorum · \(quorum)")
                                     .font(BeagleFont.caption2.font.monospaced())
                                     .foregroundStyle(BeagleTheme.textTertiary)
                                     .lineLimit(1)
+                            }
+                            if candidate.status == "triad_pending" {
+                                Text("pending strict 3/3 promotion; Home/search stay promoted-only")
+                                    .font(BeagleFont.caption2.font)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }

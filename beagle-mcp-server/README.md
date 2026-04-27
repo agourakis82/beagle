@@ -11,7 +11,7 @@ This MCP server is the external nervous system for BEAGLE. It lets authenticated
 It provides:
 
 - ✅ **Official `@modelcontextprotocol/sdk` implementation**
-- ✅ **34 canonical tools**, including standard `search`/`fetch` for hosted connectors and v1.5 federated memory-engine controls
+- ✅ **39 canonical tools**, including standard `search`/`fetch` for hosted connectors and v1.6 self-governing memory controls
 - ✅ **14 resources** for current home, Chronoself, recent memory, active projects, cluster truth, MCP audit, capability ledger, agent activity, and trust state
 - ✅ **6 prompts** for daily brief, imports, deliberation, temporal analysis, deep research, and Veritas review
 - ✅ **Automatic retries** with exponential backoff
@@ -255,7 +255,7 @@ See `.env.example` for all available options. Key variables:
 - `/.well-known/mcp` exposes `manifest_version`, `toolset_id`, `security_profile`, `client_surfaces`, `tool_manifest_hash`, counts, scope policy, and destructive-action policy.
 - The active tool manifest is registered as an append-only audit event when the server starts.
 - Tool calls write append-only audit events to `beagle-core` at `/api/exocortex/v1/audit/events`.
-- Destructive tools are intentionally absent in v1.5; `admin:destructive` is reserved for a future explicit flow.
+- Destructive tools are intentionally absent in v1.6; `admin:destructive` is reserved for a future explicit flow.
 - If `MCP_AUTHORIZATION_SERVER_URL` is set, the server also exposes `/.well-known/oauth-protected-resource` for compatible clients.
 
 ### Timeouts by Tool

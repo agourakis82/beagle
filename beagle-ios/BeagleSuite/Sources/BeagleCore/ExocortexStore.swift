@@ -20,6 +20,8 @@ public final class ExocortexStore {
     public var recentGraph: Truthful<MemoryGraphRecentResponse>?
     public var recentWorlds: Truthful<MemoryWorldsRecentResponse>?
     public var memoryCandidates: Truthful<MemoryCandidateListResponse>?
+    public var memoryGovernanceStatus: Truthful<MemoryGovernanceStatus>?
+    public var memoryContradictions: Truthful<MemoryContradictionListResponse>?
     public var lastGraphRagQuery: Truthful<GraphRagQueryResponse>?
     public var lastAssistedImport: Truthful<AssistedImportBatchResult>?
     public var mcpTools: Truthful<MCPToolListResult>?
@@ -69,6 +71,14 @@ public final class ExocortexStore {
 
     public func refreshMemoryCandidates(limit: Int = 20) async {
         memoryCandidates = await client.memoryCandidates(limit: limit)
+    }
+
+    public func refreshMemoryGovernanceStatus() async {
+        memoryGovernanceStatus = await client.memoryGovernanceStatus()
+    }
+
+    public func refreshMemoryContradictions(limit: Int = 20) async {
+        memoryContradictions = await client.memoryContradictions(limit: limit)
     }
 
     @discardableResult

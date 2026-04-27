@@ -148,6 +148,38 @@ const MemoryCandidateQuorumSchema = z.object({
     critical_approved: z.boolean().default(false),
     rationale: z.string().optional(),
     reviewer: z.string().optional().default("mcp-agent"),
+    quality_score: z
+        .object({
+            provenance_score: z.number().min(0).max(1).optional(),
+            temporal_score: z.number().min(0).max(1).optional(),
+            critical_score: z.number().min(0).max(1).optional(),
+            restricted_risk: z.number().min(0).max(1).optional(),
+            contradiction_risk: z.number().min(0).max(1).optional(),
+            rationale: z.string().optional(),
+        })
+        .optional(),
+});
+
+const MemoryGovernanceRunSchema = z.object({
+    limit: z.number().int().min(1).max(1000).optional().default(100),
+    reviewer: z.string().optional().default("mcp-agent"),
+    dry_run: z.boolean().optional().default(false),
+});
+
+const MemoryContradictionsSchema = z.object({
+    limit: z.number().int().min(1).max(100).optional().default(20),
+});
+
+const MemoryEngineEvalRunSchema = z.object({
+    limit: z.number().int().min(1).max(10000).optional().default(1000),
+    domains: z.array(z.string()).optional(),
+    judge_mode: z.string().optional(),
+});
+
+const MemoryEngineGovernanceEvaluateSchema = z.object({
+    limit: z.number().int().min(1).max(1000).optional().default(100),
+    reviewer: z.string().optional().default("mcp-agent"),
+    dry_run: z.boolean().optional().default(false),
 });
 
 const WorkMemoryCaptureSchema = z.object({
@@ -697,7 +729,7 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                     max_items: { type: "number", minimum: 1, maximum: 20, default: 5 },
                     mode: {
                         type: "string",
-                        enum: ["graphsearch-lite", "drift-lite", "local", "global", "hybrid"],
+                        enum: ["graphsearch-lite", "drift-lite", "local", "global", "hybrid", "adaptive-federation"],
                         default: "graphsearch-lite",
                     },
                 },
@@ -710,7 +742,7 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
         {
             name: "beagle_memory_engine_status",
             description:
-                "Read Beagle Memory Engine v1.5 federated runtime mesh status across online graph, analytics, vector, and ontology candidates.",
+                "Read Beagle Memory Engine v1.6 federated runtime mesh and governor status across online graph, analytics, vector, and ontology candidates.",
             inputSchema: { type: "object", properties: {} },
             handler: async () => sanitizeOutput(await client.memoryEngineStatus()),
         },
@@ -736,7 +768,7 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
         {
             name: "beagle_memory_bakeoff_run",
             description:
-                "Start a cluster-only Beagle Memory Engine v1.5 shadow bake-off over sanitized real/synthetic golden queries and federated runtime candidates.",
+                "Start a cluster-only Beagle Memory Engine v1.6 shadow bake-off over sanitized real/synthetic golden queries and federated runtime candidates.",
             inputSchema: {
                 type: "object",
                 properties: {
@@ -778,12 +810,97 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                     critical_approved: { type: "boolean", default: false },
                     rationale: { type: "string" },
                     reviewer: { type: "string", default: "mcp-agent" },
+                    quality_score: {
+                        type: "object",
+                        additionalProperties: true,
+                        properties: {
+                            provenance_score: { type: "number", minimum: 0, maximum: 1 },
+                            temporal_score: { type: "number", minimum: 0, maximum: 1 },
+                            critical_score: { type: "number", minimum: 0, maximum: 1 },
+                            restricted_risk: { type: "number", minimum: 0, maximum: 1 },
+                            contradiction_risk: { type: "number", minimum: 0, maximum: 1 },
+                            rationale: { type: "string" },
+                        },
+                    },
                 },
             },
             handler: async (args: unknown) => {
                 const parsed = MemoryCandidateQuorumSchema.parse(args ?? {});
                 const { candidate_id, ...body } = parsed;
                 return sanitizeOutput(await client.memoryCandidateQuorum(candidate_id, body));
+            },
+        },
+        {
+            name: "beagle_memory_governance_status",
+            description:
+                "Read the v1.6 Memory Governor status: pending Triad candidates, promoted/rejected counts, open contradictions, and promoted-only retrieval policy.",
+            inputSchema: { type: "object", properties: {} },
+            handler: async () => sanitizeOutput(await client.memoryGovernanceStatus()),
+        },
+        {
+            name: "beagle_memory_governance_run",
+            description:
+                "Run the append-only v1.6 Memory Governor over candidate memories to score quality, detect contradictions, and move candidates into Triad pending state.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    limit: { type: "number", minimum: 1, maximum: 1000, default: 100 },
+                    reviewer: { type: "string", default: "mcp-agent" },
+                    dry_run: { type: "boolean", default: false },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryGovernanceRunSchema.parse(args ?? {});
+                return sanitizeOutput(await client.memoryGovernanceRun(parsed));
+            },
+        },
+        {
+            name: "beagle_memory_contradictions_recent",
+            description:
+                "Read recent contradiction candidates detected by the Memory Governor before promotion into active GraphRAG++ memory.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    limit: { type: "number", minimum: 1, maximum: 100, default: 20 },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryContradictionsSchema.parse(args ?? {});
+                return sanitizeOutput(await client.memoryContradictions(parsed.limit));
+            },
+        },
+        {
+            name: "beagle_memory_engine_eval_run",
+            description:
+                "Start a v1.6 shadow evaluation run over 60 golden queries and hard gates before any runtime canary promotion.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    limit: { type: "number", minimum: 1, maximum: 10000, default: 1000 },
+                    domains: { type: "array", items: { type: "string" } },
+                    judge_mode: { type: "string" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryEngineEvalRunSchema.parse(args ?? {});
+                return sanitizeOutput(await client.memoryEngineEvalRun(parsed));
+            },
+        },
+        {
+            name: "beagle_memory_engine_governance_evaluate",
+            description:
+                "Ask the memory-engine to trigger the core Memory Governor and persist a cluster-only governance evaluation artifact.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    limit: { type: "number", minimum: 1, maximum: 1000, default: 100 },
+                    reviewer: { type: "string", default: "mcp-agent" },
+                    dry_run: { type: "boolean", default: false },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryEngineGovernanceEvaluateSchema.parse(args ?? {});
+                return sanitizeOutput(await client.memoryEngineGovernanceEvaluate(parsed));
             },
         },
         {

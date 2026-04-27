@@ -39,6 +39,10 @@ const MEMORY_GRAPH_INDEX_RUNS_LOG: &str = "memory_graph_index_runs.jsonl";
 const MEMORY_WORLDS_LOG: &str = "memory_worlds.jsonl";
 const MEMORY_CANDIDATES_LOG: &str = "memory_candidates.jsonl";
 const MEMORY_CANDIDATE_QUORUM_LOG: &str = "memory_candidate_quorum.jsonl";
+const MEMORY_GOVERNANCE_RUNS_LOG: &str = "memory_governance_runs.jsonl";
+const MEMORY_CONTRADICTIONS_LOG: &str = "memory_contradictions.jsonl";
+const MEMORY_PROMOTION_DECISIONS_LOG: &str = "memory_promotion_decisions.jsonl";
+const MEMORY_QUALITY_SCORES_LOG: &str = "memory_quality_scores.jsonl";
 const AGENT_OBSERVATIONS_LOG: &str = "agent_observations.jsonl";
 const PROJECT_STATES_LOG: &str = "project_states.jsonl";
 const CAUSAL_HYPOTHESES_LOG: &str = "causal_hypotheses.jsonl";
@@ -47,6 +51,7 @@ const HOME_SNAPSHOT: &str = "home_snapshot.json";
 const MEMORY_PROJECTION_SCHEMA: &str = "beagle-memory-projection-v1.2";
 const MEMORY_GRAPH_SCHEMA: &str = "beagle-graphrag-runtime-v1.4";
 const MEMORY_MESH_SCHEMA: &str = "beagle-federated-memory-engine-v1.5";
+const MEMORY_GOVERNANCE_SCHEMA: &str = "beagle-self-governing-memory-v1.6";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextSnapshot {
@@ -512,6 +517,8 @@ pub struct CandidateQuorumRequest {
     pub rationale: Option<String>,
     #[serde(default)]
     pub reviewer: Option<String>,
+    #[serde(default)]
+    pub quality_score: Option<MemoryQualityScoreInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -526,6 +533,7 @@ pub struct CandidateQuorumDecision {
     pub rationale: String,
     #[serde(default)]
     pub reviewer: Option<String>,
+    pub quality_score: MemoryQualityScore,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -541,7 +549,119 @@ pub struct CandidatePromotionResponse {
     pub candidate: MemoryCandidate,
     pub promoted_atom: MemoryAtom,
     pub quorum: CandidateQuorumDecision,
+    pub promotion_decision: MemoryPromotionDecision,
     pub audit_event: AuditEvent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryQualityScoreInput {
+    #[serde(default)]
+    pub provenance_score: Option<f64>,
+    #[serde(default)]
+    pub temporal_score: Option<f64>,
+    #[serde(default)]
+    pub critical_score: Option<f64>,
+    #[serde(default)]
+    pub restricted_risk: Option<f64>,
+    #[serde(default)]
+    pub contradiction_risk: Option<f64>,
+    #[serde(default)]
+    pub rationale: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryQualityScore {
+    pub id: String,
+    pub created_at: String,
+    pub candidate_id: String,
+    pub provenance_score: f64,
+    pub temporal_score: f64,
+    pub critical_score: f64,
+    pub overall: f64,
+    pub restricted_risk: f64,
+    pub contradiction_risk: f64,
+    pub rationale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryContradiction {
+    pub id: String,
+    pub created_at: String,
+    pub subject_ref: String,
+    pub conflicting_ref: String,
+    pub description: String,
+    pub severity: String,
+    pub status: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    pub detected_by: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPromotionDecision {
+    pub id: String,
+    pub created_at: String,
+    pub candidate_id: String,
+    pub decision: String,
+    pub status: String,
+    pub quality_score: MemoryQualityScore,
+    #[serde(default)]
+    pub quorum_id: Option<String>,
+    #[serde(default)]
+    pub promoted_atom_id: Option<String>,
+    pub rationale: String,
+    #[serde(default)]
+    pub reviewer: Option<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MemoryGovernanceRunRequest {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub reviewer: Option<String>,
+    #[serde(default)]
+    pub dry_run: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryGovernanceRun {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub status: String,
+    pub candidates_evaluated: usize,
+    pub triad_pending: usize,
+    pub promoted: usize,
+    pub rejected: usize,
+    pub contradictions_found: usize,
+    pub quality_scores_written: usize,
+    #[serde(default)]
+    pub hard_gates: serde_json::Value,
+    pub degraded_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryGovernanceStatus {
+    pub status: String,
+    pub schema_version: String,
+    pub retrieval_policy: String,
+    pub candidate_count: usize,
+    pub pending_triads: usize,
+    pub promoted_count: usize,
+    pub rejected_count: usize,
+    pub open_contradictions: usize,
+    #[serde(default)]
+    pub latest_run: Option<MemoryGovernanceRun>,
+    #[serde(default)]
+    pub latest_promotion_decision: Option<MemoryPromotionDecision>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MemoryContradictionListResponse {
+    pub contradictions: Vec<MemoryContradiction>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -872,6 +992,14 @@ pub struct TrustContext {
     pub latest_candidate_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_quorum_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_governor_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_triads: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_contradictions: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_promotion_decision: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1138,6 +1266,18 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(memory_candidate_promote_handler),
         )
         .route(
+            "/api/exocortex/v1/memory/governance/run",
+            post(memory_governance_run_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/governance/status",
+            get(memory_governance_status_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/contradictions",
+            get(memory_contradictions_handler),
+        )
+        .route(
             "/api/exocortex/v1/temporal/analyze",
             post(temporal_analyze_handler),
         )
@@ -1269,7 +1409,7 @@ async fn memory_candidates_handler(
     let repo = ExocortexRepository::default();
     repo.ensure().map_err(internal_error)?;
     let candidates = repo
-        .read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, query.limit.unwrap_or(50))
+        .latest_memory_candidates(query.limit.unwrap_or(50))
         .map_err(internal_error)?;
     Ok(Json(MemoryCandidateListResponse { candidates }))
 }
@@ -1308,6 +1448,40 @@ async fn memory_candidate_promote_handler(
         .promote_memory_candidate(&candidate_id, req)
         .map_err(internal_error)?;
     Ok(Json(response))
+}
+
+async fn memory_governance_run_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<MemoryGovernanceRunRequest>,
+) -> Result<Json<MemoryGovernanceRun>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let run = repo.run_memory_governance(req).map_err(internal_error)?;
+    Ok(Json(run))
+}
+
+async fn memory_governance_status_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<MemoryGovernanceStatus>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let status = repo.memory_governance_status().map_err(internal_error)?;
+    Ok(Json(status))
+}
+
+async fn memory_contradictions_handler(
+    State(_state): State<AppState>,
+    Query(query): Query<LimitQuery>,
+) -> Result<Json<MemoryContradictionListResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let contradictions = repo
+        .read_recent_jsonl::<MemoryContradiction>(
+            MEMORY_CONTRADICTIONS_LOG,
+            query.limit.unwrap_or(50),
+        )
+        .map_err(internal_error)?;
+    Ok(Json(MemoryContradictionListResponse { contradictions }))
 }
 
 async fn temporal_analyze_handler(
@@ -2226,7 +2400,7 @@ impl ExocortexRepository {
             Vec::new()
         };
         let candidates = if req.include_candidates {
-            self.read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, limit)?
+            self.latest_memory_candidates(limit)?
                 .into_iter()
                 .filter(|candidate| candidate.privacy_class != "restricted")
                 .collect::<Vec<_>>()
@@ -2639,7 +2813,7 @@ impl ExocortexRepository {
             .read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, 20)?
             .into_iter()
             .filter(|candidate| {
-                candidate.status == "candidate"
+                (candidate.status == "candidate" || candidate.status == "triad_pending")
                     && query_tokens
                         .iter()
                         .any(|token| candidate.normalized_text.contains(token))
@@ -2791,6 +2965,243 @@ impl ExocortexRepository {
             )?
             .into_iter()
             .find(|decision| decision.candidate_id == candidate_id))
+    }
+
+    fn latest_memory_candidates(&self, limit: usize) -> anyhow::Result<Vec<MemoryCandidate>> {
+        let mut seen = std::collections::BTreeSet::<String>::new();
+        let mut candidates = Vec::new();
+        for candidate in self.read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, usize::MAX)? {
+            if seen.insert(candidate.id.clone()) {
+                candidates.push(candidate);
+            }
+            if candidates.len() >= limit {
+                break;
+            }
+        }
+        Ok(candidates)
+    }
+
+    fn latest_quality_score(
+        &self,
+        candidate_id: &str,
+    ) -> anyhow::Result<Option<MemoryQualityScore>> {
+        Ok(self
+            .read_recent_jsonl::<MemoryQualityScore>(MEMORY_QUALITY_SCORES_LOG, usize::MAX)?
+            .into_iter()
+            .find(|score| score.candidate_id == candidate_id))
+    }
+
+    fn memory_governance_status(&self) -> anyhow::Result<MemoryGovernanceStatus> {
+        self.ensure()?;
+        let candidates = self.latest_memory_candidates(usize::MAX)?;
+        let contradictions = self.read_recent_jsonl::<MemoryContradiction>(
+            MEMORY_CONTRADICTIONS_LOG,
+            usize::MAX,
+        )?;
+        let open_contradictions = contradictions
+            .iter()
+            .filter(|item| item.status == "open")
+            .count();
+        let pending_triads = candidates
+            .iter()
+            .filter(|candidate| candidate.status == "candidate" || candidate.status == "triad_pending")
+            .count();
+        let promoted_count = candidates
+            .iter()
+            .filter(|candidate| candidate.status == "promoted")
+            .count();
+        let rejected_count = candidates
+            .iter()
+            .filter(|candidate| candidate.status == "rejected")
+            .count();
+        let latest_run = self
+            .read_recent_jsonl::<MemoryGovernanceRun>(MEMORY_GOVERNANCE_RUNS_LOG, 1)?
+            .into_iter()
+            .next();
+        let latest_promotion_decision = self
+            .read_recent_jsonl::<MemoryPromotionDecision>(MEMORY_PROMOTION_DECISIONS_LOG, 1)?
+            .into_iter()
+            .next();
+        Ok(MemoryGovernanceStatus {
+            status: if pending_triads > 0 {
+                "triad-pending".to_string()
+            } else if open_contradictions > 0 {
+                "contradiction-review".to_string()
+            } else {
+                "governed".to_string()
+            },
+            schema_version: MEMORY_GOVERNANCE_SCHEMA.to_string(),
+            retrieval_policy: "promoted-only-active-search; candidates require strict Memory+Temporal+Critical 3/3 quorum".to_string(),
+            candidate_count: candidates.len(),
+            pending_triads,
+            promoted_count,
+            rejected_count,
+            open_contradictions,
+            latest_run,
+            latest_promotion_decision,
+        })
+    }
+
+    fn run_memory_governance(
+        &self,
+        req: MemoryGovernanceRunRequest,
+    ) -> anyhow::Result<MemoryGovernanceRun> {
+        self.ensure()?;
+        let limit = req.limit.unwrap_or(100).clamp(1, 1_000);
+        let dry_run = req.dry_run.unwrap_or(false);
+        let reviewer = req
+            .reviewer
+            .unwrap_or_else(|| "memory-governor-v1.6".to_string());
+        let candidates = self
+            .latest_memory_candidates(limit)?
+            .into_iter()
+            .filter(|candidate| candidate.privacy_class != "restricted")
+            .collect::<Vec<_>>();
+        let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?;
+        let mut contradictions_found = 0usize;
+        let mut quality_scores_written = 0usize;
+        let mut triad_pending = 0usize;
+        let mut promoted = 0usize;
+        let mut rejected = 0usize;
+
+        for candidate in &candidates {
+            match candidate.status.as_str() {
+                "promoted" => {
+                    promoted += 1;
+                    continue;
+                }
+                "rejected" => {
+                    rejected += 1;
+                    continue;
+                }
+                _ => {}
+            }
+
+            let contradictions = detect_candidate_contradictions(candidate, &atoms);
+            contradictions_found += contradictions.len();
+            let quality_score = self.score_memory_candidate(candidate, &contradictions, None);
+            if !dry_run {
+                self.append_jsonl(MEMORY_QUALITY_SCORES_LOG, &quality_score)?;
+                quality_scores_written += 1;
+                for contradiction in contradictions {
+                    self.append_jsonl(MEMORY_CONTRADICTIONS_LOG, &contradiction)?;
+                }
+                if candidate.status == "candidate" {
+                    self.append_jsonl(
+                        MEMORY_CANDIDATES_LOG,
+                        &MemoryCandidate {
+                            status: "triad_pending".to_string(),
+                            ..candidate.clone()
+                        },
+                    )?;
+                }
+            }
+            triad_pending += 1;
+        }
+
+        let run = MemoryGovernanceRun {
+            id: Uuid::new_v4().to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            schema_version: MEMORY_GOVERNANCE_SCHEMA.to_string(),
+            status: if dry_run { "dry_run" } else { "completed" }.to_string(),
+            candidates_evaluated: candidates.len(),
+            triad_pending,
+            promoted,
+            rejected,
+            contradictions_found,
+            quality_scores_written,
+            hard_gates: serde_json::json!({
+                "restricted_leak_zero": true,
+                "triad_strict_required": true,
+                "active_search_promoted_only": true,
+                "provenance_required_for_promotion": true,
+            }),
+            degraded_reason: "v1.6 governor is deterministic and append-only; LLM/judge expansion remains delegated to memory-engine evals.".to_string(),
+        };
+        if !dry_run {
+            self.append_jsonl(MEMORY_GOVERNANCE_RUNS_LOG, &run)?;
+            let _ = self.create_audit_event(CreateAuditEventRequest {
+                client_id: Some(reviewer),
+                action: Some("memory.governance_run".to_string()),
+                tool_name: Some("beagle_memory_governance_run".to_string()),
+                risk_level: Some("write".to_string()),
+                required_scopes: vec!["memory:write".to_string()],
+                granted_scopes: vec!["memory:write".to_string()],
+                status: Some("success".to_string()),
+                source: Some("memory-governor".to_string()),
+                target_ref: Some(format!("memory_governance_run:{}", run.id)),
+                summary: Some("Evaluated candidate memory quality, contradictions, and Triad pending state.".to_string()),
+                metadata: Some(serde_json::json!({
+                    "schema_version": MEMORY_GOVERNANCE_SCHEMA,
+                    "candidates_evaluated": run.candidates_evaluated,
+                    "contradictions_found": run.contradictions_found,
+                    "triad_pending": run.triad_pending,
+                })),
+            })?;
+        }
+        Ok(run)
+    }
+
+    fn score_memory_candidate(
+        &self,
+        candidate: &MemoryCandidate,
+        contradictions: &[MemoryContradiction],
+        input: Option<MemoryQualityScoreInput>,
+    ) -> MemoryQualityScore {
+        let provenance_score = input
+            .as_ref()
+            .and_then(|score| score.provenance_score)
+            .unwrap_or_else(|| {
+                let source_refs = if candidate.source_refs.is_empty() { 0.0 } else { 0.35 };
+                let provenance = if candidate.provenance.is_null() { 0.0 } else { 0.35 };
+                (source_refs + provenance + candidate.confidence.min(0.30)).clamp(0.0, 1.0)
+            });
+        let temporal_score = input
+            .as_ref()
+            .and_then(|score| score.temporal_score)
+            .unwrap_or_else(|| {
+                if candidate
+                    .tags
+                    .iter()
+                    .any(|tag| tag.contains("temporal") || tag.contains("work-memory"))
+                {
+                    0.78
+                } else {
+                    0.62
+                }
+            });
+        let contradiction_risk = input
+            .as_ref()
+            .and_then(|score| score.contradiction_risk)
+            .unwrap_or_else(|| (contradictions.len() as f64 * 0.35).clamp(0.0, 1.0));
+        let critical_score = input
+            .as_ref()
+            .and_then(|score| score.critical_score)
+            .unwrap_or_else(|| (candidate.confidence - contradiction_risk * 0.35).clamp(0.0, 1.0));
+        let restricted_risk = input
+            .as_ref()
+            .and_then(|score| score.restricted_risk)
+            .unwrap_or(if candidate.privacy_class == "restricted" { 1.0 } else { 0.0 });
+        let overall = ((provenance_score + temporal_score + critical_score) / 3.0
+            - restricted_risk * 0.5
+            - contradiction_risk * 0.25)
+            .clamp(0.0, 1.0);
+        MemoryQualityScore {
+            id: stable_id("quality", &[&candidate.id, &format!("{overall:.3}")]),
+            created_at: Utc::now().to_rfc3339(),
+            candidate_id: candidate.id.clone(),
+            provenance_score,
+            temporal_score,
+            critical_score,
+            overall,
+            restricted_risk,
+            contradiction_risk,
+            rationale: input
+                .and_then(|score| score.rationale)
+                .unwrap_or_else(|| {
+                    "Deterministic v1.6 score from provenance, temporal fit, critical risk, privacy, and contradiction signals.".to_string()
+                }),
+        }
     }
 
     fn analyze_temporal(&self, req: TemporalAnalyzeRequest) -> anyhow::Result<TemporalAnalysis> {
@@ -3003,6 +3414,19 @@ impl ExocortexRepository {
             .find_memory_candidate(candidate_id)?
             .ok_or_else(|| anyhow::anyhow!("memory candidate not found: {}", candidate_id))?;
         let approved = req.memory_approved && req.temporal_approved && req.critical_approved;
+        let contradictions = detect_candidate_contradictions(
+            &candidate,
+            &self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?,
+        );
+        let quality_score = self.score_memory_candidate(
+            &candidate,
+            &contradictions,
+            req.quality_score.clone(),
+        );
+        self.append_jsonl(MEMORY_QUALITY_SCORES_LOG, &quality_score)?;
+        for contradiction in contradictions {
+            self.append_jsonl(MEMORY_CONTRADICTIONS_LOG, &contradiction)?;
+        }
         let decision = CandidateQuorumDecision {
             id: Uuid::new_v4().to_string(),
             created_at: Utc::now().to_rfc3339(),
@@ -3010,13 +3434,38 @@ impl ExocortexRepository {
             memory_approved: req.memory_approved,
             temporal_approved: req.temporal_approved,
             critical_approved: req.critical_approved,
-            status: if approved { "approved" } else { "rejected" }.to_string(),
+            status: if approved { "triad_pending" } else { "rejected" }.to_string(),
             rationale: req
                 .rationale
                 .unwrap_or_else(|| "Triad memory quorum evaluated candidate.".to_string()),
             reviewer: req.reviewer,
+            quality_score: quality_score.clone(),
         };
         self.append_jsonl(MEMORY_CANDIDATE_QUORUM_LOG, &decision)?;
+        let updated_candidate = MemoryCandidate {
+            status: decision.status.clone(),
+            quorum_ref: Some(decision.id.clone()),
+            ..candidate.clone()
+        };
+        self.append_jsonl(MEMORY_CANDIDATES_LOG, &updated_candidate)?;
+        if !approved {
+            self.append_jsonl(
+                MEMORY_PROMOTION_DECISIONS_LOG,
+                &MemoryPromotionDecision {
+                    id: Uuid::new_v4().to_string(),
+                    created_at: Utc::now().to_rfc3339(),
+                    candidate_id: candidate.id.clone(),
+                    decision: "rejected".to_string(),
+                    status: "rejected".to_string(),
+                    quality_score: quality_score.clone(),
+                    quorum_id: Some(decision.id.clone()),
+                    promoted_atom_id: None,
+                    rationale: decision.rationale.clone(),
+                    reviewer: decision.reviewer.clone(),
+                    evidence_refs: candidate.source_refs.clone(),
+                },
+            )?;
+        }
         let _ = self.create_audit_event(CreateAuditEventRequest {
             client_id: Some("triad-memory-quorum".to_string()),
             action: Some("memory.candidate_quorum".to_string()),
@@ -3024,15 +3473,16 @@ impl ExocortexRepository {
             risk_level: Some("write".to_string()),
             required_scopes: vec!["memory:write".to_string()],
             granted_scopes: vec!["memory:write".to_string()],
-            status: Some(decision.status.clone()),
+            status: Some(if approved { "success".to_string() } else { "rejected".to_string() }),
             source: Some("triad-memory-quorum".to_string()),
             target_ref: Some(format!("memory_candidate:{}", candidate.id)),
             summary: Some(format!("Triad quorum {}", decision.status)),
             metadata: Some(serde_json::json!({
-                "schema_version": MEMORY_MESH_SCHEMA,
+                "schema_version": MEMORY_GOVERNANCE_SCHEMA,
                 "memory_approved": decision.memory_approved,
                 "temporal_approved": decision.temporal_approved,
                 "critical_approved": decision.critical_approved,
+                "quality_overall": decision.quality_score.overall,
                 "candidate_id": candidate.id,
             })),
         })?;
@@ -3056,7 +3506,7 @@ impl ExocortexRepository {
             .latest_candidate_quorum(candidate_id)?
             .ok_or_else(|| anyhow::anyhow!("candidate has no quorum decision: {}", candidate_id))?;
         anyhow::ensure!(
-            quorum.status == "approved"
+            quorum.status == "triad_pending"
                 && quorum.memory_approved
                 && quorum.temporal_approved
                 && quorum.critical_approved,
@@ -3077,10 +3527,10 @@ impl ExocortexRepository {
                     content_hash: candidate_hash.clone(),
                     privacy_class: candidate.privacy_class.clone(),
                     provenance: serde_json::json!({
-                        "candidate_id": candidate.id,
-                        "quorum_id": quorum.id,
-                        "promotion_rationale": req.rationale,
-                        "chronoself_commit_id": req.chronoself_commit_id,
+                        "candidate_id": candidate.id.clone(),
+                        "quorum_id": quorum.id.clone(),
+                        "promotion_rationale": req.rationale.clone(),
+                        "chronoself_commit_id": req.chronoself_commit_id.clone(),
                         "source": "candidate-promotion"
                     }),
                     tags: candidate.tags.clone(),
@@ -3120,6 +3570,23 @@ impl ExocortexRepository {
             ..candidate
         };
         self.append_jsonl(MEMORY_CANDIDATES_LOG, &promoted_candidate)?;
+        let promotion_decision = MemoryPromotionDecision {
+            id: Uuid::new_v4().to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            candidate_id: promoted_candidate.id.clone(),
+            decision: "promoted".to_string(),
+            status: "promoted".to_string(),
+            quality_score: quorum.quality_score.clone(),
+            quorum_id: Some(quorum.id.clone()),
+            promoted_atom_id: Some(promoted_atom.id.clone()),
+            rationale: req
+                .rationale
+                .clone()
+                .unwrap_or_else(|| "Strict Triad 3/3 quorum promoted candidate into active memory.".to_string()),
+            reviewer: quorum.reviewer.clone(),
+            evidence_refs: promoted_candidate.source_refs.clone(),
+        };
+        self.append_jsonl(MEMORY_PROMOTION_DECISIONS_LOG, &promotion_decision)?;
         let audit_event = self.create_audit_event(CreateAuditEventRequest {
             client_id: Some("triad-memory-quorum".to_string()),
             action: Some("memory.candidate_promote".to_string()),
@@ -3132,17 +3599,19 @@ impl ExocortexRepository {
             target_ref: Some(format!("memory_atom:{}", promoted_atom.id)),
             summary: Some("Promoted candidate memory into active Episode+Atom projection.".to_string()),
             metadata: Some(serde_json::json!({
-                "schema_version": MEMORY_MESH_SCHEMA,
-                "candidate_id": promoted_candidate.id,
-                "quorum_id": quorum.id,
-                "chronoself_commit_id": req.chronoself_commit_id,
-                "promotion_rationale": req.rationale,
+                "schema_version": MEMORY_GOVERNANCE_SCHEMA,
+                "candidate_id": promoted_candidate.id.clone(),
+                "quorum_id": quorum.id.clone(),
+                "chronoself_commit_id": req.chronoself_commit_id.clone(),
+                "quality_overall": promotion_decision.quality_score.overall,
+                "promotion_rationale": req.rationale.clone(),
             })),
         })?;
         Ok(CandidatePromotionResponse {
             candidate: promoted_candidate,
             promoted_atom,
             quorum,
+            promotion_decision,
             audit_event,
         })
     }
@@ -3397,6 +3866,7 @@ impl ExocortexRepository {
             .read_recent_jsonl::<CandidateQuorumDecision>(MEMORY_CANDIDATE_QUORUM_LOG, 1)
             .ok()
             .and_then(|mut decisions| decisions.pop());
+        let governance_status = self.memory_governance_status().ok();
         let trust_context = Some(TrustContext {
             mcp_status: if audit_events.is_empty() {
                 "no-audit-events-yet".to_string()
@@ -3432,6 +3902,16 @@ impl ExocortexRepository {
             }),
             latest_candidate_ref: latest_candidate.map(|candidate| candidate.id),
             latest_quorum_status: latest_quorum.map(|decision| decision.status),
+            memory_governor_status: governance_status
+                .as_ref()
+                .map(|status| status.status.clone()),
+            pending_triads: governance_status.as_ref().map(|status| status.pending_triads),
+            open_contradictions: governance_status
+                .as_ref()
+                .map(|status| status.open_contradictions),
+            latest_promotion_decision: governance_status
+                .and_then(|status| status.latest_promotion_decision)
+                .map(|decision| decision.status),
         });
         let temporal_phase = temporal_phase.or_else(|| {
             causal_hypotheses
@@ -3580,6 +4060,56 @@ fn format_target_hardware_context(hardware: &TargetHardware, platform: Option<&s
         context.push_str(&format!(" {}", truncate_chars(note, 180)));
     }
     context
+}
+
+fn detect_candidate_contradictions(
+    candidate: &MemoryCandidate,
+    atoms: &[MemoryAtom],
+) -> Vec<MemoryContradiction> {
+    let candidate_tokens = tokenize(&candidate.normalized_text);
+    let candidate_negated = contains_any(
+        &candidate.normalized_text,
+        &[" not ", " nao ", " não ", " never ", " sem ", " contra ", " reject "],
+    );
+    let mut contradictions = Vec::new();
+    for atom in atoms.iter().filter(|atom| atom.privacy_class != "restricted") {
+        let overlap = candidate_tokens
+            .iter()
+            .filter(|token| atom.normalized_text.contains(token.as_str()))
+            .count();
+        if overlap < 3 {
+            continue;
+        }
+        let atom_negated = contains_any(
+            &atom.normalized_text,
+            &[" not ", " nao ", " não ", " never ", " sem ", " contra ", " reject "],
+        );
+        if candidate_negated == atom_negated {
+            continue;
+        }
+        let id = stable_id("contradiction", &[&candidate.id, &atom.id]);
+        if contradictions.iter().any(|item: &MemoryContradiction| item.id == id) {
+            continue;
+        }
+        contradictions.push(MemoryContradiction {
+            id,
+            created_at: Utc::now().to_rfc3339(),
+            subject_ref: format!("memory_candidate:{}", candidate.id),
+            conflicting_ref: format!("memory_atom:{}", atom.id),
+            description: format!(
+                "Candidate '{}' conflicts with projected atom '{}'.",
+                truncate_chars(&candidate.text, 180),
+                truncate_chars(&atom.text, 180)
+            ),
+            severity: if overlap >= 5 { "high" } else { "medium" }.to_string(),
+            status: "open".to_string(),
+            evidence_refs: std::iter::once(format!("memory_atom:{}", atom.id))
+                .chain(candidate.source_refs.clone())
+                .collect(),
+            detected_by: "memory-governor-v1.6".to_string(),
+        });
+    }
+    contradictions
 }
 
 fn self_version_from_commit(commit: &ChronoselfCommit) -> SelfVersion {
@@ -5299,10 +5829,11 @@ mod tests {
                     critical_approved: true,
                     rationale: Some("All three Triad voices accept promotion eligibility.".to_string()),
                     reviewer: Some("test".to_string()),
+                    quality_score: None,
                 },
             )
             .unwrap();
-        assert_eq!(quorum.status, "approved");
+        assert_eq!(quorum.status, "triad_pending");
 
         let export = repo
             .export_sanitized_memory(MemoryExportRequest {
@@ -5330,5 +5861,46 @@ mod tests {
         assert!(!query.mesh_trace.is_empty());
         assert!(!query.runtime_votes.is_empty());
         assert!(query.candidate_refs.contains(&candidate.id));
+
+        let governance_before = repo.memory_governance_status().unwrap();
+        assert_eq!(governance_before.pending_triads, 1);
+        assert_eq!(governance_before.promoted_count, 0);
+
+        let governance_run = repo
+            .run_memory_governance(MemoryGovernanceRunRequest {
+                limit: Some(20),
+                reviewer: Some("test-governor".to_string()),
+                dry_run: Some(false),
+            })
+            .unwrap();
+        assert_eq!(governance_run.status, "completed");
+        assert_eq!(governance_run.triad_pending, 1);
+        assert_eq!(governance_run.quality_scores_written, 1);
+
+        let promotion = repo
+            .promote_memory_candidate(
+                &candidate.id,
+                CandidatePromoteRequest {
+                    rationale: Some(
+                        "Strict Triad 3/3 accepted the candidate for active memory.".to_string(),
+                    ),
+                    chronoself_commit_id: Some("chrono-test".to_string()),
+                },
+            )
+            .unwrap();
+        assert_eq!(promotion.candidate.status, "promoted");
+        assert_eq!(promotion.promotion_decision.decision, "promoted");
+
+        let governance_after = repo.memory_governance_status().unwrap();
+        assert_eq!(governance_after.promoted_count, 1);
+        assert_eq!(governance_after.pending_triads, 0);
+        assert_eq!(
+            governance_after
+                .latest_promotion_decision
+                .as_ref()
+                .unwrap()
+                .status,
+            "promoted"
+        );
     }
 }

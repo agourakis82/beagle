@@ -355,6 +355,7 @@ public struct CandidateQuorumDecision: Codable, Equatable, Sendable, Identifiabl
     public let status: String
     public let rationale: String
     public let reviewer: String?
+    public let qualityScore: MemoryQualityScore?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -366,6 +367,160 @@ public struct CandidateQuorumDecision: Codable, Equatable, Sendable, Identifiabl
         case status
         case rationale
         case reviewer
+        case qualityScore = "quality_score"
+    }
+}
+
+public struct MemoryQualityScore: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let candidateId: String
+    public let provenanceScore: Double
+    public let temporalScore: Double
+    public let criticalScore: Double
+    public let restrictedRisk: Double
+    public let contradictionRisk: Double
+    public let overall: Double
+    public let rationale: String
+    public var contradictionPenalty: Double { contradictionRisk }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case candidateId = "candidate_id"
+        case provenanceScore = "provenance_score"
+        case temporalScore = "temporal_score"
+        case criticalScore = "critical_score"
+        case restrictedRisk = "restricted_risk"
+        case contradictionRisk = "contradiction_risk"
+        case overall
+        case rationale
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        candidateId = try container.decode(String.self, forKey: .candidateId)
+        provenanceScore = try container.decode(Double.self, forKey: .provenanceScore)
+        temporalScore = try container.decode(Double.self, forKey: .temporalScore)
+        criticalScore = try container.decode(Double.self, forKey: .criticalScore)
+        restrictedRisk = try container.decode(Double.self, forKey: .restrictedRisk)
+        contradictionRisk = try container.decode(Double.self, forKey: .contradictionRisk)
+        overall = try container.decode(Double.self, forKey: .overall)
+        rationale = try container.decode(String.self, forKey: .rationale)
+    }
+}
+
+public struct MemoryContradiction: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let subjectRef: String
+    public let conflictingRef: String
+    public let description: String
+    public let severity: String
+    public let evidenceRefs: [String]
+    public let status: String
+    public let detectedBy: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case subjectRef = "subject_ref"
+        case conflictingRef = "conflicting_ref"
+        case description
+        case severity
+        case evidenceRefs = "evidence_refs"
+        case status
+        case detectedBy = "detected_by"
+    }
+}
+
+public struct MemoryContradictionListResponse: Codable, Equatable, Sendable {
+    public let contradictions: [MemoryContradiction]
+}
+
+public struct MemoryPromotionDecision: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let candidateId: String
+    public let quorumId: String?
+    public let decision: String
+    public let status: String
+    public let promotedAtomId: String?
+    public let qualityScore: MemoryQualityScore?
+    public let rationale: String
+    public let reviewer: String?
+    public let evidenceRefs: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case candidateId = "candidate_id"
+        case quorumId = "quorum_id"
+        case decision
+        case status
+        case promotedAtomId = "promoted_atom_id"
+        case qualityScore = "quality_score"
+        case rationale
+        case reviewer
+        case evidenceRefs = "evidence_refs"
+    }
+}
+
+public struct MemoryGovernanceRun: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let schemaVersion: String
+    public let status: String
+    public let candidatesEvaluated: Int
+    public let triadPending: Int
+    public let promoted: Int
+    public let rejected: Int
+    public let contradictionsFound: Int
+    public let qualityScoresWritten: Int
+    public let hardGates: ExocortexJSONValue?
+    public let degradedReason: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case schemaVersion = "schema_version"
+        case status
+        case candidatesEvaluated = "candidates_evaluated"
+        case triadPending = "triad_pending"
+        case promoted
+        case rejected
+        case contradictionsFound = "contradictions_found"
+        case qualityScoresWritten = "quality_scores_written"
+        case hardGates = "hard_gates"
+        case degradedReason = "degraded_reason"
+    }
+}
+
+public struct MemoryGovernanceStatus: Codable, Equatable, Sendable {
+    public let schemaVersion: String
+    public let status: String
+    public let retrievalPolicy: String?
+    public let latestRun: MemoryGovernanceRun?
+    public let candidateCount: Int
+    public let pendingTriads: Int
+    public let promotedCount: Int
+    public let rejectedCount: Int
+    public let openContradictions: Int
+    public let latestPromotionDecision: MemoryPromotionDecision?
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case status
+        case retrievalPolicy = "retrieval_policy"
+        case latestRun = "latest_run"
+        case candidateCount = "candidate_count"
+        case pendingTriads = "pending_triads"
+        case promotedCount = "promoted_count"
+        case rejectedCount = "rejected_count"
+        case openContradictions = "open_contradictions"
+        case latestPromotionDecision = "latest_promotion_decision"
     }
 }
 
@@ -1199,6 +1354,10 @@ public struct TrustContext: Codable, Equatable, Sendable {
     public let memoryEngineStatus: String?
     public let latestCandidateRef: String?
     public let latestQuorumStatus: String?
+    public let memoryGovernorStatus: String?
+    public let pendingTriads: Int?
+    public let openContradictions: Int?
+    public let latestPromotionDecision: String?
 
     enum CodingKeys: String, CodingKey {
         case mcpStatus = "mcp_status"
@@ -1216,6 +1375,10 @@ public struct TrustContext: Codable, Equatable, Sendable {
         case memoryEngineStatus = "memory_engine_status"
         case latestCandidateRef = "latest_candidate_ref"
         case latestQuorumStatus = "latest_quorum_status"
+        case memoryGovernorStatus = "memory_governor_status"
+        case pendingTriads = "pending_triads"
+        case openContradictions = "open_contradictions"
+        case latestPromotionDecision = "latest_promotion_decision"
     }
 }
 

@@ -24,7 +24,7 @@ def main() -> int:
     print(
         json.dumps(
             {
-                "schema_version": "beagle-federated-memory-engine-v1.5",
+                "schema_version": "beagle-federated-memory-engine-v1.6",
                 "runtimes": [
                     {
                         "name": name,
