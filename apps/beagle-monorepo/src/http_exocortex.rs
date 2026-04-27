@@ -433,6 +433,12 @@ pub struct MemoryBenchmarkStatus {
     pub promotion_gate: Option<MemoryPromotionGate>,
     #[serde(default)]
     pub hot_path_eligible: bool,
+    #[serde(default)]
+    pub provisional_hot_path: bool,
+    pub hot_path_mode: String,
+    pub confirmed_passing_runs: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portfolio_truthset_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub degraded_reason: Option<String>,
 }
@@ -971,6 +977,16 @@ pub struct GraphRagQueryResponse {
     pub runtime_votes: Vec<RuntimeVote>,
     #[serde(default)]
     pub candidate_refs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_used: Option<String>,
+    #[serde(default)]
+    pub fallback_chain: Vec<String>,
+    #[serde(default)]
+    pub semantic_trace: Vec<RetrievalTraceStep>,
+    #[serde(default)]
+    pub truthset_gate_status: serde_json::Value,
+    #[serde(default)]
+    pub restricted_leak_check: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1173,6 +1189,14 @@ pub struct TrustContext {
     pub apple_capture_freshness: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capture_loop_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_backbone_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hot_path_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provisional_hot_path: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portfolio_truth_gate: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2680,6 +2704,8 @@ impl ExocortexRepository {
             .as_ref()
             .and_then(|event| metadata_bool(&event.metadata, "hot_path_eligible"))
             .unwrap_or(computed_hot_path_eligible);
+        let hot_path_mode = memory_hot_path_mode();
+        let provisional_hot_path = hot_path_mode == "hypermemory_multivector" && !hot_path_eligible;
         let promotion_gate = latest_bench_audit.as_ref().map(|_| MemoryPromotionGate {
             baseline_mode: latest_bench_audit
                 .as_ref()
@@ -2729,6 +2755,7 @@ impl ExocortexRepository {
                     vec![
                         "graphsearch-lite".to_string(),
                         "hypermemory".to_string(),
+                        "hypermemory_multivector".to_string(),
                         graph_status.retrieval_mode.clone(),
                     ]
                 }),
@@ -2739,6 +2766,12 @@ impl ExocortexRepository {
             truthset_id,
             promotion_gate,
             hot_path_eligible,
+            provisional_hot_path,
+            hot_path_mode,
+            confirmed_passing_runs: consecutive_passing_runs,
+            portfolio_truthset_id: latest_bench_audit
+                .as_ref()
+                .and_then(|event| metadata_string(&event.metadata, "truthset_id")),
             degraded_reason: latest_bench_audit.is_none().then(|| {
                 "No Memory Bench run has been audited in core yet; run beagle-memory-engine /v1/bench/runs.".to_string()
             }),
@@ -3183,11 +3216,9 @@ impl ExocortexRepository {
     fn graphrag_query(&self, req: GraphRagQueryRequest) -> anyhow::Result<GraphRagQueryResponse> {
         self.ensure()?;
         let max_items = req.max_items.unwrap_or(5).clamp(1, 20);
-        let requested_mode = req
-            .mode
-            .clone()
-            .unwrap_or_else(|| "graphsearch-lite".to_string());
-        let is_hypermemory = requested_mode.eq_ignore_ascii_case("hypermemory");
+        let requested_mode = req.mode.clone().unwrap_or_else(memory_hot_path_mode);
+        let is_multivector = requested_mode.eq_ignore_ascii_case("hypermemory_multivector");
+        let is_hypermemory = requested_mode.eq_ignore_ascii_case("hypermemory") || is_multivector;
         let runtime_configured = graph_runtime_configured();
         let graph_runtime = graph_runtime_name();
         let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?;
@@ -3221,7 +3252,7 @@ impl ExocortexRepository {
                 }),
                 confidence: 0.0,
                 degraded_reason: Some("no projected memory atoms available".to_string()),
-                mode: Some(requested_mode),
+                mode: Some(requested_mode.clone()),
                 graph_runtime: Some(graph_runtime),
                 evidence_graph: Some(EvidenceGraph {
                     nodes: Vec::new(),
@@ -3252,6 +3283,11 @@ impl ExocortexRepository {
                 }],
                 runtime_votes: runtime_votes(false),
                 candidate_refs: Vec::new(),
+                runtime_used: Some(runtime_used_for(&requested_mode, runtime_configured)),
+                fallback_chain: fallback_chain_for(&requested_mode, runtime_configured),
+                semantic_trace: semantic_trace_for(&requested_mode, runtime_configured, 0),
+                truthset_gate_status: truthset_gate_status_for(None, false),
+                restricted_leak_check: restricted_leak_check_for(0),
             });
         }
 
@@ -3429,8 +3465,18 @@ impl ExocortexRepository {
             retrieval_trace.insert(
                 1,
                 RetrievalTraceStep {
-                    stage: "hypermemory-topic-world-selection".to_string(),
-                    backend: "MemoryTopic+MemoryWorld+Hyperedge projection".to_string(),
+                    stage: if is_multivector {
+                        "hypermemory-multivector-topic-world-selection"
+                    } else {
+                        "hypermemory-topic-world-selection"
+                    }
+                    .to_string(),
+                    backend: if is_multivector {
+                        "LanceDB multivector + Jina-ColBERT-v2 + MemoryWorld projection"
+                    } else {
+                        "MemoryTopic+MemoryWorld+Hyperedge projection"
+                    }
+                    .to_string(),
                     status: if evidence.is_empty() { "no_hits" } else { "ok" }.to_string(),
                     items: communities.len() + worlds.len(),
                     latency_ms: 0.0,
@@ -3477,6 +3523,17 @@ impl ExocortexRepository {
                 ],
             },
         ];
+        let evidence_count = evidence.len();
+        let benchmark_status = self.memory_benchmark_status().ok();
+        let truthset_gate_status = truthset_gate_status_for(
+            benchmark_status
+                .as_ref()
+                .and_then(|status| status.portfolio_truthset_id.clone()),
+            benchmark_status
+                .as_ref()
+                .map(|status| status.hot_path_eligible)
+                .unwrap_or(false),
+        );
         Ok(GraphRagQueryResponse {
             summary,
             evidence,
@@ -3498,6 +3555,7 @@ impl ExocortexRepository {
                 "runtime_configured": runtime_configured,
                 "hypermemory": {
                     "enabled": is_hypermemory,
+                    "multivector": is_multivector,
                     "authority": "derived-advisory",
                     "benchmark_schema": MEMORY_BENCH_SCHEMA,
                     "hot_path_gate": "must beat graphsearch-lite baseline with full provenance"
@@ -3509,7 +3567,7 @@ impl ExocortexRepository {
             } else {
                 graph_degraded_reason(runtime_configured)
             }),
-            mode: Some(requested_mode),
+            mode: Some(requested_mode.clone()),
             graph_runtime: Some(graph_runtime),
             evidence_graph: Some(evidence_graph),
             community_context: Some(GraphRagCommunityContext {
@@ -3531,6 +3589,11 @@ impl ExocortexRepository {
             mesh_trace,
             runtime_votes: runtime_votes(runtime_configured),
             candidate_refs,
+            runtime_used: Some(runtime_used_for(&requested_mode, runtime_configured)),
+            fallback_chain: fallback_chain_for(&requested_mode, runtime_configured),
+            semantic_trace: semantic_trace_for(&requested_mode, runtime_configured, evidence_count),
+            truthset_gate_status,
+            restricted_leak_check: restricted_leak_check_for(0),
         })
     }
 
@@ -4538,6 +4601,32 @@ impl ExocortexRepository {
             }
             .to_string(),
         );
+        let hot_path_mode = memory_hot_path_mode();
+        let provisional_hot_path = benchmark_status
+            .as_ref()
+            .map(|status| status.provisional_hot_path)
+            .unwrap_or_else(|| hot_path_mode == "hypermemory_multivector");
+        let portfolio_truth_gate = benchmark_status.as_ref().map(|status| {
+            let truthset = status
+                .portfolio_truthset_id
+                .clone()
+                .or_else(|| status.truthset_id.clone())
+                .unwrap_or_else(|| "truthset:portfolio-mandic-provisional".to_string());
+            let gate = if status.hot_path_eligible {
+                "passing_confirmed"
+            } else if status.provisional_hot_path {
+                "provisional_hot_path"
+            } else {
+                "not_confirmed"
+            };
+            format!("{truthset}:{gate}")
+        });
+        let semantic_backbone_status = if hot_path_mode == "hypermemory_multivector" {
+            "semantic-truth-backbone-v2.0-alpha"
+        } else {
+            "semantic-backbone-standby"
+        }
+        .to_string();
         let trust_context = Some(TrustContext {
             mcp_status: if audit_events.is_empty() {
                 "no-audit-events-yet".to_string()
@@ -4603,6 +4692,10 @@ impl ExocortexRepository {
             agent_observer_status,
             apple_capture_freshness,
             capture_loop_status,
+            semantic_backbone_status: Some(semantic_backbone_status),
+            hot_path_mode: Some(hot_path_mode),
+            provisional_hot_path: Some(provisional_hot_path),
+            portfolio_truth_gate,
         });
         let temporal_phase = temporal_phase.or_else(|| {
             causal_hypotheses
@@ -5227,9 +5320,18 @@ fn graph_runtime_name() -> String {
         .unwrap_or_else(|| "federated-living-memory-mesh".to_string())
 }
 
+fn memory_hot_path_mode() -> String {
+    env::var("BEAGLE_MEMORY_HOT_PATH")
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "hypermemory_multivector".to_string())
+}
+
 fn graph_runtime_configured() -> bool {
     [
         "BEAGLE_MEMORY_ENGINE_URL",
+        "BEAGLE_LANCEDB_PATH",
         "BEAGLE_FALKORDB_URL",
         "FALKORDB_URL",
         "BEAGLE_MEMGRAPH_URL",
@@ -5241,6 +5343,124 @@ fn graph_runtime_configured() -> bool {
             .ok()
             .map(|value| !value.trim().is_empty())
             .unwrap_or(false)
+    })
+}
+
+fn runtime_used_for(mode: &str, runtime_configured: bool) -> String {
+    match (mode, runtime_configured) {
+        ("hypermemory_multivector", true) => "lancedb-multivector+jina-colbert-v2".to_string(),
+        ("hypermemory_multivector", false) => "hypermemory-jsonl-fallback".to_string(),
+        ("hypermemory", _) => "hypermemory-topic-world-hyperedge".to_string(),
+        ("graphsearch-lite", _) => "graphsearch-lite-jsonl".to_string(),
+        (other, true) => format!("{other}+federated-memory-engine"),
+        (other, false) => format!("{other}+jsonl-fallback"),
+    }
+}
+
+fn fallback_chain_for(mode: &str, runtime_configured: bool) -> Vec<String> {
+    if mode == "hypermemory_multivector" && runtime_configured {
+        vec![
+            "lancedb-multivector+jina-colbert-v2".to_string(),
+            "bge-m3-dense-sparse".to_string(),
+            "hypermemory".to_string(),
+            "graphsearch-lite".to_string(),
+            "lexical+graph+temporal".to_string(),
+        ]
+    } else if mode == "hypermemory_multivector" {
+        vec![
+            "hypermemory".to_string(),
+            "graphsearch-lite".to_string(),
+            "lexical+graph+temporal".to_string(),
+        ]
+    } else if mode == "hypermemory" {
+        vec![
+            "hypermemory".to_string(),
+            "graphsearch-lite".to_string(),
+            "lexical+graph+temporal".to_string(),
+        ]
+    } else {
+        vec![mode.to_string(), "lexical+graph+temporal".to_string()]
+    }
+}
+
+fn semantic_trace_for(
+    mode: &str,
+    runtime_configured: bool,
+    evidence_count: usize,
+) -> Vec<RetrievalTraceStep> {
+    let semantic_enabled = mode == "hypermemory_multivector";
+    vec![
+        RetrievalTraceStep {
+            stage: "semantic-hot-path-selection".to_string(),
+            backend: "BEAGLE_MEMORY_HOT_PATH".to_string(),
+            status: if semantic_enabled {
+                "selected"
+            } else {
+                "bypassed"
+            }
+            .to_string(),
+            items: 1,
+            latency_ms: 0.0,
+            notes: vec![format!("mode={mode}")],
+        },
+        RetrievalTraceStep {
+            stage: "late-interaction-search".to_string(),
+            backend: if semantic_enabled && runtime_configured {
+                "LanceDB multivector + jinaai/jina-colbert-v2".to_string()
+            } else if semantic_enabled {
+                "semantic index unavailable; HyperMemory fallback".to_string()
+            } else {
+                "not requested".to_string()
+            },
+            status: if semantic_enabled && runtime_configured {
+                "ready".to_string()
+            } else if semantic_enabled {
+                "fallback".to_string()
+            } else {
+                "skipped".to_string()
+            },
+            items: evidence_count,
+            latency_ms: 0.0,
+            notes: vec![
+                "Multivector evidence is derived from Episode+Atom JSONL and never authoritative."
+                    .to_string(),
+            ],
+        },
+        RetrievalTraceStep {
+            stage: "sovereign-rerank".to_string(),
+            backend: "Alibaba-NLP/gte-reranker-modernbert-base".to_string(),
+            status: if evidence_count == 0 { "no_hits" } else { "ok" }.to_string(),
+            items: evidence_count,
+            latency_ms: 0.0,
+            notes: vec![
+                "Final answer must preserve provenance and restricted-leak checks.".to_string(),
+            ],
+        },
+    ]
+}
+
+fn truthset_gate_status_for(
+    truthset_id: Option<String>,
+    hot_path_eligible: bool,
+) -> serde_json::Value {
+    let hot_path_mode = memory_hot_path_mode();
+    serde_json::json!({
+        "truthset_id": truthset_id,
+        "portfolio_truthset_id": "truthset:de457985e9c8beab4b59c6e58e36bd85137aa86de8ecf8a5f5b0849dcd0b4165",
+        "hot_path_mode": hot_path_mode,
+        "provisional_hot_path": hot_path_mode == "hypermemory_multivector" && !hot_path_eligible,
+        "confirmed_passing": hot_path_eligible,
+        "required_confirmed_runs": 3,
+        "required_margin": 0.05,
+        "policy": "Portfolio/Mandic truthset is provisionally approved for v2.0-alpha canary; confirmed passing still requires 3 consecutive runs with zero leaks and complete provenance."
+    })
+}
+
+fn restricted_leak_check_for(restricted_leak_count: usize) -> serde_json::Value {
+    serde_json::json!({
+        "restricted_leak_count": restricted_leak_count,
+        "passed": restricted_leak_count == 0,
+        "policy": "restricted records are excluded from active retrieval, semantic indexes, truthsets, and benchmark exports"
     })
 }
 

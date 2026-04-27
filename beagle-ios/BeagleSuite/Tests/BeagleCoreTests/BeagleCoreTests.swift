@@ -170,7 +170,11 @@ import SwiftData
         "memory_governor_status": "healthy",
         "pending_triads": 2,
         "open_contradictions": 1,
-        "latest_promotion_decision": "promoted"
+        "latest_promotion_decision": "promoted",
+        "semantic_backbone_status": "semantic-truth-backbone-v2.0-alpha",
+        "hot_path_mode": "hypermemory_multivector",
+        "provisional_hot_path": true,
+        "portfolio_truth_gate": "truthset:portfolio:provisional_hot_path"
       }
     }
     """.data(using: .utf8)!
@@ -185,6 +189,10 @@ import SwiftData
     #expect(snapshot.trustContext?.pendingTriads == 2)
     #expect(snapshot.trustContext?.openContradictions == 1)
     #expect(snapshot.trustContext?.latestPromotionDecision == "promoted")
+    #expect(snapshot.trustContext?.semanticBackboneStatus == "semantic-truth-backbone-v2.0-alpha")
+    #expect(snapshot.trustContext?.hotPathMode == "hypermemory_multivector")
+    #expect(snapshot.trustContext?.provisionalHotPath == true)
+    #expect(snapshot.trustContext?.portfolioTruthGate?.contains("portfolio") == true)
 }
 
 @Test func memoryGovernanceStatusDecodesTriadStrictState() throws {
@@ -384,7 +392,21 @@ import SwiftData
       "retrieval_trace": [{"stage": "question-analysis", "backend": "deterministic-tokenizer", "status": "ok", "items": 2, "latency_ms": 0.0, "notes": ["mode=graphsearch-lite"]}],
       "mesh_trace": [{"stage": "federation", "backend": "beagle-memory-engine", "status": "shadow", "items": 1, "latency_ms": 12.5, "notes": ["adaptive shortlist"]}],
       "runtime_votes": [{"runtime": "falkordb", "role": "graphblas-hot-path", "status": "available", "score": 0.88, "notes": ["vector+graph"]}],
-      "candidate_refs": ["candidate-1"]
+      "candidate_refs": ["candidate-1"],
+      "runtime_used": "lancedb-multivector+jina-colbert-v2",
+      "fallback_chain": ["lancedb-multivector+jina-colbert-v2", "hypermemory", "graphsearch-lite"],
+      "semantic_trace": [{"stage": "late-interaction-search", "backend": "LanceDB multivector + jinaai/jina-colbert-v2", "status": "ready", "items": 1, "latency_ms": 0.0, "notes": ["MaxSim"]}],
+      "truthset_gate_status": {
+        "truthset_id": "truth-v20",
+        "portfolio_truthset_id": "truthset:portfolio",
+        "hot_path_mode": "hypermemory_multivector",
+        "provisional_hot_path": true,
+        "confirmed_passing": false,
+        "required_confirmed_runs": 3,
+        "required_margin": 0.05,
+        "policy": "provisional"
+      },
+      "restricted_leak_check": {"restricted_leak_count": 0, "passed": true}
     }
     """.data(using: .utf8)!
     let graph = try JSONDecoder().decode(GraphRagQueryResponse.self, from: graphJson)
@@ -396,6 +418,10 @@ import SwiftData
     #expect(graph.meshTrace.first?.backend == "beagle-memory-engine")
     #expect(graph.runtimeVotes.first?.runtime == "falkordb")
     #expect(graph.candidateRefs == ["candidate-1"])
+    #expect(graph.runtimeUsed == "lancedb-multivector+jina-colbert-v2")
+    #expect(graph.fallbackChain.contains("hypermemory"))
+    #expect(graph.semanticTrace.first?.status == "ready")
+    #expect(graph.truthsetGateStatus?.provisionalHotPath == true)
 
     let request = AssistedImportBatchRequest(
         sourcePlatform: "claude",
@@ -644,6 +670,10 @@ import SwiftData
       "regression_count": 0,
       "artifact_manifest": "/orangefs/beagle-memory-lab/bench-1/manifest.json",
       "hot_path_eligible": true,
+      "provisional_hot_path": false,
+      "hot_path_mode": "hypermemory_multivector",
+      "confirmed_passing_runs": 3,
+      "portfolio_truthset_id": "truthset:portfolio",
       "promotion_gate": {
         "baseline_mode": "graphsearch-lite",
         "candidate_mode": "hypermemory",
@@ -665,6 +695,9 @@ import SwiftData
     #expect(coreStatus.evaluatedModes.contains("hypermemory"))
     #expect(coreStatus.truthsetId == "truth-v19")
     #expect(coreStatus.hotPathEligible == true)
+    #expect(coreStatus.hotPathMode == "hypermemory_multivector")
+    #expect(coreStatus.confirmedPassingRuns == 3)
+    #expect(coreStatus.portfolioTruthsetId == "truthset:portfolio")
     #expect(coreStatus.promotionGate?.eligible == true)
 
     let engineJson = """
@@ -678,6 +711,10 @@ import SwiftData
       "evaluated_modes": ["graphsearch-lite", "hypermemory", "adaptive-federation"],
       "hard_gates": {"restricted_leak_zero": true},
       "hot_path_eligible": false,
+      "provisional_hot_path": true,
+      "hot_path_mode": "hypermemory_multivector",
+      "confirmed_passing_runs": 1,
+      "portfolio_truthset_id": "truth-v19",
       "promotion_gate": {
         "baseline_mode": "graphsearch-lite",
         "candidate_mode": "hypermemory",
@@ -759,6 +796,7 @@ import SwiftData
     #expect(engineStatus.latestRun?.modeResults.first?.metrics?.exactSupport == 0.84)
     #expect(engineStatus.latestRun?.caseJudgments.first?.domain == "work-memory")
     #expect(engineStatus.promotionGate?.candidateMode == "hypermemory")
+    #expect(engineStatus.provisionalHotPath == true)
 }
 
 @Test func persistenceContainerIncludesAssistedImportOutbox() throws {

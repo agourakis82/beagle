@@ -120,16 +120,40 @@ const GraphRagQuerySchema = z.object({
     scope: z.string().optional(),
     max_items: z.number().int().min(1).max(20).optional().default(5),
     mode: z
-        .enum(["graphsearch-lite", "drift-lite", "local", "global", "hybrid", "adaptive-federation", "hypermemory"])
+        .enum([
+            "hypermemory_multivector",
+            "hypermemory",
+            "graphsearch-lite",
+            "drift-lite",
+            "local",
+            "global",
+            "hybrid",
+            "adaptive-federation",
+        ])
         .optional()
-        .default("graphsearch-lite"),
+        .default("hypermemory_multivector"),
 });
 
 const MemoryMeshQuerySchema = z.object({
     query: z.string().min(1),
     scope: z.string().optional(),
     max_items: z.number().int().min(1).max(20).optional().default(8),
-    mode: z.string().optional().default("adaptive-federation"),
+    mode: z.string().optional().default("hypermemory_multivector"),
+});
+
+const SemanticIndexRebuildSchema = z.object({
+    limit: z.number().int().min(1).max(50000).optional().default(10000),
+    include_candidates: z.boolean().optional().default(true),
+});
+
+const RetrievalTraceSchema = z.object({
+    query: z.string().min(1),
+    scope: z.string().optional(),
+    max_items: z.number().int().min(1).max(20).optional().default(8),
+    mode: z
+        .enum(["hypermemory_multivector", "hypermemory", "graphsearch-lite"])
+        .optional()
+        .default("hypermemory_multivector"),
 });
 
 const MemoryEngineBakeoffRunSchema = z.object({
@@ -183,7 +207,7 @@ const MemoryBenchmarkRunSchema = z.object({
     include_mesh: z.boolean().optional().default(true),
     truthset_id: z.string().optional(),
     baseline_mode: z.string().optional().default("graphsearch-lite"),
-    candidate_modes: z.array(z.string()).optional().default(["hypermemory"]),
+    candidate_modes: z.array(z.string()).optional().default(["hypermemory_multivector", "hypermemory"]),
     promotion_policy: z
         .object({
             required_margin: z.number().min(0).max(1).optional().default(0.05),
@@ -203,7 +227,7 @@ const MemoryTruthsetDraftSchema = z.object({
 
 const MemoryTruthsetReviewSchema = z.object({
     truthset_id: z.string().min(1),
-    status: z.enum(["draft", "approved", "rejected"]).default("approved"),
+    status: z.enum(["draft", "provisional_approved", "approved", "rejected"]).default("approved"),
     reviewer: z.string().optional().default("mcp-agent"),
     rationale: z.string().optional(),
 });
@@ -766,15 +790,16 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                     mode: {
                         type: "string",
                         enum: [
+                            "hypermemory_multivector",
+                            "hypermemory",
                             "graphsearch-lite",
                             "drift-lite",
                             "local",
                             "global",
                             "hybrid",
                             "adaptive-federation",
-                            "hypermemory",
                         ],
-                        default: "graphsearch-lite",
+                        default: "hypermemory_multivector",
                     },
                 },
             },
@@ -801,12 +826,75 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                     query: { type: "string" },
                     scope: { type: "string" },
                     max_items: { type: "number", minimum: 1, maximum: 20, default: 8 },
-                    mode: { type: "string", default: "adaptive-federation" },
+                    mode: { type: "string", default: "hypermemory_multivector" },
                 },
             },
             handler: async (args: unknown) => {
                 const parsed = MemoryMeshQuerySchema.parse(args ?? {});
                 return sanitizeOutput(await client.memoryMeshQuery(parsed));
+            },
+        },
+        {
+            name: "beagle_semantic_index_status",
+            description:
+                "Read the v2.0-alpha Semantic Truth Backbone status: LanceDB multivector path, Jina-ColBERT-v2 model, fallback model, reranker, freshness, and latest rebuild.",
+            inputSchema: { type: "object", properties: {} },
+            handler: async () => sanitizeOutput(await client.semanticIndexStatus()),
+        },
+        {
+            name: "beagle_semantic_index_rebuild",
+            description:
+                "Rebuild the derived v2.0-alpha semantic multivector index from the cluster-canonical JSONL export. Restricted records are excluded; JSONL/Merkle/Chronoself remains authoritative.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    limit: { type: "number", minimum: 1, maximum: 50000, default: 10000 },
+                    include_candidates: { type: "boolean", default: true },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SemanticIndexRebuildSchema.parse(args ?? {});
+                return sanitizeOutput(await client.semanticIndexRebuild(parsed));
+            },
+        },
+        {
+            name: "beagle_retrieval_trace",
+            description:
+                "Run a HyperMemory multivector query and return the semantic trace, fallback chain, truthset gate, leak check, and provenance-focused retrieval trace.",
+            inputSchema: {
+                type: "object",
+                required: ["query"],
+                properties: {
+                    query: { type: "string" },
+                    scope: { type: "string" },
+                    max_items: { type: "number", minimum: 1, maximum: 20, default: 8 },
+                    mode: {
+                        type: "string",
+                        enum: ["hypermemory_multivector", "hypermemory", "graphsearch-lite"],
+                        default: "hypermemory_multivector",
+                    },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = RetrievalTraceSchema.parse(args ?? {});
+                const result = await client.graphRagQuery(parsed);
+                if (typeof result === "object" && result !== null) {
+                    const value = result as Record<string, unknown>;
+                    return sanitizeOutput({
+                        summary: value.summary,
+                        mode: value.mode,
+                        runtime_used: value.runtime_used,
+                        fallback_chain: value.fallback_chain,
+                        semantic_trace: value.semantic_trace,
+                        retrieval_trace: value.retrieval_trace,
+                        mesh_trace: value.mesh_trace,
+                        truthset_gate_status: value.truthset_gate_status,
+                        restricted_leak_check: value.restricted_leak_check,
+                        provenance: value.provenance,
+                        confidence: value.confidence,
+                    });
+                }
+                return sanitizeOutput(result);
             },
         },
         {
@@ -946,7 +1034,7 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                     candidate_modes: {
                         type: "array",
                         items: { type: "string" },
-                        default: ["hypermemory"],
+                        default: ["hypermemory_multivector", "hypermemory"],
                     },
                     promotion_policy: {
                         type: "object",
@@ -1004,7 +1092,11 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                 required: ["truthset_id"],
                 properties: {
                     truthset_id: { type: "string" },
-                    status: { type: "string", enum: ["draft", "approved", "rejected"], default: "approved" },
+                    status: {
+                        type: "string",
+                        enum: ["draft", "provisional_approved", "approved", "rejected"],
+                        default: "approved",
+                    },
                     reviewer: { type: "string", default: "mcp-agent" },
                     rationale: { type: "string" },
                 },

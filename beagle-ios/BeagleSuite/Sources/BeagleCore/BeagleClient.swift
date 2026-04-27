@@ -696,7 +696,7 @@ public actor BeagleClient {
         query: String,
         scope: String? = nil,
         maxItems: Int = 5,
-        mode: String = "graphsearch-lite"
+        mode: String = "hypermemory_multivector"
     ) async -> Truthful<GraphRagQueryResponse> {
         var body: [String: any Sendable] = [
             "query": query,

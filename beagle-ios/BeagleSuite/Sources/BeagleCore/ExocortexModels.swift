@@ -961,6 +961,10 @@ public struct MemoryBenchmarkStatus: Codable, Equatable, Sendable {
     public let truthsetId: String?
     public let promotionGate: MemoryPromotionGate?
     public let hotPathEligible: Bool
+    public let provisionalHotPath: Bool
+    public let hotPathMode: String?
+    public let confirmedPassingRuns: Int
+    public let portfolioTruthsetId: String?
 
     enum CodingKeys: String, CodingKey {
         case generatedAt = "generated_at"
@@ -978,6 +982,10 @@ public struct MemoryBenchmarkStatus: Codable, Equatable, Sendable {
         case truthsetId = "truthset_id"
         case promotionGate = "promotion_gate"
         case hotPathEligible = "hot_path_eligible"
+        case provisionalHotPath = "provisional_hot_path"
+        case hotPathMode = "hot_path_mode"
+        case confirmedPassingRuns = "confirmed_passing_runs"
+        case portfolioTruthsetId = "portfolio_truthset_id"
     }
 
     public init(from decoder: Decoder) throws {
@@ -997,6 +1005,175 @@ public struct MemoryBenchmarkStatus: Codable, Equatable, Sendable {
         truthsetId = try container.decodeIfPresent(String.self, forKey: .truthsetId)
         promotionGate = try container.decodeIfPresent(MemoryPromotionGate.self, forKey: .promotionGate)
         hotPathEligible = try container.decodeIfPresent(Bool.self, forKey: .hotPathEligible) ?? false
+        provisionalHotPath = try container.decodeIfPresent(Bool.self, forKey: .provisionalHotPath) ?? false
+        hotPathMode = try container.decodeIfPresent(String.self, forKey: .hotPathMode)
+        confirmedPassingRuns = try container.decodeIfPresent(Int.self, forKey: .confirmedPassingRuns) ?? 0
+        portfolioTruthsetId = try container.decodeIfPresent(String.self, forKey: .portfolioTruthsetId)
+    }
+}
+
+public struct HotPathMode: Codable, Equatable, Sendable, RawRepresentable {
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        rawValue = try container.decode(String.self)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}
+
+public struct PortfolioTruthGate: Codable, Equatable, Sendable {
+    public let truthsetId: String?
+    public let portfolioTruthsetId: String?
+    public let hotPathMode: String?
+    public let provisionalHotPath: Bool
+    public let confirmedPassing: Bool
+    public let requiredConfirmedRuns: Int?
+    public let requiredMargin: Double?
+    public let policy: String?
+
+    enum CodingKeys: String, CodingKey {
+        case truthsetId = "truthset_id"
+        case portfolioTruthsetId = "portfolio_truthset_id"
+        case hotPathMode = "hot_path_mode"
+        case provisionalHotPath = "provisional_hot_path"
+        case confirmedPassing = "confirmed_passing"
+        case requiredConfirmedRuns = "required_confirmed_runs"
+        case requiredMargin = "required_margin"
+        case policy
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        truthsetId = try container.decodeIfPresent(String.self, forKey: .truthsetId)
+        portfolioTruthsetId = try container.decodeIfPresent(String.self, forKey: .portfolioTruthsetId)
+        hotPathMode = try container.decodeIfPresent(String.self, forKey: .hotPathMode)
+        provisionalHotPath = try container.decodeIfPresent(Bool.self, forKey: .provisionalHotPath) ?? false
+        confirmedPassing = try container.decodeIfPresent(Bool.self, forKey: .confirmedPassing) ?? false
+        requiredConfirmedRuns = try container.decodeIfPresent(Int.self, forKey: .requiredConfirmedRuns)
+        requiredMargin = try container.decodeIfPresent(Double.self, forKey: .requiredMargin)
+        policy = try container.decodeIfPresent(String.self, forKey: .policy)
+    }
+}
+
+public struct SemanticIndexRun: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let status: String
+    public let schemaVersion: String
+    public let hotPathMode: String?
+    public let runtime: String?
+    public let model: String?
+    public let fallbackModel: String?
+    public let rerankerModel: String?
+    public let sourceExportId: String?
+    public let sourceMerkleRoot: String?
+    public let episodeCount: Int
+    public let atomCount: Int
+    public let worldCount: Int
+    public let truthsetId: String?
+    public let artifactManifest: String?
+    public let lancedbPath: String?
+    public let restrictedLeakCount: Int
+    public let degradedReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case status
+        case schemaVersion = "schema_version"
+        case hotPathMode = "hot_path_mode"
+        case runtime
+        case model
+        case fallbackModel = "fallback_model"
+        case rerankerModel = "reranker_model"
+        case sourceExportId = "source_export_id"
+        case sourceMerkleRoot = "source_merkle_root"
+        case episodeCount = "episode_count"
+        case atomCount = "atom_count"
+        case worldCount = "world_count"
+        case truthsetId = "truthset_id"
+        case artifactManifest = "artifact_manifest"
+        case lancedbPath = "lancedb_path"
+        case restrictedLeakCount = "restricted_leak_count"
+        case degradedReason = "degraded_reason"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt) ?? ""
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "unknown"
+        schemaVersion = try container.decodeIfPresent(String.self, forKey: .schemaVersion) ?? ""
+        hotPathMode = try container.decodeIfPresent(String.self, forKey: .hotPathMode)
+        runtime = try container.decodeIfPresent(String.self, forKey: .runtime)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        fallbackModel = try container.decodeIfPresent(String.self, forKey: .fallbackModel)
+        rerankerModel = try container.decodeIfPresent(String.self, forKey: .rerankerModel)
+        sourceExportId = try container.decodeIfPresent(String.self, forKey: .sourceExportId)
+        sourceMerkleRoot = try container.decodeIfPresent(String.self, forKey: .sourceMerkleRoot)
+        episodeCount = try container.decodeIfPresent(Int.self, forKey: .episodeCount) ?? 0
+        atomCount = try container.decodeIfPresent(Int.self, forKey: .atomCount) ?? 0
+        worldCount = try container.decodeIfPresent(Int.self, forKey: .worldCount) ?? 0
+        truthsetId = try container.decodeIfPresent(String.self, forKey: .truthsetId)
+        artifactManifest = try container.decodeIfPresent(String.self, forKey: .artifactManifest)
+        lancedbPath = try container.decodeIfPresent(String.self, forKey: .lancedbPath)
+        restrictedLeakCount = try container.decodeIfPresent(Int.self, forKey: .restrictedLeakCount) ?? 0
+        degradedReason = try container.decodeIfPresent(String.self, forKey: .degradedReason)
+    }
+}
+
+public struct SemanticIndexStatus: Codable, Equatable, Sendable {
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let status: String
+    public let hotPathMode: String?
+    public let runtime: String?
+    public let model: String?
+    public let fallbackModel: String?
+    public let rerankerModel: String?
+    public let lancedbPath: String?
+    public let latestRun: SemanticIndexRun?
+    public let freshness: String?
+    public let degradedReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case status
+        case hotPathMode = "hot_path_mode"
+        case runtime
+        case model
+        case fallbackModel = "fallback_model"
+        case rerankerModel = "reranker_model"
+        case lancedbPath = "lancedb_path"
+        case latestRun = "latest_run"
+        case freshness
+        case degradedReason = "degraded_reason"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        generatedAt = try container.decodeIfPresent(String.self, forKey: .generatedAt) ?? ""
+        schemaVersion = try container.decodeIfPresent(String.self, forKey: .schemaVersion) ?? ""
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "unknown"
+        hotPathMode = try container.decodeIfPresent(String.self, forKey: .hotPathMode)
+        runtime = try container.decodeIfPresent(String.self, forKey: .runtime)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        fallbackModel = try container.decodeIfPresent(String.self, forKey: .fallbackModel)
+        rerankerModel = try container.decodeIfPresent(String.self, forKey: .rerankerModel)
+        lancedbPath = try container.decodeIfPresent(String.self, forKey: .lancedbPath)
+        latestRun = try container.decodeIfPresent(SemanticIndexRun.self, forKey: .latestRun)
+        freshness = try container.decodeIfPresent(String.self, forKey: .freshness)
+        degradedReason = try container.decodeIfPresent(String.self, forKey: .degradedReason)
     }
 }
 
@@ -1322,6 +1499,11 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
     public let meshTrace: [RetrievalTraceStep]
     public let runtimeVotes: [RuntimeVote]
     public let candidateRefs: [String]
+    public let runtimeUsed: String?
+    public let fallbackChain: [String]
+    public let semanticTrace: [RetrievalTraceStep]
+    public let truthsetGateStatus: PortfolioTruthGate?
+    public let restrictedLeakCheck: ExocortexJSONValue?
 
     enum CodingKeys: String, CodingKey {
         case summary
@@ -1341,6 +1523,11 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
         case meshTrace = "mesh_trace"
         case runtimeVotes = "runtime_votes"
         case candidateRefs = "candidate_refs"
+        case runtimeUsed = "runtime_used"
+        case fallbackChain = "fallback_chain"
+        case semanticTrace = "semantic_trace"
+        case truthsetGateStatus = "truthset_gate_status"
+        case restrictedLeakCheck = "restricted_leak_check"
     }
 
     public init(from decoder: Decoder) throws {
@@ -1362,6 +1549,11 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
         meshTrace = try container.decodeIfPresent([RetrievalTraceStep].self, forKey: .meshTrace) ?? []
         runtimeVotes = try container.decodeIfPresent([RuntimeVote].self, forKey: .runtimeVotes) ?? []
         candidateRefs = try container.decodeIfPresent([String].self, forKey: .candidateRefs) ?? []
+        runtimeUsed = try container.decodeIfPresent(String.self, forKey: .runtimeUsed)
+        fallbackChain = try container.decodeIfPresent([String].self, forKey: .fallbackChain) ?? []
+        semanticTrace = try container.decodeIfPresent([RetrievalTraceStep].self, forKey: .semanticTrace) ?? []
+        truthsetGateStatus = try container.decodeIfPresent(PortfolioTruthGate.self, forKey: .truthsetGateStatus)
+        restrictedLeakCheck = try container.decodeIfPresent(ExocortexJSONValue.self, forKey: .restrictedLeakCheck)
     }
 }
 
@@ -1663,6 +1855,10 @@ public struct TrustContext: Codable, Equatable, Sendable {
     public let agentObserverStatus: String?
     public let appleCaptureFreshness: String?
     public let captureLoopStatus: String?
+    public let semanticBackboneStatus: String?
+    public let hotPathMode: String?
+    public let provisionalHotPath: Bool?
+    public let portfolioTruthGate: String?
 
     enum CodingKeys: String, CodingKey {
         case mcpStatus = "mcp_status"
@@ -1692,6 +1888,10 @@ public struct TrustContext: Codable, Equatable, Sendable {
         case agentObserverStatus = "agent_observer_status"
         case appleCaptureFreshness = "apple_capture_freshness"
         case captureLoopStatus = "capture_loop_status"
+        case semanticBackboneStatus = "semantic_backbone_status"
+        case hotPathMode = "hot_path_mode"
+        case provisionalHotPath = "provisional_hot_path"
+        case portfolioTruthGate = "portfolio_truth_gate"
     }
 }
 

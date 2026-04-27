@@ -1,5 +1,17 @@
 # Beagle MCP Tool Manifest Changelog
 
+## beagle-mcp-v2.0-alpha-semantic-truth-backbone
+
+- Tool count: 47
+- Tool manifest hash: `sha256:3f3624a0b21cdbc44ba3a5d5f379d3306669d494b0a76f7146e2541c2e2a2ac8`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from public, mobile, local-agent, semantic-index, truthset, benchmark, and governance surfaces.
+- Added Semantic Truth Backbone tools:
+  - `beagle_semantic_index_status`
+  - `beagle_semantic_index_rebuild`
+  - `beagle_retrieval_trace`
+- `beagle_graphrag_query`, `search`, `fetch`, and mesh queries now treat `hypermemory_multivector` as the audacious v2.0-alpha hot path while preserving explicit fallback to HyperMemory and lexical+graph+temporal retrieval.
+
 ## beagle-mcp-v1.9-memory-truth-agent-os
 
 - Tool count: 44

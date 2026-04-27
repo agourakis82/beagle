@@ -181,6 +181,21 @@ const TOOL_POLICIES: Record<string, ToolPolicy> = {
         requiredScopes: READ_EXOCORTEX,
         riskLevel: "read",
     },
+    beagle_semantic_index_status: {
+        annotations: annotations("Read Semantic Index Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_semantic_index_rebuild: {
+        annotations: annotations("Rebuild Semantic Index", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_retrieval_trace: {
+        annotations: annotations("Read Retrieval Trace", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
     beagle_memory_bakeoff_run: {
         annotations: annotations("Run Memory Runtime Bake-Off", false, false, false),
         requiredScopes: RUN_RESEARCH,
@@ -320,6 +335,8 @@ const REVIEW_SAFE_TOOL_NAMES = new Set([
     "beagle_graphrag_query",
     "beagle_memory_engine_status",
     "beagle_memory_mesh_query",
+    "beagle_semantic_index_status",
+    "beagle_retrieval_trace",
     "beagle_memory_candidates_list",
     "beagle_memory_governance_status",
     "beagle_memory_contradictions_recent",

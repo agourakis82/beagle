@@ -2,7 +2,7 @@ import { BASIC_SCOPES, computeToolManifestHash, toolManifest } from "./tool-mani
 import { activeClientSurface, clientSurfaceSummary } from "./client-profile.js";
 import { McpTool } from "./tools/index.js";
 
-export const MCP_MANIFEST_VERSION = "beagle-mcp-v1.9-memory-truth-agent-os";
+export const MCP_MANIFEST_VERSION = "beagle-mcp-v2.0-alpha-semantic-truth-backbone";
 export const MCP_SECURITY_PROFILE = "sott-non-destructive-oauth-audited";
 
 export interface CapabilityLedgerState {

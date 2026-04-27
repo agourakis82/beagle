@@ -45,7 +45,7 @@ spec:
             runAsGroup: 0
       containers:
         - name: beagle-memory-engine
-          image: 192.168.3.207:5003/beagle-memory-engine:memory-v19-20260427-truthloop
+          image: 192.168.3.207:5003/beagle-memory-engine:memory-v20-alpha-20260427-semantic
           imagePullPolicy: Always
           ports:
             - name: http
@@ -59,6 +59,14 @@ spec:
               value: /orangefs/beagle-memory-lab
             - name: BEAGLE_CORE_URL
               value: http://beagle-core.beagle.svc.cluster.local:8080
+            - name: BEAGLE_MEMORY_HOT_PATH
+              value: hypermemory_multivector
+            - name: BEAGLE_MEMORY_COLBERT_MODEL
+              value: jinaai/jina-colbert-v2
+            - name: BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_MODEL
+              value: BAAI/bge-m3
+            - name: BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL
+              value: Alibaba-NLP/gte-reranker-modernbert-base
             - name: BEAGLE_CORE_API_TOKEN
               valueFrom:
                 secretKeyRef:

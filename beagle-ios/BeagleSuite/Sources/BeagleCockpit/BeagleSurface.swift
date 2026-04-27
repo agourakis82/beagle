@@ -225,6 +225,11 @@ struct BeagleSurface: View {
                             detail: agentContextDetail
                         )
                         homeSignal(
+                            icon: "sparkles",
+                            title: "Semantic Backbone",
+                            detail: semanticBackboneDetail
+                        )
+                        homeSignal(
                             icon: "externaldrive.connected.to.line.below",
                             title: autoImportTitle,
                             detail: autoImportDetail
@@ -284,7 +289,7 @@ struct BeagleSurface: View {
                     .frame(width: 16)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("GraphRAG++ memory")
+                    Text("Semantic GraphRAG++ memory")
                         .font(BeagleFont.caption2.font)
                         .fontWeight(.semibold)
                         .foregroundStyle(BeagleTheme.textTertiary)
@@ -807,8 +812,11 @@ struct BeagleSurface: View {
         let pending = trust.pendingTriads.map { " · triad \($0)" } ?? ""
         let contradictions = trust.openContradictions.map { " · contradictions \($0)" } ?? ""
         let benchGate = trust.benchHotPathEligible.map { " · bench gate \($0 ? "eligible" : "shadow")" } ?? ""
+        let semantic = trust.semanticBackboneStatus.map { " · \($0)" } ?? ""
+        let hotPath = trust.hotPathMode.map { " · hot path \($0)" } ?? ""
+        let provisional = trust.provisionalHotPath == true ? " · provisional" : ""
         let capture = trust.captureLoopStatus.map { " · capture \($0)" } ?? ""
-        return "\(trust.mcpStatus) · \(scopeCount) scopes · \(hashLabel)\(mesh)\(governor)\(pending)\(contradictions)\(quorum)\(benchGate)\(capture) · destructive locked"
+        return "\(trust.mcpStatus) · \(scopeCount) scopes · \(hashLabel)\(semantic)\(hotPath)\(provisional)\(mesh)\(governor)\(pending)\(contradictions)\(quorum)\(benchGate)\(capture) · destructive locked"
     }
 
     private var memoryProjectionLine: String {
@@ -818,13 +826,23 @@ struct BeagleSurface: View {
         guard let status else {
             return "Projection not observed yet; tap to inspect cluster memory."
         }
-        let runtime = home.trustContext?.graphRuntime ?? exocortex.graphStatus?.value?.graphRuntime ?? "jsonl"
-        let mode = home.trustContext?.retrievalMode ?? exocortex.graphStatus?.value?.retrievalMode ?? status.retrievalMode
+        let runtime = home.trustContext?.semanticBackboneStatus ?? home.trustContext?.graphRuntime ?? exocortex.graphStatus?.value?.graphRuntime ?? "jsonl"
+        let mode = home.trustContext?.hotPathMode ?? home.trustContext?.retrievalMode ?? exocortex.graphStatus?.value?.retrievalMode ?? status.retrievalMode
         let degrade = home.trustContext?.graphDegradedReason ?? exocortex.graphStatus?.value?.degradedReason ?? status.degradedReason
         let hash = home.trustContext?.lastWorldHash.map { " · \($0.prefix(18))" } ?? ""
         let candidate = home.trustContext?.latestCandidateRef.map { " · candidate \($0.prefix(12))" } ?? ""
         let bench = memoryBenchLine.map { " · \($0)" } ?? ""
         return "\(runtime) · \(mode) · \(status.episodeCount) episodes · \(status.atomCount) atoms · \(degrade)\(bench)\(hash)\(candidate)"
+    }
+
+    private var semanticBackboneDetail: String {
+        guard let trust = home.trustContext else {
+            return "awaiting cluster trust"
+        }
+        let backbone = trust.semanticBackboneStatus ?? "semantic-backbone-unknown"
+        let hotPath = trust.hotPathMode ?? trust.retrievalMode ?? "unknown"
+        let gate = trust.provisionalHotPath == true ? "provisional" : (trust.benchHotPathEligible == true ? "confirmed" : "shadow")
+        return "\(backbone) · \(hotPath) · \(gate)"
     }
 
     private var memoryBenchLine: String? {
@@ -972,6 +990,7 @@ private struct MemoryLensSheet: View {
         case candidates = "Candidates"
         case truth = "Truth"
         case bench = "Bench"
+        case semanticTrace = "Semantic"
         case runtimeTrace = "Runtime"
 
         var id: String { rawValue }
@@ -999,6 +1018,8 @@ private struct MemoryLensSheet: View {
                     truthTab
                 case .bench:
                     benchTab
+                case .semanticTrace:
+                    semanticTraceTab
                 case .runtimeTrace:
                     runtimeTraceTab
                 }
@@ -1502,6 +1523,57 @@ private struct MemoryLensSheet: View {
         }
     }
 
+    private var semanticTraceTab: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            sectionTitle("SEMANTIC TRACE")
+            if let graph = exocortex.lastGraphRagQuery?.value {
+                GlassPanel(truth: graph.runtimeUsed?.contains("fallback") == true ? .declared : .observed) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text((graph.runtimeUsed ?? graph.mode ?? "unknown").uppercased())
+                            .font(BeagleFont.caption2.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.truthObserved)
+                        if !graph.fallbackChain.isEmpty {
+                            Text(graph.fallbackChain.joined(separator: " -> "))
+                                .font(BeagleFont.caption.font)
+                                .foregroundStyle(BeagleTheme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if let gate = graph.truthsetGateStatus {
+                            let gateLabel = gate.confirmedPassing ? "confirmed" : (gate.provisionalHotPath ? "provisional" : "shadow")
+                            Text("Portfolio gate \(gateLabel) · \(gate.portfolioTruthsetId ?? gate.truthsetId ?? "truthset pending")")
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+                ForEach(graph.semanticTrace.prefix(10)) { step in
+                    GlassPanel(truth: step.status == "ready" || step.status == "ok" ? .observed : .declared) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(step.stage.uppercased())
+                                .font(BeagleFont.caption2.font)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                            Text("\(step.backend) · \(step.status) · \(step.items) items")
+                                .font(BeagleFont.caption.font)
+                                .foregroundStyle(BeagleTheme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            if !step.notes.isEmpty {
+                                Text(step.notes.prefix(3).joined(separator: " · "))
+                                    .font(BeagleFont.caption2.font)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+            } else {
+                emptyRow("Run a Memory Lens query to see MaxSim/late-interaction, graph expansion, rerank, provenance, and fallback trace.")
+            }
+        }
+    }
+
     private var queryBar: some View {
         HStack(spacing: BeagleSpacing.sm) {
             TextField("Search decisions, hypotheses, evidence...", text: $query)
@@ -1550,6 +1622,12 @@ private struct MemoryLensSheet: View {
                 .font(BeagleFont.callout.font)
                 .foregroundStyle(BeagleTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let runtime = result.runtimeUsed ?? result.mode {
+                Text("\(runtime) · \(result.fallbackChain.joined(separator: " -> "))")
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             ForEach(result.evidence.prefix(6), id: \.atomId) { evidence in
                 GlassPanel(truth: .observed) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -1576,6 +1654,14 @@ private struct MemoryLensSheet: View {
             if let trace = result.retrievalTrace, !trace.isEmpty {
                 ForEach(trace.prefix(4)) { step in
                     Text("\(step.stage) · \(step.backend) · \(step.status) · \(step.items)")
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .lineLimit(1)
+                }
+            }
+            if !result.semanticTrace.isEmpty {
+                ForEach(result.semanticTrace.prefix(3)) { step in
+                    Text("\(step.stage) · \(step.backend) · \(step.status)")
                         .font(BeagleFont.caption2.font)
                         .foregroundStyle(BeagleTheme.textTertiary)
                         .lineLimit(1)

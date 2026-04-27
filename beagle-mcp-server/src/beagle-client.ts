@@ -396,6 +396,14 @@ export class BeagleClient {
         return this.request("POST", "/v1/query", body, 120000, this.memoryEngineUrl());
     }
 
+    async semanticIndexStatus(): Promise<unknown> {
+        return this.request("GET", "/v1/index/semantic/status", undefined, 30000, this.memoryEngineUrl());
+    }
+
+    async semanticIndexRebuild(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/index/semantic/rebuild", body, 300000, this.memoryEngineUrl());
+    }
+
     async memoryEngineBakeoffRun(body: unknown): Promise<unknown> {
         return this.request("POST", "/v1/bakeoff/runs", body, 300000, this.memoryEngineUrl());
     }
