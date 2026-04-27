@@ -30,7 +30,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: beagle-mcp-server
-          image: 192.168.3.207:5003/beagle-mcp-server:memory-v16-20260427
+          image: 192.168.3.207:5003/beagle-mcp-server:memory-v18-20260427-24b36e2
           imagePullPolicy: Always
           ports:
             - name: http

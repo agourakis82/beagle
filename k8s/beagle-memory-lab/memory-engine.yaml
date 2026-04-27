@@ -45,7 +45,7 @@ spec:
             runAsGroup: 0
       containers:
         - name: beagle-memory-engine
-          image: 192.168.3.207:5003/beagle-memory-engine:memory-v16-20260427
+          image: 192.168.3.207:5003/beagle-memory-engine:memory-v18-20260427-24b36e2
           imagePullPolicy: Always
           ports:
             - name: http

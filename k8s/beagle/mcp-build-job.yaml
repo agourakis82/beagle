@@ -43,7 +43,7 @@ spec:
           image: gcr.io/kaniko-project/executor:latest
           env:
             - name: BEAGLE_IMAGE_TAG
-              value: memory-v16-20260427
+              value: memory-v18-20260427-24b36e2
           args:
             - "--dockerfile=/workspace/beagle-mcp-server/Dockerfile"
             - "--context=dir:///workspace"
