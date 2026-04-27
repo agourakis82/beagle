@@ -629,6 +629,74 @@ import SwiftData
     #expect(status.latestBakeoff?.candidates.first?.metrics.top5HitRate == 0.86)
 }
 
+@Test func memoryBenchmarkStatusDecodesCoreAndEngineShapes() throws {
+    let coreJson = """
+    {
+      "generated_at": "2026-04-27T12:00:00Z",
+      "schema_version": "beagle-memory-bench-hypermemory-v1.8",
+      "status": "passing",
+      "latest_run_id": "bench-1",
+      "latest_score": 0.84,
+      "query_count": 100,
+      "hard_gates": {"restricted_leak_zero": true, "provenance_complete": true},
+      "evaluated_modes": ["graphsearch-lite", "hypermemory"],
+      "regression_count": 0,
+      "artifact_manifest": "/orangefs/beagle-memory-lab/bench-1/manifest.json"
+    }
+    """.data(using: .utf8)!
+
+    let coreStatus = try JSONDecoder().decode(MemoryBenchmarkStatus.self, from: coreJson)
+    #expect(coreStatus.status == "passing")
+    #expect(coreStatus.latestScore == 0.84)
+    #expect(coreStatus.evaluatedModes.contains("hypermemory"))
+
+    let engineJson = """
+    {
+      "generated_at": "2026-04-27T12:01:00Z",
+      "schema_version": "beagle-federated-memory-engine-v1.8",
+      "status": "passing",
+      "latest_score": 0.83,
+      "regression_count": 0,
+      "evaluated_modes": ["graphsearch-lite", "hypermemory", "adaptive-federation"],
+      "hard_gates": {"restricted_leak_zero": true},
+      "latest_run": {
+        "id": "bench-2",
+        "created_at": "2026-04-27T12:01:00Z",
+        "status": "passing",
+        "schema_version": "beagle-federated-memory-engine-v1.8",
+        "query_count": 100,
+        "domains": ["work-memory"],
+        "judge_mode": "deterministic-plus-blind-llm-ready",
+        "hard_gates": {"restricted_leak_zero": true},
+        "mode_results": [{
+          "mode": "hypermemory",
+          "status": "advisory-pass",
+          "score": 0.83,
+          "metrics": {
+            "top_k_hit_rate": 0.82,
+            "multi_hop_correctness": 0.78,
+            "temporal_correctness": 0.80,
+            "provenance_completeness": 0.88,
+            "contradiction_safety": 0.82,
+            "restricted_leak_count": 0,
+            "p95_latency_ms": 240,
+            "blind_judge_depth": 0.81
+          },
+          "notes": ["cluster-only"]
+        }],
+        "winning_mode": "hypermemory",
+        "regression_count": 0,
+        "artifact_manifest": "/orangefs/beagle-memory-lab/bench-2/manifest.json",
+        "degraded_reason": "cluster-only"
+      }
+    }
+    """.data(using: .utf8)!
+
+    let engineStatus = try JSONDecoder().decode(MemoryBenchmarkStatus.self, from: engineJson)
+    #expect(engineStatus.latestRun?.modeResults.first?.mode == "hypermemory")
+    #expect(engineStatus.latestRun?.modeResults.first?.metrics?.restrictedLeakCount == 0)
+}
+
 @Test func persistenceContainerIncludesAssistedImportOutbox() throws {
     let schema = Schema([
         PersistedThought.self,

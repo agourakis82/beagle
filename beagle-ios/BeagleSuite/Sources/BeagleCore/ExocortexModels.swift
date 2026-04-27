@@ -773,6 +773,149 @@ public struct MemoryGraphStatus: Codable, Equatable, Sendable {
     }
 }
 
+public struct MemoryBenchmarkMetricSet: Codable, Equatable, Sendable {
+    public let topKHitRate: Double?
+    public let multiHopCorrectness: Double?
+    public let temporalCorrectness: Double?
+    public let provenanceCompleteness: Double?
+    public let contradictionSafety: Double?
+    public let restrictedLeakCount: Int?
+    public let p95LatencyMs: Double?
+    public let blindJudgeDepth: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case topKHitRate = "top_k_hit_rate"
+        case multiHopCorrectness = "multi_hop_correctness"
+        case temporalCorrectness = "temporal_correctness"
+        case provenanceCompleteness = "provenance_completeness"
+        case contradictionSafety = "contradiction_safety"
+        case restrictedLeakCount = "restricted_leak_count"
+        case p95LatencyMs = "p95_latency_ms"
+        case blindJudgeDepth = "blind_judge_depth"
+    }
+}
+
+public struct MemoryBenchmarkModeResult: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { mode }
+    public let mode: String
+    public let status: String
+    public let score: Double
+    public let metrics: MemoryBenchmarkMetricSet?
+    public let notes: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case mode
+        case status
+        case score
+        case metrics
+        case notes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        mode = try container.decode(String.self, forKey: .mode)
+        status = try container.decode(String.self, forKey: .status)
+        score = try container.decodeIfPresent(Double.self, forKey: .score) ?? 0
+        metrics = try container.decodeIfPresent(MemoryBenchmarkMetricSet.self, forKey: .metrics)
+        notes = try container.decodeIfPresent([String].self, forKey: .notes) ?? []
+    }
+}
+
+public struct MemoryBenchmarkRun: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let status: String
+    public let schemaVersion: String
+    public let queryCount: Int
+    public let domains: [String]
+    public let judgeMode: String?
+    public let hardGates: [String: Bool]
+    public let modeResults: [MemoryBenchmarkModeResult]
+    public let winningMode: String?
+    public let regressionCount: Int
+    public let artifactManifest: String?
+    public let degradedReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case status
+        case schemaVersion = "schema_version"
+        case queryCount = "query_count"
+        case domains
+        case judgeMode = "judge_mode"
+        case hardGates = "hard_gates"
+        case modeResults = "mode_results"
+        case winningMode = "winning_mode"
+        case regressionCount = "regression_count"
+        case artifactManifest = "artifact_manifest"
+        case degradedReason = "degraded_reason"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        status = try container.decode(String.self, forKey: .status)
+        schemaVersion = try container.decode(String.self, forKey: .schemaVersion)
+        queryCount = try container.decodeIfPresent(Int.self, forKey: .queryCount) ?? 0
+        domains = try container.decodeIfPresent([String].self, forKey: .domains) ?? []
+        judgeMode = try container.decodeIfPresent(String.self, forKey: .judgeMode)
+        hardGates = try container.decodeIfPresent([String: Bool].self, forKey: .hardGates) ?? [:]
+        modeResults = try container.decodeIfPresent([MemoryBenchmarkModeResult].self, forKey: .modeResults) ?? []
+        winningMode = try container.decodeIfPresent(String.self, forKey: .winningMode)
+        regressionCount = try container.decodeIfPresent(Int.self, forKey: .regressionCount) ?? 0
+        artifactManifest = try container.decodeIfPresent(String.self, forKey: .artifactManifest)
+        degradedReason = try container.decodeIfPresent(String.self, forKey: .degradedReason)
+    }
+}
+
+public struct MemoryBenchmarkStatus: Codable, Equatable, Sendable {
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let status: String
+    public let latestRunId: String?
+    public let latestScore: Double?
+    public let queryCount: Int
+    public let hardGates: [String: Bool]
+    public let evaluatedModes: [String]
+    public let regressionCount: Int
+    public let artifactManifest: String?
+    public let degradedReason: String?
+    public let latestRun: MemoryBenchmarkRun?
+
+    enum CodingKeys: String, CodingKey {
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case status
+        case latestRunId = "latest_run_id"
+        case latestScore = "latest_score"
+        case queryCount = "query_count"
+        case hardGates = "hard_gates"
+        case evaluatedModes = "evaluated_modes"
+        case regressionCount = "regression_count"
+        case artifactManifest = "artifact_manifest"
+        case degradedReason = "degraded_reason"
+        case latestRun = "latest_run"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        generatedAt = try container.decodeIfPresent(String.self, forKey: .generatedAt) ?? ""
+        schemaVersion = try container.decodeIfPresent(String.self, forKey: .schemaVersion) ?? "beagle-memory-bench-hypermemory-v1.8"
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "empty"
+        latestRunId = try container.decodeIfPresent(String.self, forKey: .latestRunId)
+        latestScore = try container.decodeIfPresent(Double.self, forKey: .latestScore)
+        queryCount = try container.decodeIfPresent(Int.self, forKey: .queryCount) ?? 0
+        hardGates = try container.decodeIfPresent([String: Bool].self, forKey: .hardGates) ?? [:]
+        evaluatedModes = try container.decodeIfPresent([String].self, forKey: .evaluatedModes) ?? []
+        regressionCount = try container.decodeIfPresent(Int.self, forKey: .regressionCount) ?? 0
+        artifactManifest = try container.decodeIfPresent(String.self, forKey: .artifactManifest)
+        degradedReason = try container.decodeIfPresent(String.self, forKey: .degradedReason)
+        latestRun = try container.decodeIfPresent(MemoryBenchmarkRun.self, forKey: .latestRun)
+    }
+}
+
 public struct MemoryWorldsRecentResponse: Codable, Equatable, Sendable {
     public let generatedAt: String
     public let worlds: [MemoryWorld]
@@ -1358,6 +1501,9 @@ public struct TrustContext: Codable, Equatable, Sendable {
     public let pendingTriads: Int?
     public let openContradictions: Int?
     public let latestPromotionDecision: String?
+    public let memoryBenchStatus: String?
+    public let latestBenchScore: Double?
+    public let memoryRegressionCount: Int?
 
     enum CodingKeys: String, CodingKey {
         case mcpStatus = "mcp_status"
@@ -1379,6 +1525,9 @@ public struct TrustContext: Codable, Equatable, Sendable {
         case pendingTriads = "pending_triads"
         case openContradictions = "open_contradictions"
         case latestPromotionDecision = "latest_promotion_decision"
+        case memoryBenchStatus = "memory_bench_status"
+        case latestBenchScore = "latest_bench_score"
+        case memoryRegressionCount = "memory_regression_count"
     }
 }
 

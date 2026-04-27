@@ -1,5 +1,16 @@
 # Beagle MCP Tool Manifest Changelog
 
+## beagle-mcp-v1.8-memory-bench-hypermemory
+
+- Tool count: 41
+- Tool manifest hash: `sha256:51098dcfbafc876345ed65bfdba3b7ecd9775295a3451df8351ed5048d4496c9`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from public, mobile, local-agent, memory-engine, benchmark, and governance surfaces.
+- Added Memory Bench tools:
+  - `beagle_memory_benchmark_run`
+  - `beagle_memory_benchmark_status`
+- `beagle_graphrag_query` now accepts `mode=hypermemory`, but HyperMemory stays derived/advisory until Memory Bench beats baseline with complete provenance and zero restricted leakage.
+
 ## beagle-mcp-v1.6-self-governing-exocortex
 
 - Tool count: 39

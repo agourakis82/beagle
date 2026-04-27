@@ -97,6 +97,22 @@ export function defineResources(
             read: async () => client.memoryGovernanceStatus(),
         },
         {
+            uri: "beagle://memory/bench/status",
+            name: "Memory Bench Status",
+            description:
+                "Latest Memory Bench v1.8 health, hard gates, evaluated modes, and benchmark score.",
+            mimeType: "application/json",
+            read: async () => client.memoryBenchmarkStatus(),
+        },
+        {
+            uri: "beagle://memory/bench/latest",
+            name: "Latest Memory Bench Run",
+            description:
+                "Latest cluster-only Memory Bench v1.8 run comparing GraphRAG++ baseline, HyperMemory, and mesh modes.",
+            mimeType: "application/json",
+            read: async () => client.memoryBenchmarkStatus(),
+        },
+        {
             uri: "beagle://memory/contradictions/recent",
             name: "Recent Memory Contradictions",
             description:

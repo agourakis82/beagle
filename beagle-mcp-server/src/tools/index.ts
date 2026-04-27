@@ -216,6 +216,16 @@ const TOOL_POLICIES: Record<string, ToolPolicy> = {
         requiredScopes: RUN_RESEARCH,
         riskLevel: "run",
     },
+    beagle_memory_benchmark_run: {
+        annotations: annotations("Run Memory Bench", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_memory_benchmark_status: {
+        annotations: annotations("Read Memory Bench Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
     beagle_memory_engine_governance_evaluate: {
         annotations: annotations("Evaluate Memory Governance", false, false, false),
         requiredScopes: WRITE_MEMORY,
@@ -298,6 +308,7 @@ const REVIEW_SAFE_TOOL_NAMES = new Set([
     "beagle_memory_candidates_list",
     "beagle_memory_governance_status",
     "beagle_memory_contradictions_recent",
+    "beagle_memory_benchmark_status",
     "beagle_pipeline_status",
     "beagle_list_recent_runs",
     "beagle_get_science_job_status",

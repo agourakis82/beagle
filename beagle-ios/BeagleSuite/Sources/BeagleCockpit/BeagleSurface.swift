@@ -160,10 +160,11 @@ struct BeagleSurface: View {
                             async let homeRefresh: Void = exocortex.refresh(activeProjectSlug: activeSlug, platform: platformName)
                             async let projectionRefresh: Void = exocortex.refreshProjectionStatus()
                             async let graphStatusRefresh: Void = exocortex.refreshGraphStatus()
+                            async let benchmarkRefresh: Void = exocortex.refreshBenchmarkStatus()
                             async let graphRefresh: Void = exocortex.refreshRecentGraph(limit: 12)
                             async let worldsRefresh: Void = exocortex.refreshRecentWorlds(limit: 12)
                             async let bodyRefresh: Void = physio.refresh()
-                            _ = await (homeRefresh, projectionRefresh, graphStatusRefresh, graphRefresh, worldsRefresh, bodyRefresh)
+                            _ = await (homeRefresh, projectionRefresh, graphStatusRefresh, benchmarkRefresh, graphRefresh, worldsRefresh, bodyRefresh)
                         }
                     } label: {
                         Image(systemName: "arrow.clockwise")
@@ -820,7 +821,22 @@ struct BeagleSurface: View {
         let degrade = home.trustContext?.graphDegradedReason ?? exocortex.graphStatus?.value?.degradedReason ?? status.degradedReason
         let hash = home.trustContext?.lastWorldHash.map { " · \($0.prefix(18))" } ?? ""
         let candidate = home.trustContext?.latestCandidateRef.map { " · candidate \($0.prefix(12))" } ?? ""
-        return "\(runtime) · \(mode) · \(status.episodeCount) episodes · \(status.atomCount) atoms · \(degrade)\(hash)\(candidate)"
+        let bench = memoryBenchLine.map { " · \($0)" } ?? ""
+        return "\(runtime) · \(mode) · \(status.episodeCount) episodes · \(status.atomCount) atoms · \(degrade)\(bench)\(hash)\(candidate)"
+    }
+
+    private var memoryBenchLine: String? {
+        if let trust = home.trustContext,
+           let status = trust.memoryBenchStatus {
+            let score = trust.latestBenchScore.map { " \(String(format: "%.2f", $0))" } ?? ""
+            let regressions = trust.memoryRegressionCount.map { " · \($0) regressions" } ?? ""
+            return "bench \(status)\(score)\(regressions)"
+        }
+        if let bench = exocortex.benchmarkStatus?.value {
+            let score = bench.latestScore.map { " \(String(format: "%.2f", $0))" } ?? ""
+            return "bench \(bench.status)\(score) · \(bench.regressionCount) regressions"
+        }
+        return nil
     }
 
     private var latestAgentWriteLine: String? {
@@ -948,6 +964,7 @@ private struct MemoryLensSheet: View {
         case work = "Work"
         case contradictions = "Contradictions"
         case candidates = "Candidates"
+        case bench = "Bench"
         case runtimeTrace = "Runtime"
 
         var id: String { rawValue }
@@ -971,6 +988,8 @@ private struct MemoryLensSheet: View {
                     contradictionsTab
                 case .candidates:
                     candidatesTab
+                case .bench:
+                    benchTab
                 case .runtimeTrace:
                     runtimeTraceTab
                 }
@@ -981,12 +1000,13 @@ private struct MemoryLensSheet: View {
         .background(BeagleTheme.surface0.ignoresSafeArea())
         .task {
             async let graphStatus: Void = exocortex.refreshGraphStatus()
+            async let benchmark: Void = exocortex.refreshBenchmarkStatus()
             async let recentGraph: Void = exocortex.refreshRecentGraph(limit: 16)
             async let worlds: Void = exocortex.refreshRecentWorlds(limit: 16)
             async let candidates: Void = exocortex.refreshMemoryCandidates(limit: 20)
             async let governance: Void = exocortex.refreshMemoryGovernanceStatus()
             async let contradictions: Void = exocortex.refreshMemoryContradictions(limit: 20)
-            _ = await (graphStatus, recentGraph, worlds, candidates, governance, contradictions)
+            _ = await (graphStatus, benchmark, recentGraph, worlds, candidates, governance, contradictions)
         }
     }
 
@@ -1018,7 +1038,9 @@ private struct MemoryLensSheet: View {
                     let governor = trust.memoryGovernorStatus.map { " · governor \($0)" } ?? ""
                     let triad = trust.pendingTriads.map { " · pending \($0)" } ?? ""
                     let contradictions = trust.openContradictions.map { " · contradictions \($0)" } ?? ""
-                    Text("\(mesh)\(governor)\(triad)\(contradictions)\(candidate)\(quorum)")
+                    let bench = trust.memoryBenchStatus.map { " · bench \($0)" } ?? ""
+                    let score = trust.latestBenchScore.map { " \(String(format: "%.2f", $0))" } ?? ""
+                    Text("\(mesh)\(governor)\(triad)\(contradictions)\(bench)\(score)\(candidate)\(quorum)")
                         .font(BeagleFont.caption.font)
                         .foregroundStyle(BeagleTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1266,6 +1288,76 @@ private struct MemoryLensSheet: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private var benchTab: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            sectionTitle("MEMORY BENCH")
+            if let bench = exocortex.benchmarkStatus?.value {
+                GlassPanel(truth: bench.status == "passing" ? .observed : .declared) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(bench.status.uppercased())
+                                .font(BeagleFont.caption2.font)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(bench.status == "passing" ? BeagleTheme.truthObserved : BeagleTheme.truthDeclared)
+                            Spacer()
+                            if let score = bench.latestScore {
+                                Text(String(format: "%.2f", score))
+                                    .font(BeagleFont.caption2.font.monospaced())
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                            }
+                        }
+                        Text("\(bench.queryCount) queries · \(bench.regressionCount) regressions")
+                            .font(BeagleFont.caption.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                        if !bench.evaluatedModes.isEmpty {
+                            Text(bench.evaluatedModes.joined(separator: " · "))
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .lineLimit(2)
+                        }
+                        if let reason = bench.degradedReason {
+                            Text(reason)
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                if let latest = bench.latestRun {
+                    ForEach(latest.modeResults.prefix(6)) { result in
+                        GlassPanel(truth: result.status.contains("pass") ? .observed : .declared) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text(result.mode.uppercased())
+                                        .font(BeagleFont.caption2.font)
+                                        .fontWeight(.semibold)
+                                        .foregroundStyle(BeagleTheme.truthObserved)
+                                    Spacer()
+                                    Text(String(format: "%.2f", result.score))
+                                        .font(BeagleFont.caption2.font.monospaced())
+                                        .foregroundStyle(BeagleTheme.textTertiary)
+                                }
+                                Text(result.status)
+                                    .font(BeagleFont.caption.font)
+                                    .foregroundStyle(BeagleTheme.textSecondary)
+                                if let metrics = result.metrics {
+                                    Text("top-k \(String(format: "%.2f", metrics.topKHitRate ?? 0)) · provenance \(String(format: "%.2f", metrics.provenanceCompleteness ?? 0)) · leaks \(metrics.restrictedLeakCount ?? 0)")
+                                        .font(BeagleFont.caption2.font)
+                                        .foregroundStyle(BeagleTheme.textTertiary)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if let trust = exocortex.home.value?.trustContext,
+                      let status = trust.memoryBenchStatus {
+                emptyRow("Bench \(status) observed in Home; open cluster status for detailed mode scores.")
+            } else {
+                emptyRow("No Memory Bench run observed yet.")
             }
         }
     }
@@ -1542,7 +1634,7 @@ private struct MemoryLensSheet: View {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         isSearching = true
-        _ = await exocortex.queryGraphMemory(trimmed, scope: activeProjectSlug, maxItems: 8, mode: "adaptive-federation")
+        _ = await exocortex.queryGraphMemory(trimmed, scope: activeProjectSlug, maxItems: 8, mode: "hypermemory")
         isSearching = false
     }
 }

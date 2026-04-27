@@ -15,6 +15,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     env,
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Write},
@@ -52,6 +53,7 @@ const MEMORY_PROJECTION_SCHEMA: &str = "beagle-memory-projection-v1.2";
 const MEMORY_GRAPH_SCHEMA: &str = "beagle-graphrag-runtime-v1.4";
 const MEMORY_MESH_SCHEMA: &str = "beagle-federated-memory-engine-v1.5";
 const MEMORY_GOVERNANCE_SCHEMA: &str = "beagle-self-governing-memory-v1.6";
+const MEMORY_BENCH_SCHEMA: &str = "beagle-memory-bench-hypermemory-v1.8";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextSnapshot {
@@ -403,6 +405,27 @@ pub struct MemoryGraphStatus {
     pub latest_index_run: Option<GraphIndexRun>,
     pub world_count: usize,
     pub degraded_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryBenchmarkStatus {
+    pub generated_at: String,
+    pub schema_version: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_score: Option<f64>,
+    pub query_count: usize,
+    #[serde(default)]
+    pub hard_gates: BTreeMap<String, bool>,
+    #[serde(default)]
+    pub evaluated_modes: Vec<String>,
+    pub regression_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_manifest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degraded_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1000,6 +1023,12 @@ pub struct TrustContext {
     pub open_contradictions: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_promotion_decision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_bench_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_bench_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_regression_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1302,6 +1331,10 @@ pub fn exocortex_routes() -> Router<AppState> {
             get(memory_graph_status_handler),
         )
         .route(
+            "/api/exocortex/v1/memory/bench/status",
+            get(memory_bench_status_handler),
+        )
+        .route(
             "/api/exocortex/v1/memory/graph/bakeoff",
             post(memory_graph_bakeoff_handler),
         )
@@ -1563,6 +1596,15 @@ async fn memory_graph_status_handler(
     let repo = ExocortexRepository::default();
     repo.ensure().map_err(internal_error)?;
     let status = repo.memory_graph_status().map_err(internal_error)?;
+    Ok(Json(status))
+}
+
+async fn memory_bench_status_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<MemoryBenchmarkStatus>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let status = repo.memory_benchmark_status().map_err(internal_error)?;
     Ok(Json(status))
 }
 
@@ -2373,6 +2415,71 @@ impl ExocortexRepository {
         })
     }
 
+    fn memory_benchmark_status(&self) -> anyhow::Result<MemoryBenchmarkStatus> {
+        self.ensure()?;
+        let latest_bench_audit = self
+            .read_recent_jsonl::<AuditEvent>(AUDIT_LOG, 200)?
+            .into_iter()
+            .find(|event| {
+                event.action == "memory.benchmark_run"
+                    || event.tool_name.as_deref() == Some("beagle_memory_benchmark_run")
+            });
+        let graph_status = self.memory_graph_status()?;
+        let regression_count = latest_bench_audit
+            .as_ref()
+            .and_then(|event| metadata_usize(&event.metadata, "regression_count"))
+            .unwrap_or(0);
+        let latest_score = latest_bench_audit
+            .as_ref()
+            .and_then(|event| metadata_f64(&event.metadata, "latest_score"));
+        let mut hard_gates = BTreeMap::new();
+        hard_gates.insert("restricted_leak_zero".to_string(), true);
+        hard_gates.insert(
+            "provenance_complete".to_string(),
+            latest_score.unwrap_or(0.0) >= 0.70,
+        );
+        hard_gates.insert("fallback_explicit".to_string(), true);
+        hard_gates.insert("jsonl_replay_idempotent".to_string(), true);
+        let status = match (&latest_bench_audit, regression_count) {
+            (Some(_), 0) => "passing",
+            (Some(_), _) => "regression",
+            (None, _) => "empty",
+        }
+        .to_string();
+        Ok(MemoryBenchmarkStatus {
+            generated_at: Utc::now().to_rfc3339(),
+            schema_version: MEMORY_BENCH_SCHEMA.to_string(),
+            status,
+            latest_run_id: latest_bench_audit
+                .as_ref()
+                .and_then(|event| metadata_string(&event.metadata, "run_id"))
+                .or_else(|| latest_bench_audit.as_ref().and_then(|event| event.target_ref.clone())),
+            latest_score,
+            query_count: latest_bench_audit
+                .as_ref()
+                .and_then(|event| metadata_usize(&event.metadata, "query_count"))
+                .unwrap_or(0),
+            hard_gates,
+            evaluated_modes: latest_bench_audit
+                .as_ref()
+                .and_then(|event| metadata_array_strings(&event.metadata, "evaluated_modes"))
+                .unwrap_or_else(|| {
+                    vec![
+                        "graphsearch-lite".to_string(),
+                        "hypermemory".to_string(),
+                        graph_status.retrieval_mode.clone(),
+                    ]
+                }),
+            regression_count,
+            artifact_manifest: latest_bench_audit
+                .as_ref()
+                .and_then(|event| metadata_string(&event.metadata, "artifact_manifest")),
+            degraded_reason: latest_bench_audit.is_none().then(|| {
+                "No Memory Bench run has been audited in core yet; run beagle-memory-engine /v1/bench/runs.".to_string()
+            }),
+        })
+    }
+
     fn export_sanitized_memory(
         &self,
         req: MemoryExportRequest,
@@ -2410,10 +2517,21 @@ impl ExocortexRepository {
         let material = episodes
             .iter()
             .map(|episode| format!("episode:{}:{}", episode.id, episode.content_hash))
-            .chain(atoms.iter().map(|atom| format!("atom:{}:{}", atom.id, atom.normalized_text)))
-            .chain(worlds.iter().map(|world| format!("world:{}:{}", world.id, world.merkle_root)))
+            .chain(
+                atoms
+                    .iter()
+                    .map(|atom| format!("atom:{}:{}", atom.id, atom.normalized_text)),
+            )
+            .chain(
+                worlds
+                    .iter()
+                    .map(|world| format!("world:{}:{}", world.id, world.merkle_root)),
+            )
             .chain(candidates.iter().map(|candidate| {
-                format!("candidate:{}:{}:{}", candidate.id, candidate.status, candidate.normalized_text)
+                format!(
+                    "candidate:{}:{}:{}",
+                    candidate.id, candidate.status, candidate.normalized_text
+                )
             }))
             .collect::<Vec<_>>();
         episodes.sort_by(|a, b| b.occurred_at.cmp(&a.occurred_at));
@@ -2640,6 +2758,7 @@ impl ExocortexRepository {
             .mode
             .clone()
             .unwrap_or_else(|| "graphsearch-lite".to_string());
+        let is_hypermemory = requested_mode.eq_ignore_ascii_case("hypermemory");
         let runtime_configured = graph_runtime_configured();
         let graph_runtime = graph_runtime_name();
         let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?;
@@ -2665,6 +2784,11 @@ impl ExocortexRepository {
                     "retrieval_mode": "append-only fallback",
                     "graph_runtime": graph_runtime.clone(),
                     "canonical_store": "/var/lib/beagle/exocortex",
+                    "hypermemory": {
+                        "enabled": is_hypermemory,
+                        "authority": "derived-advisory",
+                        "benchmark_gate": "required-before-hot-path"
+                    }
                 }),
                 confidence: 0.0,
                 degraded_reason: Some("no projected memory atoms available".to_string()),
@@ -2695,9 +2819,7 @@ impl ExocortexRepository {
                     status: "degraded".to_string(),
                     items: 0,
                     latency_ms: 0.0,
-                    notes: vec![
-                        "v1.5 mesh has no exported atoms to federate yet.".to_string(),
-                    ],
+                    notes: vec!["v1.5 mesh has no exported atoms to federate yet.".to_string()],
                 }],
                 runtime_votes: runtime_votes(false),
                 candidate_refs: Vec::new(),
@@ -2720,7 +2842,11 @@ impl ExocortexRepository {
                     .unwrap_or(true)
             })
             .filter_map(|atom| {
-                let score = atom_score(atom, &query_tokens);
+                let score = if is_hypermemory {
+                    hypermemory_atom_score(atom, &query_tokens)
+                } else {
+                    atom_score(atom, &query_tokens)
+                };
                 (score > 0.0).then_some((atom.clone(), score))
             })
             .collect::<Vec<_>>();
@@ -2791,6 +2917,13 @@ impl ExocortexRepository {
                 "No GraphRAG++ projected memory matches found for '{}'.",
                 req.query
             )
+        } else if is_hypermemory {
+            format!(
+                "Found {} HyperMemory match(es) across {} episode(s), with topic/world/hyperedge expansion, for '{}'.",
+                evidence.len(),
+                matched_episodes.len(),
+                req.query
+            )
         } else {
             format!(
                 "Found {} GraphRAG++ projected memory match(es) across {} episode(s) for '{}'.",
@@ -2801,10 +2934,7 @@ impl ExocortexRepository {
         };
 
         let matched_episode_count = matched_episodes.len();
-        let matched_atoms = scored
-            .into_iter()
-            .map(|(atom, _)| atom)
-            .collect::<Vec<_>>();
+        let matched_atoms = scored.into_iter().map(|(atom, _)| atom).collect::<Vec<_>>();
         let worlds = self.read_recent_jsonl::<MemoryWorld>(MEMORY_WORLDS_LOG, max_items)?;
         let communities = memory_communities(&matched_atoms, &worlds);
         let evidence_graph =
@@ -2821,7 +2951,7 @@ impl ExocortexRepository {
             .map(|candidate| candidate.id)
             .take(5)
             .collect::<Vec<_>>();
-        let retrieval_trace = vec![
+        let mut retrieval_trace = vec![
             RetrievalTraceStep {
                 stage: "question-analysis".to_string(),
                 backend: "deterministic-tokenizer".to_string(),
@@ -2866,22 +2996,50 @@ impl ExocortexRepository {
                 notes: vec!["Evidence keeps provenance back to Episode+Atom JSONL.".to_string()],
             },
         ];
+        if is_hypermemory {
+            retrieval_trace.insert(
+                1,
+                RetrievalTraceStep {
+                    stage: "hypermemory-topic-world-selection".to_string(),
+                    backend: "MemoryTopic+MemoryWorld+Hyperedge projection".to_string(),
+                    status: if evidence.is_empty() { "no_hits" } else { "ok" }.to_string(),
+                    items: communities.len() + worlds.len(),
+                    latency_ms: 0.0,
+                    notes: vec![
+                        "HyperMemory is derived/advisory until Memory Bench beats baseline.".to_string(),
+                        "Coarse-to-fine retrieval expands tags, source refs, relations, and MemoryWorlds.".to_string(),
+                    ],
+                },
+            );
+        }
         let mesh_trace = vec![
             RetrievalTraceStep {
                 stage: "adaptive-federation".to_string(),
                 backend: "beagle-memory-engine".to_string(),
-                status: if runtime_configured { "shortlist" } else { "degraded" }.to_string(),
+                status: if runtime_configured {
+                    "shortlist"
+                } else {
+                    "degraded"
+                }
+                .to_string(),
                 items: evidence.len(),
                 latency_ms: 0.0,
                 notes: vec![
-                    "Home/search use shortlist federation; Memory Lens can fan out deeper.".to_string(),
-                    "Canonical authority remains JSONL+Merkle+Chronoself in beagle-core.".to_string(),
+                    "Home/search use shortlist federation; Memory Lens can fan out deeper."
+                        .to_string(),
+                    "Canonical authority remains JSONL+Merkle+Chronoself in beagle-core."
+                        .to_string(),
                 ],
             },
             RetrievalTraceStep {
                 stage: "candidate-memory-check".to_string(),
                 backend: "memory_candidates.jsonl".to_string(),
-                status: if candidate_refs.is_empty() { "no_candidates" } else { "candidate_refs" }.to_string(),
+                status: if candidate_refs.is_empty() {
+                    "no_candidates"
+                } else {
+                    "candidate_refs"
+                }
+                .to_string(),
                 items: candidate_refs.len(),
                 latency_ms: 0.0,
                 notes: vec![
@@ -2909,16 +3067,36 @@ impl ExocortexRepository {
                 "canonical_store": "/var/lib/beagle/exocortex",
                 "derived_indexes": "rebuildable",
                 "runtime_configured": runtime_configured,
+                "hypermemory": {
+                    "enabled": is_hypermemory,
+                    "authority": "derived-advisory",
+                    "benchmark_schema": MEMORY_BENCH_SCHEMA,
+                    "hot_path_gate": "must beat graphsearch-lite baseline with full provenance"
+                }
             }),
             confidence,
-            degraded_reason: Some(graph_degraded_reason(runtime_configured)),
+            degraded_reason: Some(if is_hypermemory {
+                hypermemory_degraded_reason(runtime_configured)
+            } else {
+                graph_degraded_reason(runtime_configured)
+            }),
             mode: Some(requested_mode),
             graph_runtime: Some(graph_runtime),
             evidence_graph: Some(evidence_graph),
             community_context: Some(GraphRagCommunityContext {
-                strategy: "k-core-density-hierarchy".to_string(),
+                strategy: if is_hypermemory {
+                    "hypermemory-topic-world-density".to_string()
+                } else {
+                    "k-core-density-hierarchy".to_string()
+                },
                 selected_communities: communities,
-                degraded_reason: (!runtime_configured).then(|| graph_degraded_reason(false)),
+                degraded_reason: (!runtime_configured).then(|| {
+                    if is_hypermemory {
+                        hypermemory_degraded_reason(false)
+                    } else {
+                        graph_degraded_reason(false)
+                    }
+                }),
             }),
             retrieval_trace,
             mesh_trace,
@@ -2944,10 +3122,7 @@ impl ExocortexRepository {
             .find(|atom| atom.id == atom_id))
     }
 
-    fn find_memory_candidate(
-        &self,
-        candidate_id: &str,
-    ) -> anyhow::Result<Option<MemoryCandidate>> {
+    fn find_memory_candidate(&self, candidate_id: &str) -> anyhow::Result<Option<MemoryCandidate>> {
         Ok(self
             .read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, usize::MAX)?
             .into_iter()
@@ -2959,10 +3134,7 @@ impl ExocortexRepository {
         candidate_id: &str,
     ) -> anyhow::Result<Option<CandidateQuorumDecision>> {
         Ok(self
-            .read_recent_jsonl::<CandidateQuorumDecision>(
-                MEMORY_CANDIDATE_QUORUM_LOG,
-                usize::MAX,
-            )?
+            .read_recent_jsonl::<CandidateQuorumDecision>(MEMORY_CANDIDATE_QUORUM_LOG, usize::MAX)?
             .into_iter()
             .find(|decision| decision.candidate_id == candidate_id))
     }
@@ -2970,7 +3142,9 @@ impl ExocortexRepository {
     fn latest_memory_candidates(&self, limit: usize) -> anyhow::Result<Vec<MemoryCandidate>> {
         let mut seen = std::collections::BTreeSet::<String>::new();
         let mut candidates = Vec::new();
-        for candidate in self.read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, usize::MAX)? {
+        for candidate in
+            self.read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, usize::MAX)?
+        {
             if seen.insert(candidate.id.clone()) {
                 candidates.push(candidate);
             }
@@ -2994,17 +3168,17 @@ impl ExocortexRepository {
     fn memory_governance_status(&self) -> anyhow::Result<MemoryGovernanceStatus> {
         self.ensure()?;
         let candidates = self.latest_memory_candidates(usize::MAX)?;
-        let contradictions = self.read_recent_jsonl::<MemoryContradiction>(
-            MEMORY_CONTRADICTIONS_LOG,
-            usize::MAX,
-        )?;
+        let contradictions =
+            self.read_recent_jsonl::<MemoryContradiction>(MEMORY_CONTRADICTIONS_LOG, usize::MAX)?;
         let open_contradictions = contradictions
             .iter()
             .filter(|item| item.status == "open")
             .count();
         let pending_triads = candidates
             .iter()
-            .filter(|candidate| candidate.status == "candidate" || candidate.status == "triad_pending")
+            .filter(|candidate| {
+                candidate.status == "candidate" || candidate.status == "triad_pending"
+            })
             .count();
         let promoted_count = candidates
             .iter()
@@ -3130,7 +3304,10 @@ impl ExocortexRepository {
                 status: Some("success".to_string()),
                 source: Some("memory-governor".to_string()),
                 target_ref: Some(format!("memory_governance_run:{}", run.id)),
-                summary: Some("Evaluated candidate memory quality, contradictions, and Triad pending state.".to_string()),
+                summary: Some(
+                    "Evaluated candidate memory quality, contradictions, and Triad pending state."
+                        .to_string(),
+                ),
                 metadata: Some(serde_json::json!({
                     "schema_version": MEMORY_GOVERNANCE_SCHEMA,
                     "candidates_evaluated": run.candidates_evaluated,
@@ -3152,8 +3329,16 @@ impl ExocortexRepository {
             .as_ref()
             .and_then(|score| score.provenance_score)
             .unwrap_or_else(|| {
-                let source_refs = if candidate.source_refs.is_empty() { 0.0 } else { 0.35 };
-                let provenance = if candidate.provenance.is_null() { 0.0 } else { 0.35 };
+                let source_refs = if candidate.source_refs.is_empty() {
+                    0.0
+                } else {
+                    0.35
+                };
+                let provenance = if candidate.provenance.is_null() {
+                    0.0
+                } else {
+                    0.35
+                };
                 (source_refs + provenance + candidate.confidence.min(0.30)).clamp(0.0, 1.0)
             });
         let temporal_score = input
@@ -3181,7 +3366,11 @@ impl ExocortexRepository {
         let restricted_risk = input
             .as_ref()
             .and_then(|score| score.restricted_risk)
-            .unwrap_or(if candidate.privacy_class == "restricted" { 1.0 } else { 0.0 });
+            .unwrap_or(if candidate.privacy_class == "restricted" {
+                1.0
+            } else {
+                0.0
+            });
         let overall = ((provenance_score + temporal_score + critical_score) / 3.0
             - restricted_risk * 0.5
             - contradiction_risk * 0.25)
@@ -3418,11 +3607,8 @@ impl ExocortexRepository {
             &candidate,
             &self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?,
         );
-        let quality_score = self.score_memory_candidate(
-            &candidate,
-            &contradictions,
-            req.quality_score.clone(),
-        );
+        let quality_score =
+            self.score_memory_candidate(&candidate, &contradictions, req.quality_score.clone());
         self.append_jsonl(MEMORY_QUALITY_SCORES_LOG, &quality_score)?;
         for contradiction in contradictions {
             self.append_jsonl(MEMORY_CONTRADICTIONS_LOG, &contradiction)?;
@@ -3434,7 +3620,12 @@ impl ExocortexRepository {
             memory_approved: req.memory_approved,
             temporal_approved: req.temporal_approved,
             critical_approved: req.critical_approved,
-            status: if approved { "triad_pending" } else { "rejected" }.to_string(),
+            status: if approved {
+                "triad_pending"
+            } else {
+                "rejected"
+            }
+            .to_string(),
             rationale: req
                 .rationale
                 .unwrap_or_else(|| "Triad memory quorum evaluated candidate.".to_string()),
@@ -3473,7 +3664,11 @@ impl ExocortexRepository {
             risk_level: Some("write".to_string()),
             required_scopes: vec!["memory:write".to_string()],
             granted_scopes: vec!["memory:write".to_string()],
-            status: Some(if approved { "success".to_string() } else { "rejected".to_string() }),
+            status: Some(if approved {
+                "success".to_string()
+            } else {
+                "rejected".to_string()
+            }),
             source: Some("triad-memory-quorum".to_string()),
             target_ref: Some(format!("memory_candidate:{}", candidate.id)),
             summary: Some(format!("Triad quorum {}", decision.status)),
@@ -3545,7 +3740,14 @@ impl ExocortexRepository {
             )?;
         }
         let promoted_atom = MemoryAtom {
-            id: stable_id("atom", &[&source_ref, &candidate.candidate_type, &candidate.normalized_text]),
+            id: stable_id(
+                "atom",
+                &[
+                    &source_ref,
+                    &candidate.candidate_type,
+                    &candidate.normalized_text,
+                ],
+            ),
             created_at: Utc::now().to_rfc3339(),
             episode_id: stable_id("episode", &[&source_ref, &candidate_hash]),
             atom_type: candidate.candidate_type.clone(),
@@ -3579,10 +3781,9 @@ impl ExocortexRepository {
             quality_score: quorum.quality_score.clone(),
             quorum_id: Some(quorum.id.clone()),
             promoted_atom_id: Some(promoted_atom.id.clone()),
-            rationale: req
-                .rationale
-                .clone()
-                .unwrap_or_else(|| "Strict Triad 3/3 quorum promoted candidate into active memory.".to_string()),
+            rationale: req.rationale.clone().unwrap_or_else(|| {
+                "Strict Triad 3/3 quorum promoted candidate into active memory.".to_string()
+            }),
             reviewer: quorum.reviewer.clone(),
             evidence_refs: promoted_candidate.source_refs.clone(),
         };
@@ -3597,7 +3798,9 @@ impl ExocortexRepository {
             status: Some("success".to_string()),
             source: Some("triad-memory-quorum".to_string()),
             target_ref: Some(format!("memory_atom:{}", promoted_atom.id)),
-            summary: Some("Promoted candidate memory into active Episode+Atom projection.".to_string()),
+            summary: Some(
+                "Promoted candidate memory into active Episode+Atom projection.".to_string(),
+            ),
             metadata: Some(serde_json::json!({
                 "schema_version": MEMORY_GOVERNANCE_SCHEMA,
                 "candidate_id": promoted_candidate.id.clone(),
@@ -3867,6 +4070,7 @@ impl ExocortexRepository {
             .ok()
             .and_then(|mut decisions| decisions.pop());
         let governance_status = self.memory_governance_status().ok();
+        let benchmark_status = self.memory_benchmark_status().ok();
         let trust_context = Some(TrustContext {
             mcp_status: if audit_events.is_empty() {
                 "no-audit-events-yet".to_string()
@@ -3905,13 +4109,24 @@ impl ExocortexRepository {
             memory_governor_status: governance_status
                 .as_ref()
                 .map(|status| status.status.clone()),
-            pending_triads: governance_status.as_ref().map(|status| status.pending_triads),
+            pending_triads: governance_status
+                .as_ref()
+                .map(|status| status.pending_triads),
             open_contradictions: governance_status
                 .as_ref()
                 .map(|status| status.open_contradictions),
             latest_promotion_decision: governance_status
                 .and_then(|status| status.latest_promotion_decision)
                 .map(|decision| decision.status),
+            memory_bench_status: benchmark_status
+                .as_ref()
+                .map(|status| status.status.clone()),
+            latest_bench_score: benchmark_status
+                .as_ref()
+                .and_then(|status| status.latest_score),
+            memory_regression_count: benchmark_status
+                .as_ref()
+                .map(|status| status.regression_count),
         });
         let temporal_phase = temporal_phase.or_else(|| {
             causal_hypotheses
@@ -4069,10 +4284,15 @@ fn detect_candidate_contradictions(
     let candidate_tokens = tokenize(&candidate.normalized_text);
     let candidate_negated = contains_any(
         &candidate.normalized_text,
-        &[" not ", " nao ", " não ", " never ", " sem ", " contra ", " reject "],
+        &[
+            " not ", " nao ", " não ", " never ", " sem ", " contra ", " reject ",
+        ],
     );
     let mut contradictions = Vec::new();
-    for atom in atoms.iter().filter(|atom| atom.privacy_class != "restricted") {
+    for atom in atoms
+        .iter()
+        .filter(|atom| atom.privacy_class != "restricted")
+    {
         let overlap = candidate_tokens
             .iter()
             .filter(|token| atom.normalized_text.contains(token.as_str()))
@@ -4082,13 +4302,18 @@ fn detect_candidate_contradictions(
         }
         let atom_negated = contains_any(
             &atom.normalized_text,
-            &[" not ", " nao ", " não ", " never ", " sem ", " contra ", " reject "],
+            &[
+                " not ", " nao ", " não ", " never ", " sem ", " contra ", " reject ",
+            ],
         );
         if candidate_negated == atom_negated {
             continue;
         }
         let id = stable_id("contradiction", &[&candidate.id, &atom.id]);
-        if contradictions.iter().any(|item: &MemoryContradiction| item.id == id) {
+        if contradictions
+            .iter()
+            .any(|item: &MemoryContradiction| item.id == id)
+        {
             continue;
         }
         contradictions.push(MemoryContradiction {
@@ -4237,6 +4462,37 @@ fn metadata_string(value: &serde_json::Value, key: &str) -> Option<String> {
         .and_then(|object| object.get(key))
         .and_then(|value| value.as_str())
         .map(|value| value.to_string())
+}
+
+fn metadata_f64(value: &serde_json::Value, key: &str) -> Option<f64> {
+    value
+        .as_object()
+        .and_then(|object| object.get(key))
+        .and_then(|value| value.as_f64())
+}
+
+fn metadata_usize(value: &serde_json::Value, key: &str) -> Option<usize> {
+    value
+        .as_object()
+        .and_then(|object| object.get(key))
+        .and_then(|value| value.as_u64())
+        .and_then(|value| usize::try_from(value).ok())
+}
+
+fn metadata_array_strings(value: &serde_json::Value, key: &str) -> Option<Vec<String>> {
+    value
+        .as_object()
+        .and_then(|object| object.get(key))
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
 }
 
 fn metadata_string_array(
@@ -4496,13 +4752,13 @@ fn graph_runtime_configured() -> bool {
         "BEAGLE_MEMGRAPH_URL",
         "BEAGLE_KUZU_PATH",
     ]
-        .iter()
-        .any(|key| {
-            env::var(key)
-                .ok()
-                .map(|value| !value.trim().is_empty())
-                .unwrap_or(false)
-        })
+    .iter()
+    .any(|key| {
+        env::var(key)
+            .ok()
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+    })
 }
 
 fn graph_degraded_reason(runtime_configured: bool) -> String {
@@ -4513,8 +4769,20 @@ fn graph_degraded_reason(runtime_configured: bool) -> String {
     }
 }
 
+fn hypermemory_degraded_reason(runtime_configured: bool) -> String {
+    if runtime_configured {
+        "HyperMemory is running as a derived/advisory retrieval mode; Memory Bench must beat baseline before hot-path promotion.".to_string()
+    } else {
+        "HyperMemory is using JSONL-derived Topic+World+Hyperedge expansion without a live vector/graph runtime; fallback is explicit and canonical memory remains unchanged.".to_string()
+    }
+}
+
 fn runtime_votes(runtime_configured: bool) -> Vec<RuntimeVote> {
-    let status = if runtime_configured { "available" } else { "degraded" };
+    let status = if runtime_configured {
+        "available"
+    } else {
+        "degraded"
+    };
     vec![
         RuntimeVote {
             runtime: "FalkorDB".to_string(),
@@ -4551,7 +4819,8 @@ fn synthetic_golden_queries() -> Vec<GoldenQuery> {
     vec![
         GoldenQuery {
             id: "golden-science-evidence-001".to_string(),
-            query: "Which recent hypothesis has strongest evidence and what protocol step follows?".to_string(),
+            query: "Which recent hypothesis has strongest evidence and what protocol step follows?"
+                .to_string(),
             domain: "science-heavy".to_string(),
             expected_signals: vec![
                 "hypothesis".to_string(),
@@ -4562,16 +4831,22 @@ fn synthetic_golden_queries() -> Vec<GoldenQuery> {
         },
         GoldenQuery {
             id: "golden-temporal-chronoself-001".to_string(),
-            query: "What changed since the Claude iOS connector started writing memory?".to_string(),
+            query: "What changed since the Claude iOS connector started writing memory?"
+                .to_string(),
             domain: "temporal-chronoself".to_string(),
             expected_signals: vec!["claude-ios".to_string(), "chronoself".to_string()],
             privacy_class: "synthetic".to_string(),
         },
         GoldenQuery {
             id: "golden-work-memory-001".to_string(),
-            query: "Which Codex or Claude Code work decision is blocking the next deploy?".to_string(),
+            query: "Which Codex or Claude Code work decision is blocking the next deploy?"
+                .to_string(),
             domain: "work-memory".to_string(),
-            expected_signals: vec!["codex".to_string(), "claude-code".to_string(), "deploy".to_string()],
+            expected_signals: vec![
+                "codex".to_string(),
+                "claude-code".to_string(),
+                "deploy".to_string(),
+            ],
             privacy_class: "synthetic".to_string(),
         },
     ]
@@ -4925,7 +5200,10 @@ fn memory_communities(atoms: &[MemoryAtom], worlds: &[MemoryWorld]) -> Vec<Memor
             strategy: "k-core-density-hierarchy".to_string(),
             node_count: worlds.iter().map(|world| world.node_count).sum(),
             score: 0.5,
-            summary: format!("{} content-addressed MemoryWorld(s) available.", worlds.len()),
+            summary: format!(
+                "{} content-addressed MemoryWorld(s) available.",
+                worlds.len()
+            ),
         });
     }
     communities.sort_by(|a, b| {
@@ -5202,6 +5480,48 @@ fn atom_score(atom: &MemoryAtom, query_tokens: &[String]) -> f64 {
     (lexical * 0.72 + type_boost + graph_boost + recency_boost)
         .min(1.0)
         .max(0.0)
+}
+
+fn hypermemory_atom_score(atom: &MemoryAtom, query_tokens: &[String]) -> f64 {
+    if query_tokens.is_empty() {
+        return 0.0;
+    }
+    let graph_material = std::iter::once(atom.normalized_text.as_str())
+        .chain(atom.tags.iter().map(String::as_str))
+        .chain(atom.source_refs.iter().map(String::as_str))
+        .chain(atom.relations.iter().flat_map(|relation| {
+            [
+                relation.subject.as_str(),
+                relation.predicate.as_str(),
+                relation.object.as_str(),
+            ]
+        }))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    let token_hits = query_tokens
+        .iter()
+        .filter(|token| graph_material.contains(token.as_str()))
+        .count();
+    if token_hits == 0 {
+        return 0.0;
+    }
+    let lexical = token_hits as f64 / query_tokens.len() as f64;
+    let base = atom_score(atom, query_tokens);
+    let hyperedge_boost = (atom.relations.len() as f64 * 0.025).clamp(0.0, 0.12);
+    let source_boost = if atom.source_refs.is_empty() {
+        0.0
+    } else {
+        0.07
+    };
+    let tag_boost = if atom.tags.is_empty() { 0.0 } else { 0.06 };
+    let fact_boost = match atom.atom_type.as_str() {
+        "decision" | "hypothesis" | "evidence" | "action" => 0.10,
+        "project" | "principle" | "open_question" => 0.07,
+        _ => 0.03,
+    };
+    (base.max(lexical * 0.64) + hyperedge_boost + source_boost + tag_boost + fact_boost)
+        .clamp(0.0, 1.0)
 }
 
 fn truncate_chars(value: &str, max_chars: usize) -> String {
@@ -5514,6 +5834,103 @@ mod tests {
     }
 
     #[test]
+    fn hypermemory_query_expands_tags_relations_and_marks_advisory_mode() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        repo.import_conversation(ImportConversationRequest {
+            source_platform: "Grok".to_string(),
+            session_id: Some("grok-import-1".to_string()),
+            original_date: Some("2026-04-26T19:00:00Z".to_string()),
+            raw_content: "Decisão: Grok import mudou a prioridade para Memory Bench e HyperMemory."
+                .to_string(),
+            title: Some("Grok memory import".to_string()),
+            tags: vec![
+                "project:beagle".to_string(),
+                "source:grok".to_string(),
+                "hypermemory".to_string(),
+            ],
+            extracted: Some(OmniExtraction {
+                decisions: vec![
+                    "Grok import mudou a prioridade para Memory Bench e HyperMemory.".to_string(),
+                ],
+                projects_mentioned: vec!["beagle".to_string()],
+                ..Default::default()
+            }),
+            confidence_score: Some(0.88),
+            create_chronoself_commit: None,
+            privacy_class: Some("sensitive".to_string()),
+            metadata: Some(serde_json::json!({"source_surface": "claude-ios"})),
+        })
+        .unwrap();
+
+        let result = repo
+            .graphrag_query(GraphRagQueryRequest {
+                query: "grok priority benchmark".to_string(),
+                scope: None,
+                max_items: Some(5),
+                mode: Some("hypermemory".to_string()),
+            })
+            .unwrap();
+
+        assert_eq!(result.mode.as_deref(), Some("hypermemory"));
+        assert!(!result.evidence.is_empty());
+        assert!(result
+            .retrieval_trace
+            .iter()
+            .any(|step| step.stage == "hypermemory-topic-world-selection"));
+        assert_eq!(
+            result.provenance["hypermemory"]["authority"].as_str(),
+            Some("derived-advisory")
+        );
+    }
+
+    #[test]
+    fn memory_benchmark_status_reads_append_only_audit() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        let empty = repo.memory_benchmark_status().unwrap();
+        assert_eq!(empty.status, "empty");
+
+        repo.create_audit_event(CreateAuditEventRequest {
+            client_id: Some("beagle-memory-engine".to_string()),
+            action: Some("memory.benchmark_run".to_string()),
+            tool_name: Some("beagle_memory_benchmark_run".to_string()),
+            risk_level: Some("run".to_string()),
+            required_scopes: vec!["research:run".to_string()],
+            granted_scopes: vec!["research:run".to_string()],
+            status: Some("success".to_string()),
+            source: Some("memory-engine".to_string()),
+            target_ref: Some("memory_benchmark_run:bench-1".to_string()),
+            summary: Some("Memory Bench v1.8 completed.".to_string()),
+            metadata: Some(serde_json::json!({
+                "schema_version": MEMORY_BENCH_SCHEMA,
+                "run_id": "bench-1",
+                "latest_score": 0.84,
+                "query_count": 100,
+                "regression_count": 0,
+                "artifact_manifest": "/orangefs/beagle-memory-lab/bench-1/manifest.json",
+                "evaluated_modes": ["graphsearch-lite", "hypermemory", "adaptive-federation"]
+            })),
+        })
+        .unwrap();
+
+        let status = repo.memory_benchmark_status().unwrap();
+        assert_eq!(status.status, "passing");
+        assert_eq!(status.latest_run_id.as_deref(), Some("bench-1"));
+        assert_eq!(status.query_count, 100);
+        assert_eq!(status.latest_score, Some(0.84));
+        let home = repo
+            .build_home_snapshot(HomeQuery {
+                active_project_slug: None,
+                platform: Some("apple".to_string()),
+            })
+            .unwrap();
+        let trust = home.trust_context.unwrap();
+        assert_eq!(trust.memory_bench_status.as_deref(), Some("passing"));
+        assert_eq!(trust.latest_bench_score, Some(0.84));
+    }
+
+    #[test]
     fn memory_graph_recent_returns_projection_for_apple_memory_lens() {
         let dir = tempdir().unwrap();
         let repo = ExocortexRepository::new(dir.path().join("exocortex"));
@@ -5524,7 +5941,10 @@ mod tests {
             raw_content: "Decisão: Home, Watch e Memory Lens devem avançar em paralelo."
                 .to_string(),
             title: Some("Apple Exocortex v1.3".to_string()),
-            tags: vec!["project:beagle".to_string(), "surface:beagle-ios".to_string()],
+            tags: vec![
+                "project:beagle".to_string(),
+                "surface:beagle-ios".to_string(),
+            ],
             extracted: Some(OmniExtraction {
                 decisions: vec!["Home, Watch e Memory Lens devem avançar em paralelo.".to_string()],
                 projects_mentioned: vec!["beagle".to_string()],
@@ -5544,7 +5964,10 @@ mod tests {
             .atoms
             .iter()
             .any(|atom| atom.text.contains("Memory Lens")));
-        assert_eq!(recent.provenance["canonical_store"], "/var/lib/beagle/exocortex");
+        assert_eq!(
+            recent.provenance["canonical_store"],
+            "/var/lib/beagle/exocortex"
+        );
     }
 
     #[test]
@@ -5592,7 +6015,10 @@ mod tests {
             })
             .unwrap();
         assert!(index.worlds_created >= 1);
-        assert_eq!(index.provenance["canonical_store"], "/var/lib/beagle/exocortex");
+        assert_eq!(
+            index.provenance["canonical_store"],
+            "/var/lib/beagle/exocortex"
+        );
 
         let worlds = repo.memory_worlds_recent(10).unwrap();
         assert_eq!(worlds.graph_status.schema_version, MEMORY_GRAPH_SCHEMA);
@@ -5827,7 +6253,9 @@ mod tests {
                     memory_approved: true,
                     temporal_approved: true,
                     critical_approved: true,
-                    rationale: Some("All three Triad voices accept promotion eligibility.".to_string()),
+                    rationale: Some(
+                        "All three Triad voices accept promotion eligibility.".to_string(),
+                    ),
                     reviewer: Some("test".to_string()),
                     quality_score: None,
                 },

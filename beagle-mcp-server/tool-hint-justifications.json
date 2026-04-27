@@ -350,6 +350,30 @@
         "destructive_justification": "Creates eval artifacts only and cannot promote runtimes or delete memory."
       }
     },
+    "beagle_memory_benchmark_run": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Starts a cluster-only Memory Bench run and writes benchmark/audit artifacts.",
+        "open_world_justification": "Runs inside Beagle's private memory lab against sanitized exports and does not publish externally.",
+        "destructive_justification": "Creates benchmark artifacts without deleting, overwriting, or promoting canonical memory."
+      }
+    },
+    "beagle_memory_benchmark_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads the latest Memory Bench score, hard gates, evaluated modes, and regression count.",
+        "open_world_justification": "Reads private Beagle memory-engine status only.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
     "beagle_memory_engine_governance_evaluate": {
       "annotations": {
         "readOnlyHint": false,

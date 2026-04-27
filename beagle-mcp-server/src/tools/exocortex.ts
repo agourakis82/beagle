@@ -120,7 +120,7 @@ const GraphRagQuerySchema = z.object({
     scope: z.string().optional(),
     max_items: z.number().int().min(1).max(20).optional().default(5),
     mode: z
-        .enum(["graphsearch-lite", "drift-lite", "local", "global", "hybrid", "adaptive-federation"])
+        .enum(["graphsearch-lite", "drift-lite", "local", "global", "hybrid", "adaptive-federation", "hypermemory"])
         .optional()
         .default("graphsearch-lite"),
 });
@@ -174,6 +174,13 @@ const MemoryEngineEvalRunSchema = z.object({
     limit: z.number().int().min(1).max(10000).optional().default(1000),
     domains: z.array(z.string()).optional(),
     judge_mode: z.string().optional(),
+});
+
+const MemoryBenchmarkRunSchema = z.object({
+    limit: z.number().int().min(1).max(10000).optional().default(2000),
+    domains: z.array(z.string()).optional(),
+    judge_mode: z.string().optional(),
+    include_mesh: z.boolean().optional().default(true),
 });
 
 const MemoryEngineGovernanceEvaluateSchema = z.object({
@@ -729,7 +736,15 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                     max_items: { type: "number", minimum: 1, maximum: 20, default: 5 },
                     mode: {
                         type: "string",
-                        enum: ["graphsearch-lite", "drift-lite", "local", "global", "hybrid", "adaptive-federation"],
+                        enum: [
+                            "graphsearch-lite",
+                            "drift-lite",
+                            "local",
+                            "global",
+                            "hybrid",
+                            "adaptive-federation",
+                            "hypermemory",
+                        ],
                         default: "graphsearch-lite",
                     },
                 },
@@ -885,6 +900,31 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                 const parsed = MemoryEngineEvalRunSchema.parse(args ?? {});
                 return sanitizeOutput(await client.memoryEngineEvalRun(parsed));
             },
+        },
+        {
+            name: "beagle_memory_benchmark_run",
+            description:
+                "Start a cluster-only Memory Bench v1.8 run comparing GraphRAG++ baseline, HyperMemory, and federated mesh modes with hard gates for provenance and restricted leakage.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    limit: { type: "number", minimum: 1, maximum: 10000, default: 2000 },
+                    domains: { type: "array", items: { type: "string" } },
+                    judge_mode: { type: "string" },
+                    include_mesh: { type: "boolean", default: true },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryBenchmarkRunSchema.parse(args ?? {});
+                return sanitizeOutput(await client.memoryBenchmarkRun(parsed));
+            },
+        },
+        {
+            name: "beagle_memory_benchmark_status",
+            description:
+                "Read the latest Memory Bench v1.8 status, scores, hard gates, evaluated retrieval modes, and regression count.",
+            inputSchema: { type: "object", properties: {} },
+            handler: async () => sanitizeOutput(await client.memoryBenchmarkStatus()),
         },
         {
             name: "beagle_memory_engine_governance_evaluate",

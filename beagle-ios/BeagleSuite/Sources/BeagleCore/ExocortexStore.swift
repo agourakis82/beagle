@@ -17,6 +17,7 @@ public final class ExocortexStore {
     public var projectionStatus: Truthful<MemoryProjectionStatus>?
     public var graphStatus: Truthful<MemoryGraphStatus>?
     public var bakeoffStatus: Truthful<MemoryGraphStatus>?
+    public var benchmarkStatus: Truthful<MemoryBenchmarkStatus>?
     public var recentGraph: Truthful<MemoryGraphRecentResponse>?
     public var recentWorlds: Truthful<MemoryWorldsRecentResponse>?
     public var memoryCandidates: Truthful<MemoryCandidateListResponse>?
@@ -59,6 +60,10 @@ public final class ExocortexStore {
 
     public func refreshBakeoffStatus() async {
         bakeoffStatus = await client.memoryGraphBakeoffStatus()
+    }
+
+    public func refreshBenchmarkStatus() async {
+        benchmarkStatus = await client.memoryBenchmarkStatus()
     }
 
     public func refreshRecentGraph(limit: Int = 12) async {
