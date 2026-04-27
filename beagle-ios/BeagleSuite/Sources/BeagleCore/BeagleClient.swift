@@ -616,6 +616,14 @@ public actor BeagleClient {
         )
     }
 
+    public func memoryTruthSetStatus(id: String) async -> Truthful<MemoryTruthSetStatus> {
+        await fetch(
+            MemoryTruthSetStatus.self,
+            path: "/api/exocortex/v1/memory/truthsets/\(id)",
+            timeout: 20
+        )
+    }
+
     public func runMemoryGraphBakeoff(datasetLimit: Int = 200) async -> Truthful<GraphBakeoffRun> {
         await post(
             GraphBakeoffRun.self,

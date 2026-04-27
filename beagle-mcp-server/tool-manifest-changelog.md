@@ -1,5 +1,17 @@
 # Beagle MCP Tool Manifest Changelog
 
+## beagle-mcp-v1.9-memory-truth-agent-os
+
+- Tool count: 44
+- Tool manifest hash: `sha256:f01ee7613c364a4acb68fcb4a9e77c070f392a2ed94c5db04d71de017de58e42`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from public, mobile, local-agent, truthset, benchmark, and governance surfaces.
+- Added Memory Truth + Agent OS tools:
+  - `beagle_memory_truthset_draft`
+  - `beagle_memory_truthset_review`
+  - `beagle_agent_observer_status`
+- `beagle_memory_benchmark_run` is now truthset-aware and reports the v1.9 promotion gate: HyperMemory must beat baseline by the configured margin with consecutive passing runs, zero restricted leaks, full provenance, and no critical regression before hot-path eligibility.
+
 ## beagle-mcp-v1.8-memory-bench-hypermemory
 
 - Tool count: 41

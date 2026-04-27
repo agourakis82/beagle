@@ -100,7 +100,7 @@ export function defineResources(
             uri: "beagle://memory/bench/status",
             name: "Memory Bench Status",
             description:
-                "Latest Memory Bench v1.8 health, hard gates, evaluated modes, and benchmark score.",
+                "Latest Memory Bench v1.9 truthset gate, hard gates, evaluated modes, benchmark score, and hot-path eligibility.",
             mimeType: "application/json",
             read: async () => client.memoryBenchmarkStatus(),
         },
@@ -108,9 +108,24 @@ export function defineResources(
             uri: "beagle://memory/bench/latest",
             name: "Latest Memory Bench Run",
             description:
-                "Latest cluster-only Memory Bench v1.8 run comparing GraphRAG++ baseline, HyperMemory, and mesh modes.",
+                "Latest cluster-only Memory Bench v1.9 run comparing GraphRAG++ baseline, HyperMemory, and mesh modes against private truthsets.",
             mimeType: "application/json",
             read: async () => client.memoryBenchmarkStatus(),
+        },
+        {
+            uri: "beagle://agent/observer/status",
+            name: "Agent Observer Status",
+            description:
+                "Home trust view for Codex/Claude Code project-file work memory and Apple capture freshness.",
+            mimeType: "application/json",
+            read: async () => {
+                const home = await client.exocortexHome(undefined, "mcp-resource-agent-observer");
+                return {
+                    generated_at: (home as { generated_at?: unknown }).generated_at,
+                    trust_context: (home as { trust_context?: unknown }).trust_context,
+                    agent_context: (home as { agent_context?: unknown }).agent_context,
+                };
+            },
         },
         {
             uri: "beagle://memory/contradictions/recent",

@@ -633,15 +633,29 @@ import SwiftData
     let coreJson = """
     {
       "generated_at": "2026-04-27T12:00:00Z",
-      "schema_version": "beagle-memory-bench-hypermemory-v1.8",
+      "schema_version": "beagle-memory-truth-hypermemory-v1.9",
       "status": "passing",
       "latest_run_id": "bench-1",
+      "truthset_id": "truth-v19",
       "latest_score": 0.84,
       "query_count": 100,
       "hard_gates": {"restricted_leak_zero": true, "provenance_complete": true},
       "evaluated_modes": ["graphsearch-lite", "hypermemory"],
       "regression_count": 0,
-      "artifact_manifest": "/orangefs/beagle-memory-lab/bench-1/manifest.json"
+      "artifact_manifest": "/orangefs/beagle-memory-lab/bench-1/manifest.json",
+      "hot_path_eligible": true,
+      "promotion_gate": {
+        "baseline_mode": "graphsearch-lite",
+        "candidate_mode": "hypermemory",
+        "required_margin": 0.05,
+        "baseline_score": 0.78,
+        "candidate_score": 0.84,
+        "consecutive_passing_runs": 3,
+        "required_consecutive_runs": 3,
+        "hard_gates_passed": true,
+        "eligible": true,
+        "rationale": "candidate passed"
+      }
     }
     """.data(using: .utf8)!
 
@@ -649,24 +663,44 @@ import SwiftData
     #expect(coreStatus.status == "passing")
     #expect(coreStatus.latestScore == 0.84)
     #expect(coreStatus.evaluatedModes.contains("hypermemory"))
+    #expect(coreStatus.truthsetId == "truth-v19")
+    #expect(coreStatus.hotPathEligible == true)
+    #expect(coreStatus.promotionGate?.eligible == true)
 
     let engineJson = """
     {
       "generated_at": "2026-04-27T12:01:00Z",
-      "schema_version": "beagle-federated-memory-engine-v1.8",
+      "schema_version": "beagle-federated-memory-engine-v1.9",
       "status": "passing",
+      "truthset_id": "truth-v19",
       "latest_score": 0.83,
       "regression_count": 0,
       "evaluated_modes": ["graphsearch-lite", "hypermemory", "adaptive-federation"],
       "hard_gates": {"restricted_leak_zero": true},
+      "hot_path_eligible": false,
+      "promotion_gate": {
+        "baseline_mode": "graphsearch-lite",
+        "candidate_mode": "hypermemory",
+        "required_margin": 0.05,
+        "baseline_score": 0.74,
+        "candidate_score": 0.83,
+        "consecutive_passing_runs": 1,
+        "required_consecutive_runs": 3,
+        "hard_gates_passed": true,
+        "eligible": false,
+        "rationale": "needs consecutive runs"
+      },
       "latest_run": {
         "id": "bench-2",
         "created_at": "2026-04-27T12:01:00Z",
         "status": "passing",
-        "schema_version": "beagle-federated-memory-engine-v1.8",
+        "schema_version": "beagle-federated-memory-engine-v1.9",
+        "truthset_id": "truth-v19",
         "query_count": 100,
         "domains": ["work-memory"],
-        "judge_mode": "deterministic-plus-blind-llm-ready",
+        "judge_mode": "truthset-deterministic-plus-blind-llm-ready",
+        "baseline_mode": "graphsearch-lite",
+        "candidate_modes": ["hypermemory"],
         "hard_gates": {"restricted_leak_zero": true},
         "mode_results": [{
           "mode": "hypermemory",
@@ -674,18 +708,45 @@ import SwiftData
           "score": 0.83,
           "metrics": {
             "top_k_hit_rate": 0.82,
+            "exact_support": 0.84,
             "multi_hop_correctness": 0.78,
             "temporal_correctness": 0.80,
             "provenance_completeness": 0.88,
             "contradiction_safety": 0.82,
+            "implicit_recall": 0.82,
             "restricted_leak_count": 0,
             "p95_latency_ms": 240,
             "blind_judge_depth": 0.81
           },
           "notes": ["cluster-only"]
         }],
+        "case_judgments": [{
+          "case_id": "case-1",
+          "domain": "work-memory",
+          "query": "qual foi a última decisão do Codex?",
+          "passed": true,
+          "score": 0.86,
+          "baseline_support": 0.78,
+          "candidate_support": 0.86,
+          "regression": false,
+          "supporting_refs": ["repo", "branch"],
+          "notes": ["cluster-only"]
+        }],
         "winning_mode": "hypermemory",
         "regression_count": 0,
+        "promotion_gate": {
+          "baseline_mode": "graphsearch-lite",
+          "candidate_mode": "hypermemory",
+          "required_margin": 0.05,
+          "baseline_score": 0.74,
+          "candidate_score": 0.83,
+          "consecutive_passing_runs": 1,
+          "required_consecutive_runs": 3,
+          "hard_gates_passed": true,
+          "eligible": false,
+          "rationale": "needs consecutive runs"
+        },
+        "hot_path_eligible": false,
         "artifact_manifest": "/orangefs/beagle-memory-lab/bench-2/manifest.json",
         "degraded_reason": "cluster-only"
       }
@@ -695,6 +756,9 @@ import SwiftData
     let engineStatus = try JSONDecoder().decode(MemoryBenchmarkStatus.self, from: engineJson)
     #expect(engineStatus.latestRun?.modeResults.first?.mode == "hypermemory")
     #expect(engineStatus.latestRun?.modeResults.first?.metrics?.restrictedLeakCount == 0)
+    #expect(engineStatus.latestRun?.modeResults.first?.metrics?.exactSupport == 0.84)
+    #expect(engineStatus.latestRun?.caseJudgments.first?.domain == "work-memory")
+    #expect(engineStatus.promotionGate?.candidateMode == "hypermemory")
 }
 
 @Test func persistenceContainerIncludesAssistedImportOutbox() throws {

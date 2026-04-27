@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Project-scoped work-memory daemon for Codex and Claude Code.
+#
+# Scope is intentionally narrow: repo metadata, changed project files, branch,
+# commit, diffstat, and explicit work-session phases. It never observes
+# clipboard, screenshots, browser tabs, global filesystem events, or raw
+# HealthKit/body streams.
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CAPTURE="${ROOT_DIR}/scripts/beagle-work-memory-capture"
+STATE_DIR="${BEAGLE_WORK_MEMORY_DAEMON_DIR:-${HOME}/.beagle/work-memory-daemon}"
+OUTBOX_DIR="${STATE_DIR}/outbox"
+STATUS_FILE="${STATE_DIR}/status.json"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  scripts/beagle-work-memory-daemon [options]
+
+Options:
+  --agent codex|claude-code       Agent identity (default: codex).
+  --project SLUG                  Project slug (default: beagle).
+  --repo-root PATH                Git repo/project root (default: current repo).
+  --session-id ID                 Stable session id. Generated if omitted.
+  --interval SECONDS              Polling interval for watch mode (default: 30).
+  --once                          Capture one project snapshot and exit.
+  --dry-run                       Print payload instead of posting to the cluster.
+  --status                        Print daemon status file and exit.
+  -h, --help                      Show this help.
+
+The daemon is a project-file observer, not a full computer observer. It ignores
+secrets, dotfiles, build products, node_modules, target, DerivedData, and large
+files. Failed sends are kept only in a transient 0600 outbox with 24h TTL.
+USAGE
+}
+
+agent="codex"
+project_slug="beagle"
+repo_root=""
+session_id=""
+interval=30
+once=false
+dry_run=false
+show_status=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --agent) agent="${2:-}"; shift 2 ;;
+    --project) project_slug="${2:-}"; shift 2 ;;
+    --repo-root) repo_root="${2:-}"; shift 2 ;;
+    --session-id) session_id="${2:-}"; shift 2 ;;
+    --interval) interval="${2:-30}"; shift 2 ;;
+    --once) once=true; shift ;;
+    --dry-run) dry_run=true; shift ;;
+    --status) show_status=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+case "${agent}" in
+  codex|claude-code) ;;
+  *) echo "--agent must be codex or claude-code" >&2; exit 2 ;;
+esac
+
+if [[ "${show_status}" == "true" ]]; then
+  if [[ -f "${STATUS_FILE}" ]]; then
+    cat "${STATUS_FILE}"
+    printf '\n'
+  else
+    echo '{"status":"not-started"}'
+  fi
+  exit 0
+fi
+
+if [[ -z "${repo_root}" ]]; then
+  if repo_root="$(git -C "${ROOT_DIR}" rev-parse --show-toplevel 2>/dev/null)"; then
+    :
+  else
+    repo_root="${ROOT_DIR}"
+  fi
+fi
+
+if [[ ! -d "${repo_root}" ]]; then
+  echo "repo root not found: ${repo_root}" >&2
+  exit 2
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required for status/outbox metadata" >&2
+  exit 2
+fi
+
+umask 077
+mkdir -p "${OUTBOX_DIR}"
+chmod 700 "${STATE_DIR}" "${OUTBOX_DIR}" 2>/dev/null || true
+
+session_id="${session_id:-${agent}-daemon-$(date -u +%Y%m%dT%H%M%SZ)-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
+
+write_status() {
+  local status="$1"
+  local note="${2:-}"
+  local now
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  BEAGLE_DAEMON_STATUS="${status}" \
+  BEAGLE_DAEMON_NOTE="${note}" \
+  BEAGLE_DAEMON_NOW="${now}" \
+  BEAGLE_DAEMON_AGENT="${agent}" \
+  BEAGLE_DAEMON_PROJECT="${project_slug}" \
+  BEAGLE_DAEMON_REPO="${repo_root}" \
+  BEAGLE_DAEMON_SESSION="${session_id}" \
+  python3 >"${STATUS_FILE}" <<'PY'
+import json
+import os
+
+print(json.dumps({
+    "status": os.environ["BEAGLE_DAEMON_STATUS"],
+    "note": os.environ.get("BEAGLE_DAEMON_NOTE") or None,
+    "updated_at": os.environ["BEAGLE_DAEMON_NOW"],
+    "agent": os.environ["BEAGLE_DAEMON_AGENT"],
+    "project": os.environ["BEAGLE_DAEMON_PROJECT"],
+    "repo_root": os.environ["BEAGLE_DAEMON_REPO"],
+    "session_id": os.environ["BEAGLE_DAEMON_SESSION"],
+    "scope": "project-files-only",
+    "observes_clipboard": False,
+    "observes_screenshots": False,
+    "observes_browser": False,
+}, sort_keys=True))
+PY
+  chmod 600 "${STATUS_FILE}" 2>/dev/null || true
+}
+
+prune_outbox() {
+  find "${OUTBOX_DIR}" -type f -mmin +1440 -delete 2>/dev/null || true
+}
+
+filtered_status() {
+  git -C "${repo_root}" status --short 2>/dev/null \
+    | awk '
+      $0 !~ /(^|\/)(\.git|node_modules|target|DerivedData|\.build|\.swiftpm|dist|build|Pods|xcuserdata)(\/|$)/ &&
+      $0 !~ /(^|\/)(\.env|\.npmrc|\.netrc|id_rsa|id_ed25519|credentials\.json)( |$)/ &&
+      $0 !~ /(secret|token|private-key|\.pem|\.p12|\.key)/ { print }
+    ' \
+    | head -80
+}
+
+diffstat() {
+  git -C "${repo_root}" diff --stat 2>/dev/null \
+    | awk '
+      $0 !~ /(^|\/)(\.git|node_modules|target|DerivedData|\.build|\.swiftpm|dist|build|Pods|xcuserdata)(\/|$)/ &&
+      $0 !~ /(^|\/)(\.env|\.npmrc|\.netrc|id_rsa|id_ed25519|credentials\.json)( |$)/ &&
+      $0 !~ /(secret|token|private-key|\.pem|\.p12|\.key)/ { print }
+    ' \
+    | head -80
+}
+
+contains_restricted_signal() {
+  local text="$1"
+  local lower
+  lower="$(printf '%s' "${text}" | tr '[:upper:]' '[:lower:]')"
+  [[ "${lower}" == *".env"* \
+    || "${lower}" == *"client_secret"* \
+    || "${lower}" == *"refresh_token"* \
+    || "${lower}" == *"private key"* \
+    || "${lower}" == *"-----begin"* \
+    || "${lower}" == *"bearer "* \
+    || "${lower}" == *"api_key"* \
+    || "${lower}" == *"password:"* \
+    || "${lower}" == *"passwd"* \
+    || "${lower}" == *"sk-"* \
+    || "${lower}" == *"ghp_"* ]]
+}
+
+snapshot_hash() {
+  local status_text diff_text
+  status_text="$(filtered_status || true)"
+  diff_text="$(diffstat || true)"
+  printf '%s\n---\n%s\n' "${status_text}" "${diff_text}" | shasum -a 256 | awk '{print $1}'
+}
+
+capture_snapshot() {
+  local status_text diff_text branch commit summary note capture_args
+  status_text="$(filtered_status || true)"
+  diff_text="$(diffstat || true)"
+  branch="$(git -C "${repo_root}" branch --show-current 2>/dev/null || true)"
+  commit="$(git -C "${repo_root}" rev-parse --short HEAD 2>/dev/null || true)"
+  if [[ -z "${status_text}${diff_text}" ]]; then
+    note="no project file changes"
+  else
+    note="project file changes observed"
+  fi
+  summary="${agent} project-file observer: ${note} for ${project_slug}."
+
+  if contains_restricted_signal "${status_text}" || contains_restricted_signal "${diff_text}"; then
+    write_status "restricted_local_only" "restricted-looking path or token marker observed; upload blocked"
+    return 3
+  fi
+
+  capture_args=(
+    --agent "${agent}"
+    --phase diff
+    --session-id "${session_id}"
+    --project "${project_slug}"
+    --repo "${repo_root}"
+    --branch "${branch:-unknown}"
+    --commit "${commit:-unknown}"
+    --summary "${summary}"
+    --diff-summary "${diff_text:-${status_text:-no diffstat}}"
+    --next-action "Continue coding; preserve tests, decisions, and final summary via work memory."
+    --source-surface "${agent}-project-file-daemon"
+  )
+
+  if [[ "${dry_run}" == "true" ]]; then
+    "${CAPTURE}" --dry-run "${capture_args[@]}"
+    write_status "dry-run" "payload printed without upload"
+    return 0
+  fi
+
+  if "${CAPTURE}" "${capture_args[@]}" >/dev/null; then
+    write_status "observed" "latest project snapshot uploaded"
+    return 0
+  fi
+
+  local outbox_file
+  outbox_file="${OUTBOX_DIR}/$(date -u +%Y%m%dT%H%M%SZ)-${session_id}.json"
+  if "${CAPTURE}" --dry-run "${capture_args[@]}" >"${outbox_file}" 2>/dev/null; then
+    chmod 600 "${outbox_file}" 2>/dev/null || true
+    write_status "queued_transient" "network/upload failed; payload queued locally with 24h TTL"
+  else
+    rm -f "${outbox_file}"
+    write_status "failed" "capture and outbox serialization failed"
+  fi
+  return 5
+}
+
+prune_outbox
+write_status "starting" "project-file observer initializing"
+
+if [[ "${once}" == "true" ]]; then
+  capture_snapshot
+  exit $?
+fi
+
+last_hash="$(snapshot_hash)"
+write_status "watching" "baseline captured; waiting for project file changes"
+while true; do
+  sleep "${interval}"
+  prune_outbox
+  current_hash="$(snapshot_hash)"
+  if [[ "${current_hash}" != "${last_hash}" ]]; then
+    capture_snapshot || true
+    last_hash="${current_hash}"
+  fi
+done

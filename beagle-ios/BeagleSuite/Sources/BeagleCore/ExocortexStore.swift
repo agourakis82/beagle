@@ -18,6 +18,7 @@ public final class ExocortexStore {
     public var graphStatus: Truthful<MemoryGraphStatus>?
     public var bakeoffStatus: Truthful<MemoryGraphStatus>?
     public var benchmarkStatus: Truthful<MemoryBenchmarkStatus>?
+    public var truthSetStatus: Truthful<MemoryTruthSetStatus>?
     public var recentGraph: Truthful<MemoryGraphRecentResponse>?
     public var recentWorlds: Truthful<MemoryWorldsRecentResponse>?
     public var memoryCandidates: Truthful<MemoryCandidateListResponse>?
@@ -64,6 +65,10 @@ public final class ExocortexStore {
 
     public func refreshBenchmarkStatus() async {
         benchmarkStatus = await client.memoryBenchmarkStatus()
+    }
+
+    public func refreshTruthSetStatus(id: String) async {
+        truthSetStatus = await client.memoryTruthSetStatus(id: id)
     }
 
     public func refreshRecentGraph(limit: Int = 12) async {

@@ -44,6 +44,8 @@ const MEMORY_GOVERNANCE_RUNS_LOG: &str = "memory_governance_runs.jsonl";
 const MEMORY_CONTRADICTIONS_LOG: &str = "memory_contradictions.jsonl";
 const MEMORY_PROMOTION_DECISIONS_LOG: &str = "memory_promotion_decisions.jsonl";
 const MEMORY_QUALITY_SCORES_LOG: &str = "memory_quality_scores.jsonl";
+const MEMORY_TRUTHSETS_LOG: &str = "memory_truthsets.jsonl";
+const MEMORY_TRUTH_CASES_LOG: &str = "memory_truth_cases.jsonl";
 const AGENT_OBSERVATIONS_LOG: &str = "agent_observations.jsonl";
 const PROJECT_STATES_LOG: &str = "project_states.jsonl";
 const CAUSAL_HYPOTHESES_LOG: &str = "causal_hypotheses.jsonl";
@@ -53,7 +55,8 @@ const MEMORY_PROJECTION_SCHEMA: &str = "beagle-memory-projection-v1.2";
 const MEMORY_GRAPH_SCHEMA: &str = "beagle-graphrag-runtime-v1.4";
 const MEMORY_MESH_SCHEMA: &str = "beagle-federated-memory-engine-v1.5";
 const MEMORY_GOVERNANCE_SCHEMA: &str = "beagle-self-governing-memory-v1.6";
-const MEMORY_BENCH_SCHEMA: &str = "beagle-memory-bench-hypermemory-v1.8";
+const MEMORY_BENCH_SCHEMA: &str = "beagle-memory-truth-hypermemory-v1.9";
+const MEMORY_TRUTH_SCHEMA: &str = "beagle-private-memory-truthset-v1.9";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextSnapshot {
@@ -425,7 +428,138 @@ pub struct MemoryBenchmarkStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_manifest: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub truthset_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub promotion_gate: Option<MemoryPromotionGate>,
+    #[serde(default)]
+    pub hot_path_eligible: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub degraded_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPromotionGate {
+    pub baseline_mode: String,
+    pub candidate_mode: String,
+    pub required_margin: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_score: Option<f64>,
+    pub consecutive_passing_runs: usize,
+    pub required_consecutive_runs: usize,
+    pub hard_gates_passed: bool,
+    pub eligible: bool,
+    pub rationale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryTruthSet {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub status: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub domains: Vec<String>,
+    #[serde(default)]
+    pub source_refs: Vec<String>,
+    pub case_count: usize,
+    pub approved_case_count: usize,
+    pub artifact_root: String,
+    pub privacy_policy: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviewer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rationale: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryTruthCase {
+    pub id: String,
+    pub truthset_id: String,
+    pub created_at: String,
+    pub status: String,
+    pub domain: String,
+    pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_answer: Option<String>,
+    #[serde(default)]
+    pub required_evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub expected_atom_refs: Vec<String>,
+    #[serde(default)]
+    pub expected_episode_refs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temporal_expectation: Option<String>,
+    #[serde(default)]
+    pub provenance_requirements: Vec<String>,
+    pub privacy_class: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateMemoryTruthSetRequest {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub domains: Vec<String>,
+    #[serde(default)]
+    pub source_refs: Vec<String>,
+    #[serde(default)]
+    pub reviewer: Option<String>,
+    #[serde(default)]
+    pub artifact_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateMemoryTruthCaseRequest {
+    pub domain: String,
+    pub query: String,
+    #[serde(default)]
+    pub expected_answer: Option<String>,
+    #[serde(default)]
+    pub required_evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub expected_atom_refs: Vec<String>,
+    #[serde(default)]
+    pub expected_episode_refs: Vec<String>,
+    #[serde(default)]
+    pub temporal_expectation: Option<String>,
+    #[serde(default)]
+    pub provenance_requirements: Vec<String>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReviewMemoryTruthSetRequest {
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub reviewer: Option<String>,
+    #[serde(default)]
+    pub rationale: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryTruthSetResponse {
+    pub truthset: MemoryTruthSet,
+    #[serde(default)]
+    pub cases: Vec<MemoryTruthCase>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1029,6 +1163,16 @@ pub struct TrustContext {
     pub latest_bench_score: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_regression_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub truthset_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bench_hot_path_eligible: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_observer_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apple_capture_freshness: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_loop_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1283,6 +1427,22 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(memory_export_handler),
         )
         .route(
+            "/api/exocortex/v1/memory/truthsets",
+            post(memory_truthset_create_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/truthsets/:truthset_id",
+            get(memory_truthset_get_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/truthsets/:truthset_id/cases",
+            post(memory_truthset_case_create_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/truthsets/:truthset_id/review",
+            post(memory_truthset_review_handler),
+        )
+        .route(
             "/api/exocortex/v1/memory/candidates",
             get(memory_candidates_handler).post(memory_candidate_create_handler),
         )
@@ -1433,6 +1593,55 @@ async fn memory_export_handler(
     repo.ensure().map_err(internal_error)?;
     let export = repo.export_sanitized_memory(req).map_err(internal_error)?;
     Ok(Json(export))
+}
+
+async fn memory_truthset_create_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<CreateMemoryTruthSetRequest>,
+) -> Result<Json<MemoryTruthSet>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let truthset = repo.create_memory_truthset(req).map_err(internal_error)?;
+    Ok(Json(truthset))
+}
+
+async fn memory_truthset_get_handler(
+    State(_state): State<AppState>,
+    Path(truthset_id): Path<String>,
+) -> Result<Json<MemoryTruthSetResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let response = repo
+        .memory_truthset_response(&truthset_id)
+        .map_err(internal_error)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(response))
+}
+
+async fn memory_truthset_case_create_handler(
+    State(_state): State<AppState>,
+    Path(truthset_id): Path<String>,
+    Json(req): Json<CreateMemoryTruthCaseRequest>,
+) -> Result<Json<MemoryTruthCase>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let case = repo
+        .create_memory_truth_case(&truthset_id, req)
+        .map_err(internal_error)?;
+    Ok(Json(case))
+}
+
+async fn memory_truthset_review_handler(
+    State(_state): State<AppState>,
+    Path(truthset_id): Path<String>,
+    Json(req): Json<ReviewMemoryTruthSetRequest>,
+) -> Result<Json<MemoryTruthSetResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let response = repo
+        .review_memory_truthset(&truthset_id, req)
+        .map_err(internal_error)?;
+    Ok(Json(response))
 }
 
 async fn memory_candidates_handler(
@@ -2440,6 +2649,59 @@ impl ExocortexRepository {
         );
         hard_gates.insert("fallback_explicit".to_string(), true);
         hard_gates.insert("jsonl_replay_idempotent".to_string(), true);
+        let truthset_id = latest_bench_audit
+            .as_ref()
+            .and_then(|event| metadata_string(&event.metadata, "truthset_id"));
+        let baseline_score = latest_bench_audit
+            .as_ref()
+            .and_then(|event| metadata_f64(&event.metadata, "baseline_score"));
+        let candidate_score = latest_bench_audit.as_ref().and_then(|event| {
+            metadata_f64(&event.metadata, "hypermemory_score")
+                .or_else(|| metadata_f64(&event.metadata, "candidate_score"))
+        });
+        let consecutive_passing_runs = latest_bench_audit
+            .as_ref()
+            .and_then(|event| metadata_usize(&event.metadata, "consecutive_passing_runs"))
+            .unwrap_or(0);
+        let required_margin = latest_bench_audit
+            .as_ref()
+            .and_then(|event| metadata_f64(&event.metadata, "required_margin"))
+            .unwrap_or(0.05);
+        let hard_gates_passed = hard_gates.values().all(|gate| *gate) && regression_count == 0;
+        let computed_hot_path_eligible = match (baseline_score, candidate_score) {
+            (Some(baseline), Some(candidate)) => {
+                candidate >= baseline + required_margin
+                    && consecutive_passing_runs >= 3
+                    && hard_gates_passed
+            }
+            _ => false,
+        };
+        let hot_path_eligible = latest_bench_audit
+            .as_ref()
+            .and_then(|event| metadata_bool(&event.metadata, "hot_path_eligible"))
+            .unwrap_or(computed_hot_path_eligible);
+        let promotion_gate = latest_bench_audit.as_ref().map(|_| MemoryPromotionGate {
+            baseline_mode: latest_bench_audit
+                .as_ref()
+                .and_then(|event| metadata_string(&event.metadata, "baseline_mode"))
+                .unwrap_or_else(|| "graphsearch-lite".to_string()),
+            candidate_mode: latest_bench_audit
+                .as_ref()
+                .and_then(|event| metadata_string(&event.metadata, "candidate_mode"))
+                .unwrap_or_else(|| "hypermemory".to_string()),
+            required_margin,
+            baseline_score,
+            candidate_score,
+            consecutive_passing_runs,
+            required_consecutive_runs: 3,
+            hard_gates_passed,
+            eligible: hot_path_eligible,
+            rationale: if hot_path_eligible {
+                "HyperMemory passed the v1.9 promotion gate for Home/search hot path.".to_string()
+            } else {
+                "HyperMemory remains advisory until it beats baseline by +5 points for 3 consecutive passing runs with full provenance and zero restricted leakage.".to_string()
+            },
+        });
         let status = match (&latest_bench_audit, regression_count) {
             (Some(_), 0) => "passing",
             (Some(_), _) => "regression",
@@ -2474,6 +2736,9 @@ impl ExocortexRepository {
             artifact_manifest: latest_bench_audit
                 .as_ref()
                 .and_then(|event| metadata_string(&event.metadata, "artifact_manifest")),
+            truthset_id,
+            promotion_gate,
+            hot_path_eligible,
             degraded_reason: latest_bench_audit.is_none().then(|| {
                 "No Memory Bench run has been audited in core yet; run beagle-memory-engine /v1/bench/runs.".to_string()
             }),
@@ -2554,6 +2819,170 @@ impl ExocortexRepository {
                 "schema_version": MEMORY_MESH_SCHEMA,
             }),
         })
+    }
+
+    fn create_memory_truthset(
+        &self,
+        req: CreateMemoryTruthSetRequest,
+    ) -> anyhow::Result<MemoryTruthSet> {
+        self.ensure()?;
+        let now = Utc::now().to_rfc3339();
+        let truthset = MemoryTruthSet {
+            id: stable_id(
+                "truthset",
+                &[
+                    req.title.as_deref().unwrap_or("beagle-memory-truth-v1.9"),
+                    &now,
+                ],
+            ),
+            created_at: now,
+            schema_version: MEMORY_TRUTH_SCHEMA.to_string(),
+            status: "draft".to_string(),
+            title: req
+                .title
+                .unwrap_or_else(|| "Beagle private Memory Truth v1.9".to_string()),
+            description: req.description,
+            domains: if req.domains.is_empty() {
+                truthset_default_domains()
+            } else {
+                req.domains
+            },
+            source_refs: req.source_refs,
+            case_count: 0,
+            approved_case_count: 0,
+            artifact_root: req
+                .artifact_root
+                .unwrap_or_else(|| "/orangefs/beagle-memory-lab/truthsets/v1.9".to_string()),
+            privacy_policy:
+                "cluster-only private truthset; restricted content is excluded before approval"
+                    .to_string(),
+            reviewer: req.reviewer,
+            rationale: None,
+        };
+        self.append_jsonl(MEMORY_TRUTHSETS_LOG, &truthset)?;
+        Ok(truthset)
+    }
+
+    fn create_memory_truth_case(
+        &self,
+        truthset_id: &str,
+        req: CreateMemoryTruthCaseRequest,
+    ) -> anyhow::Result<MemoryTruthCase> {
+        self.ensure()?;
+        let truthset = self
+            .latest_memory_truthset(truthset_id)?
+            .ok_or_else(|| anyhow::anyhow!("memory truthset not found: {}", truthset_id))?;
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        anyhow::ensure!(
+            privacy_class != "restricted",
+            "restricted truth cases require explicit review outside v1.9"
+        );
+        let mut provenance_requirements = req.provenance_requirements;
+        if provenance_requirements.is_empty() {
+            provenance_requirements = vec![
+                "episode_id".to_string(),
+                "atom_id".to_string(),
+                "source_ref".to_string(),
+                "privacy_class".to_string(),
+            ];
+        }
+        let case = MemoryTruthCase {
+            id: stable_id("truthcase", &[truthset_id, &req.domain, &req.query]),
+            truthset_id: truthset.id,
+            created_at: Utc::now().to_rfc3339(),
+            status: req.status.unwrap_or_else(|| "draft".to_string()),
+            domain: req.domain,
+            query: req.query,
+            expected_answer: req.expected_answer,
+            required_evidence_refs: req.required_evidence_refs,
+            expected_atom_refs: req.expected_atom_refs,
+            expected_episode_refs: req.expected_episode_refs,
+            temporal_expectation: req.temporal_expectation,
+            provenance_requirements,
+            privacy_class,
+            tags: req.tags,
+            metadata: req.metadata.unwrap_or(serde_json::Value::Null),
+        };
+        self.append_jsonl(MEMORY_TRUTH_CASES_LOG, &case)?;
+        self.rewrite_memory_truthset_counts(truthset_id, None, None, None)?;
+        Ok(case)
+    }
+
+    fn review_memory_truthset(
+        &self,
+        truthset_id: &str,
+        req: ReviewMemoryTruthSetRequest,
+    ) -> anyhow::Result<MemoryTruthSetResponse> {
+        self.ensure()?;
+        self.rewrite_memory_truthset_counts(
+            truthset_id,
+            req.status.as_deref(),
+            req.reviewer.as_deref(),
+            req.rationale.as_deref(),
+        )?;
+        self.memory_truthset_response(truthset_id)?
+            .ok_or_else(|| anyhow::anyhow!("memory truthset not found: {}", truthset_id))
+    }
+
+    fn memory_truthset_response(
+        &self,
+        truthset_id: &str,
+    ) -> anyhow::Result<Option<MemoryTruthSetResponse>> {
+        let Some(truthset) = self.latest_memory_truthset(truthset_id)? else {
+            return Ok(None);
+        };
+        let mut cases = self
+            .read_recent_jsonl::<MemoryTruthCase>(MEMORY_TRUTH_CASES_LOG, usize::MAX)?
+            .into_iter()
+            .filter(|case| case.truthset_id == truthset_id && case.privacy_class != "restricted")
+            .collect::<Vec<_>>();
+        cases.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        Ok(Some(MemoryTruthSetResponse { truthset, cases }))
+    }
+
+    fn latest_memory_truthset(&self, truthset_id: &str) -> anyhow::Result<Option<MemoryTruthSet>> {
+        Ok(self
+            .read_recent_jsonl::<MemoryTruthSet>(MEMORY_TRUTHSETS_LOG, usize::MAX)?
+            .into_iter()
+            .find(|truthset| truthset.id == truthset_id))
+    }
+
+    fn rewrite_memory_truthset_counts(
+        &self,
+        truthset_id: &str,
+        status: Option<&str>,
+        reviewer: Option<&str>,
+        rationale: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let mut truthset = self
+            .latest_memory_truthset(truthset_id)?
+            .ok_or_else(|| anyhow::anyhow!("memory truthset not found: {}", truthset_id))?;
+        let cases = self
+            .read_recent_jsonl::<MemoryTruthCase>(MEMORY_TRUTH_CASES_LOG, usize::MAX)?
+            .into_iter()
+            .filter(|case| case.truthset_id == truthset_id && case.privacy_class != "restricted")
+            .collect::<Vec<_>>();
+        truthset.created_at = Utc::now().to_rfc3339();
+        truthset.case_count = cases.len();
+        if let Some(status) = status {
+            truthset.status = status.trim().to_lowercase();
+        }
+        truthset.approved_case_count = if truthset.status == "approved" {
+            cases.len()
+        } else {
+            cases
+                .iter()
+                .filter(|case| case.status == "approved")
+                .count()
+        };
+        if let Some(reviewer) = reviewer {
+            truthset.reviewer = Some(reviewer.to_string());
+        }
+        if let Some(rationale) = rationale {
+            truthset.rationale = Some(rationale.to_string());
+        }
+        self.append_jsonl(MEMORY_TRUTHSETS_LOG, &truthset)?;
+        Ok(())
     }
 
     fn run_graph_bakeoff(&self, req: GraphBakeoffRequest) -> anyhow::Result<GraphBakeoffRun> {
@@ -4071,6 +4500,44 @@ impl ExocortexRepository {
             .and_then(|mut decisions| decisions.pop());
         let governance_status = self.memory_governance_status().ok();
         let benchmark_status = self.memory_benchmark_status().ok();
+        let recent_episodes = self
+            .read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, 80)
+            .unwrap_or_default();
+        let apple_capture_freshness = recent_episodes
+            .iter()
+            .find(|episode| {
+                let platform = episode.source_platform.as_deref().unwrap_or("");
+                platform.contains("beagle-apple")
+                    || episode.source.contains("watch")
+                    || episode.source.contains("siri")
+                    || episode.source.contains("share")
+            })
+            .map(|episode| {
+                episode
+                    .occurred_at
+                    .clone()
+                    .unwrap_or_else(|| episode.created_at.clone())
+            });
+        let agent_observer_status = if audit_events.iter().any(|event| {
+            let client_id = event.client_id.as_str();
+            event.tool_name.as_deref() == Some("beagle_work_memory_capture")
+                || metadata_bool(&event.metadata, "work_memory").unwrap_or(false)
+                || client_id.contains("codex")
+                || client_id.contains("claude")
+        }) {
+            Some("observed".to_string())
+        } else {
+            Some("not-observed".to_string())
+        };
+        let capture_loop_status = Some(
+            match (&apple_capture_freshness, &agent_observer_status) {
+                (Some(_), Some(status)) if status == "observed" => "apple+agent-active",
+                (Some(_), _) => "apple-active-agent-pending",
+                (None, Some(status)) if status == "observed" => "agent-active-apple-pending",
+                _ => "pending-first-capture",
+            }
+            .to_string(),
+        );
         let trust_context = Some(TrustContext {
             mcp_status: if audit_events.is_empty() {
                 "no-audit-events-yet".to_string()
@@ -4127,6 +4594,15 @@ impl ExocortexRepository {
             memory_regression_count: benchmark_status
                 .as_ref()
                 .map(|status| status.regression_count),
+            truthset_id: benchmark_status
+                .as_ref()
+                .and_then(|status| status.truthset_id.clone()),
+            bench_hot_path_eligible: benchmark_status
+                .as_ref()
+                .map(|status| status.hot_path_eligible),
+            agent_observer_status,
+            apple_capture_freshness,
+            capture_loop_status,
         });
         let temporal_phase = temporal_phase.or_else(|| {
             causal_hypotheses
@@ -4479,6 +4955,13 @@ fn metadata_usize(value: &serde_json::Value, key: &str) -> Option<usize> {
         .and_then(|value| usize::try_from(value).ok())
 }
 
+fn metadata_bool(value: &serde_json::Value, key: &str) -> Option<bool> {
+    value
+        .as_object()
+        .and_then(|object| object.get(key))
+        .and_then(|value| value.as_bool())
+}
+
 fn metadata_array_strings(value: &serde_json::Value, key: &str) -> Option<Vec<String>> {
     value
         .as_object()
@@ -4759,6 +5242,23 @@ fn graph_runtime_configured() -> bool {
             .map(|value| !value.trim().is_empty())
             .unwrap_or(false)
     })
+}
+
+fn truthset_default_domains() -> Vec<String> {
+    [
+        "chronoself-temporal",
+        "work-memory",
+        "grok-import",
+        "science-protocols",
+        "contradiction",
+        "body-context",
+        "provenance-security",
+        "implicit-recall",
+        "decision-continuity",
+    ]
+    .iter()
+    .map(|domain| domain.to_string())
+    .collect()
 }
 
 fn graph_degraded_reason(runtime_configured: bool) -> String {
@@ -5905,6 +6405,13 @@ mod tests {
             metadata: Some(serde_json::json!({
                 "schema_version": MEMORY_BENCH_SCHEMA,
                 "run_id": "bench-1",
+                "truthset_id": "truth-v19",
+                "baseline_mode": "graphsearch-lite",
+                "candidate_mode": "hypermemory",
+                "baseline_score": 0.78,
+                "hypermemory_score": 0.84,
+                "required_margin": 0.05,
+                "consecutive_passing_runs": 3,
                 "latest_score": 0.84,
                 "query_count": 100,
                 "regression_count": 0,
@@ -5919,6 +6426,13 @@ mod tests {
         assert_eq!(status.latest_run_id.as_deref(), Some("bench-1"));
         assert_eq!(status.query_count, 100);
         assert_eq!(status.latest_score, Some(0.84));
+        assert_eq!(status.truthset_id.as_deref(), Some("truth-v19"));
+        assert!(status.hot_path_eligible);
+        assert!(status
+            .promotion_gate
+            .as_ref()
+            .map(|gate| gate.eligible)
+            .unwrap_or(false));
         let home = repo
             .build_home_snapshot(HomeQuery {
                 active_project_slug: None,
@@ -5928,6 +6442,79 @@ mod tests {
         let trust = home.trust_context.unwrap();
         assert_eq!(trust.memory_bench_status.as_deref(), Some("passing"));
         assert_eq!(trust.latest_bench_score, Some(0.84));
+        assert_eq!(trust.truthset_id.as_deref(), Some("truth-v19"));
+        assert_eq!(trust.bench_hot_path_eligible, Some(true));
+    }
+
+    #[test]
+    fn memory_truthset_lifecycle_rejects_restricted_cases() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        let truthset = repo
+            .create_memory_truthset(CreateMemoryTruthSetRequest {
+                title: Some("Private v1.9 truthset".to_string()),
+                description: Some("Agent-curated cases from real Beagle memory.".to_string()),
+                domains: vec!["work-memory".to_string(), "grok-import".to_string()],
+                source_refs: vec!["memory_export:dry-run".to_string()],
+                reviewer: Some("demetrios".to_string()),
+                artifact_root: None,
+            })
+            .unwrap();
+
+        let case = repo
+            .create_memory_truth_case(
+                &truthset.id,
+                CreateMemoryTruthCaseRequest {
+                    domain: "work-memory".to_string(),
+                    query: "qual foi a última decisão do Codex?".to_string(),
+                    expected_answer: Some("Recuperar sessão, branch e commit.".to_string()),
+                    required_evidence_refs: vec!["agent-session:codex".to_string()],
+                    expected_atom_refs: vec![],
+                    expected_episode_refs: vec![],
+                    temporal_expectation: Some("priorizar evento mais recente".to_string()),
+                    provenance_requirements: vec!["repo".to_string(), "branch".to_string()],
+                    privacy_class: Some("sensitive".to_string()),
+                    status: Some("approved".to_string()),
+                    tags: vec!["codex".to_string(), "truthset:v1.9".to_string()],
+                    metadata: Some(serde_json::json!({"cluster_only": true})),
+                },
+            )
+            .unwrap();
+        assert_eq!(case.truthset_id, truthset.id);
+
+        let restricted = repo.create_memory_truth_case(
+            &truthset.id,
+            CreateMemoryTruthCaseRequest {
+                domain: "security".to_string(),
+                query: "restricted content must never enter bench".to_string(),
+                expected_answer: None,
+                required_evidence_refs: vec![],
+                expected_atom_refs: vec![],
+                expected_episode_refs: vec![],
+                temporal_expectation: None,
+                provenance_requirements: vec![],
+                privacy_class: Some("restricted".to_string()),
+                status: None,
+                tags: vec![],
+                metadata: None,
+            },
+        );
+        assert!(restricted.is_err());
+
+        let reviewed = repo
+            .review_memory_truthset(
+                &truthset.id,
+                ReviewMemoryTruthSetRequest {
+                    status: Some("approved".to_string()),
+                    reviewer: Some("demetrios".to_string()),
+                    rationale: Some("caso sensível aprovado para bench privado".to_string()),
+                },
+            )
+            .unwrap();
+        assert_eq!(reviewed.truthset.status, "approved");
+        assert_eq!(reviewed.truthset.case_count, 1);
+        assert_eq!(reviewed.truthset.approved_case_count, 1);
+        assert_eq!(reviewed.cases.len(), 1);
     }
 
     #[test]

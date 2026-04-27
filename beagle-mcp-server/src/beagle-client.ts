@@ -416,6 +416,28 @@ export class BeagleClient {
         return this.request("GET", "/api/exocortex/v1/memory/bench/status", undefined, 30000);
     }
 
+    async memoryTruthsetDraft(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/truthsets/draft", body, 300000, this.memoryEngineUrl());
+    }
+
+    async memoryTruthsetReview(truthsetId: string, body: unknown): Promise<unknown> {
+        return this.request(
+            "POST",
+            `/api/exocortex/v1/memory/truthsets/${encodeURIComponent(truthsetId)}/review`,
+            body,
+            30000,
+        );
+    }
+
+    async memoryTruthsetGet(truthsetId: string): Promise<unknown> {
+        return this.request(
+            "GET",
+            `/api/exocortex/v1/memory/truthsets/${encodeURIComponent(truthsetId)}`,
+            undefined,
+            30000,
+        );
+    }
+
     async memoryEngineGovernanceEvaluate(body: unknown): Promise<unknown> {
         return this.request("POST", "/v1/governance/evaluate", body, 120000, this.memoryEngineUrl());
     }

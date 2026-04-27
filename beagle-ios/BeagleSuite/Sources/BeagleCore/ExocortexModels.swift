@@ -775,20 +775,24 @@ public struct MemoryGraphStatus: Codable, Equatable, Sendable {
 
 public struct MemoryBenchmarkMetricSet: Codable, Equatable, Sendable {
     public let topKHitRate: Double?
+    public let exactSupport: Double?
     public let multiHopCorrectness: Double?
     public let temporalCorrectness: Double?
     public let provenanceCompleteness: Double?
     public let contradictionSafety: Double?
+    public let implicitRecall: Double?
     public let restrictedLeakCount: Int?
     public let p95LatencyMs: Double?
     public let blindJudgeDepth: Double?
 
     enum CodingKeys: String, CodingKey {
         case topKHitRate = "top_k_hit_rate"
+        case exactSupport = "exact_support"
         case multiHopCorrectness = "multi_hop_correctness"
         case temporalCorrectness = "temporal_correctness"
         case provenanceCompleteness = "provenance_completeness"
         case contradictionSafety = "contradiction_safety"
+        case implicitRecall = "implicit_recall"
         case restrictedLeakCount = "restricted_leak_count"
         case p95LatencyMs = "p95_latency_ms"
         case blindJudgeDepth = "blind_judge_depth"
@@ -821,18 +825,77 @@ public struct MemoryBenchmarkModeResult: Codable, Equatable, Sendable, Identifia
     }
 }
 
+public struct MemoryPromotionGate: Codable, Equatable, Sendable {
+    public let baselineMode: String
+    public let candidateMode: String
+    public let requiredMargin: Double
+    public let baselineScore: Double?
+    public let candidateScore: Double?
+    public let consecutivePassingRuns: Int
+    public let requiredConsecutiveRuns: Int
+    public let hardGatesPassed: Bool
+    public let eligible: Bool
+    public let rationale: String
+
+    enum CodingKeys: String, CodingKey {
+        case baselineMode = "baseline_mode"
+        case candidateMode = "candidate_mode"
+        case requiredMargin = "required_margin"
+        case baselineScore = "baseline_score"
+        case candidateScore = "candidate_score"
+        case consecutivePassingRuns = "consecutive_passing_runs"
+        case requiredConsecutiveRuns = "required_consecutive_runs"
+        case hardGatesPassed = "hard_gates_passed"
+        case eligible
+        case rationale
+    }
+}
+
+public struct MemoryTruthJudgment: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { caseId }
+    public let caseId: String
+    public let domain: String
+    public let query: String
+    public let passed: Bool
+    public let score: Double
+    public let baselineSupport: Double
+    public let candidateSupport: Double
+    public let regression: Bool
+    public let supportingRefs: [String]
+    public let notes: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case caseId = "case_id"
+        case domain
+        case query
+        case passed
+        case score
+        case baselineSupport = "baseline_support"
+        case candidateSupport = "candidate_support"
+        case regression
+        case supportingRefs = "supporting_refs"
+        case notes
+    }
+}
+
 public struct MemoryBenchmarkRun: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let createdAt: String
     public let status: String
     public let schemaVersion: String
+    public let truthsetId: String?
     public let queryCount: Int
     public let domains: [String]
     public let judgeMode: String?
+    public let baselineMode: String?
+    public let candidateModes: [String]
     public let hardGates: [String: Bool]
     public let modeResults: [MemoryBenchmarkModeResult]
+    public let caseJudgments: [MemoryTruthJudgment]
     public let winningMode: String?
     public let regressionCount: Int
+    public let promotionGate: MemoryPromotionGate?
+    public let hotPathEligible: Bool
     public let artifactManifest: String?
     public let degradedReason: String?
 
@@ -841,13 +904,19 @@ public struct MemoryBenchmarkRun: Codable, Equatable, Sendable, Identifiable {
         case createdAt = "created_at"
         case status
         case schemaVersion = "schema_version"
+        case truthsetId = "truthset_id"
         case queryCount = "query_count"
         case domains
         case judgeMode = "judge_mode"
+        case baselineMode = "baseline_mode"
+        case candidateModes = "candidate_modes"
         case hardGates = "hard_gates"
         case modeResults = "mode_results"
+        case caseJudgments = "case_judgments"
         case winningMode = "winning_mode"
         case regressionCount = "regression_count"
+        case promotionGate = "promotion_gate"
+        case hotPathEligible = "hot_path_eligible"
         case artifactManifest = "artifact_manifest"
         case degradedReason = "degraded_reason"
     }
@@ -858,13 +927,19 @@ public struct MemoryBenchmarkRun: Codable, Equatable, Sendable, Identifiable {
         createdAt = try container.decode(String.self, forKey: .createdAt)
         status = try container.decode(String.self, forKey: .status)
         schemaVersion = try container.decode(String.self, forKey: .schemaVersion)
+        truthsetId = try container.decodeIfPresent(String.self, forKey: .truthsetId)
         queryCount = try container.decodeIfPresent(Int.self, forKey: .queryCount) ?? 0
         domains = try container.decodeIfPresent([String].self, forKey: .domains) ?? []
         judgeMode = try container.decodeIfPresent(String.self, forKey: .judgeMode)
+        baselineMode = try container.decodeIfPresent(String.self, forKey: .baselineMode)
+        candidateModes = try container.decodeIfPresent([String].self, forKey: .candidateModes) ?? []
         hardGates = try container.decodeIfPresent([String: Bool].self, forKey: .hardGates) ?? [:]
         modeResults = try container.decodeIfPresent([MemoryBenchmarkModeResult].self, forKey: .modeResults) ?? []
+        caseJudgments = try container.decodeIfPresent([MemoryTruthJudgment].self, forKey: .caseJudgments) ?? []
         winningMode = try container.decodeIfPresent(String.self, forKey: .winningMode)
         regressionCount = try container.decodeIfPresent(Int.self, forKey: .regressionCount) ?? 0
+        promotionGate = try container.decodeIfPresent(MemoryPromotionGate.self, forKey: .promotionGate)
+        hotPathEligible = try container.decodeIfPresent(Bool.self, forKey: .hotPathEligible) ?? false
         artifactManifest = try container.decodeIfPresent(String.self, forKey: .artifactManifest)
         degradedReason = try container.decodeIfPresent(String.self, forKey: .degradedReason)
     }
@@ -883,6 +958,9 @@ public struct MemoryBenchmarkStatus: Codable, Equatable, Sendable {
     public let artifactManifest: String?
     public let degradedReason: String?
     public let latestRun: MemoryBenchmarkRun?
+    public let truthsetId: String?
+    public let promotionGate: MemoryPromotionGate?
+    public let hotPathEligible: Bool
 
     enum CodingKeys: String, CodingKey {
         case generatedAt = "generated_at"
@@ -897,6 +975,9 @@ public struct MemoryBenchmarkStatus: Codable, Equatable, Sendable {
         case artifactManifest = "artifact_manifest"
         case degradedReason = "degraded_reason"
         case latestRun = "latest_run"
+        case truthsetId = "truthset_id"
+        case promotionGate = "promotion_gate"
+        case hotPathEligible = "hot_path_eligible"
     }
 
     public init(from decoder: Decoder) throws {
@@ -913,7 +994,80 @@ public struct MemoryBenchmarkStatus: Codable, Equatable, Sendable {
         artifactManifest = try container.decodeIfPresent(String.self, forKey: .artifactManifest)
         degradedReason = try container.decodeIfPresent(String.self, forKey: .degradedReason)
         latestRun = try container.decodeIfPresent(MemoryBenchmarkRun.self, forKey: .latestRun)
+        truthsetId = try container.decodeIfPresent(String.self, forKey: .truthsetId)
+        promotionGate = try container.decodeIfPresent(MemoryPromotionGate.self, forKey: .promotionGate)
+        hotPathEligible = try container.decodeIfPresent(Bool.self, forKey: .hotPathEligible) ?? false
     }
+}
+
+public struct MemoryTruthSetSummary: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let status: String
+    public let title: String
+    public let description: String?
+    public let domains: [String]
+    public let caseCount: Int
+    public let approvedCaseCount: Int
+    public let artifactRoot: String?
+    public let reviewer: String?
+    public let rationale: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case status
+        case title
+        case description
+        case domains
+        case caseCount = "case_count"
+        case approvedCaseCount = "approved_case_count"
+        case artifactRoot = "artifact_root"
+        case reviewer
+        case rationale
+    }
+}
+
+public struct MemoryTruthCaseSummary: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let truthsetId: String
+    public let status: String
+    public let domain: String
+    public let query: String
+    public let privacyClass: String
+    public let tags: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case truthsetId = "truthset_id"
+        case status
+        case domain
+        case query
+        case privacyClass = "privacy_class"
+        case tags
+    }
+}
+
+public struct MemoryTruthSetStatus: Codable, Equatable, Sendable {
+    public let truthset: MemoryTruthSetSummary
+    public let cases: [MemoryTruthCaseSummary]
+}
+
+public struct MemoryPromotionGateStatus: Codable, Equatable, Sendable {
+    public let truthsetId: String?
+    public let promotionGate: MemoryPromotionGate?
+    public let hotPathEligible: Bool
+}
+
+public struct AgentObserverStatus: Codable, Equatable, Sendable {
+    public let status: String
+    public let latestAgentWrite: String?
+    public let captureLoopStatus: String?
+    public let updatedAt: String?
+}
+
+public struct AppleCaptureFreshness: Codable, Equatable, Sendable {
+    public let status: String
+    public let latestCaptureAt: String?
+    public let sourceSurface: String?
 }
 
 public struct MemoryWorldsRecentResponse: Codable, Equatable, Sendable {
@@ -1504,6 +1658,11 @@ public struct TrustContext: Codable, Equatable, Sendable {
     public let memoryBenchStatus: String?
     public let latestBenchScore: Double?
     public let memoryRegressionCount: Int?
+    public let truthsetId: String?
+    public let benchHotPathEligible: Bool?
+    public let agentObserverStatus: String?
+    public let appleCaptureFreshness: String?
+    public let captureLoopStatus: String?
 
     enum CodingKeys: String, CodingKey {
         case mcpStatus = "mcp_status"
@@ -1528,6 +1687,11 @@ public struct TrustContext: Codable, Equatable, Sendable {
         case memoryBenchStatus = "memory_bench_status"
         case latestBenchScore = "latest_bench_score"
         case memoryRegressionCount = "memory_regression_count"
+        case truthsetId = "truthset_id"
+        case benchHotPathEligible = "bench_hot_path_eligible"
+        case agentObserverStatus = "agent_observer_status"
+        case appleCaptureFreshness = "apple_capture_freshness"
+        case captureLoopStatus = "capture_loop_status"
     }
 }
 

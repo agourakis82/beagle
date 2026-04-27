@@ -226,6 +226,21 @@ const TOOL_POLICIES: Record<string, ToolPolicy> = {
         requiredScopes: READ_EXOCORTEX,
         riskLevel: "read",
     },
+    beagle_memory_truthset_draft: {
+        annotations: annotations("Draft Private Memory Truth Set", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_memory_truthset_review: {
+        annotations: annotations("Review Private Memory Truth Set", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_agent_observer_status: {
+        annotations: annotations("Read Agent Observer Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
     beagle_memory_engine_governance_evaluate: {
         annotations: annotations("Evaluate Memory Governance", false, false, false),
         requiredScopes: WRITE_MEMORY,
@@ -309,6 +324,7 @@ const REVIEW_SAFE_TOOL_NAMES = new Set([
     "beagle_memory_governance_status",
     "beagle_memory_contradictions_recent",
     "beagle_memory_benchmark_status",
+    "beagle_agent_observer_status",
     "beagle_pipeline_status",
     "beagle_list_recent_runs",
     "beagle_get_science_job_status",

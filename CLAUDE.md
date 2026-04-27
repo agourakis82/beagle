@@ -33,6 +33,18 @@ If `claude` is not on PATH, do not install it automatically. Surface the missing
 CLI clearly. The scripts must never print tokens and must never store canonical
 memory on the workstation.
 
+Optional project-file daemon:
+
+```bash
+scripts/beagle-work-memory-daemon --agent claude-code --once --dry-run
+scripts/beagle-work-memory-daemon --agent claude-code
+```
+
+The daemon is project-scoped: branch, commit, changed files, diffstat and
+work-memory metadata only. It must not observe clipboard, screenshots, browser
+state or the full computer. Any local outbox is transient, `0600`, and never
+canonical.
+
 ## Quick Start Commands
 
 ### Environment Setup

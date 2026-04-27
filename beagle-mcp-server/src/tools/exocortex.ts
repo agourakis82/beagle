@@ -181,6 +181,35 @@ const MemoryBenchmarkRunSchema = z.object({
     domains: z.array(z.string()).optional(),
     judge_mode: z.string().optional(),
     include_mesh: z.boolean().optional().default(true),
+    truthset_id: z.string().optional(),
+    baseline_mode: z.string().optional().default("graphsearch-lite"),
+    candidate_modes: z.array(z.string()).optional().default(["hypermemory"]),
+    promotion_policy: z
+        .object({
+            required_margin: z.number().min(0).max(1).optional().default(0.05),
+            required_consecutive_runs: z.number().int().min(1).max(10).optional().default(3),
+        })
+        .optional(),
+});
+
+const MemoryTruthsetDraftSchema = z.object({
+    limit: z.number().int().min(1).max(10000).optional().default(2000),
+    domains: z.array(z.string()).optional(),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    source_refs: z.array(z.string()).optional(),
+    reviewer: z.string().optional().default("mcp-agent"),
+});
+
+const MemoryTruthsetReviewSchema = z.object({
+    truthset_id: z.string().min(1),
+    status: z.enum(["draft", "approved", "rejected"]).default("approved"),
+    reviewer: z.string().optional().default("mcp-agent"),
+    rationale: z.string().optional(),
+});
+
+const AgentObserverStatusSchema = z.object({
+    platform: z.string().optional().default("mcp-agent-observer"),
 });
 
 const MemoryEngineGovernanceEvaluateSchema = z.object({
@@ -904,7 +933,7 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
         {
             name: "beagle_memory_benchmark_run",
             description:
-                "Start a cluster-only Memory Bench v1.8 run comparing GraphRAG++ baseline, HyperMemory, and federated mesh modes with hard gates for provenance and restricted leakage.",
+                "Start a cluster-only Memory Bench v1.9 run against an approved private truthset, comparing GraphRAG++ baseline, HyperMemory, and federated mesh modes with hard gates for provenance and restricted leakage.",
             inputSchema: {
                 type: "object",
                 properties: {
@@ -912,6 +941,26 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                     domains: { type: "array", items: { type: "string" } },
                     judge_mode: { type: "string" },
                     include_mesh: { type: "boolean", default: true },
+                    truthset_id: { type: "string" },
+                    baseline_mode: { type: "string", default: "graphsearch-lite" },
+                    candidate_modes: {
+                        type: "array",
+                        items: { type: "string" },
+                        default: ["hypermemory"],
+                    },
+                    promotion_policy: {
+                        type: "object",
+                        additionalProperties: false,
+                        properties: {
+                            required_margin: { type: "number", minimum: 0, maximum: 1, default: 0.05 },
+                            required_consecutive_runs: {
+                                type: "number",
+                                minimum: 1,
+                                maximum: 10,
+                                default: 3,
+                            },
+                        },
+                    },
                 },
             },
             handler: async (args: unknown) => {
@@ -922,9 +971,72 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
         {
             name: "beagle_memory_benchmark_status",
             description:
-                "Read the latest Memory Bench v1.8 status, scores, hard gates, evaluated retrieval modes, and regression count.",
+                "Read the latest Memory Bench v1.9 truthset gate, scores, hard gates, evaluated retrieval modes, and regression count.",
             inputSchema: { type: "object", properties: {} },
             handler: async () => sanitizeOutput(await client.memoryBenchmarkStatus()),
+        },
+        {
+            name: "beagle_memory_truthset_draft",
+            description:
+                "Draft a private, cluster-only Memory Truth Set from sanitized Beagle memory signals. The draft requires user review before benchmark authority.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    limit: { type: "number", minimum: 1, maximum: 10000, default: 2000 },
+                    domains: { type: "array", items: { type: "string" } },
+                    title: { type: "string" },
+                    description: { type: "string" },
+                    source_refs: { type: "array", items: { type: "string" } },
+                    reviewer: { type: "string", default: "mcp-agent" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryTruthsetDraftSchema.parse(args ?? {});
+                return sanitizeOutput(await client.memoryTruthsetDraft(parsed));
+            },
+        },
+        {
+            name: "beagle_memory_truthset_review",
+            description:
+                "Approve or reject a private Memory Truth Set after human review. Approved truthsets can drive v1.9 Memory Bench gates.",
+            inputSchema: {
+                type: "object",
+                required: ["truthset_id"],
+                properties: {
+                    truthset_id: { type: "string" },
+                    status: { type: "string", enum: ["draft", "approved", "rejected"], default: "approved" },
+                    reviewer: { type: "string", default: "mcp-agent" },
+                    rationale: { type: "string" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryTruthsetReviewSchema.parse(args ?? {});
+                const { truthset_id, ...body } = parsed;
+                return sanitizeOutput(await client.memoryTruthsetReview(truthset_id, body));
+            },
+        },
+        {
+            name: "beagle_agent_observer_status",
+            description:
+                "Read Home trust fields that show whether Codex/Claude Code project-file work memory and Apple capture loops have been observed by the cluster.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    platform: { type: "string", default: "mcp-agent-observer" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = AgentObserverStatusSchema.parse(args ?? {});
+                const home = await client.exocortexHome(undefined, parsed.platform);
+                if (typeof home === "object" && home !== null && "trust_context" in home) {
+                    return sanitizeOutput({
+                        generated_at: (home as { generated_at?: unknown }).generated_at,
+                        trust_context: (home as { trust_context?: unknown }).trust_context,
+                        agent_context: (home as { agent_context?: unknown }).agent_context,
+                    });
+                }
+                return sanitizeOutput(home);
+            },
         },
         {
             name: "beagle_memory_engine_governance_evaluate",

@@ -240,7 +240,8 @@ tags = [
     f"project:{project}",
     f"repo:{repo}",
     f"branch:{branch}",
-    "v1.7",
+    "v1.9",
+    "agent-os-daemon-ready",
 ]
 
 metadata = {
@@ -280,7 +281,8 @@ payload = {
     "coverage": {
         "visible_project_only": True,
         "work_memory_fields": len(parts),
-        "autopilot_v1_7": True,
+        "autopilot_v1_9": True,
+        "agent_os_project_files_only": True,
     },
     "turns": [
         {

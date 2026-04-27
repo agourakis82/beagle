@@ -374,6 +374,42 @@
         "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
       }
     },
+    "beagle_memory_truthset_draft": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates a draft private truthset and case records for later human review.",
+        "open_world_justification": "Operates only inside Beagle's private memory lab and core; no raw corpus is exported publicly.",
+        "destructive_justification": "Appends draft truthset records and does not delete, overwrite, or promote memory."
+      }
+    },
+    "beagle_memory_truthset_review": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Records an approval or rejection decision for an existing private truthset.",
+        "open_world_justification": "Writes only to Beagle's private append-only review trail.",
+        "destructive_justification": "Appends a review record and cannot delete truthsets or expose restricted content."
+      }
+    },
+    "beagle_agent_observer_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads Home trust fields for Codex/Claude Code observer and Apple capture status.",
+        "open_world_justification": "Reads private Beagle trust state and does not inspect local machines or external services.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
     "beagle_memory_engine_governance_evaluate": {
       "annotations": {
         "readOnlyHint": false,
