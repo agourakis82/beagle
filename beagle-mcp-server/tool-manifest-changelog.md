@@ -1,5 +1,15 @@
 # Beagle MCP Tool Manifest Changelog
 
+## beagle-mcp-v2.1-native-semantic-backbone
+
+- Tool count: 47
+- Tool manifest hash: `sha256:8744f919a9d1cbea3bb721d334e9a3e4a159dbb1390b59d49f5f9fa548308a6a`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from public, mobile, local-agent, semantic-index, truthset, benchmark, and governance surfaces.
+- `search` and `fetch` now prefer the memory-engine HyperMemory multivector hot path and fall back to canonical `/api/memory/query` if the lab is unavailable.
+- `beagle_retrieval_trace` now calls the memory-engine path and returns native semantic results, MaxSim scores, graph expansion trace, reranker trace, fallback chain, truthset gate, and provenance.
+- `beagle_semantic_index_status` and `beagle_semantic_index_rebuild` now describe the v2.1 LanceDB-native table contract: `semantic_memory_v1`, row count, native LanceDB status, MaxSim readiness, and embedding backend.
+
 ## beagle-mcp-v2.0-alpha-semantic-truth-backbone
 
 - Tool count: 47

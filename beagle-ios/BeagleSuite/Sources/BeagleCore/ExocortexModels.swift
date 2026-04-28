@@ -1082,7 +1082,17 @@ public struct SemanticIndexRun: Codable, Equatable, Sendable, Identifiable {
     public let truthsetId: String?
     public let artifactManifest: String?
     public let lancedbPath: String?
+    public let tableName: String?
+    public let rowCount: Int
+    public let indexReady: Bool
+    public let nativeLancedb: Bool
+    public let maxsimReady: Bool
+    public let embeddingBackend: String?
+    public let vectorDim: Int?
+    public let maxTokens: Int?
+    public let workerStatus: String?
     public let restrictedLeakCount: Int
+    public let workerLatencyMs: Double?
     public let degradedReason: String?
 
     enum CodingKeys: String, CodingKey {
@@ -1103,7 +1113,17 @@ public struct SemanticIndexRun: Codable, Equatable, Sendable, Identifiable {
         case truthsetId = "truthset_id"
         case artifactManifest = "artifact_manifest"
         case lancedbPath = "lancedb_path"
+        case tableName = "table_name"
+        case rowCount = "row_count"
+        case indexReady = "index_ready"
+        case nativeLancedb = "native_lancedb"
+        case maxsimReady = "maxsim_ready"
+        case embeddingBackend = "embedding_backend"
+        case vectorDim = "vector_dim"
+        case maxTokens = "max_tokens"
+        case workerStatus = "worker_status"
         case restrictedLeakCount = "restricted_leak_count"
+        case workerLatencyMs = "worker_latency_ms"
         case degradedReason = "degraded_reason"
     }
 
@@ -1126,7 +1146,17 @@ public struct SemanticIndexRun: Codable, Equatable, Sendable, Identifiable {
         truthsetId = try container.decodeIfPresent(String.self, forKey: .truthsetId)
         artifactManifest = try container.decodeIfPresent(String.self, forKey: .artifactManifest)
         lancedbPath = try container.decodeIfPresent(String.self, forKey: .lancedbPath)
+        tableName = try container.decodeIfPresent(String.self, forKey: .tableName)
+        rowCount = try container.decodeIfPresent(Int.self, forKey: .rowCount) ?? atomCount
+        indexReady = try container.decodeIfPresent(Bool.self, forKey: .indexReady) ?? false
+        nativeLancedb = try container.decodeIfPresent(Bool.self, forKey: .nativeLancedb) ?? false
+        maxsimReady = try container.decodeIfPresent(Bool.self, forKey: .maxsimReady) ?? false
+        embeddingBackend = try container.decodeIfPresent(String.self, forKey: .embeddingBackend)
+        vectorDim = try container.decodeIfPresent(Int.self, forKey: .vectorDim)
+        maxTokens = try container.decodeIfPresent(Int.self, forKey: .maxTokens)
+        workerStatus = try container.decodeIfPresent(String.self, forKey: .workerStatus)
         restrictedLeakCount = try container.decodeIfPresent(Int.self, forKey: .restrictedLeakCount) ?? 0
+        workerLatencyMs = try container.decodeIfPresent(Double.self, forKey: .workerLatencyMs)
         degradedReason = try container.decodeIfPresent(String.self, forKey: .degradedReason)
     }
 }
@@ -1141,6 +1171,12 @@ public struct SemanticIndexStatus: Codable, Equatable, Sendable {
     public let fallbackModel: String?
     public let rerankerModel: String?
     public let lancedbPath: String?
+    public let tableName: String?
+    public let rowCount: Int
+    public let indexReady: Bool
+    public let nativeLancedb: Bool
+    public let maxsimReady: Bool
+    public let embeddingBackend: String?
     public let latestRun: SemanticIndexRun?
     public let freshness: String?
     public let degradedReason: String?
@@ -1155,6 +1191,12 @@ public struct SemanticIndexStatus: Codable, Equatable, Sendable {
         case fallbackModel = "fallback_model"
         case rerankerModel = "reranker_model"
         case lancedbPath = "lancedb_path"
+        case tableName = "table_name"
+        case rowCount = "row_count"
+        case indexReady = "index_ready"
+        case nativeLancedb = "native_lancedb"
+        case maxsimReady = "maxsim_ready"
+        case embeddingBackend = "embedding_backend"
         case latestRun = "latest_run"
         case freshness
         case degradedReason = "degraded_reason"
@@ -1171,6 +1213,12 @@ public struct SemanticIndexStatus: Codable, Equatable, Sendable {
         fallbackModel = try container.decodeIfPresent(String.self, forKey: .fallbackModel)
         rerankerModel = try container.decodeIfPresent(String.self, forKey: .rerankerModel)
         lancedbPath = try container.decodeIfPresent(String.self, forKey: .lancedbPath)
+        tableName = try container.decodeIfPresent(String.self, forKey: .tableName)
+        rowCount = try container.decodeIfPresent(Int.self, forKey: .rowCount) ?? 0
+        indexReady = try container.decodeIfPresent(Bool.self, forKey: .indexReady) ?? false
+        nativeLancedb = try container.decodeIfPresent(Bool.self, forKey: .nativeLancedb) ?? false
+        maxsimReady = try container.decodeIfPresent(Bool.self, forKey: .maxsimReady) ?? false
+        embeddingBackend = try container.decodeIfPresent(String.self, forKey: .embeddingBackend)
         latestRun = try container.decodeIfPresent(SemanticIndexRun.self, forKey: .latestRun)
         freshness = try container.decodeIfPresent(String.self, forKey: .freshness)
         degradedReason = try container.decodeIfPresent(String.self, forKey: .degradedReason)
@@ -1502,6 +1550,9 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
     public let runtimeUsed: String?
     public let fallbackChain: [String]
     public let semanticTrace: [RetrievalTraceStep]
+    public let maxsimScores: [ExocortexJSONValue]
+    public let graphExpansion: ExocortexJSONValue?
+    public let rerankerScores: [ExocortexJSONValue]
     public let truthsetGateStatus: PortfolioTruthGate?
     public let restrictedLeakCheck: ExocortexJSONValue?
 
@@ -1526,6 +1577,9 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
         case runtimeUsed = "runtime_used"
         case fallbackChain = "fallback_chain"
         case semanticTrace = "semantic_trace"
+        case maxsimScores = "maxsim_scores"
+        case graphExpansion = "graph_expansion"
+        case rerankerScores = "reranker_scores"
         case truthsetGateStatus = "truthset_gate_status"
         case restrictedLeakCheck = "restricted_leak_check"
     }
@@ -1552,6 +1606,9 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
         runtimeUsed = try container.decodeIfPresent(String.self, forKey: .runtimeUsed)
         fallbackChain = try container.decodeIfPresent([String].self, forKey: .fallbackChain) ?? []
         semanticTrace = try container.decodeIfPresent([RetrievalTraceStep].self, forKey: .semanticTrace) ?? []
+        maxsimScores = try container.decodeIfPresent([ExocortexJSONValue].self, forKey: .maxsimScores) ?? []
+        graphExpansion = try container.decodeIfPresent(ExocortexJSONValue.self, forKey: .graphExpansion)
+        rerankerScores = try container.decodeIfPresent([ExocortexJSONValue].self, forKey: .rerankerScores) ?? []
         truthsetGateStatus = try container.decodeIfPresent(PortfolioTruthGate.self, forKey: .truthsetGateStatus)
         restrictedLeakCheck = try container.decodeIfPresent(ExocortexJSONValue.self, forKey: .restrictedLeakCheck)
     }

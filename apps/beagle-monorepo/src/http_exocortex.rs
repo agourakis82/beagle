@@ -984,6 +984,12 @@ pub struct GraphRagQueryResponse {
     #[serde(default)]
     pub semantic_trace: Vec<RetrievalTraceStep>,
     #[serde(default)]
+    pub maxsim_scores: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub graph_expansion: serde_json::Value,
+    #[serde(default)]
+    pub reranker_scores: Vec<serde_json::Value>,
+    #[serde(default)]
     pub truthset_gate_status: serde_json::Value,
     #[serde(default)]
     pub restricted_leak_check: serde_json::Value,
@@ -3286,6 +3292,9 @@ impl ExocortexRepository {
                 runtime_used: Some(runtime_used_for(&requested_mode, runtime_configured)),
                 fallback_chain: fallback_chain_for(&requested_mode, runtime_configured),
                 semantic_trace: semantic_trace_for(&requested_mode, runtime_configured, 0),
+                maxsim_scores: Vec::new(),
+                graph_expansion: graph_expansion_trace(None, 0, 0),
+                reranker_scores: Vec::new(),
                 truthset_gate_status: truthset_gate_status_for(None, false),
                 restricted_leak_check: restricted_leak_check_for(0),
             });
@@ -3524,6 +3533,10 @@ impl ExocortexRepository {
             },
         ];
         let evidence_count = evidence.len();
+        let maxsim_scores = maxsim_scores_for(&evidence);
+        let graph_expansion =
+            graph_expansion_trace(Some(&evidence_graph), communities.len(), relations.len());
+        let reranker_scores = reranker_scores_for(&evidence);
         let benchmark_status = self.memory_benchmark_status().ok();
         let truthset_gate_status = truthset_gate_status_for(
             benchmark_status
@@ -3569,7 +3582,7 @@ impl ExocortexRepository {
             }),
             mode: Some(requested_mode.clone()),
             graph_runtime: Some(graph_runtime),
-            evidence_graph: Some(evidence_graph),
+            evidence_graph: Some(evidence_graph.clone()),
             community_context: Some(GraphRagCommunityContext {
                 strategy: if is_hypermemory {
                     "hypermemory-topic-world-density".to_string()
@@ -3592,6 +3605,9 @@ impl ExocortexRepository {
             runtime_used: Some(runtime_used_for(&requested_mode, runtime_configured)),
             fallback_chain: fallback_chain_for(&requested_mode, runtime_configured),
             semantic_trace: semantic_trace_for(&requested_mode, runtime_configured, evidence_count),
+            maxsim_scores,
+            graph_expansion,
+            reranker_scores,
             truthset_gate_status,
             restricted_leak_check: restricted_leak_check_for(0),
         })
@@ -4622,7 +4638,7 @@ impl ExocortexRepository {
             format!("{truthset}:{gate}")
         });
         let semantic_backbone_status = if hot_path_mode == "hypermemory_multivector" {
-            "semantic-truth-backbone-v2.0-alpha"
+            "native-semantic-backbone-v2.1"
         } else {
             "semantic-backbone-standby"
         }
@@ -5437,6 +5453,58 @@ fn semantic_trace_for(
             ],
         },
     ]
+}
+
+fn maxsim_scores_for(evidence: &[GraphRagEvidence]) -> Vec<serde_json::Value> {
+    evidence
+        .iter()
+        .map(|item| {
+            serde_json::json!({
+                "atom_id": item.atom_id,
+                "episode_id": item.episode_id,
+                "score": item.score,
+                "stage": "core-proxy-maxsim",
+                "note": "Core exposes semantic trace fields; native MaxSim scores are supplied by beagle-memory-engine when available."
+            })
+        })
+        .collect()
+}
+
+fn graph_expansion_trace(
+    evidence_graph: Option<&EvidenceGraph>,
+    community_count: usize,
+    relation_count: usize,
+) -> serde_json::Value {
+    serde_json::json!({
+        "strategy": "MemoryWorld+Hyperedge+Relink-lite",
+        "temporary_evidence_graph": evidence_graph
+            .map(|graph| graph.temporary)
+            .unwrap_or(true),
+        "node_count": evidence_graph
+            .map(|graph| graph.nodes.len())
+            .unwrap_or(0),
+        "edge_count": evidence_graph
+            .map(|graph| graph.edges.len())
+            .unwrap_or(0),
+        "community_count": community_count,
+        "relation_count": relation_count,
+        "promotion_policy": "Evidence graphs are derived and never promoted without Memory Governor/Triad quorum."
+    })
+}
+
+fn reranker_scores_for(evidence: &[GraphRagEvidence]) -> Vec<serde_json::Value> {
+    evidence
+        .iter()
+        .map(|item| {
+            serde_json::json!({
+                "atom_id": item.atom_id,
+                "episode_id": item.episode_id,
+                "score": item.score,
+                "reranker": "temporal-confidence-provenance",
+                "sovereign_reranker": "Alibaba-NLP/gte-reranker-modernbert-base"
+            })
+        })
+        .collect()
 }
 
 fn truthset_gate_status_for(

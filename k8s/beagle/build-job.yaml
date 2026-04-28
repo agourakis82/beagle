@@ -43,7 +43,7 @@ spec:
           image: gcr.io/kaniko-project/executor:latest
           env:
             - name: BEAGLE_IMAGE_TAG
-              value: memory-v20-alpha-20260427-semantic
+              value: memory-v21-native-semantic-20260428
           args:
             - "--dockerfile=/workspace/apps/beagle-monorepo/Dockerfile.core_server"
             - "--context=dir:///workspace"

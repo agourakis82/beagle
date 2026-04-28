@@ -45,7 +45,7 @@ spec:
             runAsGroup: 0
       containers:
         - name: beagle-memory-engine
-          image: 192.168.3.207:5003/beagle-memory-engine:memory-v20-alpha-20260427-semantic
+          image: 192.168.3.207:5003/beagle-memory-engine:memory-v21-native-semantic-20260428
           imagePullPolicy: Always
           ports:
             - name: http
@@ -87,6 +87,12 @@ spec:
               value: /orangefs/beagle-memory-lab/kuzu
             - name: BEAGLE_LANCEDB_PATH
               value: /orangefs/beagle-memory-lab/lancedb
+            - name: BEAGLE_LANCEDB_TABLE
+              value: semantic_memory_v1
+            - name: BEAGLE_SEMANTIC_BACKBONE_WORKER
+              value: /opt/beagle-memory-engine/workers/semantic_backbone.py
+            - name: BEAGLE_COLBERT_ENABLE_MODEL
+              value: "false"
             - name: BEAGLE_DUCKDB_VSS_PATH
               value: /orangefs/beagle-memory-lab/beagle-memory.duckdb
             - name: BEAGLE_POSTGRES_VECTOR_URL

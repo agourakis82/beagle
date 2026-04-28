@@ -1568,6 +1568,31 @@ private struct MemoryLensSheet: View {
                         }
                     }
                 }
+                if !graph.maxsimScores.isEmpty {
+                    sectionTitle("MAXSIM")
+                    ForEach(Array(graph.maxsimScores.prefix(5).enumerated()), id: \.offset) { _, score in
+                        Text(String(describing: score))
+                            .font(BeagleFont.caption2.font)
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .lineLimit(3)
+                    }
+                }
+                if !graph.rerankerScores.isEmpty {
+                    sectionTitle("RERANK")
+                    ForEach(Array(graph.rerankerScores.prefix(5).enumerated()), id: \.offset) { _, score in
+                        Text(String(describing: score))
+                            .font(BeagleFont.caption2.font)
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .lineLimit(3)
+                    }
+                }
+                if let expansion = graph.graphExpansion {
+                    sectionTitle("GRAPH EXPANSION")
+                    Text(String(describing: expansion))
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             } else {
                 emptyRow("Run a Memory Lens query to see MaxSim/late-interaction, graph expansion, rerank, provenance, and fallback trace.")
             }

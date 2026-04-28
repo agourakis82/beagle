@@ -55,7 +55,7 @@ export function standardTools(client: BeagleClient): McpTool[] {
             },
             handler: async (args: unknown) => {
                 const { query, max_results } = SearchSchema.parse(args ?? {});
-                const memory = await client.memoryQuery(query, max_results);
+                const memory = await hotPathMemoryQuery(client, query, max_results);
                 const results = memory.highlights.map((highlight, index) => ({
                     id: searchResultId(query, index),
                     title: resultTitle(highlight.source, highlight.date, index),
@@ -111,7 +111,7 @@ export function standardTools(client: BeagleClient): McpTool[] {
 
                 const memoryRef = parseSearchResultId(id);
                 if (memoryRef) {
-                    const memory = await client.memoryQuery(memoryRef.query, memoryRef.index + 1);
+                    const memory = await hotPathMemoryQuery(client, memoryRef.query, memoryRef.index + 1);
                     const highlight = memory.highlights[memoryRef.index];
                     if (!highlight) {
                         return {
@@ -140,6 +140,62 @@ export function standardTools(client: BeagleClient): McpTool[] {
             },
         },
     ];
+}
+
+async function hotPathMemoryQuery(
+    client: BeagleClient,
+    query: string,
+    maxItems: number,
+): Promise<{
+    summary: string;
+    highlights: Array<{
+        source: string;
+        date?: string;
+        snippet: string;
+        run_id?: string;
+        session_id?: string;
+        relevance: number;
+    }>;
+    links: unknown[];
+}> {
+    try {
+        const mesh = await client.memoryMeshQuery({
+            query,
+            max_items: maxItems,
+            mode: "hypermemory_multivector",
+        }) as Record<string, unknown>;
+        const core = (mesh.core_response ?? {}) as Record<string, unknown>;
+        const evidence = Array.isArray(core.evidence) ? core.evidence as Array<Record<string, unknown>> : [];
+        const episodes = Array.isArray(core.episodes) ? core.episodes as Array<Record<string, unknown>> : [];
+        const highlights = evidence.slice(0, maxItems).map((item) => {
+            const episodeId = String(item.episode_id ?? "");
+            const episode = episodes.find((candidate) => candidate.id === episodeId);
+            return {
+                source: String(episode?.source ?? "hypermemory_multivector"),
+                date: typeof episode?.occurred_at === "string" ? episode.occurred_at : undefined,
+                snippet: String(item.text ?? ""),
+                session_id: typeof episode?.session_id === "string" ? episode.session_id : undefined,
+                relevance: typeof item.score === "number" ? item.score : 0,
+            };
+        });
+        if (highlights.length > 0) {
+            return {
+                summary: String(core.summary ?? mesh.summary ?? `HyperMemory search completed for ${query}.`),
+                highlights,
+                links: [
+                    {
+                        runtime_used: mesh.runtime_used,
+                        fallback_chain: mesh.fallback_chain,
+                        semantic_trace: mesh.semantic_trace,
+                        truthset_gate_status: mesh.truthset_gate_status,
+                    },
+                ],
+            };
+        }
+    } catch {
+        // Hosted connectors should degrade to the canonical memory API rather than failing search.
+    }
+    return client.memoryQuery(query, maxItems);
 }
 
 async function readDirectResource(client: BeagleClient, id: string): Promise<unknown> {

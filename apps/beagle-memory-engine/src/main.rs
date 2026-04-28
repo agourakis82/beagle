@@ -21,13 +21,14 @@ use std::{
     io::{BufRead, BufReader, Write},
     net::SocketAddr,
     path::PathBuf,
+    process::Command,
     sync::Arc,
 };
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{error, info};
 use uuid::Uuid;
 
-const SCHEMA_VERSION: &str = "beagle-semantic-truth-backbone-v2.0-alpha";
+const SCHEMA_VERSION: &str = "beagle-native-semantic-backbone-v2.1";
 const BAKEOFF_RUNS_LOG: &str = "bakeoff_runs.jsonl";
 const INDEX_RUNS_LOG: &str = "index_runs.jsonl";
 const SEMANTIC_INDEX_RUNS_LOG: &str = "semantic_index_runs.jsonl";
@@ -111,6 +112,10 @@ struct QueryResponse {
     runtime_used: String,
     fallback_chain: Vec<String>,
     semantic_trace: Vec<MeshTraceStep>,
+    semantic_results: Vec<serde_json::Value>,
+    maxsim_scores: Vec<serde_json::Value>,
+    graph_expansion: serde_json::Value,
+    reranker_scores: Vec<serde_json::Value>,
     truthset_gate_status: serde_json::Value,
     restricted_leak_check: serde_json::Value,
     mesh_trace: Vec<MeshTraceStep>,
@@ -138,7 +143,17 @@ struct SemanticIndexRun {
     truthset_id: Option<String>,
     artifact_manifest: String,
     lancedb_path: String,
+    table_name: String,
+    row_count: usize,
+    index_ready: bool,
+    native_lancedb: bool,
+    maxsim_ready: bool,
+    embedding_backend: String,
+    vector_dim: usize,
+    max_tokens: usize,
+    worker_status: String,
     restricted_leak_count: usize,
+    worker_latency_ms: f64,
     degraded_reason: Option<String>,
 }
 
@@ -153,6 +168,12 @@ struct SemanticIndexStatus {
     fallback_model: String,
     reranker_model: String,
     lancedb_path: String,
+    table_name: String,
+    row_count: usize,
+    index_ready: bool,
+    native_lancedb: bool,
+    maxsim_ready: bool,
+    embedding_backend: String,
     latest_run: Option<SemanticIndexRun>,
     freshness: String,
     degraded_reason: Option<String>,
@@ -542,11 +563,22 @@ async fn query(
 ) -> Result<Json<QueryResponse>, StatusCode> {
     let mode = req.mode.clone().unwrap_or_else(hot_path_mode);
     let semantic_status = latest_semantic_index_status(&state).map_err(internal_error)?;
-    let semantic_ready = semantic_status
-        .latest_run
-        .as_ref()
-        .map(|run| run.restricted_leak_count == 0)
-        .unwrap_or(false);
+    let semantic_ready = semantic_run_ready(&semantic_status);
+    let semantic_query = if mode == "hypermemory_multivector" && semantic_ready {
+        run_semantic_worker_query(
+            &state,
+            &semantic_status.lancedb_path,
+            &semantic_status.table_name,
+            &semantic_status.model,
+            &semantic_status.fallback_model,
+            &semantic_status.reranker_model,
+            &req.query,
+            req.max_items.unwrap_or(8).clamp(1, 20),
+        )
+        .ok()
+    } else {
+        None
+    };
     let mut request = state
         .client
         .post(format!(
@@ -615,7 +647,11 @@ async fn query(
             None
         },
         runtime_used: if mode == "hypermemory_multivector" && semantic_ready {
-            "lancedb-multivector+jina-colbert-v2".to_string()
+            if semantic_status.native_lancedb {
+                "lancedb-native-multivector+jina-colbert-v2".to_string()
+            } else {
+                "hypermemory-multivector-deterministic-fallback".to_string()
+            }
         } else if mode == "hypermemory_multivector" {
             "hypermemory-fallback".to_string()
         } else {
@@ -623,6 +659,15 @@ async fn query(
         },
         fallback_chain: semantic_fallback_chain(&mode, semantic_ready),
         semantic_trace: semantic_trace(&mode, &semantic_status, semantic_ready),
+        semantic_results: semantic_query
+            .as_ref()
+            .and_then(|value| value.get("results"))
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default(),
+        maxsim_scores: maxsim_scores_from_query(semantic_query.as_ref()),
+        graph_expansion: graph_expansion_from_core(&core_response),
+        reranker_scores: reranker_scores_from_core(&core_response),
         truthset_gate_status: truthset_gate_status_json(
             semantic_status
                 .latest_run
@@ -711,7 +756,7 @@ async fn semantic_index_rebuild(
     let lancedb_path = env::var("BEAGLE_LANCEDB_PATH")
         .unwrap_or_else(|_| state.artifact_dir.join("lancedb").display().to_string());
     fs::create_dir_all(&lancedb_path).map_err(internal_error)?;
-    let manifest_path = write_artifact_manifest(&state, &run_id, "semantic-truth-backbone")
+    let manifest_path = write_artifact_manifest(&state, &run_id, "native-semantic-backbone")
         .map_err(internal_error)?;
     let episodes = export
         .get("episodes")
@@ -729,66 +774,85 @@ async fn semantic_index_rebuild(
         .cloned()
         .unwrap_or_default();
     let restricted_leak_count = restricted_leak_count(&export);
-    let shard_path = PathBuf::from(&lancedb_path).join("semantic_records.jsonl");
-    let mut shard = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(&shard_path)
-        .map_err(internal_error)?;
-    for atom in &atoms {
-        if atom
-            .get("privacy_class")
-            .and_then(|value| value.as_str())
-            .unwrap_or("sensitive")
-            == "restricted"
-        {
-            continue;
-        }
-        let id = atom
-            .get("id")
-            .and_then(|value| value.as_str())
-            .unwrap_or("unknown");
-        let text = atom
-            .get("text")
-            .and_then(|value| value.as_str())
-            .unwrap_or("");
-        let record = serde_json::json!({
-            "id": id,
-            "kind": "MemoryAtom",
-            "text_hash": hash_str(text),
-            "model": "jinaai/jina-colbert-v2",
-            "fallback_model": "BAAI/bge-m3",
-            "reranker_model": "Alibaba-NLP/gte-reranker-modernbert-base",
-            "storage": "lancedb-compatible-jsonl-staging",
-            "canonical_source": "beagle-core JSONL export"
-        });
-        serde_json::to_writer(&mut shard, &record).map_err(internal_error)?;
-        shard.write_all(b"\n").map_err(internal_error)?;
-    }
-    shard.flush().map_err(internal_error)?;
+    let export_path = state
+        .artifact_dir
+        .join(format!("semantic-export-{run_id}.json"));
+    let worker_output_path = state
+        .artifact_dir
+        .join(format!("semantic-worker-{run_id}.json"));
+    write_json_file(&export_path, &export).map_err(internal_error)?;
+    let table_name =
+        env::var("BEAGLE_LANCEDB_TABLE").unwrap_or_else(|_| "semantic_memory_v1".to_string());
+    let model = env::var("BEAGLE_MEMORY_COLBERT_MODEL")
+        .unwrap_or_else(|_| "jinaai/jina-colbert-v2".to_string());
+    let fallback_model = env::var("BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_MODEL")
+        .unwrap_or_else(|_| "BAAI/bge-m3".to_string());
+    let reranker_model = env::var("BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL")
+        .unwrap_or_else(|_| "Alibaba-NLP/gte-reranker-modernbert-base".to_string());
+    let worker_payload = run_semantic_worker_rebuild(
+        &state,
+        &export_path,
+        &worker_output_path,
+        &lancedb_path,
+        &table_name,
+        &model,
+        &fallback_model,
+        &reranker_model,
+    )
+    .unwrap_or_else(|error| {
+        serde_json::json!({
+            "status": "worker-unavailable",
+            "native_lancedb": false,
+            "table_name": table_name,
+            "row_count": 0,
+            "index_ready": false,
+            "maxsim_ready": false,
+            "embedding_backend": "worker-unavailable",
+            "model": model,
+            "fallback_model": fallback_model,
+            "reranker_model": reranker_model,
+            "restricted_leak_count": restricted_leak_count,
+            "lancedb_path": lancedb_path,
+            "vector_dim": 128,
+            "max_tokens": 48,
+            "latency_ms": 0.0,
+            "worker_status": "worker-unavailable",
+            "error": error.to_string()
+        })
+    });
     let latest_bench = read_jsonl::<BenchmarkRun>(&state.data_dir, BENCH_RUNS_LOG)
         .map_err(internal_error)?
         .into_iter()
         .rev()
         .next();
+    let native_lancedb = value_bool(&worker_payload, "native_lancedb");
+    let index_ready = value_bool(&worker_payload, "index_ready");
+    let maxsim_ready = value_bool(&worker_payload, "maxsim_ready");
+    let row_count = value_usize(&worker_payload, "row_count");
+    let worker_status = value_string(&worker_payload, "worker_status").unwrap_or_else(|| {
+        value_string(&worker_payload, "status").unwrap_or_else(|| "unknown".to_string())
+    });
+    let worker_restricted_leaks =
+        value_usize(&worker_payload, "restricted_leak_count").max(restricted_leak_count);
+    let worker_error = value_string(&worker_payload, "error");
     let run = SemanticIndexRun {
         id: run_id,
         created_at: Utc::now().to_rfc3339(),
-        status: if restricted_leak_count == 0 {
-            "indexed-derived-multivector".to_string()
-        } else {
+        status: if worker_restricted_leaks > 0 {
             "blocked-restricted-leak".to_string()
+        } else if native_lancedb {
+            "indexed-native-multivector".to_string()
+        } else if row_count > 0 {
+            "indexed-jsonl-fallback".to_string()
+        } else {
+            worker_status.clone()
         },
         schema_version: SCHEMA_VERSION.to_string(),
         hot_path_mode: hot_path_mode(),
         runtime: "lancedb-multivector".to_string(),
-        model: env::var("BEAGLE_MEMORY_COLBERT_MODEL")
-            .unwrap_or_else(|_| "jinaai/jina-colbert-v2".to_string()),
-        fallback_model: env::var("BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_MODEL")
-            .unwrap_or_else(|_| "BAAI/bge-m3".to_string()),
-        reranker_model: env::var("BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL")
-            .unwrap_or_else(|_| "Alibaba-NLP/gte-reranker-modernbert-base".to_string()),
+        model: value_string(&worker_payload, "model").unwrap_or(model),
+        fallback_model: value_string(&worker_payload, "fallback_model").unwrap_or(fallback_model),
+        reranker_model: value_string(&worker_payload, "reranker_model").unwrap_or(reranker_model),
         source_export_id: export
             .get("id")
             .and_then(|value| value.as_str())
@@ -803,11 +867,26 @@ async fn semantic_index_rebuild(
         truthset_id: latest_bench.and_then(|run| run.truthset_id),
         artifact_manifest: manifest_path,
         lancedb_path,
-        restricted_leak_count,
-        degraded_reason: Some(
-            "v2.0-alpha writes a LanceDB-path semantic shard and trace manifest; native ANN adapter remains derived and rebuildable."
-                .to_string(),
-        ),
+        table_name: value_string(&worker_payload, "table_name").unwrap_or(table_name),
+        row_count,
+        index_ready,
+        native_lancedb,
+        maxsim_ready,
+        embedding_backend: value_string(&worker_payload, "embedding_backend")
+            .unwrap_or_else(|| "unknown".to_string()),
+        vector_dim: value_usize(&worker_payload, "vector_dim"),
+        max_tokens: value_usize(&worker_payload, "max_tokens"),
+        worker_status,
+        restricted_leak_count: worker_restricted_leaks,
+        worker_latency_ms: worker_payload
+            .get("latency_ms")
+            .and_then(|value| value.as_f64())
+            .unwrap_or(0.0),
+        degraded_reason: worker_error.or_else(|| {
+            (!native_lancedb).then(|| {
+                "Native LanceDB worker degraded; JSONL/Merkle/Chronoself remains authority and HyperMemory fallback stays active.".to_string()
+            })
+        }),
     };
     append_jsonl(&state.data_dir, SEMANTIC_INDEX_RUNS_LOG, &run).map_err(internal_error)?;
     Ok(Json(run))
@@ -1573,6 +1652,183 @@ fn hash_str(value: &str) -> String {
     format!("sha256:{:x}", hasher.finalize())
 }
 
+fn write_json_file(path: &PathBuf, value: &serde_json::Value) -> anyhow::Result<()> {
+    let mut file = File::create(path)?;
+    serde_json::to_writer(&mut file, value)?;
+    file.write_all(b"\n")?;
+    file.flush()?;
+    Ok(())
+}
+
+fn semantic_worker_path() -> String {
+    env::var("BEAGLE_SEMANTIC_BACKBONE_WORKER")
+        .unwrap_or_else(|_| "/opt/beagle-memory-engine/workers/semantic_backbone.py".to_string())
+}
+
+fn run_semantic_worker_rebuild(
+    state: &EngineState,
+    export_path: &PathBuf,
+    output_path: &PathBuf,
+    lancedb_path: &str,
+    table_name: &str,
+    model: &str,
+    fallback_model: &str,
+    reranker_model: &str,
+) -> anyhow::Result<serde_json::Value> {
+    let worker = semantic_worker_path();
+    let output = Command::new("python3")
+        .arg(&worker)
+        .arg("rebuild")
+        .arg("--export")
+        .arg(export_path)
+        .arg("--lancedb-path")
+        .arg(lancedb_path)
+        .arg("--table")
+        .arg(table_name)
+        .arg("--model")
+        .arg(model)
+        .arg("--fallback-model")
+        .arg(fallback_model)
+        .arg("--reranker-model")
+        .arg(reranker_model)
+        .arg("--output")
+        .arg(output_path)
+        .current_dir(&state.artifact_dir)
+        .output()?;
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(
+            "semantic worker failed: status={:?} stderr={} stdout={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout)
+        ));
+    }
+    let file = File::open(output_path)?;
+    Ok(serde_json::from_reader(file)?)
+}
+
+fn run_semantic_worker_query(
+    state: &EngineState,
+    lancedb_path: &str,
+    table_name: &str,
+    model: &str,
+    fallback_model: &str,
+    reranker_model: &str,
+    query: &str,
+    limit: usize,
+) -> anyhow::Result<serde_json::Value> {
+    let worker = semantic_worker_path();
+    let output_path = state
+        .artifact_dir
+        .join(format!("semantic-query-{}.json", Uuid::new_v4()));
+    let output = Command::new("python3")
+        .arg(&worker)
+        .arg("query")
+        .arg("--query")
+        .arg(query)
+        .arg("--limit")
+        .arg(limit.to_string())
+        .arg("--lancedb-path")
+        .arg(lancedb_path)
+        .arg("--table")
+        .arg(table_name)
+        .arg("--model")
+        .arg(model)
+        .arg("--fallback-model")
+        .arg(fallback_model)
+        .arg("--reranker-model")
+        .arg(reranker_model)
+        .arg("--output")
+        .arg(&output_path)
+        .current_dir(&state.artifact_dir)
+        .output()?;
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(
+            "semantic query worker failed: status={:?} stderr={} stdout={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout)
+        ));
+    }
+    let file = File::open(output_path)?;
+    Ok(serde_json::from_reader(file)?)
+}
+
+fn maxsim_scores_from_query(query: Option<&serde_json::Value>) -> Vec<serde_json::Value> {
+    query
+        .and_then(|value| value.get("results"))
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| {
+                    serde_json::json!({
+                        "canonical_id": item.get("canonical_id").cloned().unwrap_or(serde_json::Value::Null),
+                        "kind": item.get("kind").cloned().unwrap_or(serde_json::Value::Null),
+                        "score": item.get("score").cloned().unwrap_or(serde_json::Value::Null),
+                        "content_hash": item.get("content_hash").cloned().unwrap_or(serde_json::Value::Null)
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn graph_expansion_from_core(core_response: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "evidence_graph": core_response.get("evidence_graph").cloned().unwrap_or(serde_json::Value::Null),
+        "community_context": core_response.get("community_context").cloned().unwrap_or(serde_json::Value::Null),
+        "relations_count": core_response
+            .get("relations")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len())
+            .unwrap_or(0),
+        "candidate_refs": core_response.get("candidate_refs").cloned().unwrap_or_else(|| serde_json::json!([]))
+    })
+}
+
+fn reranker_scores_from_core(core_response: &serde_json::Value) -> Vec<serde_json::Value> {
+    core_response
+        .get("evidence")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| {
+                    serde_json::json!({
+                        "atom_id": item.get("atom_id").cloned().unwrap_or(serde_json::Value::Null),
+                        "episode_id": item.get("episode_id").cloned().unwrap_or(serde_json::Value::Null),
+                        "score": item.get("score").cloned().unwrap_or(serde_json::Value::Null),
+                        "stage": "core-temporal-provenance-rerank"
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn value_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+}
+
+fn value_bool(value: &serde_json::Value, key: &str) -> bool {
+    value
+        .get(key)
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
+fn value_usize(value: &serde_json::Value, key: &str) -> usize {
+    value
+        .get(key)
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(0)
+}
+
 fn latest_semantic_index_status(state: &EngineState) -> anyhow::Result<SemanticIndexStatus> {
     let latest_run = read_jsonl::<SemanticIndexRun>(&state.data_dir, SEMANTIC_INDEX_RUNS_LOG)?
         .into_iter()
@@ -1588,6 +1844,15 @@ fn latest_semantic_index_status(state: &EngineState) -> anyhow::Result<SemanticI
         .as_ref()
         .map(|run| run.created_at.clone())
         .unwrap_or_else(|| "never".to_string());
+    let degraded_reason = latest_run
+        .as_ref()
+        .and_then(|run| run.degraded_reason.clone())
+        .or_else(|| {
+            Some(
+                "v2.1 native semantic backbone is derived from core export; JSONL/Merkle/Chronoself remains authority."
+                    .to_string(),
+            )
+        });
     Ok(SemanticIndexStatus {
         generated_at: Utc::now().to_rfc3339(),
         schema_version: SCHEMA_VERSION.to_string(),
@@ -1601,12 +1866,33 @@ fn latest_semantic_index_status(state: &EngineState) -> anyhow::Result<SemanticI
         reranker_model: env::var("BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL")
             .unwrap_or_else(|_| "Alibaba-NLP/gte-reranker-modernbert-base".to_string()),
         lancedb_path,
+        table_name: latest_run
+            .as_ref()
+            .map(|run| run.table_name.clone())
+            .unwrap_or_else(|| {
+                env::var("BEAGLE_LANCEDB_TABLE")
+                    .unwrap_or_else(|_| "semantic_memory_v1".to_string())
+            }),
+        row_count: latest_run.as_ref().map(|run| run.row_count).unwrap_or(0),
+        index_ready: latest_run
+            .as_ref()
+            .map(|run| run.index_ready)
+            .unwrap_or(false),
+        native_lancedb: latest_run
+            .as_ref()
+            .map(|run| run.native_lancedb)
+            .unwrap_or(false),
+        maxsim_ready: latest_run
+            .as_ref()
+            .map(|run| run.maxsim_ready)
+            .unwrap_or(false),
+        embedding_backend: latest_run
+            .as_ref()
+            .map(|run| run.embedding_backend.clone())
+            .unwrap_or_else(|| "not-built".to_string()),
         latest_run,
         freshness,
-        degraded_reason: Some(
-            "v2.0-alpha semantic index is derived from core export; JSONL/Merkle/Chronoself remains authority."
-                .to_string(),
-        ),
+        degraded_reason,
     })
 }
 
@@ -1628,6 +1914,18 @@ fn semantic_fallback_chain(mode: &str, semantic_ready: bool) -> Vec<String> {
     } else {
         vec![mode.to_string(), "graphsearch-lite".to_string()]
     }
+}
+
+fn semantic_run_ready(status: &SemanticIndexStatus) -> bool {
+    status
+        .latest_run
+        .as_ref()
+        .map(|run| {
+            run.restricted_leak_count == 0
+                && run.row_count > 0
+                && (run.native_lancedb || run.maxsim_ready || run.status.contains("fallback"))
+        })
+        .unwrap_or(false)
 }
 
 fn semantic_trace(
@@ -1654,7 +1952,32 @@ fn semantic_trace(
                 .map(|run| run.atom_count)
                 .unwrap_or(0),
             latency_ms: 0.0,
-            notes: vec![format!("lancedb_path={}", status.lancedb_path)],
+            notes: vec![
+                format!("lancedb_path={}", status.lancedb_path),
+                format!("table={}", status.table_name),
+                format!("native_lancedb={}", status.native_lancedb),
+                format!("embedding_backend={}", status.embedding_backend),
+            ],
+        },
+        MeshTraceStep {
+            stage: "maxsim-late-interaction".to_string(),
+            backend: "LanceDB multivector cosine".to_string(),
+            status: if status.maxsim_ready {
+                "ready"
+            } else {
+                "degraded"
+            }
+            .to_string(),
+            items: status.row_count,
+            latency_ms: status
+                .latest_run
+                .as_ref()
+                .map(|run| run.worker_latency_ms)
+                .unwrap_or(0.0),
+            notes: vec![
+                format!("index_ready={}", status.index_ready),
+                "Query matrices are compared against per-memory token vectors.".to_string(),
+            ],
         },
         MeshTraceStep {
             stage: "sovereign-rerank".to_string(),

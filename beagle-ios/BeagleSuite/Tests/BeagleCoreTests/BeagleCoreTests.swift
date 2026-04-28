@@ -171,7 +171,7 @@ import SwiftData
         "pending_triads": 2,
         "open_contradictions": 1,
         "latest_promotion_decision": "promoted",
-        "semantic_backbone_status": "semantic-truth-backbone-v2.0-alpha",
+        "semantic_backbone_status": "native-semantic-backbone-v2.1",
         "hot_path_mode": "hypermemory_multivector",
         "provisional_hot_path": true,
         "portfolio_truth_gate": "truthset:portfolio:provisional_hot_path"
@@ -189,7 +189,7 @@ import SwiftData
     #expect(snapshot.trustContext?.pendingTriads == 2)
     #expect(snapshot.trustContext?.openContradictions == 1)
     #expect(snapshot.trustContext?.latestPromotionDecision == "promoted")
-    #expect(snapshot.trustContext?.semanticBackboneStatus == "semantic-truth-backbone-v2.0-alpha")
+    #expect(snapshot.trustContext?.semanticBackboneStatus == "native-semantic-backbone-v2.1")
     #expect(snapshot.trustContext?.hotPathMode == "hypermemory_multivector")
     #expect(snapshot.trustContext?.provisionalHotPath == true)
     #expect(snapshot.trustContext?.portfolioTruthGate?.contains("portfolio") == true)
@@ -396,6 +396,9 @@ import SwiftData
       "runtime_used": "lancedb-multivector+jina-colbert-v2",
       "fallback_chain": ["lancedb-multivector+jina-colbert-v2", "hypermemory", "graphsearch-lite"],
       "semantic_trace": [{"stage": "late-interaction-search", "backend": "LanceDB multivector + jinaai/jina-colbert-v2", "status": "ready", "items": 1, "latency_ms": 0.0, "notes": ["MaxSim"]}],
+      "maxsim_scores": [{"atom_id": "atom-1", "score": 0.91}],
+      "graph_expansion": {"node_count": 1, "edge_count": 1, "strategy": "MemoryWorld+Hyperedge+Relink-lite"},
+      "reranker_scores": [{"atom_id": "atom-1", "score": 0.9, "reranker": "temporal-confidence-provenance"}],
       "truthset_gate_status": {
         "truthset_id": "truth-v20",
         "portfolio_truthset_id": "truthset:portfolio",
@@ -421,6 +424,9 @@ import SwiftData
     #expect(graph.runtimeUsed == "lancedb-multivector+jina-colbert-v2")
     #expect(graph.fallbackChain.contains("hypermemory"))
     #expect(graph.semanticTrace.first?.status == "ready")
+    #expect(graph.maxsimScores.count == 1)
+    #expect(graph.graphExpansion != nil)
+    #expect(graph.rerankerScores.count == 1)
     #expect(graph.truthsetGateStatus?.provisionalHotPath == true)
 
     let request = AssistedImportBatchRequest(

@@ -13,7 +13,7 @@ RUNTIMES = [
     ("SurrealDB", "BEAGLE_SURREALDB_URL"),
     ("ArcadeDB", "BEAGLE_ARCADEDB_URL"),
     ("Kuzu", "BEAGLE_KUZU_PATH"),
-    ("LanceDB", "BEAGLE_LANCEDB_URI"),
+    ("LanceDB", "BEAGLE_LANCEDB_PATH"),
     ("DuckDB-VSS", "BEAGLE_DUCKDB_VSS_PATH"),
     ("Postgres pgvectorscale", "BEAGLE_POSTGRES_VECTOR_URL"),
     ("TypeDB", "BEAGLE_TYPEDB_URL"),

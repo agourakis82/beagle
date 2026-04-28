@@ -273,7 +273,7 @@
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Reads semantic index freshness, model choices, path, and latest rebuild metadata without changing any memory or index.",
+        "read_only_justification": "Reads native semantic index freshness, LanceDB table metadata, row count, MaxSim readiness, model choices, path, and latest rebuild metadata without changing memory or index.",
         "open_world_justification": "Reads only private Beagle cluster status and does not call or alter external systems.",
         "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
       }
@@ -285,9 +285,9 @@
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Starts a cluster-only rebuild of a derived semantic index and writes rebuild metadata/artifacts.",
+        "read_only_justification": "Starts a cluster-only rebuild of the derived LanceDB multivector table and writes rebuild metadata/artifacts.",
         "open_world_justification": "Runs inside the private Beagle memory lab against sanitized core exports; no external publication occurs.",
-        "destructive_justification": "Rebuilds derived artifacts only; canonical JSONL/Merkle/Chronoself memory is not deleted or overwritten."
+        "destructive_justification": "Rebuilds derived LanceDB artifacts only; canonical JSONL/Merkle/Chronoself memory is not deleted or overwritten."
       }
     },
     "beagle_retrieval_trace": {
@@ -297,7 +297,7 @@
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Runs a read-only retrieval query and returns semantic trace, fallback chain, provenance, and leak-check metadata.",
+        "read_only_justification": "Runs a read-only retrieval query and returns native semantic results, MaxSim scores, graph/rerank trace, fallback chain, provenance, and leak-check metadata.",
         "open_world_justification": "Reads private Beagle memory and derived indexes without modifying public or third-party systems.",
         "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
       }

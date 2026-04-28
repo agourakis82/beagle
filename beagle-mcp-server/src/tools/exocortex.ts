@@ -837,14 +837,14 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
         {
             name: "beagle_semantic_index_status",
             description:
-                "Read the v2.0-alpha Semantic Truth Backbone status: LanceDB multivector path, Jina-ColBERT-v2 model, fallback model, reranker, freshness, and latest rebuild.",
+                "Read the v2.1 native Semantic Truth Backbone status: LanceDB table, row count, MaxSim readiness, Jina-ColBERT-v2 model, fallback model, reranker, freshness, and latest rebuild.",
             inputSchema: { type: "object", properties: {} },
             handler: async () => sanitizeOutput(await client.semanticIndexStatus()),
         },
         {
             name: "beagle_semantic_index_rebuild",
             description:
-                "Rebuild the derived v2.0-alpha semantic multivector index from the cluster-canonical JSONL export. Restricted records are excluded; JSONL/Merkle/Chronoself remains authoritative.",
+                "Rebuild the derived v2.1 LanceDB multivector table from the cluster-canonical JSONL export. Restricted records are excluded; JSONL/Merkle/Chronoself remains authoritative.",
             inputSchema: {
                 type: "object",
                 properties: {
@@ -860,7 +860,7 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
         {
             name: "beagle_retrieval_trace",
             description:
-                "Run a HyperMemory multivector query and return the semantic trace, fallback chain, truthset gate, leak check, and provenance-focused retrieval trace.",
+                "Run a HyperMemory multivector query through the memory-engine and return native semantic results, MaxSim/graph/rerank trace, fallback chain, truthset gate, leak check, and provenance.",
             inputSchema: {
                 type: "object",
                 required: ["query"],
@@ -877,21 +877,26 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
             },
             handler: async (args: unknown) => {
                 const parsed = RetrievalTraceSchema.parse(args ?? {});
-                const result = await client.graphRagQuery(parsed);
+                const result = await client.memoryMeshQuery(parsed);
                 if (typeof result === "object" && result !== null) {
                     const value = result as Record<string, unknown>;
+                    const core = (value.core_response ?? {}) as Record<string, unknown>;
                     return sanitizeOutput({
-                        summary: value.summary,
+                        summary: core.summary ?? value.summary,
                         mode: value.mode,
                         runtime_used: value.runtime_used,
                         fallback_chain: value.fallback_chain,
                         semantic_trace: value.semantic_trace,
+                        semantic_results: value.semantic_results,
+                        maxsim_scores: value.maxsim_scores ?? core.maxsim_scores,
+                        graph_expansion: value.graph_expansion ?? core.graph_expansion,
+                        reranker_scores: value.reranker_scores ?? core.reranker_scores,
                         retrieval_trace: value.retrieval_trace,
                         mesh_trace: value.mesh_trace,
                         truthset_gate_status: value.truthset_gate_status,
                         restricted_leak_check: value.restricted_leak_check,
-                        provenance: value.provenance,
-                        confidence: value.confidence,
+                        provenance: core.provenance,
+                        confidence: core.confidence,
                     });
                 }
                 return sanitizeOutput(result);

@@ -7,8 +7,11 @@ RUN cargo build --release -p beagle-memory-engine
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv \
+    && apt-get install -y --no-install-recommends ca-certificates python3 python3-pip python3-venv \
     && rm -rf /var/lib/apt/lists/*
+
+COPY apps/beagle-memory-engine/requirements.txt /tmp/beagle-memory-engine-requirements.txt
+RUN python3 -m pip install --break-system-packages --no-cache-dir -r /tmp/beagle-memory-engine-requirements.txt
 
 COPY --from=builder /workspace/target/release/beagle-memory-engine /usr/local/bin/beagle-memory-engine
 COPY apps/beagle-memory-engine/workers /opt/beagle-memory-engine/workers
