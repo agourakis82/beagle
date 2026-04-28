@@ -350,6 +350,78 @@
         "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
       }
     },
+    "beagle_context_compile": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Compiles a derived ContextPack from existing Beagle evidence and records only derived pack metadata.",
+        "open_world_justification": "Reads private Beagle memory/core state and does not call external public systems.",
+        "destructive_justification": "Does not delete, overwrite, promote memory, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_context_pack_get": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Fetches an existing ContextPack by ID without changing cluster state.",
+        "open_world_justification": "Reads private Beagle context-pack state only.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_memory_effectiveness_record": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes an append-only effectiveness event so the memory policy learner can evaluate outcomes.",
+        "open_world_justification": "Writes only to the private Beagle cluster and does not modify third-party systems.",
+        "destructive_justification": "Appends an outcome event and does not delete, overwrite, promote, or perform irreversible actions."
+      }
+    },
+    "beagle_memory_policy_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads v2.3 memory policy learner status and promotion gates.",
+        "open_world_justification": "Reads private Beagle policy and benchmark state only.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_dreamcycle_run": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Runs DreamCycle consolidation and writes candidate-only run metadata or candidate proposals.",
+        "open_world_justification": "Runs inside Beagle's private cluster against canonical memory exports.",
+        "destructive_justification": "Creates candidates/artifacts only; it does not promote, delete, overwrite, or expose memory."
+      }
+    },
+    "beagle_dreamcycle_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads latest DreamCycle status and candidate-only consolidation policy.",
+        "open_world_justification": "Reads private Beagle memory-engine status only.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
     "beagle_memory_bakeoff_run": {
       "annotations": {
         "readOnlyHint": false,

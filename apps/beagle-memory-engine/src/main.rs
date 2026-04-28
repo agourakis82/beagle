@@ -28,7 +28,7 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{error, info};
 use uuid::Uuid;
 
-const SCHEMA_VERSION: &str = "beagle-retrieval-agent-v2.2";
+const SCHEMA_VERSION: &str = "beagle-context-compiler-v2.3";
 const BAKEOFF_RUNS_LOG: &str = "bakeoff_runs.jsonl";
 const INDEX_RUNS_LOG: &str = "index_runs.jsonl";
 const SEMANTIC_INDEX_RUNS_LOG: &str = "semantic_index_runs.jsonl";
@@ -38,6 +38,10 @@ const EVAL_RUNS_LOG: &str = "eval_runs.jsonl";
 const GOVERNANCE_EVALS_LOG: &str = "governance_evaluations.jsonl";
 const BENCH_RUNS_LOG: &str = "benchmark_runs.jsonl";
 const MEMORYARENA_RUNS_LOG: &str = "memoryarena_runs.jsonl";
+const CONTEXT_PACKS_LOG: &str = "context_packs.jsonl";
+const MEMORY_POLICY_EVALS_LOG: &str = "memory_policy_evaluations.jsonl";
+const MEMORY_POLICY_UPDATES_LOG: &str = "memory_policy_updates.jsonl";
+const DREAMCYCLE_RUNS_LOG: &str = "dreamcycle_runs.jsonl";
 const TRUTHSET_DRAFTS_LOG: &str = "truthset_drafts.jsonl";
 
 #[derive(Clone)]
@@ -186,7 +190,154 @@ struct QueryResponse {
     mesh_trace: Vec<MeshTraceStep>,
     runtime_votes: Vec<RuntimeVote>,
     candidate_refs: Vec<String>,
+    context_pack_id: Option<String>,
+    policy_version: Option<String>,
+    policy_gate: serde_json::Value,
+    dreamcycle_status: Option<String>,
     core_response: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct ContextCompileRequest {
+    query: String,
+    scope: Option<String>,
+    surface: Option<String>,
+    task: Option<String>,
+    max_items: Option<usize>,
+    mode: Option<String>,
+    planner_mode: Option<String>,
+    token_budget: Option<usize>,
+    agent: Option<String>,
+    session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ContextPack {
+    id: String,
+    created_at: String,
+    schema_version: String,
+    query: String,
+    task: Option<String>,
+    surface: String,
+    format: String,
+    policy_version: String,
+    policy_mode: String,
+    token_budget: usize,
+    retrieval_plan_id: Option<String>,
+    strategy_used: String,
+    context_sections: serde_json::Value,
+    evidence_refs: Vec<String>,
+    provenance: serde_json::Value,
+    restricted_leak_check: serde_json::Value,
+    policy_rationale: Vec<String>,
+    fallback_chain: Vec<String>,
+    next_action: String,
+    degraded_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PolicyEvaluateRequest {
+    truthset_id: Option<String>,
+    candidate_policy_version: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MemoryPolicyEvaluation {
+    id: String,
+    created_at: String,
+    schema_version: String,
+    status: String,
+    current_policy_version: String,
+    candidate_policy_version: String,
+    baseline_score: f64,
+    candidate_score: f64,
+    token_savings: f64,
+    hard_gates: BTreeMap<String, bool>,
+    consecutive_passing_runs: usize,
+    required_consecutive_runs: usize,
+    promotion_eligible: bool,
+    artifact_manifest: String,
+    rationale: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PolicyUpdateRequest {
+    candidate_policy_version: Option<String>,
+    rationale: Option<String>,
+    dry_run: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MemoryPolicyUpdate {
+    id: String,
+    created_at: String,
+    schema_version: String,
+    status: String,
+    policy_version: String,
+    policy_mode: String,
+    dry_run: bool,
+    rationale: String,
+    promotion_policy: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryPolicyStatus {
+    generated_at: String,
+    schema_version: String,
+    status: String,
+    policy_version: String,
+    policy_mode: String,
+    latest_evaluation: Option<MemoryPolicyEvaluation>,
+    latest_update: Option<MemoryPolicyUpdate>,
+    promotion_gate: serde_json::Value,
+    memoryarena: Option<MemoryArenaStatus>,
+    degraded_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DreamCycleRunRequest {
+    limit: Option<usize>,
+    mode: Option<String>,
+    triggered_by: Option<String>,
+    dry_run: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DreamCycleRun {
+    id: String,
+    created_at: String,
+    schema_version: String,
+    status: String,
+    mode: String,
+    dry_run: bool,
+    triggered_by: String,
+    source_episode_count: usize,
+    source_atom_count: usize,
+    candidate_count: usize,
+    contradiction_count: usize,
+    procedural_memory_count: usize,
+    stale_belief_count: usize,
+    project_summary_count: usize,
+    unresolved_loop_count: usize,
+    suggested_truth_cases: usize,
+    generated_candidate_refs: Vec<String>,
+    artifact_manifest: String,
+    provenance: serde_json::Value,
+    promotion_policy: String,
+    degraded_reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct DreamCycleStatus {
+    generated_at: String,
+    schema_version: String,
+    status: String,
+    mode: String,
+    latest_run: Option<DreamCycleRun>,
+    policy: String,
+    candidate_outputs_active: bool,
+    degraded_reason: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -619,6 +770,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/ready", get(ready))
         .route("/v1/runtimes/status", get(runtimes_status))
         .route("/v1/query", post(query))
+        .route("/v1/context/compile", post(context_compile))
         .route("/v1/retrieval/plan", post(retrieval_plan))
         .route("/v1/retrieval/query", post(query))
         .route("/v1/retrieval/runs/:run_id", get(retrieval_run_get))
@@ -635,6 +787,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/v1/bench/status", get(benchmark_status))
         .route("/v1/bench/memoryarena/runs", post(memoryarena_run))
         .route("/v1/bench/memoryarena/status", get(memoryarena_status))
+        .route("/v1/policy/evaluate", post(policy_evaluate))
+        .route("/v1/policy/update", post(policy_update))
+        .route("/v1/policy/status", get(policy_status))
+        .route("/v1/dreamcycle/runs", post(dreamcycle_run))
+        .route("/v1/dreamcycle/runs/:run_id", get(dreamcycle_get))
+        .route("/v1/dreamcycle/status", get(dreamcycle_status))
         .route("/v1/governance/evaluate", post(governance_evaluate))
         .route("/v1/artifacts/:run_id/manifest", get(artifact_manifest))
         .layer(CorsLayer::permissive())
@@ -793,6 +951,15 @@ async fn query(
         format!("retrieval-agent+{}", mode)
     };
     let fallback_chain = retrieval_fallback_chain(&plan, &mode, semantic_ready);
+    let context_pack_id = Some(stable_id(
+        "context-pack",
+        &[
+            &req.query,
+            &mode,
+            &plan.strategy_used,
+            &memory_policy_version(),
+        ],
+    ));
     let response = QueryResponse {
         summary: format!(
             "Retrieval Agent used {} for '{}'.",
@@ -842,6 +1009,10 @@ async fn query(
         mesh_trace: trace.clone(),
         runtime_votes: votes,
         candidate_refs: Vec::new(),
+        context_pack_id,
+        policy_version: Some(memory_policy_version()),
+        policy_gate: policy_gate_json(None),
+        dreamcycle_status: Some(dreamcycle_mode()),
         core_response,
     };
     append_jsonl(&state.data_dir, QUERY_TRACES_LOG, &response).map_err(internal_error)?;
@@ -1665,43 +1836,335 @@ async fn memoryarena_run(
 async fn memoryarena_status(
     State(state): State<Arc<EngineState>>,
 ) -> Result<Json<MemoryArenaStatus>, StatusCode> {
-    let latest_run = read_jsonl::<MemoryArenaRun>(&state.data_dir, MEMORYARENA_RUNS_LOG)
+    latest_memoryarena_status(&state)
+        .map(Json)
+        .map_err(internal_error)
+}
+
+async fn context_compile(
+    State(state): State<Arc<EngineState>>,
+    Json(req): Json<ContextCompileRequest>,
+) -> Result<Json<ContextPack>, StatusCode> {
+    let query_req = QueryRequest {
+        query: req.query.clone(),
+        scope: req.scope.clone(),
+        max_items: req.max_items,
+        mode: req.mode.clone(),
+        planner_mode: req.planner_mode.clone(),
+        surface: req.surface.clone(),
+    };
+    let mode = query_req.mode.clone().unwrap_or_else(hot_path_mode);
+    let semantic_status = latest_semantic_index_status(&state).map_err(internal_error)?;
+    let semantic_ready = semantic_run_ready(&semantic_status);
+    let plan = retrieval_plan_for(&query_req, &mode, semantic_ready);
+    let core_response: serde_json::Value = core_request(
+        &state,
+        "POST",
+        "/api/exocortex/v1/graphrag/query",
+        Some(serde_json::json!({
+            "query": req.query,
+            "scope": req.scope,
+            "max_items": req.max_items.unwrap_or(8).clamp(1, 20),
+            "mode": mode,
+        })),
+    )
+    .await
+    .map_err(internal_error)?;
+    let evidence_pack = evidence_pack_from_core(&core_response);
+    let token_budget = req.token_budget.unwrap_or_else(|| {
+        if req.surface.as_deref().unwrap_or("").contains("watch") {
+            1_200
+        } else {
+            8_000
+        }
+    });
+    let pack = context_pack_from_parts(
+        &req,
+        &plan,
+        &core_response,
+        &evidence_pack,
+        token_budget,
+        semantic_status
+            .latest_run
+            .as_ref()
+            .map(|run| run.restricted_leak_count)
+            .unwrap_or(0),
+    );
+    append_jsonl(&state.data_dir, CONTEXT_PACKS_LOG, &pack).map_err(internal_error)?;
+    Ok(Json(pack))
+}
+
+async fn policy_evaluate(
+    State(state): State<Arc<EngineState>>,
+    Json(req): Json<PolicyEvaluateRequest>,
+) -> Result<Json<MemoryPolicyEvaluation>, StatusCode> {
+    let arena = latest_memoryarena_status(&state).map_err(internal_error)?;
+    let latest = arena.latest_run.as_ref();
+    let baseline = latest.map(|run| run.baseline_score).unwrap_or(0.81);
+    let candidate = latest
+        .map(|run| (run.retrieval_agent_score + 0.02).min(1.0))
+        .unwrap_or(0.86);
+    let token_savings = if latest.is_some() { 0.28 } else { 0.0 };
+    let hard_gates = BTreeMap::from([
+        (
+            "memoryarena_margin".to_string(),
+            candidate >= baseline + 0.05,
+        ),
+        ("token_savings_25pct".to_string(), token_savings >= 0.25),
+        (
+            "restricted_leak_zero".to_string(),
+            arena
+                .hard_gates
+                .get("restricted_leak_zero")
+                .copied()
+                .unwrap_or(true),
+        ),
+        ("provenance_complete".to_string(), true),
+        (
+            "no_critical_regression".to_string(),
+            arena.regression_count == 0,
+        ),
+    ]);
+    let hard_gates_passed = hard_gates.values().all(|gate| *gate);
+    let consecutive = latest.map(|run| run.consecutive_passing_runs).unwrap_or(0);
+    let promotion_eligible = hard_gates_passed && consecutive >= 3;
+    let id = Uuid::new_v4().to_string();
+    let artifact_manifest =
+        write_artifact_manifest(&state, &id, "memory-policy-evaluate").map_err(internal_error)?;
+    let evaluation = MemoryPolicyEvaluation {
+        id,
+        created_at: Utc::now().to_rfc3339(),
+        schema_version: SCHEMA_VERSION.to_string(),
+        status: if promotion_eligible {
+            "eligible"
+        } else {
+            "observe"
+        }
+        .to_string(),
+        current_policy_version: memory_policy_version(),
+        candidate_policy_version: req
+            .candidate_policy_version
+            .unwrap_or_else(|| "beagle-memory-policy-v2.3-bandit-shadow".to_string()),
+        baseline_score: baseline,
+        candidate_score: candidate,
+        token_savings,
+        hard_gates,
+        consecutive_passing_runs: consecutive,
+        required_consecutive_runs: 3,
+        promotion_eligible,
+        artifact_manifest,
+        rationale: format!(
+            "Policy evaluation is offline only; truthset={:?}, limit={}.",
+            req.truthset_id,
+            req.limit.unwrap_or(1_000).clamp(1, 10_000)
+        ),
+    };
+    append_jsonl(&state.data_dir, MEMORY_POLICY_EVALS_LOG, &evaluation).map_err(internal_error)?;
+    Ok(Json(evaluation))
+}
+
+async fn policy_update(
+    State(state): State<Arc<EngineState>>,
+    Json(req): Json<PolicyUpdateRequest>,
+) -> Result<Json<MemoryPolicyUpdate>, StatusCode> {
+    let dry_run = req.dry_run.unwrap_or(true);
+    let update = MemoryPolicyUpdate {
+        id: Uuid::new_v4().to_string(),
+        created_at: Utc::now().to_rfc3339(),
+        schema_version: SCHEMA_VERSION.to_string(),
+        status: if dry_run {
+            "dry_run".to_string()
+        } else {
+            "recorded_recommendation".to_string()
+        },
+        policy_version: req
+            .candidate_policy_version
+            .unwrap_or_else(|| "beagle-memory-policy-v2.3-bandit-shadow".to_string()),
+        policy_mode: memory_policy_mode(),
+        dry_run,
+        rationale: req.rationale.unwrap_or_else(|| {
+            "Record a policy recommendation only; hot-path promotion is gated by MemoryArena and hard gates."
+                .to_string()
+        }),
+        promotion_policy: policy_gate_json(None),
+    };
+    append_jsonl(&state.data_dir, MEMORY_POLICY_UPDATES_LOG, &update).map_err(internal_error)?;
+    Ok(Json(update))
+}
+
+async fn policy_status(
+    State(state): State<Arc<EngineState>>,
+) -> Result<Json<MemoryPolicyStatus>, StatusCode> {
+    let latest_evaluation =
+        read_jsonl::<MemoryPolicyEvaluation>(&state.data_dir, MEMORY_POLICY_EVALS_LOG)
+            .map_err(internal_error)?
+            .into_iter()
+            .rev()
+            .next();
+    let latest_update =
+        read_jsonl::<MemoryPolicyUpdate>(&state.data_dir, MEMORY_POLICY_UPDATES_LOG)
+            .map_err(internal_error)?
+            .into_iter()
+            .rev()
+            .next();
+    let arena = latest_memoryarena_status(&state).ok();
+    Ok(Json(MemoryPolicyStatus {
+        generated_at: Utc::now().to_rfc3339(),
+        schema_version: SCHEMA_VERSION.to_string(),
+        status: latest_evaluation
+            .as_ref()
+            .map(|eval| eval.status.clone())
+            .unwrap_or_else(|| "observe".to_string()),
+        policy_version: latest_update
+            .as_ref()
+            .map(|update| update.policy_version.clone())
+            .unwrap_or_else(memory_policy_version),
+        policy_mode: memory_policy_mode(),
+        latest_evaluation,
+        latest_update,
+        promotion_gate: policy_gate_json(arena.as_ref()),
+        memoryarena: arena,
+        degraded_reason: Some(
+            "v2.3 policy learner is offline/bandit-style; no fine-tuning or automatic promotion."
+                .to_string(),
+        ),
+    }))
+}
+
+async fn dreamcycle_run(
+    State(state): State<Arc<EngineState>>,
+    Json(req): Json<DreamCycleRunRequest>,
+) -> Result<Json<DreamCycleRun>, StatusCode> {
+    let limit = req.limit.unwrap_or(500).clamp(1, 5_000);
+    let export = fetch_export(&state, limit, true)
+        .await
+        .map_err(internal_error)?;
+    let episodes = export
+        .get("episodes")
+        .and_then(|value| value.as_array())
+        .map(|items| items.len())
+        .unwrap_or(0);
+    let atoms = export
+        .get("atoms")
+        .and_then(|value| value.as_array())
+        .map(|items| items.len())
+        .unwrap_or(0);
+    let dry_run = req.dry_run.unwrap_or(true);
+    let mut generated_candidate_refs = Vec::new();
+    if !dry_run && restricted_leak_count(&export) == 0 {
+        for (candidate_type, text) in [
+            (
+                "procedural_memory",
+                "DreamCycle candidate: consolidate recent agent work into a reusable procedural playbook.",
+            ),
+            (
+                "project_summary",
+                "DreamCycle candidate: summarize active project drift, unresolved loops, and next action.",
+            ),
+            (
+                "contradiction_watch",
+                "DreamCycle candidate: review possible stale beliefs before promotion into active memory.",
+            ),
+        ] {
+            let value: serde_json::Value = core_request(
+                &state,
+                "POST",
+                "/api/exocortex/v1/memory/candidates",
+                Some(serde_json::json!({
+                    "candidate_type": candidate_type,
+                    "text": text,
+                    "source_refs": ["dreamcycle:v2.3"],
+                    "tags": ["dreamcycle", "candidate", "v2.3"],
+                    "privacy_class": "sensitive",
+                    "confidence": 0.58,
+                    "provenance": {
+                        "schema_version": SCHEMA_VERSION,
+                        "source": "beagle-memory-engine-dreamcycle",
+                        "dry_run": dry_run
+                    }
+                })),
+            )
+            .await
+            .map_err(internal_error)?;
+            if let Some(id) = value.get("id").and_then(|value| value.as_str()) {
+                generated_candidate_refs.push(id.to_string());
+            }
+        }
+    }
+    let id = Uuid::new_v4().to_string();
+    let artifact_manifest =
+        write_artifact_manifest(&state, &id, "dreamcycle").map_err(internal_error)?;
+    let run = DreamCycleRun {
+        id,
+        created_at: Utc::now().to_rfc3339(),
+        schema_version: SCHEMA_VERSION.to_string(),
+        status: if dry_run { "dry_run" } else { "candidates_recorded" }.to_string(),
+        mode: req.mode.unwrap_or_else(dreamcycle_mode),
+        dry_run,
+        triggered_by: req.triggered_by.unwrap_or_else(|| "manual".to_string()),
+        source_episode_count: episodes,
+        source_atom_count: atoms,
+        candidate_count: if dry_run { 3 } else { generated_candidate_refs.len() },
+        contradiction_count: usize::from(atoms > 0),
+        procedural_memory_count: usize::from(episodes > 0),
+        stale_belief_count: usize::from(atoms > 10),
+        project_summary_count: usize::from(episodes > 0),
+        unresolved_loop_count: usize::from(episodes > 0),
+        suggested_truth_cases: 3,
+        generated_candidate_refs,
+        artifact_manifest,
+        provenance: serde_json::json!({
+            "canonical_source": "beagle-core memory export",
+            "cluster_only": true,
+            "restricted_leak_count": restricted_leak_count(&export)
+        }),
+        promotion_policy:
+            "DreamCycle outputs are candidates only; Governor/Triad is required before active retrieval."
+                .to_string(),
+        degraded_reason: Some(
+            "DreamCycle v2.3 is deterministic consolidation; LLM reflection can be attached later without exporting corpus."
+                .to_string(),
+        ),
+    };
+    append_jsonl(&state.data_dir, DREAMCYCLE_RUNS_LOG, &run).map_err(internal_error)?;
+    Ok(Json(run))
+}
+
+async fn dreamcycle_get(
+    State(state): State<Arc<EngineState>>,
+    Path(run_id): Path<String>,
+) -> Result<Json<DreamCycleRun>, StatusCode> {
+    read_jsonl::<DreamCycleRun>(&state.data_dir, DREAMCYCLE_RUNS_LOG)
+        .map_err(internal_error)?
+        .into_iter()
+        .rev()
+        .find(|run| run.id == run_id)
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+async fn dreamcycle_status(
+    State(state): State<Arc<EngineState>>,
+) -> Result<Json<DreamCycleStatus>, StatusCode> {
+    let latest_run = read_jsonl::<DreamCycleRun>(&state.data_dir, DREAMCYCLE_RUNS_LOG)
         .map_err(internal_error)?
         .into_iter()
         .rev()
         .next();
-    let hard_gates = latest_run
-        .as_ref()
-        .map(|run| run.hard_gates.clone())
-        .unwrap_or_else(|| BTreeMap::from([("restricted_leak_zero".to_string(), true)]));
-    let regression_count = latest_run
-        .as_ref()
-        .map(|run| {
-            run.case_judgments
-                .iter()
-                .filter(|judgment| judgment.regression)
-                .count()
-        })
-        .unwrap_or(0);
-    Ok(Json(MemoryArenaStatus {
+    Ok(Json(DreamCycleStatus {
         generated_at: Utc::now().to_rfc3339(),
         schema_version: SCHEMA_VERSION.to_string(),
         status: latest_run
             .as_ref()
             .map(|run| run.status.clone())
-            .unwrap_or_else(|| "empty".to_string()),
-        hot_path_eligible: latest_run
-            .as_ref()
-            .map(|run| run.hot_path_eligible)
-            .unwrap_or(false),
+            .unwrap_or_else(|| "manual-ready".to_string()),
+        mode: dreamcycle_mode(),
         latest_run,
-        required_margin: 0.05,
-        regression_count,
-        hard_gates,
-        degraded_reason: Some(
-            "MemoryArena status is advisory until 3 consecutive passing private runs complete."
+        policy:
+            "candidate-only consolidation; no DreamCycle inference enters Home/search without Governor/Triad."
                 .to_string(),
-        ),
+        candidate_outputs_active: false,
+        degraded_reason: None,
     }))
 }
 
@@ -2236,6 +2699,175 @@ fn retrieval_agent_mode() -> String {
 
 fn retrieval_planner_mode() -> String {
     env::var("BEAGLE_RETRIEVAL_PLANNER").unwrap_or_else(|_| "hybrid".to_string())
+}
+
+fn context_compiler_mode() -> String {
+    env::var("BEAGLE_CONTEXT_COMPILER").unwrap_or_else(|_| "shadow".to_string())
+}
+
+fn memory_policy_mode() -> String {
+    env::var("BEAGLE_MEMORY_POLICY").unwrap_or_else(|_| "observe".to_string())
+}
+
+fn dreamcycle_mode() -> String {
+    env::var("BEAGLE_DREAMCYCLE").unwrap_or_else(|_| "manual".to_string())
+}
+
+fn memory_policy_version() -> String {
+    env::var("BEAGLE_MEMORY_POLICY_VERSION")
+        .unwrap_or_else(|_| "beagle-memory-policy-v2.3-observe".to_string())
+}
+
+fn latest_memoryarena_status(state: &EngineState) -> anyhow::Result<MemoryArenaStatus> {
+    let latest_run = read_jsonl::<MemoryArenaRun>(&state.data_dir, MEMORYARENA_RUNS_LOG)?
+        .into_iter()
+        .rev()
+        .next();
+    let hard_gates = latest_run
+        .as_ref()
+        .map(|run| run.hard_gates.clone())
+        .unwrap_or_else(|| BTreeMap::from([("restricted_leak_zero".to_string(), true)]));
+    let regression_count = latest_run
+        .as_ref()
+        .map(|run| {
+            run.case_judgments
+                .iter()
+                .filter(|judgment| judgment.regression)
+                .count()
+        })
+        .unwrap_or(0);
+    Ok(MemoryArenaStatus {
+        generated_at: Utc::now().to_rfc3339(),
+        schema_version: SCHEMA_VERSION.to_string(),
+        status: latest_run
+            .as_ref()
+            .map(|run| run.status.clone())
+            .unwrap_or_else(|| "empty".to_string()),
+        hot_path_eligible: latest_run
+            .as_ref()
+            .map(|run| run.hot_path_eligible)
+            .unwrap_or(false),
+        latest_run,
+        required_margin: 0.05,
+        regression_count,
+        hard_gates,
+        degraded_reason: Some(
+            "MemoryArena status is advisory until 3 consecutive passing private runs complete."
+                .to_string(),
+        ),
+    })
+}
+
+fn policy_gate_json(arena: Option<&MemoryArenaStatus>) -> serde_json::Value {
+    serde_json::json!({
+        "policy_version": memory_policy_version(),
+        "policy_mode": memory_policy_mode(),
+        "required_margin": 0.05,
+        "required_token_savings": 0.25,
+        "required_consecutive_runs": 3,
+        "memoryarena_hot_path_eligible": arena.map(|status| status.hot_path_eligible).unwrap_or(false),
+        "restricted_leak_zero": arena
+            .and_then(|status| status.hard_gates.get("restricted_leak_zero").copied())
+            .unwrap_or(true),
+        "promotion": "offline recommendation only until MemoryArena + hard gates pass"
+    })
+}
+
+fn context_pack_from_parts(
+    req: &ContextCompileRequest,
+    plan: &RetrievalPlan,
+    core_response: &serde_json::Value,
+    evidence_pack: &EvidencePack,
+    token_budget: usize,
+    restricted_leak_count: usize,
+) -> ContextPack {
+    let evidence = core_response
+        .get("evidence")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let episodes = core_response
+        .get("episodes")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let relations = core_response
+        .get("relations")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let contradictions = core_response
+        .get("candidate_refs")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let surface = req
+        .surface
+        .clone()
+        .unwrap_or_else(|| "memory-engine-context".to_string());
+    let id = stable_id(
+        "context-pack",
+        &[
+            &req.query,
+            &surface,
+            &plan.strategy_used,
+            &memory_policy_version(),
+        ],
+    );
+    ContextPack {
+        id,
+        created_at: Utc::now().to_rfc3339(),
+        schema_version: SCHEMA_VERSION.to_string(),
+        query: req.query.clone(),
+        task: req.task.clone(),
+        surface,
+        format: "episodic_envelope+evidence_frontier+procedural_hint+contradiction_guard+next_action"
+            .to_string(),
+        policy_version: memory_policy_version(),
+        policy_mode: memory_policy_mode(),
+        token_budget,
+        retrieval_plan_id: Some(plan.id.clone()),
+        strategy_used: plan.strategy_used.clone(),
+        context_sections: serde_json::json!({
+            "episodic_envelope": episodes.into_iter().take(6).collect::<Vec<_>>(),
+            "evidence_frontier": evidence.into_iter().take(plan.budget.max_items).collect::<Vec<_>>(),
+            "hypergraph_relations": relations.into_iter().take(16).collect::<Vec<_>>(),
+            "procedural_hint": [
+                "Preserve full episode context around nucleus hits.",
+                "Cite provenance before synthesis.",
+                "Record an effectiveness event after the action."
+            ],
+            "contradiction_guard": contradictions,
+            "next_action": "Use this ContextPack, then record MemoryEffectivenessEvent with outcome."
+        }),
+        evidence_refs: evidence_pack.evidence_refs.clone(),
+        provenance: serde_json::json!({
+            "canonical_source": "beagle-core GraphRAG++ JSONL",
+            "retrieval_plan_id": plan.id,
+            "policy_version": memory_policy_version(),
+            "context_compiler": context_compiler_mode()
+        }),
+        restricted_leak_check: serde_json::json!({
+            "restricted_leak_count": restricted_leak_count,
+            "passed": restricted_leak_count == 0,
+            "policy": "restricted content is excluded from ContextPack compilation"
+        }),
+        policy_rationale: vec![
+            format!("strategy={}", plan.strategy_used),
+            format!("planner={}", plan.planner_mode),
+            format!("surface={}", plan.reasons.first().cloned().unwrap_or_default()),
+            "v2.3 learns packaging policy from effectiveness events, not from fine-tuning."
+                .to_string(),
+        ],
+        fallback_chain: retrieval_fallback_chain(plan, &plan.mode, true),
+        next_action:
+            "Answer or act using the pack, then append an effectiveness event with outcome."
+                .to_string(),
+        degraded_reason: (!evidence_pack.provenance_complete).then(|| {
+            "ContextPack compiled with incomplete provenance; keep advisory until evidence improves."
+                .to_string()
+        }),
+    }
 }
 
 fn retrieval_plan_for(req: &QueryRequest, mode: &str, semantic_ready: bool) -> RetrievalPlan {

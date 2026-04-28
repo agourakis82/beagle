@@ -816,7 +816,10 @@ struct BeagleSurface: View {
         let hotPath = trust.hotPathMode.map { " · hot path \($0)" } ?? ""
         let provisional = trust.provisionalHotPath == true ? " · provisional" : ""
         let capture = trust.captureLoopStatus.map { " · capture \($0)" } ?? ""
-        return "\(trust.mcpStatus) · \(scopeCount) scopes · \(hashLabel)\(semantic)\(hotPath)\(provisional)\(mesh)\(governor)\(pending)\(contradictions)\(quorum)\(benchGate)\(capture) · destructive locked"
+        let compiler = trust.contextCompilerStatus.map { " · compiler \($0)" } ?? ""
+        let policy = trust.memoryPolicyStatus.map { " · policy \($0)" } ?? ""
+        let dream = trust.dreamcycleStatus.map { " · dream \($0)" } ?? ""
+        return "\(trust.mcpStatus) · \(scopeCount) scopes · \(hashLabel)\(semantic)\(hotPath)\(provisional)\(compiler)\(policy)\(dream)\(mesh)\(governor)\(pending)\(contradictions)\(quorum)\(benchGate)\(capture) · destructive locked"
     }
 
     private var memoryProjectionLine: String {
@@ -990,6 +993,7 @@ private struct MemoryLensSheet: View {
         case candidates = "Candidates"
         case truth = "Truth"
         case bench = "Bench"
+        case context = "Context"
         case agentTrace = "Agent"
         case semanticTrace = "Semantic"
         case runtimeTrace = "Runtime"
@@ -1019,6 +1023,8 @@ private struct MemoryLensSheet: View {
                     truthTab
                 case .bench:
                     benchTab
+                case .context:
+                    contextTab
                 case .agentTrace:
                     agentTraceTab
                 case .semanticTrace:
@@ -1596,6 +1602,66 @@ private struct MemoryLensSheet: View {
         }
     }
 
+    private var contextTab: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            sectionTitle("ADAPTIVE CONTEXT")
+            if let graph = exocortex.lastGraphRagQuery?.value {
+                GlassPanel(truth: graph.contextPackId == nil ? .declared : .observed) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("CONTEXT PACK")
+                            .font(BeagleFont.caption2.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.truthObserved)
+                        Text(graph.contextPackId ?? "context pack pending")
+                            .font(BeagleFont.caption.font.monospaced())
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .lineLimit(2)
+                        Text("\(graph.policyVersion ?? "policy unknown") · \(graph.contextFormat ?? "format pending")")
+                            .font(BeagleFont.caption2.font)
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                sectionTitle("WHY THIS MEMORY")
+                if !graph.subqueries.isEmpty {
+                    ForEach(Array(graph.subqueries.prefix(4).enumerated()), id: \.offset) { _, subquery in
+                        Text(subquery)
+                            .font(BeagleFont.caption.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    emptyRow("No subqueries recorded yet.")
+                }
+
+                sectionTitle("POLICY")
+                Text("DreamCycle \(graph.dreamcycleStatus ?? "manual")")
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                if let policyGate = graph.policyGate {
+                    Text(String(describing: policyGate))
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let leak = graph.restrictedLeakCheck {
+                    Text(String(describing: leak))
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else if let trust = exocortex.home.value?.trustContext {
+                emptyRow("Compiler \(trust.contextCompilerStatus ?? "shadow") · policy \(trust.memoryPolicyStatus ?? "observe") · DreamCycle \(trust.dreamcycleStatus ?? "manual-ready")")
+                if let pack = trust.latestContextPackId {
+                    emptyRow("Latest ContextPack \(pack)")
+                }
+            } else {
+                emptyRow("Run a Memory Lens query to see ContextPack, policy gate and DreamCycle status.")
+            }
+        }
+    }
+
     private var semanticTraceTab: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
             sectionTitle("SEMANTIC TRACE")
@@ -1725,6 +1791,12 @@ private struct MemoryLensSheet: View {
                     .font(BeagleFont.caption2.font)
                     .foregroundStyle(BeagleTheme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            if let pack = result.contextPackId {
+                Text("context \(pack) · \(result.policyVersion ?? "policy unknown") · DreamCycle \(result.dreamcycleStatus ?? "manual")")
+                    .font(BeagleFont.caption2.font.monospaced())
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .lineLimit(2)
             }
             ForEach(result.evidence.prefix(6), id: \.atomId) { evidence in
                 GlassPanel(truth: .observed) {

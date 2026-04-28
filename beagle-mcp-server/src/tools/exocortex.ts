@@ -168,6 +168,50 @@ const RetrievalAgentQuerySchema = z.object({
     surface: z.string().optional().default("mcp-retrieval-agent"),
 });
 
+const ContextCompileSchema = z.object({
+    query: z.string().min(1),
+    scope: z.string().optional(),
+    surface: z.string().optional().default("mcp-context-compiler"),
+    task: z.string().optional(),
+    max_items: z.number().int().min(1).max(20).optional().default(8),
+    mode: z
+        .enum(["hypermemory_multivector", "hypermemory", "graphsearch-lite"])
+        .optional()
+        .default("hypermemory_multivector"),
+    planner_mode: z.enum(["deterministic", "hybrid", "llm"]).optional().default("hybrid"),
+    token_budget: z.number().int().min(256).max(64000).optional(),
+    agent: z.string().optional(),
+    session_id: z.string().optional(),
+});
+
+const ContextPackGetSchema = z.object({
+    context_pack_id: z.string().min(1),
+});
+
+const MemoryEffectivenessRecordSchema = z.object({
+    context_pack_id: z.string().min(1),
+    query: z.string().optional(),
+    surface: z.string().optional().default("mcp"),
+    principal: z.string().optional().default("mcp-agent"),
+    session_id: z.string().optional(),
+    strategy_used: z.string().optional(),
+    tokens_used: z.number().int().min(0).optional(),
+    latency_ms: z.number().min(0).optional(),
+    tests: z.array(z.string()).optional().default([]),
+    feedback: z.string().optional(),
+    human_correction: z.string().optional(),
+    success: z.boolean().optional(),
+    outcome: z.string().optional().default("observed"),
+    metadata: z.record(z.unknown()).optional().default({}),
+});
+
+const DreamCycleRunSchema = z.object({
+    limit: z.number().int().min(1).max(5000).optional().default(500),
+    mode: z.enum(["manual", "nightly"]).optional().default("manual"),
+    triggered_by: z.string().optional().default("mcp-agent"),
+    dry_run: z.boolean().optional().default(true),
+});
+
 const MemoryEngineBakeoffRunSchema = z.object({
     limit: z.number().int().min(1).max(10000).optional().default(1000),
     domains: z.array(z.string()).optional(),
@@ -970,6 +1014,134 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                     semantic_index: semantic.status === "fulfilled" ? semantic.value : { error: String(semantic.reason) },
                     memoryarena: memoryarena.status === "fulfilled" ? memoryarena.value : { error: String(memoryarena.reason) },
                     policy: "deterministic policy on hot path; LLM planner only for Memory Lens, Deep, bench, and debug.",
+                });
+            },
+        },
+        {
+            name: "beagle_context_compile",
+            description:
+                "Compile an adaptive v2.3 ContextPack for a task or query. The pack preserves episodic envelopes, evidence frontier, procedural hints, contradiction guards, provenance, token budget, policy version, and restricted-leak check without creating canonical memory.",
+            inputSchema: {
+                type: "object",
+                required: ["query"],
+                properties: {
+                    query: { type: "string" },
+                    scope: { type: "string" },
+                    surface: { type: "string", default: "mcp-context-compiler" },
+                    task: { type: "string" },
+                    max_items: { type: "number", minimum: 1, maximum: 20, default: 8 },
+                    mode: {
+                        type: "string",
+                        enum: ["hypermemory_multivector", "hypermemory", "graphsearch-lite"],
+                        default: "hypermemory_multivector",
+                    },
+                    planner_mode: {
+                        type: "string",
+                        enum: ["deterministic", "hybrid", "llm"],
+                        default: "hybrid",
+                    },
+                    token_budget: { type: "number", minimum: 256, maximum: 64000 },
+                    agent: { type: "string" },
+                    session_id: { type: "string" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = ContextCompileSchema.parse(args ?? {});
+                return sanitizeOutput(await client.contextCompile(parsed));
+            },
+        },
+        {
+            name: "beagle_context_pack_get",
+            description:
+                "Fetch a previously compiled v2.3 ContextPack from the cluster-canonical append-only context pack log.",
+            inputSchema: {
+                type: "object",
+                required: ["context_pack_id"],
+                properties: {
+                    context_pack_id: { type: "string" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = ContextPackGetSchema.parse(args ?? {});
+                return sanitizeOutput(await client.contextPackGet(parsed.context_pack_id));
+            },
+        },
+        {
+            name: "beagle_memory_effectiveness_record",
+            description:
+                "Record whether a ContextPack helped an agent action. This append-only signal trains the v2.3 memory policy learner through offline/bandit evaluation, never through fine-tuning.",
+            inputSchema: {
+                type: "object",
+                required: ["context_pack_id"],
+                properties: {
+                    context_pack_id: { type: "string" },
+                    query: { type: "string" },
+                    surface: { type: "string", default: "mcp" },
+                    principal: { type: "string", default: "mcp-agent" },
+                    session_id: { type: "string" },
+                    strategy_used: { type: "string" },
+                    tokens_used: { type: "number", minimum: 0 },
+                    latency_ms: { type: "number", minimum: 0 },
+                    tests: { type: "array", items: { type: "string" } },
+                    feedback: { type: "string" },
+                    human_correction: { type: "string" },
+                    success: { type: "boolean" },
+                    outcome: { type: "string", default: "observed" },
+                    metadata: { type: "object", additionalProperties: true },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryEffectivenessRecordSchema.parse(args ?? {});
+                return sanitizeOutput(await client.memoryEffectivenessRecord(parsed));
+            },
+        },
+        {
+            name: "beagle_memory_policy_status",
+            description:
+                "Read the v2.3 Memory Policy Learner status: current policy version, observe/recommend/canary mode, latest evaluation, MemoryArena gate, and promotion requirements.",
+            inputSchema: { type: "object", properties: {} },
+            handler: async () => {
+                const [engine, core] = await Promise.allSettled([
+                    client.memoryPolicyStatus(),
+                    client.coreMemoryPolicyStatus(),
+                ]);
+                return sanitizeOutput({
+                    engine: engine.status === "fulfilled" ? engine.value : { error: String(engine.reason) },
+                    core: core.status === "fulfilled" ? core.value : { error: String(core.reason) },
+                });
+            },
+        },
+        {
+            name: "beagle_dreamcycle_run",
+            description:
+                "Run v2.3 DreamCycle consolidation in manual/nightly mode. Output is candidate-only: procedural memories, contradictions, stale beliefs, project summaries, unresolved loops, and truthset suggestions require Governor/Triad before active retrieval.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    limit: { type: "number", minimum: 1, maximum: 5000, default: 500 },
+                    mode: { type: "string", enum: ["manual", "nightly"], default: "manual" },
+                    triggered_by: { type: "string", default: "mcp-agent" },
+                    dry_run: { type: "boolean", default: true },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = DreamCycleRunSchema.parse(args ?? {});
+                return sanitizeOutput(await client.dreamCycleRun(parsed));
+            },
+        },
+        {
+            name: "beagle_dreamcycle_status",
+            description:
+                "Read v2.3 DreamCycle status, latest consolidation run, candidate-only policy, and whether manual/nightly consolidation is configured.",
+            inputSchema: { type: "object", properties: {} },
+            handler: async () => {
+                const [engine, core] = await Promise.allSettled([
+                    client.dreamCycleStatus(),
+                    client.coreDreamCycleStatus(),
+                ]);
+                return sanitizeOutput({
+                    engine: engine.status === "fulfilled" ? engine.value : { error: String(engine.reason) },
+                    core: core.status === "fulfilled" ? core.value : { error: String(core.reason) },
                 });
             },
         },

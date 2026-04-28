@@ -79,6 +79,9 @@ data:
   BEAGLE_MEMORY_HOT_PATH: hypermemory_multivector
   BEAGLE_RETRIEVAL_AGENT: canary
   BEAGLE_RETRIEVAL_PLANNER: hybrid
+  BEAGLE_CONTEXT_COMPILER: shadow
+  BEAGLE_MEMORY_POLICY: observe
+  BEAGLE_DREAMCYCLE: manual
   BEAGLE_MEMORY_COLBERT_MODEL: jinaai/jina-colbert-v2
   BEAGLE_GRAPHRAG_RUNTIME: federated-living-memory-mesh
   BEAGLE_MEMORY_ENGINE_RUNTIME: federated-living-memory-mesh

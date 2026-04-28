@@ -45,7 +45,7 @@ spec:
             runAsGroup: 0
       containers:
         - name: beagle-memory-engine
-          image: 192.168.3.207:5003/beagle-memory-engine:retrieval-agent-v22-20260428
+          image: 192.168.3.207:5003/beagle-memory-engine:context-compiler-v23-20260428
           imagePullPolicy: Always
           ports:
             - name: http
@@ -65,6 +65,12 @@ spec:
               value: canary
             - name: BEAGLE_RETRIEVAL_PLANNER
               value: hybrid
+            - name: BEAGLE_CONTEXT_COMPILER
+              value: shadow
+            - name: BEAGLE_MEMORY_POLICY
+              value: observe
+            - name: BEAGLE_DREAMCYCLE
+              value: manual
             - name: BEAGLE_MEMORY_COLBERT_MODEL
               value: jinaai/jina-colbert-v2
             - name: BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_MODEL

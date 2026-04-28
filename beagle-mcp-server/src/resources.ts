@@ -134,6 +134,37 @@ export function defineResources(
             read: async () => client.memoryArenaStatus(),
         },
         {
+            uri: "beagle://context/compiler/status",
+            name: "Adaptive Context Compiler Status",
+            description:
+                "v2.3 Context Compiler and memory policy state: policy version, compiler mode, DreamCycle status, and latest Home trust fields.",
+            mimeType: "application/json",
+            read: async () => {
+                const [home, policy, dreamcycle] = await Promise.all([
+                    client.exocortexHome(undefined, "mcp-resource-context-compiler"),
+                    client.coreMemoryPolicyStatus(),
+                    client.coreDreamCycleStatus(),
+                ]);
+                return { home, policy, dreamcycle };
+            },
+        },
+        {
+            uri: "beagle://memory/policy/status",
+            name: "Memory Policy Learner Status",
+            description:
+                "v2.3 Memory Policy Learner status and promotion gate for ContextPack effectiveness.",
+            mimeType: "application/json",
+            read: async () => client.memoryPolicyStatus(),
+        },
+        {
+            uri: "beagle://memory/dreamcycle/status",
+            name: "DreamCycle Status",
+            description:
+                "v2.3 DreamCycle consolidation status; outputs stay candidate-only until Governor/Triad.",
+            mimeType: "application/json",
+            read: async () => client.dreamCycleStatus(),
+        },
+        {
             uri: "beagle://agent/observer/status",
             name: "Agent Observer Status",
             description:

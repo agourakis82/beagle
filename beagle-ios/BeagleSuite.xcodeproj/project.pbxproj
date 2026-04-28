@@ -8,21 +8,27 @@
 
 /* Begin PBXBuildFile section */
 		00F812AB7229A6E94A452495 /* BeagleWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5D747E9BE19D4C2DAFD1E6 /* BeagleWatchApp.swift */; };
+		06BB7ABD02B36D11C5057D62 /* JournalingSuggestionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A08540D355E6437F5F11ED49 /* JournalingSuggestionsView.swift */; };
 		0DD04528F8D0BA08681233BE /* FoundationModelsAgent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1160A4CA5DCDC7BF7C91604C /* FoundationModelsAgent.swift */; };
-		B3AGL3SURF000000000001 /* BeagleSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3AGL3SURF000000000002 /* BeagleSurface.swift */; };
-		E1C0C0RTEX000000000001 /* ExocortexTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C0C0RTEX000000000002 /* ExocortexTools.swift */; };
+		0FF17280899BAC7B5FC70CB9 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5409EBAF41662A24788CCC75 /* ShareViewController.swift */; };
 		1B55247C99EAB1B670864938 /* PostureGradientBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49590C3934C2C786F704ADB3 /* PostureGradientBackground.swift */; };
 		232DEFB048E340F8FE242BDB /* TerminalContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */; };
+		2506AE1D807F002678049438 /* BeagleAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */; };
 		2E61BDB009F282CB1A3CCCE7 /* MetalClusterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1627EC91F819B45D2929869B /* MetalClusterView.swift */; };
+		357233B56EA6220C81DFC055 /* HyperbolicGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */; };
 		3676B6A0274B8867938EA3E9 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA8A9689928DC1BA45738244 /* BeagleCore */; };
 		39966D4FD11EC8661B54479D /* CognitiveStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5BFBC8407D4C833BA3F95 /* CognitiveStateView.swift */; };
 		40BF456C71ED40A7CBF92FD8 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F9429744BAEF1DC81205FFB /* OnboardingView.swift */; };
+		431207BF2DFB6E4513C886C7 /* SpatialThoughtsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6266364731B5C6EF907DE7 /* SpatialThoughtsView.swift */; };
 		45538AA5FF6969455CA5977B /* BeagleWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CE66E5A63CE01CAC1A04AF63 /* BeagleWidgets.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		459A916447C162277C0E2299 /* CognitiveBridgeField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB312C9D46D9321BC2DD8F95 /* CognitiveBridgeField.swift */; };
 		4DA6AD62DD347FAACCB96433 /* DeepExplorationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */; };
+		516E1D231C1D60DF1ECDB5A1 /* BeagleShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		558DF95BA7821C7D9511DA64 /* DiagnosticsRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */; };
 		5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 287C64605E5D53C799744EFA /* AgentSessionView.swift */; };
 		6DDB4BC3B8EB67E8090EE6BF /* BeagleInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96E1A662D877979794235C0 /* BeagleInputBar.swift */; };
+		8003CBD314227378F652535A /* BeagleSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F68F6456B64893491C1B93 /* BeagleSurface.swift */; };
+		8074F587452ECB33D0DAEA08 /* LorenzAttractorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2CE724AEFED517CAC6C94C0 /* LorenzAttractorView.swift */; };
 		88A28D4391FECECF547F0F1F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
 		8A5884FB4F1AAAAF5E951305 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 89A4FE3D86B15D992A7B5030 /* BeagleCore */; };
 		907EF19DEAD54A0CE58672EC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6B7360324065FECF7F1A2F /* HomeView.swift */; };
@@ -31,30 +37,27 @@
 		955AF5DFA3C5E28DE9E71AAF /* GoDeepButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */; };
 		9CC023D0D4B249261F286235 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
 		9CC466E7952DB6517E30310A /* BeagleVisionOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */; };
-		B3A500000000000000000001 /* SpatialTriadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3A500000000000000000002 /* SpatialTriadView.swift */; };
-		B3A500000000000000000003 /* HyperbolicGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3A500000000000000000004 /* HyperbolicGraphView.swift */; };
-		B3A500000000000000000005 /* SpatialThoughtsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3A500000000000000000006 /* SpatialThoughtsView.swift */; };
 		9D3E9AC3F435A2A585B1F48B /* ChatBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189F9DCDE0C15DEF48A24B21 /* ChatBubbleView.swift */; };
 		A3ED060D3B5CB1EB7489B82E /* TriadReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */; };
 		A7E50EC5008FE3C119415E16 /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */; };
+		AEB6084416F309DE3C3BFE38 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3CE68477CD23BAC261300B32 /* BeagleCore */; };
 		AFF447F376A1DA08356C28E0 /* HPCDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */; };
 		B153B877BF3BB76F401EF7EF /* ModelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */; };
 		B29E7F8F8148C1AF28D130D0 /* BeagleCockpitApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */; };
-		B3A17E0B0000000000000001 /* WorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3A17E0B0000000000000002 /* WorkView.swift */; };
 		B4C18225A382E1164A752BEC /* GoDeepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FADF6A9C3533B785FE38619 /* GoDeepView.swift */; };
 		BB19063FBD1E753D7FD91FAA /* PresencePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C4128C7822635F0B4D0B966 /* PresencePill.swift */; };
 		BD252AA03538ED12C4AFE5D7 /* BeagleWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */; };
 		BD5252A15774BB0AFF4C2537 /* PlatformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4EBFAF926379A760494FDDE /* PlatformView.swift */; };
 		BD8DE849A86BAFDCE1CAC86B /* LiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365A4A4180DF64759923830A /* LiveActivityManager.swift */; };
-		L0R3NZ0000000000000001 /* LorenzAttractorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = L0R3NZ0000000000000002 /* LorenzAttractorView.swift */; };
 		BF0742CD0ABD9D8AD53DE9D6 /* HeatmapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EECE76875D595132E400D65E /* HeatmapView.swift */; };
+		C4F95F143E38413D13ABCBF1 /* WorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3133A19FD4CA197756C9D57A /* WorkView.swift */; };
+		C7FB16C8609C0B478FA7DAD2 /* ExocortexTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148676E7FD99D57EF0457448 /* ExocortexTools.swift */; };
 		CAB18C9B9AA87C72B1B91BE4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
-		CE44D183EF481CB215B031F3 /* BeagleAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C802020558042DE65886DB3 /* BeagleAppIntents.swift */; };
 		DBDE230C56BD951ED91BCF5C /* ThoughtCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */; };
 		DC905A79099605C79BAFCD31 /* ControlRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19225CC4B80CE9408A68022 /* ControlRoomView.swift */; };
 		E73BE34C11A09D57EE250508 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 639809058407AA2A7F31CBFA /* ConversationView.swift */; };
 		E7D7E3A1DBEE70B042E893B4 /* BuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 902E0125E6DDA133D4486E04 /* BuildInfo.swift */; };
-		E8A1F3C2D4B5E60A3C7F9012 /* JournalingSuggestionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8A1F3C2D4B5E60A3C7F9013 /* JournalingSuggestionsView.swift */; };
+		E90459441F120031896D82A3 /* SpatialTriadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81EA117A445504E0B157182 /* SpatialTriadView.swift */; };
 		EFC226181CCAC66E7086F83E /* ScienceJobsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77EBB6E9F932B4C6400037BD /* ScienceJobsView.swift */; };
 		FB770F638C6B2329AB979A4F /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 85AA837F77CBB98A5A3D1297 /* BeagleCore */; };
 		FD773EBDECB3C46EB77F7469 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */; };
@@ -68,6 +71,13 @@
 			remoteGlobalIDString = D460B6115A3309F917104353;
 			remoteInfo = BeagleWidgets;
 		};
+		C2CC835C65AC098EE6C6EB0B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7073DE690D3DAE155D2E23FD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4619751AD2B537C66DE2F869;
+			remoteInfo = BeagleShare;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -78,6 +88,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				45538AA5FF6969455CA5977B /* BeagleWidgets.appex in Embed Foundation Extensions */,
+				516E1D231C1D60DF1ECDB5A1 /* BeagleShare.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -88,15 +99,16 @@
 		0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSettingsView.swift; sourceTree = "<group>"; };
 		0F5D747E9BE19D4C2DAFD1E6 /* BeagleWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleWatchApp.swift; sourceTree = "<group>"; };
 		1160A4CA5DCDC7BF7C91604C /* FoundationModelsAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelsAgent.swift; sourceTree = "<group>"; };
-		B3AGL3SURF000000000002 /* BeagleSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleSurface.swift; sourceTree = "<group>"; };
-		E1C0C0RTEX000000000002 /* ExocortexTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExocortexTools.swift; sourceTree = "<group>"; };
+		148676E7FD99D57EF0457448 /* ExocortexTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExocortexTools.swift; sourceTree = "<group>"; };
 		1627EC91F819B45D2929869B /* MetalClusterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalClusterView.swift; sourceTree = "<group>"; };
 		180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThoughtCaptureView.swift; sourceTree = "<group>"; };
 		189F9DCDE0C15DEF48A24B21 /* ChatBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBubbleView.swift; sourceTree = "<group>"; };
+		1A6266364731B5C6EF907DE7 /* SpatialThoughtsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialThoughtsView.swift; sourceTree = "<group>"; };
+		277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HyperbolicGraphView.swift; sourceTree = "<group>"; };
 		287C64605E5D53C799744EFA /* AgentSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionView.swift; sourceTree = "<group>"; };
 		2C4128C7822635F0B4D0B966 /* PresencePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresencePill.swift; sourceTree = "<group>"; };
+		3133A19FD4CA197756C9D57A /* WorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkView.swift; sourceTree = "<group>"; };
 		365A4A4180DF64759923830A /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
-		L0R3NZ0000000000000002 /* LorenzAttractorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LorenzAttractorView.swift; sourceTree = "<group>"; };
 		3FADF6A9C3533B785FE38619 /* GoDeepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoDeepView.swift; sourceTree = "<group>"; };
 		4391CB65FB2D130CC3568338 /* BeagleCockpit.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BeagleCockpit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleWidgets.swift; sourceTree = "<group>"; };
@@ -105,31 +117,32 @@
 		4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizer.swift; sourceTree = "<group>"; };
 		4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsRunner.swift; sourceTree = "<group>"; };
 		4E7942CCBC29D0245EF77BB7 /* BeagleWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BeagleWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5409EBAF41662A24788CCC75 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleAppIntents.swift; sourceTree = "<group>"; };
 		57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepExplorationView.swift; sourceTree = "<group>"; };
 		58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriadReviewView.swift; sourceTree = "<group>"; };
 		5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HPCDashboardView.swift; sourceTree = "<group>"; };
 		5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleVisionOSApp.swift; sourceTree = "<group>"; };
-		B3A500000000000000000002 /* SpatialTriadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialTriadView.swift; sourceTree = "<group>"; };
-		B3A500000000000000000004 /* HyperbolicGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HyperbolicGraphView.swift; sourceTree = "<group>"; };
-		B3A500000000000000000006 /* SpatialThoughtsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialThoughtsView.swift; sourceTree = "<group>"; };
 		639809058407AA2A7F31CBFA /* ConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationView.swift; sourceTree = "<group>"; };
 		67516A1FA21422BE9A964B96 /* BeagleVisionOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BeagleVisionOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6E25761501AE3C48683C921A /* BeagleSuite */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BeagleSuite; path = BeagleSuite; sourceTree = SOURCE_ROOT; };
 		77EBB6E9F932B4C6400037BD /* ScienceJobsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScienceJobsView.swift; sourceTree = "<group>"; };
 		818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleCockpitApp.swift; sourceTree = "<group>"; };
 		8818FC1E3DC8B03233F14F29 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		8C802020558042DE65886DB3 /* BeagleAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleAppIntents.swift; sourceTree = "<group>"; };
+		88F68F6456B64893491C1B93 /* BeagleSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleSurface.swift; sourceTree = "<group>"; };
 		8F9429744BAEF1DC81205FFB /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		902E0125E6DDA133D4486E04 /* BuildInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildInfo.swift; sourceTree = "<group>"; };
-		E8A1F3C2D4B5E60A3C7F9013 /* JournalingSuggestionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalingSuggestionsView.swift; sourceTree = "<group>"; };
 		95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
+		A08540D355E6437F5F11ED49 /* JournalingSuggestionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalingSuggestionsView.swift; sourceTree = "<group>"; };
 		AB312C9D46D9321BC2DD8F95 /* CognitiveBridgeField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CognitiveBridgeField.swift; sourceTree = "<group>"; };
 		B4EBFAF926379A760494FDDE /* PlatformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformView.swift; sourceTree = "<group>"; };
-		B3A17E0B0000000000000002 /* WorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkView.swift; sourceTree = "<group>"; };
 		BF024B3743049659F7073E6C /* AgentActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityView.swift; sourceTree = "<group>"; };
 		CE66E5A63CE01CAC1A04AF63 /* BeagleWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = BeagleWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = BeagleShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D2CE724AEFED517CAC6C94C0 /* LorenzAttractorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LorenzAttractorView.swift; sourceTree = "<group>"; };
 		D4E5BFBC8407D4C833BA3F95 /* CognitiveStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CognitiveStateView.swift; sourceTree = "<group>"; };
 		E19225CC4B80CE9408A68022 /* ControlRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlRoomView.swift; sourceTree = "<group>"; };
+		E81EA117A445504E0B157182 /* SpatialTriadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialTriadView.swift; sourceTree = "<group>"; };
 		EC6B7360324065FECF7F1A2F /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		EECE76875D595132E400D65E /* HeatmapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeatmapView.swift; sourceTree = "<group>"; };
 		F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoDeepButton.swift; sourceTree = "<group>"; };
@@ -150,6 +163,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				8A5884FB4F1AAAAF5E951305 /* BeagleCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		76726D413C95C3912CD1DB0A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AEB6084416F309DE3C3BFE38 /* BeagleCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -177,8 +198,10 @@
 			children = (
 				BF024B3743049659F7073E6C /* AgentActivityView.swift */,
 				287C64605E5D53C799744EFA /* AgentSessionView.swift */,
+				579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */,
 				818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */,
 				F96E1A662D877979794235C0 /* BeagleInputBar.swift */,
+				88F68F6456B64893491C1B93 /* BeagleSurface.swift */,
 				902E0125E6DDA133D4486E04 /* BuildInfo.swift */,
 				189F9DCDE0C15DEF48A24B21 /* ChatBubbleView.swift */,
 				AB312C9D46D9321BC2DD8F95 /* CognitiveBridgeField.swift */,
@@ -188,18 +211,16 @@
 				57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */,
 				4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */,
 				95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */,
-				B3AGL3SURF000000000002 /* BeagleSurface.swift */,
+				148676E7FD99D57EF0457448 /* ExocortexTools.swift */,
 				1160A4CA5DCDC7BF7C91604C /* FoundationModelsAgent.swift */,
-				E1C0C0RTEX000000000002 /* ExocortexTools.swift */,
-				8C802020558042DE65886DB3 /* BeagleAppIntents.swift */,
 				F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */,
 				3FADF6A9C3533B785FE38619 /* GoDeepView.swift */,
 				EECE76875D595132E400D65E /* HeatmapView.swift */,
 				EC6B7360324065FECF7F1A2F /* HomeView.swift */,
 				5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */,
-				E8A1F3C2D4B5E60A3C7F9013 /* JournalingSuggestionsView.swift */,
+				A08540D355E6437F5F11ED49 /* JournalingSuggestionsView.swift */,
 				365A4A4180DF64759923830A /* LiveActivityManager.swift */,
-				L0R3NZ0000000000000002 /* LorenzAttractorView.swift */,
+				D2CE724AEFED517CAC6C94C0 /* LorenzAttractorView.swift */,
 				1627EC91F819B45D2929869B /* MetalClusterView.swift */,
 				0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */,
 				8F9429744BAEF1DC81205FFB /* OnboardingView.swift */,
@@ -211,17 +232,17 @@
 				47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */,
 				180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */,
 				58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */,
-				B3A17E0B0000000000000002 /* WorkView.swift */,
+				3133A19FD4CA197756C9D57A /* WorkView.swift */,
 			);
 			name = BeagleCockpit;
 			path = BeagleSuite/Sources/BeagleCockpit;
 			sourceTree = "<group>";
 		};
-		/* BeagleIntents group removed — file lives in BeagleCockpit */
 		7C39DE72712D22F710D2FD2E = {
 			isa = PBXGroup;
 			children = (
 				1EE0F86D153CC3158277A3F6 /* BeagleCockpit */,
+				E649B50A28BE221395D30798 /* BeagleShare */,
 				A44FE6DD06075EBD7162B376 /* BeagleVisionOS */,
 				806A66AAADB1C9F1106D558C /* BeagleWatch */,
 				F63D95C7A2B8A378076B12FC /* BeagleWidgets */,
@@ -244,9 +265,9 @@
 			isa = PBXGroup;
 			children = (
 				5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */,
-				B3A500000000000000000004 /* HyperbolicGraphView.swift */,
-				B3A500000000000000000006 /* SpatialThoughtsView.swift */,
-				B3A500000000000000000002 /* SpatialTriadView.swift */,
+				277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */,
+				1A6266364731B5C6EF907DE7 /* SpatialThoughtsView.swift */,
+				E81EA117A445504E0B157182 /* SpatialTriadView.swift */,
 			);
 			name = BeagleVisionOS;
 			path = BeagleSuite/Sources/BeagleVisionOS;
@@ -264,11 +285,21 @@
 			isa = PBXGroup;
 			children = (
 				4391CB65FB2D130CC3568338 /* BeagleCockpit.app */,
+				CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */,
 				67516A1FA21422BE9A964B96 /* BeagleVisionOS.app */,
 				4E7942CCBC29D0245EF77BB7 /* BeagleWatch.app */,
 				CE66E5A63CE01CAC1A04AF63 /* BeagleWidgets.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		E649B50A28BE221395D30798 /* BeagleShare */ = {
+			isa = PBXGroup;
+			children = (
+				5409EBAF41662A24788CCC75 /* ShareViewController.swift */,
+			);
+			name = BeagleShare;
+			path = BeagleSuite/Sources/BeagleShare;
 			sourceTree = "<group>";
 		};
 		F63D95C7A2B8A378076B12FC /* BeagleWidgets */ = {
@@ -316,6 +347,7 @@
 			);
 			dependencies = (
 				CA8DDC30CA207D4225485E24 /* PBXTargetDependency */,
+				9F024D34240EAB7F2DEEE8D4 /* PBXTargetDependency */,
 			);
 			name = BeagleCockpit;
 			packageProductDependencies = (
@@ -324,6 +356,25 @@
 			productName = BeagleCockpit;
 			productReference = 4391CB65FB2D130CC3568338 /* BeagleCockpit.app */;
 			productType = "com.apple.product-type.application";
+		};
+		4619751AD2B537C66DE2F869 /* BeagleShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ADA051C4329397C589EAD61B /* Build configuration list for PBXNativeTarget "BeagleShare" */;
+			buildPhases = (
+				C2F6A1E6E1FEEFAB0638D03C /* Sources */,
+				76726D413C95C3912CD1DB0A /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BeagleShare;
+			packageProductDependencies = (
+				3CE68477CD23BAC261300B32 /* BeagleCore */,
+			);
+			productName = BeagleShare;
+			productReference = CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		6B57DEA48061080A95ED178F /* BeagleWatch */ = {
 			isa = PBXNativeTarget;
@@ -381,6 +432,10 @@
 						DevelopmentTeam = S9DPGW22A8;
 						ProvisioningStyle = Automatic;
 					};
+					4619751AD2B537C66DE2F869 = {
+						DevelopmentTeam = S9DPGW22A8;
+						ProvisioningStyle = Automatic;
+					};
 					6B57DEA48061080A95ED178F = {
 						DevelopmentTeam = S9DPGW22A8;
 						ProvisioningStyle = Automatic;
@@ -409,6 +464,7 @@
 			projectRoot = "";
 			targets = (
 				233B7E5DA2C7B4C7AEE6B02C /* BeagleCockpit */,
+				4619751AD2B537C66DE2F869 /* BeagleShare */,
 				133E3664A7BB29ABCC6B3137 /* BeagleVisionOS */,
 				6B57DEA48061080A95ED178F /* BeagleWatch */,
 				D460B6115A3309F917104353 /* BeagleWidgets */,
@@ -458,9 +514,10 @@
 			files = (
 				951D9C072CAFC68FA6BAE300 /* AgentActivityView.swift in Sources */,
 				5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */,
-				CE44D183EF481CB215B031F3 /* BeagleAppIntents.swift in Sources */,
+				2506AE1D807F002678049438 /* BeagleAppIntents.swift in Sources */,
 				B29E7F8F8148C1AF28D130D0 /* BeagleCockpitApp.swift in Sources */,
 				6DDB4BC3B8EB67E8090EE6BF /* BeagleInputBar.swift in Sources */,
+				8003CBD314227378F652535A /* BeagleSurface.swift in Sources */,
 				E7D7E3A1DBEE70B042E893B4 /* BuildInfo.swift in Sources */,
 				9D3E9AC3F435A2A585B1F48B /* ChatBubbleView.swift in Sources */,
 				459A916447C162277C0E2299 /* CognitiveBridgeField.swift in Sources */,
@@ -470,17 +527,16 @@
 				4DA6AD62DD347FAACCB96433 /* DeepExplorationView.swift in Sources */,
 				558DF95BA7821C7D9511DA64 /* DiagnosticsRunner.swift in Sources */,
 				FD773EBDECB3C46EB77F7469 /* DiagnosticsView.swift in Sources */,
-				B3AGL3SURF000000000001 /* BeagleSurface.swift in Sources */,
+				C7FB16C8609C0B478FA7DAD2 /* ExocortexTools.swift in Sources */,
 				0DD04528F8D0BA08681233BE /* FoundationModelsAgent.swift in Sources */,
-				E1C0C0RTEX000000000001 /* ExocortexTools.swift in Sources */,
 				955AF5DFA3C5E28DE9E71AAF /* GoDeepButton.swift in Sources */,
 				B4C18225A382E1164A752BEC /* GoDeepView.swift in Sources */,
 				AFF447F376A1DA08356C28E0 /* HPCDashboardView.swift in Sources */,
 				BF0742CD0ABD9D8AD53DE9D6 /* HeatmapView.swift in Sources */,
 				907EF19DEAD54A0CE58672EC /* HomeView.swift in Sources */,
-				E8A1F3C2D4B5E60A3C7F9012 /* JournalingSuggestionsView.swift in Sources */,
+				06BB7ABD02B36D11C5057D62 /* JournalingSuggestionsView.swift in Sources */,
 				BD8DE849A86BAFDCE1CAC86B /* LiveActivityManager.swift in Sources */,
-				L0R3NZ0000000000000001 /* LorenzAttractorView.swift in Sources */,
+				8074F587452ECB33D0DAEA08 /* LorenzAttractorView.swift in Sources */,
 				2E61BDB009F282CB1A3CCCE7 /* MetalClusterView.swift in Sources */,
 				B153B877BF3BB76F401EF7EF /* ModelSettingsView.swift in Sources */,
 				40BF456C71ED40A7CBF92FD8 /* OnboardingView.swift in Sources */,
@@ -492,7 +548,7 @@
 				232DEFB048E340F8FE242BDB /* TerminalContentView.swift in Sources */,
 				DBDE230C56BD951ED91BCF5C /* ThoughtCaptureView.swift in Sources */,
 				A3ED060D3B5CB1EB7489B82E /* TriadReviewView.swift in Sources */,
-				B3A17E0B0000000000000001 /* WorkView.swift in Sources */,
+				C4F95F143E38413D13ABCBF1 /* WorkView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -504,20 +560,34 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C2F6A1E6E1FEEFAB0638D03C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0FF17280899BAC7B5FC70CB9 /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F4DE0B16CEA292D5D5703966 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				9CC466E7952DB6517E30310A /* BeagleVisionOSApp.swift in Sources */,
-				B3A500000000000000000003 /* HyperbolicGraphView.swift in Sources */,
-				B3A500000000000000000005 /* SpatialThoughtsView.swift in Sources */,
-				B3A500000000000000000001 /* SpatialTriadView.swift in Sources */,
+				357233B56EA6220C81DFC055 /* HyperbolicGraphView.swift in Sources */,
+				431207BF2DFB6E4513C886C7 /* SpatialThoughtsView.swift in Sources */,
+				E90459441F120031896D82A3 /* SpatialTriadView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		9F024D34240EAB7F2DEEE8D4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = 4619751AD2B537C66DE2F869 /* BeagleShare */;
+			targetProxy = C2CC835C65AC098EE6C6EB0B /* PBXContainerItemProxy */;
+		};
 		CA8DDC30CA207D4225485E24 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			platformFilter = ios;
@@ -805,6 +875,26 @@
 			};
 			name = Release;
 		};
+		DFA2DAEB30472DE61F642AA0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Entitlements/BeagleShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S9DPGW22A8;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "BeagleShare-Info.plist";
+				ITSAppUsesNonExemptEncryption = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit.share;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		E937B9DA74124B229381CF33 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -821,6 +911,26 @@
 				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit.vision;
 				SDKROOT = xros;
 				TARGETED_DEVICE_FAMILY = 7;
+			};
+			name = Release;
+		};
+		FD1AAEA89D63A2068F3F7079 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Entitlements/BeagleShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S9DPGW22A8;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "BeagleShare-Info.plist";
+				ITSAppUsesNonExemptEncryption = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit.share;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -854,6 +964,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		ADA051C4329397C589EAD61B /* Build configuration list for PBXNativeTarget "BeagleShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DFA2DAEB30472DE61F642AA0 /* Debug */,
+				FD1AAEA89D63A2068F3F7079 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		B8A0FF4451985D40DBA733B3 /* Build configuration list for PBXNativeTarget "BeagleWidgets" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -882,6 +1001,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		3CE68477CD23BAC261300B32 /* BeagleCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BeagleCore;
+		};
 		85AA837F77CBB98A5A3D1297 /* BeagleCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = BeagleCore;

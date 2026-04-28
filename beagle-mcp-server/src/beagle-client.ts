@@ -384,6 +384,30 @@ export class BeagleClient {
         return this.request("POST", "/api/exocortex/v1/graphrag/query", body, 60000);
     }
 
+    async contextCompile(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/context/compile", body, 120000);
+    }
+
+    async contextPackGet(packId: string): Promise<unknown> {
+        return this.request("GET", `/api/exocortex/v1/context/packs/${encodeURIComponent(packId)}`, undefined, 30000);
+    }
+
+    async memoryEffectivenessRecord(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/memory/effectiveness/events", body, 30000);
+    }
+
+    async coreMemoryPolicyStatus(): Promise<unknown> {
+        return this.request("GET", "/api/exocortex/v1/memory/policy/status", undefined, 30000);
+    }
+
+    async coreDreamCycleRun(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/memory/dreamcycle/run", body, 120000);
+    }
+
+    async coreDreamCycleStatus(): Promise<unknown> {
+        return this.request("GET", "/api/exocortex/v1/memory/dreamcycle/status", undefined, 30000);
+    }
+
     private memoryEngineUrl(): string {
         return (process.env.BEAGLE_MEMORY_ENGINE_URL || "http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090").replace(/\/$/, "");
     }
@@ -438,6 +462,30 @@ export class BeagleClient {
 
     async memoryArenaStatus(): Promise<unknown> {
         return this.request("GET", "/v1/bench/memoryarena/status", undefined, 30000, this.memoryEngineUrl());
+    }
+
+    async engineContextCompile(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/context/compile", body, 120000, this.memoryEngineUrl());
+    }
+
+    async memoryPolicyEvaluate(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/policy/evaluate", body, 120000, this.memoryEngineUrl());
+    }
+
+    async memoryPolicyUpdate(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/policy/update", body, 120000, this.memoryEngineUrl());
+    }
+
+    async memoryPolicyStatus(): Promise<unknown> {
+        return this.request("GET", "/v1/policy/status", undefined, 30000, this.memoryEngineUrl());
+    }
+
+    async dreamCycleRun(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/dreamcycle/runs", body, 300000, this.memoryEngineUrl());
+    }
+
+    async dreamCycleStatus(): Promise<unknown> {
+        return this.request("GET", "/v1/dreamcycle/status", undefined, 30000, this.memoryEngineUrl());
     }
 
     async coreMemoryBenchmarkStatus(): Promise<unknown> {

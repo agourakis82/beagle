@@ -1564,6 +1564,10 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
     public let plannerMode: String?
     public let budget: ExocortexJSONValue?
     public let runtimeTrace: [RetrievalTraceStep]
+    public let contextPackId: String?
+    public let policyVersion: String?
+    public let policyGate: ExocortexJSONValue?
+    public let dreamcycleStatus: String?
 
     enum CodingKeys: String, CodingKey {
         case summary
@@ -1600,6 +1604,10 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
         case plannerMode = "planner_mode"
         case budget
         case runtimeTrace = "runtime_trace"
+        case contextPackId = "context_pack_id"
+        case policyVersion = "policy_version"
+        case policyGate = "policy_gate"
+        case dreamcycleStatus = "dreamcycle_status"
     }
 
     public init(from decoder: Decoder) throws {
@@ -1638,6 +1646,136 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
         plannerMode = try container.decodeIfPresent(String.self, forKey: .plannerMode)
         budget = try container.decodeIfPresent(ExocortexJSONValue.self, forKey: .budget)
         runtimeTrace = try container.decodeIfPresent([RetrievalTraceStep].self, forKey: .runtimeTrace) ?? []
+        contextPackId = try container.decodeIfPresent(String.self, forKey: .contextPackId)
+        policyVersion = try container.decodeIfPresent(String.self, forKey: .policyVersion)
+        policyGate = try container.decodeIfPresent(ExocortexJSONValue.self, forKey: .policyGate)
+        dreamcycleStatus = try container.decodeIfPresent(String.self, forKey: .dreamcycleStatus)
+    }
+}
+
+public struct ContextPack: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let schemaVersion: String
+    public let query: String
+    public let task: String?
+    public let surface: String
+    public let format: String
+    public let policyVersion: String
+    public let policyMode: String
+    public let tokenBudget: Int
+    public let retrievalPlanId: String?
+    public let strategyUsed: String
+    public let contextSections: ExocortexJSONValue?
+    public let evidenceRefs: [String]
+    public let provenance: ExocortexJSONValue?
+    public let restrictedLeakCheck: ExocortexJSONValue?
+    public let policyRationale: [String]
+    public let fallbackChain: [String]
+    public let nextAction: String
+    public let degradedReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case schemaVersion = "schema_version"
+        case query
+        case task
+        case surface
+        case format
+        case policyVersion = "policy_version"
+        case policyMode = "policy_mode"
+        case tokenBudget = "token_budget"
+        case retrievalPlanId = "retrieval_plan_id"
+        case strategyUsed = "strategy_used"
+        case contextSections = "context_sections"
+        case evidenceRefs = "evidence_refs"
+        case provenance
+        case restrictedLeakCheck = "restricted_leak_check"
+        case policyRationale = "policy_rationale"
+        case fallbackChain = "fallback_chain"
+        case nextAction = "next_action"
+        case degradedReason = "degraded_reason"
+    }
+}
+
+public struct MemoryPolicyStatus: Codable, Equatable, Sendable {
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let status: String
+    public let policyVersion: String
+    public let policyMode: String
+    public let promotionGate: ExocortexJSONValue?
+    public let degradedReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case status
+        case policyVersion = "policy_version"
+        case policyMode = "policy_mode"
+        case promotionGate = "promotion_gate"
+        case degradedReason = "degraded_reason"
+    }
+}
+
+public struct DreamCycleStatus: Codable, Equatable, Sendable {
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let status: String
+    public let mode: String
+    public let policy: String
+    public let candidateOutputsActive: Bool
+    public let degradedReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case status
+        case mode
+        case policy
+        case candidateOutputsActive = "candidate_outputs_active"
+        case degradedReason = "degraded_reason"
+    }
+}
+
+public struct MemoryEffectivenessEvent: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let schemaVersion: String
+    public let contextPackId: String
+    public let surface: String
+    public let principal: String
+    public let strategyUsed: String
+    public let success: Bool
+    public let outcome: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case schemaVersion = "schema_version"
+        case contextPackId = "context_pack_id"
+        case surface
+        case principal
+        case strategyUsed = "strategy_used"
+        case success
+        case outcome
+    }
+}
+
+public struct IntentCapsule: Codable, Equatable, Sendable {
+    public let sourceSurface: String
+    public let intent: String
+    public let bodySummary: String?
+    public let redactionState: String
+    public let privacyClass: String
+
+    enum CodingKeys: String, CodingKey {
+        case sourceSurface = "source_surface"
+        case intent
+        case bodySummary = "body_summary"
+        case redactionState = "redaction_state"
+        case privacyClass = "privacy_class"
     }
 }
 
@@ -1946,6 +2084,11 @@ public struct TrustContext: Codable, Equatable, Sendable {
     public let retrievalAgentStatus: String?
     public let latestRetrievalStrategy: String?
     public let memoryarenaGate: String?
+    public let contextCompilerStatus: String?
+    public let latestContextPackId: String?
+    public let memoryPolicyStatus: String?
+    public let policyGate: String?
+    public let dreamcycleStatus: String?
 
     enum CodingKeys: String, CodingKey {
         case mcpStatus = "mcp_status"
@@ -1982,6 +2125,11 @@ public struct TrustContext: Codable, Equatable, Sendable {
         case retrievalAgentStatus = "retrieval_agent_status"
         case latestRetrievalStrategy = "latest_retrieval_strategy"
         case memoryarenaGate = "memoryarena_gate"
+        case contextCompilerStatus = "context_compiler_status"
+        case latestContextPackId = "latest_context_pack_id"
+        case memoryPolicyStatus = "memory_policy_status"
+        case policyGate = "policy_gate"
+        case dreamcycleStatus = "dreamcycle_status"
     }
 }
 

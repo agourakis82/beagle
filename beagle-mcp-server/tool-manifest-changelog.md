@@ -1,5 +1,22 @@
 # Beagle MCP Tool Manifest Changelog
 
+## beagle-mcp-v2.3-context-compiler-policy
+
+- Tool count: 57
+- Tool manifest hash: `sha256:f027a6f024e13f14e05823c71ba0c20c98e5b10f28e4d688f062b7bddb0fc833`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from public, mobile, local-agent, context-compiler, policy-learner, DreamCycle, Retrieval Agent, MemoryArena, benchmark, and governance surfaces.
+- Added Adaptive Context Compiler tools:
+  - `beagle_context_compile`
+  - `beagle_context_pack_get`
+- Added Memory Policy Learner tools:
+  - `beagle_memory_effectiveness_record`
+  - `beagle_memory_policy_status`
+- Added DreamCycle tools:
+  - `beagle_dreamcycle_run`
+  - `beagle_dreamcycle_status`
+- `search`, `fetch`, and `beagle_retrieval_agent_query` expose `context_pack_id`, `policy_version`, policy gate, DreamCycle status and fallback metadata when available.
+
 ## beagle-mcp-v2.2-retrieval-agent-memoryarena
 
 - Tool count: 51

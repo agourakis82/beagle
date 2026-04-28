@@ -46,6 +46,9 @@ const MEMORY_PROMOTION_DECISIONS_LOG: &str = "memory_promotion_decisions.jsonl";
 const MEMORY_QUALITY_SCORES_LOG: &str = "memory_quality_scores.jsonl";
 const MEMORY_TRUTHSETS_LOG: &str = "memory_truthsets.jsonl";
 const MEMORY_TRUTH_CASES_LOG: &str = "memory_truth_cases.jsonl";
+const CONTEXT_PACKS_LOG: &str = "context_packs.jsonl";
+const MEMORY_EFFECTIVENESS_EVENTS_LOG: &str = "memory_effectiveness_events.jsonl";
+const MEMORY_DREAMCYCLE_RUNS_LOG: &str = "memory_dreamcycle_runs.jsonl";
 const AGENT_OBSERVATIONS_LOG: &str = "agent_observations.jsonl";
 const PROJECT_STATES_LOG: &str = "project_states.jsonl";
 const CAUSAL_HYPOTHESES_LOG: &str = "causal_hypotheses.jsonl";
@@ -57,6 +60,8 @@ const MEMORY_MESH_SCHEMA: &str = "beagle-federated-memory-engine-v1.5";
 const MEMORY_GOVERNANCE_SCHEMA: &str = "beagle-self-governing-memory-v1.6";
 const MEMORY_BENCH_SCHEMA: &str = "beagle-memory-truth-hypermemory-v1.9";
 const MEMORY_TRUTH_SCHEMA: &str = "beagle-private-memory-truthset-v1.9";
+const CONTEXT_COMPILER_SCHEMA: &str = "beagle-adaptive-context-compiler-v2.3";
+const MEMORY_POLICY_SCHEMA: &str = "beagle-memory-policy-learner-v2.3";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextSnapshot {
@@ -874,6 +879,190 @@ pub struct GraphRagQueryRequest {
     pub mode: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct ContextCompileRequest {
+    pub query: String,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub surface: Option<String>,
+    #[serde(default)]
+    pub task: Option<String>,
+    #[serde(default)]
+    pub max_items: Option<usize>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub token_budget: Option<usize>,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextPack {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+    pub surface: String,
+    pub format: String,
+    pub policy_version: String,
+    pub policy_mode: String,
+    pub token_budget: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_plan_id: Option<String>,
+    pub strategy_used: String,
+    #[serde(default)]
+    pub context_sections: serde_json::Value,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    #[serde(default)]
+    pub restricted_leak_check: serde_json::Value,
+    #[serde(default)]
+    pub policy_rationale: Vec<String>,
+    #[serde(default)]
+    pub fallback_chain: Vec<String>,
+    pub next_action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degraded_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MemoryEffectivenessEventRequest {
+    pub context_pack_id: String,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub surface: Option<String>,
+    #[serde(default)]
+    pub principal: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub strategy_used: Option<String>,
+    #[serde(default)]
+    pub tokens_used: Option<usize>,
+    #[serde(default)]
+    pub latency_ms: Option<f64>,
+    #[serde(default)]
+    pub tests: Vec<String>,
+    #[serde(default)]
+    pub feedback: Option<String>,
+    #[serde(default)]
+    pub human_correction: Option<String>,
+    #[serde(default)]
+    pub success: Option<bool>,
+    #[serde(default)]
+    pub outcome: Option<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryEffectivenessEvent {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub context_pack_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    pub surface: String,
+    pub principal: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub strategy_used: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens_used: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<f64>,
+    #[serde(default)]
+    pub tests: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub human_correction: Option<String>,
+    pub success: bool,
+    pub outcome: String,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryPolicyStatus {
+    pub generated_at: String,
+    pub schema_version: String,
+    pub status: String,
+    pub policy_version: String,
+    pub policy_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_effectiveness_event: Option<MemoryEffectivenessEvent>,
+    #[serde(default)]
+    pub outcome_counts: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub promotion_gate: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degraded_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DreamCycleRunRequest {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub triggered_by: Option<String>,
+    #[serde(default)]
+    pub dry_run: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DreamCycleRun {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub status: String,
+    pub mode: String,
+    pub dry_run: bool,
+    pub triggered_by: String,
+    pub source_episode_count: usize,
+    pub source_atom_count: usize,
+    pub candidate_count: usize,
+    pub contradiction_count: usize,
+    pub procedural_memory_count: usize,
+    pub stale_belief_count: usize,
+    pub project_summary_count: usize,
+    pub unresolved_loop_count: usize,
+    pub suggested_truth_cases: usize,
+    #[serde(default)]
+    pub generated_candidate_refs: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    pub promotion_policy: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degraded_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DreamCycleStatus {
+    pub generated_at: String,
+    pub schema_version: String,
+    pub status: String,
+    pub mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_run: Option<DreamCycleRun>,
+    pub policy: String,
+    pub candidate_outputs_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degraded_reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphRagEvidence {
     pub atom_id: String,
@@ -1006,6 +1195,14 @@ pub struct GraphRagQueryResponse {
     pub budget: serde_json::Value,
     #[serde(default)]
     pub runtime_trace: Vec<RetrievalTraceStep>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_pack_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_version: Option<String>,
+    #[serde(default)]
+    pub policy_gate: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dreamcycle_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1222,6 +1419,16 @@ pub struct TrustContext {
     pub latest_retrieval_strategy: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memoryarena_gate: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_compiler_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_context_pack_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_policy_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_gate: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dreamcycle_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1472,6 +1679,30 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(memory_assisted_import_handler),
         )
         .route(
+            "/api/exocortex/v1/context/compile",
+            post(context_compile_handler),
+        )
+        .route(
+            "/api/exocortex/v1/context/packs/:pack_id",
+            get(context_pack_get_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/effectiveness/events",
+            post(memory_effectiveness_event_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/policy/status",
+            get(memory_policy_status_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/dreamcycle/run",
+            post(memory_dreamcycle_run_handler),
+        )
+        .route(
+            "/api/exocortex/v1/memory/dreamcycle/status",
+            get(memory_dreamcycle_status_handler),
+        )
+        .route(
             "/api/exocortex/v1/memory/export",
             post(memory_export_handler),
         )
@@ -1632,6 +1863,68 @@ async fn memory_assisted_import_handler(
     repo.ensure().map_err(internal_error)?;
     let result = repo.assisted_import_batch(req).map_err(internal_error)?;
     Ok(Json(result))
+}
+
+async fn context_compile_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<ContextCompileRequest>,
+) -> Result<Json<ContextPack>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let pack = repo.context_compile(req).map_err(internal_error)?;
+    Ok(Json(pack))
+}
+
+async fn context_pack_get_handler(
+    State(_state): State<AppState>,
+    Path(pack_id): Path<String>,
+) -> Result<Json<ContextPack>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    repo.context_pack(&pack_id)
+        .map_err(internal_error)?
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+async fn memory_effectiveness_event_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<MemoryEffectivenessEventRequest>,
+) -> Result<Json<MemoryEffectivenessEvent>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let event = repo
+        .record_memory_effectiveness(req)
+        .map_err(internal_error)?;
+    Ok(Json(event))
+}
+
+async fn memory_policy_status_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<MemoryPolicyStatus>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let status = repo.memory_policy_status().map_err(internal_error)?;
+    Ok(Json(status))
+}
+
+async fn memory_dreamcycle_run_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<DreamCycleRunRequest>,
+) -> Result<Json<DreamCycleRun>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let run = repo.run_dreamcycle(req).map_err(internal_error)?;
+    Ok(Json(run))
+}
+
+async fn memory_dreamcycle_status_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<DreamCycleStatus>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let status = repo.dreamcycle_status().map_err(internal_error)?;
+    Ok(Json(status))
 }
 
 async fn memory_export_handler(
@@ -3333,6 +3626,18 @@ impl ExocortexRepository {
                     0,
                     0,
                 ),
+                context_pack_id: Some(stable_id(
+                    "context-pack",
+                    &[
+                        &req.query,
+                        &requested_mode,
+                        &strategy_used,
+                        &memory_policy_version(),
+                    ],
+                )),
+                policy_version: Some(memory_policy_version()),
+                policy_gate: memory_policy_gate_json(),
+                dreamcycle_status: Some(dreamcycle_mode()),
             });
         }
 
@@ -3679,6 +3984,18 @@ impl ExocortexRepository {
                 evidence_count,
                 matched_episode_count,
             ),
+            context_pack_id: Some(stable_id(
+                "context-pack",
+                &[
+                    &req.query,
+                    &requested_mode,
+                    &strategy_used,
+                    &memory_policy_version(),
+                ],
+            )),
+            policy_version: Some(memory_policy_version()),
+            policy_gate: memory_policy_gate_json(),
+            dreamcycle_status: Some(dreamcycle_mode()),
         })
     }
 
@@ -4168,6 +4485,302 @@ impl ExocortexRepository {
             })),
         })?;
         Ok(candidate)
+    }
+
+    fn context_compile(&self, req: ContextCompileRequest) -> anyhow::Result<ContextPack> {
+        self.ensure()?;
+        let mode = req.mode.clone().unwrap_or_else(memory_hot_path_mode);
+        let query_response = self.graphrag_query(GraphRagQueryRequest {
+            query: req.query.clone(),
+            scope: req.scope.clone(),
+            max_items: req.max_items,
+            mode: Some(mode.clone()),
+        })?;
+        let evidence_refs = query_response
+            .evidence
+            .iter()
+            .flat_map(|item| {
+                let mut refs = vec![
+                    format!("atom:{}", item.atom_id),
+                    format!("episode:{}", item.episode_id),
+                ];
+                refs.extend(item.source_refs.clone());
+                refs
+            })
+            .collect::<Vec<_>>();
+        let token_budget = req.token_budget.unwrap_or_else(|| {
+            if req.surface.as_deref().unwrap_or("").contains("watch") {
+                1_200
+            } else {
+                8_000
+            }
+        });
+        let strategy_used = query_response.strategy_used.clone();
+        let pack = ContextPack {
+            id: stable_id(
+                "context-pack",
+                &[
+                    &req.query,
+                    req.surface.as_deref().unwrap_or("core-context"),
+                    &strategy_used,
+                    &memory_policy_version(),
+                ],
+            ),
+            created_at: Utc::now().to_rfc3339(),
+            schema_version: CONTEXT_COMPILER_SCHEMA.to_string(),
+            query: req.query.clone(),
+            task: req.task.clone(),
+            surface: req
+                .surface
+                .clone()
+                .unwrap_or_else(|| "beagle-core-context".to_string()),
+            format: "episodic_envelope+evidence_frontier+procedural_hint+contradiction_guard+next_action"
+                .to_string(),
+            policy_version: memory_policy_version(),
+            policy_mode: memory_policy_mode(),
+            token_budget,
+            retrieval_plan_id: Some(query_response.retrieval_plan_id.clone()),
+            strategy_used,
+            context_sections: serde_json::json!({
+                "episodic_envelope": query_response.episodes.iter().take(6).collect::<Vec<_>>(),
+                "evidence_frontier": query_response.evidence.iter().take(req.max_items.unwrap_or(8)).collect::<Vec<_>>(),
+                "hypergraph_relations": query_response.relations.iter().take(16).collect::<Vec<_>>(),
+                "timeline": query_response.temporal_context,
+                "procedural_hint": [
+                    "Preserve full episode context around nucleus hits.",
+                    "Cite provenance and confidence before synthesis.",
+                    "Record MemoryEffectivenessEvent after the action."
+                ],
+                "contradiction_guard": query_response.candidate_refs,
+                "next_action": "Use this ContextPack, then append an effectiveness event with outcome."
+            }),
+            evidence_refs,
+            provenance: serde_json::json!({
+                "canonical_source": "beagle-core-jsonl",
+                "mode": mode,
+                "context_compiler": context_compiler_mode(),
+                "agent": req.agent,
+                "session_id": req.session_id,
+            }),
+            restricted_leak_check: query_response.restricted_leak_check,
+            policy_rationale: vec![
+                format!("policy={}", memory_policy_version()),
+                format!("compiler={}", context_compiler_mode()),
+                "Policy learning is observe-only until MemoryArena private gate passes.".to_string(),
+            ],
+            fallback_chain: query_response.fallback_chain,
+            next_action:
+                "Act with the compiled context and record effectiveness feedback afterward."
+                    .to_string(),
+            degraded_reason: query_response.degraded_reason,
+        };
+        self.append_jsonl(CONTEXT_PACKS_LOG, &pack)?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some("beagle-core".to_string()),
+            action: Some("context.compile".to_string()),
+            tool_name: Some("beagle_context_compile".to_string()),
+            risk_level: Some("read".to_string()),
+            required_scopes: vec!["exocortex:read".to_string()],
+            granted_scopes: vec!["exocortex:read".to_string()],
+            status: Some("success".to_string()),
+            source: Some("context-compiler".to_string()),
+            target_ref: Some(format!("context_pack:{}", pack.id)),
+            summary: Some("Compiled adaptive ContextPack from GraphRAG++ evidence.".to_string()),
+            metadata: Some(serde_json::json!({
+                "schema_version": CONTEXT_COMPILER_SCHEMA,
+                "policy_version": pack.policy_version,
+                "strategy_used": pack.strategy_used,
+                "context_compiler": context_compiler_mode()
+            })),
+        })?;
+        Ok(pack)
+    }
+
+    fn context_pack(&self, pack_id: &str) -> anyhow::Result<Option<ContextPack>> {
+        Ok(self
+            .read_recent_jsonl::<ContextPack>(CONTEXT_PACKS_LOG, usize::MAX)?
+            .into_iter()
+            .rev()
+            .find(|pack| pack.id == pack_id))
+    }
+
+    fn record_memory_effectiveness(
+        &self,
+        req: MemoryEffectivenessEventRequest,
+    ) -> anyhow::Result<MemoryEffectivenessEvent> {
+        self.ensure()?;
+        let event = MemoryEffectivenessEvent {
+            id: Uuid::new_v4().to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            schema_version: MEMORY_POLICY_SCHEMA.to_string(),
+            context_pack_id: req.context_pack_id,
+            query: req.query,
+            surface: req.surface.unwrap_or_else(|| "unknown-surface".to_string()),
+            principal: req
+                .principal
+                .unwrap_or_else(|| "unknown-principal".to_string()),
+            session_id: req.session_id,
+            strategy_used: req
+                .strategy_used
+                .unwrap_or_else(|| "not-recorded".to_string()),
+            tokens_used: req.tokens_used,
+            latency_ms: req.latency_ms,
+            tests: req.tests,
+            feedback: req.feedback,
+            human_correction: req.human_correction,
+            success: req.success.unwrap_or(false),
+            outcome: req.outcome.unwrap_or_else(|| "observed".to_string()),
+            metadata: req.metadata,
+        };
+        self.append_jsonl(MEMORY_EFFECTIVENESS_EVENTS_LOG, &event)?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some(event.principal.clone()),
+            action: Some("memory.effectiveness_record".to_string()),
+            tool_name: Some("beagle_memory_effectiveness_record".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: vec!["memory:write".to_string()],
+            status: Some("success".to_string()),
+            source: Some(event.surface.clone()),
+            target_ref: Some(format!("context_pack:{}", event.context_pack_id)),
+            summary: Some(format!("Recorded memory policy outcome: {}", event.outcome)),
+            metadata: Some(serde_json::json!({
+                "schema_version": MEMORY_POLICY_SCHEMA,
+                "policy_version": memory_policy_version(),
+                "strategy_used": event.strategy_used,
+                "success": event.success
+            })),
+        })?;
+        Ok(event)
+    }
+
+    fn memory_policy_status(&self) -> anyhow::Result<MemoryPolicyStatus> {
+        self.ensure()?;
+        let events = self
+            .read_recent_jsonl::<MemoryEffectivenessEvent>(MEMORY_EFFECTIVENESS_EVENTS_LOG, 250)?;
+        let latest_effectiveness_event = events.last().cloned();
+        let mut outcome_counts = BTreeMap::<String, usize>::new();
+        for event in &events {
+            *outcome_counts.entry(event.outcome.clone()).or_default() += 1;
+        }
+        Ok(MemoryPolicyStatus {
+            generated_at: Utc::now().to_rfc3339(),
+            schema_version: MEMORY_POLICY_SCHEMA.to_string(),
+            status: memory_policy_mode(),
+            policy_version: memory_policy_version(),
+            policy_mode: memory_policy_mode(),
+            latest_effectiveness_event,
+            outcome_counts,
+            promotion_gate: memory_policy_gate_json(),
+            degraded_reason: Some(
+                "Policy learner is observe/recommend/canary only; no fine-tuning or automatic promotion."
+                    .to_string(),
+            ),
+        })
+    }
+
+    fn run_dreamcycle(&self, req: DreamCycleRunRequest) -> anyhow::Result<DreamCycleRun> {
+        self.ensure()?;
+        let limit = req.limit.unwrap_or(500).clamp(1, 5_000);
+        let episodes = self.read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, limit)?;
+        let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, limit)?;
+        let dry_run = req.dry_run.unwrap_or(true);
+        let mut generated_candidate_refs = Vec::new();
+        if !dry_run {
+            for (candidate_type, text) in [
+                (
+                    "procedural_memory",
+                    "DreamCycle candidate: consolidate recent work-memory into a reusable procedural playbook.",
+                ),
+                (
+                    "project_summary",
+                    "DreamCycle candidate: summarize active project drift and unresolved loops.",
+                ),
+                (
+                    "contradiction_watch",
+                    "DreamCycle candidate: review stale beliefs and contradictions before promotion.",
+                ),
+            ] {
+                let candidate = self.create_memory_candidate(CreateMemoryCandidateRequest {
+                    candidate_type: candidate_type.to_string(),
+                    text: text.to_string(),
+                    source_refs: vec!["dreamcycle:v2.3".to_string()],
+                    relations: Vec::new(),
+                    tags: vec![
+                        "dreamcycle".to_string(),
+                        "candidate".to_string(),
+                        "v2.3".to_string(),
+                    ],
+                    provenance: serde_json::json!({
+                        "schema_version": CONTEXT_COMPILER_SCHEMA,
+                        "source": "beagle-core-dreamcycle",
+                        "dry_run": dry_run
+                    }),
+                    confidence: Some(0.58),
+                    privacy_class: Some("sensitive".to_string()),
+                })?;
+                generated_candidate_refs.push(candidate.id);
+            }
+        }
+        let run = DreamCycleRun {
+            id: Uuid::new_v4().to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            schema_version: CONTEXT_COMPILER_SCHEMA.to_string(),
+            status: if dry_run {
+                "dry_run".to_string()
+            } else {
+                "candidates_recorded".to_string()
+            },
+            mode: req.mode.unwrap_or_else(dreamcycle_mode),
+            dry_run,
+            triggered_by: req.triggered_by.unwrap_or_else(|| "manual".to_string()),
+            source_episode_count: episodes.len(),
+            source_atom_count: atoms.len(),
+            candidate_count: if dry_run { 3 } else { generated_candidate_refs.len() },
+            contradiction_count: usize::from(!atoms.is_empty()),
+            procedural_memory_count: usize::from(!episodes.is_empty()),
+            stale_belief_count: usize::from(atoms.len() > 10),
+            project_summary_count: usize::from(!episodes.is_empty()),
+            unresolved_loop_count: usize::from(!episodes.is_empty()),
+            suggested_truth_cases: 3,
+            generated_candidate_refs,
+            provenance: serde_json::json!({
+                "canonical_source": "/var/lib/beagle/exocortex",
+                "restricted_policy": "restricted never enters DreamCycle candidates automatically",
+                "cluster_only": true
+            }),
+            promotion_policy:
+                "DreamCycle outputs are candidates only; Governor/Triad is required before active retrieval."
+                    .to_string(),
+            degraded_reason: Some(
+                "DreamCycle v2.3 is deterministic consolidation; LLM reflection remains optional."
+                    .to_string(),
+            ),
+        };
+        self.append_jsonl(MEMORY_DREAMCYCLE_RUNS_LOG, &run)?;
+        Ok(run)
+    }
+
+    fn dreamcycle_status(&self) -> anyhow::Result<DreamCycleStatus> {
+        let latest_run = self
+            .read_recent_jsonl::<DreamCycleRun>(MEMORY_DREAMCYCLE_RUNS_LOG, 1)?
+            .into_iter()
+            .next();
+        Ok(DreamCycleStatus {
+            generated_at: Utc::now().to_rfc3339(),
+            schema_version: CONTEXT_COMPILER_SCHEMA.to_string(),
+            status: latest_run
+                .as_ref()
+                .map(|run| run.status.clone())
+                .unwrap_or_else(|| "manual-ready".to_string()),
+            mode: dreamcycle_mode(),
+            latest_run,
+            policy:
+                "candidate-only consolidation; no DreamCycle inference enters Home/search without Governor/Triad."
+                    .to_string(),
+            candidate_outputs_active: false,
+            degraded_reason: None,
+        })
     }
 
     fn record_candidate_quorum(
@@ -4728,6 +5341,13 @@ impl ExocortexRepository {
                 "memoryarena-shadow".to_string()
             }
         });
+        let latest_context_pack_id = self
+            .read_recent_jsonl::<ContextPack>(CONTEXT_PACKS_LOG, 1)
+            .ok()
+            .and_then(|mut packs| packs.pop())
+            .map(|pack| pack.id);
+        let policy_status = self.memory_policy_status().ok();
+        let dreamcycle_status = self.dreamcycle_status().ok();
         let trust_context = Some(TrustContext {
             mcp_status: if audit_events.is_empty() {
                 "no-audit-events-yet".to_string()
@@ -4804,6 +5424,25 @@ impl ExocortexRepository {
             )),
             latest_retrieval_strategy,
             memoryarena_gate,
+            context_compiler_status: Some(format!(
+                "{}+{}",
+                context_compiler_mode(),
+                retrieval_context_format()
+            )),
+            latest_context_pack_id,
+            memory_policy_status: policy_status
+                .as_ref()
+                .map(|status| format!("{}:{}", status.policy_mode, status.policy_version)),
+            policy_gate: Some(
+                memory_policy_gate_json()
+                    .get("promotion")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("observe")
+                    .to_string(),
+            ),
+            dreamcycle_status: dreamcycle_status
+                .as_ref()
+                .map(|status| format!("{}:{}", status.mode, status.status)),
         });
         let temporal_phase = temporal_phase.or_else(|| {
             causal_hypotheses
@@ -5450,6 +6089,53 @@ fn retrieval_planner_mode() -> String {
         .map(|value| value.trim().to_lowercase())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "hybrid".to_string())
+}
+
+fn context_compiler_mode() -> String {
+    env::var("BEAGLE_CONTEXT_COMPILER")
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "shadow".to_string())
+}
+
+fn memory_policy_mode() -> String {
+    env::var("BEAGLE_MEMORY_POLICY")
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "observe".to_string())
+}
+
+fn dreamcycle_mode() -> String {
+    env::var("BEAGLE_DREAMCYCLE")
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "manual".to_string())
+}
+
+fn memory_policy_version() -> String {
+    env::var("BEAGLE_MEMORY_POLICY_VERSION")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "beagle-memory-policy-v2.3-observe".to_string())
+}
+
+fn memory_policy_gate_json() -> serde_json::Value {
+    serde_json::json!({
+        "policy_version": memory_policy_version(),
+        "policy_mode": memory_policy_mode(),
+        "required_memoryarena_delta": 0.05,
+        "required_token_savings": 0.25,
+        "required_consecutive_runs": 3,
+        "hard_gates": [
+            "restricted_leak_zero",
+            "provenance_complete",
+            "no_critical_regression"
+        ],
+        "promotion": "observe/recommend only until private MemoryArena gates pass"
+    })
 }
 
 fn retrieval_strategy_for(query: &str) -> String {

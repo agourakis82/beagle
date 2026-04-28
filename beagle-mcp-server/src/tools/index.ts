@@ -216,6 +216,36 @@ const TOOL_POLICIES: Record<string, ToolPolicy> = {
         requiredScopes: READ_EXOCORTEX,
         riskLevel: "read",
     },
+    beagle_context_compile: {
+        annotations: annotations("Compile Adaptive Context Pack", true, false, false),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_context_pack_get: {
+        annotations: annotations("Fetch Context Pack", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_memory_effectiveness_record: {
+        annotations: annotations("Record Memory Effectiveness", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_memory_policy_status: {
+        annotations: annotations("Read Memory Policy Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_dreamcycle_run: {
+        annotations: annotations("Run DreamCycle Consolidation", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_dreamcycle_status: {
+        annotations: annotations("Read DreamCycle Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
     beagle_memory_bakeoff_run: {
         annotations: annotations("Run Memory Runtime Bake-Off", false, false, false),
         requiredScopes: RUN_RESEARCH,
