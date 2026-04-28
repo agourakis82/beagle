@@ -990,6 +990,7 @@ private struct MemoryLensSheet: View {
         case candidates = "Candidates"
         case truth = "Truth"
         case bench = "Bench"
+        case agentTrace = "Agent"
         case semanticTrace = "Semantic"
         case runtimeTrace = "Runtime"
 
@@ -1018,6 +1019,8 @@ private struct MemoryLensSheet: View {
                     truthTab
                 case .bench:
                     benchTab
+                case .agentTrace:
+                    agentTraceTab
                 case .semanticTrace:
                     semanticTraceTab
                 case .runtimeTrace:
@@ -1077,7 +1080,9 @@ private struct MemoryLensSheet: View {
                     let score = trust.latestBenchScore.map { " \(String(format: "%.2f", $0))" } ?? ""
                     let gate = trust.benchHotPathEligible.map { " · gate \($0 ? "eligible" : "shadow")" } ?? ""
                     let capture = trust.captureLoopStatus.map { " · capture \($0)" } ?? ""
-                    Text("\(mesh)\(governor)\(triad)\(contradictions)\(bench)\(score)\(gate)\(capture)\(candidate)\(quorum)")
+                    let retrieval = trust.retrievalAgentStatus.map { " · retrieval \($0)" } ?? ""
+                    let arena = trust.memoryarenaGate.map { " · arena \($0)" } ?? ""
+                    Text("\(mesh)\(retrieval)\(arena)\(governor)\(triad)\(contradictions)\(bench)\(score)\(gate)\(capture)\(candidate)\(quorum)")
                         .font(BeagleFont.caption.font)
                         .foregroundStyle(BeagleTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1473,6 +1478,74 @@ private struct MemoryLensSheet: View {
         }
     }
 
+    private var agentTraceTab: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            sectionTitle("RETRIEVAL AGENT")
+            if let graph = exocortex.lastGraphRagQuery?.value {
+                GlassPanel(truth: graph.retrievalAgent == "default" ? .observed : .declared) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text((graph.strategyUsed ?? "strategy pending").uppercased())
+                            .font(BeagleFont.caption2.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.truthObserved)
+                        Text("\(graph.retrievalAgent ?? "agent") · planner \(graph.plannerMode ?? "hybrid") · \(graph.contextFormat ?? "context pack pending")")
+                            .font(BeagleFont.caption.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let plan = graph.retrievalPlanId {
+                            Text(plan)
+                                .font(BeagleFont.caption2.font.monospaced())
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                if !graph.subqueries.isEmpty {
+                    sectionTitle("SUBQUERIES")
+                    ForEach(Array(graph.subqueries.prefix(6).enumerated()), id: \.offset) { _, item in
+                        Text(item)
+                            .font(BeagleFont.caption.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if let pack = graph.evidencePack {
+                    sectionTitle("EVIDENCE PACK")
+                    Text(String(describing: pack))
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !graph.runtimeTrace.isEmpty {
+                    sectionTitle("AGENT TRACE")
+                    ForEach(graph.runtimeTrace.prefix(10)) { step in
+                        GlassPanel(truth: step.status.contains("fallback") ? .declared : .observed) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(step.stage.uppercased())
+                                    .font(BeagleFont.caption2.font)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                Text("\(step.backend) · \(step.status) · \(step.items) items")
+                                    .font(BeagleFont.caption.font)
+                                    .foregroundStyle(BeagleTheme.textSecondary)
+                                if !step.notes.isEmpty {
+                                    Text(step.notes.prefix(3).joined(separator: " · "))
+                                        .font(BeagleFont.caption2.font)
+                                        .foregroundStyle(BeagleTheme.textTertiary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if let trust = exocortex.home.value?.trustContext {
+                emptyRow("Retrieval \(trust.retrievalAgentStatus ?? "not observed") · strategy \(trust.latestRetrievalStrategy ?? "pending") · arena \(trust.memoryarenaGate ?? "shadow")")
+            } else {
+                emptyRow("Run a Memory Lens query to see Retrieval Agent plan, evidence pack and runtime trace.")
+            }
+        }
+    }
+
     private var runtimeTraceTab: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
             sectionTitle("RUNTIME VOTES")
@@ -1835,7 +1908,7 @@ private struct MemoryLensSheet: View {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         isSearching = true
-        _ = await exocortex.queryGraphMemory(trimmed, scope: activeProjectSlug, maxItems: 8, mode: "hypermemory")
+        _ = await exocortex.queryGraphMemory(trimmed, scope: activeProjectSlug, maxItems: 8, mode: "hypermemory_multivector")
         isSearching = false
     }
 }

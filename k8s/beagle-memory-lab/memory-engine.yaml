@@ -45,7 +45,7 @@ spec:
             runAsGroup: 0
       containers:
         - name: beagle-memory-engine
-          image: 192.168.3.207:5003/beagle-memory-engine:memory-v21-native-semantic-20260428
+          image: 192.168.3.207:5003/beagle-memory-engine:retrieval-agent-v22-20260428
           imagePullPolicy: Always
           ports:
             - name: http
@@ -61,6 +61,10 @@ spec:
               value: http://beagle-core.beagle.svc.cluster.local:8080
             - name: BEAGLE_MEMORY_HOT_PATH
               value: hypermemory_multivector
+            - name: BEAGLE_RETRIEVAL_AGENT
+              value: canary
+            - name: BEAGLE_RETRIEVAL_PLANNER
+              value: hybrid
             - name: BEAGLE_MEMORY_COLBERT_MODEL
               value: jinaai/jina-colbert-v2
             - name: BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_MODEL

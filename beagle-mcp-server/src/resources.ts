@@ -113,6 +113,27 @@ export function defineResources(
             read: async () => client.memoryBenchmarkStatus(),
         },
         {
+            uri: "beagle://memory/retrieval/status",
+            name: "Retrieval Agent Status",
+            description:
+                "v2.2 Retrieval Agent status: canary mode, planner mode, semantic backbone readiness, and Private MemoryArena gate.",
+            mimeType: "application/json",
+            read: async () => ({
+                retrieval_agent: process.env.BEAGLE_RETRIEVAL_AGENT || "canary",
+                planner_mode: process.env.BEAGLE_RETRIEVAL_PLANNER || "hybrid",
+                semantic_index: await client.semanticIndexStatus(),
+                memoryarena: await client.memoryArenaStatus(),
+            }),
+        },
+        {
+            uri: "beagle://memory/memoryarena/status",
+            name: "Private MemoryArena Status",
+            description:
+                "Latest private MemoryArena-style multi-session memory-action benchmark gate for v2.2 Retrieval Agent.",
+            mimeType: "application/json",
+            read: async () => client.memoryArenaStatus(),
+        },
+        {
             uri: "beagle://agent/observer/status",
             name: "Agent Observer Status",
             description:

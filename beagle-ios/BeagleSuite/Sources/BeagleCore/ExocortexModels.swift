@@ -1555,6 +1555,15 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
     public let rerankerScores: [ExocortexJSONValue]
     public let truthsetGateStatus: PortfolioTruthGate?
     public let restrictedLeakCheck: ExocortexJSONValue?
+    public let retrievalAgent: String?
+    public let retrievalPlanId: String?
+    public let strategyUsed: String?
+    public let subqueries: [String]
+    public let evidencePack: ExocortexJSONValue?
+    public let contextFormat: String?
+    public let plannerMode: String?
+    public let budget: ExocortexJSONValue?
+    public let runtimeTrace: [RetrievalTraceStep]
 
     enum CodingKeys: String, CodingKey {
         case summary
@@ -1582,6 +1591,15 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
         case rerankerScores = "reranker_scores"
         case truthsetGateStatus = "truthset_gate_status"
         case restrictedLeakCheck = "restricted_leak_check"
+        case retrievalAgent = "retrieval_agent"
+        case retrievalPlanId = "retrieval_plan_id"
+        case strategyUsed = "strategy_used"
+        case subqueries
+        case evidencePack = "evidence_pack"
+        case contextFormat = "context_format"
+        case plannerMode = "planner_mode"
+        case budget
+        case runtimeTrace = "runtime_trace"
     }
 
     public init(from decoder: Decoder) throws {
@@ -1611,6 +1629,15 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
         rerankerScores = try container.decodeIfPresent([ExocortexJSONValue].self, forKey: .rerankerScores) ?? []
         truthsetGateStatus = try container.decodeIfPresent(PortfolioTruthGate.self, forKey: .truthsetGateStatus)
         restrictedLeakCheck = try container.decodeIfPresent(ExocortexJSONValue.self, forKey: .restrictedLeakCheck)
+        retrievalAgent = try container.decodeIfPresent(String.self, forKey: .retrievalAgent)
+        retrievalPlanId = try container.decodeIfPresent(String.self, forKey: .retrievalPlanId)
+        strategyUsed = try container.decodeIfPresent(String.self, forKey: .strategyUsed)
+        subqueries = try container.decodeIfPresent([String].self, forKey: .subqueries) ?? []
+        evidencePack = try container.decodeIfPresent(ExocortexJSONValue.self, forKey: .evidencePack)
+        contextFormat = try container.decodeIfPresent(String.self, forKey: .contextFormat)
+        plannerMode = try container.decodeIfPresent(String.self, forKey: .plannerMode)
+        budget = try container.decodeIfPresent(ExocortexJSONValue.self, forKey: .budget)
+        runtimeTrace = try container.decodeIfPresent([RetrievalTraceStep].self, forKey: .runtimeTrace) ?? []
     }
 }
 
@@ -1916,6 +1943,9 @@ public struct TrustContext: Codable, Equatable, Sendable {
     public let hotPathMode: String?
     public let provisionalHotPath: Bool?
     public let portfolioTruthGate: String?
+    public let retrievalAgentStatus: String?
+    public let latestRetrievalStrategy: String?
+    public let memoryarenaGate: String?
 
     enum CodingKeys: String, CodingKey {
         case mcpStatus = "mcp_status"
@@ -1949,6 +1979,9 @@ public struct TrustContext: Codable, Equatable, Sendable {
         case hotPathMode = "hot_path_mode"
         case provisionalHotPath = "provisional_hot_path"
         case portfolioTruthGate = "portfolio_truth_gate"
+        case retrievalAgentStatus = "retrieval_agent_status"
+        case latestRetrievalStrategy = "latest_retrieval_strategy"
+        case memoryarenaGate = "memoryarena_gate"
     }
 }
 

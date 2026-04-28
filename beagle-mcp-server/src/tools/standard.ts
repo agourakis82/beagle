@@ -159,10 +159,12 @@ async function hotPathMemoryQuery(
     links: unknown[];
 }> {
     try {
-        const mesh = await client.memoryMeshQuery({
+        const mesh = await client.retrievalAgentQuery({
             query,
             max_items: maxItems,
             mode: "hypermemory_multivector",
+            planner_mode: "hybrid",
+            surface: "hosted-search",
         }) as Record<string, unknown>;
         const core = (mesh.core_response ?? {}) as Record<string, unknown>;
         const evidence = Array.isArray(core.evidence) ? core.evidence as Array<Record<string, unknown>> : [];
@@ -185,7 +187,11 @@ async function hotPathMemoryQuery(
                 links: [
                     {
                         runtime_used: mesh.runtime_used,
+                        retrieval_agent: mesh.retrieval_agent,
+                        strategy_used: mesh.strategy_used,
+                        retrieval_plan_id: mesh.retrieval_plan_id,
                         fallback_chain: mesh.fallback_chain,
+                        runtime_trace: mesh.runtime_trace,
                         semantic_trace: mesh.semantic_trace,
                         truthset_gate_status: mesh.truthset_gate_status,
                     },

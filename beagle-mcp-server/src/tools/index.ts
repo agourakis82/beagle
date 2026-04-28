@@ -196,6 +196,26 @@ const TOOL_POLICIES: Record<string, ToolPolicy> = {
         requiredScopes: READ_EXOCORTEX,
         riskLevel: "read",
     },
+    beagle_retrieval_agent_query: {
+        annotations: annotations("Query Retrieval Agent", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_retrieval_agent_status: {
+        annotations: annotations("Read Retrieval Agent Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_memoryarena_benchmark_run: {
+        annotations: annotations("Run Private MemoryArena Benchmark", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_memoryarena_benchmark_status: {
+        annotations: annotations("Read Private MemoryArena Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
     beagle_memory_bakeoff_run: {
         annotations: annotations("Run Memory Runtime Bake-Off", false, false, false),
         requiredScopes: RUN_RESEARCH,

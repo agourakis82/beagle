@@ -1,5 +1,19 @@
 # Beagle MCP Tool Manifest Changelog
 
+## beagle-mcp-v2.2-retrieval-agent-memoryarena
+
+- Tool count: 51
+- Tool manifest hash: `sha256:f518a130977549720d33980533d26852a9555b55ade97a76bf0995135fdeb577`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from public, mobile, local-agent, retrieval-agent, MemoryArena, benchmark, and governance surfaces.
+- Added Retrieval Agent tools:
+  - `beagle_retrieval_agent_query`
+  - `beagle_retrieval_agent_status`
+- Added Private MemoryArena tools:
+  - `beagle_memoryarena_benchmark_run`
+  - `beagle_memoryarena_benchmark_status`
+- `search` and `fetch` now prefer the v2.2 Retrieval Agent canary path, which records strategy, subqueries, evidence pack, runtime trace, fallback chain, and provenance before falling back to canonical memory query.
+
 ## beagle-mcp-v2.1-native-semantic-backbone
 
 - Tool count: 47

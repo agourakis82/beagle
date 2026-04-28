@@ -156,6 +156,18 @@ const RetrievalTraceSchema = z.object({
         .default("hypermemory_multivector"),
 });
 
+const RetrievalAgentQuerySchema = z.object({
+    query: z.string().min(1),
+    scope: z.string().optional(),
+    max_items: z.number().int().min(1).max(20).optional().default(8),
+    mode: z
+        .enum(["hypermemory_multivector", "hypermemory", "graphsearch-lite"])
+        .optional()
+        .default("hypermemory_multivector"),
+    planner_mode: z.enum(["deterministic", "hybrid", "llm"]).optional().default("hybrid"),
+    surface: z.string().optional().default("mcp-retrieval-agent"),
+});
+
 const MemoryEngineBakeoffRunSchema = z.object({
     limit: z.number().int().min(1).max(10000).optional().default(1000),
     domains: z.array(z.string()).optional(),
@@ -214,6 +226,15 @@ const MemoryBenchmarkRunSchema = z.object({
             required_consecutive_runs: z.number().int().min(1).max(10).optional().default(3),
         })
         .optional(),
+});
+
+const MemoryArenaBenchmarkRunSchema = z.object({
+    limit: z.number().int().min(1).max(10000).optional().default(2000),
+    truthset_id: z.string().optional(),
+    domains: z.array(z.string()).optional(),
+    planner_mode: z.enum(["deterministic", "hybrid", "llm"]).optional().default("hybrid"),
+    baseline_mode: z.string().optional().default("hypermemory_multivector-v2.1"),
+    candidate_mode: z.string().optional().default("retrieval-agent-v2.2"),
 });
 
 const MemoryTruthsetDraftSchema = z.object({
@@ -901,6 +922,87 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                 }
                 return sanitizeOutput(result);
             },
+        },
+        {
+            name: "beagle_retrieval_agent_query",
+            description:
+                "Run the v2.2 Retrieval Agent over Beagle memory. It chooses a strategy such as episode nucleus expansion, temporal trace, contradiction check, work-memory replay, schema-guided graph, or parallel decomposition, then returns evidence, strategy, context format, runtime trace, provenance, and fallback chain.",
+            inputSchema: {
+                type: "object",
+                required: ["query"],
+                properties: {
+                    query: { type: "string" },
+                    scope: { type: "string" },
+                    max_items: { type: "number", minimum: 1, maximum: 20, default: 8 },
+                    mode: {
+                        type: "string",
+                        enum: ["hypermemory_multivector", "hypermemory", "graphsearch-lite"],
+                        default: "hypermemory_multivector",
+                    },
+                    planner_mode: {
+                        type: "string",
+                        enum: ["deterministic", "hybrid", "llm"],
+                        default: "hybrid",
+                    },
+                    surface: { type: "string", default: "mcp-retrieval-agent" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = RetrievalAgentQuerySchema.parse(args ?? {});
+                return sanitizeOutput(await client.retrievalAgentQuery(parsed));
+            },
+        },
+        {
+            name: "beagle_retrieval_agent_status",
+            description:
+                "Read v2.2 Retrieval Agent readiness by combining memory-engine runtime status, semantic index status, and Private MemoryArena gate state.",
+            inputSchema: { type: "object", properties: {} },
+            handler: async () => {
+                const [engine, semantic, memoryarena] = await Promise.allSettled([
+                    client.memoryEngineStatus(),
+                    client.semanticIndexStatus(),
+                    client.memoryArenaStatus(),
+                ]);
+                return sanitizeOutput({
+                    retrieval_agent: process.env.BEAGLE_RETRIEVAL_AGENT || "canary",
+                    planner_mode: process.env.BEAGLE_RETRIEVAL_PLANNER || "hybrid",
+                    engine: engine.status === "fulfilled" ? engine.value : { error: String(engine.reason) },
+                    semantic_index: semantic.status === "fulfilled" ? semantic.value : { error: String(semantic.reason) },
+                    memoryarena: memoryarena.status === "fulfilled" ? memoryarena.value : { error: String(memoryarena.reason) },
+                    policy: "deterministic policy on hot path; LLM planner only for Memory Lens, Deep, bench, and debug.",
+                });
+            },
+        },
+        {
+            name: "beagle_memoryarena_benchmark_run",
+            description:
+                "Start a private cluster-only MemoryArena-style benchmark for multi-session memory-action loops. It compares v2.2 Retrieval Agent against the v2.1 HyperMemory multivector baseline without exporting private corpus.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    limit: { type: "number", minimum: 1, maximum: 10000, default: 2000 },
+                    truthset_id: { type: "string" },
+                    domains: { type: "array", items: { type: "string" } },
+                    planner_mode: {
+                        type: "string",
+                        enum: ["deterministic", "hybrid", "llm"],
+                        default: "hybrid",
+                    },
+                    baseline_mode: { type: "string", default: "hypermemory_multivector-v2.1" },
+                    candidate_mode: { type: "string", default: "retrieval-agent-v2.2" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = MemoryArenaBenchmarkRunSchema.parse(args ?? {});
+                return sanitizeOutput(await client.memoryArenaRun(parsed));
+            },
+        },
+        {
+            name: "beagle_memoryarena_benchmark_status",
+            description:
+                "Read the latest Private MemoryArena gate for Retrieval Agent promotion: score delta, hard gates, consecutive passing runs, and regression state.",
+            inputSchema: { type: "object", properties: {} },
+            handler: async () => sanitizeOutput(await client.memoryArenaStatus()),
         },
         {
             name: "beagle_memory_bakeoff_run",

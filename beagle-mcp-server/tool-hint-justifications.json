@@ -302,6 +302,54 @@
         "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
       }
     },
+    "beagle_retrieval_agent_query": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Runs the v2.2 Retrieval Agent in read-only mode and returns strategy, subqueries, evidence pack, runtime trace, fallback chain, and provenance.",
+        "open_world_justification": "Reads private Beagle memory-engine indexes and canonical core state only; it does not call public web services.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, promote memory, or perform irreversible actions."
+      }
+    },
+    "beagle_retrieval_agent_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads Retrieval Agent readiness, planner mode, semantic index status, and MemoryArena gate without mutating memory.",
+        "open_world_justification": "Reads only private Beagle cluster status.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_memoryarena_benchmark_run": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Starts a private MemoryArena-style benchmark run and writes benchmark/artifact metadata.",
+        "open_world_justification": "Runs inside Beagle's private memory lab against sanitized cluster exports and approved truthsets.",
+        "destructive_justification": "Creates benchmark artifacts only; canonical memory, truthsets, and indexes are not deleted or overwritten."
+      }
+    },
+    "beagle_memoryarena_benchmark_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads the latest private MemoryArena gate, score delta, hard gates, consecutive passing runs, and regression state.",
+        "open_world_justification": "Reads private Beagle memory-engine status only.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
     "beagle_memory_bakeoff_run": {
       "annotations": {
         "readOnlyHint": false,

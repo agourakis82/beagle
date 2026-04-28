@@ -993,6 +993,19 @@ pub struct GraphRagQueryResponse {
     pub truthset_gate_status: serde_json::Value,
     #[serde(default)]
     pub restricted_leak_check: serde_json::Value,
+    pub retrieval_agent: String,
+    pub retrieval_plan_id: String,
+    pub strategy_used: String,
+    #[serde(default)]
+    pub subqueries: Vec<String>,
+    #[serde(default)]
+    pub evidence_pack: serde_json::Value,
+    pub context_format: String,
+    pub planner_mode: String,
+    #[serde(default)]
+    pub budget: serde_json::Value,
+    #[serde(default)]
+    pub runtime_trace: Vec<RetrievalTraceStep>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1203,6 +1216,12 @@ pub struct TrustContext {
     pub provisional_hot_path: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub portfolio_truth_gate: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrieval_agent_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_retrieval_strategy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memoryarena_gate: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3230,6 +3249,8 @@ impl ExocortexRepository {
         let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?;
         let episodes = self.read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, usize::MAX)?;
         if atoms.is_empty() {
+            let strategy_used = retrieval_strategy_for(&req.query);
+            let subqueries = retrieval_subqueries_for(&req.query, &strategy_used);
             return Ok(GraphRagQueryResponse {
                 summary: format!(
                     "No GraphRAG++ projected memory matches found for '{}'.",
@@ -3297,6 +3318,21 @@ impl ExocortexRepository {
                 reranker_scores: Vec::new(),
                 truthset_gate_status: truthset_gate_status_for(None, false),
                 restricted_leak_check: restricted_leak_check_for(0),
+                retrieval_agent: retrieval_agent_mode(),
+                retrieval_plan_id: stable_id("retrieval-plan", &[&req.query, &requested_mode]),
+                strategy_used: strategy_used.clone(),
+                subqueries: subqueries.clone(),
+                evidence_pack: evidence_pack_json(0, 0, Vec::new(), 0),
+                context_format: retrieval_context_format(),
+                planner_mode: retrieval_planner_mode(),
+                budget: retrieval_budget_json(max_items, &retrieval_planner_mode()),
+                runtime_trace: retrieval_agent_trace_for(
+                    &strategy_used,
+                    &subqueries,
+                    runtime_configured,
+                    0,
+                    0,
+                ),
             });
         }
 
@@ -3533,6 +3569,19 @@ impl ExocortexRepository {
             },
         ];
         let evidence_count = evidence.len();
+        let strategy_used = retrieval_strategy_for(&req.query);
+        let subqueries = retrieval_subqueries_for(&req.query, &strategy_used);
+        let evidence_refs = evidence
+            .iter()
+            .flat_map(|item| {
+                let mut refs = vec![
+                    format!("atom:{}", item.atom_id),
+                    format!("episode:{}", item.episode_id),
+                ];
+                refs.extend(item.source_refs.clone());
+                refs
+            })
+            .collect::<Vec<_>>();
         let maxsim_scores = maxsim_scores_for(&evidence);
         let graph_expansion =
             graph_expansion_trace(Some(&evidence_graph), communities.len(), relations.len());
@@ -3610,6 +3659,26 @@ impl ExocortexRepository {
             reranker_scores,
             truthset_gate_status,
             restricted_leak_check: restricted_leak_check_for(0),
+            retrieval_agent: retrieval_agent_mode(),
+            retrieval_plan_id: stable_id("retrieval-plan", &[&req.query, &requested_mode]),
+            strategy_used: strategy_used.clone(),
+            subqueries: subqueries.clone(),
+            evidence_pack: evidence_pack_json(
+                evidence_count,
+                matched_episode_count,
+                evidence_refs,
+                0,
+            ),
+            context_format: retrieval_context_format(),
+            planner_mode: retrieval_planner_mode(),
+            budget: retrieval_budget_json(max_items, &retrieval_planner_mode()),
+            runtime_trace: retrieval_agent_trace_for(
+                &strategy_used,
+                &subqueries,
+                runtime_configured,
+                evidence_count,
+                matched_episode_count,
+            ),
         })
     }
 
@@ -4643,6 +4712,22 @@ impl ExocortexRepository {
             "semantic-backbone-standby"
         }
         .to_string();
+        let latest_retrieval_strategy = if latest_agent_write.is_some() {
+            Some("work_memory_replay".to_string())
+        } else if apple_capture_freshness.is_some() {
+            Some("temporal_trace".to_string())
+        } else {
+            Some("episode_nucleus_expansion".to_string())
+        };
+        let memoryarena_gate = benchmark_status.as_ref().map(|status| {
+            if status.hot_path_eligible {
+                "memoryarena-passing-confirmed".to_string()
+            } else if status.provisional_hot_path {
+                "memoryarena-canary-provisional".to_string()
+            } else {
+                "memoryarena-shadow".to_string()
+            }
+        });
         let trust_context = Some(TrustContext {
             mcp_status: if audit_events.is_empty() {
                 "no-audit-events-yet".to_string()
@@ -4712,6 +4797,13 @@ impl ExocortexRepository {
             hot_path_mode: Some(hot_path_mode),
             provisional_hot_path: Some(provisional_hot_path),
             portfolio_truth_gate,
+            retrieval_agent_status: Some(format!(
+                "{}+{}",
+                retrieval_agent_mode(),
+                retrieval_planner_mode()
+            )),
+            latest_retrieval_strategy,
+            memoryarena_gate,
         });
         let temporal_phase = temporal_phase.or_else(|| {
             causal_hypotheses
@@ -5342,6 +5434,157 @@ fn memory_hot_path_mode() -> String {
         .map(|value| value.trim().to_lowercase())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "hypermemory_multivector".to_string())
+}
+
+fn retrieval_agent_mode() -> String {
+    env::var("BEAGLE_RETRIEVAL_AGENT")
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "canary".to_string())
+}
+
+fn retrieval_planner_mode() -> String {
+    env::var("BEAGLE_RETRIEVAL_PLANNER")
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "hybrid".to_string())
+}
+
+fn retrieval_strategy_for(query: &str) -> String {
+    let query = query.to_lowercase();
+    if query.contains("codex")
+        || query.contains("claude code")
+        || query.contains("branch")
+        || query.contains("commit")
+        || query.contains("teste")
+    {
+        "work_memory_replay".to_string()
+    } else if query.contains("contradi") || query.contains("conflit") {
+        "contradiction_check".to_string()
+    } else if query.contains("últim")
+        || query.contains("ultima")
+        || query.contains("desde")
+        || query.contains("quando")
+        || query.contains("timeline")
+    {
+        "temporal_trace".to_string()
+    } else if query.contains("hipótese")
+        || query.contains("hipotese")
+        || query.contains("evidência")
+        || query.contains("evidencia")
+        || query.contains("protocolo")
+        || query.contains("relação")
+        || query.contains("relacao")
+    {
+        "schema_guided_graph".to_string()
+    } else if query.matches('?').count() > 1 || query.contains(" vs ") || query.contains("compare")
+    {
+        "parallel_decomposition".to_string()
+    } else if query.split_whitespace().count() > 22 {
+        "iterative_chain_of_query".to_string()
+    } else {
+        "episode_nucleus_expansion".to_string()
+    }
+}
+
+fn retrieval_subqueries_for(query: &str, strategy: &str) -> Vec<String> {
+    let mut parts = query
+        .split(['?', ';', '\n'])
+        .flat_map(|part| part.split(" e "))
+        .map(str::trim)
+        .filter(|part| part.len() > 8)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        parts.push(query.to_string());
+    }
+    match strategy {
+        "temporal_trace" => parts.push(format!("linha do tempo e mudanças relevantes: {query}")),
+        "work_memory_replay" => parts.push(format!("repo branch commit testes decisões: {query}")),
+        "contradiction_check" => {
+            parts.push(format!("contradições evidência e status atual: {query}"))
+        }
+        "schema_guided_graph" => parts.push(format!("projeto hipótese evidência relação: {query}")),
+        "iterative_chain_of_query" => {
+            parts.push(format!("recupere episódios núcleo: {query}"));
+            parts.push(format!("expanda atoms relações e provenance: {query}"));
+        }
+        _ => {}
+    }
+    parts.truncate(6);
+    parts
+}
+
+fn retrieval_context_format() -> String {
+    "episodic_nucleus_window+atom_hyperedge_pack+temporal_trace".to_string()
+}
+
+fn retrieval_budget_json(max_items: usize, planner_mode: &str) -> serde_json::Value {
+    serde_json::json!({
+        "max_items": max_items,
+        "max_subqueries": 6,
+        "planner_timeout_ms": if planner_mode == "llm" { 3000 } else { 250 },
+        "target_latency_ms": 800,
+        "allow_llm_planner": planner_mode == "llm"
+    })
+}
+
+fn evidence_pack_json(
+    nucleus_count: usize,
+    expanded_episode_count: usize,
+    mut evidence_refs: Vec<String>,
+    restricted_leak_count: usize,
+) -> serde_json::Value {
+    evidence_refs.sort();
+    evidence_refs.dedup();
+    serde_json::json!({
+        "summary": format!("{nucleus_count} nucleus evidence item(s), {expanded_episode_count} expanded episode(s), {} provenance ref(s).", evidence_refs.len()),
+        "nucleus_count": nucleus_count,
+        "expanded_episode_count": expanded_episode_count,
+        "evidence_refs": evidence_refs,
+        "provenance_complete": nucleus_count == 0 || expanded_episode_count > 0,
+        "restricted_leak_count": restricted_leak_count
+    })
+}
+
+fn retrieval_agent_trace_for(
+    strategy: &str,
+    subqueries: &[String],
+    runtime_configured: bool,
+    evidence_count: usize,
+    episode_count: usize,
+) -> Vec<RetrievalTraceStep> {
+    vec![
+        RetrievalTraceStep {
+            stage: "retrieval-agent-plan".to_string(),
+            backend: format!("planner:{}", retrieval_planner_mode()),
+            status: strategy.to_string(),
+            items: subqueries.len(),
+            latency_ms: 0.0,
+            notes: vec![
+                format!("retrieval_agent={}", retrieval_agent_mode()),
+                "Deterministic hot-path policy; LLM planner reserved for Memory Lens/Deep/bench/debug.".to_string(),
+            ],
+        },
+        RetrievalTraceStep {
+            stage: "episodic-nucleus-expansion".to_string(),
+            backend: "core Episode+Atom JSONL".to_string(),
+            status: "ground-truth-preserving".to_string(),
+            items: episode_count,
+            latency_ms: 0.0,
+            notes: vec!["Episode context is preserved around nucleus hits.".to_string()],
+        },
+        RetrievalTraceStep {
+            stage: "semantic-backbone".to_string(),
+            backend: "memory-engine semantic index".to_string(),
+            status: if runtime_configured { "configured" } else { "fallback" }.to_string(),
+            items: evidence_count,
+            latency_ms: 0.0,
+            notes: vec!["Derived indexes remain rebuildable from cluster JSONL.".to_string()],
+        },
+    ]
 }
 
 fn graph_runtime_configured() -> bool {

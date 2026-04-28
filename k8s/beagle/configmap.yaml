@@ -77,6 +77,8 @@ data:
   BEAGLE_MEMORY_SOVEREIGN_RERANKING_URL: http://beagle-sovereign-reranker.beagle.svc.cluster.local
   BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL: Alibaba-NLP/gte-reranker-modernbert-base
   BEAGLE_MEMORY_HOT_PATH: hypermemory_multivector
+  BEAGLE_RETRIEVAL_AGENT: canary
+  BEAGLE_RETRIEVAL_PLANNER: hybrid
   BEAGLE_MEMORY_COLBERT_MODEL: jinaai/jina-colbert-v2
   BEAGLE_GRAPHRAG_RUNTIME: federated-living-memory-mesh
   BEAGLE_MEMORY_ENGINE_RUNTIME: federated-living-memory-mesh

@@ -396,6 +396,18 @@ export class BeagleClient {
         return this.request("POST", "/v1/query", body, 120000, this.memoryEngineUrl());
     }
 
+    async retrievalAgentPlan(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/retrieval/plan", body, 60000, this.memoryEngineUrl());
+    }
+
+    async retrievalAgentQuery(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/retrieval/query", body, 120000, this.memoryEngineUrl());
+    }
+
+    async retrievalRun(runId: string): Promise<unknown> {
+        return this.request("GET", `/v1/retrieval/runs/${encodeURIComponent(runId)}`, undefined, 30000, this.memoryEngineUrl());
+    }
+
     async semanticIndexStatus(): Promise<unknown> {
         return this.request("GET", "/v1/index/semantic/status", undefined, 30000, this.memoryEngineUrl());
     }
@@ -418,6 +430,14 @@ export class BeagleClient {
 
     async memoryBenchmarkStatus(): Promise<unknown> {
         return this.request("GET", "/v1/bench/status", undefined, 30000, this.memoryEngineUrl());
+    }
+
+    async memoryArenaRun(body: unknown): Promise<unknown> {
+        return this.request("POST", "/v1/bench/memoryarena/runs", body, 300000, this.memoryEngineUrl());
+    }
+
+    async memoryArenaStatus(): Promise<unknown> {
+        return this.request("GET", "/v1/bench/memoryarena/status", undefined, 30000, this.memoryEngineUrl());
     }
 
     async coreMemoryBenchmarkStatus(): Promise<unknown> {
