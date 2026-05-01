@@ -11701,6 +11701,7 @@ function renderProjectLaunchPage(project) {
     let terminalWs = null;
     let terminalConnectedKey = "";
     let lastBlockId = "";
+    let currentRegistry = null;
 
     function show(payload) {
       output.textContent = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
@@ -11798,7 +11799,11 @@ function renderProjectLaunchPage(project) {
       const readiness = role.readiness && typeof role.readiness === "object" ? role.readiness : {};
       const provider = enabled ? enabled.title || enabled.model_id || enabled.modelId || enabled.command || enabled.provider || "" : "";
       const status = readiness.status || role.status || enabled?.status || "";
-      const reason = readiness.reason || role.subtitle || "";
+      let reason = readiness.reason || role.subtitle || "";
+      const command = role.launchCommand || enabled?.command || "";
+      if (status === "ready" && !command && enabled?.runtime) {
+        reason = "provider slot ready; interactive adapter pending";
+      }
       return [provider, status, reason].filter(Boolean).join(" - ") || "provider slot pending";
     }
 
@@ -11817,6 +11822,31 @@ function renderProjectLaunchPage(project) {
       lanes.innerHTML = selected.map((role) =>
         '<div class="lane"><strong>' + roleName(role) + '</strong><span>' + roleDetail(role) + '</span></div>'
       ).join("");
+    }
+
+    function agentSetupGuard(command) {
+      const value = String(command || "").trim();
+      if (!value) return null;
+      const token = value.split(" ").filter(Boolean)[0] || "";
+      const lookup = token === "cursor" ? "cursor-agent" : token;
+      const roles = Array.isArray(currentRegistry?.roles) ? currentRegistry.roles : [];
+      for (const role of roles) {
+        const slots = Array.isArray(role.providerSlots || role.provider_slots) ? role.providerSlots || role.provider_slots : [];
+        const commands = [role.launchCommand, role.readiness?.command, ...slots.map((slot) => slot.command)].filter(Boolean);
+        if (!commands.includes(token) && !commands.includes(lookup)) continue;
+        const readiness = role.readiness || {};
+        if (readiness.status === "needs_setup") {
+          const reason = readiness.command === token || readiness.command === lookup
+            ? readiness.reason
+            : lookup + " is not on PATH in the workspace";
+          return {
+            token,
+            role: roleName(role),
+            reason: reason || "agent lane needs setup",
+          };
+        }
+      }
+      return null;
     }
 
     function summarizeRefresh(registry, sessions) {
@@ -11949,6 +11979,7 @@ function renderProjectLaunchPage(project) {
       try {
         const registry = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/agents/registry");
         const sessions = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions");
+        currentRegistry = registry;
         renderLanes(registry);
         const list = sessions.sessions || [];
         currentSessions = list;
@@ -12024,6 +12055,13 @@ function renderProjectLaunchPage(project) {
       event.preventDefault();
       const command = terminalInput.value;
       if (!command.trim()) return;
+      const setupGap = agentSetupGuard(command);
+      if (setupGap) {
+        appendTerminal("\\n[setup] " + setupGap.role + " is not ready: " + setupGap.reason + ". Command not sent to the PTY. Configure the CLI/provider in the workspace image or use an available lane.\\n");
+        terminalInput.value = "";
+        terminalInput.focus();
+        return;
+      }
       if (!terminalWs || terminalWs.readyState !== WebSocket.OPEN) {
         connectTerminal();
         setTimeout(() => {
