@@ -117,6 +117,8 @@ session_id="${session_id:-${agent}-$(date -u +%Y%m%dT%H%M%SZ)-$(uuidgen | tr '[:
 summary="${summary:-${agent} ${phase} event for ${project_slug} at ${commit}}"
 core_url="${BEAGLE_CORE_URL:-http://beagle-core.tail21cbc4.ts.net}"
 api_token="${BEAGLE_CORE_API_TOKEN:-${BEAGLE_API_TOKEN:-}}"
+consumer_header_name="${BEAGLE_CORE_CONSUMER_HEADER_NAME:-}"
+consumer_header_value="${BEAGLE_CORE_CONSUMER_HEADER_VALUE:-}"
 
 if [[ -z "${tool_manifest_hash}" ]] && command -v curl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
   tool_manifest_hash="$(
@@ -314,11 +316,18 @@ if [[ -z "${api_token}" ]]; then
   exit 4
 fi
 
+curl_headers=(
+  -H "content-type: application/json"
+  -H "authorization: Bearer ${api_token}"
+)
+if [[ -n "${consumer_header_name}" && -n "${consumer_header_value}" ]]; then
+  curl_headers+=(-H "${consumer_header_name}: ${consumer_header_value}")
+fi
+
 status="$(
   curl -sS -o "${response}" -w "%{http_code}" \
     -X POST "${core_url%/}/api/exocortex/v1/memory/assisted-import" \
-    -H "content-type: application/json" \
-    -H "authorization: Bearer ${api_token}" \
+    "${curl_headers[@]}" \
     --data-binary @"${payload}"
 )"
 
