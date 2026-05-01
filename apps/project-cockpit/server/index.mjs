@@ -11706,13 +11706,40 @@ function renderProjectLaunchPage(project) {
       output.textContent = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
     }
 
+    function stripOscSequences(value) {
+      const ESC = String.fromCharCode(27);
+      const BEL = String.fromCharCode(7);
+      let result = String(value || "");
+      let start = result.indexOf(ESC + "]");
+      while (start !== -1) {
+        const belEnd = result.indexOf(BEL, start + 2);
+        const stEnd = result.indexOf(ESC + "\\\\", start + 2);
+        let end = -1;
+        let endLength = 1;
+        if (belEnd !== -1 && (stEnd === -1 || belEnd < stEnd)) {
+          end = belEnd;
+          endLength = 1;
+        } else if (stEnd !== -1) {
+          end = stEnd;
+          endLength = 2;
+        }
+        if (end === -1) {
+          result = result.slice(0, start);
+          break;
+        }
+        result = result.slice(0, start) + result.slice(end + endLength);
+        start = result.indexOf(ESC + "]");
+      }
+      return result;
+    }
+
     function appendTerminal(text) {
-      const cleaned = String(text || "")
-        .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, "")
-        .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-        .replace(/\u001b[>=]/g, "")
-        .replace(/\r\n/g, "\n")
-        .replace(/\r/g, "\n");
+      const ESC = String.fromCharCode(27);
+      const cleaned = stripOscSequences(text)
+        .replace(new RegExp(ESC + "\\\\[[0-?]*[ -/]*[@-~]", "g"), "")
+        .replace(new RegExp(ESC + "[>=]", "g"), "")
+        .split("\\r\\n").join("\\n")
+        .split("\\r").join("\\n");
       terminalOutput.textContent = (terminalOutput.textContent + cleaned).slice(-50000);
       terminalOutput.scrollTop = terminalOutput.scrollHeight;
     }
