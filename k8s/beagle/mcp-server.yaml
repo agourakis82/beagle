@@ -30,7 +30,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: beagle-mcp-server
-          image: 192.168.3.207:5003/beagle-mcp-server:context-compiler-v23-20260428
+          image: 192.168.3.207:5003/beagle-mcp-server:sounio-workday-mvp-c63a309
           imagePullPolicy: Always
           ports:
             - name: http
@@ -62,6 +62,8 @@ spec:
               value: http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090
             - name: BEAGLE_MEMORY_HOT_PATH
               value: hypermemory_multivector
+            - name: BEAGLE_MEMORY_RANKING_POLICY
+              value: strict_recent_guarded
             - name: BEAGLE_RETRIEVAL_AGENT
               value: canary
             - name: BEAGLE_RETRIEVAL_PLANNER

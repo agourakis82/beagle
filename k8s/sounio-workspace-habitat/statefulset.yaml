@@ -244,8 +244,8 @@ spec:
               cpu: "2"
               memory: 3Gi
         - name: beagle-pty-supervisor
-          image: 192.168.3.207:5003/beagle-workspace-agent:v3.3
-          imagePullPolicy: IfNotPresent
+          image: 192.168.3.207:5003/beagle-workspace-agent:sounio-workday-mvp-c63a309
+          imagePullPolicy: Always
           securityContext:
             appArmorProfile:
               type: Unconfined
@@ -296,8 +296,8 @@ spec:
               cpu: "2"
               memory: 1Gi
         - name: beagle-workspace-agent
-          image: 192.168.3.207:5003/beagle-workspace-agent:v3.3
-          imagePullPolicy: IfNotPresent
+          image: 192.168.3.207:5003/beagle-workspace-agent:sounio-workday-mvp-c63a309
+          imagePullPolicy: Always
           command:
             - node
             - /app/src/server.mjs

@@ -1,8 +1,8 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: beagle-memory-engine-build
-  namespace: beagle-memory-lab
+  name: beagle-workspace-agent-build
+  namespace: beagle
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 3600
@@ -35,11 +35,6 @@ spec:
           volumeMounts:
             - name: workspace
               mountPath: /workspace
-          resources:
-            requests:
-              memory: 256Mi
-            limits:
-              memory: 512Mi
       containers:
         - name: kaniko
           image: gcr.io/kaniko-project/executor:latest
@@ -47,9 +42,9 @@ spec:
             - name: BEAGLE_IMAGE_TAG
               value: sounio-workday-mvp-c63a309
           args:
-            - "--dockerfile=/workspace/apps/beagle-memory-engine/Dockerfile"
+            - "--dockerfile=/workspace/apps/beagle-workspace-agent/Dockerfile"
             - "--context=dir:///workspace"
-            - "--destination=192.168.3.207:5003/beagle-memory-engine:$(BEAGLE_IMAGE_TAG)"
+            - "--destination=192.168.3.207:5003/beagle-workspace-agent:$(BEAGLE_IMAGE_TAG)"
             - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"
@@ -59,12 +54,12 @@ spec:
               mountPath: /workspace
           resources:
             requests:
-              cpu: "2"
-              memory: 4Gi
+              cpu: "1"
+              memory: 1Gi
             limits:
-              cpu: "6"
-              memory: 12Gi
+              cpu: "2"
+              memory: 2Gi
       volumes:
         - name: workspace
           emptyDir:
-            sizeLimit: 5Gi
+            sizeLimit: 2Gi

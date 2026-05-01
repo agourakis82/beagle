@@ -25,11 +25,13 @@ spec:
           image: alpine/git:latest
           env:
             - name: BEAGLE_GIT_BRANCH
-              value: codex/beagle-mcp-public-claude
+              value: main
+            - name: BEAGLE_GIT_REF
+              value: main
           command:
             - /bin/sh
             - -lc
-            - git clone --depth=1 --branch="${BEAGLE_GIT_BRANCH:-main}" https://github.com/agourakis82/beagle.git /workspace
+            - git clone --depth=50 --branch="${BEAGLE_GIT_BRANCH:-main}" https://github.com/agourakis82/beagle.git /workspace && cd /workspace && git checkout "${BEAGLE_GIT_REF:-main}"
           volumeMounts:
             - name: workspace
               mountPath: /workspace
@@ -43,7 +45,7 @@ spec:
           image: gcr.io/kaniko-project/executor:latest
           env:
             - name: BEAGLE_IMAGE_TAG
-              value: context-compiler-v23-20260428
+              value: sounio-workday-mvp-c63a309
           args:
             - "--dockerfile=/workspace/apps/beagle-monorepo/Dockerfile.core_server"
             - "--context=dir:///workspace"

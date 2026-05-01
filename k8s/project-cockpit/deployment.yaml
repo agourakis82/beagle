@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: project-cockpit
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: project-cockpit
+    app.kubernetes.io/part-of: beagle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: project-cockpit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: project-cockpit
+        app.kubernetes.io/part-of: beagle
+    spec:
+      serviceAccountName: project-cockpit
+      nodeSelector:
+        sounio.dev/runtime-role: cluster-core
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      containers:
+        - name: project-cockpit
+          image: 192.168.3.207:5003/project-cockpit:sounio-workday-mvp-c63a309
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 4370
+          env:
+            - name: PROJECT_COCKPIT_PORT
+              value: "4370"
+            - name: PROJECT_COCKPIT_WORKBENCH_AUTHORITY
+              value: workspace-agent
+            - name: PROJECT_COCKPIT_BEAGLE_INTERNAL_URL
+              value: http://beagle-core.beagle.svc.cluster.local:8080
+            - name: PROJECT_COCKPIT_WORKSPACE_AGENT_PORT
+              value: "4371"
+            - name: PROJECT_COCKPIT_FAST_MEMORY_RESPONSE_TIMEOUT_MS
+              value: "20000"
+            - name: PROJECT_COCKPIT_MEMORY_CACHE_TTL_MS
+              value: "5000"
+          envFrom:
+            - secretRef:
+                name: beagle-core-secrets
+                optional: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000

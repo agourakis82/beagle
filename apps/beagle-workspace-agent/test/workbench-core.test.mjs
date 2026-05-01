@@ -69,12 +69,21 @@ test("secret matcher catches common credential shapes", () => {
 test("agent registry exposes Sounio/Beagle model ecology roles", () => {
   const registry = agentRegistry();
   const roles = registry.map((entry) => entry.role);
+  const visibleRoles = registry.filter((entry) => entry.visible !== false).map((entry) => entry.role);
 
   assert.ok(roles.includes("primary_builder"));
   assert.ok(roles.includes("code_worker"));
   assert.ok(roles.includes("long_thought_architect"));
   assert.ok(roles.includes("platform_operator"));
   assert.ok(roles.includes("video_memory"));
+  assert.deepEqual(visibleRoles, [
+    "primary_builder",
+    "code_worker",
+    "long_thought_architect",
+    "maintenance_agent",
+    "platform_operator",
+    "shell",
+  ]);
   assert.equal(findAgentRole("minimax")?.role, "code_worker");
   assert.equal(findAgentRole("kimi")?.role, "long_thought_architect");
 });
@@ -85,4 +94,10 @@ test("agent router chooses roles by task intent", () => {
   assert.equal(routeAgentTask({ task: "debug Kubernetes rollout and Cloudflare incident" }).chosenRole, "platform_operator");
   assert.equal(routeAgentTask({ task: "summarize huge README docs logs and manifests" }).chosenRole, "global_reader");
   assert.equal(routeAgentTask({ task: "index walkthrough video of the Beagle demo" }).chosenRole, "video_memory");
+});
+
+test("Sounio Six agent commands are auto-memory candidates", () => {
+  assert.equal(shouldAutoRememberBlock({ command: "minimax refactor compiler module", outputPreview: "" }), true);
+  assert.equal(shouldAutoRememberBlock({ command: "qwen-coder run lint loop", outputPreview: "" }), true);
+  assert.equal(shouldAutoRememberBlock({ command: "glm-air inspect k8s rollout", outputPreview: "" }), true);
 });

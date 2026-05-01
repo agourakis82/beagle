@@ -30,6 +30,7 @@ struct WorkView: View {
     @State private var workbenchError: String?
     @State private var isRefreshingWorkbench = false
     @State private var showLaneTerminal = false
+    @State private var showScoutLanes = false
     @State private var agentRoles: [AgentRole] = []
     @State private var latestRouteDecision: AgentRouteDecision?
 
@@ -100,6 +101,20 @@ struct WorkView: View {
                         )
                         .padding(.horizontal, BeagleSpacing.md)
                         .padding(.vertical, BeagleSpacing.sm)
+                        if !scoutAgentRoles.isEmpty {
+                            ScoutLaneDrawer(
+                                isExpanded: $showScoutLanes,
+                                lanes: scoutAgentRoles.map(agentLaneState),
+                                onOpenLane: { lane in
+                                    Task { await openLane(lane, startProcess: false, showTerminal: true) }
+                                },
+                                onStartLane: { lane in
+                                    Task { await openLane(lane, startProcess: true, showTerminal: true) }
+                                }
+                            )
+                            .padding(.horizontal, BeagleSpacing.md)
+                            .padding(.bottom, BeagleSpacing.xs)
+                        }
                         CompactBlockRail(
                             blocks: terminalBlocks,
                             selectedBlockId: selectedBlockId,
@@ -667,9 +682,17 @@ struct WorkView: View {
         return visible.isEmpty ? defaultAgentRoles : visible
     }
 
+    private var scoutAgentRoles: [AgentRole] {
+        guard !agentRoles.isEmpty else { return [] }
+        return agentRoles.filter { !$0.visible }
+    }
+
     private var defaultAgentRoles: [AgentRole] {
         [
-            AgentRole(role: "primary_builder", kind: "codex", title: "Claude / Codex", subtitle: "High-stakes implementation", arousalRole: "phasic_focus", providerSlots: [AgentProviderSlot(id: "codex-cli", title: "Codex", modelId: "codex", command: "codex", runtime: "cli", costTier: "premium", latencyTier: "interactive", privacyTier: "workspace")], readiness: AgentReadinessState(status: "unknown")),
+            AgentRole(role: "primary_builder", kind: "codex", title: "Claude / Codex", subtitle: "High-stakes implementation", arousalRole: "phasic_focus", providerSlots: [
+                AgentProviderSlot(id: "codex-cli", title: "Codex", modelId: "codex", command: "codex", runtime: "cli", costTier: "premium", latencyTier: "interactive", privacyTier: "workspace"),
+                AgentProviderSlot(id: "claude-code-cli", title: "Claude Code", modelId: "claude-code", command: "claude", runtime: "cli", costTier: "premium", latencyTier: "interactive", privacyTier: "workspace")
+            ], readiness: AgentReadinessState(status: "unknown")),
             AgentRole(role: "code_worker", kind: "minimax", title: "MiniMax Worker", subtitle: "Refactors, tests, compiler bugs", arousalRole: "phasic_focus", providerSlots: [AgentProviderSlot(id: "minimax-m2", title: "MiniMax-M2", modelId: "MiniMax-M2", runtime: "openai_compatible", costTier: "efficient", latencyTier: "interactive", privacyTier: "external_api")], readiness: AgentReadinessState(status: "needs_setup", reason: "provider slot not checked yet")),
             AgentRole(role: "long_thought_architect", kind: "kimi", title: "Kimi Architect", subtitle: "Sounio semantics and Claim<T>", arousalRole: "tonic_explore", providerSlots: [AgentProviderSlot(id: "kimi-k2-thinking", title: "Kimi K2 Thinking", modelId: "moonshotai/Kimi-K2-Thinking", command: "kimi", runtime: "cli_or_openai_compatible", costTier: "premium", latencyTier: "long_horizon", privacyTier: "external_api")], readiness: AgentReadinessState(status: "unknown")),
             AgentRole(role: "maintenance_agent", kind: "qwen-coder", title: "Qwen Maintainer", subtitle: "Cheap lint and repair loops", arousalRole: "phasic_focus", providerSlots: [AgentProviderSlot(id: "qwen3-coder-next", title: "Qwen3-Coder-Next", modelId: "Qwen/Qwen3-Coder-Next", runtime: "openai_compatible_or_local", costTier: "low", latencyTier: "fast", privacyTier: "provider_or_local")], readiness: AgentReadinessState(status: "needs_setup")),
@@ -799,6 +822,56 @@ struct WorkView: View {
             || haystack.contains("codex")
             || haystack.contains("claude-code")
             || haystack.contains("agent:")
+    }
+}
+
+private struct ScoutLaneDrawer: View {
+    @Binding var isExpanded: Bool
+    let lanes: [AgentLaneState]
+    let onOpenLane: (String) -> Void
+    let onStartLane: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: isExpanded ? "tray.full" : "tray")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Drawer lanes")
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.semibold)
+                    Text("\(lanes.count)")
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                    Spacer(minLength: BeagleSpacing.xs)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+                .foregroundStyle(BeagleTheme.textSecondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(BeagleTheme.surface1.opacity(0.56), in: RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(spacing: BeagleSpacing.xs) {
+                    ForEach(lanes) { lane in
+                        AgentLaneCard(
+                            lane: lane,
+                            onOpen: { onOpenLane(lane.id) },
+                            onStart: { onStartLane(lane.id) }
+                        )
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
     }
 }
 

@@ -380,7 +380,7 @@ export const SECRET_PATTERNS = [
 ];
 
 const AUTO_MEMORY_COMMAND_PATTERNS = [
-  /\b(codex|claude|claude-code|cursor|opencode|kimi)\b/i,
+  /\b(codex|claude|claude-code|cursor|opencode|kimi|minimax|qwen|qwen-coder|glm|glm-air)\b/i,
   /\b(swift test|xcodebuild|cargo test|npm test|pytest|pnpm test|bun test|build)\b/i,
   /\b(git diff|git show|git commit|git status|git log|diffstat)\b/i,
   /\b(kubectl|helm|terraform|rollout|deploy|apply)\b/i,

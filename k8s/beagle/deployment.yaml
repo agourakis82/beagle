@@ -23,8 +23,8 @@ spec:
         fsGroup: 10001
       containers:
         - name: core-server
-          image: localhost/beagle-core:dev
-          imagePullPolicy: IfNotPresent
+          image: 192.168.3.207:5003/beagle-core-exocortex:sounio-workday-mvp-c63a309
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8080
