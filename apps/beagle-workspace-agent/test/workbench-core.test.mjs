@@ -101,3 +101,20 @@ test("Sounio Six agent commands are auto-memory candidates", () => {
   assert.equal(shouldAutoRememberBlock({ command: "qwen-coder run lint loop", outputPreview: "" }), true);
   assert.equal(shouldAutoRememberBlock({ command: "glm-air inspect k8s rollout", outputPreview: "" }), true);
 });
+
+test("missing CLI setup noise is not auto-memory", () => {
+  assert.equal(
+    shouldAutoRememberBlock({
+      command: "claude",
+      outputPreview: "bash: claude: command not found",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldAutoRememberBlock({
+      command: "cursor",
+      outputPreview: "bash: cursor: command not found",
+    }),
+    false,
+  );
+});

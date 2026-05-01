@@ -848,6 +848,7 @@ export function shouldAutoRememberBlock(block) {
   const output = cleanString(block.outputPreview);
   if (!command && !output) return false;
   if (hasSecret(`${command}\n${output}`)) return false;
+  if (/\bcommand not found\b/i.test(output)) return false;
   return AUTO_MEMORY_COMMAND_PATTERNS.some((pattern) => pattern.test(command)) ||
     AUTO_MEMORY_OUTPUT_PATTERNS.some((pattern) => pattern.test(output));
 }

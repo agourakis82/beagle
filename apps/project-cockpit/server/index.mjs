@@ -11707,7 +11707,13 @@ function renderProjectLaunchPage(project) {
     }
 
     function appendTerminal(text) {
-      terminalOutput.textContent = (terminalOutput.textContent + text).slice(-50000);
+      const cleaned = String(text || "")
+        .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, "")
+        .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+        .replace(/\u001b[>=]/g, "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n");
+      terminalOutput.textContent = (terminalOutput.textContent + cleaned).slice(-50000);
       terminalOutput.scrollTop = terminalOutput.scrollHeight;
     }
 
@@ -11825,10 +11831,11 @@ function renderProjectLaunchPage(project) {
           appendTerminal(String(event.data));
           return;
         }
-        if (message.type === "data" || message.type === "raw_output") {
+        if (message.type === "data") {
           appendTerminal(String(message.data || ""));
           return;
         }
+        if (message.type === "raw_output") return;
         if (message.type === "ready") {
           appendTerminal("\\n[beagle] ready: " + JSON.stringify(message.data || {}) + "\\n");
           return;

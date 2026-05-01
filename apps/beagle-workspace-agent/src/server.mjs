@@ -40,6 +40,8 @@ const beagleCoreUrl =
   process.env.PROJECT_COCKPIT_BEAGLE_INTERNAL_URL ||
   "http://beagle-core.beagle.svc.cluster.local:8080";
 const apiToken = process.env.BEAGLE_OPERATOR_API_TOKEN || process.env.BEAGLE_CORE_API_TOKEN || process.env.BEAGLE_API_TOKEN || "";
+const beagleConsumerHeaderName = process.env.BEAGLE_CORE_CONSUMER_HEADER_NAME || "X-Beagle-Consumer";
+const beagleConsumerHeaderValue = process.env.BEAGLE_CORE_CONSUMER_HEADER_VALUE || "beagle-operator";
 
 app.use(express.json({ limit: "2mb" }));
 
@@ -259,7 +261,7 @@ async function rememberBlock({ sessionId, block, requestBody = {} }) {
     headers: {
       accept: "application/json",
       "content-type": "application/json",
-      "x-beagle-consumer": "beagle-workspace-agent",
+      [beagleConsumerHeaderName]: beagleConsumerHeaderValue,
       authorization: `Bearer ${apiToken}`,
     },
     body: JSON.stringify(payload),
