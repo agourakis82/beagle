@@ -52,3 +52,40 @@ import Foundation
     #expect(remember.kind.rawValue == "attach_block_to_memory")
     #expect(remember.blockId == "block-1")
 }
+
+@Test func rendererBakeOffSampleRedactsRestrictedBlocks() {
+    let restricted = TerminalBlock(
+        id: "block-secret",
+        sessionId: "session-1",
+        paneId: "pane-main",
+        title: "Restricted command",
+        command: "export API_KEY=secret",
+        outputPreview: "token output",
+        privacyClass: "restricted_local_only",
+        memoryStatus: "blocked",
+        blockHash: "sha256:secret"
+    )
+
+    let sample = WorkbenchBakeOffSample(block: restricted)
+
+    #expect(sample.restrictedRedacted)
+    #expect(sample.command == "[restricted command redacted]")
+    #expect(sample.outputPreview == "[restricted output redacted]")
+    #expect(sample.blockHash == "sha256:secret")
+}
+
+@Test func rendererHumanJudgmentClampsExploratoryScore() {
+    let low = RendererHumanJudgment(
+        sampleId: "sample-1",
+        selectedCandidate: .warpDerived,
+        score: -4
+    )
+    let high = RendererHumanJudgment(
+        sampleId: "sample-1",
+        selectedCandidate: .beagleTerminal,
+        score: 10
+    )
+
+    #expect(low.score == 1)
+    #expect(high.score == 5)
+}

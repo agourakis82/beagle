@@ -46,3 +46,34 @@ test("Core services do not import the AGPL workbench boundary", () => {
     assert.deepEqual(hits, [], `${rel} must not import the AGPL boundary`);
   }
 });
+
+test("Project Cockpit does not import the AGPL renderer probe", () => {
+  const guarded = [
+    "apps/project-cockpit",
+    "apps/beagle-monorepo",
+    "apps/beagle-memory-engine",
+    "beagle-mcp-server",
+  ];
+
+  for (const rel of guarded) {
+    const dir = path.join(root, rel);
+    if (!fs.existsSync(dir)) continue;
+    const hits = [];
+    const stack = [dir];
+    while (stack.length) {
+      const current = stack.pop();
+      for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+        const next = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          if (!["node_modules", "target", ".build", "dist"].includes(entry.name)) stack.push(next);
+        } else if (/\.(rs|ts|js|mjs|swift|toml|json)$/.test(entry.name)) {
+          const text = fs.readFileSync(next, "utf8");
+          if (text.includes("renderer/warp-metal-probe") || text.includes("warp-metal-probe.mjs")) {
+            hits.push(path.relative(root, next));
+          }
+        }
+      }
+    }
+    assert.deepEqual(hits, [], `${rel} must not import the AGPL renderer probe`);
+  }
+});
