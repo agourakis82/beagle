@@ -1,0 +1,372 @@
+{
+  "generatedAt": "2026-04-06T23:32:58Z",
+  "projects": [
+    {
+      "mode": "always-on",
+      "projectSlug": "sounio",
+      "workspaceId": "sounio-workspace",
+      "sessionId": "sounio-workspace-session",
+      "namespace": "beagle",
+      "repoUrl": "https://github.com/Sounio-lang/sounio.git",
+      "branch": "main",
+      "workspaceBrowserUrl": "http://sounio-workspace.beagle.svc.cluster.local:8080",
+      "workspacePublicUrl": "http://sounio-workspace.tail21cbc4.ts.net:8080",
+      "sshHost": "sounio-workspace",
+      "tmuxSession": "sounio-dev",
+      "workspaceRoot": "/workspace/sounio",
+      "workspacePod": "sounio-workspace-habitat-0",
+      "workspaceContainer": "workspace-ide",
+      "workspaceAgentService": "sounio-workspace-habitat",
+      "workspaceAgentPort": 4371,
+      "workbenchAuthority": "workspace-agent",
+      "preferredPrBase": "integration/sounio-dev-ready-base",
+      "workstreamId": "sounio-lang-main",
+      "envFile": "/home/devsounio/beagle/k8s/workspace-platform/catalog/always-on/sounio.env",
+      "doctorCommand": "./ops/workspace-platform-doctor.sh",
+      "browserAutomationCommand": "agent-browser",
+      "browserAutomationUrl": "http://100.107.208.198/projects/sounio",
+      "browserAutomationPublicUrl": "http://sounio-cockpit.tail21cbc4.ts.net/projects/sounio",
+      "playgroundClass": "webgpu-first",
+      "runtimeCapabilities": {
+        "web": {
+          "status": "ready"
+        },
+        "desktop": {
+          "status": "planned",
+          "shells": ["windows", "macos"],
+          "rendering": "webgpu-target"
+        },
+        "ios": {
+          "status": "planned",
+          "shell": "ios-native",
+          "interaction": "touch-first",
+          "layoutMode": "single-pane",
+          "rendering": "webgpu-target"
+        },
+        "vision": {
+          "status": "planned",
+          "shell": "visionos-native",
+          "interaction": "spatial-control-room",
+          "layoutMode": "multi-panel",
+          "rendering": "webgpu-target"
+        }
+      },
+      "inferenceCapabilities": {
+        "status": "prototype",
+        "surface": "private",
+        "target": "cluster-inference-fabric",
+        "compatibility": "openai-compatible via dynamo frontend",
+        "primaryFabric": "sglang+dynamo",
+        "objective": "Private inference fabric for Beagle routing, scientific workflows, and viewer-adjacent reasoning.",
+        "docsPath": "/home/devsounio/beagle/docs/INFERENCE_FABRIC_SGLANG_DYNAMO.md",
+        "sglang": {
+          "status": "planned",
+          "role": "engine",
+          "target": "gpu-runtime",
+          "endpoint": "http://sglang-serving.beagle.svc.cluster.local:30000",
+          "healthPath": "/health",
+          "modelsPath": "/v1/models",
+          "completionsPath": "/v1/completions",
+          "chatCompletionsPath": "/v1/chat/completions",
+          "deliveryMode": "gpu-backend",
+          "startupScript": "cluster-managed",
+          "tmuxSession": "cluster-managed",
+          "bootstrapCommand": "/home/devsounio/beagle/scripts/infrastructure/deploy_sglang_dynamo_fabric.sh beagle",
+          "rolloutCommand": "kubectl -n beagle rollout status deployment/sglang-serving --timeout=15m",
+          "logsCommand": "kubectl -n beagle logs deploy/sglang-serving -f",
+          "testCommand": "curl -fsS http://sglang-serving.beagle.svc.cluster.local:30000/v1/models",
+          "docsPath": "/home/devsounio/beagle/docs/INFERENCE_FABRIC_SGLANG_DYNAMO.md",
+          "models": [
+            {
+              "id": "qwen-coder",
+              "family": "code",
+              "status": "planned"
+            },
+            {
+              "id": "llama-instruct",
+              "family": "general",
+              "status": "planned"
+            },
+            {
+              "id": "bge-m3",
+              "family": "embedding",
+              "status": "planned"
+            }
+          ]
+        },
+        "dynamo": {
+          "status": "planned",
+          "role": "control-plane",
+          "target": "openai-compatible-routing-frontend",
+          "endpoint": "http://dynamo-control-plane.beagle.svc.cluster.local:8000",
+          "healthPath": "/health",
+          "modelsPath": "/v1/models",
+          "completionsPath": "/v1/completions",
+          "chatCompletionsPath": "/v1/chat/completions",
+          "deliveryMode": "routing-frontend",
+          "startupScript": "cluster-managed",
+          "tmuxSession": "cluster-managed",
+          "bootstrapCommand": "/home/devsounio/beagle/scripts/infrastructure/deploy_sglang_dynamo_fabric.sh beagle",
+          "rolloutCommand": "kubectl -n beagle rollout status deployment/dynamo-control-plane --timeout=15m",
+          "logsCommand": "kubectl -n beagle logs deploy/dynamo-control-plane -f",
+          "testCommand": "curl -fsS http://dynamo-control-plane.beagle.svc.cluster.local:8000/v1/models",
+          "docsPath": "/home/devsounio/beagle/docs/INFERENCE_FABRIC_SGLANG_DYNAMO.md"
+        },
+        "compat": {
+          "vllm": {
+            "status": "legacy",
+            "target": "compatibility-only",
+            "endpoint": "http://vllm-serving.beagle.svc.cluster.local:8001"
+          },
+          "discussionLab": {
+            "status": "lab",
+            "target": "perspective-rich discussion models across the spare cluster GPU lanes",
+            "endpoint": "http://discussion-lab-serving.beagle.svc.cluster.local:8000",
+            "profiles": [
+              {
+                "id": "internlm3",
+                "model": "internlm/internlm3-8b-instruct",
+                "family": "discussion",
+                "status": "blocked-runtime",
+                "runtime": "needs-lmdeploy-or-vllm-stack",
+                "recommendedNode": "r740-proxmox"
+              },
+        {
+          "id": "qwen3b",
+          "model": "Qwen/Qwen2.5-3B-Instruct",
+          "runtimeModelId": "qwen2.5-3b-instruct",
+          "family": "cheap-daily",
+          "status": "available",
+          "endpoint": "http://discussion-lab-serving.beagle.svc.cluster.local:8000",
+                "node": "5860-proxmox",
+                "gpu": "RTX Pro 4000 Ada",
+                "runtime": "vllm-openai",
+                "notes": "runs with hostUsers plus privileged GPU pod posture on 5860 after relocating containerd onto a dedicated thin-LV runtime tier because the default isolated runtime still blocks socketpair() and CUDA initialization inside standard pods"
+              },
+        {
+          "id": "yi6b",
+          "model": "01-ai/Yi-6B-Chat",
+          "runtimeModelId": "yi-6b-chat",
+          "family": "bilingual-creative",
+          "status": "available",
+          "endpoint": "http://discussion-lab-yi-serving.beagle.svc.cluster.local:8000",
+                "node": "r770-proxmox",
+                "gpu": "L4",
+                "runtime": "vllm-openai",
+                "notes": "runs with hostUsers plus privileged GPU pod posture on r770 because the default isolated runtime denies socketpair() and CUDA initialization inside standard pods"
+              },
+              {
+                "id": "zamba2",
+                "model": "Zyphra/Zamba2-2.7B-instruct",
+                "family": "experimental-ssm-hybrid",
+                "status": "on-demand",
+                "endpoint": "http://discussion-lab-zamba2-serving.beagle.svc.cluster.local:8000",
+                "node": "r740-proxmox",
+                "gpu": "A5000"
+              }
+            ]
+          }
+        }
+      },
+      "datasetCatalog": [
+        {
+          "id": "idr0062A-6001240-image",
+          "label": "IDR 0062A image volume",
+          "kind": "ome-zarr-multiscale",
+          "sourceKind": "real",
+          "omeZarrUrl": "https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr",
+          "manifestRef": "official:idr0062A:6001240:image",
+          "provenance": {
+            "project": "idr",
+            "artifactRef": "idr0062A/6001240",
+            "generationPath": "openmicroscopy-idr"
+          },
+          "truth": {
+            "source": "declared",
+            "truthMode": "declared"
+          }
+        },
+        {
+          "id": "idr0062A-6001240-labels",
+          "label": "IDR 0062A labels",
+          "kind": "ome-zarr-overlay",
+          "sourceKind": "real",
+          "omeZarrUrl": "https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.5/idr0062A/6001240_labels.zarr",
+          "manifestRef": "official:idr0062A:6001240:labels",
+          "provenance": {
+            "project": "idr",
+            "artifactRef": "idr0062A/6001240_labels",
+            "generationPath": "openmicroscopy-idr"
+          },
+          "truth": {
+            "source": "declared",
+            "truthMode": "declared"
+          }
+        },
+        {
+          "id": "sounio-training-run",
+          "label": "Training provenance view",
+          "kind": "run-provenance",
+          "sourceKind": "stub",
+          "omeZarrUrl": "",
+          "manifestRef": "stub:sounio:training-run",
+          "provenance": {
+            "project": "sounio",
+            "artifactRef": "run-preview",
+            "generationPath": "training-provenance"
+          },
+          "truth": {
+            "source": "declared",
+            "truthMode": "declared"
+          }
+        }
+      ],
+      "viewerDefaults": {
+        "entryDatasetId": "idr0062A-6001240-image",
+        "camera": "semantic-overview",
+        "laneLayout": "viewer-first",
+        "defaultChannel": "signal",
+        "defaultScale": "auto"
+      }
+    },
+    {
+      "mode": "cold",
+      "projectSlug": "sounio-benchmarks",
+      "workspaceId": "sounio-benchmarks-workspace",
+      "sessionId": "sounio-benchmarks-workspace-session",
+      "namespace": "beagle",
+      "repoUrl": "https://github.com/Sounio-lang/sounio-benchmarks.git",
+      "branch": "main",
+      "workspaceBrowserUrl": "http://sounio-benchmarks-workspace.beagle.svc.cluster.local:8080",
+      "workspacePublicUrl": "",
+      "sshHost": "sounio-benchmarks-workspace",
+      "tmuxSession": "sounio-benchmarks-dev",
+      "workspaceRoot": "/workspace/sounio-benchmarks",
+      "workspacePod": "sounio-benchmarks-workspace-habitat-0",
+      "workspaceContainer": "workspace-ide",
+      "preferredPrBase": "main",
+      "workstreamId": "sounio-benchmarks-main",
+      "envFile": "/home/devsounio/beagle/k8s/workspace-platform/catalog/cold/sounio-benchmarks.env",
+      "doctorCommand": "./ops/workspace-platform-doctor.sh",
+      "browserAutomationCommand": "agent-browser",
+      "browserAutomationUrl": "",
+      "browserAutomationPublicUrl": ""
+    },
+    {
+      "mode": "cold",
+      "projectSlug": "sounio-llm-training",
+      "workspaceId": "sounio-llm-training-workspace",
+      "sessionId": "sounio-llm-training-workspace-session",
+      "namespace": "beagle",
+      "repoUrl": "https://github.com/Sounio-lang/sounio-llm-training.git",
+      "branch": "main",
+      "workspaceBrowserUrl": "http://sounio-llm-training-workspace.beagle.svc.cluster.local:8080",
+      "workspacePublicUrl": "",
+      "sshHost": "sounio-llm-training-workspace",
+      "tmuxSession": "sounio-llm-training-dev",
+      "workspaceRoot": "/workspace/sounio-llm-training",
+      "workspacePod": "sounio-llm-training-workspace-habitat-0",
+      "workspaceContainer": "workspace-ide",
+      "preferredPrBase": "main",
+      "workstreamId": "sounio-llm-training-main",
+      "envFile": "/home/devsounio/beagle/k8s/workspace-platform/catalog/cold/sounio-llm-training.env",
+      "doctorCommand": "./ops/workspace-platform-doctor.sh",
+      "browserAutomationCommand": "agent-browser",
+      "browserAutomationUrl": "",
+      "browserAutomationPublicUrl": ""
+    },
+    {
+      "mode": "warm",
+      "projectSlug": "beagle",
+      "workspaceId": "beagle-workspace",
+      "sessionId": "beagle-workspace-session",
+      "namespace": "beagle",
+      "repoUrl": "https://github.com/Agourakis82/Beagle.git",
+      "branch": "main",
+      "workspaceBrowserUrl": "http://beagle-workspace.beagle.svc.cluster.local:8080",
+      "workspacePublicUrl": "",
+      "sshHost": "beagle-workspace",
+      "tmuxSession": "beagle-dev",
+      "workspaceRoot": "/workspace/beagle",
+      "workspacePod": "beagle-workspace-habitat-0",
+      "workspaceContainer": "workspace-ide",
+      "preferredPrBase": "main",
+      "workstreamId": "beagle-main",
+      "envFile": "/home/devsounio/beagle/k8s/workspace-platform/catalog/warm/beagle.env",
+      "doctorCommand": "./ops/workspace-platform-doctor.sh",
+      "browserAutomationCommand": "agent-browser",
+      "browserAutomationUrl": "",
+      "browserAutomationPublicUrl": ""
+    },
+    {
+      "mode": "warm",
+      "projectSlug": "darwin-pbpk",
+      "workspaceId": "darwin-pbpk-workspace",
+      "sessionId": "darwin-pbpk-workspace-session",
+      "namespace": "beagle",
+      "repoUrl": "https://github.com/Sounio-lang/darwin-pbpk.git",
+      "branch": "main",
+      "workspaceBrowserUrl": "http://darwin-pbpk-workspace.beagle.svc.cluster.local:8080",
+      "workspacePublicUrl": "",
+      "sshHost": "darwin-pbpk-workspace",
+      "tmuxSession": "darwin-pbpk-dev",
+      "workspaceRoot": "/workspace/darwin-pbpk",
+      "workspacePod": "darwin-pbpk-workspace-habitat-0",
+      "workspaceContainer": "workspace-ide",
+      "preferredPrBase": "main",
+      "workstreamId": "darwin-pbpk-main",
+      "envFile": "/home/devsounio/beagle/k8s/workspace-platform/catalog/warm/darwin-pbpk.env",
+      "doctorCommand": "./ops/workspace-platform-doctor.sh",
+      "browserAutomationCommand": "agent-browser",
+      "browserAutomationUrl": "",
+      "browserAutomationPublicUrl": ""
+    },
+    {
+      "mode": "warm",
+      "projectSlug": "hyperbolic-semantic-networks",
+      "workspaceId": "hyperbolic-semantic-networks-workspace",
+      "sessionId": "hyperbolic-semantic-networks-workspace-session",
+      "namespace": "beagle",
+      "repoUrl": "https://github.com/agourakis82/hyperbolic-semantic-networks.git",
+      "branch": "main",
+      "workspaceBrowserUrl": "http://hyperbolic-semantic-networks-workspace.beagle.svc.cluster.local:8080",
+      "workspacePublicUrl": "",
+      "sshHost": "hyperbolic-semantic-networks-workspace",
+      "tmuxSession": "hyperbolic-semantic-networks-dev",
+      "workspaceRoot": "/workspace/hyperbolic-semantic-networks",
+      "workspaceWorkloadName": "hyperbolic-semantic-networks-workspace",
+      "workspacePod": "hyperbolic-semantic-networks-workspace-0",
+      "workspaceContainer": "workspace-ide",
+      "preferredPrBase": "main",
+      "workstreamId": "hyperbolic-semantic-networks-main",
+      "envFile": "/home/devsounio/beagle/k8s/workspace-platform/catalog/warm/hyperbolic-semantic-networks.env",
+      "doctorCommand": "./ops/workspace-platform-doctor.sh",
+      "browserAutomationCommand": "agent-browser",
+      "browserAutomationUrl": "",
+      "browserAutomationPublicUrl": ""
+    },
+    {
+      "mode": "warm",
+      "projectSlug": "sounio-examples",
+      "workspaceId": "sounio-examples-workspace",
+      "sessionId": "sounio-examples-workspace-session",
+      "namespace": "beagle",
+      "repoUrl": "https://github.com/Sounio-lang/sounio-examples.git",
+      "branch": "main",
+      "workspaceBrowserUrl": "http://sounio-examples-workspace.beagle.svc.cluster.local:8080",
+      "workspacePublicUrl": "",
+      "sshHost": "sounio-examples-workspace",
+      "tmuxSession": "sounio-examples-dev",
+      "workspaceRoot": "/workspace/sounio-examples",
+      "workspacePod": "sounio-examples-workspace-habitat-0",
+      "workspaceContainer": "workspace-ide",
+      "preferredPrBase": "main",
+      "workstreamId": "sounio-examples-main",
+      "envFile": "/home/devsounio/beagle/k8s/workspace-platform/catalog/warm/sounio-examples.env",
+      "doctorCommand": "./ops/workspace-platform-doctor.sh",
+      "browserAutomationCommand": "agent-browser",
+      "browserAutomationUrl": "",
+      "browserAutomationPublicUrl": ""
+    }
+  ]
+}

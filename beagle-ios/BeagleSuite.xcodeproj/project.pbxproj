@@ -1,0 +1,1043 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00F812AB7229A6E94A452495 /* BeagleWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5D747E9BE19D4C2DAFD1E6 /* BeagleWatchApp.swift */; };
+		06BB7ABD02B36D11C5057D62 /* JournalingSuggestionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A08540D355E6437F5F11ED49 /* JournalingSuggestionsView.swift */; };
+		0DD04528F8D0BA08681233BE /* FoundationModelsAgent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1160A4CA5DCDC7BF7C91604C /* FoundationModelsAgent.swift */; };
+		0FF17280899BAC7B5FC70CB9 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5409EBAF41662A24788CCC75 /* ShareViewController.swift */; };
+		1B55247C99EAB1B670864938 /* PostureGradientBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49590C3934C2C786F704ADB3 /* PostureGradientBackground.swift */; };
+		232DEFB048E340F8FE242BDB /* TerminalContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */; };
+		2506AE1D807F002678049438 /* BeagleAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */; };
+		2AD08B4C933878D9B28A470F /* MultimodalComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53EBDF9F7419046FF55F57AF /* MultimodalComposer.swift */; };
+		2E61BDB009F282CB1A3CCCE7 /* MetalClusterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1627EC91F819B45D2929869B /* MetalClusterView.swift */; };
+		357233B56EA6220C81DFC055 /* HyperbolicGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */; };
+		35F6E3C12D7A4C5B8E901234 /* SpatialControlRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35F6E3C02D7A4C5B8E901234 /* SpatialControlRoomView.swift */; };
+		3676B6A0274B8867938EA3E9 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA8A9689928DC1BA45738244 /* BeagleCore */; };
+		39966D4FD11EC8661B54479D /* CognitiveStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5BFBC8407D4C833BA3F95 /* CognitiveStateView.swift */; };
+		40BF456C71ED40A7CBF92FD8 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F9429744BAEF1DC81205FFB /* OnboardingView.swift */; };
+		431207BF2DFB6E4513C886C7 /* SpatialThoughtsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A6266364731B5C6EF907DE7 /* SpatialThoughtsView.swift */; };
+		45538AA5FF6969455CA5977B /* BeagleWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CE66E5A63CE01CAC1A04AF63 /* BeagleWidgets.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		459A916447C162277C0E2299 /* CognitiveBridgeField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB312C9D46D9321BC2DD8F95 /* CognitiveBridgeField.swift */; };
+		4DA6AD62DD347FAACCB96433 /* DeepExplorationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */; };
+		516E1D231C1D60DF1ECDB5A1 /* BeagleShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		558DF95BA7821C7D9511DA64 /* DiagnosticsRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */; };
+		5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 287C64605E5D53C799744EFA /* AgentSessionView.swift */; };
+		6DDB4BC3B8EB67E8090EE6BF /* BeagleInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96E1A662D877979794235C0 /* BeagleInputBar.swift */; };
+		8003CBD314227378F652535A /* BeagleSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F68F6456B64893491C1B93 /* BeagleSurface.swift */; };
+		8074F587452ECB33D0DAEA08 /* LorenzAttractorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2CE724AEFED517CAC6C94C0 /* LorenzAttractorView.swift */; };
+		88A28D4391FECECF547F0F1F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
+		8A5884FB4F1AAAAF5E951305 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 89A4FE3D86B15D992A7B5030 /* BeagleCore */; };
+		907EF19DEAD54A0CE58672EC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6B7360324065FECF7F1A2F /* HomeView.swift */; };
+		92B4E05E95660C6A18722F63 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = EC23CD7FEB1FC70A4E7192BF /* BeagleCore */; };
+		951D9C072CAFC68FA6BAE300 /* AgentActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF024B3743049659F7073E6C /* AgentActivityView.swift */; };
+		955AF5DFA3C5E28DE9E71AAF /* GoDeepButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */; };
+		9CC023D0D4B249261F286235 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
+		9CC466E7952DB6517E30310A /* BeagleVisionOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */; };
+		9D3E9AC3F435A2A585B1F48B /* ChatBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189F9DCDE0C15DEF48A24B21 /* ChatBubbleView.swift */; };
+		A3ED060D3B5CB1EB7489B82E /* TriadReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */; };
+		A7E50EC5008FE3C119415E16 /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */; };
+		AEB6084416F309DE3C3BFE38 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3CE68477CD23BAC261300B32 /* BeagleCore */; };
+		AFF447F376A1DA08356C28E0 /* HPCDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */; };
+		B0217E37A1B94E77BEA53710 /* SpatialDeskMissionControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0217E36A1B94E77BEA53710 /* SpatialDeskMissionControlView.swift */; };
+		B153B877BF3BB76F401EF7EF /* ModelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */; };
+		B29E7F8F8148C1AF28D130D0 /* BeagleCockpitApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */; };
+		B4C18225A382E1164A752BEC /* GoDeepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FADF6A9C3533B785FE38619 /* GoDeepView.swift */; };
+		BB19063FBD1E753D7FD91FAA /* PresencePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C4128C7822635F0B4D0B966 /* PresencePill.swift */; };
+		BD252AA03538ED12C4AFE5D7 /* BeagleWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */; };
+		BD5252A15774BB0AFF4C2537 /* PlatformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4EBFAF926379A760494FDDE /* PlatformView.swift */; };
+		BD8DE849A86BAFDCE1CAC86B /* LiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365A4A4180DF64759923830A /* LiveActivityManager.swift */; };
+		BF0742CD0ABD9D8AD53DE9D6 /* HeatmapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EECE76875D595132E400D65E /* HeatmapView.swift */; };
+		C060C8580D8343B1849A1DA0 /* MindPalaceSpatialDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C060C8570D8343B1849A1DA0 /* MindPalaceSpatialDeskView.swift */; };
+		C4F95F143E38413D13ABCBF1 /* WorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3133A19FD4CA197756C9D57A /* WorkView.swift */; };
+		C7FB16C8609C0B478FA7DAD2 /* ExocortexTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148676E7FD99D57EF0457448 /* ExocortexTools.swift */; };
+		CAB18C9B9AA87C72B1B91BE4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
+		DBDE230C56BD951ED91BCF5C /* ThoughtCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */; };
+		DC905A79099605C79BAFCD31 /* ControlRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19225CC4B80CE9408A68022 /* ControlRoomView.swift */; };
+		E73BE34C11A09D57EE250508 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 639809058407AA2A7F31CBFA /* ConversationView.swift */; };
+		E7D7E3A1DBEE70B042E893B4 /* BuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 902E0125E6DDA133D4486E04 /* BuildInfo.swift */; };
+		E90459441F120031896D82A3 /* SpatialTriadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81EA117A445504E0B157182 /* SpatialTriadView.swift */; };
+		EFC226181CCAC66E7086F83E /* ScienceJobsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77EBB6E9F932B4C6400037BD /* ScienceJobsView.swift */; };
+		FB770F638C6B2329AB979A4F /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 85AA837F77CBB98A5A3D1297 /* BeagleCore */; };
+		FD773EBDECB3C46EB77F7469 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C0716A44065AB38522367886 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7073DE690D3DAE155D2E23FD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D460B6115A3309F917104353;
+			remoteInfo = BeagleWidgets;
+		};
+		C2CC835C65AC098EE6C6EB0B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7073DE690D3DAE155D2E23FD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4619751AD2B537C66DE2F869;
+			remoteInfo = BeagleShare;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		11995D61FE54A62855FAB8C9 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				45538AA5FF6969455CA5977B /* BeagleWidgets.appex in Embed Foundation Extensions */,
+				516E1D231C1D60DF1ECDB5A1 /* BeagleShare.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSettingsView.swift; sourceTree = "<group>"; };
+		0F5D747E9BE19D4C2DAFD1E6 /* BeagleWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleWatchApp.swift; sourceTree = "<group>"; };
+		1160A4CA5DCDC7BF7C91604C /* FoundationModelsAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelsAgent.swift; sourceTree = "<group>"; };
+		148676E7FD99D57EF0457448 /* ExocortexTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExocortexTools.swift; sourceTree = "<group>"; };
+		1627EC91F819B45D2929869B /* MetalClusterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalClusterView.swift; sourceTree = "<group>"; };
+		180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThoughtCaptureView.swift; sourceTree = "<group>"; };
+		189F9DCDE0C15DEF48A24B21 /* ChatBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBubbleView.swift; sourceTree = "<group>"; };
+		1A6266364731B5C6EF907DE7 /* SpatialThoughtsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialThoughtsView.swift; sourceTree = "<group>"; };
+		277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HyperbolicGraphView.swift; sourceTree = "<group>"; };
+		35F6E3C02D7A4C5B8E901234 /* SpatialControlRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialControlRoomView.swift; sourceTree = "<group>"; };
+		287C64605E5D53C799744EFA /* AgentSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionView.swift; sourceTree = "<group>"; };
+		2C4128C7822635F0B4D0B966 /* PresencePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresencePill.swift; sourceTree = "<group>"; };
+		3133A19FD4CA197756C9D57A /* WorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkView.swift; sourceTree = "<group>"; };
+		365A4A4180DF64759923830A /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
+		3FADF6A9C3533B785FE38619 /* GoDeepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoDeepView.swift; sourceTree = "<group>"; };
+		4391CB65FB2D130CC3568338 /* BeagleCockpit.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BeagleCockpit.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleWidgets.swift; sourceTree = "<group>"; };
+		47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalContentView.swift; sourceTree = "<group>"; };
+		49590C3934C2C786F704ADB3 /* PostureGradientBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostureGradientBackground.swift; sourceTree = "<group>"; };
+		4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizer.swift; sourceTree = "<group>"; };
+		4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsRunner.swift; sourceTree = "<group>"; };
+		4E7942CCBC29D0245EF77BB7 /* BeagleWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BeagleWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		53EBDF9F7419046FF55F57AF /* MultimodalComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultimodalComposer.swift; sourceTree = "<group>"; };
+		5409EBAF41662A24788CCC75 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleAppIntents.swift; sourceTree = "<group>"; };
+		57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepExplorationView.swift; sourceTree = "<group>"; };
+		58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriadReviewView.swift; sourceTree = "<group>"; };
+		5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HPCDashboardView.swift; sourceTree = "<group>"; };
+		5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleVisionOSApp.swift; sourceTree = "<group>"; };
+		639809058407AA2A7F31CBFA /* ConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationView.swift; sourceTree = "<group>"; };
+		67516A1FA21422BE9A964B96 /* BeagleVisionOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BeagleVisionOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6E25761501AE3C48683C921A /* BeagleSuite */ = {isa = PBXFileReference; lastKnownFileType = folder; name = BeagleSuite; path = BeagleSuite; sourceTree = SOURCE_ROOT; };
+		77EBB6E9F932B4C6400037BD /* ScienceJobsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScienceJobsView.swift; sourceTree = "<group>"; };
+		818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleCockpitApp.swift; sourceTree = "<group>"; };
+		8818FC1E3DC8B03233F14F29 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		88F68F6456B64893491C1B93 /* BeagleSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleSurface.swift; sourceTree = "<group>"; };
+		8F9429744BAEF1DC81205FFB /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		902E0125E6DDA133D4486E04 /* BuildInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildInfo.swift; sourceTree = "<group>"; };
+		95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
+		A08540D355E6437F5F11ED49 /* JournalingSuggestionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalingSuggestionsView.swift; sourceTree = "<group>"; };
+		AB312C9D46D9321BC2DD8F95 /* CognitiveBridgeField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CognitiveBridgeField.swift; sourceTree = "<group>"; };
+		B0217E36A1B94E77BEA53710 /* SpatialDeskMissionControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialDeskMissionControlView.swift; sourceTree = "<group>"; };
+		B4EBFAF926379A760494FDDE /* PlatformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformView.swift; sourceTree = "<group>"; };
+		BF024B3743049659F7073E6C /* AgentActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityView.swift; sourceTree = "<group>"; };
+		C060C8570D8343B1849A1DA0 /* MindPalaceSpatialDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MindPalaceSpatialDeskView.swift; sourceTree = "<group>"; };
+		CE66E5A63CE01CAC1A04AF63 /* BeagleWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = BeagleWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = BeagleShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D2CE724AEFED517CAC6C94C0 /* LorenzAttractorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LorenzAttractorView.swift; sourceTree = "<group>"; };
+		D4E5BFBC8407D4C833BA3F95 /* CognitiveStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CognitiveStateView.swift; sourceTree = "<group>"; };
+		E19225CC4B80CE9408A68022 /* ControlRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlRoomView.swift; sourceTree = "<group>"; };
+		E81EA117A445504E0B157182 /* SpatialTriadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialTriadView.swift; sourceTree = "<group>"; };
+		EC6B7360324065FECF7F1A2F /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		EECE76875D595132E400D65E /* HeatmapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeatmapView.swift; sourceTree = "<group>"; };
+		F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoDeepButton.swift; sourceTree = "<group>"; };
+		F96E1A662D877979794235C0 /* BeagleInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleInputBar.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3F0BEEB1D553DC6A2D007FC1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				92B4E05E95660C6A18722F63 /* BeagleCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4C7C65EB84C638BC75E1F750 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8A5884FB4F1AAAAF5E951305 /* BeagleCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		76726D413C95C3912CD1DB0A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AEB6084416F309DE3C3BFE38 /* BeagleCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9288772543ADD0BCD34F059F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3676B6A0274B8867938EA3E9 /* BeagleCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B94C9D9472A95BD7D4EA8839 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FB770F638C6B2329AB979A4F /* BeagleCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1EE0F86D153CC3158277A3F6 /* BeagleCockpit */ = {
+			isa = PBXGroup;
+			children = (
+				BF024B3743049659F7073E6C /* AgentActivityView.swift */,
+				287C64605E5D53C799744EFA /* AgentSessionView.swift */,
+				579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */,
+				818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */,
+				F96E1A662D877979794235C0 /* BeagleInputBar.swift */,
+				88F68F6456B64893491C1B93 /* BeagleSurface.swift */,
+				902E0125E6DDA133D4486E04 /* BuildInfo.swift */,
+				189F9DCDE0C15DEF48A24B21 /* ChatBubbleView.swift */,
+				AB312C9D46D9321BC2DD8F95 /* CognitiveBridgeField.swift */,
+				D4E5BFBC8407D4C833BA3F95 /* CognitiveStateView.swift */,
+				E19225CC4B80CE9408A68022 /* ControlRoomView.swift */,
+				639809058407AA2A7F31CBFA /* ConversationView.swift */,
+				57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */,
+				4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */,
+				95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */,
+				148676E7FD99D57EF0457448 /* ExocortexTools.swift */,
+				1160A4CA5DCDC7BF7C91604C /* FoundationModelsAgent.swift */,
+				F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */,
+				3FADF6A9C3533B785FE38619 /* GoDeepView.swift */,
+				EECE76875D595132E400D65E /* HeatmapView.swift */,
+				EC6B7360324065FECF7F1A2F /* HomeView.swift */,
+				5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */,
+				A08540D355E6437F5F11ED49 /* JournalingSuggestionsView.swift */,
+				365A4A4180DF64759923830A /* LiveActivityManager.swift */,
+				D2CE724AEFED517CAC6C94C0 /* LorenzAttractorView.swift */,
+				1627EC91F819B45D2929869B /* MetalClusterView.swift */,
+				0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */,
+				53EBDF9F7419046FF55F57AF /* MultimodalComposer.swift */,
+				8F9429744BAEF1DC81205FFB /* OnboardingView.swift */,
+				B4EBFAF926379A760494FDDE /* PlatformView.swift */,
+				49590C3934C2C786F704ADB3 /* PostureGradientBackground.swift */,
+				2C4128C7822635F0B4D0B966 /* PresencePill.swift */,
+				77EBB6E9F932B4C6400037BD /* ScienceJobsView.swift */,
+				4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */,
+				B0217E36A1B94E77BEA53710 /* SpatialDeskMissionControlView.swift */,
+				47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */,
+				180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */,
+				58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */,
+				3133A19FD4CA197756C9D57A /* WorkView.swift */,
+			);
+			name = BeagleCockpit;
+			path = BeagleSuite/Sources/BeagleCockpit;
+			sourceTree = "<group>";
+		};
+		7C39DE72712D22F710D2FD2E = {
+			isa = PBXGroup;
+			children = (
+				1EE0F86D153CC3158277A3F6 /* BeagleCockpit */,
+				E649B50A28BE221395D30798 /* BeagleShare */,
+				A44FE6DD06075EBD7162B376 /* BeagleVisionOS */,
+				806A66AAADB1C9F1106D558C /* BeagleWatch */,
+				F63D95C7A2B8A378076B12FC /* BeagleWidgets */,
+				C8A1F4C4DC0D44201EF02465 /* Packages */,
+				8818FC1E3DC8B03233F14F29 /* Assets.xcassets */,
+				CDE6F5BE0BAAA3685433587F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		806A66AAADB1C9F1106D558C /* BeagleWatch */ = {
+			isa = PBXGroup;
+			children = (
+				0F5D747E9BE19D4C2DAFD1E6 /* BeagleWatchApp.swift */,
+			);
+			name = BeagleWatch;
+			path = BeagleSuite/Sources/BeagleWatch;
+			sourceTree = "<group>";
+		};
+		A44FE6DD06075EBD7162B376 /* BeagleVisionOS */ = {
+			isa = PBXGroup;
+			children = (
+				5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */,
+				277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */,
+				C060C8570D8343B1849A1DA0 /* MindPalaceSpatialDeskView.swift */,
+				35F6E3C02D7A4C5B8E901234 /* SpatialControlRoomView.swift */,
+				1A6266364731B5C6EF907DE7 /* SpatialThoughtsView.swift */,
+				E81EA117A445504E0B157182 /* SpatialTriadView.swift */,
+			);
+			name = BeagleVisionOS;
+			path = BeagleSuite/Sources/BeagleVisionOS;
+			sourceTree = "<group>";
+		};
+		C8A1F4C4DC0D44201EF02465 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				6E25761501AE3C48683C921A /* BeagleSuite */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		CDE6F5BE0BAAA3685433587F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				4391CB65FB2D130CC3568338 /* BeagleCockpit.app */,
+				CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */,
+				67516A1FA21422BE9A964B96 /* BeagleVisionOS.app */,
+				4E7942CCBC29D0245EF77BB7 /* BeagleWatch.app */,
+				CE66E5A63CE01CAC1A04AF63 /* BeagleWidgets.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		E649B50A28BE221395D30798 /* BeagleShare */ = {
+			isa = PBXGroup;
+			children = (
+				5409EBAF41662A24788CCC75 /* ShareViewController.swift */,
+			);
+			name = BeagleShare;
+			path = BeagleSuite/Sources/BeagleShare;
+			sourceTree = "<group>";
+		};
+		F63D95C7A2B8A378076B12FC /* BeagleWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */,
+			);
+			name = BeagleWidgets;
+			path = BeagleSuite/Sources/BeagleWidgets;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		133E3664A7BB29ABCC6B3137 /* BeagleVisionOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1EE4AF992BEC45EF16342F25 /* Build configuration list for PBXNativeTarget "BeagleVisionOS" */;
+			buildPhases = (
+				F4DE0B16CEA292D5D5703966 /* Sources */,
+				A80D0ADD63B5D4D337302D4B /* Resources */,
+				B94C9D9472A95BD7D4EA8839 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BeagleVisionOS;
+			packageProductDependencies = (
+				85AA837F77CBB98A5A3D1297 /* BeagleCore */,
+			);
+			productName = BeagleVisionOS;
+			productReference = 67516A1FA21422BE9A964B96 /* BeagleVisionOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		233B7E5DA2C7B4C7AEE6B02C /* BeagleCockpit */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FACA0CC00CB67E82A04C15D6 /* Build configuration list for PBXNativeTarget "BeagleCockpit" */;
+			buildPhases = (
+				6472A2CC0162FA7233F9B8CF /* Sources */,
+				60AFF1F31D1152AF683B0322 /* Resources */,
+				3F0BEEB1D553DC6A2D007FC1 /* Frameworks */,
+				11995D61FE54A62855FAB8C9 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CA8DDC30CA207D4225485E24 /* PBXTargetDependency */,
+				9F024D34240EAB7F2DEEE8D4 /* PBXTargetDependency */,
+			);
+			name = BeagleCockpit;
+			packageProductDependencies = (
+				EC23CD7FEB1FC70A4E7192BF /* BeagleCore */,
+			);
+			productName = BeagleCockpit;
+			productReference = 4391CB65FB2D130CC3568338 /* BeagleCockpit.app */;
+			productType = "com.apple.product-type.application";
+		};
+		4619751AD2B537C66DE2F869 /* BeagleShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ADA051C4329397C589EAD61B /* Build configuration list for PBXNativeTarget "BeagleShare" */;
+			buildPhases = (
+				C2F6A1E6E1FEEFAB0638D03C /* Sources */,
+				76726D413C95C3912CD1DB0A /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BeagleShare;
+			packageProductDependencies = (
+				3CE68477CD23BAC261300B32 /* BeagleCore */,
+			);
+			productName = BeagleShare;
+			productReference = CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		6B57DEA48061080A95ED178F /* BeagleWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 05E9439690832B4139E3C67F /* Build configuration list for PBXNativeTarget "BeagleWatch" */;
+			buildPhases = (
+				2F8654292CB59E11F7C219D6 /* Sources */,
+				A2E9CAC00840E6FD78663B6B /* Resources */,
+				9288772543ADD0BCD34F059F /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BeagleWatch;
+			packageProductDependencies = (
+				AA8A9689928DC1BA45738244 /* BeagleCore */,
+			);
+			productName = BeagleWatch;
+			productReference = 4E7942CCBC29D0245EF77BB7 /* BeagleWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		D460B6115A3309F917104353 /* BeagleWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B8A0FF4451985D40DBA733B3 /* Build configuration list for PBXNativeTarget "BeagleWidgets" */;
+			buildPhases = (
+				836965B090199CD633F89608 /* Sources */,
+				4C7C65EB84C638BC75E1F750 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BeagleWidgets;
+			packageProductDependencies = (
+				89A4FE3D86B15D992A7B5030 /* BeagleCore */,
+			);
+			productName = BeagleWidgets;
+			productReference = CE66E5A63CE01CAC1A04AF63 /* BeagleWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7073DE690D3DAE155D2E23FD /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 2640;
+				TargetAttributes = {
+					133E3664A7BB29ABCC6B3137 = {
+						DevelopmentTeam = S9DPGW22A8;
+						ProvisioningStyle = Automatic;
+					};
+					233B7E5DA2C7B4C7AEE6B02C = {
+						DevelopmentTeam = S9DPGW22A8;
+						ProvisioningStyle = Automatic;
+					};
+					4619751AD2B537C66DE2F869 = {
+						DevelopmentTeam = S9DPGW22A8;
+						ProvisioningStyle = Automatic;
+					};
+					6B57DEA48061080A95ED178F = {
+						DevelopmentTeam = S9DPGW22A8;
+						ProvisioningStyle = Automatic;
+					};
+					D460B6115A3309F917104353 = {
+						DevelopmentTeam = S9DPGW22A8;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 814EEFD125CED6230A012DEF /* Build configuration list for PBXProject "BeagleSuite" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 7C39DE72712D22F710D2FD2E;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				35F7C86608C913E447504907 /* XCLocalSwiftPackageReference "BeagleSuite" */,
+			);
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				233B7E5DA2C7B4C7AEE6B02C /* BeagleCockpit */,
+				4619751AD2B537C66DE2F869 /* BeagleShare */,
+				133E3664A7BB29ABCC6B3137 /* BeagleVisionOS */,
+				6B57DEA48061080A95ED178F /* BeagleWatch */,
+				D460B6115A3309F917104353 /* BeagleWidgets */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		60AFF1F31D1152AF683B0322 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				88A28D4391FECECF547F0F1F /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A2E9CAC00840E6FD78663B6B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CAB18C9B9AA87C72B1B91BE4 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A80D0ADD63B5D4D337302D4B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9CC023D0D4B249261F286235 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2F8654292CB59E11F7C219D6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				00F812AB7229A6E94A452495 /* BeagleWatchApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6472A2CC0162FA7233F9B8CF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				951D9C072CAFC68FA6BAE300 /* AgentActivityView.swift in Sources */,
+				5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */,
+				2506AE1D807F002678049438 /* BeagleAppIntents.swift in Sources */,
+				B29E7F8F8148C1AF28D130D0 /* BeagleCockpitApp.swift in Sources */,
+				6DDB4BC3B8EB67E8090EE6BF /* BeagleInputBar.swift in Sources */,
+				8003CBD314227378F652535A /* BeagleSurface.swift in Sources */,
+				E7D7E3A1DBEE70B042E893B4 /* BuildInfo.swift in Sources */,
+				9D3E9AC3F435A2A585B1F48B /* ChatBubbleView.swift in Sources */,
+				459A916447C162277C0E2299 /* CognitiveBridgeField.swift in Sources */,
+				39966D4FD11EC8661B54479D /* CognitiveStateView.swift in Sources */,
+				DC905A79099605C79BAFCD31 /* ControlRoomView.swift in Sources */,
+				E73BE34C11A09D57EE250508 /* ConversationView.swift in Sources */,
+				4DA6AD62DD347FAACCB96433 /* DeepExplorationView.swift in Sources */,
+				558DF95BA7821C7D9511DA64 /* DiagnosticsRunner.swift in Sources */,
+				FD773EBDECB3C46EB77F7469 /* DiagnosticsView.swift in Sources */,
+				C7FB16C8609C0B478FA7DAD2 /* ExocortexTools.swift in Sources */,
+				0DD04528F8D0BA08681233BE /* FoundationModelsAgent.swift in Sources */,
+				955AF5DFA3C5E28DE9E71AAF /* GoDeepButton.swift in Sources */,
+				B4C18225A382E1164A752BEC /* GoDeepView.swift in Sources */,
+				AFF447F376A1DA08356C28E0 /* HPCDashboardView.swift in Sources */,
+				BF0742CD0ABD9D8AD53DE9D6 /* HeatmapView.swift in Sources */,
+				907EF19DEAD54A0CE58672EC /* HomeView.swift in Sources */,
+				06BB7ABD02B36D11C5057D62 /* JournalingSuggestionsView.swift in Sources */,
+				BD8DE849A86BAFDCE1CAC86B /* LiveActivityManager.swift in Sources */,
+				8074F587452ECB33D0DAEA08 /* LorenzAttractorView.swift in Sources */,
+				2E61BDB009F282CB1A3CCCE7 /* MetalClusterView.swift in Sources */,
+				B153B877BF3BB76F401EF7EF /* ModelSettingsView.swift in Sources */,
+				2AD08B4C933878D9B28A470F /* MultimodalComposer.swift in Sources */,
+				40BF456C71ED40A7CBF92FD8 /* OnboardingView.swift in Sources */,
+				BD5252A15774BB0AFF4C2537 /* PlatformView.swift in Sources */,
+				1B55247C99EAB1B670864938 /* PostureGradientBackground.swift in Sources */,
+				BB19063FBD1E753D7FD91FAA /* PresencePill.swift in Sources */,
+				EFC226181CCAC66E7086F83E /* ScienceJobsView.swift in Sources */,
+				A7E50EC5008FE3C119415E16 /* SpeechRecognizer.swift in Sources */,
+				B0217E37A1B94E77BEA53710 /* SpatialDeskMissionControlView.swift in Sources */,
+				232DEFB048E340F8FE242BDB /* TerminalContentView.swift in Sources */,
+				DBDE230C56BD951ED91BCF5C /* ThoughtCaptureView.swift in Sources */,
+				A3ED060D3B5CB1EB7489B82E /* TriadReviewView.swift in Sources */,
+				C4F95F143E38413D13ABCBF1 /* WorkView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		836965B090199CD633F89608 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BD252AA03538ED12C4AFE5D7 /* BeagleWidgets.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C2F6A1E6E1FEEFAB0638D03C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0FF17280899BAC7B5FC70CB9 /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F4DE0B16CEA292D5D5703966 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9CC466E7952DB6517E30310A /* BeagleVisionOSApp.swift in Sources */,
+				357233B56EA6220C81DFC055 /* HyperbolicGraphView.swift in Sources */,
+				C060C8580D8343B1849A1DA0 /* MindPalaceSpatialDeskView.swift in Sources */,
+				35F6E3C12D7A4C5B8E901234 /* SpatialControlRoomView.swift in Sources */,
+				431207BF2DFB6E4513C886C7 /* SpatialThoughtsView.swift in Sources */,
+				E90459441F120031896D82A3 /* SpatialTriadView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		9F024D34240EAB7F2DEEE8D4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = 4619751AD2B537C66DE2F869 /* BeagleShare */;
+			targetProxy = C2CC835C65AC098EE6C6EB0B /* PBXContainerItemProxy */;
+		};
+		CA8DDC30CA207D4225485E24 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = D460B6115A3309F917104353 /* BeagleWidgets */;
+			targetProxy = C0716A44065AB38522367886 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		01B1CD9361F645F4E3D22554 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Entitlements/BeagleCockpit.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S9DPGW22A8;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "BeagleCockpit-Info.plist";
+				ITSAppUsesNonExemptEncryption = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		15D5AEFE9E159167485C61E1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Entitlements/BeagleCockpit.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S9DPGW22A8;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "BeagleCockpit-Info.plist";
+				ITSAppUsesNonExemptEncryption = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		259D6B5AD80DB709C926DDAA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = BeagleWatchAppIcon;
+				CODE_SIGN_ENTITLEMENTS = Entitlements/BeagleWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S9DPGW22A8;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = BeagleWatch;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Beagle monitors HRV to suggest flow-state focus modes.";
+				ITSAppUsesNonExemptEncryption = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit.watch;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Release;
+		};
+		2EE420CA543A8EA8CE935ACA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = BeagleWatchAppIcon;
+				CODE_SIGN_ENTITLEMENTS = Entitlements/BeagleWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S9DPGW22A8;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = BeagleWatch;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Beagle monitors HRV to suggest flow-state focus modes.";
+				ITSAppUsesNonExemptEncryption = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit.watch;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Debug;
+		};
+		550692ADE96E6F1C8B40DE58 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 28;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+				XROS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Debug;
+		};
+		60F6820524FE7A965F192FF2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 28;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				WATCHOS_DEPLOYMENT_TARGET = 26.0;
+				XROS_DEPLOYMENT_TARGET = 26.0;
+			};
+			name = Release;
+		};
+		9EB582FE09974FBD56AFC3EB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Entitlements/BeagleWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S9DPGW22A8;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "BeagleWidgets-Info.plist";
+				ITSAppUsesNonExemptEncryption = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit.widgets;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B37BC4736ECC1F65C50C1FB9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S9DPGW22A8;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = BeagleVisionOS;
+				ITSAppUsesNonExemptEncryption = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit.vision;
+				SDKROOT = xros;
+				TARGETED_DEVICE_FAMILY = 7;
+			};
+			name = Debug;
+		};
+		B826E2662A908C4A56D1EE3E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Entitlements/BeagleWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S9DPGW22A8;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "BeagleWidgets-Info.plist";
+				ITSAppUsesNonExemptEncryption = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit.widgets;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		DFA2DAEB30472DE61F642AA0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Entitlements/BeagleShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S9DPGW22A8;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "BeagleShare-Info.plist";
+				ITSAppUsesNonExemptEncryption = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit.share;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E937B9DA74124B229381CF33 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S9DPGW22A8;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = BeagleVisionOS;
+				ITSAppUsesNonExemptEncryption = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit.vision;
+				SDKROOT = xros;
+				TARGETED_DEVICE_FAMILY = 7;
+			};
+			name = Release;
+		};
+		FD1AAEA89D63A2068F3F7079 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Entitlements/BeagleShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = S9DPGW22A8;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "BeagleShare-Info.plist";
+				ITSAppUsesNonExemptEncryption = NO;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.sounio.cockpit.share;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		05E9439690832B4139E3C67F /* Build configuration list for PBXNativeTarget "BeagleWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2EE420CA543A8EA8CE935ACA /* Debug */,
+				259D6B5AD80DB709C926DDAA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		1EE4AF992BEC45EF16342F25 /* Build configuration list for PBXNativeTarget "BeagleVisionOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B37BC4736ECC1F65C50C1FB9 /* Debug */,
+				E937B9DA74124B229381CF33 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		814EEFD125CED6230A012DEF /* Build configuration list for PBXProject "BeagleSuite" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				550692ADE96E6F1C8B40DE58 /* Debug */,
+				60F6820524FE7A965F192FF2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		ADA051C4329397C589EAD61B /* Build configuration list for PBXNativeTarget "BeagleShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DFA2DAEB30472DE61F642AA0 /* Debug */,
+				FD1AAEA89D63A2068F3F7079 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B8A0FF4451985D40DBA733B3 /* Build configuration list for PBXNativeTarget "BeagleWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9EB582FE09974FBD56AFC3EB /* Debug */,
+				B826E2662A908C4A56D1EE3E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FACA0CC00CB67E82A04C15D6 /* Build configuration list for PBXNativeTarget "BeagleCockpit" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				01B1CD9361F645F4E3D22554 /* Debug */,
+				15D5AEFE9E159167485C61E1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		35F7C86608C913E447504907 /* XCLocalSwiftPackageReference "BeagleSuite" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = BeagleSuite;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3CE68477CD23BAC261300B32 /* BeagleCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BeagleCore;
+		};
+		85AA837F77CBB98A5A3D1297 /* BeagleCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BeagleCore;
+		};
+		89A4FE3D86B15D992A7B5030 /* BeagleCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BeagleCore;
+		};
+		AA8A9689928DC1BA45738244 /* BeagleCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BeagleCore;
+		};
+		EC23CD7FEB1FC70A4E7192BF /* BeagleCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BeagleCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 7073DE690D3DAE155D2E23FD /* Project object */;
+}

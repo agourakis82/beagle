@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: beagle-memory-lab
+  labels:
+    app.kubernetes.io/part-of: beagle
+    beagle.dev/canonical-memory: "false"
+    beagle.dev/lab: federated-memory-engine

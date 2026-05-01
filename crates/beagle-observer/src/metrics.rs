@@ -106,7 +106,8 @@ impl MetricsCollector {
     pub fn with_config(config: MetricsConfig) -> Result<Self> {
         let registry = Registry::new();
 
-        // Try to register default metrics (may fail on some platforms)
+        // Try to register default process metrics where prometheus exposes them.
+        #[cfg(target_os = "linux")]
         if let Ok(process_collector) =
             std::panic::catch_unwind(|| prometheus::process_collector::ProcessCollector::for_self())
         {

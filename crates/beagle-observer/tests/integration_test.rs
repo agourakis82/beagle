@@ -11,7 +11,7 @@ async fn test_full_integration() -> anyhow::Result<()> {
         .try_init()
         .ok();
 
-    let observer = UniversalObserver::new()?;
+    let observer = UniversalObserver::new().await?;
     let mut rx = observer.subscribe().await;
 
     // Inicia surveillance

@@ -6,16 +6,15 @@ use axum::{
     Json, Router,
 };
 use beagle_darwin::{
-    available_consumers, ConsumerIdentity,
-    bootstrap_workspace_session, load_workspace_session, read_recent_ledger_entries,
-    record_workspace_fallback_return, record_workspace_fallback_start, run_workspace_pilot,
-    BridgeHealth, BridgeLedgerEntry, BridgeProviderInfo, BridgeRequest, BridgeResponse,
-    BridgeStatus, DarwinHpcGatewayClient, DarwinHpcGatewayError, HpcJobStatus, HpcProfile,
-    HpcProfileCatalog, HpcSubmitRequest, HpcSubmitResponse, HpcTextArtifact,
-    JobArtifactManifest, ObjectResultManifest, ResultCatalogEntry, ResultCatalogQuery,
-    ResultCatalogResponse, ToolBridge, WorkspaceBootstrapResponse, WorkspaceFallbackDrillRequest,
-    WorkspaceFallbackDrillResponse, WorkspacePilotRequest, WorkspacePilotResponse,
-    WorkspaceSessionState,
+    available_consumers, bootstrap_workspace_session, load_workspace_session,
+    read_recent_ledger_entries, record_workspace_fallback_return, record_workspace_fallback_start,
+    run_workspace_pilot, BridgeHealth, BridgeLedgerEntry, BridgeProviderInfo, BridgeRequest,
+    BridgeResponse, BridgeStatus, ConsumerIdentity, DarwinHpcGatewayClient, DarwinHpcGatewayError,
+    HpcJobStatus, HpcProfile, HpcProfileCatalog, HpcSubmitRequest, HpcSubmitResponse,
+    HpcTextArtifact, JobArtifactManifest, ObjectResultManifest, ResultCatalogEntry,
+    ResultCatalogQuery, ResultCatalogResponse, ToolBridge, WorkspaceBootstrapResponse,
+    WorkspaceFallbackDrillRequest, WorkspaceFallbackDrillResponse, WorkspacePilotRequest,
+    WorkspacePilotResponse, WorkspaceSessionState,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -26,8 +25,14 @@ type JsonError = (StatusCode, Json<Value>);
 
 pub fn darwin_hpc_routes() -> Router<AppState> {
     Router::new()
-        .route("/api/darwin/workspace/bootstrap", get(workspace_bootstrap_handler))
-        .route("/api/darwin/workspace/session", get(workspace_session_handler))
+        .route(
+            "/api/darwin/workspace/bootstrap",
+            get(workspace_bootstrap_handler),
+        )
+        .route(
+            "/api/darwin/workspace/session",
+            get(workspace_session_handler),
+        )
         .route(
             "/api/darwin/workspace/fallback/start",
             post(workspace_fallback_start_handler),
@@ -49,17 +54,29 @@ pub fn darwin_hpc_routes() -> Router<AppState> {
             "/api/darwin/hpc/jobs/:job_id/artifact-manifest",
             get(hpc_job_manifest_handler),
         )
-        .route("/api/darwin/hpc/jobs/:job_id/stdout", get(hpc_job_stdout_handler))
-        .route("/api/darwin/hpc/jobs/:job_id/stderr", get(hpc_job_stderr_handler))
+        .route(
+            "/api/darwin/hpc/jobs/:job_id/stdout",
+            get(hpc_job_stdout_handler),
+        )
+        .route(
+            "/api/darwin/hpc/jobs/:job_id/stderr",
+            get(hpc_job_stderr_handler),
+        )
         .route("/api/darwin/hpc/results", get(hpc_results_handler))
-        .route("/api/darwin/hpc/results/:job_id", get(hpc_result_lookup_handler))
+        .route(
+            "/api/darwin/hpc/results/:job_id",
+            get(hpc_result_lookup_handler),
+        )
         .route(
             "/api/darwin/hpc/results/:job_id/manifest",
             get(hpc_result_manifest_handler),
         )
         .route("/api/darwin/bridge/execute", post(bridge_execute_handler))
         .route("/api/darwin/bridge/health", get(bridge_health_handler))
-        .route("/api/darwin/bridge/providers", get(bridge_providers_handler))
+        .route(
+            "/api/darwin/bridge/providers",
+            get(bridge_providers_handler),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,9 +143,9 @@ async fn workspace_session_handler(
         .as_deref()
         .unwrap_or(&cfg.workspace.canonical_workspace_id);
 
-    match load_workspace_session(data_dir, &cfg, workspace_id)
-        .map_err(|error| internal_error_response("workspace_session_read_failed", error.to_string()))?
-    {
+    match load_workspace_session(data_dir, &cfg, workspace_id).map_err(|error| {
+        internal_error_response("workspace_session_read_failed", error.to_string())
+    })? {
         Some(session) => Ok(Json(session)),
         None => Err(not_found_response(
             "workspace_session_not_found",
@@ -218,9 +235,8 @@ async fn hpc_control_handler(
         .await
         .map_err(gateway_error_response)?;
 
-    let recent_bridge_ledger = read_recent_ledger_entries(data_dir, 10).map_err(|error| {
-        internal_error_response("bridge_ledger_read_failed", error.to_string())
-    })?;
+    let recent_bridge_ledger = read_recent_ledger_entries(data_dir, 10)
+        .map_err(|error| internal_error_response("bridge_ledger_read_failed", error.to_string()))?;
 
     Ok(Json(HpcControlSurfaceSummary {
         status: "ok".to_string(),

@@ -1,0 +1,238 @@
+fabrics:
+  management:
+    cidr: 192.168.3.0/24
+    role: proxmox-admin-bmc-tailnet-bootstrap
+    gateway:
+      current: 192.168.3.1
+      preferred: 192.168.3.254
+    mtu: 1500
+    vlan:
+      id: 3
+      status: proposed
+  k8s-underlay:
+    cidr: 10.100.100.0/24
+    role: kubernetes-east-west-control-and-service
+    gateway:
+      preferred: 10.100.100.254
+    mtu: 9000
+    vlan:
+      id: 100
+      status: planned-on-arista
+    status: live
+  storage-migration:
+    cidr: 10.200.0.0/24
+    role: ceph-replication-migration-backups-gpu-pilot
+    gateway:
+      preferred: 10.200.0.254
+    mtu: 9000
+    vlan:
+      id: 200
+      status: planned-on-arista
+    status: live
+    ipam:
+      host_range: 10.200.0.1-10.200.0.63
+      reserved:
+        - 10.200.0.1
+        - 10.200.0.2
+        - 10.200.0.3
+        - 10.200.0.4
+        - 10.200.0.254
+      notes: storage-and-migration-host-fabric
+  gpu-rdma:
+    cidr: 10.210.0.0/24
+    role: rocev2-gpudirect-nccl-multi-node-training
+    gateway:
+      preferred: 10.210.0.254
+    mtu: 9000
+    vlan:
+      id: 210
+      status: planned
+    status: live
+    ipam:
+      host_range: 10.210.0.1-10.210.0.63
+      pod_pool: 10.210.0.128/25
+      reserved:
+        - 10.210.0.1
+        - 10.210.0.2
+        - 10.210.0.3
+        - 10.210.0.4
+        - 10.210.0.254
+      notes: dedicate-to-rdma-secondary-network
+  service-egress-10g:
+    cidr: 10.30.0.0/24
+    role: dns-dhcp-egress-cache-service-plane
+    gateway:
+      current: 10.30.0.1
+      diagnostics: 10.30.0.254
+    mtu: 9000
+    vlan:
+      id: 130
+      status: configured-on-arista-et33
+    status: live
+    preferred_edge_candidate: t560-proxmox
+    preferred_switch_port: Ethernet34
+    ipam:
+      host_range: 10.30.0.1-10.30.0.63
+      dhcp_range: 10.30.0.100-10.30.0.199
+      reserved:
+        - 10.30.0.1
+        - 10.30.0.254
+      notes: 5860-service-fabric-edge-live
+
+dns:
+  kubernetes_zone: cluster.local
+  lab_zone: lab.sounio
+  tailnet_mode: magicdns
+  records:
+    - name: t560.lab.sounio
+      ip: 10.100.100.2
+      role: control-plane
+    - name: r770.lab.sounio
+      ip: 10.100.100.1
+      role: gpu-node
+    - name: r740.lab.sounio
+      ip: 10.100.100.4
+      role: gpu-node
+    - name: pve-5860.lab.sounio
+      ip: 10.100.100.3
+      role: gpu-node
+    - name: gw-k8s.lab.sounio
+      ip: 10.100.100.254
+      role: planned-gateway
+    - name: gw-storage.lab.sounio
+      ip: 10.200.0.254
+      role: planned-gateway
+    - name: gw-gpu.lab.sounio
+      ip: 10.210.0.254
+      role: planned-gateway
+    - name: svc10g-gw.lab.sounio
+      ip: 10.30.0.1
+      role: service-egress-dns-gateway
+    - name: svc10g-sw.lab.sounio
+      ip: 10.30.0.254
+      role: arista-service-fabric-svi
+    - name: dockerhub-cache.svc10g.lab.sounio
+      ip: 10.30.0.1
+      role: oci-pull-through-cache-dockerhub
+    - name: ghcr-cache.svc10g.lab.sounio
+      ip: 10.30.0.1
+      role: oci-pull-through-cache-ghcr
+    - name: k8s-registry-cache.svc10g.lab.sounio
+      ip: 10.30.0.1
+      role: oci-pull-through-cache-registry-k8s-io
+    - name: dns-admin.svc10g.lab.sounio
+      ip: 10.30.0.1
+      role: technitium-dns-web-ui
+    - name: ipam.svc10g.lab.sounio
+      ip: 10.30.0.1
+      role: netbox-ipam-web-ui
+    - name: netbox.svc10g.lab.sounio
+      ip: 10.30.0.1
+      role: netbox-web-ui-alias
+    - name: registry.lab.sounio
+      ip: 192.168.3.207
+      role: docker-hub-pull-through-cache
+    - name: push-registry.lab.sounio
+      ip: 192.168.3.207
+      role: writable-lab-oci-registry
+    - name: dnsctrl.lab.sounio
+      ip: 192.168.3.207
+      role: technitium-dns-control-plane
+    - name: ipam.lab.sounio
+      ip: 192.168.3.207
+      role: netbox-ipam-control-plane
+    - name: netbox.lab.sounio
+      ip: 192.168.3.207
+      role: netbox-control-plane-alias
+
+nodes:
+  t560-proxmox:
+    kubernetes_internal_ip: 10.100.100.2
+    management_ip: 192.168.3.169
+    primary_fabric_ip: 10.100.100.2
+    secondary_fabric_ip: 10.200.0.2
+    gpu: none
+    role: control-plane
+    candidate_service_fabric_interface: ens6f0-or-ens6f1
+  r770-proxmox:
+    kubernetes_internal_ip: 10.100.100.1
+    management_ip: 192.168.3.228
+    primary_fabric_ip: 10.100.100.1
+    secondary_fabric_ip: 10.200.0.1
+    accelerator: nvidia-l4
+    role: gpu-node
+  r740-proxmox:
+    kubernetes_internal_ip: 10.100.100.4
+    management_ip: 192.168.3.168
+    primary_fabric_ip: 10.100.100.4
+    secondary_fabric_ip: 10.200.0.4
+    accelerator: nvidia-rtx-a5000
+    role: gpu-node
+  5860-proxmox:
+    kubernetes_internal_ip: 10.100.100.3
+    management_ip: 192.168.3.207
+    primary_fabric_ip: 10.100.100.3
+    secondary_fabric_ip: 10.200.0.3
+    service_fabric_ip: 10.30.0.1
+    accelerator: nvidia-rtx-4000-ada
+    role: gpu-node-and-service-edge
+
+gpu_fabric:
+  preferred_name: gpufabric0
+  current_host_interfaces:
+    t560-proxmox:
+      current_name: nic7
+      altname: enp153s0f1np1
+      ip: 10.200.0.2
+    r770-proxmox:
+      current_name: nic3
+      altname: enP1s3f0np0
+      ip: 10.200.0.1
+    r740-proxmox:
+      current_name: nic4
+      altname: enp59s0f0np0
+      ip: 10.200.0.4
+    5860-proxmox:
+      current_name: ens5f1np1
+      altname: enp16s0f1np1
+      ip: 10.200.0.3
+  policy:
+    phase1: use-10-200-for-rdma-pilot
+    phase2: carve-vlan-210-and-move-rdma
+
+service_fabric:
+  edge_node: 5860-proxmox
+  preferred_future_edge_node: t560-proxmox
+  switch:
+    management_ip: 192.168.3.229
+    interface: Ethernet33
+    preferred_future_interface: Ethernet34
+    vlan: 130
+    svi: 10.30.0.254/24
+  host:
+    interface: nic0
+    bridge: vmbr30
+    bridge_ip: 10.30.0.1/24
+    upstream: vmbr0
+    nat: masquerade-10.30.0.0/24-out-vmbr0
+    dns:
+      bind: 10.30.0.1
+      upstream:
+        - 192.168.3.1
+      conditional:
+        lab.sounio: 10.96.80.85
+    dhcp:
+      range: 10.30.0.100-10.30.0.199
+  validation:
+    link_state: connected-10g
+    host_ping_to_svi: pass
+    svi_ping_to_host: pass
+
+policies:
+  - name: humans-enter-via-tailnet
+  - name: kubernetes-uses-10-100-as-underlay
+  - name: services-and-egress-live-on-10-30
+  - name: storage-and-migration-live-on-10-200
+  - name: gpu-rdma-pilot-uses-10-200-before-vlan-210
+  - name: gpu-rdma-target-network-is-10-210
+  - name: normalize-secondary-gpu-interface-to-gpufabric0-before-network-operator

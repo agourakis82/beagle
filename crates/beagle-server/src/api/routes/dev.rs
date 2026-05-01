@@ -11,7 +11,7 @@ use uuid::Uuid;
 use super::{
     adversarial_endpoint, causal_endpoint, debate, deep_research_endpoint, metacognitive_endpoint,
     neurosymbolic_endpoint, parallel_research, quantum_endpoint, reasoning_endpoint, research,
-    swarm_endpoint, temporal_endpoint,
+    round_table, swarm_endpoint, temporal_endpoint,
 };
 use crate::state::AppState;
 use beagle_llm::{CompletionRequest, Message, ModelType};
@@ -261,6 +261,8 @@ pub fn dev_routes() -> Router<AppState> {
             "/dev/metacognitive/analyze-failures",
             post(metacognitive_endpoint::analyze_failures),
         )
+        // Round Table — exotic model debate
+        .route("/api/v1/round-table", post(round_table::round_table))
 }
 
 fn parse_domain_override(raw: &str) -> Option<Domain> {

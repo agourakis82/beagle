@@ -97,6 +97,13 @@ Este é um projeto pessoal de pesquisa. Para questões ou sugestões, abra uma i
 
 MIT OR Apache-2.0
 
+### Workbench AGPL Showcase
+
+The Warp-derived Beagle Workbench lives under `apps/warp-workbench` and is
+licensed separately as AGPL-3.0-only. That boundary is intentional: terminal UI
+experiments can be open and auditable while private Beagle memories, truthsets,
+cluster artifacts, credentials, and personal data remain outside GitHub.
+
 ---
 
 **BEAGLE v0.3.0** - Memory & MCP Layer | [Release Notes](docs/BEAGLE_v0_3_RELEASE_NOTES.md) | [Changelog](docs/CHANGELOG.md)

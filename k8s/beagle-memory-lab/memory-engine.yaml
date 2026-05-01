@@ -1,0 +1,170 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beagle-memory-engine
+  namespace: beagle-memory-lab
+  labels:
+    app.kubernetes.io/name: beagle-memory-engine
+    app.kubernetes.io/part-of: beagle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beagle-memory-engine
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: beagle-memory-engine
+        app.kubernetes.io/part-of: beagle
+    spec:
+      nodeSelector:
+        sounio.dev/runtime-role: cluster-core
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      initContainers:
+        - name: volume-permissions
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - chown -R 10001:10001 /var/lib/beagle-memory-engine /orangefs/beagle-memory-lab
+          volumeMounts:
+            - name: engine-state
+              mountPath: /var/lib/beagle-memory-engine
+            - name: orangefs
+              mountPath: /orangefs/beagle-memory-lab
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+      containers:
+        - name: beagle-memory-engine
+          image: 192.168.3.207:5003/beagle-memory-engine:context-compiler-v23-20260428
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8090
+          env:
+            - name: BEAGLE_MEMORY_ENGINE_BIND_ADDR
+              value: 0.0.0.0:8090
+            - name: BEAGLE_MEMORY_ENGINE_DATA_DIR
+              value: /var/lib/beagle-memory-engine
+            - name: BEAGLE_MEMORY_ENGINE_ARTIFACT_DIR
+              value: /orangefs/beagle-memory-lab
+            - name: BEAGLE_CORE_URL
+              value: http://beagle-core.beagle.svc.cluster.local:8080
+            - name: BEAGLE_MEMORY_HOT_PATH
+              value: hypermemory_multivector
+            - name: BEAGLE_RETRIEVAL_AGENT
+              value: canary
+            - name: BEAGLE_RETRIEVAL_PLANNER
+              value: hybrid
+            - name: BEAGLE_CONTEXT_COMPILER
+              value: shadow
+            - name: BEAGLE_MEMORY_POLICY
+              value: observe
+            - name: BEAGLE_DREAMCYCLE
+              value: manual
+            - name: BEAGLE_MEMORY_COLBERT_MODEL
+              value: jinaai/jina-colbert-v2
+            - name: BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_MODEL
+              value: BAAI/bge-m3
+            - name: BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL
+              value: Alibaba-NLP/gte-reranker-modernbert-base
+            - name: BEAGLE_CORE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: beagle-core-secrets
+                  key: BEAGLE_API_TOKEN
+                  optional: true
+            - name: BEAGLE_FALKORDB_URL
+              value: redis://beagle-falkordb.beagle.svc.cluster.local:6379
+            - name: BEAGLE_MEMGRAPH_URL
+              value: bolt://beagle-memgraph.beagle.svc.cluster.local:7687
+            - name: BEAGLE_SURREALDB_URL
+              value: http://beagle-surrealdb.beagle.svc.cluster.local:8000
+            - name: BEAGLE_ARANGODB_URL
+              value: http://beagle-arangodb.beagle-memory-lab.svc.cluster.local:8529
+            - name: BEAGLE_ARCADEDB_URL
+              value: http://beagle-arcadedb.beagle-memory-lab.svc.cluster.local:2480
+            - name: BEAGLE_KUZU_PATH
+              value: /orangefs/beagle-memory-lab/kuzu
+            - name: BEAGLE_LANCEDB_PATH
+              value: /orangefs/beagle-memory-lab/lancedb
+            - name: BEAGLE_LANCEDB_TABLE
+              value: semantic_memory_v1
+            - name: BEAGLE_SEMANTIC_BACKBONE_WORKER
+              value: /opt/beagle-memory-engine/workers/semantic_backbone.py
+            - name: BEAGLE_COLBERT_ENABLE_MODEL
+              value: "false"
+            - name: BEAGLE_DUCKDB_VSS_PATH
+              value: /orangefs/beagle-memory-lab/beagle-memory.duckdb
+            - name: BEAGLE_POSTGRES_VECTOR_URL
+              value: postgres://beagle-vector.beagle-memory-lab.svc.cluster.local:5432/beagle
+            - name: BEAGLE_TYPEDB_URL
+              value: http://beagle-typedb.beagle-memory-lab.svc.cluster.local:1729
+            - name: RUST_LOG
+              value: beagle_memory_engine=info,tower_http=info
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: engine-state
+              mountPath: /var/lib/beagle-memory-engine
+            - name: orangefs
+              mountPath: /orangefs/beagle-memory-lab
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+      volumes:
+        - name: engine-state
+          persistentVolumeClaim:
+            claimName: beagle-memory-engine-state
+        - name: orangefs
+          persistentVolumeClaim:
+            claimName: beagle-memory-lab-orangefs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: beagle-memory-engine
+  namespace: beagle-memory-lab
+  labels:
+    app.kubernetes.io/name: beagle-memory-engine
+    app.kubernetes.io/part-of: beagle
+spec:
+  selector:
+    app.kubernetes.io/name: beagle-memory-engine
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http

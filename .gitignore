@@ -23,6 +23,13 @@ venv/
 .mypy_cache/
 .ipynb_checkpoints/
 
+# Node / frontend services
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
 # Environment & Secrets
 .env
 .env.*
@@ -55,6 +62,7 @@ data/corpus/papers/*.pdf
 
 # Config file with data path
 .beagle-data-path
+.beagle/
 
 # Logs
 *.log
@@ -70,6 +78,11 @@ Thumbs.db
 !*.xcodeproj/project.pbxproj
 xcuserdata/
 DerivedData/
+
+# Beagle iOS local packaging artifacts
+beagle-ios/exportOptions*.plist
+beagle-ios/*.mobileprovision
+beagle-ios/*.dSYM.zip
 
 # Docker
 docker-compose.override.yml

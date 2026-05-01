@@ -2,6 +2,15 @@
 # BEAGLE Production DNS and Edge Services
 
 ---
+# Namespace for Cloudflare components
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudflare-system
+  labels:
+    name: cloudflare-system
+
+---
 # Cloudflare Tunnel Configuration
 apiVersion: v1
 kind: ConfigMap
@@ -31,6 +40,19 @@ data:
           httpHostHeader: api.agourakis.com
           originServerName: api.agourakis.com
           caPool: /etc/cloudflared/certs/ca.pem
+
+      # BEAGLE MCP nervous system
+      # Public connector endpoint for hosted Claude/ChatGPT clients.
+      # Keep tailnet URLs for operations only; directory/review URLs should use this HTTPS hostname.
+      - hostname: mcp.agourakis.com
+        service: http://beagle-mcp-server.beagle:3000
+        originRequest:
+          noTLSVerify: false
+          connectTimeout: 30s
+          tcpKeepAlive: 30s
+          keepAliveConnections: 100
+          keepAliveTimeout: 90s
+          httpHostHeader: mcp.agourakis.com
 
       # WebSocket Service
       - hostname: ws.agourakis.com
@@ -110,6 +132,13 @@ spec:
       labels:
         app: cloudflared
     spec:
+      tolerations:
+      - effect: NoSchedule
+        key: sounio.dev/compute
+        operator: Exists
+      - effect: NoSchedule
+        key: sounio.dev/pool
+        operator: Exists
       containers:
       - name: cloudflared
         image: cloudflare/cloudflared:2024.1.0
@@ -182,15 +211,6 @@ spec:
       target:
         type: Utilization
         averageUtilization: 80
-
----
-# Namespace for Cloudflare components
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: cloudflare-system
-  labels:
-    name: cloudflare-system
 
 ---
 # Service for metrics

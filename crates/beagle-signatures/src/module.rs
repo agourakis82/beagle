@@ -36,11 +36,7 @@ pub trait PromptModule<S: PromptSignature>: Send + Sync {
     /// Execute the module with the given input
     ///
     /// The LLM client should be provided externally.
-    async fn execute<F, Fut>(
-        &self,
-        input: &S::Input,
-        llm_fn: F,
-    ) -> SignatureResult<S::Output>
+    async fn execute<F, Fut>(&self, input: &S::Input, llm_fn: F) -> SignatureResult<S::Output>
     where
         F: Fn(String) -> Fut + Send + Sync,
         Fut: std::future::Future<Output = Result<String, String>> + Send;
@@ -83,11 +79,7 @@ where
     S::Input: Serialize + Send + Sync,
     S::Output: DeserializeOwned + Send + Sync,
 {
-    async fn execute<F, Fut>(
-        &self,
-        input: &S::Input,
-        llm_fn: F,
-    ) -> SignatureResult<S::Output>
+    async fn execute<F, Fut>(&self, input: &S::Input, llm_fn: F) -> SignatureResult<S::Output>
     where
         F: Fn(String) -> Fut + Send + Sync,
         Fut: std::future::Future<Output = Result<String, String>> + Send,
@@ -168,11 +160,7 @@ where
     S::Input: Serialize + Send + Sync,
     S::Output: DeserializeOwned + Send + Sync,
 {
-    async fn execute<F, Fut>(
-        &self,
-        input: &S::Input,
-        llm_fn: F,
-    ) -> SignatureResult<S::Output>
+    async fn execute<F, Fut>(&self, input: &S::Input, llm_fn: F) -> SignatureResult<S::Output>
     where
         F: Fn(String) -> Fut + Send + Sync,
         Fut: std::future::Future<Output = Result<String, String>> + Send,
@@ -260,11 +248,7 @@ where
     S::Input: Serialize + Send + Sync,
     S::Output: DeserializeOwned + Send + Sync,
 {
-    async fn execute<F, Fut>(
-        &self,
-        input: &S::Input,
-        llm_fn: F,
-    ) -> SignatureResult<S::Output>
+    async fn execute<F, Fut>(&self, input: &S::Input, llm_fn: F) -> SignatureResult<S::Output>
     where
         F: Fn(String) -> Fut + Send + Sync,
         Fut: std::future::Future<Output = Result<String, String>> + Send,
@@ -354,11 +338,7 @@ where
     S::Input: Serialize + Send + Sync,
     S::Output: DeserializeOwned + Send + Sync,
 {
-    async fn execute<F, Fut>(
-        &self,
-        input: &S::Input,
-        llm_fn: F,
-    ) -> SignatureResult<S::Output>
+    async fn execute<F, Fut>(&self, input: &S::Input, llm_fn: F) -> SignatureResult<S::Output>
     where
         F: Fn(String) -> Fut + Send + Sync,
         Fut: std::future::Future<Output = Result<String, String>> + Send,

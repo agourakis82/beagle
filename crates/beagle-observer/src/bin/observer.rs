@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!("🚀 Iniciando Universal Observer v0.2 + v0.3...");
 
-    let observer = UniversalObserver::new()?;
+    let observer = UniversalObserver::new().await?;
     observer.start_full_surveillance().await?;
 
     info!("✅ BEAGLE ESTÁ TE OBSERVANDO – TUDO ATIVADO");

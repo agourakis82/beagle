@@ -16,15 +16,22 @@ fn bench_span_creation(c: &mut Criterion) {
 
 fn bench_trace_context_propagation(c: &mut Criterion) {
     use std::collections::HashMap;
-    
+
     c.bench_function("trace_context_inject", |b| {
         b.iter(|| {
             let mut headers: HashMap<String, String> = HashMap::new();
-            headers.insert("traceparent".to_string(), "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01".to_string());
+            headers.insert(
+                "traceparent".to_string(),
+                "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01".to_string(),
+            );
             black_box(headers)
         })
     });
 }
 
-criterion_group!(benches, bench_span_creation, bench_trace_context_propagation);
+criterion_group!(
+    benches,
+    bench_span_creation,
+    bench_trace_context_propagation
+);
 criterion_main!(benches);

@@ -287,12 +287,8 @@ impl UniversalObserver {
     }
 
     /// Create new universal observer
-    pub fn new() -> Result<Self> {
-        // Use tokio runtime to create the async SystemObserver
-        let rt = tokio::runtime::Handle::try_current()
-            .unwrap_or_else(|_| tokio::runtime::Runtime::new().unwrap().handle().clone());
-
-        let inner = rt.block_on(async { SystemObserver::new(ObserverConfig::default()).await })?;
+    pub async fn new() -> Result<Self> {
+        let inner = SystemObserver::new(ObserverConfig::default()).await?;
 
         Ok(Self {
             inner,
@@ -302,6 +298,19 @@ impl UniversalObserver {
             env_events: Arc::new(RwLock::new(Vec::new())),
             space_weather_events: Arc::new(RwLock::new(Vec::new())),
         })
+    }
+
+    /// Create a minimal observer that doesn't watch anything.
+    /// Used when the full observer fails or times out (e.g. in containers).
+    pub fn dummy() -> Self {
+        Self {
+            inner: SystemObserver::dummy(),
+            user_context: Arc::new(RwLock::new(UserContext::default())),
+            timeline: Arc::new(RwLock::new(Vec::new())),
+            physio_events: Arc::new(RwLock::new(Vec::new())),
+            env_events: Arc::new(RwLock::new(Vec::new())),
+            space_weather_events: Arc::new(RwLock::new(Vec::new())),
+        }
     }
 
     /// Start full surveillance mode
@@ -580,6 +589,20 @@ pub struct SystemObserver {
 }
 
 impl SystemObserver {
+    /// Create a dummy observer that doesn't watch anything.
+    pub fn dummy() -> Self {
+        Self {
+            metrics: Arc::new(MetricsCollector::new()),
+            alerts: Arc::new(AlertManager::new()),
+            profiler: Arc::new(Profiler::default()),
+            aggregator: Arc::new(RwLock::new(Aggregator::new())),
+            health_monitor: Arc::new(health::HealthMonitor::new()),
+            event_stream: Arc::new(RwLock::new(EventStream::new())),
+            broadcast: Arc::new(ObservationBroadcast::new()),
+            config: ObserverConfig::default(),
+        }
+    }
+
     /// Create new system observer
     pub async fn new(config: ObserverConfig) -> Result<Self> {
         let metrics = Arc::new(MetricsCollector::new());

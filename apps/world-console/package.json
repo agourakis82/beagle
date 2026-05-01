@@ -1,0 +1,15 @@
+{
+  "name": "@beagle/world-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Cluster-only World Labs Marble integration for Beagle Spatial Control Room.",
+  "scripts": {
+    "check": "node --check src/world-console-core.mjs && node --check src/server.mjs && node --test test/*.test.mjs",
+    "start": "node src/server.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

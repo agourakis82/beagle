@@ -1,0 +1,26 @@
+# Swift Package Manager build artifacts
+.build/
+*.o
+*.d
+*.dia
+*.swiftdeps
+
+# Xcode
+DerivedData/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# XcodeGen-generated project artifacts for this app
+BeagleSuite.xcodeproj/
+BeagleSuite.xcworkspace/
+
+# Local package/build export artifacts
+BeagleSuite/Package.resolved
+exportOptions.plist
+
+# macOS
+.DS_Store
+
+# Archives (built locally)
+*.xcarchive

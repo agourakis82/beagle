@@ -26,6 +26,7 @@ pub use clients::cursor::{CursorClient, CursorModel};
 pub use clients::deepseek::DeepSeekClient;
 pub use clients::grok::GrokClient;
 pub use clients::mock::MockLlmClient;
+pub use clients::openrouter::OpenRouterClient;
 pub use meta::RequestMeta;
 pub use orchestrator::{
     EnsembleResult, LLMOrchestrator, Provider, ProviderResponse, ProviderStrategy,

@@ -28,13 +28,13 @@ use std::process::Command;
 use tempfile::TempDir;
 use tracing::{debug, error, info, warn};
 
-pub mod templates;
-pub mod engines;
 pub mod citations;
+pub mod engines;
+pub mod templates;
 
-pub use templates::{Template, TemplateManager};
-pub use engines::{LatexEngine, PandocOptions};
 pub use citations::{Bibliography, CitationStyle};
+pub use engines::{LatexEngine, PandocOptions};
+pub use templates::{Template, TemplateManager};
 
 /// PDF generation configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,11 +136,12 @@ impl PdfGenerator {
 
         // Verify LaTeX engine is available
         let engine_binary = config.engine.binary();
-        which::which(engine_binary)
-            .with_context(|| format!(
+        which::which(engine_binary).with_context(|| {
+            format!(
                 "LaTeX engine '{}' not found. Install with: apt install texlive-full",
                 engine_binary
-            ))?;
+            )
+        })?;
 
         let template_manager = TemplateManager::new()?;
 
@@ -158,14 +159,14 @@ impl PdfGenerator {
         output_pdf_path: &Path,
         bibliography_path: Option<&Path>,
     ) -> Result<PdfGenerationResult> {
-        info!("Generating PDF: {} → {}",
+        info!(
+            "Generating PDF: {} → {}",
             markdown_path.display(),
             output_pdf_path.display()
         );
 
         // Create temporary directory for intermediate files
-        let temp_dir = TempDir::new()
-            .context("Failed to create temporary directory")?;
+        let temp_dir = TempDir::new().context("Failed to create temporary directory")?;
         let temp_path = temp_dir.path();
 
         debug!("Using temporary directory: {}", temp_path.display());
@@ -234,8 +235,7 @@ impl PdfGenerator {
         // Execute Pandoc
         let start_time = std::time::Instant::now();
 
-        let output = cmd.output()
-            .context("Failed to execute pandoc")?;
+        let output = cmd.output().context("Failed to execute pandoc")?;
 
         let elapsed = start_time.elapsed();
 
@@ -270,7 +270,8 @@ impl PdfGenerator {
         let mut preamble = String::new();
 
         // Base packages
-        preamble.push_str(r#"
+        preamble.push_str(
+            r#"
 % BEAGLE LaTeX Preamble - Production Grade
 \usepackage{graphicx}
 \usepackage{longtable}
@@ -334,7 +335,8 @@ impl PdfGenerator {
 
 % Custom commands
 \newcommand{\beagle}{\textcolor{beagleblue}{\textbf{BEAGLE}}}
-"#);
+"#,
+        );
 
         // Template-specific additions
         preamble.push_str(&template.get_preamble());
@@ -363,7 +365,10 @@ impl PdfGenerator {
         if let Some(date) = &meta.date {
             cmd.arg(&format!("--metadata=date:{}", date.format("%Y-%m-%d")));
         } else {
-            cmd.arg(&format!("--metadata=date:{}", chrono::Local::now().format("%Y-%m-%d")));
+            cmd.arg(&format!(
+                "--metadata=date:{}",
+                chrono::Local::now().format("%Y-%m-%d")
+            ));
         }
 
         // Keywords

@@ -33,9 +33,27 @@ async fn async_main() -> anyhow::Result<()> {
     );
 
     let ctx = BeagleContext::new(cfg).await?;
-    let observer = UniversalObserver::new_async()
-        .await
-        .context("Falha ao criar UniversalObserver")?;
+    // Observer can hang on some platforms (filesystem watchers, dbus).
+    // Wrap in timeout — if it hangs, start the server without it.
+    let observer = match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        UniversalObserver::new_async(),
+    )
+    .await
+    {
+        Ok(Ok(obs)) => {
+            info!("UniversalObserver initialized");
+            obs
+        }
+        Ok(Err(e)) => {
+            tracing::warn!("UniversalObserver failed: {}, using dummy", e);
+            UniversalObserver::dummy()
+        }
+        Err(_) => {
+            tracing::warn!("UniversalObserver timed out after 5s, using dummy");
+            UniversalObserver::dummy()
+        }
+    };
 
     let state = AppState {
         ctx: Arc::new(Mutex::new(ctx)),
@@ -48,9 +66,7 @@ async fn async_main() -> anyhow::Result<()> {
 
     let addr = bind_addr().context("Falha ao resolver endereço de bind do core server")?;
 
-    info!(
-        "Iniciando BEAGLE core server em http://{addr} | health=/health"
-    );
+    info!("Iniciando BEAGLE core server em http://{addr} | health=/health");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, router).await?;
 

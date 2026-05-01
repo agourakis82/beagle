@@ -292,4 +292,3 @@ async fn run_integrated_workflow() -> Result<()> {
 
     Ok(())
 }
-

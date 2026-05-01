@@ -10,6 +10,7 @@ COPY Cargo.toml ./
 COPY apps ./apps
 COPY crates ./crates
 COPY beagle-bin ./beagle-bin
+COPY docs ./docs
 
 RUN cargo build --release -p beagle-monorepo --bin core_server --features memory
 

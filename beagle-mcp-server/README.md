@@ -1,33 +1,66 @@
 # BEAGLE MCP Server
 
-**Production-ready Model Context Protocol (MCP) server** exposing BEAGLE exocortex functionality to:
-- **Claude Desktop** (via STDIO transport)
-- **ChatGPT Apps** (via Apps SDK / HTTP transport)
+**Production-ready Model Context Protocol (MCP) server** exposing the BEAGLE exocortex to:
+- **Claude Desktop / Claude Code / local agents** through STDIO
+- **ChatGPT, Codex, Cursor, remote agents, and compatible clients** through Streamable HTTP
 
 ## Overview
 
-This MCP server acts as a **thin, type-safe adapter** between AI assistants (Claude, ChatGPT) and the BEAGLE Core HTTP API, providing:
+This MCP server is the external nervous system for BEAGLE. It lets authenticated agents read and write the canonical cluster state exposed by `beagle-core`: memory, Chronoself, OmniMemory, TemporalAI, Go Deeper, Round Table, science jobs, agent sessions, and feedback.
 
-- ✅ **6 canonical tools** for memory, pipelines, and LLM routing
+It provides:
+
+- ✅ **Official `@modelcontextprotocol/sdk` implementation**
+- ✅ **39 canonical tools**, including standard `search`/`fetch` for hosted connectors and v1.6 self-governing memory controls
+- ✅ **14 resources** for current home, Chronoself, recent memory, active projects, cluster truth, MCP audit, capability ledger, agent activity, and trust state
+- ✅ **6 prompts** for daily brief, imports, deliberation, temporal analysis, deep research, and Veritas review
 - ✅ **Automatic retries** with exponential backoff
 - ✅ **Configurable timeouts** (default: 60s)
 - ✅ **Graceful degradation** when BEAGLE core is unavailable
-- ✅ **Dual transport support** (STDIO + HTTP)
+- ✅ **Dual transport support** (STDIO + Streamable HTTP)
 - ✅ **Type-safe schemas** with Zod validation
-- ✅ **Production logging** and error handling
+- ✅ **Bearer auth, OAuth protected-resource metadata, JWT validation, rate limiting, production logging, and error handling**
 
 ---
 
-## Canonical Tools
+## Canonical Capabilities
 
-| Tool | Description | Key Inputs | Outputs |
-|------|-------------|-----------|---------|
-| `beagle_llm_complete` | Proxy LLM via TieredRouter | `prompt`, `requires_math`, `requires_high_quality` | `text`, `provider`, `llm_stats` |
-| `beagle_pipeline_run` | Start BEAGLE pipeline | `question`, `with_triad`, `hrv_aware` | `run_id`, `status` |
-| `beagle_pipeline_status` | Check pipeline status | `run_id` | `status`, `artifacts`, `llm_stats` |
-| `beagle_memory_query` | Memory RAG search | `query`, `top_k` | `results[]` with snippets |
-| `beagle_memory_ingest_chat` | Ingest conversation | `source`, `conversation_id`, `role`, `text` | `stored`, `memory_id` |
-| `beagle_feedback_tag` | Tag run with feedback | `run_id`, `accepted`, `rating_0_10` | `status`, `run_id` |
+### Tools
+
+- Hosted connector standard: `search`, `fetch`
+- Memory: `beagle_memory_query`, `beagle_memory_ingest_chat`
+- Chronoself: `beagle_chronoself_current`, `beagle_chronoself_commits`, `beagle_chronoself_create_commit`
+- OmniMemory: `beagle_omnimemory_import`
+- TemporalAI: `beagle_temporal_analyze`
+- Home: `beagle_exocortex_home`
+- Go Deeper / Round Table: `beagle_go_deeper`, `beagle_round_table`
+- Agents and jobs: `beagle_agent_sessions`, `beagle_agent_session_start`, pipeline tools, LLM completion, feedback
+
+### Resources
+
+- `beagle://home`
+- `beagle://chronoself/current`
+- `beagle://chronoself/commits`
+- `beagle://memory/recent`
+- `beagle://projects/active`
+- `beagle://cluster/truth`
+- `beagle://mcp/tool_manifest`
+- `beagle://mcp/manifest/current`
+- `beagle://mcp/manifest/history`
+- `beagle://mcp/audit/recent`
+- `beagle://agents/current`
+- `beagle://agents/recent`
+- `beagle://capabilities/current`
+- `beagle://trust/current`
+
+### Prompts
+
+- `exocortex_daily_brief`
+- `import_conversation`
+- `round_table`
+- `temporal_self_analysis`
+- `deep_research`
+- `veritas_review`
 
 ---
 
@@ -61,50 +94,125 @@ npm run build
 
 ## Usage
 
-### For Claude Desktop
+### For Local Agents: Claude Code, Codex, Claude Desktop
 
-#### 1. Configure Claude Desktop MCP
+Local agents should use the stdio launcher. The launcher speaks MCP over stdio
+to the local agent, then talks to the cluster-canonical Beagle Core over the
+tailnet. It does not store canonical memory on the workstation.
 
-Create or edit `~/.config/Claude/claude_desktop_config.json` (macOS/Linux) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+#### 1. Create a local-only env file
+
+Create `~/.beagle/mcp-local.env` with `0600` permissions. Keep this file out of
+Git and out of prompts.
+
+```bash
+mkdir -p ~/.beagle
+chmod 700 ~/.beagle
+cat > ~/.beagle/mcp-local.env <<'EOF'
+BEAGLE_CORE_URL=http://beagle-core.tail21cbc4.ts.net
+BEAGLE_COCKPIT_URL=http://project-cockpit.tail21cbc4.ts.net
+BEAGLE_CORE_API_TOKEN=...
+MCP_TRANSPORT=stdio
+MCP_TOOL_SURFACE=trusted_full
+MCP_CLIENT_SURFACE=local_tailnet_full
+MCP_ALLOW_LEGACY_BEARER=true
+MCP_REQUIRE_AUTH=false
+MCP_DEFAULT_SCOPES=exocortex:read,memory:write,chronoself:write,research:run,agent:start
+EOF
+chmod 600 ~/.beagle/mcp-local.env
+```
+
+#### 2. Configure Claude Code
+
+```bash
+claude mcp add-json -s user beagle-local \
+  '{"type":"stdio","command":"/absolute/path/to/beagle/scripts/beagle-mcp-local","args":[],"env":{"MCP_CLIENT_TYPE":"claude-code","MCP_DEFAULT_CLIENT_ID":"claude-code-local"}}'
+
+claude mcp get beagle-local
+```
+
+#### 3. Configure Codex
+
+```bash
+codex mcp add beagle \
+  --env MCP_CLIENT_TYPE=codex \
+  --env MCP_DEFAULT_CLIENT_ID=codex-local \
+  -- /absolute/path/to/beagle/scripts/beagle-mcp-local
+
+codex mcp get beagle
+```
+
+#### 3b. Optional Work-Memory Wrappers
+
+For sessions that should automatically capture start/end work memory into the
+cluster-canonical GraphRAG++ loop:
+
+```bash
+alias beagle-codex='/absolute/path/to/beagle/scripts/beagle-agent-session --agent codex -- codex'
+alias beagle-claude-code='/absolute/path/to/beagle/scripts/beagle-agent-session --agent claude-code -- claude'
+```
+
+Manual capture for plan/test/diff milestones:
+
+```bash
+/absolute/path/to/beagle/scripts/beagle-work-memory-capture \
+  --agent codex \
+  --phase test \
+  --summary "Ran v1.7 checks" \
+  --test "swift test"
+```
+
+The wrappers only create transient payloads and POST them to Beagle Core. They
+do not store canonical memory on the workstation.
+
+#### 4. Configure Claude Desktop, if desired
+
+Create or edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "beagle": {
-      "command": "node",
-      "args": ["/absolute/path/to/beagle-mcp-server/dist/index.js"],
+      "command": "/absolute/path/to/beagle/scripts/beagle-mcp-local",
+      "args": [],
       "env": {
-        "BEAGLE_CORE_URL": "http://localhost:8080"
+        "MCP_CLIENT_TYPE": "claude-desktop",
+        "MCP_DEFAULT_CLIENT_ID": "claude-desktop-local"
       }
     }
   }
 }
 ```
 
-#### 2. Restart Claude Desktop
+#### 5. Verify Connection
 
-The MCP server will start automatically when you open a conversation.
-
-#### 3. Verify Connection
-
-In Claude Desktop, type:
+In the client, ask:
 ```
 Use beagle_memory_query to search for "test"
 ```
 
-If the tool is available, you'll see it in the autocomplete.
+For write verification, import a short visible-context note through
+`beagle_assisted_import_batch`; it should create OmniMemory, Episode+Atom, and
+audit records on the cluster PVC.
 
 ---
 
-### For ChatGPT Apps (Apps SDK)
+### For Remote MCP Clients
 
 #### 1. Set Environment Variables
 
 ```bash
 export BEAGLE_CORE_URL=http://localhost:8080
-export OPENAI_APPS_SDK_ENABLED=true
 export MCP_TRANSPORT=http
 export MCP_HTTP_PORT=3000
+export MCP_ENABLE_AUTH=true
+export MCP_AUTH_TOKEN=...
+export MCP_PUBLIC_BASE_URL=https://mcp.agourakis.com
+export MCP_RESOURCE_IDENTIFIER=https://mcp.agourakis.com/mcp
+export MCP_PUBLIC_DISCOVERY=true
+export MCP_TOOL_SURFACE=trusted_full
+export MCP_ALLOW_LEGACY_BEARER=false
+export MCP_RESOURCE_DOCUMENTATION_URL=https://mcp.agourakis.com/connector
 ```
 
 #### 2. Start HTTP Server
@@ -112,6 +220,9 @@ export MCP_HTTP_PORT=3000
 ```bash
 npm run start
 # Server listening on http://localhost:3000/mcp
+# Manifest: http://localhost:3000/.well-known/mcp
+# Health:   http://localhost:3000/health
+# Ready:    http://localhost:3000/ready
 ```
 
 #### 3. Configure ChatGPT App
@@ -140,11 +251,35 @@ See `.env.example` for all available options. Key variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BEAGLE_CORE_URL` | `http://localhost:8080` | BEAGLE Core API base URL |
-| `MCP_AUTH_TOKEN` | (empty) | Optional auth token for BEAGLE Core |
+| `BEAGLE_COCKPIT_URL` | `BEAGLE_CORE_URL` | BEAGLE cockpit/control-plane base URL |
+| `BEAGLE_CORE_API_TOKEN` | (empty) | Bearer token for BEAGLE Core and default MCP auth token |
+| `MCP_AUTH_TOKEN` | `BEAGLE_CORE_API_TOKEN` | Bearer token accepted by MCP HTTP transport |
+| `MCP_ENABLE_AUTH` | `false` | Require MCP bearer auth |
+| `MCP_REQUIRE_AUTH` | `false` | Alias for `MCP_ENABLE_AUTH` |
+| `MCP_RATE_LIMIT_PER_MINUTE` | `120` | Per-token/requester rate limit |
+| `MCP_DEFAULT_SCOPES` | broad v1.2 scopes | Scopes granted to the main trusted bearer token |
+| `MCP_TOKEN_SCOPE_MAP` | (empty) | Optional JSON map of additional bearer tokens to client IDs and scopes |
+| `MCP_CLIENT_SURFACE` | inferred | `claude_trusted_full`, `chatgpt_review_safe`, or `local_tailnet_full` |
+| `MCP_PUBLIC_BASE_URL` | local HTTP URL | Public HTTPS origin advertised to hosted clients |
+| `MCP_PUBLIC_DISCOVERY` | `false` | Allow unauthenticated initialize/list discovery for connector setup |
+| `MCP_TOOL_SURFACE` | `trusted_full` | `review_safe` exposes read/search/status tools; `trusted_full` exposes all scoped tools |
+| `MCP_AUTHORIZATION_SERVER_URL` | (empty) | OAuth authorization server for protected-resource metadata |
+| `MCP_OAUTH_ISSUER` | (empty) | JWT issuer expected on hosted-client OAuth access tokens |
+| `MCP_OAUTH_JWKS_URI` | issuer JWKS default | JWKS endpoint used to verify OAuth JWT access tokens |
+| `MCP_OAUTH_AUDIENCE` | (empty) | Audience/resource expected on OAuth access tokens |
+| `MCP_RESOURCE_IDENTIFIER` | local `/mcp` URL | Resource identifier advertised when OAuth metadata is enabled |
 | `HTTP_TIMEOUT` | `60000` | Request timeout in milliseconds |
 | `HTTP_MAX_RETRIES` | `2` | Max retry attempts for failed requests |
 | `MCP_TRANSPORT` | `stdio` | Transport protocol (`stdio` or `http`) |
-| `OPENAI_APPS_SDK_ENABLED` | `false` | Enable ChatGPT Apps SDK mode |
+
+### Trust Model v1.2
+
+- Every MCP tool is published with explicit `annotations`, `requiredScopes`, and `riskLevel`.
+- `/.well-known/mcp` exposes `manifest_version`, `toolset_id`, `security_profile`, `client_surfaces`, `tool_manifest_hash`, counts, scope policy, and destructive-action policy.
+- The active tool manifest is registered as an append-only audit event when the server starts.
+- Tool calls write append-only audit events to `beagle-core` at `/api/exocortex/v1/audit/events`.
+- Destructive tools are intentionally absent in v1.6; `admin:destructive` is reserved for a future explicit flow.
+- If `MCP_AUTHORIZATION_SERVER_URL` is set, the server also exposes `/.well-known/oauth-protected-resource` for compatible clients.
 
 ### Timeouts by Tool
 
@@ -172,16 +307,17 @@ beagle-mcp-server/
 │   ├── logger.ts             # Structured logging
 │   ├── security.ts           # Output sanitization
 │   ├── auth.ts               # Auth validation (optional)
+│   ├── resources.ts          # MCP resources
+│   ├── prompts.ts            # MCP prompts
 │   ├── tools/
 │   │   ├── index.ts          # Tool registry
 │   │   ├── llm.ts            # beagle_llm_complete
 │   │   ├── pipeline.ts       # beagle_pipeline_run, beagle_pipeline_status
 │   │   ├── memory.ts         # beagle_memory_query, beagle_memory_ingest_chat
+│   │   ├── exocortex.ts      # Home, Chronoself, OmniMemory, TemporalAI, agents
 │   │   └── feedback.ts       # beagle_feedback_tag
-│   └── transports/
-│       ├── claude-desktop.ts # STDIO transport config
-│       └── openai-apps.ts    # HTTP transport config
 ├── dist/                     # Compiled JavaScript
+├── Dockerfile
 ├── package.json
 ├── tsconfig.json
 ├── .env.example

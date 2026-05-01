@@ -274,7 +274,7 @@ impl GrokClient {
             "grok-4-1-fast-reasoning" => GrokModel::Grok41FastReasoning,
             // Legacy support
             "grok-4-heavy" => GrokModel::Grok4, // Map old name to Grok4
-            _ => GrokModel::Grok3,              // Default para grok-3
+            _ => GrokModel::Grok41FastReasoning, // Default: grok-4.1 fast reasoning
         };
         self
     }

@@ -9,6 +9,7 @@ pub mod deepseek;
 pub mod grok;
 pub mod local_gemma;
 pub mod mock;
+pub mod openrouter;
 
 pub use claude::{ClaudeClient, ClaudeModel};
 pub use claude_cli::ClaudeCliClient;
@@ -17,4 +18,4 @@ pub use copilot::{CopilotClient, CopilotModel};
 pub use cursor::{CursorClient, CursorModel};
 pub use deepseek::DeepSeekClient;
 pub use grok::GrokClient;
-pub use local_gemma::{LocalGemmaClient, GemmaModel};
+pub use local_gemma::{GemmaModel, LocalGemmaClient};

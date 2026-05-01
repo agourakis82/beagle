@@ -1,0 +1,21 @@
+{
+  "name": "@beagle/workspace-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Per-workspace Notebook Terminal API and durable PTY supervisor for Beagle Workbench.",
+  "scripts": {
+    "check": "node --check src/workbench-core.mjs && node --check src/server.mjs && node --check src/pty-supervisor.mjs && node --test test/*.test.mjs",
+    "start": "node src/server.mjs",
+    "start:supervisor": "node src/pty-supervisor.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

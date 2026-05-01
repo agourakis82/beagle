@@ -12,8 +12,6 @@ use axum::{
 };
 use beagle_darwin::{consumer_identity_for_id, ConsumerId};
 use serde::Serialize;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use crate::http::AppState;
@@ -170,19 +168,21 @@ mod tests {
     use beagle_config::BeagleConfig;
     use beagle_core::BeagleContext;
     use beagle_observer::UniversalObserver;
-    use tower::ServiceExt; // for `oneshot`
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use tower::util::ServiceExt; // for `oneshot`
 
     async fn dummy_handler() -> &'static str {
         "ok"
     }
 
-    fn create_test_state(api_token: Option<String>, profile: &str) -> AppState {
+    async fn create_test_state(api_token: Option<String>, profile: &str) -> AppState {
         let cfg = BeagleConfig {
             profile: profile.to_string(),
             safe_mode: true,
             api_token,
             llm: Default::default(),
-            storage: beagle_config::model::StorageConfig {
+            storage: beagle_config::StorageConfig {
                 data_dir: beagle_config::beagle_data_dir()
                     .to_string_lossy()
                     .to_string(),
@@ -190,6 +190,7 @@ mod tests {
             graph: Default::default(),
             hermes: Default::default(),
             tool_bridge: Default::default(),
+            workspace: Default::default(),
             advanced: Default::default(),
             consumers: Default::default(),
             observer: Default::default(),
@@ -201,13 +202,13 @@ mod tests {
             ctx: Arc::new(Mutex::new(ctx)),
             jobs: Arc::new(JobRegistry::new()),
             science_jobs: Arc::new(ScienceJobRegistry::new()),
-            observer: Arc::new(UniversalObserver::new().unwrap()),
+            observer: Arc::new(UniversalObserver::new().await.unwrap()),
         }
     }
 
     #[tokio::test]
     async fn test_auth_with_valid_token() {
-        let state = create_test_state(Some("test-secret-token".to_string()), "dev");
+        let state = create_test_state(Some("test-secret-token".to_string()), "dev").await;
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
@@ -229,7 +230,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_with_invalid_token() {
-        let state = create_test_state(Some("test-secret-token".to_string()), "dev");
+        let state = create_test_state(Some("test-secret-token".to_string()), "dev").await;
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
@@ -251,7 +252,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_without_header() {
-        let state = create_test_state(Some("test-secret-token".to_string()), "dev");
+        let state = create_test_state(Some("test-secret-token".to_string()), "dev").await;
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
@@ -269,7 +270,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_with_no_token_configured_dev() {
-        let state = create_test_state(None, "dev");
+        let state = create_test_state(None, "dev").await;
 
         let app = Router::new()
             .route("/test", get(dummy_handler))
@@ -288,7 +289,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_with_consumer_policy_research_token() {
-        let state = create_test_state(Some("operator-token".to_string()), "dev");
+        let state = create_test_state(Some("operator-token".to_string()), "dev").await;
         {
             let mut ctx = state.ctx.lock().await;
             ctx.cfg.consumers.policy_enabled = true;
@@ -317,7 +318,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_with_consumer_policy_missing_consumer_header() {
-        let state = create_test_state(Some("operator-token".to_string()), "dev");
+        let state = create_test_state(Some("operator-token".to_string()), "dev").await;
         {
             let mut ctx = state.ctx.lock().await;
             ctx.cfg.consumers.policy_enabled = true;

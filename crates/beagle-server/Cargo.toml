@@ -54,6 +54,14 @@ beagle-events = { path = "../beagle-events" }
 beagle-physio = { path = "../beagle-physio" }
 beagle-config = { path = "../beagle-config" }
 
+# Exotic reasoning crates (Round Table)
+beagle-quantum = { path = "../beagle-quantum" }
+beagle-fractal = { path = "../beagle-fractal" }
+beagle-consciousness = { path = "../beagle-consciousness" }
+beagle-void = { path = "../beagle-void" }
+beagle-reality = { path = "../beagle-reality" }
+beagle-noetic = { path = "../beagle-noetic" }
+
 [dev-dependencies]
 tokio-test.workspace = true
 criterion = { workspace = true, features = ["html_reports", "async_tokio"] }

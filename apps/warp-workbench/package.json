@@ -1,0 +1,12 @@
+{
+  "name": "@beagle/warp-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "description": "AGPL boundary and bridge spike for the Warp-derived Beagle Workbench.",
+  "scripts": {
+    "check": "node --check bridge/warp-beagle-bridge.mjs && node --test test/*.test.mjs",
+    "test": "node --test test/*.test.mjs"
+  }
+}

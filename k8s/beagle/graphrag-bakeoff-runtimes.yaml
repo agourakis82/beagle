@@ -1,0 +1,202 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: beagle-falkordb-data
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: beagle-graphrag-bakeoff
+    beagle.dev/runtime: falkordb
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beagle-falkordb
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: beagle-falkordb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beagle-falkordb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: beagle-falkordb
+        beagle.dev/runtime: falkordb
+    spec:
+      containers:
+        - name: falkordb
+          image: falkordb/falkordb:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: redis
+              containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "250m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: beagle-falkordb-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: beagle-falkordb
+  namespace: beagle
+spec:
+  selector:
+    app.kubernetes.io/name: beagle-falkordb
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: beagle-memgraph-data
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: beagle-graphrag-bakeoff
+    beagle.dev/runtime: memgraph
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beagle-memgraph
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: beagle-memgraph
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beagle-memgraph
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: beagle-memgraph
+        beagle.dev/runtime: memgraph
+    spec:
+      containers:
+        - name: memgraph
+          image: memgraph/memgraph:latest
+          imagePullPolicy: IfNotPresent
+          args: ["--also-log-to-stderr=true"]
+          ports:
+            - name: bolt
+              containerPort: 7687
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/memgraph
+          resources:
+            requests:
+              cpu: "250m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: beagle-memgraph-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: beagle-memgraph
+  namespace: beagle
+spec:
+  selector:
+    app.kubernetes.io/name: beagle-memgraph
+  ports:
+    - name: bolt
+      port: 7687
+      targetPort: bolt
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: beagle-surrealdb-data
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: beagle-graphrag-bakeoff
+    beagle.dev/runtime: surrealdb
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beagle-surrealdb
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: beagle-surrealdb
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beagle-surrealdb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: beagle-surrealdb
+        beagle.dev/runtime: surrealdb
+    spec:
+      containers:
+        - name: surrealdb
+          image: surrealdb/surrealdb:latest
+          imagePullPolicy: IfNotPresent
+          args: ["start", "--bind", "0.0.0.0:8000", "file:/data/beagle.db"]
+          ports:
+            - name: http
+              containerPort: 8000
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "250m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: beagle-surrealdb-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: beagle-surrealdb
+  namespace: beagle
+spec:
+  selector:
+    app.kubernetes.io/name: beagle-surrealdb
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

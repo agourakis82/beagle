@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: postgres:17-bookworm
+    container_name: svc10g-netbox-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: netbox
+      POSTGRES_USER: netbox
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    volumes:
+      - /srv/service-fabric/netbox/postgres:/var/lib/postgresql/data
+    secrets:
+      - postgres_password
+
+  redis:
+    image: redis:7-bookworm
+    container_name: svc10g-netbox-redis
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$$(cat /run/secrets/redis_password)"
+    volumes:
+      - /srv/service-fabric/netbox/redis:/data
+    secrets:
+      - redis_password
+
+  redis-cache:
+    image: redis:7-bookworm
+    container_name: svc10g-netbox-redis-cache
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$$(cat /run/secrets/redis_cache_password)"
+    volumes:
+      - /srv/service-fabric/netbox/redis-cache:/data
+    secrets:
+      - redis_cache_password
+
+  netbox:
+    image: netboxcommunity/netbox:latest
+    container_name: svc10g-netbox
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - redis
+      - redis-cache
+    environment:
+      ALLOWED_HOSTS: "*"
+      DB_HOST: postgres
+      DB_NAME: netbox
+      DB_PORT: "5432"
+      DB_USER: netbox
+      DB_PASSWORD_FILE: /run/secrets/postgres_password
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      REDIS_CACHE_HOST: redis-cache
+      REDIS_CACHE_PORT: "6379"
+      REDIS_CACHE_PASSWORD_FILE: /run/secrets/redis_cache_password
+      SECRET_KEY_FILE: /run/secrets/secret_key
+      SUPERUSER_NAME: admin
+      SUPERUSER_EMAIL: infra@lab.sounio
+      SUPERUSER_PASSWORD_FILE: /run/secrets/superuser_password
+      SUPERUSER_API_TOKEN_FILE: /run/secrets/superuser_api_token
+    ports:
+      - "10.30.0.1:8080:8080"
+      - "192.168.3.207:8080:8080"
+      - "10.100.100.3:8080:8080"
+    volumes:
+      - /srv/service-fabric/netbox/media:/opt/netbox/netbox/media
+      - /srv/service-fabric/netbox/reports:/etc/netbox/reports
+      - /srv/service-fabric/netbox/scripts:/etc/netbox/scripts
+    secrets:
+      - postgres_password
+      - redis_password
+      - redis_cache_password
+      - secret_key
+      - superuser_password
+      - superuser_api_token
+
+secrets:
+  postgres_password:
+    file: /srv/service-fabric/netbox/secrets/postgres_password.txt
+  redis_password:
+    file: /srv/service-fabric/netbox/secrets/redis_password.txt
+  redis_cache_password:
+    file: /srv/service-fabric/netbox/secrets/redis_cache_password.txt
+  secret_key:
+    file: /srv/service-fabric/netbox/secrets/secret_key.txt
+  superuser_password:
+    file: /srv/service-fabric/netbox/secrets/superuser_password.txt
+  superuser_api_token:
+    file: /srv/service-fabric/netbox/secrets/superuser_api_token.txt
