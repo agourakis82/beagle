@@ -1,0 +1,17 @@
+{
+  "name": "sounio-runner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Temporal-backed durable runner for Sounio PaperRun workflows.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node --check src/index.js && node --check src/workflows.js && node --check src/activities.js"
+  },
+  "dependencies": {
+    "@temporalio/activity": "^1.12.1",
+    "@temporalio/client": "^1.12.1",
+    "@temporalio/worker": "^1.12.1",
+    "@temporalio/workflow": "^1.12.1"
+  }
+}

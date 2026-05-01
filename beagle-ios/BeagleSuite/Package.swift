@@ -19,6 +19,10 @@ let package = Package(
         .library(
             name: "BeagleCore",
             targets: ["BeagleCore"]
+        ),
+        .library(
+            name: "BeagleWorkbenchKit",
+            targets: ["BeagleWorkbenchKit"]
         )
     ],
     dependencies: [
@@ -48,10 +52,25 @@ let package = Package(
                 .swiftLanguageMode(.v6)
             ]
         ),
+        .target(
+            name: "BeagleWorkbenchKit",
+            dependencies: ["BeagleCore"],
+            path: "Sources/BeagleWorkbenchKit",
+            exclude: ["LICENSE-AGPL-NOTICE.md"],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+                .swiftLanguageMode(.v6)
+            ]
+        ),
         .testTarget(
             name: "BeagleCoreTests",
             dependencies: ["BeagleCore"],
             path: "Tests/BeagleCoreTests"
+        ),
+        .testTarget(
+            name: "BeagleWorkbenchKitTests",
+            dependencies: ["BeagleWorkbenchKit", "BeagleCore"],
+            path: "Tests/BeagleWorkbenchKitTests"
         )
     ]
 )

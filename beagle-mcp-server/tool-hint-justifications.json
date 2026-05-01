@@ -194,6 +194,66 @@
         "destructive_justification": "Appends episode, atom, and auditable memory records without deleting or overwriting existing memory."
       }
     },
+    "beagle_agent_registry": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads the Beagle role-first agent registry and readiness state without starting agents or mutating workspace state.",
+        "open_world_justification": "Reads private Beagle workspace metadata and does not call external model providers.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_agent_route": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Computes a deterministic role/provider route decision for a task without starting a process or writing memory.",
+        "open_world_justification": "Uses the private Beagle role registry and routing rules rather than contacting outside services.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_write_probe": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Diagnoses write readiness, scopes, and append-only health without creating memory records.",
+        "open_world_justification": "Checks private Beagle authorization and core state only.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_failed_write_inbox": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Lists append-only failed-write diagnostics without modifying the inbox or memory.",
+        "open_world_justification": "Reads only private Beagle failed-write records and does not affect external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_failed_write_rescue": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes a reviewed failed-write payload into append-only Beagle memory and audit logs.",
+        "open_world_justification": "Writes only to the private Beagle cluster and does not publish or modify external systems.",
+        "destructive_justification": "Appends rescue, memory, and audit records without deleting or overwriting prior state."
+      }
+    },
     "beagle_memory_project_graph": {
       "annotations": {
         "readOnlyHint": false,
@@ -237,7 +297,7 @@
         "destructiveHint": false
       },
       "justifications": {
-        "read_only_justification": "Queries GraphRAG++ memory and returns evidence graph, provenance, and retrieval trace without writing memory.",
+        "read_only_justification": "Queries GraphRAG++ memory and returns evidence graph, provenance, retrieval trace, and optional strict-recent/stable-fact ranking trace without writing memory.",
         "open_world_justification": "Reads private Beagle memory and does not publish or modify external systems.",
         "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
       }
@@ -590,6 +650,162 @@
         "destructive_justification": "Appends work-memory records and audit metadata without deleting or overwriting canonical logs."
       }
     },
+    "beagle_sounio_program_check": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Validates Sounio Work IR and returns derived compile previews without changing canonical memory.",
+        "open_world_justification": "Does not call external services or publish artifacts.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_sounio_claim_check": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Validates a Sounio Claim<T> and reports epistemic gates without writing the claim.",
+        "open_world_justification": "Does not call external services or publish artifacts.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_sounio_moment_type": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Appends a conservative SounioMoment and optional Belief/Contest claim seeds to cluster-canonical memory.",
+        "open_world_justification": "Writes only to the private Beagle cluster and does not publish, browse, email, or call external systems.",
+        "destructive_justification": "Creates append-only moment and audit records without deleting or overwriting existing memory."
+      }
+    },
+    "beagle_sounio_workday_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads the derived Sounio Workday snapshot without changing moments, claims, or memory.",
+        "open_world_justification": "Reads private Beagle cluster state and does not modify external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_sounio_moment_review": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Records a human/agent review decision for an ambient SounioMoment.",
+        "open_world_justification": "Operates only against private Beagle cluster state and does not publish externally.",
+        "destructive_justification": "Appends review metadata; rejected or contested moments are marked, not erased."
+      }
+    },
+    "beagle_sounio_paperrun_start": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Starts a durable PaperRun request and appends trace, audit, memory, and artifact metadata.",
+        "open_world_justification": "May coordinate with the Temporal-backed Sounio runner inside the Beagle cluster.",
+        "destructive_justification": "Creates append-only records and does not submit, delete, or overwrite external publications."
+      }
+    },
+    "beagle_sounio_paperrun_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads PaperRun state without changing the workflow or artifacts.",
+        "open_world_justification": "Reads private Beagle cluster state and does not modify external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_sounio_paperrun_approve_step": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Records a human approval/revision decision for a PaperRun step.",
+        "open_world_justification": "Signals private Beagle workflow state only; it does not publish externally.",
+        "destructive_justification": "Appends approval state and trace metadata without deleting or overwriting existing records."
+      }
+    },
+    "beagle_sounio_paperrun_add_claim": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Appends a Sounio Claim<T> to a PaperRun claim graph and records memory/audit metadata.",
+        "open_world_justification": "Operates only against private Beagle cluster endpoints and does not publish externally.",
+        "destructive_justification": "Creates append-only claim, trace, memory, and audit records without deleting or overwriting existing records."
+      }
+    },
+    "beagle_sounio_claim_review": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Records a human/agent review decision and may promote or contest a claim according to Sounio gates.",
+        "open_world_justification": "Operates only against private Beagle cluster state and does not publish externally.",
+        "destructive_justification": "Appends review state and trace metadata; rejected claims are marked, not erased."
+      }
+    },
+    "beagle_sounio_paperrun_theatre": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads the PaperRun Theatre snapshot without changing workflow, claims, or artifacts.",
+        "open_world_justification": "Reads private Beagle cluster state and does not modify external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_sounio_public_digest": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads or materializes a sanitized public digest excluding restricted/private trace content.",
+        "open_world_justification": "Does not submit to arXiv or publish externally; it returns a local Beagle digest artifact.",
+        "destructive_justification": "Appends digest status metadata without deleting or overwriting private traces."
+      }
+    },
+    "beagle_sounio_trace_query": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads append-only Sounio trace events without mutating memory or workflows.",
+        "open_world_justification": "Reads private Beagle cluster trace state and does not publish externally.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
     "beagle_temporal_analyze": {
       "annotations": {
         "readOnlyHint": false,
@@ -684,6 +900,54 @@
         "read_only_justification": "Retrieves science job artifact metadata without changing artifacts.",
         "open_world_justification": "Reads private Beagle artifact metadata and does not modify external systems.",
         "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_capture_session_start": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Starts an explicit user-visible capture session and records session metadata.",
+        "open_world_justification": "Creates cluster-local capture metadata only and does not contact external providers.",
+        "destructive_justification": "Creates append-only session state and does not delete or overwrite records."
+      }
+    },
+    "beagle_capture_session_status": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads capture session status without changing session data.",
+        "open_world_justification": "Reads private Beagle capture state and does not call external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_visual_evidence_analyze": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Creates a derivative VisualEvidenceAnalysis and claim map from an existing private artifact.",
+        "open_world_justification": "May delegate confirmed visual analysis to configured external multimodal providers.",
+        "destructive_justification": "Creates append-only analysis output and does not delete or overwrite raw artifacts."
+      }
+    },
+    "beagle_capture_review_promote": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Promotes reviewed capture candidates into append-only Sounio moments and memory events.",
+        "open_world_justification": "Writes to Beagle core only and does not interact with external providers.",
+        "destructive_justification": "Promotion is append-only and does not delete, overwrite, or expose restricted content."
       }
     }
   }

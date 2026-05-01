@@ -4,7 +4,7 @@
 // - Tower middleware documentation
 // - OpenTelemetry HTTP semantic conventions
 
-use crate::{TracerManager, TraceContext, record_error};
+use crate::{record_error, TraceContext, TracerManager};
 use axum::{
     body::Body,
     extract::Request,
@@ -56,7 +56,7 @@ where
     type Response = S::Response;
     type Error = S::Error;
     type Future = std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
     >;
 
     fn poll_ready(
@@ -70,18 +70,13 @@ where
         let tracer_manager = self.tracer_manager.clone();
         let future = self.inner.call(request);
 
-        Box::pin(async move {
-            future.await
-        })
+        Box::pin(async move { future.await })
     }
 }
 
 // ========================= Request Tracing =========================
 
-pub async fn trace_request(
-    request: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
+pub async fn trace_request(request: Request, next: Next) -> Result<Response, StatusCode> {
     let start_time = Instant::now();
     let request_id = Uuid::new_v4().to_string();
 
@@ -207,14 +202,18 @@ pub struct TracedResponse {
 
 impl TracedResponse {
     pub fn new(response: Response, span: Span) -> Self {
-        Self { inner: response, span }
+        Self {
+            inner: response,
+            span,
+        }
     }
 }
 
 impl IntoResponse for TracedResponse {
     fn into_response(self) -> Response {
         // Record final response details
-        self.span.record("http.status_code", self.inner.status().as_u16());
+        self.span
+            .record("http.status_code", self.inner.status().as_u16());
 
         // Add trace headers to response
         let (mut parts, body) = self.inner.into_parts();
@@ -312,11 +311,7 @@ fn truncate_query(query: &str, max_len: usize) -> String {
 
 // ========================= LLM Tracing =========================
 
-pub fn create_llm_span(
-    provider: &str,
-    model: &str,
-    operation: &str,
-) -> Span {
+pub fn create_llm_span(provider: &str, model: &str, operation: &str) -> Span {
     info_span!(
         "llm_operation",
         otel.name = %format!("llm:{}:{}", provider, operation),
@@ -327,12 +322,7 @@ pub fn create_llm_span(
     )
 }
 
-pub fn trace_llm_request(
-    span: &Span,
-    prompt_tokens: usize,
-    max_tokens: usize,
-    temperature: f32,
-) {
+pub fn trace_llm_request(span: &Span, prompt_tokens: usize, max_tokens: usize, temperature: f32) {
     span.record("llm.prompt_tokens", prompt_tokens as i64);
     span.record("llm.max_tokens", max_tokens as i64);
     span.record("llm.temperature", temperature);
@@ -347,15 +337,15 @@ pub fn trace_llm_response(
     span.record("llm.completion_tokens", completion_tokens as i64);
     span.record("llm.total_tokens", total_tokens as i64);
     span.record("llm.duration_ms", duration_ms as i64);
-    span.record("llm.tokens_per_second", (total_tokens as f64 / (duration_ms as f64 / 1000.0)));
+    span.record(
+        "llm.tokens_per_second",
+        (total_tokens as f64 / (duration_ms as f64 / 1000.0)),
+    );
 }
 
 // ========================= Scientific Computation Tracing =========================
 
-pub fn create_computation_span(
-    algorithm: &str,
-    dataset_size: usize,
-) -> Span {
+pub fn create_computation_span(algorithm: &str, dataset_size: usize) -> Span {
     info_span!(
         "scientific_computation",
         otel.name = %format!("compute:{}", algorithm),
@@ -374,15 +364,15 @@ pub fn trace_computation_progress(
     span.record("compute.iteration", iteration as i64);
     span.record("compute.total_iterations", total_iterations as i64);
     span.record("compute.current_error", current_error);
-    span.record("compute.progress_percent", ((iteration as f64 / total_iterations as f64) * 100.0));
+    span.record(
+        "compute.progress_percent",
+        ((iteration as f64 / total_iterations as f64) * 100.0),
+    );
 }
 
 // ========================= Batch Processing Tracing =========================
 
-pub fn create_batch_span(
-    job_type: &str,
-    batch_size: usize,
-) -> Span {
+pub fn create_batch_span(job_type: &str, batch_size: usize) -> Span {
     info_span!(
         "batch_processing",
         otel.name = %format!("batch:{}", job_type),
@@ -392,11 +382,7 @@ pub fn create_batch_span(
     )
 }
 
-pub fn trace_batch_item(
-    parent_span: &Span,
-    item_id: &str,
-    index: usize,
-) -> Span {
+pub fn trace_batch_item(parent_span: &Span, item_id: &str, index: usize) -> Span {
     info_span!(
         parent: parent_span.clone(),
         "batch_item",

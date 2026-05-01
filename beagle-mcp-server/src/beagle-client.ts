@@ -304,6 +304,44 @@ export class BeagleClient {
         return this.request("POST", "/api/exocortex/v1/memory/assisted-import", body, 120000);
     }
 
+    async writeProbe(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/write/probe", body, 30000);
+    }
+
+    async failedWriteInbox(limit = 25): Promise<unknown> {
+        return this.request(
+            "GET",
+            `/api/exocortex/v1/failed-writes?limit=${encodeURIComponent(String(limit))}`,
+            undefined,
+            30000,
+        );
+    }
+
+    async failedWriteRescue(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/failed-writes/rescue", body, 120000);
+    }
+
+    async captureSessionStart(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/capture/sessions", body, 30000);
+    }
+
+    async captureSessionStatus(sessionId: string): Promise<unknown> {
+        return this.request(
+            "GET",
+            `/api/exocortex/v1/capture/sessions/${encodeURIComponent(sessionId)}`,
+            undefined,
+            30000,
+        );
+    }
+
+    async visualEvidenceAnalyze(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/capture/visual/analyze", body, 90000);
+    }
+
+    async captureReviewPromote(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/capture/review", body, 60000);
+    }
+
     async memoryExport(body: unknown): Promise<unknown> {
         return this.request("POST", "/api/exocortex/v1/memory/export", body, 120000);
     }
@@ -406,6 +444,105 @@ export class BeagleClient {
 
     async coreDreamCycleStatus(): Promise<unknown> {
         return this.request("GET", "/api/exocortex/v1/memory/dreamcycle/status", undefined, 30000);
+    }
+
+    async sounioProgramCheck(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/sounio/programs/check", body, 30000);
+    }
+
+    async sounioClaimCheck(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/sounio/claims/check", body, 30000);
+    }
+
+    async sounioMomentType(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/sounio/moments/type", body, 30000);
+    }
+
+    async sounioMomentsRecent(limit = 25, projectSlug = "sounio"): Promise<unknown> {
+        const params = new URLSearchParams({ limit: String(limit), project_slug: projectSlug });
+        return this.request("GET", `/api/exocortex/v1/sounio/moments/recent?${params.toString()}`, undefined, 30000);
+    }
+
+    async sounioMomentReview(momentId: string, body: unknown): Promise<unknown> {
+        return this.request(
+            "POST",
+            `/api/exocortex/v1/sounio/moments/${encodeURIComponent(momentId)}/review`,
+            body,
+            30000,
+        );
+    }
+
+    async sounioWorkdayStatus(projectSlug = "sounio", limit = 20): Promise<unknown> {
+        const params = new URLSearchParams({ project_slug: projectSlug, limit: String(limit) });
+        return this.request("GET", `/api/exocortex/v1/sounio/workday/status?${params.toString()}`, undefined, 30000);
+    }
+
+    async sounioPaperRunStart(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/sounio/paperruns", body, 120000);
+    }
+
+    async sounioPaperRunStatus(paperRunId: string): Promise<unknown> {
+        return this.request("GET", `/api/exocortex/v1/sounio/paperruns/${encodeURIComponent(paperRunId)}`, undefined, 30000);
+    }
+
+    async sounioPaperRunApproveStep(paperRunId: string, body: unknown): Promise<unknown> {
+        return this.request(
+            "POST",
+            `/api/exocortex/v1/sounio/paperruns/${encodeURIComponent(paperRunId)}/approve-step`,
+            body,
+            30000,
+        );
+    }
+
+    async sounioPaperRunAddClaim(paperRunId: string, body: unknown): Promise<unknown> {
+        return this.request(
+            "POST",
+            `/api/exocortex/v1/sounio/paperruns/${encodeURIComponent(paperRunId)}/claims`,
+            body,
+            30000,
+        );
+    }
+
+    async sounioClaimReview(paperRunId: string, claimId: string, body: unknown): Promise<unknown> {
+        return this.request(
+            "POST",
+            `/api/exocortex/v1/sounio/paperruns/${encodeURIComponent(paperRunId)}/claims/${encodeURIComponent(claimId)}/review`,
+            body,
+            30000,
+        );
+    }
+
+    async sounioPaperRunTheatre(paperRunId: string): Promise<unknown> {
+        return this.request(
+            "GET",
+            `/api/exocortex/v1/sounio/paperruns/${encodeURIComponent(paperRunId)}/theatre`,
+            undefined,
+            30000,
+        );
+    }
+
+    async sounioPaperRunPublicDigest(paperRunId: string): Promise<unknown> {
+        return this.request(
+            "GET",
+            `/api/exocortex/v1/sounio/paperruns/${encodeURIComponent(paperRunId)}/public-digest`,
+            undefined,
+            30000,
+        );
+    }
+
+    async sounioPaperRunArtifacts(paperRunId: string): Promise<unknown> {
+        return this.request(
+            "GET",
+            `/api/exocortex/v1/sounio/paperruns/${encodeURIComponent(paperRunId)}/artifacts`,
+            undefined,
+            30000,
+        );
+    }
+
+    async sounioTraceQuery(paperRunId?: string, limit = 50): Promise<unknown> {
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (paperRunId) params.set("paper_run_id", paperRunId);
+        return this.request("GET", `/api/exocortex/v1/sounio/trace?${params.toString()}`, undefined, 30000);
     }
 
     private memoryEngineUrl(): string {
@@ -574,6 +711,28 @@ export class BeagleClient {
             "GET",
             `/api/mobile/v1/projects/${encodeURIComponent(projectSlug)}/agent-sessions`,
             undefined,
+            30000,
+            baseUrl,
+        );
+    }
+
+    async agentRegistry(projectSlug: string): Promise<unknown> {
+        const baseUrl = this.cockpitBaseUrl || this.baseUrl;
+        return this.request(
+            "GET",
+            `/api/workspaces/${encodeURIComponent(projectSlug)}/agents/registry`,
+            undefined,
+            30000,
+            baseUrl,
+        );
+    }
+
+    async agentRoute(projectSlug: string, body: unknown): Promise<unknown> {
+        const baseUrl = this.cockpitBaseUrl || this.baseUrl;
+        return this.request(
+            "POST",
+            `/api/workspaces/${encodeURIComponent(projectSlug)}/agents/route`,
+            body,
             30000,
             baseUrl,
         );

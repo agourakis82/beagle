@@ -165,6 +165,20 @@ export function defineResources(
             read: async () => client.dreamCycleStatus(),
         },
         {
+            uri: "beagle://sounio/paperrun/current",
+            name: "Current Sounio PaperRun",
+            description:
+                "Home trust view and recent Sounio PaperRun trace for the self-writing Beagle systems paper.",
+            mimeType: "application/json",
+            read: async () => {
+                const [home, trace] = await Promise.all([
+                    client.exocortexHome(undefined, "mcp-resource-sounio-paperrun"),
+                    client.sounioTraceQuery(undefined, 25),
+                ]);
+                return { home, trace };
+            },
+        },
+        {
             uri: "beagle://agent/observer/status",
             name: "Agent Observer Status",
             description:
@@ -341,6 +355,22 @@ export function defineResources(
                     home,
                 };
             },
+        },
+        {
+            uri: "beagle://sounio/workday/current",
+            name: "Current Sounio Workday",
+            description:
+                "Current ambient Sounio workday: moments, decision seeds, Claim<T> seeds, tensions, agents, evidence, review queue, and next gesture.",
+            mimeType: "application/json",
+            read: async () => client.sounioWorkdayStatus("sounio", 20),
+        },
+        {
+            uri: "beagle://sounio/moments/recent",
+            name: "Recent Sounio Moments",
+            description:
+                "Recent append-only ambient Sounio moments derived from Beagle captures, Codex/Claude work memory, Claude iOS, Watch microintentions, and Apple captures.",
+            mimeType: "application/json",
+            read: async () => client.sounioMomentsRecent(25, "sounio"),
         },
     ];
 }

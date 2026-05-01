@@ -22,6 +22,9 @@ struct ThoughtCaptureView: View {
     @Environment(CognitiveStore.self) private var cognitive
     @State private var inputText = ""
     @State private var captureMode: CaptureMode = .keyboard
+    @State private var composerTimeline: [ChatMemoryTimelineEvent] = []
+    @State private var showingThinkingAloud = false
+    @State private var showingVisualEvidence = false
     @State private var lastRefined: String?
     @State private var lastTranslation: String?
     @State private var refinedPersisted = false
@@ -41,12 +44,13 @@ struct ThoughtCaptureView: View {
     ]
 
     enum CaptureMode: String, CaseIterable {
-        case keyboard, voice, clipboard, chat
+        case keyboard, voice, image, clipboard, chat
 
         var icon: String {
             switch self {
             case .keyboard:  return "keyboard"
             case .voice:     return "mic.fill"
+            case .image:     return "viewfinder"
             case .clipboard: return "doc.on.clipboard"
             case .chat:      return "bubble.left.and.bubble.right"
             }
@@ -56,6 +60,7 @@ struct ThoughtCaptureView: View {
             switch self {
             case .keyboard:  return "Write"
             case .voice:     return "Voice"
+            case .image:     return "Image"
             case .clipboard: return "Paste"
             case .chat:      return "Talk"
             }
@@ -110,6 +115,16 @@ struct ThoughtCaptureView: View {
             conversation.projectFamily = family
             conversation.publicationScope = PublicationScope.forProjectFamily(family)
             conversation.flowState = cognitive.flowState
+        }
+        .sheet(isPresented: $showingThinkingAloud) {
+            ThinkingAloudSessionView(projectSlug: cognitive.activeProjectSlug ?? "sounio") { candidates in
+                Task { await promoteCaptureCandidates(candidates, sourceSurface: "beagle-ios-thinking-aloud") }
+            }
+        }
+        .sheet(isPresented: $showingVisualEvidence) {
+            VisualEvidenceCaptureView(projectSlug: cognitive.activeProjectSlug ?? "sounio") { candidates in
+                Task { await promoteCaptureCandidates(candidates, sourceSurface: "beagle-ios-visual-evidence") }
+            }
         }
         .translationTask(TranslationEngine.shared.activeConfiguration) { session in
             let batch = TranslationEngine.shared.drainPending()
@@ -184,20 +199,44 @@ struct ThoughtCaptureView: View {
             modePicker
             ideaModeCard
 
-            if captureMode == .voice {
-                GlassPanel(elevation: .raised) {
-                    voiceSection
+            MultimodalComposer(
+                text: $inputText,
+                mode: composerModeBinding,
+                timeline: composerTimeline,
+                isEnabled: !cognitive.isCapturing,
+                onSubmit: { _ in
+                    Task { await captureThought() }
+                },
+                onVoice: {
+                    showingThinkingAloud = true
+                },
+                onImage: {
+                    showingVisualEvidence = true
                 }
-            } else {
-                BeagleInputBar(
-                    text: $inputText,
-                    placeholder: "Save an idea for Beagle...",
-                    mode: .chat,
-                    isEnabled: !cognitive.isCapturing,
-                    onSubmit: { _ in
-                        Task { await captureThought() }
-                    }
-                )
+            )
+        }
+    }
+
+    private var composerModeBinding: Binding<ComposerMode> {
+        Binding {
+            switch captureMode {
+            case .voice:
+                return .voice
+            case .image:
+                return .image
+            default:
+                return .text
+            }
+        } set: { newValue in
+            withAnimation(BeagleMotion.snappy) {
+                switch newValue {
+                case .text:
+                    captureMode = .keyboard
+                case .voice:
+                    captureMode = .voice
+                case .image:
+                    captureMode = .image
+                }
             }
         }
     }
@@ -544,11 +583,53 @@ struct ThoughtCaptureView: View {
         let thought = await cognitive.captureThought(text: text, source: "ios-\(captureMode.rawValue)")
         withAnimation(BeagleMotion.slow) {
             lastRefined = thought?.refinedText ?? thought?.rawText
+            composerTimeline.insert(
+                ChatMemoryTimelineEvent(
+                    label: "Text capture",
+                    status: thought?.effectiveSyncState.label ?? "Queued",
+                    truthMode: thought?.effectiveSyncState == .synced ? .observed : .declared
+                ),
+                at: 0
+            )
+            composerTimeline = Array(composerTimeline.prefix(12))
         }
         inputText = ""
 
         // Trigger bilingual translation if Portuguese thought was enqueued
         TranslationEngine.shared.triggerPendingTranslations()
+    }
+
+    private func promoteCaptureCandidates(
+        _ candidates: [CaptureReviewCandidate],
+        sourceSurface: String
+    ) async {
+        guard !candidates.isEmpty else { return }
+        let result = await BeagleClient.shared.captureReview(
+            CaptureReviewRequest(
+                projectSlug: cognitive.activeProjectSlug ?? "sounio",
+                sourceSurface: sourceSurface,
+                candidates: candidates,
+                provenance: .object([
+                    "surface_claimed": .string(sourceSurface),
+                    "surface_observed": .string("beagle-apple-client"),
+                    "composer": .string("multimodal-v3.0")
+                ])
+            )
+        )
+        await MainActor.run {
+            let promoted = result.value?.promotedCount ?? 0
+            withAnimation(BeagleMotion.snappy) {
+                composerTimeline.insert(
+                    ChatMemoryTimelineEvent(
+                        label: sourceSurface.contains("visual") ? "Visual evidence" : "Thinking aloud",
+                        status: promoted > 0 ? "Sounio typed · \(promoted) promoted" : (result.error ?? "reviewed"),
+                        truthMode: promoted > 0 ? .observed : .declared
+                    ),
+                    at: 0
+                )
+                composerTimeline = Array(composerTimeline.prefix(12))
+            }
+        }
     }
 
     private func pasteFromClipboard() {

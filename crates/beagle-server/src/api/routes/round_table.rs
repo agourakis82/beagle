@@ -15,9 +15,7 @@
 //! - paradox, cosmo, mirror: routed to Grok, Claude, or DeepSeek
 
 use axum::{extract::State, http::StatusCode, Json};
-use beagle_llm::{
-    ClaudeCliClient, CodexCliClient, GrokClient, LlmClient, OpenRouterClient,
-};
+use beagle_llm::{ClaudeCliClient, CodexCliClient, GrokClient, LlmClient, OpenRouterClient};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
@@ -172,7 +170,14 @@ pub async fn round_table(
         .or(providers.first())
         .map(|(_, c)| c.clone())
         .unwrap();
-    let synthesis = generate_synthesis(&voice_results, &interference, pci_score, &synthesis_llm, &req.prompt).await;
+    let synthesis = generate_synthesis(
+        &voice_results,
+        &interference,
+        pci_score,
+        &synthesis_llm,
+        &req.prompt,
+    )
+    .await;
 
     let elapsed = start.elapsed().as_millis();
     info!(
@@ -379,7 +384,11 @@ async fn execute_llm_prompted(
 
     Ok(VoiceResult {
         name: format!("{} (via {})", voice, provider_name),
-        perspective: perspective.split('.').next().unwrap_or("Exotic reasoning").to_string(),
+        perspective: perspective
+            .split('.')
+            .next()
+            .unwrap_or("Exotic reasoning")
+            .to_string(),
         content: output.text,
     })
 }
@@ -503,7 +512,10 @@ async fn generate_synthesis(
         }
     }
 
-    context.push_str(&format!("\nPCI (consciousness quality): {:.3}\n", pci_score));
+    context.push_str(&format!(
+        "\nPCI (consciousness quality): {:.3}\n",
+        pci_score
+    ));
     context.push_str(
         "\nSynthesize these perspectives into a single coherent insight. \
         These are real computation outputs, not opinions. \

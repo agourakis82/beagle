@@ -8,6 +8,19 @@
 
 import Foundation
 
+fileprivate extension String {
+    var nilIfEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+fileprivate extension Array {
+    func stablePrefix(_ count: Int) -> [Element] {
+        Array(prefix(count))
+    }
+}
+
 public enum ExocortexJSONValue: Codable, Equatable, Sendable {
     case string(String)
     case number(Double)
@@ -1307,6 +1320,631 @@ public struct MemoryWorldsRecentResponse: Codable, Equatable, Sendable {
     }
 }
 
+public struct SpatialAssetManifest: Codable, Equatable, Sendable {
+    public let panoUrl: String?
+    public let colliderMeshUrl: String?
+    public let hqMeshUrls: [String]
+    public let spzUrls: [String: String]
+    public let plyUrls: [String: String]
+    public let coordinateSystem: String?
+    public let coordinateTransform: String?
+    public let assetRoot: String?
+    public let degradedReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case panoUrl = "pano_url"
+        case colliderMeshUrl = "collider_mesh_url"
+        case hqMeshUrls = "hq_mesh_urls"
+        case spzUrls = "spz_urls"
+        case plyUrls = "ply_urls"
+        case coordinateSystem = "coordinate_system"
+        case coordinateTransform = "coordinate_transform"
+        case assetRoot = "asset_root"
+        case degradedReason = "degraded_reason"
+    }
+}
+
+public struct SpatialWorld: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let updatedAt: String
+    public let schemaVersion: String
+    public let projectSlug: String
+    public let worldId: String
+    public let operationId: String?
+    public let displayName: String
+    public let status: String
+    public let worldMarbleUrl: String?
+    public let assets: SpatialAssetManifest
+    public let model: String
+    public let permission: String
+    public let promptHash: String
+    public let promptSummary: String
+    public let privacyPolicy: String
+    public let tags: [String]
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case schemaVersion = "schema_version"
+        case projectSlug = "project_slug"
+        case worldId = "world_id"
+        case operationId = "operation_id"
+        case displayName = "display_name"
+        case status
+        case worldMarbleUrl = "world_marble_url"
+        case assets
+        case model
+        case permission
+        case promptHash = "prompt_hash"
+        case promptSummary = "prompt_summary"
+        case privacyPolicy = "privacy_policy"
+        case tags
+        case provenance
+    }
+}
+
+public struct ControlRoomSnapshot: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let projectSlug: String
+    public let spatialWorld: SpatialWorld?
+    public let memoryWorlds: [MemoryWorld]
+    public let agentLanes: [String]
+    public let podsWall: [String]
+    public let incidentCorridor: [String]
+    public let compilerMap: [String]
+    public let evidenceRefs: [String]
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case projectSlug = "project_slug"
+        case spatialWorld = "spatial_world"
+        case memoryWorlds = "memory_worlds"
+        case agentLanes = "agent_lanes"
+        case podsWall = "pods_wall"
+        case incidentCorridor = "incident_corridor"
+        case compilerMap = "compiler_map"
+        case evidenceRefs = "evidence_refs"
+        case provenance
+    }
+}
+
+public struct SounioSpatialEvidence: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let schemaVersion: String
+    public let worldId: String
+    public let projectSlug: String
+    public let evidenceType: String
+    public let claimSeedRefs: [String]
+    public let memoryWorldRefs: [String]
+    public let artifactRefs: [String]
+    public let epistemicStatus: String
+    public let privacyClass: String
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case schemaVersion = "schema_version"
+        case worldId = "world_id"
+        case projectSlug = "project_slug"
+        case evidenceType = "evidence_type"
+        case claimSeedRefs = "claim_seed_refs"
+        case memoryWorldRefs = "memory_world_refs"
+        case artifactRefs = "artifact_refs"
+        case epistemicStatus = "epistemic_status"
+        case privacyClass = "privacy_class"
+        case provenance
+    }
+}
+
+public struct SpatialProviderSlot: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let label: String
+    public let providerFamily: String
+    public let artifactType: String
+    public let costTier: String
+    public let privacyTier: String
+    public let maturity: String
+    public let enabled: Bool
+    public let requiresSecret: Bool
+    public let setupStatus: String
+    public let notes: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id, label, maturity, enabled, notes
+        case providerFamily = "provider_family"
+        case artifactType = "artifact_type"
+        case costTier = "cost_tier"
+        case privacyTier = "privacy_tier"
+        case requiresSecret = "requires_secret"
+        case setupStatus = "setup_status"
+    }
+}
+
+public struct MindPalaceRoom: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let roomType: String
+    public let state: String
+    public let projectSlug: String?
+    public let sourceFamily: String
+    public let tension: String
+    public let nextAction: String
+    public let freshness: String
+    public let truthMode: String
+    public let priority: Double
+    public let deskItemRefs: [String]
+    public let evidenceRefs: [String]
+    public let tags: [String]
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, state, tension, freshness, priority, tags, provenance
+        case roomType = "room_type"
+        case projectSlug = "project_slug"
+        case sourceFamily = "source_family"
+        case nextAction = "next_action"
+        case truthMode = "truth_mode"
+        case deskItemRefs = "desk_item_refs"
+        case evidenceRefs = "evidence_refs"
+    }
+}
+
+public struct DeskItem: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let kind: String
+    public let title: String
+    public let detail: String
+    public let state: String
+    public let priority: Double
+    public let roomId: String?
+    public let sourceRef: String?
+    public let actions: [String]
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, title, detail, state, priority, actions, provenance
+        case roomId = "room_id"
+        case sourceRef = "source_ref"
+    }
+}
+
+public struct ConversationPortal: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let updatedAt: String
+    public let schemaVersion: String
+    public let title: String
+    public let provider: String
+    public let surface: String
+    public let status: String
+    public let sourceMode: String
+    public let privacyClass: String
+    public let sourceRef: String?
+    public let promotedClipRefs: [String]
+    public let tags: [String]
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, provider, surface, status, tags, provenance
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case schemaVersion = "schema_version"
+        case sourceMode = "source_mode"
+        case privacyClass = "privacy_class"
+        case sourceRef = "source_ref"
+        case promotedClipRefs = "promoted_clip_refs"
+    }
+}
+
+public struct PromotedConversationClip: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let schemaVersion: String
+    public let portalId: String
+    public let contentHash: String
+    public let summary: String
+    public let projectRef: String?
+    public let privacyClass: String
+    public let memoryEventId: String?
+    public let sounioMomentId: String?
+    public let tags: [String]
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id, summary, tags, provenance
+        case createdAt = "created_at"
+        case schemaVersion = "schema_version"
+        case portalId = "portal_id"
+        case contentHash = "content_hash"
+        case projectRef = "project_ref"
+        case privacyClass = "privacy_class"
+        case memoryEventId = "memory_event_id"
+        case sounioMomentId = "sounio_moment_id"
+    }
+}
+
+public struct SpatialDeskSnapshot: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let activeItems: [DeskItem]
+    public let pinnedRoomIds: [String]
+    public let portals: [ConversationPortal]
+    public let agentLanes: [String]
+    public let focusStrip: [String]
+    public let proofPanels: [String]
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id, portals, provenance
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case activeItems = "active_items"
+        case pinnedRoomIds = "pinned_room_ids"
+        case agentLanes = "agent_lanes"
+        case focusStrip = "focus_strip"
+        case proofPanels = "proof_panels"
+    }
+}
+
+public struct SpatialAction: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let kind: String
+    public let targetRef: String?
+    public let reason: String
+    public let enabled: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, kind, reason, enabled
+        case targetRef = "target_ref"
+    }
+}
+
+public struct SpatialActionMenu: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let generatedAt: String
+    public let mode: String
+    public let actions: [SpatialAction]
+
+    enum CodingKeys: String, CodingKey {
+        case id, mode, actions
+        case generatedAt = "generated_at"
+    }
+}
+
+public struct NextBestPlaceDecision: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let generatedAt: String
+    public let roomId: String
+    public let title: String
+    public let reason: String
+    public let sourceMode: String
+    public let confidence: Double
+    public let candidateRoomIds: [String]
+    public let readinessContext: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, reason, confidence
+        case generatedAt = "generated_at"
+        case roomId = "room_id"
+        case sourceMode = "source_mode"
+        case candidateRoomIds = "candidate_room_ids"
+        case readinessContext = "readiness_context"
+    }
+}
+
+public struct FocusIntervention: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let kind: String
+    public let title: String
+    public let reason: String
+    public let priority: Double
+    public let status: String
+    public let dueAt: String?
+    public let actions: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, title, reason, priority, status, actions
+        case dueAt = "due_at"
+    }
+}
+
+public struct FocusSession: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let startedAt: String
+    public let endedAt: String?
+    public let mode: String
+    public let projectSlug: String?
+    public let status: String
+    public let notes: [String]
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id, mode, status, notes, provenance
+        case startedAt = "started_at"
+        case endedAt = "ended_at"
+        case projectSlug = "project_slug"
+    }
+}
+
+public struct FocusCoachState: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let mode: String
+    public let activeSession: FocusSession?
+    public let interventions: [FocusIntervention]
+    public let hydrationDue: Bool
+    public let calendarNudge: String?
+    public let sessionMinutes: Int
+    public let canOverride: Bool
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id, mode, interventions, provenance
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case activeSession = "active_session"
+        case hydrationDue = "hydration_due"
+        case calendarNudge = "calendar_nudge"
+        case sessionMinutes = "session_minutes"
+        case canOverride = "can_override"
+    }
+}
+
+public struct MindPalaceSnapshot: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let rooms: [MindPalaceRoom]
+    public let desk: SpatialDeskSnapshot
+    public let nextBestPlace: NextBestPlaceDecision
+    public let actionMenu: SpatialActionMenu
+    public let focusCoach: FocusCoachState
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id, rooms, desk, provenance
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case nextBestPlace = "next_best_place"
+        case actionMenu = "action_menu"
+        case focusCoach = "focus_coach"
+    }
+}
+
+public struct CreateConversationPortalRequest: Codable, Equatable, Sendable {
+    public let title: String
+    public let provider: String
+    public let surface: String?
+    public let status: String?
+    public let sourceMode: String?
+    public let privacyClass: String?
+    public let sourceRef: String?
+    public let tags: [String]
+    public let provenance: ExocortexJSONValue?
+
+    public init(
+        title: String,
+        provider: String,
+        surface: String? = "desktop-portal",
+        status: String? = "reference_only",
+        sourceMode: String? = "portal+promote",
+        privacyClass: String? = "sensitive",
+        sourceRef: String? = nil,
+        tags: [String] = [],
+        provenance: ExocortexJSONValue? = nil
+    ) {
+        self.title = title
+        self.provider = provider
+        self.surface = surface
+        self.status = status
+        self.sourceMode = sourceMode
+        self.privacyClass = privacyClass
+        self.sourceRef = sourceRef
+        self.tags = tags
+        self.provenance = provenance
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case title, provider, surface, status, tags, provenance
+        case sourceMode = "source_mode"
+        case privacyClass = "privacy_class"
+        case sourceRef = "source_ref"
+    }
+}
+
+public struct PromoteConversationPortalRequest: Codable, Equatable, Sendable {
+    public let selectedText: String
+    public let summary: String?
+    public let projectRef: String?
+    public let privacyClass: String?
+    public let tags: [String]
+    public let provenance: ExocortexJSONValue?
+
+    public init(
+        selectedText: String,
+        summary: String? = nil,
+        projectRef: String? = nil,
+        privacyClass: String? = "sensitive",
+        tags: [String] = [],
+        provenance: ExocortexJSONValue? = nil
+    ) {
+        self.selectedText = selectedText
+        self.summary = summary
+        self.projectRef = projectRef
+        self.privacyClass = privacyClass
+        self.tags = tags
+        self.provenance = provenance
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case summary, tags, provenance
+        case selectedText = "selected_text"
+        case projectRef = "project_ref"
+        case privacyClass = "privacy_class"
+    }
+}
+
+public struct FocusCoachEventRequest: Codable, Equatable, Sendable {
+    public let eventKind: String
+    public let status: String?
+    public let interventionId: String?
+    public let projectSlug: String?
+    public let notes: String?
+    public let snoozedMinutes: Int?
+    public let provenance: ExocortexJSONValue?
+
+    public init(
+        eventKind: String,
+        status: String? = "recorded",
+        interventionId: String? = nil,
+        projectSlug: String? = nil,
+        notes: String? = nil,
+        snoozedMinutes: Int? = nil,
+        provenance: ExocortexJSONValue? = nil
+    ) {
+        self.eventKind = eventKind
+        self.status = status
+        self.interventionId = interventionId
+        self.projectSlug = projectSlug
+        self.notes = notes
+        self.snoozedMinutes = snoozedMinutes
+        self.provenance = provenance
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case status, notes, provenance
+        case eventKind = "event_kind"
+        case interventionId = "intervention_id"
+        case projectSlug = "project_slug"
+        case snoozedMinutes = "snoozed_minutes"
+    }
+}
+
+public struct CreateSpatialWorldRequest: Codable, Equatable, Sendable {
+    public let projectSlug: String
+    public let displayName: String?
+    public let promptSummary: String
+    public let sanitizedPrompt: String
+    public let model: String?
+    public let permission: String?
+    public let approved: Bool
+    public let purpose: String
+    public let operationId: String?
+    public let worldId: String?
+    public let status: String?
+    public let worldMarbleUrl: String?
+    public let assets: SpatialAssetManifest?
+    public let tags: [String]
+    public let provenance: ExocortexJSONValue?
+
+    public init(
+        projectSlug: String = "sounio",
+        displayName: String? = nil,
+        promptSummary: String,
+        sanitizedPrompt: String,
+        model: String? = "marble-1.1",
+        permission: String? = "private",
+        approved: Bool,
+        purpose: String = "control-room",
+        operationId: String? = nil,
+        worldId: String? = nil,
+        status: String? = nil,
+        worldMarbleUrl: String? = nil,
+        assets: SpatialAssetManifest? = nil,
+        tags: [String] = [],
+        provenance: ExocortexJSONValue? = nil
+    ) {
+        self.projectSlug = projectSlug
+        self.displayName = displayName
+        self.promptSummary = promptSummary
+        self.sanitizedPrompt = sanitizedPrompt
+        self.model = model
+        self.permission = permission
+        self.approved = approved
+        self.purpose = purpose
+        self.operationId = operationId
+        self.worldId = worldId
+        self.status = status
+        self.worldMarbleUrl = worldMarbleUrl
+        self.assets = assets
+        self.tags = tags
+        self.provenance = provenance
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case projectSlug = "project_slug"
+        case displayName = "display_name"
+        case promptSummary = "prompt_summary"
+        case sanitizedPrompt = "sanitized_prompt"
+        case model
+        case permission
+        case approved
+        case purpose
+        case operationId = "operation_id"
+        case worldId = "world_id"
+        case status
+        case worldMarbleUrl = "world_marble_url"
+        case assets
+        case tags
+        case provenance
+    }
+}
+
+public struct CreateSounioSpatialEvidenceRequest: Codable, Equatable, Sendable {
+    public let projectSlug: String
+    public let evidenceType: String?
+    public let claimSeedRefs: [String]
+    public let memoryWorldRefs: [String]
+    public let artifactRefs: [String]
+    public let epistemicStatus: String?
+    public let privacyClass: String?
+    public let provenance: ExocortexJSONValue?
+
+    public init(
+        projectSlug: String,
+        evidenceType: String? = "spatial_memory_world",
+        claimSeedRefs: [String] = [],
+        memoryWorldRefs: [String] = [],
+        artifactRefs: [String] = [],
+        epistemicStatus: String? = "belief",
+        privacyClass: String? = "sensitive",
+        provenance: ExocortexJSONValue? = nil
+    ) {
+        self.projectSlug = projectSlug
+        self.evidenceType = evidenceType
+        self.claimSeedRefs = claimSeedRefs
+        self.memoryWorldRefs = memoryWorldRefs
+        self.artifactRefs = artifactRefs
+        self.epistemicStatus = epistemicStatus
+        self.privacyClass = privacyClass
+        self.provenance = provenance
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case projectSlug = "project_slug"
+        case evidenceType = "evidence_type"
+        case claimSeedRefs = "claim_seed_refs"
+        case memoryWorldRefs = "memory_world_refs"
+        case artifactRefs = "artifact_refs"
+        case epistemicStatus = "epistemic_status"
+        case privacyClass = "privacy_class"
+        case provenance
+    }
+}
+
 public struct ConversationAutoImportState: Codable, Equatable, Sendable {
     public let status: String
     public let sessionId: String?
@@ -1653,6 +2291,497 @@ public struct GraphRagQueryResponse: Codable, Equatable, Sendable {
     }
 }
 
+public struct MemoryLensMode: RawRepresentable, Codable, Equatable, Hashable, Sendable {
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let report = MemoryLensMode(rawValue: "report")
+    public static let evidence = MemoryLensMode(rawValue: "evidence")
+    public static let proof = MemoryLensMode(rawValue: "proof")
+    public static let deepDive = MemoryLensMode(rawValue: "deep_dive")
+}
+
+public struct MemoryLensPreset: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let query: String
+    public let detail: String
+    public let systemImage: String
+    public let scopeHint: String?
+    public let priority: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case query
+        case detail
+        case systemImage = "system_image"
+        case scopeHint = "scope_hint"
+        case priority
+    }
+}
+
+public struct ProofSheetModel: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let summary: String
+    public let sourceRefs: [String]
+    public let provenanceLines: [String]
+    public let traceLines: [String]
+    public let runtime: String?
+    public let confidence: Double
+    public let restrictedLeakCheck: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case summary
+        case sourceRefs = "source_refs"
+        case provenanceLines = "provenance_lines"
+        case traceLines = "trace_lines"
+        case runtime
+        case confidence
+        case restrictedLeakCheck = "restricted_leak_check"
+    }
+}
+
+public struct EvidenceFrontierItem: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let detail: String
+    public let kind: String
+    public let score: Double
+    public let sourceLabel: String
+    public let sourceRefs: [String]
+    public let truthMode: String
+    public let privacyClass: String
+    public let proof: ProofSheetModel
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case detail
+        case kind
+        case score
+        case sourceLabel = "source_label"
+        case sourceRefs = "source_refs"
+        case truthMode = "truth_mode"
+        case privacyClass = "privacy_class"
+        case proof
+    }
+}
+
+public struct MemoryLensReport: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let generatedAt: String
+    public let mode: MemoryLensMode
+    public let headline: String
+    public let summary: String
+    public let changedSignals: [String]
+    public let evidenceFrontier: [EvidenceFrontierItem]
+    public let presets: [MemoryLensPreset]
+    public let sourceConfidenceBadges: [String]
+    public let confidence: Double
+    public let runtime: String
+    public let degradedReason: String?
+    public let restrictedContentFiltered: Bool
+    public let proof: ProofSheetModel
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case generatedAt = "generated_at"
+        case mode
+        case headline
+        case summary
+        case changedSignals = "changed_signals"
+        case evidenceFrontier = "evidence_frontier"
+        case presets
+        case sourceConfidenceBadges = "source_confidence_badges"
+        case confidence
+        case runtime
+        case degradedReason = "degraded_reason"
+        case restrictedContentFiltered = "restricted_content_filtered"
+        case proof
+    }
+}
+
+public extension MemoryLensReport {
+    static func synthesized(
+        home: ExocortexHomeSnapshot? = nil,
+        homeTruthMode: TruthMode = .declared,
+        graphStatus: MemoryGraphStatus? = nil,
+        recentGraph: MemoryGraphRecentResponse? = nil,
+        benchmark: MemoryBenchmarkStatus? = nil,
+        governance: MemoryGovernanceStatus? = nil,
+        contradictions: MemoryContradictionListResponse? = nil,
+        lastQuery: GraphRagQueryResponse? = nil,
+        activeProjectSlug: String = "beagle"
+    ) -> MemoryLensReport {
+        let generatedAt = lastQuery?.temporalContext.newestEvidenceAt
+            ?? recentGraph?.generatedAt
+            ?? graphStatus?.generatedAt
+            ?? home?.generatedAt
+            ?? "local-memory-lens"
+        let runtime = lastQuery?.runtimeUsed
+            ?? lastQuery?.mode
+            ?? graphStatus?.graphRuntime
+            ?? home?.trustContext?.hotPathMode
+            ?? home?.trustContext?.retrievalMode
+            ?? recentGraph?.status.retrievalMode
+            ?? "GraphRAG++"
+        let degraded = lastQuery?.degradedReason
+            ?? graphStatus?.degradedReason.nilIfEmpty
+            ?? recentGraph?.status.degradedReason.nilIfEmpty
+            ?? home?.trustContext?.graphDegradedReason?.nilIfEmpty
+
+        var changedSignals: [String] = []
+        if let write = home?.trustContext?.latestAgentWrite ?? home?.agentContext?.lastAgentWrite, !write.isEmpty {
+            changedSignals.append("agent write: \(write)")
+        }
+        if let paper = home?.trustContext?.sounioPaperRunStatus, !paper.isEmpty {
+            changedSignals.append("Sounio PaperRun: \(paper)")
+        }
+        if let pending = home?.trustContext?.sounioPendingApproval, !pending.isEmpty {
+            changedSignals.append("approval pending: \(pending)")
+        }
+        if let grok = latestGrokSignal(home: home, graph: recentGraph) {
+            changedSignals.append("Grok/LLM import: \(grok)")
+        }
+        if let contradictions, !contradictions.contradictions.isEmpty {
+            changedSignals.append("tension: \(contradictions.contradictions.count) contradiction candidates")
+        } else if let open = governance?.openContradictions, open > 0 {
+            changedSignals.append("tension: \(open) open contradictions")
+        }
+        if let benchmark {
+            let score = benchmark.latestScore.map { String(format: "%.2f", $0) } ?? "pending"
+            changedSignals.append("bench \(benchmark.status): \(score)")
+        }
+        if changedSignals.isEmpty, let status = recentGraph?.status {
+            changedSignals.append("\(status.episodeCount) episodes · \(status.atomCount) atoms projected")
+        }
+        if changedSignals.isEmpty {
+            changedSignals.append("Memory Lens is ready from cached or declared state.")
+        }
+
+        let frontier = evidenceFrontier(from: lastQuery, recentGraph: recentGraph, truthMode: homeTruthMode)
+        let restrictedFiltered = containsRestricted(recentGraph: recentGraph)
+            || containsRestricted(query: lastQuery)
+        let headline: String
+        if lastQuery != nil {
+            headline = "A lente montou uma resposta verificável."
+        } else if frontier.isEmpty {
+            headline = "A bancada de memória está pronta."
+        } else {
+            headline = "A memória viva tem \(frontier.count) evidências na fronteira."
+        }
+
+        let summary = lastQuery?.summary
+            ?? synthesizedSummary(home: home, graph: recentGraph, governance: governance, degraded: degraded)
+        let confidence = lastQuery?.confidence
+            ?? min(0.98, max(0.35, frontier.map(\.score).max() ?? 0.62))
+        let badges = sourceBadges(
+            home: home,
+            homeTruthMode: homeTruthMode,
+            graphStatus: graphStatus,
+            recentGraph: recentGraph,
+            benchmark: benchmark,
+            runtime: runtime,
+            restrictedFiltered: restrictedFiltered
+        )
+        let proof = ProofSheetModel(
+            id: "memory-lens-report-proof",
+            title: "Prova da lente",
+            summary: summary,
+            sourceRefs: frontier.flatMap(\.sourceRefs).stablePrefix(8),
+            provenanceLines: badges,
+            traceLines: proofTraceLines(lastQuery: lastQuery, graphStatus: graphStatus, recentGraph: recentGraph),
+            runtime: runtime,
+            confidence: confidence,
+            restrictedLeakCheck: restrictedFiltered ? "restricted filtered before display" : "no restricted surfaced"
+        )
+
+        return MemoryLensReport(
+            id: "memory-lens-\(generatedAt)-\(runtime)",
+            generatedAt: generatedAt,
+            mode: lastQuery == nil ? .report : .evidence,
+            headline: headline,
+            summary: summary,
+            changedSignals: changedSignals.stablePrefix(5),
+            evidenceFrontier: frontier,
+            presets: MemoryLensPreset.beagleNow(activeProjectSlug: activeProjectSlug),
+            sourceConfidenceBadges: badges,
+            confidence: confidence,
+            runtime: runtime,
+            degradedReason: degraded,
+            restrictedContentFiltered: restrictedFiltered,
+            proof: proof
+        )
+    }
+
+    private static func evidenceFrontier(
+        from query: GraphRagQueryResponse?,
+        recentGraph: MemoryGraphRecentResponse?,
+        truthMode: TruthMode
+    ) -> [EvidenceFrontierItem] {
+        if let query, !query.evidence.isEmpty {
+            let trace = (query.retrievalTrace ?? []) + query.semanticTrace + query.runtimeTrace
+            return query.evidence
+                .filter { !isRestrictedText($0.text) && !$0.sourceRefs.contains(where: isRestrictedText) }
+                .prefix(6)
+                .map { evidence in
+                    let proof = ProofSheetModel(
+                        id: "proof-\(evidence.atomId)",
+                        title: evidence.atomType.capitalized,
+                        summary: evidence.text,
+                        sourceRefs: evidence.sourceRefs,
+                        provenanceLines: provenanceLines(from: evidence.provenance),
+                        traceLines: trace.prefix(8).map(traceLine),
+                        runtime: query.runtimeUsed ?? query.mode,
+                        confidence: evidence.score,
+                        restrictedLeakCheck: "no restricted surfaced"
+                    )
+                    return EvidenceFrontierItem(
+                        id: evidence.atomId,
+                        title: evidence.atomType.capitalized,
+                        detail: evidence.text,
+                        kind: "query_evidence",
+                        score: evidence.score,
+                        sourceLabel: evidence.episodeId,
+                        sourceRefs: evidence.sourceRefs,
+                        truthMode: TruthMode.observed.rawValue,
+                        privacyClass: "sensitive",
+                        proof: proof
+                    )
+                }
+        }
+
+        let atoms = recentGraph?.atoms ?? []
+        return atoms
+            .filter { !isRestricted($0) }
+            .prefix(6)
+            .map { atom in
+                let proof = ProofSheetModel(
+                    id: "proof-\(atom.id)",
+                    title: atom.atomType.capitalized,
+                    summary: atom.text,
+                    sourceRefs: atom.sourceRefs,
+                    provenanceLines: atom.tags.stablePrefix(6),
+                    traceLines: [
+                        "episode \(atom.episodeId)",
+                        "created \(atom.createdAt)",
+                        "truth \(truthMode.rawValue)"
+                    ],
+                    runtime: recentGraph?.status.retrievalMode,
+                    confidence: atom.confidence,
+                    restrictedLeakCheck: "no restricted surfaced"
+                )
+                return EvidenceFrontierItem(
+                    id: atom.id,
+                    title: atom.atomType.capitalized,
+                    detail: atom.text,
+                    kind: "projected_atom",
+                    score: atom.confidence,
+                    sourceLabel: atom.episodeId,
+                    sourceRefs: atom.sourceRefs,
+                    truthMode: truthMode.rawValue,
+                    privacyClass: atom.privacyClass,
+                    proof: proof
+                )
+            }
+    }
+
+    private static func synthesizedSummary(
+        home: ExocortexHomeSnapshot?,
+        graph: MemoryGraphRecentResponse?,
+        governance: MemoryGovernanceStatus?,
+        degraded: String?
+    ) -> String {
+        if let graph {
+            let status = graph.status
+            var parts = ["\(status.episodeCount) episodes and \(status.atomCount) atoms are projected into GraphRAG++."]
+            if let governance {
+                parts.append("\(governance.pendingTriads) Triad items pending and \(governance.openContradictions) open tensions.")
+            }
+            if let degraded, !degraded.isEmpty {
+                parts.append("Retrieval is degraded: \(degraded)")
+            }
+            return parts.joined(separator: " ")
+        }
+        if let home {
+            return home.todayBrief
+        }
+        return "The lens is waiting for cluster memory, but the local interface remains ready."
+    }
+
+    private static func latestGrokSignal(home: ExocortexHomeSnapshot?, graph: MemoryGraphRecentResponse?) -> String? {
+        if let signal = home?.memorySignals.first(where: { $0.localizedCaseInsensitiveContains("grok") }) {
+            return signal
+        }
+        if let episode = graph?.episodes.first(where: { !isRestricted($0) && isGrok($0) }) {
+            return episode.title ?? episode.sourceRef
+        }
+        if let atom = graph?.atoms.first(where: { !isRestricted($0) && isGrok($0) }) {
+            return atom.text
+        }
+        return nil
+    }
+
+    private static func sourceBadges(
+        home: ExocortexHomeSnapshot?,
+        homeTruthMode: TruthMode,
+        graphStatus: MemoryGraphStatus?,
+        recentGraph: MemoryGraphRecentResponse?,
+        benchmark: MemoryBenchmarkStatus?,
+        runtime: String,
+        restrictedFiltered: Bool
+    ) -> [String] {
+        var badges = [
+            "truth \(homeTruthMode.rawValue)",
+            runtime,
+            restrictedFiltered ? "restricted filtered" : "no restricted surfaced"
+        ]
+        if let mcp = home?.trustContext?.mcpStatus {
+            badges.append("MCP \(mcp)")
+        }
+        if let graph = graphStatus?.runtimeStatus {
+            badges.append("graph \(graph)")
+        }
+        if let freshness = recentGraph?.status.freshness {
+            badges.append("freshness \(freshness)")
+        }
+        if let benchmark {
+            badges.append("bench \(benchmark.status)")
+        }
+        return badges.stablePrefix(6)
+    }
+
+    private static func proofTraceLines(
+        lastQuery: GraphRagQueryResponse?,
+        graphStatus: MemoryGraphStatus?,
+        recentGraph: MemoryGraphRecentResponse?
+    ) -> [String] {
+        if let lastQuery {
+            let trace = (lastQuery.retrievalTrace ?? []) + lastQuery.semanticTrace + lastQuery.runtimeTrace
+            let lines = trace.prefix(8).map(traceLine)
+            if !lines.isEmpty { return lines }
+            if let plan = lastQuery.retrievalPlanId { return ["retrieval plan \(plan)"] }
+        }
+        var lines: [String] = []
+        if let graphStatus {
+            lines.append("\(graphStatus.graphRuntime) · \(graphStatus.retrievalMode)")
+        }
+        if let recentGraph {
+            lines.append("\(recentGraph.status.episodeCount) episodes · \(recentGraph.status.atomCount) atoms")
+        }
+        return lines.isEmpty ? ["local derived report; no backend mutation"] : lines
+    }
+
+    private static func traceLine(_ step: RetrievalTraceStep) -> String {
+        "\(step.stage) · \(step.backend) · \(step.status) · \(step.items) items"
+    }
+
+    private static func provenanceLines(from value: ExocortexJSONValue?) -> [String] {
+        guard let value else { return [] }
+        return String(describing: value)
+            .split(separator: "\n")
+            .map(String.init)
+            .stablePrefix(4)
+    }
+
+    private static func containsRestricted(recentGraph: MemoryGraphRecentResponse?) -> Bool {
+        guard let recentGraph else { return false }
+        return recentGraph.atoms.contains(where: isRestricted) || recentGraph.episodes.contains(where: isRestricted)
+    }
+
+    private static func containsRestricted(query: GraphRagQueryResponse?) -> Bool {
+        guard let query else { return false }
+        return query.evidence.contains { isRestrictedText($0.text) || $0.sourceRefs.contains(where: isRestrictedText) }
+    }
+
+    private static func isRestricted(_ atom: MemoryAtom) -> Bool {
+        atom.privacyClass.lowercased() == "restricted" || isRestrictedText(atom.text)
+    }
+
+    private static func isRestricted(_ episode: MemoryEpisode) -> Bool {
+        episode.privacyClass.lowercased() == "restricted"
+            || isRestrictedText(episode.title ?? "")
+            || isRestrictedText(episode.sourceRef)
+    }
+
+    private static func isRestrictedText(_ text: String) -> Bool {
+        text.localizedCaseInsensitiveContains("restricted")
+            || text.localizedCaseInsensitiveContains("client_secret")
+            || text.localizedCaseInsensitiveContains("api_key")
+    }
+
+    private static func isGrok(_ episode: MemoryEpisode) -> Bool {
+        ([episode.source, episode.sourcePlatform ?? "", episode.title ?? "", episode.sourceRef] + episode.tags)
+            .joined(separator: " ")
+            .localizedCaseInsensitiveContains("grok")
+    }
+
+    private static func isGrok(_ atom: MemoryAtom) -> Bool {
+        ([atom.atomType, atom.text] + atom.tags)
+            .joined(separator: " ")
+            .localizedCaseInsensitiveContains("grok")
+    }
+}
+
+public extension MemoryLensPreset {
+    static func beagleNow(activeProjectSlug: String = "beagle") -> [MemoryLensPreset] {
+        [
+            MemoryLensPreset(
+                id: "latest-beagle-decision",
+                title: "Última decisão Beagle",
+                query: "qual foi a última decisão relevante sobre o Beagle?",
+                detail: "Retoma a decisão mais recente com evidência e próximo gesto.",
+                systemImage: "checkmark.seal",
+                scopeHint: activeProjectSlug,
+                priority: 0
+            ),
+            MemoryLensPreset(
+                id: "claude-codex-changes",
+                title: "Claude/Codex mudou o quê?",
+                query: "o que mudou desde as últimas escritas do Claude, Codex ou Claude Code?",
+                detail: "Compara writes recentes de agentes e memória de trabalho.",
+                systemImage: "point.3.connected.trianglepath.dotted",
+                scopeHint: activeProjectSlug,
+                priority: 1
+            ),
+            MemoryLensPreset(
+                id: "sounio-paperrun-now",
+                title: "Sounio/PaperRun agora",
+                query: "qual é o estado atual do Sounio PaperRun e quais claims precisam atenção?",
+                detail: "Mostra claims, aprovações e tensão epistêmica.",
+                systemImage: "doc.richtext",
+                scopeHint: activeProjectSlug,
+                priority: 2
+            ),
+            MemoryLensPreset(
+                id: "grok-claude-imports",
+                title: "Imports Grok/Claude",
+                query: "o que os imports do Grok e Claude adicionaram à memória do Beagle?",
+                detail: "Procura sinais novos sem expor conteúdo restrito.",
+                systemImage: "tray.and.arrow.down",
+                scopeHint: activeProjectSlug,
+                priority: 3
+            ),
+            MemoryLensPreset(
+                id: "next-move",
+                title: "Próximo gesto",
+                query: "o que devo fazer agora no Beagle considerando memória, agentes, Sounio e app Apple?",
+                detail: "Sintetiza ação situada a partir da memória viva.",
+                systemImage: "arrow.forward.circle",
+                scopeHint: activeProjectSlug,
+                priority: 4
+            )
+        ]
+    }
+}
+
 public struct ContextPack: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let createdAt: String
@@ -1779,6 +2908,955 @@ public struct IntentCapsule: Codable, Equatable, Sendable {
     }
 }
 
+public struct SounioProgramCheckResponse: Codable, Equatable, Sendable {
+    public let status: String
+    public let programHash: String
+    public let schemaVersion: String
+    public let errors: [String]
+    public let warnings: [String]
+    public let temporalSpec: ExocortexJSONValue?
+    public let memoryProjectionPreview: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case programHash = "program_hash"
+        case schemaVersion = "schema_version"
+        case errors
+        case warnings
+        case temporalSpec = "temporal_spec"
+        case memoryProjectionPreview = "memory_projection_preview"
+    }
+}
+
+public struct PaperRun: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let updatedAt: String
+    public let schemaVersion: String
+    public let paperId: String
+    public let title: String
+    public let status: String
+    public let temporalWorkflowId: String
+    public let temporalNamespace: String
+    public let temporalTaskQueue: String
+    public let temporalStatus: String
+    public let sounioProgramId: String
+    public let sounioProgramHash: String
+    public let manuscriptVersion: String
+    public let sectionStatus: [String: String]
+    public let claimRegistry: [ExocortexJSONValue]
+    public let citationRegistry: [ExocortexJSONValue]
+    public let approvalState: String
+    public let pendingApprovalStep: String?
+    public let contextPackId: String?
+    public let artifactRefs: [String]
+    public let provenance: ExocortexJSONValue?
+    public let interactionSummary: String?
+    public let claimLifecycleStatus: [String: String]?
+    public let publicDigestStatus: String?
+    public let currentStage: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case schemaVersion = "schema_version"
+        case paperId = "paper_id"
+        case title
+        case status
+        case temporalWorkflowId = "temporal_workflow_id"
+        case temporalNamespace = "temporal_namespace"
+        case temporalTaskQueue = "temporal_task_queue"
+        case temporalStatus = "temporal_status"
+        case sounioProgramId = "sounio_program_id"
+        case sounioProgramHash = "sounio_program_hash"
+        case manuscriptVersion = "manuscript_version"
+        case sectionStatus = "section_status"
+        case claimRegistry = "claim_registry"
+        case citationRegistry = "citation_registry"
+        case approvalState = "approval_state"
+        case pendingApprovalStep = "pending_approval_step"
+        case contextPackId = "context_pack_id"
+        case artifactRefs = "artifact_refs"
+        case provenance
+        case interactionSummary = "interaction_summary"
+        case claimLifecycleStatus = "claim_lifecycle_status"
+        case publicDigestStatus = "public_digest_status"
+        case currentStage = "current_stage"
+    }
+}
+
+public struct SounioTraceEvent: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let paperRunId: String
+    public let programId: String
+    public let stepId: String
+    public let eventType: String
+    public let status: String
+    public let summary: String?
+    public let contextPackId: String?
+    public let provenance: ExocortexJSONValue?
+    public let artifactRefs: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case paperRunId = "paper_run_id"
+        case programId = "program_id"
+        case stepId = "step_id"
+        case eventType = "event_type"
+        case status
+        case summary
+        case contextPackId = "context_pack_id"
+        case provenance
+        case artifactRefs = "artifact_refs"
+    }
+}
+
+public struct SounioTraceListResponse: Codable, Equatable, Sendable {
+    public let events: [SounioTraceEvent]
+}
+
+public struct PaperRunArtifactsResponse: Codable, Equatable, Sendable {
+    public let paperRunId: String
+    public let generatedAt: String
+    public let manuscriptMarkdown: String
+    public let provenancePack: ExocortexJSONValue?
+    public let artifactRefs: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case paperRunId = "paper_run_id"
+        case generatedAt = "generated_at"
+        case manuscriptMarkdown = "manuscript_markdown"
+        case provenancePack = "provenance_pack"
+        case artifactRefs = "artifact_refs"
+    }
+}
+
+public struct SounioClaimInput: Codable, Equatable, Sendable {
+    public let id: String?
+    public let claimText: String
+    public let subject: String?
+    public let valueType: String?
+    public let epistemicStatus: String?
+    public let evidenceRefs: [String]
+    public let provenance: ExocortexJSONValue?
+    public let confidence: Double?
+    public let contestation: ExocortexJSONValue?
+    public let reviewState: String?
+    public let promotionRule: String?
+    public let publicationReadiness: String?
+    public let sectionId: String?
+    public let agentRefs: [String]
+    public let contractRefs: [String]
+    public let artifactRefs: [String]
+    public let chronoselfCommitRefs: [String]
+    public let privacyClass: String?
+    public let rationale: String?
+
+    public init(
+        id: String? = nil,
+        claimText: String,
+        subject: String? = nil,
+        valueType: String? = "Claim<T>",
+        epistemicStatus: String? = "belief",
+        evidenceRefs: [String] = [],
+        provenance: ExocortexJSONValue? = nil,
+        confidence: Double? = nil,
+        contestation: ExocortexJSONValue? = nil,
+        reviewState: String? = "unreviewed",
+        promotionRule: String? = nil,
+        publicationReadiness: String? = "not_ready",
+        sectionId: String? = nil,
+        agentRefs: [String] = [],
+        contractRefs: [String] = [],
+        artifactRefs: [String] = [],
+        chronoselfCommitRefs: [String] = [],
+        privacyClass: String? = "sensitive",
+        rationale: String? = nil
+    ) {
+        self.id = id
+        self.claimText = claimText
+        self.subject = subject
+        self.valueType = valueType
+        self.epistemicStatus = epistemicStatus
+        self.evidenceRefs = evidenceRefs
+        self.provenance = provenance
+        self.confidence = confidence
+        self.contestation = contestation
+        self.reviewState = reviewState
+        self.promotionRule = promotionRule
+        self.publicationReadiness = publicationReadiness
+        self.sectionId = sectionId
+        self.agentRefs = agentRefs
+        self.contractRefs = contractRefs
+        self.artifactRefs = artifactRefs
+        self.chronoselfCommitRefs = chronoselfCommitRefs
+        self.privacyClass = privacyClass
+        self.rationale = rationale
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case claimText = "claim_text"
+        case subject
+        case valueType = "value_type"
+        case epistemicStatus = "epistemic_status"
+        case evidenceRefs = "evidence_refs"
+        case provenance
+        case confidence
+        case contestation
+        case reviewState = "review_state"
+        case promotionRule = "promotion_rule"
+        case publicationReadiness = "publication_readiness"
+        case sectionId = "section_id"
+        case agentRefs = "agent_refs"
+        case contractRefs = "contract_refs"
+        case artifactRefs = "artifact_refs"
+        case chronoselfCommitRefs = "chronoself_commit_refs"
+        case privacyClass = "privacy_class"
+        case rationale
+    }
+}
+
+public struct OriginLineageSnapshot: Codable, Equatable, Sendable {
+    public let generatedAt: String
+    public let sourcePolicy: String
+    public let nodes: [OriginLineageNode]
+    public let edges: [OriginLineageEdge]
+    public let evidenceRefs: [OriginEvidenceRef]
+    public let tensions: [OriginTension]
+    public let claimSeeds: [SounioClaimInput]
+
+    enum CodingKeys: String, CodingKey {
+        case generatedAt = "generated_at"
+        case sourcePolicy = "source_policy"
+        case nodes
+        case edges
+        case evidenceRefs = "evidence_refs"
+        case tensions
+        case claimSeeds = "claim_seeds"
+    }
+
+    public static let localSeed = OriginLineageSnapshot(
+        generatedAt: "2026-04-28T00:00:00Z",
+        sourcePolicy: "sanitized_local_seed_until_cluster_origin_lineage_is_available",
+        nodes: [
+            OriginLineageNode(
+                id: "ragpp-mestrado",
+                title: "RAG++",
+                subtitle: "Mestrado",
+                state: "origin",
+                firstKnownAt: "2025-08-30",
+                sourceFamily: "ChatGPT export archaeology",
+                tension: "literature retrieval had to become auditable research memory",
+                nextAction: "Preserve active-reading artifacts as projected evidence",
+                evidenceRefs: ["origin:chatgpt:ragpp-2025-08-30"],
+                claimSeedId: "claim-origin-ragpp"
+            ),
+            OriginLineageNode(
+                id: "darwin-app-rag",
+                title: "Darwin",
+                subtitle: "App RAG",
+                state: "platform",
+                firstKnownAt: "2025-09-16",
+                sourceFamily: "PCS-HELIO and Darwin release traces",
+                tension: "RAG app needed imports, connectors, health checks and agentic evolution",
+                nextAction: "Map Darwin failures and desires into Beagle product principles",
+                evidenceRefs: ["origin:chatgpt:darwin-v5-2025-09-16"],
+                claimSeedId: "claim-origin-darwin"
+            ),
+            OriginLineageNode(
+                id: "beagle-exocortex",
+                title: "Beagle",
+                subtitle: "Exocortex",
+                state: "living memory",
+                firstKnownAt: "2026-04-25",
+                sourceFamily: "Beagle design docs and MCP memory",
+                tension: "dashboard and chatbot patterns were too shallow for continuity",
+                nextAction: "Make Home feel like return to a remembered mind",
+                evidenceRefs: ["origin:beagle:vision-2026-04-25"],
+                claimSeedId: "claim-origin-beagle"
+            ),
+            OriginLineageNode(
+                id: "sounio-claim",
+                title: "Sounio",
+                subtitle: "Claim<T>",
+                state: "epistemic typing",
+                firstKnownAt: "2026-04-28",
+                sourceFamily: "Sounio specs and PaperRun design",
+                tension: "observed process still needed typed epistemic claims",
+                nextAction: "Seed PaperRun claims from the lineage without auto-promotion",
+                evidenceRefs: ["origin:sounio:claimt-2026-04-28"],
+                claimSeedId: "claim-origin-sounio"
+            )
+        ],
+        edges: [
+            OriginLineageEdge(
+                id: "ragpp-to-darwin",
+                from: "ragpp-mestrado",
+                to: "darwin-app-rag",
+                label: "became platform"
+            ),
+            OriginLineageEdge(
+                id: "darwin-to-beagle",
+                from: "darwin-app-rag",
+                to: "beagle-exocortex",
+                label: "gained continuity"
+            ),
+            OriginLineageEdge(
+                id: "beagle-to-sounio",
+                from: "beagle-exocortex",
+                to: "sounio-claim",
+                label: "typed claims"
+            )
+        ],
+        evidenceRefs: [
+            OriginEvidenceRef(
+                id: "origin:chatgpt:ragpp-2025-08-30",
+                label: "RAG++ for thesis and active reading",
+                sourceFamily: "ChatGPT export",
+                visibility: "private_trace_only",
+                firstObservedAt: "2025-08-30"
+            ),
+            OriginEvidenceRef(
+                id: "origin:chatgpt:darwin-v5-2025-09-16",
+                label: "Darwin as PCS-HELIO RAG application",
+                sourceFamily: "ChatGPT export",
+                visibility: "private_trace_only",
+                firstObservedAt: "2025-09-16"
+            ),
+            OriginEvidenceRef(
+                id: "origin:beagle:vision-2026-04-25",
+                label: "Beagle as cluster-first exocortex",
+                sourceFamily: "Beagle design documents",
+                visibility: "sanitized_digest_ok",
+                firstObservedAt: "2026-04-25"
+            ),
+            OriginEvidenceRef(
+                id: "origin:sounio:claimt-2026-04-28",
+                label: "Sounio Claim<T> as epistemic core",
+                sourceFamily: "Sounio/PaperRun design",
+                visibility: "sanitized_digest_ok",
+                firstObservedAt: "2026-04-28"
+            )
+        ],
+        tensions: [
+            OriginTension(
+                id: "tension-rag-exocortex",
+                title: "RAG vs exocortex",
+                detail: "Retrieval solved access to documents, but not continuity of identity, projects and decisions.",
+                status: "active"
+            ),
+            OriginTension(
+                id: "tension-import-capture",
+                title: "Import vs capture",
+                detail: "Historical exports recover the past; live MCP, Apple and work-memory capture preserve the process as it happens.",
+                status: "active"
+            ),
+            OriginTension(
+                id: "tension-dashboard-memory",
+                title: "Dashboard vs living memory",
+                detail: "The interface must show origin, evidence and next action instead of isolated status cards.",
+                status: "design_gate"
+            ),
+            OriginTension(
+                id: "tension-claim-process",
+                title: "Process vs claim",
+                detail: "Beagle observes how ideas evolve; Sounio types what those ideas are allowed to claim.",
+                status: "paper_seed"
+            )
+        ],
+        claimSeeds: [
+            SounioClaimInput(
+                id: "claim-origin-ragpp",
+                claimText: "The Beagle lineage begins with RAG++ as an auditable research-memory workflow for thesis-scale literature work.",
+                subject: "Beagle origin",
+                epistemicStatus: "belief",
+                evidenceRefs: ["origin:chatgpt:ragpp-2025-08-30"],
+                confidence: 0.62,
+                reviewState: "seeded",
+                promotionRule: "requires_private_trace_review_and_sanitized_digest",
+                publicationReadiness: "not_ready",
+                sectionId: "methods-origin",
+                privacyClass: "sensitive",
+                rationale: "Seeded from local sanitized archaeology; not promoted until cluster provenance is reviewed."
+            ),
+            SounioClaimInput(
+                id: "claim-origin-darwin",
+                claimText: "Darwin was the intermediate RAG application that exposed the need for connectors, memory import, health checks and agentic evolution.",
+                subject: "Darwin to Beagle",
+                epistemicStatus: "belief",
+                evidenceRefs: ["origin:chatgpt:darwin-v5-2025-09-16"],
+                confidence: 0.66,
+                reviewState: "seeded",
+                promotionRule: "requires_private_trace_review_and_sanitized_digest",
+                publicationReadiness: "not_ready",
+                sectionId: "architecture-genealogy",
+                privacyClass: "sensitive",
+                rationale: "Seeded from title-level and user-intent archaeology; raw chat remains private."
+            ),
+            SounioClaimInput(
+                id: "claim-origin-beagle",
+                claimText: "Beagle extends Darwin by turning retrieval into persistent cross-platform memory, agentic work capture and Apple-native continuity.",
+                subject: "Beagle exocortex",
+                epistemicStatus: "contest",
+                evidenceRefs: ["origin:beagle:vision-2026-04-25"],
+                confidence: 0.58,
+                reviewState: "seeded",
+                promotionRule: "requires_architecture_evidence_and_human_review",
+                publicationReadiness: "not_ready",
+                sectionId: "system-overview",
+                privacyClass: "sensitive",
+                rationale: "This is the central paper thesis and must stay contestable until implementation evidence is attached."
+            ),
+            SounioClaimInput(
+                id: "claim-origin-sounio",
+                claimText: "Sounio complements Beagle by typing the epistemic status of claims produced during human-agent scientific work.",
+                subject: "Sounio Claim<T>",
+                epistemicStatus: "belief",
+                evidenceRefs: ["origin:sounio:claimt-2026-04-28"],
+                confidence: 0.6,
+                reviewState: "seeded",
+                promotionRule: "requires_claim_graph_and_paperrun_artifact",
+                publicationReadiness: "not_ready",
+                sectionId: "sounio-ir",
+                privacyClass: "sensitive",
+                rationale: "Seeded as a paper claim candidate, not an active knowledge claim."
+            )
+        ]
+    )
+}
+
+public struct OriginLineageNode: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let subtitle: String
+    public let state: String
+    public let firstKnownAt: String
+    public let sourceFamily: String
+    public let tension: String
+    public let nextAction: String
+    public let evidenceRefs: [String]
+    public let claimSeedId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case subtitle
+        case state
+        case firstKnownAt = "first_known_at"
+        case sourceFamily = "source_family"
+        case tension
+        case nextAction = "next_action"
+        case evidenceRefs = "evidence_refs"
+        case claimSeedId = "claim_seed_id"
+    }
+}
+
+public struct OriginLineageEdge: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let from: String
+    public let to: String
+    public let label: String
+}
+
+public struct OriginEvidenceRef: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let label: String
+    public let sourceFamily: String
+    public let visibility: String
+    public let firstObservedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case label
+        case sourceFamily = "source_family"
+        case visibility
+        case firstObservedAt = "first_observed_at"
+    }
+}
+
+public struct OriginTension: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let detail: String
+    public let status: String
+}
+
+public struct SounioClaimCheckRequest: Codable, Equatable, Sendable {
+    public let claim: SounioClaimInput
+}
+
+public struct AddSounioClaimRequest: Codable, Equatable, Sendable {
+    public let claim: SounioClaimInput
+    public let principal: String?
+    public let surface: String?
+}
+
+public struct ReviewSounioClaimRequest: Codable, Equatable, Sendable {
+    public let reviewer: String?
+    public let decision: String
+    public let rationale: String?
+    public let evidenceRefs: [String]
+    public let epistemicStatus: String?
+    public let publicationReadiness: String?
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case reviewer
+        case decision
+        case rationale
+        case evidenceRefs = "evidence_refs"
+        case epistemicStatus = "epistemic_status"
+        case publicationReadiness = "publication_readiness"
+        case provenance
+    }
+}
+
+public struct SounioClaim: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let updatedAt: String
+    public let paperRunId: String?
+    public let sectionId: String?
+    public let claimText: String
+    public let subject: String
+    public let valueType: String?
+    public let epistemicStatus: String
+    public let evidenceRefs: [String]
+    public let provenance: ExocortexJSONValue?
+    public let confidence: Double
+    public let contestation: ExocortexJSONValue?
+    public let reviewState: String
+    public let promotionRule: String
+    public let publicationReadiness: String
+    public let agentRefs: [String]
+    public let contractRefs: [String]
+    public let artifactRefs: [String]
+    public let chronoselfCommitRefs: [String]
+    public let privacyClass: String
+    public let rationale: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case paperRunId = "paper_run_id"
+        case sectionId = "section_id"
+        case claimText = "claim_text"
+        case subject
+        case valueType = "value_type"
+        case epistemicStatus = "epistemic_status"
+        case evidenceRefs = "evidence_refs"
+        case provenance
+        case confidence
+        case contestation
+        case reviewState = "review_state"
+        case promotionRule = "promotion_rule"
+        case publicationReadiness = "publication_readiness"
+        case agentRefs = "agent_refs"
+        case contractRefs = "contract_refs"
+        case artifactRefs = "artifact_refs"
+        case chronoselfCommitRefs = "chronoself_commit_refs"
+        case privacyClass = "privacy_class"
+        case rationale
+    }
+}
+
+public struct SounioClaimCheckResponse: Codable, Equatable, Sendable {
+    public let status: String
+    public let schemaVersion: String
+    public let normalizedClaim: SounioClaim
+    public let errors: [String]
+    public let warnings: [String]
+    public let requiredEvidence: [String]
+    public let promotionGate: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case schemaVersion = "schema_version"
+        case normalizedClaim = "normalized_claim"
+        case errors
+        case warnings
+        case requiredEvidence = "required_evidence"
+        case promotionGate = "promotion_gate"
+    }
+}
+
+public struct SounioClaimReview: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let paperRunId: String
+    public let claimId: String
+    public let reviewer: String
+    public let decision: String
+    public let rationale: String?
+    public let previousStatus: String
+    public let newStatus: String
+    public let evidenceRefs: [String]
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case paperRunId = "paper_run_id"
+        case claimId = "claim_id"
+        case reviewer
+        case decision
+        case rationale
+        case previousStatus = "previous_status"
+        case newStatus = "new_status"
+        case evidenceRefs = "evidence_refs"
+        case provenance
+    }
+}
+
+public struct SounioMomentTypeRequest: Codable, Equatable, Sendable {
+    public let sourceEventRefs: [String]
+    public let sourcePlatform: String?
+    public let sourceSurface: String?
+    public let projectSlug: String?
+    public let sessionId: String?
+    public let intentText: String?
+    public let summary: String?
+    public let evidenceRefs: [String]
+    public let claimSeeds: [SounioClaimInput]
+    public let decisionSeeds: [String]
+    public let nextAction: String?
+    public let privacyClass: String?
+    public let reviewState: String?
+    public let provenance: ExocortexJSONValue?
+    public let tags: [String]
+
+    public init(
+        sourceEventRefs: [String] = [],
+        sourcePlatform: String? = "beagle-apple",
+        sourceSurface: String? = "beagle-apple-sounio",
+        projectSlug: String? = "sounio",
+        sessionId: String? = nil,
+        intentText: String? = nil,
+        summary: String? = nil,
+        evidenceRefs: [String] = [],
+        claimSeeds: [SounioClaimInput] = [],
+        decisionSeeds: [String] = [],
+        nextAction: String? = nil,
+        privacyClass: String? = "sensitive",
+        reviewState: String? = "unreviewed",
+        provenance: ExocortexJSONValue? = .object(["source": .string("beagle-apple")]),
+        tags: [String] = ["sounio", "ambient-typing"]
+    ) {
+        self.sourceEventRefs = sourceEventRefs
+        self.sourcePlatform = sourcePlatform
+        self.sourceSurface = sourceSurface
+        self.projectSlug = projectSlug
+        self.sessionId = sessionId
+        self.intentText = intentText
+        self.summary = summary
+        self.evidenceRefs = evidenceRefs
+        self.claimSeeds = claimSeeds
+        self.decisionSeeds = decisionSeeds
+        self.nextAction = nextAction
+        self.privacyClass = privacyClass
+        self.reviewState = reviewState
+        self.provenance = provenance
+        self.tags = tags
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sourceEventRefs = "source_event_refs"
+        case sourcePlatform = "source_platform"
+        case sourceSurface = "source_surface"
+        case projectSlug = "project_slug"
+        case sessionId = "session_id"
+        case intentText = "intent_text"
+        case summary
+        case evidenceRefs = "evidence_refs"
+        case claimSeeds = "claim_seeds"
+        case decisionSeeds = "decision_seeds"
+        case nextAction = "next_action"
+        case privacyClass = "privacy_class"
+        case reviewState = "review_state"
+        case provenance
+        case tags
+    }
+}
+
+public struct SounioMomentReviewRequest: Codable, Equatable, Sendable {
+    public let reviewer: String?
+    public let decision: String
+    public let rationale: String?
+    public let evidenceRefs: [String]
+    public let reviewState: String?
+    public let provenance: ExocortexJSONValue?
+
+    public init(
+        reviewer: String? = "demetrios",
+        decision: String,
+        rationale: String? = nil,
+        evidenceRefs: [String] = [],
+        reviewState: String? = nil,
+        provenance: ExocortexJSONValue? = .object(["source": .string("beagle-apple")])
+    ) {
+        self.reviewer = reviewer
+        self.decision = decision
+        self.rationale = rationale
+        self.evidenceRefs = evidenceRefs
+        self.reviewState = reviewState
+        self.provenance = provenance
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case reviewer
+        case decision
+        case rationale
+        case evidenceRefs = "evidence_refs"
+        case reviewState = "review_state"
+        case provenance
+    }
+}
+
+public struct SounioMomentReview: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let momentId: String
+    public let reviewer: String
+    public let decision: String
+    public let rationale: String?
+    public let previousState: String
+    public let newState: String
+    public let evidenceRefs: [String]
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case momentId = "moment_id"
+        case reviewer
+        case decision
+        case rationale
+        case previousState = "previous_state"
+        case newState = "new_state"
+        case evidenceRefs = "evidence_refs"
+        case provenance
+    }
+}
+
+public struct SounioMoment: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let updatedAt: String
+    public let schemaVersion: String
+    public let projectSlug: String
+    public let momentType: String
+    public let intent: String
+    public let summary: String
+    public let sourcePlatform: String
+    public let sourceSurface: String
+    public let sessionId: String?
+    public let sourceEventRefs: [String]
+    public let evidenceRefs: [String]
+    public let claimSeeds: [SounioClaim]
+    public let decisionSeeds: [String]
+    public let nextAction: String?
+    public let privacyClass: String
+    public let reviewState: String
+    public let restrictedLeakCheck: String
+    public let provenance: ExocortexJSONValue?
+    public let tags: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case schemaVersion = "schema_version"
+        case projectSlug = "project_slug"
+        case momentType = "moment_type"
+        case intent
+        case summary
+        case sourcePlatform = "source_platform"
+        case sourceSurface = "source_surface"
+        case sessionId = "session_id"
+        case sourceEventRefs = "source_event_refs"
+        case evidenceRefs = "evidence_refs"
+        case claimSeeds = "claim_seeds"
+        case decisionSeeds = "decision_seeds"
+        case nextAction = "next_action"
+        case privacyClass = "privacy_class"
+        case reviewState = "review_state"
+        case restrictedLeakCheck = "restricted_leak_check"
+        case provenance
+        case tags
+    }
+}
+
+public struct SounioMomentListResponse: Codable, Equatable, Sendable {
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let projectSlug: String?
+    public let moments: [SounioMoment]
+
+    enum CodingKeys: String, CodingKey {
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case projectSlug = "project_slug"
+        case moments
+    }
+}
+
+public struct SounioWorkdaySnapshot: Codable, Equatable, Sendable {
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let projectSlug: String
+    public let status: String
+    public let latestMoment: SounioMoment?
+    public let moments: [SounioMoment]
+    public let claimSeeds: [SounioClaim]
+    public let decisionSeeds: [String]
+    public let evidenceRefs: [String]
+    public let tensions: [String]
+    public let agents: [String]
+    public let nextAction: String
+    public let reviewQueueCount: Int
+    public let restrictedLeakCheck: String
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case projectSlug = "project_slug"
+        case status
+        case latestMoment = "latest_moment"
+        case moments
+        case claimSeeds = "claim_seeds"
+        case decisionSeeds = "decision_seeds"
+        case evidenceRefs = "evidence_refs"
+        case tensions
+        case agents
+        case nextAction = "next_action"
+        case reviewQueueCount = "review_queue_count"
+        case restrictedLeakCheck = "restricted_leak_check"
+        case provenance
+    }
+}
+
+public struct SounioNowContext: Codable, Equatable, Sendable {
+    public let status: String
+    public let momentLine: String
+    public let decisionLine: String?
+    public let claimLine: String?
+    public let agentLine: String?
+    public let nextGesture: String
+    public let truthMode: String
+    public let reviewQueueCount: Int
+
+    public static func synthesized(from home: ExocortexHomeSnapshot?) -> SounioNowContext {
+        synthesized(home: home, workday: home?.sounioWorkdayContext)
+    }
+
+    public static func synthesized(home: ExocortexHomeSnapshot?, workday: SounioWorkdaySnapshot?) -> SounioNowContext {
+        let latest = workday?.latestMoment
+        let claim = workday?.claimSeeds.first ?? latest?.claimSeeds.first
+        return SounioNowContext(
+            status: workday?.status ?? home?.trustContext?.sounioWorkdayStatus ?? "waiting-for-sounio-signal",
+            momentLine: latest?.summary ?? home?.trustContext?.sounioLatestMoment ?? "Capture a real Sounio work gesture.",
+            decisionLine: workday?.decisionSeeds.first,
+            claimLine: claim.map { "\($0.epistemicStatus): \($0.claimText)" },
+            agentLine: workday?.agents.first ?? home?.trustContext?.latestAgentWrite,
+            nextGesture: workday?.nextAction ?? home?.recommendedNextAction ?? "Open Memory Lens and ask what changed today.",
+            truthMode: home?.clusterTruth ?? "remembered",
+            reviewQueueCount: workday?.reviewQueueCount ?? 0
+        )
+    }
+}
+
+public struct SounioClaimGraph: Codable, Equatable, Sendable {
+    public let paperRunId: String
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let claims: [SounioClaim]
+    public let edges: [ExocortexJSONValue]
+    public let statusCounts: [String: Int]
+    public let unsupportedClaimIds: [String]
+    public let robustClaimIds: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case paperRunId = "paper_run_id"
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case claims
+        case edges
+        case statusCounts = "status_counts"
+        case unsupportedClaimIds = "unsupported_claim_ids"
+        case robustClaimIds = "robust_claim_ids"
+    }
+}
+
+public struct PaperRunTheatreSnapshot: Codable, Equatable, Sendable {
+    public let paperRunId: String
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let paperRun: PaperRun
+    public let manuscriptMarkdown: String
+    public let claimGraph: SounioClaimGraph
+    public let traceEvents: [SounioTraceEvent]
+    public let agentContributions: [ExocortexJSONValue]
+    public let approvals: [ExocortexJSONValue]
+    public let evidenceTable: [ExocortexJSONValue]
+    public let sounioScore: ExocortexJSONValue?
+    public let currentStage: String
+    public let nextAction: String
+    public let publicDigestStatus: String
+    public let privateTraceRef: String
+
+    enum CodingKeys: String, CodingKey {
+        case paperRunId = "paper_run_id"
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case paperRun = "paper_run"
+        case manuscriptMarkdown = "manuscript_markdown"
+        case claimGraph = "claim_graph"
+        case traceEvents = "trace_events"
+        case agentContributions = "agent_contributions"
+        case approvals
+        case evidenceTable = "evidence_table"
+        case sounioScore = "sounio_score"
+        case currentStage = "current_stage"
+        case nextAction = "next_action"
+        case publicDigestStatus = "public_digest_status"
+        case privateTraceRef = "private_trace_ref"
+    }
+}
+
+public struct PublicDigestArtifact: Codable, Equatable, Sendable {
+    public let paperRunId: String
+    public let generatedAt: String
+    public let schemaVersion: String
+    public let title: String
+    public let thesis: String
+    public let sanitizedClaims: [ExocortexJSONValue]
+    public let sedenionSSMCase: ExocortexJSONValue?
+    public let publicTraceDigest: [ExocortexJSONValue]
+    public let disclosure: String
+    public let excludedPrivateTracePolicy: String
+    public let manuscriptExcerpt: String
+
+    enum CodingKeys: String, CodingKey {
+        case paperRunId = "paper_run_id"
+        case generatedAt = "generated_at"
+        case schemaVersion = "schema_version"
+        case title
+        case thesis
+        case sanitizedClaims = "sanitized_claims"
+        case sedenionSSMCase = "sedenion_ssm_case"
+        case publicTraceDigest = "public_trace_digest"
+        case disclosure
+        case excludedPrivateTracePolicy = "excluded_private_trace_policy"
+        case manuscriptExcerpt = "manuscript_excerpt"
+    }
+}
+
 public struct ExocortexAuditEvent: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let createdAt: String
@@ -1851,6 +3929,591 @@ public struct AssistedImportTurn: Codable, Equatable, Sendable {
     }
 }
 
+public struct TranscriptionSegment: Codable, Equatable, Sendable, Identifiable {
+    public var id: String { "\(startMs ?? 0)-\(endMs ?? 0)-\(text.hashValue)" }
+    public let text: String
+    public let startMs: Int?
+    public let endMs: Int?
+    public let confidence: Double?
+    public let source: String?
+
+    public init(
+        text: String,
+        startMs: Int? = nil,
+        endMs: Int? = nil,
+        confidence: Double? = nil,
+        source: String? = nil
+    ) {
+        self.text = text
+        self.startMs = startMs
+        self.endMs = endMs
+        self.confidence = confidence
+        self.source = source
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case startMs = "start_ms"
+        case endMs = "end_ms"
+        case confidence
+        case source
+    }
+}
+
+public enum MultimodalComposerState: String, Codable, Equatable, Sendable, CaseIterable {
+    case text
+    case voice
+    case image
+}
+
+public struct CaptureSessionStartRequest: Codable, Equatable, Sendable {
+    public let projectSlug: String?
+    public let mode: String?
+    public let surface: String?
+    public let principal: String?
+    public let title: String?
+    public let privacyClass: String?
+    public let metadata: ExocortexJSONValue?
+
+    public init(
+        projectSlug: String? = "sounio",
+        mode: String? = "thinking_aloud",
+        surface: String? = "beagle-apple-composer",
+        principal: String? = "beagle-apple-app",
+        title: String? = nil,
+        privacyClass: String? = "sensitive",
+        metadata: ExocortexJSONValue? = nil
+    ) {
+        self.projectSlug = projectSlug
+        self.mode = mode
+        self.surface = surface
+        self.principal = principal
+        self.title = title
+        self.privacyClass = privacyClass
+        self.metadata = metadata
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case projectSlug = "project_slug"
+        case mode
+        case surface
+        case principal
+        case title
+        case privacyClass = "privacy_class"
+        case metadata
+    }
+}
+
+public struct CaptureSession: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let updatedAt: String
+    public let schemaVersion: String
+    public let projectSlug: String
+    public let mode: String
+    public let surface: String
+    public let principal: String
+    public let title: String?
+    public let privacyClass: String
+    public let status: String
+    public let rawAudioPolicy: String
+    public let rawImagePolicy: String
+    public let transcriptionSegments: [TranscriptionSegment]
+    public let artifactRefs: [String]
+    public let evidenceRefs: [String]
+    public let reviewState: String
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+        case schemaVersion = "schema_version"
+        case projectSlug = "project_slug"
+        case mode
+        case surface
+        case principal
+        case title
+        case privacyClass = "privacy_class"
+        case status
+        case rawAudioPolicy = "raw_audio_policy"
+        case rawImagePolicy = "raw_image_policy"
+        case transcriptionSegments = "transcription_segments"
+        case artifactRefs = "artifact_refs"
+        case evidenceRefs = "evidence_refs"
+        case reviewState = "review_state"
+        case provenance
+    }
+}
+
+public struct CaptureSessionEventRequest: Codable, Equatable, Sendable {
+    public let eventType: String
+    public let text: String?
+    public let transcriptionSegments: [TranscriptionSegment]
+    public let artifactRefs: [String]
+    public let evidenceRefs: [String]
+    public let privacyClass: String?
+    public let metadata: ExocortexJSONValue?
+
+    public init(
+        eventType: String,
+        text: String? = nil,
+        transcriptionSegments: [TranscriptionSegment] = [],
+        artifactRefs: [String] = [],
+        evidenceRefs: [String] = [],
+        privacyClass: String? = "sensitive",
+        metadata: ExocortexJSONValue? = nil
+    ) {
+        self.eventType = eventType
+        self.text = text
+        self.transcriptionSegments = transcriptionSegments
+        self.artifactRefs = artifactRefs
+        self.evidenceRefs = evidenceRefs
+        self.privacyClass = privacyClass
+        self.metadata = metadata
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case eventType = "event_type"
+        case text
+        case transcriptionSegments = "transcription_segments"
+        case artifactRefs = "artifact_refs"
+        case evidenceRefs = "evidence_refs"
+        case privacyClass = "privacy_class"
+        case metadata
+    }
+}
+
+public struct CaptureSessionEvent: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let sessionId: String
+    public let eventType: String
+    public let text: String?
+    public let transcriptionSegments: [TranscriptionSegment]
+    public let artifactRefs: [String]
+    public let evidenceRefs: [String]
+    public let privacyClass: String
+    public let metadata: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case sessionId = "session_id"
+        case eventType = "event_type"
+        case text
+        case transcriptionSegments = "transcription_segments"
+        case artifactRefs = "artifact_refs"
+        case evidenceRefs = "evidence_refs"
+        case privacyClass = "privacy_class"
+        case metadata
+    }
+}
+
+public struct VisualEvidenceArtifactRequest: Codable, Equatable, Sendable {
+    public let sessionId: String?
+    public let projectSlug: String?
+    public let sourceSurface: String?
+    public let sourceKind: String?
+    public let mediaType: String?
+    public let contentHash: String
+    public let contentRef: String?
+    public let artifactDataBase64: String?
+    public let artifactByteCount: Int?
+    public let localSummary: String?
+    public let extractedText: String?
+    public let localHints: [String]
+    public let privacyClass: String?
+    public let confirmationState: String?
+    public let metadata: ExocortexJSONValue?
+
+    public init(
+        sessionId: String? = nil,
+        projectSlug: String? = "sounio",
+        sourceSurface: String? = "beagle-apple-visual-capture",
+        sourceKind: String? = "image",
+        mediaType: String? = "image",
+        contentHash: String,
+        contentRef: String? = nil,
+        artifactDataBase64: String? = nil,
+        artifactByteCount: Int? = nil,
+        localSummary: String? = nil,
+        extractedText: String? = nil,
+        localHints: [String] = [],
+        privacyClass: String? = "sensitive",
+        confirmationState: String? = "local_preview_only",
+        metadata: ExocortexJSONValue? = nil
+    ) {
+        self.sessionId = sessionId
+        self.projectSlug = projectSlug
+        self.sourceSurface = sourceSurface
+        self.sourceKind = sourceKind
+        self.mediaType = mediaType
+        self.contentHash = contentHash
+        self.contentRef = contentRef
+        self.artifactDataBase64 = artifactDataBase64
+        self.artifactByteCount = artifactByteCount
+        self.localSummary = localSummary
+        self.extractedText = extractedText
+        self.localHints = localHints
+        self.privacyClass = privacyClass
+        self.confirmationState = confirmationState
+        self.metadata = metadata
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case projectSlug = "project_slug"
+        case sourceSurface = "source_surface"
+        case sourceKind = "source_kind"
+        case mediaType = "media_type"
+        case contentHash = "content_hash"
+        case contentRef = "content_ref"
+        case artifactDataBase64 = "artifact_data_base64"
+        case artifactByteCount = "artifact_byte_count"
+        case localSummary = "local_summary"
+        case extractedText = "extracted_text"
+        case localHints = "local_hints"
+        case privacyClass = "privacy_class"
+        case confirmationState = "confirmation_state"
+        case metadata
+    }
+}
+
+public struct VisualEvidenceArtifact: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let schemaVersion: String
+    public let sessionId: String?
+    public let projectSlug: String
+    public let sourceSurface: String
+    public let sourceKind: String
+    public let mediaType: String
+    public let contentHash: String
+    public let contentRef: String?
+    public let artifactByteCount: Int?
+    public let localSummary: String?
+    public let extractedText: String?
+    public let localHints: [String]
+    public let privacyClass: String
+    public let confirmationState: String
+    public let privateArtifactPolicy: String
+    public let provenance: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case schemaVersion = "schema_version"
+        case sessionId = "session_id"
+        case projectSlug = "project_slug"
+        case sourceSurface = "source_surface"
+        case sourceKind = "source_kind"
+        case mediaType = "media_type"
+        case contentHash = "content_hash"
+        case contentRef = "content_ref"
+        case artifactByteCount = "artifact_byte_count"
+        case localSummary = "local_summary"
+        case extractedText = "extracted_text"
+        case localHints = "local_hints"
+        case privacyClass = "privacy_class"
+        case confirmationState = "confirmation_state"
+        case privateArtifactPolicy = "private_artifact_policy"
+        case provenance
+    }
+}
+
+public struct CaptureReviewCandidate: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let kind: String
+    public let title: String
+    public let summary: String
+    public let evidenceRefs: [String]
+    public let claimText: String?
+    public let decisionText: String?
+    public let nextAction: String?
+    public let epistemicStatus: String?
+    public let confidence: Double?
+    public let privacyClass: String
+    public let provenance: ExocortexJSONValue?
+
+    public init(
+        id: String = UUID().uuidString,
+        kind: String,
+        title: String,
+        summary: String,
+        evidenceRefs: [String] = [],
+        claimText: String? = nil,
+        decisionText: String? = nil,
+        nextAction: String? = nil,
+        epistemicStatus: String? = "belief",
+        confidence: Double? = nil,
+        privacyClass: String = "sensitive",
+        provenance: ExocortexJSONValue? = nil
+    ) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.summary = summary
+        self.evidenceRefs = evidenceRefs
+        self.claimText = claimText
+        self.decisionText = decisionText
+        self.nextAction = nextAction
+        self.epistemicStatus = epistemicStatus
+        self.confidence = confidence
+        self.privacyClass = privacyClass
+        self.provenance = provenance
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case kind
+        case title
+        case summary
+        case evidenceRefs = "evidence_refs"
+        case claimText = "claim_text"
+        case decisionText = "decision_text"
+        case nextAction = "next_action"
+        case epistemicStatus = "epistemic_status"
+        case confidence
+        case privacyClass = "privacy_class"
+        case provenance
+    }
+}
+
+public struct VisualEvidenceAnalyzeRequest: Codable, Equatable, Sendable {
+    public let artifactId: String
+    public let prompt: String?
+    public let allowExternalModel: Bool
+    public let preferredProvider: String?
+    public let localAnalysis: ExocortexJSONValue?
+    public let redactionSummary: String?
+    public let principal: String?
+    public let surface: String?
+
+    public init(
+        artifactId: String,
+        prompt: String? = nil,
+        allowExternalModel: Bool = false,
+        preferredProvider: String? = nil,
+        localAnalysis: ExocortexJSONValue? = nil,
+        redactionSummary: String? = nil,
+        principal: String? = "beagle-apple-app",
+        surface: String? = "beagle-apple-visual-capture"
+    ) {
+        self.artifactId = artifactId
+        self.prompt = prompt
+        self.allowExternalModel = allowExternalModel
+        self.preferredProvider = preferredProvider
+        self.localAnalysis = localAnalysis
+        self.redactionSummary = redactionSummary
+        self.principal = principal
+        self.surface = surface
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case artifactId = "artifact_id"
+        case prompt
+        case allowExternalModel = "allow_external_model"
+        case preferredProvider = "preferred_provider"
+        case localAnalysis = "local_analysis"
+        case redactionSummary = "redaction_summary"
+        case principal
+        case surface
+    }
+}
+
+public struct VisualEvidenceAnalysis: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let schemaVersion: String
+    public let artifactId: String
+    public let mode: String
+    public let provider: String
+    public let status: String
+    public let summary: String
+    public let claimMap: [CaptureReviewCandidate]
+    public let evidenceRefs: [String]
+    public let tensions: [String]
+    public let missingEvidence: [String]
+    public let restrictedLeakCheck: String
+    public let requiresConfirmation: Bool
+    public let provenance: ExocortexJSONValue?
+    public let degradedReason: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case schemaVersion = "schema_version"
+        case artifactId = "artifact_id"
+        case mode
+        case provider
+        case status
+        case summary
+        case claimMap = "claim_map"
+        case evidenceRefs = "evidence_refs"
+        case tensions
+        case missingEvidence = "missing_evidence"
+        case restrictedLeakCheck = "restricted_leak_check"
+        case requiresConfirmation = "requires_confirmation"
+        case provenance
+        case degradedReason = "degraded_reason"
+    }
+}
+
+public struct CaptureReviewRequest: Codable, Equatable, Sendable {
+    public let sessionId: String?
+    public let artifactId: String?
+    public let projectSlug: String?
+    public let sourceSurface: String?
+    public let candidates: [CaptureReviewCandidate]
+    public let decision: String?
+    public let reviewer: String?
+    public let promote: Bool
+    public let privacyClass: String?
+    public let provenance: ExocortexJSONValue?
+
+    public init(
+        sessionId: String? = nil,
+        artifactId: String? = nil,
+        projectSlug: String? = "sounio",
+        sourceSurface: String? = "beagle-apple-capture-review",
+        candidates: [CaptureReviewCandidate],
+        decision: String? = "promote",
+        reviewer: String? = "demetrios",
+        promote: Bool = true,
+        privacyClass: String? = "sensitive",
+        provenance: ExocortexJSONValue? = nil
+    ) {
+        self.sessionId = sessionId
+        self.artifactId = artifactId
+        self.projectSlug = projectSlug
+        self.sourceSurface = sourceSurface
+        self.candidates = candidates
+        self.decision = decision
+        self.reviewer = reviewer
+        self.promote = promote
+        self.privacyClass = privacyClass
+        self.provenance = provenance
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case artifactId = "artifact_id"
+        case projectSlug = "project_slug"
+        case sourceSurface = "source_surface"
+        case candidates
+        case decision
+        case reviewer
+        case promote
+        case privacyClass = "privacy_class"
+        case provenance
+    }
+}
+
+public struct AuditEvent: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let clientId: String
+    public let action: String
+    public let toolName: String?
+    public let riskLevel: String
+    public let requiredScopes: [String]
+    public let grantedScopes: [String]
+    public let status: String
+    public let source: String
+    public let targetRef: String?
+    public let summary: String?
+    public let metadata: ExocortexJSONValue?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case clientId = "client_id"
+        case action
+        case toolName = "tool_name"
+        case riskLevel = "risk_level"
+        case requiredScopes = "required_scopes"
+        case grantedScopes = "granted_scopes"
+        case status
+        case source
+        case targetRef = "target_ref"
+        case summary
+        case metadata
+    }
+}
+
+public struct MemoryEvent: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let source: String
+    public let kind: String
+    public let contentRef: String?
+    public let summary: String
+    public let tags: [String]
+    public let metadata: ExocortexJSONValue?
+    public let linkedChronoselfCommits: [String]
+    public let confidence: Double
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case source
+        case kind
+        case contentRef = "content_ref"
+        case summary
+        case tags
+        case metadata
+        case linkedChronoselfCommits = "linked_chronoself_commits"
+        case confidence
+    }
+}
+
+public struct CaptureReviewResult: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let createdAt: String
+    public let schemaVersion: String
+    public let status: String
+    public let promotedCount: Int
+    public let sounioMoments: [SounioMoment]
+    public let memoryEvent: MemoryEvent?
+    public let auditEvent: AuditEvent?
+    public let candidates: [CaptureReviewCandidate]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt = "created_at"
+        case schemaVersion = "schema_version"
+        case status
+        case promotedCount = "promoted_count"
+        case sounioMoments = "sounio_moments"
+        case memoryEvent = "memory_event"
+        case auditEvent = "audit_event"
+        case candidates
+    }
+}
+
+public struct ChatMemoryTimelineEvent: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let label: String
+    public let status: String
+    public let timestamp: Date
+    public let truthMode: TruthMode
+
+    public init(
+        id: String = UUID().uuidString,
+        label: String,
+        status: String,
+        timestamp: Date = .now,
+        truthMode: TruthMode = .declared
+    ) {
+        self.id = id
+        self.label = label
+        self.status = status
+        self.timestamp = timestamp
+        self.truthMode = truthMode
+    }
+}
+
 public struct AssistedImportBatchRequest: Codable, Equatable, Sendable {
     public let sourcePlatform: String
     public let sourceSurface: String
@@ -1869,6 +4532,10 @@ public struct AssistedImportBatchRequest: Codable, Equatable, Sendable {
     public let originalDate: String?
     public let confidenceScore: Double?
     public let createChronoselfCommit: Bool?
+    public let captureSessionId: String?
+    public let artifactRefs: [String]
+    public let transcriptionSegments: [TranscriptionSegment]
+    public let visualEvidenceRefs: [String]
 
     public init(
         sourcePlatform: String,
@@ -1887,7 +4554,11 @@ public struct AssistedImportBatchRequest: Codable, Equatable, Sendable {
         title: String? = nil,
         originalDate: String? = nil,
         confidenceScore: Double? = nil,
-        createChronoselfCommit: Bool? = false
+        createChronoselfCommit: Bool? = false,
+        captureSessionId: String? = nil,
+        artifactRefs: [String] = [],
+        transcriptionSegments: [TranscriptionSegment] = [],
+        visualEvidenceRefs: [String] = []
     ) {
         self.sourcePlatform = sourcePlatform
         self.sourceSurface = sourceSurface
@@ -1906,6 +4577,10 @@ public struct AssistedImportBatchRequest: Codable, Equatable, Sendable {
         self.originalDate = originalDate
         self.confidenceScore = confidenceScore
         self.createChronoselfCommit = createChronoselfCommit
+        self.captureSessionId = captureSessionId
+        self.artifactRefs = artifactRefs
+        self.transcriptionSegments = transcriptionSegments
+        self.visualEvidenceRefs = visualEvidenceRefs
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1926,6 +4601,10 @@ public struct AssistedImportBatchRequest: Codable, Equatable, Sendable {
         case originalDate = "original_date"
         case confidenceScore = "confidence_score"
         case createChronoselfCommit = "create_chronoself_commit"
+        case captureSessionId = "capture_session_id"
+        case artifactRefs = "artifact_refs"
+        case transcriptionSegments = "transcription_segments"
+        case visualEvidenceRefs = "visual_evidence_refs"
     }
 }
 
@@ -2089,6 +4768,13 @@ public struct TrustContext: Codable, Equatable, Sendable {
     public let memoryPolicyStatus: String?
     public let policyGate: String?
     public let dreamcycleStatus: String?
+    public let sounioPaperRunStatus: String?
+    public let sounioTemporalStatus: String?
+    public let sounioPendingApproval: String?
+    public let sounioLatestArtifact: String?
+    public let sounioWorkdayStatus: String?
+    public let sounioLatestMoment: String?
+    public let sounioPendingMomentReview: String?
 
     enum CodingKeys: String, CodingKey {
         case mcpStatus = "mcp_status"
@@ -2130,6 +4816,506 @@ public struct TrustContext: Codable, Equatable, Sendable {
         case memoryPolicyStatus = "memory_policy_status"
         case policyGate = "policy_gate"
         case dreamcycleStatus = "dreamcycle_status"
+        case sounioPaperRunStatus = "sounio_paperrun_status"
+        case sounioTemporalStatus = "sounio_temporal_status"
+        case sounioPendingApproval = "sounio_pending_approval"
+        case sounioLatestArtifact = "sounio_latest_artifact"
+        case sounioWorkdayStatus = "sounio_workday_status"
+        case sounioLatestMoment = "sounio_latest_moment"
+        case sounioPendingMomentReview = "sounio_pending_moment_review"
+    }
+}
+
+public struct LivingHomeMode: RawRepresentable, Codable, Equatable, Hashable, Sendable {
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let live = LivingHomeMode(rawValue: "live")
+    public static let remembered = LivingHomeMode(rawValue: "remembered")
+    public static let offline = LivingHomeMode(rawValue: "offline")
+    public static let attention = LivingHomeMode(rawValue: "attention")
+    public static let review = LivingHomeMode(rawValue: "review")
+    public static let capture = LivingHomeMode(rawValue: "capture")
+}
+
+public struct HomeContinuitySignal: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let detail: String
+    public let kind: String
+    public let sourceSurface: String?
+    public let observedAt: String?
+    public let truthMode: String
+    public let provenanceRefs: [String]
+
+    public init(
+        id: String,
+        title: String,
+        detail: String,
+        kind: String,
+        sourceSurface: String? = nil,
+        observedAt: String? = nil,
+        truthMode: String = "declared",
+        provenanceRefs: [String] = []
+    ) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.kind = kind
+        self.sourceSurface = sourceSurface
+        self.observedAt = observedAt
+        self.truthMode = truthMode
+        self.provenanceRefs = provenanceRefs
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case detail
+        case kind
+        case sourceSurface = "source_surface"
+        case observedAt = "observed_at"
+        case truthMode = "truth_mode"
+        case provenanceRefs = "provenance_refs"
+    }
+}
+
+public struct HomeNextMove: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let detail: String
+    public let action: String
+    public let systemImage: String
+    public let reason: String
+    public let priority: Int
+    public let target: String?
+
+    public init(
+        id: String,
+        title: String,
+        detail: String,
+        action: String,
+        systemImage: String,
+        reason: String,
+        priority: Int = 0,
+        target: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.detail = detail
+        self.action = action
+        self.systemImage = systemImage
+        self.reason = reason
+        self.priority = priority
+        self.target = target
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case detail
+        case action
+        case systemImage = "system_image"
+        case reason
+        case priority
+        case target
+    }
+}
+
+public struct HomeContinuityContext: Codable, Equatable, Sendable {
+    public let generatedAt: String
+    public let mode: LivingHomeMode
+    public let changedSinceLastOpen: [HomeContinuitySignal]
+    public let latestSurfaceWrite: HomeContinuitySignal?
+    public let activeThread: String?
+    public let primaryNextAction: HomeNextMove
+    public let alternativeNextActions: [HomeNextMove]
+    public let whyThisNow: String
+    public let confidence: Double
+    public let sourceMode: String
+
+    public init(
+        generatedAt: String,
+        mode: LivingHomeMode,
+        changedSinceLastOpen: [HomeContinuitySignal],
+        latestSurfaceWrite: HomeContinuitySignal?,
+        activeThread: String?,
+        primaryNextAction: HomeNextMove,
+        alternativeNextActions: [HomeNextMove] = [],
+        whyThisNow: String,
+        confidence: Double,
+        sourceMode: String
+    ) {
+        self.generatedAt = generatedAt
+        self.mode = mode
+        self.changedSinceLastOpen = changedSinceLastOpen
+        self.latestSurfaceWrite = latestSurfaceWrite
+        self.activeThread = activeThread
+        self.primaryNextAction = primaryNextAction
+        self.alternativeNextActions = alternativeNextActions
+        self.whyThisNow = whyThisNow
+        self.confidence = confidence
+        self.sourceMode = sourceMode
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case generatedAt = "generated_at"
+        case mode
+        case changedSinceLastOpen = "changed_since_last_open"
+        case latestSurfaceWrite = "latest_surface_write"
+        case activeThread = "active_thread"
+        case primaryNextAction = "primary_next_action"
+        case alternativeNextActions = "alternative_next_actions"
+        case whyThisNow = "why_this_now"
+        case confidence
+        case sourceMode = "source_mode"
+    }
+}
+
+public extension HomeContinuityContext {
+    static func synthesized(
+        home: ExocortexHomeSnapshot,
+        truthMode: TruthMode,
+        previousHome: ExocortexHomeSnapshot? = nil,
+        recentGraph: MemoryGraphRecentResponse? = nil,
+        projectionStatus: MemoryProjectionStatus? = nil,
+        originLineage: OriginLineageSnapshot? = nil
+    ) -> HomeContinuityContext {
+        var signals: [HomeContinuitySignal] = []
+
+        if truthMode == .stale {
+            signals.append(HomeContinuitySignal(
+                id: "home-offline-cache",
+                title: "Offline cache",
+                detail: "The last remembered Home is visible while cluster truth is unavailable.",
+                kind: "cache",
+                sourceSurface: "swiftdata-cache",
+                observedAt: previousHome?.generatedAt,
+                truthMode: truthMode.rawValue,
+                provenanceRefs: ["swiftdata-cache"]
+            ))
+        } else if previousHome?.generatedAt != nil, previousHome?.generatedAt != home.generatedAt {
+            signals.append(HomeContinuitySignal(
+                id: "home-cluster-refresh",
+                title: "Cluster refreshed",
+                detail: "Live cluster truth replaced the last remembered Home.",
+                kind: "cluster_refresh",
+                sourceSurface: "beagle-core",
+                observedAt: home.generatedAt,
+                truthMode: truthMode.rawValue,
+                provenanceRefs: ["home:\(home.generatedAt)"]
+            ))
+        }
+
+        if let last = home.agentContext?.lastAgentWrite ?? home.trustContext?.latestAgentWrite, !last.isEmpty {
+            signals.append(HomeContinuitySignal(
+                id: "latest-agent-write-\(stableSignalSuffix(last))",
+                title: "Agent wrote memory",
+                detail: last,
+                kind: "agent_write",
+                sourceSurface: "mcp-agent",
+                observedAt: home.trustContext?.auditFreshness,
+                truthMode: "observed",
+                provenanceRefs: home.trustContext?.lastAuditEventId.map { [$0] } ?? []
+            ))
+        }
+
+        if let capture = home.trustContext?.appleCaptureFreshness ?? home.trustContext?.captureLoopStatus, !capture.isEmpty {
+            signals.append(HomeContinuitySignal(
+                id: "apple-capture-\(stableSignalSuffix(capture))",
+                title: "Apple capture loop",
+                detail: capture,
+                kind: "apple_capture",
+                sourceSurface: "beagle-apple",
+                observedAt: home.generatedAt,
+                truthMode: "observed",
+                provenanceRefs: ["home.trust_context.capture"]
+            ))
+        }
+
+        if let graphSignal = latestGraphSignal(from: recentGraph) {
+            signals.append(graphSignal)
+        }
+
+        if let projectionStatus {
+            let detail = "\(projectionStatus.episodeCount) episodes · \(projectionStatus.atomCount) atoms · \(projectionStatus.retrievalMode)"
+            signals.append(HomeContinuitySignal(
+                id: "memory-projection-\(projectionStatus.status)",
+                title: "Memory projection",
+                detail: detail,
+                kind: "memory_projection",
+                sourceSurface: "beagle-core",
+                observedAt: projectionStatus.latestRun?.createdAt,
+                truthMode: projectionStatus.status == "fresh" ? "observed" : "remembered",
+                provenanceRefs: projectionStatus.latestRun.map { [$0.id] } ?? []
+            ))
+        }
+
+        if let originLineage, !originLineage.nodes.isEmpty {
+            signals.append(HomeContinuitySignal(
+                id: "origin-lineage-\(originLineage.sourcePolicy)",
+                title: "Origin lineage",
+                detail: "RAG++ -> Darwin -> Beagle -> Sounio remains visible as sanitized memory archaeology.",
+                kind: "origin_lineage",
+                sourceSurface: originLineage.sourcePolicy.contains("cluster") ? "beagle-core" : "local-seed",
+                observedAt: originLineage.generatedAt,
+                truthMode: originLineage.sourcePolicy.contains("cluster") ? "observed" : "remembered",
+                provenanceRefs: originLineage.evidenceRefs.map(\.id)
+            ))
+        }
+
+        for signal in home.memorySignals.prefix(2) where !signal.localizedCaseInsensitiveContains("restricted") {
+            signals.append(HomeContinuitySignal(
+                id: "home-memory-signal-\(stableSignalSuffix(signal))",
+                title: "Memory signal",
+                detail: signal,
+                kind: "memory_signal",
+                sourceSurface: "exocortex-home",
+                observedAt: home.generatedAt,
+                truthMode: truthMode.rawValue,
+                provenanceRefs: []
+            ))
+        }
+
+        let uniqueSignals = unique(signals).prefix(6)
+        let latestSurfaceWrite = uniqueSignals.first {
+            ["agent_write", "apple_capture", "grok_import", "work_memory"].contains($0.kind)
+        }
+        let moves = nextMoves(
+            home: home,
+            truthMode: truthMode,
+            latestSurfaceWrite: latestSurfaceWrite,
+            signals: Array(uniqueSignals)
+        )
+        let mode = livingMode(home: home, truthMode: truthMode, latestSurfaceWrite: latestSurfaceWrite)
+
+        return HomeContinuityContext(
+            generatedAt: home.generatedAt,
+            mode: mode,
+            changedSinceLastOpen: Array(uniqueSignals),
+            latestSurfaceWrite: latestSurfaceWrite,
+            activeThread: home.activeProjectRef ?? home.temporalPhase,
+            primaryNextAction: moves.primary,
+            alternativeNextActions: moves.alternatives,
+            whyThisNow: whyThisNow(
+                home: home,
+                truthMode: truthMode,
+                primary: moves.primary,
+                latestSurfaceWrite: latestSurfaceWrite
+            ),
+            confidence: confidence(truthMode: truthMode, signalCount: uniqueSignals.count),
+            sourceMode: "local_synthesis"
+        )
+    }
+
+    private static func latestGraphSignal(from graph: MemoryGraphRecentResponse?) -> HomeContinuitySignal? {
+        guard let graph else { return nil }
+
+        if let episode = graph.episodes.first(where: {
+            $0.privacyClass != "restricted" && haystack(for: $0).contains("grok")
+        }) {
+            return HomeContinuitySignal(
+                id: "grok-import-\(episode.id)",
+                title: "Grok import signal",
+                detail: episode.title ?? "Grok context is projected into GraphRAG++ memory.",
+                kind: "grok_import",
+                sourceSurface: episode.sourcePlatform ?? episode.source,
+                observedAt: episode.occurredAt ?? episode.createdAt,
+                truthMode: "observed",
+                provenanceRefs: [episode.sourceRef]
+            )
+        }
+
+        if let atom = graph.atoms.first(where: {
+            $0.privacyClass != "restricted" && haystack(for: $0).contains("work-memory")
+        }) {
+            return HomeContinuitySignal(
+                id: "work-memory-\(atom.id)",
+                title: "Work memory",
+                detail: "Codex or Claude Code work context is now recoverable.",
+                kind: "work_memory",
+                sourceSurface: "agent-work-memory",
+                observedAt: atom.occurredAt ?? atom.createdAt,
+                truthMode: "observed",
+                provenanceRefs: atom.sourceRefs
+            )
+        }
+
+        if let episode = graph.episodes.first(where: {
+            $0.privacyClass != "restricted" && haystack(for: $0).contains("watch")
+        }) {
+            return HomeContinuitySignal(
+                id: "watch-capture-\(episode.id)",
+                title: "Watch capture",
+                detail: "A wrist micro-intention reached cluster memory.",
+                kind: "apple_capture",
+                sourceSurface: episode.sourcePlatform ?? "watchos",
+                observedAt: episode.occurredAt ?? episode.createdAt,
+                truthMode: "observed",
+                provenanceRefs: [episode.sourceRef]
+            )
+        }
+
+        return nil
+    }
+
+    private static func nextMoves(
+        home: ExocortexHomeSnapshot,
+        truthMode: TruthMode,
+        latestSurfaceWrite: HomeContinuitySignal?,
+        signals: [HomeContinuitySignal]
+    ) -> (primary: HomeNextMove, alternatives: [HomeNextMove]) {
+        let inspectTrust = HomeNextMove(
+            id: "inspect-trust",
+            title: "Inspect trust",
+            detail: home.trustContext?.mcpStatus ?? "Check cluster, MCP and audit state.",
+            action: "inspect_trust",
+            systemImage: "checkmark.shield",
+            reason: "The Home is stale or needs trust context before action.",
+            priority: 90
+        )
+        let reviewClaim = HomeNextMove(
+            id: "review-claim",
+            title: "Review claim",
+            detail: home.trustContext?.sounioPendingApproval ?? "\(home.trustContext?.pendingTriads ?? 0) pending Triad items",
+            action: "review_claim",
+            systemImage: "checklist.checked",
+            reason: "A pending claim or Triad item needs human judgment.",
+            priority: 80
+        )
+        let openMemory = HomeNextMove(
+            id: "open-memory-lens",
+            title: "Open Memory Lens",
+            detail: latestSurfaceWrite?.title ?? "\(signals.count) continuity signals",
+            action: "open_memory_lens",
+            systemImage: "point.3.connected.trianglepath.dotted",
+            reason: "New memory is visible; inspect evidence and provenance.",
+            priority: 70
+        )
+        let resumeProject = HomeNextMove(
+            id: "resume-project",
+            title: "Resume \(home.activeProjectRef ?? "project")",
+            detail: home.recommendedNextAction,
+            action: "resume_project",
+            systemImage: "arrow.forward.circle.fill",
+            reason: "The active project is the highest-continuity thread.",
+            priority: 60,
+            target: home.activeProjectRef
+        )
+        let captureThought = HomeNextMove(
+            id: "capture-thought",
+            title: "Capture thought",
+            detail: "Record the next intention as Episode+Atom.",
+            action: "capture_thought",
+            systemImage: "mic.fill",
+            reason: "No urgent review exists; preserve the next thought before it evaporates.",
+            priority: 40
+        )
+
+        let primary: HomeNextMove
+        if truthMode == .stale {
+            primary = inspectTrust
+        } else if home.trustContext?.sounioPendingApproval?.isEmpty == false || (home.trustContext?.pendingTriads ?? 0) > 0 {
+            primary = reviewClaim
+        } else if latestSurfaceWrite != nil || !signals.isEmpty {
+            primary = openMemory
+        } else if home.activeProjectRef != nil {
+            primary = resumeProject
+        } else {
+            primary = captureThought
+        }
+
+        let alternatives = [reviewClaim, openMemory, resumeProject, captureThought, inspectTrust]
+            .filter { $0.id != primary.id }
+        return (primary, alternatives)
+    }
+
+    private static func livingMode(
+        home: ExocortexHomeSnapshot,
+        truthMode: TruthMode,
+        latestSurfaceWrite: HomeContinuitySignal?
+    ) -> LivingHomeMode {
+        if truthMode == .stale { return .offline }
+        if home.trustContext?.sounioPendingApproval?.isEmpty == false || (home.trustContext?.pendingTriads ?? 0) > 0 {
+            return .review
+        }
+        if latestSurfaceWrite?.kind == "apple_capture" { return .capture }
+        if latestSurfaceWrite != nil { return .live }
+        if truthMode == .remembered { return .remembered }
+        return .attention
+    }
+
+    private static func whyThisNow(
+        home: ExocortexHomeSnapshot,
+        truthMode: TruthMode,
+        primary: HomeNextMove,
+        latestSurfaceWrite: HomeContinuitySignal?
+    ) -> String {
+        if truthMode == .stale {
+            return "Beagle is showing remembered state; trust inspection comes before deeper action."
+        }
+        if let latestSurfaceWrite {
+            return "\(latestSurfaceWrite.title) is the freshest change, so the safest next move is to inspect its provenance."
+        }
+        if primary.action == "review_claim" {
+            return "A claim or Triad item is waiting for human judgment before promotion."
+        }
+        if !home.recommendedNextAction.isEmpty {
+            return home.recommendedNextAction
+        }
+        return "No urgent write or review is visible; capture the next intention."
+    }
+
+    private static func confidence(truthMode: TruthMode, signalCount: Int) -> Double {
+        switch truthMode {
+        case .observed:
+            return signalCount > 0 ? 0.88 : 0.72
+        case .remembered:
+            return 0.66
+        case .declared:
+            return 0.52
+        case .stale:
+            return 0.40
+        }
+    }
+
+    private static func unique(_ signals: [HomeContinuitySignal]) -> [HomeContinuitySignal] {
+        var seen = Set<String>()
+        return signals.filter { signal in
+            guard !seen.contains(signal.id) else { return false }
+            seen.insert(signal.id)
+            return true
+        }
+    }
+
+    private static func stableSignalSuffix(_ text: String) -> String {
+        text
+            .lowercased()
+            .unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .prefix(24)
+            .map(String.init)
+            .joined()
+    }
+
+    private static func haystack(for episode: MemoryEpisode) -> String {
+        (episode.tags + [
+            episode.source,
+            episode.sourcePlatform ?? "",
+            episode.title ?? "",
+            episode.sourceRef
+        ]).joined(separator: " ").lowercased()
+    }
+
+    private static func haystack(for atom: MemoryAtom) -> String {
+        (atom.tags + [
+            atom.atomType,
+            atom.text,
+            atom.normalizedText
+        ]).joined(separator: " ").lowercased()
     }
 }
 
@@ -2147,6 +5333,9 @@ public struct ExocortexHomeSnapshot: Codable, Equatable, Sendable {
     public let temporalPhase: String?
     public let agentContext: AgentContext?
     public let trustContext: TrustContext?
+    public let originLineage: OriginLineageSnapshot?
+    public let continuityContext: HomeContinuityContext?
+    public let sounioWorkdayContext: SounioWorkdaySnapshot?
 
     enum CodingKeys: String, CodingKey {
         case generatedAt = "generated_at"
@@ -2162,6 +5351,9 @@ public struct ExocortexHomeSnapshot: Codable, Equatable, Sendable {
         case temporalPhase = "temporal_phase"
         case agentContext = "agent_context"
         case trustContext = "trust_context"
+        case originLineage = "origin_lineage"
+        case continuityContext = "continuity_context"
+        case sounioWorkdayContext = "sounio_workday_context"
     }
 
     public static let bootstrap = ExocortexHomeSnapshot(
@@ -2177,6 +5369,9 @@ public struct ExocortexHomeSnapshot: Codable, Equatable, Sendable {
         omnimemoryStatus: "unknown",
         temporalPhase: nil,
         agentContext: nil,
-        trustContext: nil
+        trustContext: nil,
+        originLineage: nil,
+        continuityContext: nil,
+        sounioWorkdayContext: nil
     )
 }

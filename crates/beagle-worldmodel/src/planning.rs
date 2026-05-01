@@ -1,13 +1,13 @@
 // crates/beagle-worldmodel/src/planning.rs
 //! Planning and decision-making over world models
 
-use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use serde::{Serialize, Deserialize};
+use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::state::WorldState;
 use crate::predictive::PredictiveModel;
+use crate::state::WorldState;
 use crate::WorldModelError;
 
 /// Planner for decision-making
@@ -100,22 +100,14 @@ impl Planner {
     }
 
     /// Create plan from current state to goal
-    pub async fn plan(
-        &self,
-        start: &WorldState,
-        goal: &Goal,
-    ) -> Result<Plan, WorldModelError> {
+    pub async fn plan(&self, start: &WorldState, goal: &Goal) -> Result<Plan, WorldModelError> {
         match &self.algorithm {
             PlanningAlgorithm::AStar => self.plan_astar(start, goal).await,
             PlanningAlgorithm::MCTS { n_simulations } => {
                 self.plan_mcts(start, goal, *n_simulations).await
-            },
-            PlanningAlgorithm::MPC { horizon } => {
-                self.plan_mpc(start, goal, *horizon).await
-            },
-            PlanningAlgorithm::RL { policy } => {
-                self.plan_rl(start, goal, policy).await
-            },
+            }
+            PlanningAlgorithm::MPC { horizon } => self.plan_mpc(start, goal, *horizon).await,
+            PlanningAlgorithm::RL { policy } => self.plan_rl(start, goal, policy).await,
         }
     }
 
@@ -322,7 +314,7 @@ impl Goal {
                     }
                 }
                 true
-            },
+            }
             _ => false,
         }
     }

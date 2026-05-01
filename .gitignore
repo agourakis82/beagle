@@ -23,6 +23,13 @@ venv/
 .mypy_cache/
 .ipynb_checkpoints/
 
+# Node / frontend services
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
 # Environment & Secrets
 .env
 .env.*

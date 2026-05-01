@@ -14,8 +14,10 @@
 		1B55247C99EAB1B670864938 /* PostureGradientBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49590C3934C2C786F704ADB3 /* PostureGradientBackground.swift */; };
 		232DEFB048E340F8FE242BDB /* TerminalContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */; };
 		2506AE1D807F002678049438 /* BeagleAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */; };
+		2AD08B4C933878D9B28A470F /* MultimodalComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53EBDF9F7419046FF55F57AF /* MultimodalComposer.swift */; };
 		2E61BDB009F282CB1A3CCCE7 /* MetalClusterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1627EC91F819B45D2929869B /* MetalClusterView.swift */; };
 		357233B56EA6220C81DFC055 /* HyperbolicGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */; };
+		35F6E3C12D7A4C5B8E901234 /* SpatialControlRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35F6E3C02D7A4C5B8E901234 /* SpatialControlRoomView.swift */; };
 		3676B6A0274B8867938EA3E9 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA8A9689928DC1BA45738244 /* BeagleCore */; };
 		39966D4FD11EC8661B54479D /* CognitiveStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5BFBC8407D4C833BA3F95 /* CognitiveStateView.swift */; };
 		40BF456C71ED40A7CBF92FD8 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F9429744BAEF1DC81205FFB /* OnboardingView.swift */; };
@@ -42,6 +44,7 @@
 		A7E50EC5008FE3C119415E16 /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */; };
 		AEB6084416F309DE3C3BFE38 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3CE68477CD23BAC261300B32 /* BeagleCore */; };
 		AFF447F376A1DA08356C28E0 /* HPCDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */; };
+		B0217E37A1B94E77BEA53710 /* SpatialDeskMissionControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0217E36A1B94E77BEA53710 /* SpatialDeskMissionControlView.swift */; };
 		B153B877BF3BB76F401EF7EF /* ModelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */; };
 		B29E7F8F8148C1AF28D130D0 /* BeagleCockpitApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */; };
 		B4C18225A382E1164A752BEC /* GoDeepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FADF6A9C3533B785FE38619 /* GoDeepView.swift */; };
@@ -50,6 +53,7 @@
 		BD5252A15774BB0AFF4C2537 /* PlatformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4EBFAF926379A760494FDDE /* PlatformView.swift */; };
 		BD8DE849A86BAFDCE1CAC86B /* LiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365A4A4180DF64759923830A /* LiveActivityManager.swift */; };
 		BF0742CD0ABD9D8AD53DE9D6 /* HeatmapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EECE76875D595132E400D65E /* HeatmapView.swift */; };
+		C060C8580D8343B1849A1DA0 /* MindPalaceSpatialDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C060C8570D8343B1849A1DA0 /* MindPalaceSpatialDeskView.swift */; };
 		C4F95F143E38413D13ABCBF1 /* WorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3133A19FD4CA197756C9D57A /* WorkView.swift */; };
 		C7FB16C8609C0B478FA7DAD2 /* ExocortexTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148676E7FD99D57EF0457448 /* ExocortexTools.swift */; };
 		CAB18C9B9AA87C72B1B91BE4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
@@ -105,6 +109,7 @@
 		189F9DCDE0C15DEF48A24B21 /* ChatBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBubbleView.swift; sourceTree = "<group>"; };
 		1A6266364731B5C6EF907DE7 /* SpatialThoughtsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialThoughtsView.swift; sourceTree = "<group>"; };
 		277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HyperbolicGraphView.swift; sourceTree = "<group>"; };
+		35F6E3C02D7A4C5B8E901234 /* SpatialControlRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialControlRoomView.swift; sourceTree = "<group>"; };
 		287C64605E5D53C799744EFA /* AgentSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionView.swift; sourceTree = "<group>"; };
 		2C4128C7822635F0B4D0B966 /* PresencePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresencePill.swift; sourceTree = "<group>"; };
 		3133A19FD4CA197756C9D57A /* WorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkView.swift; sourceTree = "<group>"; };
@@ -117,6 +122,7 @@
 		4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizer.swift; sourceTree = "<group>"; };
 		4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsRunner.swift; sourceTree = "<group>"; };
 		4E7942CCBC29D0245EF77BB7 /* BeagleWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BeagleWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		53EBDF9F7419046FF55F57AF /* MultimodalComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultimodalComposer.swift; sourceTree = "<group>"; };
 		5409EBAF41662A24788CCC75 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleAppIntents.swift; sourceTree = "<group>"; };
 		57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepExplorationView.swift; sourceTree = "<group>"; };
@@ -135,8 +141,10 @@
 		95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 		A08540D355E6437F5F11ED49 /* JournalingSuggestionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalingSuggestionsView.swift; sourceTree = "<group>"; };
 		AB312C9D46D9321BC2DD8F95 /* CognitiveBridgeField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CognitiveBridgeField.swift; sourceTree = "<group>"; };
+		B0217E36A1B94E77BEA53710 /* SpatialDeskMissionControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialDeskMissionControlView.swift; sourceTree = "<group>"; };
 		B4EBFAF926379A760494FDDE /* PlatformView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformView.swift; sourceTree = "<group>"; };
 		BF024B3743049659F7073E6C /* AgentActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentActivityView.swift; sourceTree = "<group>"; };
+		C060C8570D8343B1849A1DA0 /* MindPalaceSpatialDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MindPalaceSpatialDeskView.swift; sourceTree = "<group>"; };
 		CE66E5A63CE01CAC1A04AF63 /* BeagleWidgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = BeagleWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = BeagleShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D2CE724AEFED517CAC6C94C0 /* LorenzAttractorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LorenzAttractorView.swift; sourceTree = "<group>"; };
@@ -223,12 +231,14 @@
 				D2CE724AEFED517CAC6C94C0 /* LorenzAttractorView.swift */,
 				1627EC91F819B45D2929869B /* MetalClusterView.swift */,
 				0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */,
+				53EBDF9F7419046FF55F57AF /* MultimodalComposer.swift */,
 				8F9429744BAEF1DC81205FFB /* OnboardingView.swift */,
 				B4EBFAF926379A760494FDDE /* PlatformView.swift */,
 				49590C3934C2C786F704ADB3 /* PostureGradientBackground.swift */,
 				2C4128C7822635F0B4D0B966 /* PresencePill.swift */,
 				77EBB6E9F932B4C6400037BD /* ScienceJobsView.swift */,
 				4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */,
+				B0217E36A1B94E77BEA53710 /* SpatialDeskMissionControlView.swift */,
 				47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */,
 				180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */,
 				58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */,
@@ -266,6 +276,8 @@
 			children = (
 				5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */,
 				277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */,
+				C060C8570D8343B1849A1DA0 /* MindPalaceSpatialDeskView.swift */,
+				35F6E3C02D7A4C5B8E901234 /* SpatialControlRoomView.swift */,
 				1A6266364731B5C6EF907DE7 /* SpatialThoughtsView.swift */,
 				E81EA117A445504E0B157182 /* SpatialTriadView.swift */,
 			);
@@ -539,12 +551,14 @@
 				8074F587452ECB33D0DAEA08 /* LorenzAttractorView.swift in Sources */,
 				2E61BDB009F282CB1A3CCCE7 /* MetalClusterView.swift in Sources */,
 				B153B877BF3BB76F401EF7EF /* ModelSettingsView.swift in Sources */,
+				2AD08B4C933878D9B28A470F /* MultimodalComposer.swift in Sources */,
 				40BF456C71ED40A7CBF92FD8 /* OnboardingView.swift in Sources */,
 				BD5252A15774BB0AFF4C2537 /* PlatformView.swift in Sources */,
 				1B55247C99EAB1B670864938 /* PostureGradientBackground.swift in Sources */,
 				BB19063FBD1E753D7FD91FAA /* PresencePill.swift in Sources */,
 				EFC226181CCAC66E7086F83E /* ScienceJobsView.swift in Sources */,
 				A7E50EC5008FE3C119415E16 /* SpeechRecognizer.swift in Sources */,
+				B0217E37A1B94E77BEA53710 /* SpatialDeskMissionControlView.swift in Sources */,
 				232DEFB048E340F8FE242BDB /* TerminalContentView.swift in Sources */,
 				DBDE230C56BD951ED91BCF5C /* ThoughtCaptureView.swift in Sources */,
 				A3ED060D3B5CB1EB7489B82E /* TriadReviewView.swift in Sources */,
@@ -574,6 +588,8 @@
 			files = (
 				9CC466E7952DB6517E30310A /* BeagleVisionOSApp.swift in Sources */,
 				357233B56EA6220C81DFC055 /* HyperbolicGraphView.swift in Sources */,
+				C060C8580D8343B1849A1DA0 /* MindPalaceSpatialDeskView.swift in Sources */,
+				35F6E3C12D7A4C5B8E901234 /* SpatialControlRoomView.swift in Sources */,
 				431207BF2DFB6E4513C886C7 /* SpatialThoughtsView.swift in Sources */,
 				E90459441F120031896D82A3 /* SpatialTriadView.swift in Sources */,
 			);

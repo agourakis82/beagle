@@ -151,6 +151,51 @@ const TOOL_POLICIES: Record<string, ToolPolicy> = {
         requiredScopes: WRITE_MEMORY,
         riskLevel: "write",
     },
+    beagle_agent_registry: {
+        annotations: annotations("Read Agent Role Registry", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_agent_route: {
+        annotations: annotations("Route Agent Role", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_write_probe: {
+        annotations: annotations("Probe Memory Write Health", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_failed_write_inbox: {
+        annotations: annotations("Read Failed Write Inbox", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_failed_write_rescue: {
+        annotations: annotations("Rescue Failed Memory Write", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_capture_session_start: {
+        annotations: annotations("Start Explicit Capture Session", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_capture_session_status: {
+        annotations: annotations("Read Capture Session Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_visual_evidence_analyze: {
+        annotations: annotations("Analyze Visual Evidence", false, true, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_capture_review_promote: {
+        annotations: annotations("Promote Capture Review Candidates", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
     beagle_memory_project_graph: {
         annotations: annotations("Project GraphRAG++ Memory", false, false, false),
         requiredScopes: WRITE_MEMORY,
@@ -243,6 +288,71 @@ const TOOL_POLICIES: Record<string, ToolPolicy> = {
     },
     beagle_dreamcycle_status: {
         annotations: annotations("Read DreamCycle Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_sounio_program_check: {
+        annotations: annotations("Check Sounio Work IR Program", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_sounio_claim_check: {
+        annotations: annotations("Check Sounio Claim", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_sounio_moment_type: {
+        annotations: annotations("Type Sounio Ambient Moment", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_sounio_workday_status: {
+        annotations: annotations("Read Sounio Workday Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_sounio_moment_review: {
+        annotations: annotations("Review Sounio Ambient Moment", false, false, false),
+        requiredScopes: WRITE_MEMORY,
+        riskLevel: "write",
+    },
+    beagle_sounio_paperrun_start: {
+        annotations: annotations("Start Sounio PaperRun", false, true, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_sounio_paperrun_status: {
+        annotations: annotations("Read Sounio PaperRun Status", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_sounio_paperrun_approve_step: {
+        annotations: annotations("Approve Sounio PaperRun Step", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_sounio_paperrun_add_claim: {
+        annotations: annotations("Add Sounio PaperRun Claim", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_sounio_claim_review: {
+        annotations: annotations("Review Sounio Claim", false, false, false),
+        requiredScopes: RUN_RESEARCH,
+        riskLevel: "run",
+    },
+    beagle_sounio_paperrun_theatre: {
+        annotations: annotations("Read PaperRun Theatre", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_sounio_public_digest: {
+        annotations: annotations("Read Sounio Public Digest", true, false, false),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_sounio_trace_query: {
+        annotations: annotations("Query Sounio PaperRun Trace", true, false, true),
         requiredScopes: READ_EXOCORTEX,
         riskLevel: "read",
     },
@@ -380,6 +490,10 @@ const REVIEW_SAFE_TOOL_NAMES = new Set([
     "beagle_chronoself_current",
     "beagle_chronoself_commits",
     "beagle_memory_query",
+    "beagle_agent_registry",
+    "beagle_agent_route",
+    "beagle_write_probe",
+    "beagle_failed_write_inbox",
     "beagle_memory_graph_status",
     "beagle_memory_bakeoff_status",
     "beagle_graphrag_query",
@@ -392,6 +506,7 @@ const REVIEW_SAFE_TOOL_NAMES = new Set([
     "beagle_memory_contradictions_recent",
     "beagle_memory_benchmark_status",
     "beagle_agent_observer_status",
+    "beagle_sounio_workday_status",
     "beagle_pipeline_status",
     "beagle_list_recent_runs",
     "beagle_get_science_job_status",

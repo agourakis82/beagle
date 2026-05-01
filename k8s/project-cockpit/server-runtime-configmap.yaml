@@ -25,6 +25,7 @@ data:
     import { readFile } from "node:fs/promises";
     import path from "node:path";
     import pty from "node-pty";
+    import { loadScratchpadEntries } from "./scratchpad-routes.mjs";
 
     const AGENT_NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
     const AGENT_IMAGE = process.env.PROJECT_COCKPIT_AGENT_IMAGE || "beagle-agent:latest";
@@ -45,6 +46,59 @@ data:
 
     function resourceName(slug, kind) {
       return `agent-${slug}-${kind}`;
+    }
+
+    function cleanString(value) {
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed;
+      }
+      if (typeof value === "number" || typeof value === "boolean") {
+        return String(value).trim();
+      }
+      return "";
+    }
+
+    function latestScratchpadForKind(slug, kind) {
+      const targetKind = cleanString(kind).toLowerCase();
+      if (!targetKind) return null;
+      const entries = loadScratchpadEntries(slug);
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index];
+        const author = cleanString(entry?.author).toLowerCase();
+        if (!author) continue;
+        if (author === targetKind) return entry;
+        if (author.includes(targetKind)) return entry;
+        if (targetKind === "claude-code" && author.includes("claude")) return entry;
+        if (targetKind === "codex" && author.includes("codex")) return entry;
+        if (targetKind === "local-sglang" && (author.includes("sglang") || author.includes("local"))) return entry;
+      }
+      return null;
+    }
+
+    function deriveSessionActivity(slug, session = {}) {
+      const latestEntry = latestScratchpadForKind(slug, session.kind);
+      const action = cleanString(session.action);
+      const scratchpadText = cleanString(latestEntry?.text);
+      const normalizedAction = action
+        ? action.replaceAll("-", " ").replaceAll("_", " ")
+        : "";
+      const summary = scratchpadText || normalizedAction || (
+        (session.readyReplicas ?? 0) > 0
+          ? "Holding the live thread and ready for input."
+          : session.replicas === 0
+            ? "Paused with its context preserved."
+            : "Crossing into the cluster and not ready yet."
+      );
+
+      return {
+        summary,
+        source: scratchpadText ? "scratchpad" : normalizedAction ? "action" : "status",
+        updatedAt: cleanString(latestEntry?.created_at || ""),
+        author: cleanString(latestEntry?.author || ""),
+        excerpt: scratchpadText,
+        consciousnessState: latestEntry?.consciousness_state || null,
+      };
     }
 
     async function runKubectl(args, { input, timeoutMs = 15000 } = {}) {
@@ -93,16 +147,22 @@ data:
         "-o", "json"
       ]);
       const parsed = JSON.parse(raw);
-      return parsed.items.map((item) => ({
-        kind: item.metadata.labels["agent-kind"],
-        name: item.metadata.name,
-        replicas: item.spec.replicas,
-        readyReplicas: item.status.readyReplicas ?? 0,
-        createdAt: item.metadata.creationTimestamp,
-        status: (item.status.readyReplicas ?? 0) > 0 ? "running"
-              : item.spec.replicas === 0 ? "paused"
-              : "pending"
-      }));
+      return parsed.items.map((item) => {
+        const session = {
+          kind: item.metadata.labels["agent-kind"],
+          name: item.metadata.name,
+          replicas: item.spec.replicas,
+          readyReplicas: item.status.readyReplicas ?? 0,
+          createdAt: item.metadata.creationTimestamp,
+          status: (item.status.readyReplicas ?? 0) > 0 ? "running"
+                : item.spec.replicas === 0 ? "paused"
+                : "pending"
+        };
+        return {
+          ...session,
+          activity: deriveSessionActivity(slug, session)
+        };
+      });
     }
 
     export async function getAgentSession(slug, kind) {
@@ -122,7 +182,7 @@ data:
           "-o", "json"
         ]);
         const pods = JSON.parse(podsRaw).items || [];
-        return {
+        const session = {
           kind,
           name,
           replicas: ss.spec.replicas,
@@ -138,9 +198,14 @@ data:
                 : ss.spec.replicas === 0 ? "paused"
                 : "pending"
         };
+        return {
+          ...session,
+          activity: deriveSessionActivity(slug, session)
+        };
       } catch (e) {
         if (e.message.includes("NotFound") || e.message.includes("not found")) {
-          return { kind, status: "idle", name: null, pods: [] };
+          const session = { kind, status: "idle", name: null, pods: [] };
+          return { ...session, activity: deriveSessionActivity(slug, session) };
         }
         throw e;
       }
@@ -291,9 +356,12 @@ data:
         if (!match) return;
         const [, slug, kind] = match;
 
+        // Validate slug and kind before kubectl exec
+        try { normKind(kind); } catch { socket.close(); return; }
+        if (!/^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/.test(slug)) { socket.close(); return; }
+
         const name = resourceName(slug, kind);
         const podName = `${name}-0`;  // StatefulSet pod 0
-    
         const shellCommand = 'WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"; cd "$WORKSPACE_DIR" 2>/dev/null || cd /workspace 2>/dev/null || cd "${HOME:-/tmp}"; if command -v bash >/dev/null 2>&1; then export SHELL="$(command -v bash)"; exec "$SHELL" -li; fi; if command -v sh >/dev/null 2>&1; then export SHELL="$(command -v sh)"; exec "$SHELL" -li; fi; echo "no interactive shell available in agent pod"; exit 127';
 
         // kubectl exec into the existing pod through a real PTY so kubectl -t works.
@@ -332,9 +400,11 @@ data:
           socket.send(JSON.stringify({ type: "data", data }));
         });
         kubectl.onExit(({ exitCode, signal }) => {
-          const detail = signal ? `terminal exited (${exitCode}, signal ${signal})` : `terminal exited (${exitCode})`;
-          socket.send(JSON.stringify({ type: "exit", data: detail }));
-          socket.close();
+          if (socket.readyState === 1) {  // WebSocket.OPEN = 1
+            const detail = signal ? `terminal exited (${exitCode}, signal ${signal})` : `terminal exited (${exitCode})`;
+            socket.send(JSON.stringify({ type: "exit", data: detail }));
+            socket.close();
+          }
         });
 
         socket.on("close", () => {
@@ -373,6 +443,20 @@ data:
     const BEAGLE_INTERNAL_URL =
       process.env.PROJECT_COCKPIT_BEAGLE_INTERNAL_URL ||
       "http://beagle-core.beagle.svc.cluster.local:8080";
+    const OPENROUTER_BASE_URL =
+      process.env.PROJECT_COCKPIT_OPENROUTER_BASE_URL ||
+      "https://openrouter.ai/api/v1";
+    const SUBSCRIPTION_BRIDGE_URL = cleanValue(
+      process.env.PROJECT_COCKPIT_SUBSCRIPTION_BRIDGE_URL ||
+      process.env.BEAGLE_SUBSCRIPTION_BRIDGE_URL
+    );
+    const SUBSCRIPTION_BRIDGE_TOKEN = cleanValue(
+      process.env.PROJECT_COCKPIT_SUBSCRIPTION_BRIDGE_TOKEN ||
+      process.env.BEAGLE_SUBSCRIPTION_BRIDGE_TOKEN
+    );
+    const DEFAULT_WORKSPACE_SUBSCRIPTION_HOME =
+      process.env.PROJECT_COCKPIT_WORKSPACE_SUBSCRIPTION_HOME ||
+      "/workspace/.home/openvscode-server";
     const DYNAMO_INTERNAL_URL =
       process.env.PROJECT_COCKPIT_DYNAMO_INTERNAL_URL ||
       process.env.PROJECT_COCKPIT_DYNAMO_ENDPOINT ||
@@ -381,6 +465,22 @@ data:
       process.env.PROJECT_COCKPIT_DYNAMO_MODEL ||
       process.env.BEAGLE_DYNAMO_MODEL ||
       "qwen2.5-0.5B-Instruct";
+    const DISCUSSION_LAB_INTERNAL_URL =
+      process.env.PROJECT_COCKPIT_DISCUSSION_LAB_INTERNAL_URL ||
+      process.env.PROJECT_COCKPIT_DISCUSSION_LAB_ENDPOINT ||
+      "http://discussion-lab-serving.beagle.svc.cluster.local:8000";
+    const DISCUSSION_LAB_MODEL =
+      process.env.PROJECT_COCKPIT_DISCUSSION_LAB_MODEL ||
+      process.env.BEAGLE_DISCUSSION_LAB_MODEL ||
+      "qwen2.5-3b-instruct";
+    const SGLANG_INTERNAL_URL =
+      process.env.PROJECT_COCKPIT_SGLANG_INTERNAL_URL ||
+      process.env.PROJECT_COCKPIT_SGLANG_ENDPOINT ||
+      "http://sglang-serving.beagle.svc.cluster.local:30000";
+    const SGLANG_MODEL =
+      process.env.PROJECT_COCKPIT_SGLANG_MODEL ||
+      process.env.BEAGLE_SGLANG_MODEL ||
+      DYNAMO_MODEL;
     const BEAGLE_ALLOWED_PROXY_PREFIXES = [
       "/api/v1/cognitive/",
       "/api/exocortex/process",
@@ -390,6 +490,9 @@ data:
 
     let tokenCache = null;
     let tokenCachedAt = 0;
+    let tokenFetchInFlight = null;
+    let secretCache = null;
+    let secretCachedAt = 0;
     let adapterTokenCache = null;
     let adapterTokenCachedAt = 0;
 
@@ -415,33 +518,86 @@ data:
         return { token: tokenCache, source: "cache", age_ms: now - tokenCachedAt };
       }
 
-      // Try a known set of token keys in the secret
-      const candidateKeys = ["BEAGLE_OPERATOR_API_TOKEN", "BEAGLE_API_TOKEN", "operator-token"];
-      let raw, secret;
-      try {
-        raw = await runKubectl(["-n", NAMESPACE, "get", "secret", SECRET_NAME, "-o", "json"]);
-        secret = JSON.parse(raw);
-      } catch (e) {
-        return { error: `cannot read secret ${SECRET_NAME}: ${e.message}` };
+      // Promise coalescing: avoid cache stampede from concurrent requests
+      if (tokenFetchInFlight) return tokenFetchInFlight;
+      tokenFetchInFlight = _fetchOperatorTokenImpl().finally(() => { tokenFetchInFlight = null; });
+      return tokenFetchInFlight;
+    }
+
+    async function _fetchOperatorTokenImpl() {
+      const secretResult = await fetchSecretValue([
+        "BEAGLE_OPERATOR_API_TOKEN",
+        "BEAGLE_API_TOKEN",
+        "operator-token"
+      ]);
+      if (secretResult.error) {
+        return { error: secretResult.error };
       }
 
-      const data = secret.data || {};
-      let foundKey, foundToken;
-      for (const k of candidateKeys) {
-        if (data[k]) {
-          foundKey = k;
-          foundToken = Buffer.from(data[k], "base64").toString("utf8");
-          break;
+      const foundToken = secretResult.value;
+      const foundKey = secretResult.key;
+
+      tokenCache = foundToken;
+      tokenCachedAt = Date.now();
+      return { token: foundToken, source: "fresh", key: foundKey };
+    }
+
+    async function fetchSecretData({
+      namespace = NAMESPACE,
+      secretName = SECRET_NAME,
+      useCache = true
+    } = {}) {
+      const now = Date.now();
+      const canUseSharedCache = namespace === NAMESPACE && secretName === SECRET_NAME;
+      if (useCache && canUseSharedCache && secretCache && (now - secretCachedAt) < TTL_MS) {
+        return { secret: secretCache, source: "cache", age_ms: now - secretCachedAt };
+      }
+
+      try {
+        const raw = await runKubectl(["-n", namespace, "get", "secret", secretName, "-o", "json"]);
+        const secret = JSON.parse(raw);
+        if (canUseSharedCache) {
+          secretCache = secret;
+          secretCachedAt = now;
+        }
+        return { secret, source: "fresh" };
+      } catch (e) {
+        return { error: `cannot read secret ${secretName}: ${e.message}` };
+      }
+    }
+
+    async function fetchSecretValue(candidateKeys = [], { namespace = NAMESPACE, secretName = SECRET_NAME } = {}) {
+      const secretResult = await fetchSecretData({ namespace, secretName, useCache: true });
+      if (secretResult.error) {
+        return { error: secretResult.error };
+      }
+
+      const data = secretResult.secret?.data || {};
+      for (const key of candidateKeys) {
+        if (data[key]) {
+          return {
+            key,
+            value: Buffer.from(data[key], "base64").toString("utf8"),
+            source: secretResult.source
+          };
         }
       }
 
-      if (!foundToken) {
-        return { error: `no token found in secret ${SECRET_NAME} (tried: ${candidateKeys.join(", ")})` };
-      }
+      return {
+        error: `no key found in secret ${secretName} (tried: ${candidateKeys.join(", ")})`
+      };
+    }
 
-      tokenCache = foundToken;
-      tokenCachedAt = now;
-      return { token: foundToken, source: "fresh", key: foundKey };
+    export async function fetchOpenRouterApiKey() {
+      const result = await fetchSecretValue(["OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY"]);
+      if (result.error) {
+        return { error: result.error };
+      }
+      return {
+        apiKey: result.value,
+        key: result.key,
+        source: result.source
+      };
     }
 
     export async function fetchDarwinHpcAdapterConfig() {
@@ -527,6 +683,17 @@ data:
       }
     }
 
+    function cleanValue(value) {
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed || "";
+      }
+      if (typeof value === "number" || typeof value === "boolean") {
+        return String(value).trim();
+      }
+      return "";
+    }
+
     function cleanString(value) {
       if (typeof value === "string") {
         const trimmed = value.trim();
@@ -557,6 +724,244 @@ data:
       return cleaned || fallback;
     }
 
+    function shellSingleQuote(value) {
+      return `'${String(value ?? "").replace(/'/g, `'\"'\"'`)}'`;
+    }
+
+    function encodeBase64Utf8(value) {
+      return Buffer.from(cleanString(value), "utf8").toString("base64");
+    }
+
+    function buildWorkspaceSubscriptionPrompt(system, prompt) {
+      const promptText = cleanString(prompt);
+      const systemText = cleanString(system);
+      if (!systemText) {
+        return promptText;
+      }
+      return [
+        "System guidance:",
+        systemText,
+        "",
+        "User message:",
+        promptText
+      ].join("\n");
+    }
+
+    function resolveWorkspaceSubscriptionTarget(catalog = {}, requestedSlug = "") {
+      const projects = Array.isArray(catalog?.projects) ? catalog.projects : [];
+      const normalizedRequested = cleanString(requestedSlug).toLowerCase();
+      const candidates = normalizedRequested
+        ? projects.filter(
+            (project) =>
+              cleanString(project?.projectSlug).toLowerCase() === normalizedRequested
+          )
+        : projects;
+
+      const withWorkspace = candidates.find(
+        (project) =>
+          cleanString(project?.workspacePod) &&
+          cleanString(project?.workspaceContainer) &&
+          cleanString(project?.workspaceRoot)
+      );
+      if (withWorkspace) {
+        return {
+          slug: cleanString(withWorkspace?.projectSlug),
+          namespace: cleanString(withWorkspace?.namespace) || NAMESPACE,
+          pod: cleanString(withWorkspace?.workspacePod),
+          container: cleanString(withWorkspace?.workspaceContainer),
+          workspaceRoot: cleanString(withWorkspace?.workspaceRoot),
+          workspaceHome:
+            cleanString(withWorkspace?.workspaceHome) || DEFAULT_WORKSPACE_SUBSCRIPTION_HOME
+        };
+      }
+
+      if (!normalizedRequested) {
+        return null;
+      }
+      return {
+        error: `project ${requestedSlug} does not expose a workspace subscription target`
+      };
+    }
+
+    function buildWorkspaceSubscriptionScript({ providerId, system, prompt, workspaceRoot, workspaceHome }) {
+      const requestB64 = encodeBase64Utf8(buildWorkspaceSubscriptionPrompt(system, prompt));
+      const rootQuoted = shellSingleQuote(workspaceRoot || "/workspace");
+      const homeQuoted = shellSingleQuote(workspaceHome || DEFAULT_WORKSPACE_SUBSCRIPTION_HOME);
+      const requestQuoted = shellSingleQuote(requestB64);
+      const promptBuild = [
+        `REQUEST_B64=${requestQuoted}`,
+        "REQUEST_TEXT=\"$(printf '%s' \"$REQUEST_B64\" | base64 -d)\""
+      ].join("\n");
+
+      if (providerId === "claude-code") {
+        return [
+          "set -eu",
+          `cd ${rootQuoted}`,
+          `export HOME=${homeQuoted}`,
+          "if [ -d /workspace/.home/openvscode-server ]; then export HOME=/workspace/.home/openvscode-server; fi",
+          promptBuild,
+          "unset ANTHROPIC_API_KEY",
+          "claude -p --output-format text \"$REQUEST_TEXT\""
+        ].join("\n");
+      }
+
+      if (providerId === "codex") {
+        return [
+          "set -eu",
+          `cd ${rootQuoted}`,
+          `export HOME=${homeQuoted}`,
+          "if [ -d /workspace/.home/openvscode-server ]; then export HOME=/workspace/.home/openvscode-server; fi",
+          promptBuild,
+          "unset OPENAI_API_KEY",
+          "TMP_LAST=\"$(mktemp)\"",
+          "trap 'rm -f \"$TMP_LAST\"' EXIT",
+          "codex exec --skip-git-repo-check --output-last-message \"$TMP_LAST\" \"$REQUEST_TEXT\" >/dev/null",
+          "cat \"$TMP_LAST\""
+        ].join("\n");
+      }
+
+      return "";
+    }
+
+    async function proxyWorkspaceSubscriptionCompletion({
+      prompt,
+      system = "",
+      provider = "",
+      projectSlug = "",
+      readCatalog = null
+    }) {
+      const providerId = normalizeSubscriptionBridgeProvider(provider);
+      if (!providerId) {
+        return {
+          status: 400,
+          payload: {
+            error: `unknown workspace subscription provider: ${provider}`,
+            truthMode: "declared",
+            source: "workspace-subscription"
+          }
+        };
+      }
+
+      if (typeof readCatalog !== "function") {
+        return null;
+      }
+
+      let catalog = null;
+      try {
+        catalog = await readCatalog();
+      } catch (err) {
+        return {
+          status: 503,
+          payload: {
+            error: `cannot read project catalog: ${err.message}`,
+            truthMode: "stale",
+            source: "workspace-subscription"
+          }
+        };
+      }
+
+      const target =
+        resolveWorkspaceSubscriptionTarget(catalog, projectSlug) ||
+        resolveWorkspaceSubscriptionTarget(catalog, "sounio");
+      if (!target) {
+        return {
+          status: 503,
+          payload: {
+            error: "workspace subscription target unavailable",
+            truthMode: "stale",
+            source: "workspace-subscription"
+          }
+        };
+      }
+      if (target.error) {
+        return {
+          status: 409,
+          payload: {
+            error: target.error,
+            truthMode: "declared",
+            source: "workspace-subscription"
+          }
+        };
+      }
+
+      const promptText = cleanString(prompt);
+      if (!promptText) {
+        return {
+          status: 400,
+          payload: {
+            error: "prompt is required",
+            truthMode: "declared",
+            source: "workspace-subscription"
+          }
+        };
+      }
+
+      const script = buildWorkspaceSubscriptionScript({
+        providerId,
+        system,
+        prompt: promptText,
+        workspaceRoot: target.workspaceRoot,
+        workspaceHome: target.workspaceHome
+      });
+      if (!script) {
+        return {
+          status: 400,
+          payload: {
+            error: `workspace subscription provider not implemented: ${providerId}`,
+            truthMode: "declared",
+            source: "workspace-subscription"
+          }
+        };
+      }
+
+      try {
+        const stdout = await runKubectl(
+          [
+            "-n",
+            target.namespace,
+            "exec",
+            target.pod,
+            "-c",
+            target.container,
+            "--",
+            "sh",
+            "-lc",
+            script
+          ],
+          { timeoutMs: 240000 }
+        );
+        const responseText = cleanString(stdout);
+        return {
+          status: responseText ? 200 : 503,
+          payload: {
+            text: responseText,
+            response: responseText,
+            provider: providerId,
+            tier: providerId,
+            source: "workspace-subscription",
+            truthMode: responseText ? "observed" : "stale",
+            applied_discussion_profile: providerId,
+            agentKind: providerId,
+            podName: target.pod,
+            sessionId: `${target.slug || "workspace"}:${providerId}`,
+            workspaceRoot: target.workspaceRoot
+          }
+        };
+      } catch (err) {
+        return {
+          status: 503,
+          payload: {
+            error: err.message,
+            truthMode: "stale",
+            source: "workspace-subscription",
+            applied_discussion_profile: providerId,
+            podName: target.pod,
+            sessionId: `${target.slug || "workspace"}:${providerId}`
+          }
+        };
+      }
+    }
+
     function extractDiscussionLabText(payload = {}) {
       const direct =
         cleanString(payload?.text) ||
@@ -569,6 +974,24 @@ data:
       const firstChoice = choices[0] || {};
       return (
         cleanString(firstChoice?.message?.content) ||
+        cleanString(firstChoice?.delta?.content) ||
+        cleanString(firstChoice?.text)
+      );
+    }
+
+    function extractOpenRouterText(payload = {}) {
+      const direct =
+        cleanString(payload?.text) ||
+        cleanString(payload?.response) ||
+        cleanString(payload?.answer);
+      if (direct) {
+        return direct;
+      }
+      const choices = Array.isArray(payload?.choices) ? payload.choices : [];
+      const firstChoice = choices[0] || {};
+      return (
+        cleanString(firstChoice?.message?.content) ||
+        cleanString(firstChoice?.message?.reasoning) ||
         cleanString(firstChoice?.delta?.content) ||
         cleanString(firstChoice?.text)
       );
@@ -705,48 +1128,207 @@ data:
       }
       messages.push({ role: "user", content: promptText });
 
+      const candidates = [
+        { label: "dynamo", endpoint: DYNAMO_INTERNAL_URL, model: DYNAMO_MODEL },
+        {
+          label: "discussion-lab",
+          endpoint: DISCUSSION_LAB_INTERNAL_URL,
+          model: DISCUSSION_LAB_MODEL
+        },
+        { label: "sglang", endpoint: SGLANG_INTERNAL_URL, model: SGLANG_MODEL }
+      ];
+      let lastFailure = null;
+
+      for (const candidate of candidates) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 120000);
+        try {
+          const res = await fetch(`${candidate.endpoint}/v1/chat/completions`, {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "content-type": "application/json"
+            },
+            body: JSON.stringify({
+              model: candidate.model,
+              messages,
+              temperature: 0.2
+            }),
+            signal: ctrl.signal
+          });
+
+          const payload = parseJsonResponse(await res.text());
+          const responseText = cleanString(
+            payload?.choices?.[0]?.message?.content ||
+              payload?.choices?.[0]?.text ||
+              payload?.output_text ||
+              payload?.text ||
+              payload?.response
+          );
+          const completionResult = {
+            status: res.status,
+            payload: {
+              text: responseText,
+              response: responseText,
+              provider: cleanString(payload?.model || candidate.model || candidate.label),
+              tier: cleanString(payload?.model || candidate.model || candidate.label),
+              source: inferCompletionSource(payload),
+              agentKind: cleanString(payload?.agentKind || payload?.agent_kind),
+              sessionId: cleanString(payload?.sessionId || payload?.session_id),
+              podName: cleanString(payload?.podName || payload?.pod_name),
+              usage: payload?.usage || {},
+              truthMode: res.ok && responseText ? "observed" : "stale",
+              raw: payload
+            },
+            completionPrompt,
+            beagleUrl: candidate.endpoint
+          };
+
+          if (res.ok && responseText) {
+            return completionResult;
+          }
+          lastFailure = {
+            ...completionResult,
+            payload: {
+              ...completionResult.payload,
+              error:
+                cleanString(payload?.error || payload?.message) ||
+                `completion backend ${candidate.label} returned HTTP ${res.status}`,
+              via: `cockpit-beagle-completion:${candidate.label}`
+            }
+          };
+        } catch (err) {
+          lastFailure = {
+            status: 503,
+            payload: {
+              error: err.message,
+              truthMode: "stale",
+              via: `cockpit-beagle-completion:${candidate.label}`,
+              beagle_url: candidate.endpoint
+            },
+            completionPrompt,
+            beagleUrl: candidate.endpoint
+          };
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      return lastFailure || {
+        status: 503,
+        payload: {
+          error: "no completion backend available",
+          truthMode: "stale",
+          via: "cockpit-beagle-completion"
+        },
+        completionPrompt,
+        beagleUrl: DYNAMO_INTERNAL_URL
+      };
+    }
+
+    function normalizeCheapBridgeProvider(provider) {
+      const normalized = cleanString(provider).toLowerCase();
+      if (!normalized) {
+        return "";
+      }
+      if (["grok", "grok_fast", "grok-fast"].includes(normalized)) {
+        return "grok_fast";
+      }
+      if (["kimi", "kimi_k2", "kimi-k2", "moonshot"].includes(normalized)) {
+        return "kimi";
+      }
+      return "";
+    }
+
+    export async function proxyCheapProviderCompletion({
+      prompt,
+      system = "",
+      provider = "",
+      taskType = "chat_completion"
+    }) {
+      const providerId = normalizeCheapBridgeProvider(provider);
+      if (!providerId) {
+        return {
+          status: 400,
+          payload: {
+            error: `unknown cheap provider: ${provider}`,
+            truthMode: "declared",
+            source: "cluster"
+          }
+        };
+      }
+
+      if (providerId === "kimi") {
+        return proxyOpenRouterCompletion({
+          prompt,
+          system,
+          model: "moonshotai/kimi-k2.6",
+          appliedDiscussionProfile: "kimi"
+        });
+      }
+
+      const tokenResult = await fetchOperatorToken();
+      if (tokenResult.error || !tokenResult.token) {
+        return {
+          status: 503,
+          payload: {
+            error: tokenResult.error || "beagle token unavailable",
+            truthMode: "stale",
+            source: "cluster"
+          }
+        };
+      }
+
+      const promptText = cleanString(prompt);
+      const systemText = cleanString(system);
+      const input = systemText ? `${systemText}\n\n${promptText}` : promptText;
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 120000);
       try {
-        const res = await fetch(`${DYNAMO_INTERNAL_URL}/v1/chat/completions`, {
+        const requestId = `mobile-${providerId}-${Date.now()}`;
+        const res = await fetch(`${BEAGLE_INTERNAL_URL}/api/darwin/bridge/execute`, {
           method: "POST",
           headers: {
             Accept: "application/json",
-            "content-type": "application/json"
+            "content-type": "application/json",
+            "X-Beagle-Consumer": "beagle-operator",
+            Authorization: `Bearer ${tokenResult.token}`
           },
           body: JSON.stringify({
-            model: DYNAMO_MODEL,
-            messages,
-            temperature: 0.2
+            request_id: requestId,
+            bridge_kind: "cheap_api",
+            bridge_mode: "api_optional",
+            provider: providerId,
+            task_type: taskType,
+            payload: {
+              input
+            },
+            metadata: {
+              source: "project-cockpit-mobile-chat"
+            }
           }),
           signal: ctrl.signal
         });
-
         const payload = parseJsonResponse(await res.text());
-        const responseText = cleanString(
-          payload?.choices?.[0]?.message?.content ||
-            payload?.choices?.[0]?.text ||
-            payload?.output_text ||
-            payload?.text ||
-            payload?.response
-        );
+        const responseText = cleanString(payload?.output?.text || payload?.text || payload?.response);
+        const errorText = cleanString(payload?.error || payload?.message);
+        const statusText = cleanString(payload?.status).toLowerCase();
+        const ok = res.ok && statusText === "success" && responseText;
         return {
-          status: res.status,
+          status: ok ? 200 : res.ok ? 503 : res.status,
           payload: {
             text: responseText,
             response: responseText,
-            provider: cleanString(payload?.model || DYNAMO_MODEL || "dynamo"),
-            tier: cleanString(payload?.model || DYNAMO_MODEL || "dynamo"),
-            source: inferCompletionSource(payload),
-            agentKind: cleanString(payload?.agentKind || payload?.agent_kind),
-            sessionId: cleanString(payload?.sessionId || payload?.session_id),
-            podName: cleanString(payload?.podName || payload?.pod_name),
-            usage: payload?.usage || {},
-            truthMode: "observed",
-            raw: payload
-          },
-          completionPrompt,
-          beagleUrl: DYNAMO_INTERNAL_URL
+            provider: cleanObjectString(payload?.model, providerId),
+            tier: providerId,
+            source: "cluster",
+            usage: payload?.token_usage || null,
+            truthMode: ok ? "observed" : "stale",
+            beagle_url: `${BEAGLE_INTERNAL_URL}/api/darwin/bridge/execute`,
+            error:
+              errorText ||
+              (statusText && statusText !== "success" ? `bridge returned ${statusText}` : ""),
+            applied_discussion_profile: providerId === "grok_fast" ? "grok" : "kimi"
+          }
         };
       } catch (err) {
         return {
@@ -754,11 +1336,277 @@ data:
           payload: {
             error: err.message,
             truthMode: "stale",
-            via: "cockpit-beagle-completion",
-            beagle_url: DYNAMO_INTERNAL_URL
-          },
-          completionPrompt,
-          beagleUrl: DYNAMO_INTERNAL_URL
+            source: "cluster",
+            beagle_url: `${BEAGLE_INTERNAL_URL}/api/darwin/bridge/execute`
+          }
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function normalizeSubscriptionBridgeProvider(provider) {
+      const normalized = cleanString(provider).toLowerCase();
+      if (!normalized) {
+        return "";
+      }
+      if (["claude", "claude-code", "claudecode", "claude_max", "claude-max"].includes(normalized)) {
+        return "claude-code";
+      }
+      if (["codex", "codex-chat", "codex-pro", "chatgpt-pro"].includes(normalized)) {
+        return "codex";
+      }
+      return "";
+    }
+
+    export async function proxySubscriptionBridgeCompletion({
+      prompt,
+      system = "",
+      provider = "",
+      projectSlug = "",
+      projectFamily = "",
+      publicationScope = "",
+      readCatalog = null
+    }) {
+      const providerId = normalizeSubscriptionBridgeProvider(provider);
+      if (!providerId) {
+        return {
+          status: 400,
+          payload: {
+            error: `unknown subscription bridge provider: ${provider}`,
+            truthMode: "declared",
+            source: "subscription-bridge"
+          }
+        };
+      }
+
+      const workspaceResult = await proxyWorkspaceSubscriptionCompletion({
+        prompt,
+        system,
+        provider: providerId,
+        projectSlug,
+        readCatalog
+      });
+      if (workspaceResult) {
+        return workspaceResult;
+      }
+
+      if (!SUBSCRIPTION_BRIDGE_URL) {
+        return {
+          status: 503,
+          payload: {
+            error: "subscription bridge not configured",
+            truthMode: "stale",
+            source: "subscription-bridge"
+          }
+        };
+      }
+
+      const promptText = cleanString(prompt);
+      const systemText = cleanString(system);
+      if (!promptText) {
+        return {
+          status: 400,
+          payload: {
+            error: "prompt is required",
+            truthMode: "declared",
+            source: "subscription-bridge"
+          }
+        };
+      }
+
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 180000);
+      try {
+        const headers = {
+          Accept: "application/json",
+          "content-type": "application/json"
+        };
+        if (SUBSCRIPTION_BRIDGE_TOKEN) {
+          headers.Authorization = `Bearer ${SUBSCRIPTION_BRIDGE_TOKEN}`;
+        }
+        const res = await fetch(`${SUBSCRIPTION_BRIDGE_URL.replace(/\/$/, "")}/v1/chat`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            provider: providerId,
+            prompt: promptText,
+            system: systemText,
+            project_slug: cleanString(projectSlug),
+            project_family: cleanString(projectFamily),
+            publication_scope: cleanString(publicationScope)
+          }),
+          signal: ctrl.signal
+        });
+        const payload = parseJsonResponse(await res.text());
+        const responseText = cleanString(payload?.response || payload?.text || payload?.answer);
+        const errorText =
+          cleanString(payload?.error?.message) ||
+          cleanString(payload?.error) ||
+          cleanString(payload?.message);
+        const ok = res.ok && responseText;
+        return {
+          status: ok ? 200 : res.status || 503,
+          payload: {
+            text: responseText,
+            response: responseText,
+            provider: cleanObjectString(payload?.model || payload?.provider, providerId),
+            tier: providerId,
+            source: "subscription-bridge",
+            usage: payload?.usage || null,
+            truthMode: ok ? "observed" : "stale",
+            bridge_url: SUBSCRIPTION_BRIDGE_URL,
+            error: errorText,
+            applied_discussion_profile: providerId,
+            agentKind: cleanString(payload?.agentKind || payload?.agent_kind || providerId),
+            sessionId: cleanString(payload?.sessionId || payload?.session_id),
+            podName: cleanString(payload?.podName || payload?.pod_name)
+          }
+        };
+      } catch (err) {
+        return {
+          status: 503,
+          payload: {
+            error: err.message,
+            truthMode: "stale",
+            source: "subscription-bridge",
+            bridge_url: SUBSCRIPTION_BRIDGE_URL
+          }
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    export async function proxyOpenRouterCompletion({
+      prompt,
+      system = "",
+      model = "moonshotai/kimi-k2.6",
+      appliedDiscussionProfile = "kimi"
+    }) {
+      const keyResult = await fetchOpenRouterApiKey();
+      if (keyResult.error || !keyResult.apiKey) {
+        return {
+          status: 503,
+          payload: {
+            error: keyResult.error || "openrouter api key unavailable",
+            truthMode: "stale",
+            source: "cluster"
+          }
+        };
+      }
+
+      const promptText = cleanString(prompt);
+      const systemText = cleanString(system);
+      if (!promptText) {
+        return {
+          status: 400,
+          payload: {
+            error: "prompt is required",
+            truthMode: "declared",
+            source: "cluster"
+          }
+        };
+      }
+
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 120000);
+      try {
+        const modelCandidates = Array.from(new Set([
+          model,
+          "moonshotai/kimi-k2.5",
+          "moonshotai/kimi-k2",
+          "moonshotai/kimi-k2-0905"
+        ]));
+        let lastFailure = null;
+
+        for (const candidateModel of modelCandidates) {
+          const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "content-type": "application/json",
+              Authorization: `Bearer ${keyResult.apiKey}`
+            },
+            body: JSON.stringify({
+              model: candidateModel,
+              temperature: 0.2,
+              max_tokens: 512,
+              provider: {
+                allow_fallbacks: false
+              },
+              messages: [
+                ...(systemText ? [{ role: "system", content: systemText }] : []),
+                { role: "user", content: promptText }
+              ]
+            }),
+            signal: ctrl.signal
+          });
+          const payload = parseJsonResponse(await res.text());
+          const responseText = extractOpenRouterText(payload);
+          const errorText =
+            cleanString(payload?.error?.message) ||
+            cleanString(payload?.error) ||
+            cleanString(payload?.message);
+          const usage = payload?.usage
+            ? {
+                input_tokens: Number(payload.usage.prompt_tokens) || 0,
+                output_tokens: Number(payload.usage.completion_tokens) || 0,
+                total_tokens: Number(payload.usage.total_tokens) || 0
+              }
+            : null;
+          if (res.ok && responseText) {
+            return {
+              status: 200,
+              payload: {
+                text: responseText,
+                response: responseText,
+                provider: cleanObjectString(payload?.model, candidateModel),
+                tier: "kimi",
+                source: "cluster",
+                usage,
+                truthMode: "observed",
+                beagle_url: `${OPENROUTER_BASE_URL}/chat/completions`,
+                error: "",
+                applied_discussion_profile: appliedDiscussionProfile
+              }
+            };
+          }
+          lastFailure = {
+            status: res.status,
+            error: errorText || `openrouter returned ${res.status}`,
+            provider: cleanObjectString(payload?.model, candidateModel),
+            usage
+          };
+          if (![402, 429, 503].includes(res.status)) {
+            break;
+          }
+        }
+
+        return {
+          status: lastFailure?.status || 503,
+          payload: {
+            text: "",
+            response: "",
+            provider: cleanObjectString(lastFailure?.provider, model),
+            tier: "kimi",
+            source: "cluster",
+            usage: lastFailure?.usage || null,
+            truthMode: "stale",
+            beagle_url: `${OPENROUTER_BASE_URL}/chat/completions`,
+            error: lastFailure?.error || "openrouter completion failed",
+            applied_discussion_profile: appliedDiscussionProfile
+          }
+        };
+      } catch (err) {
+        return {
+          status: 503,
+          payload: {
+            error: err.message,
+            truthMode: "stale",
+            source: "cluster",
+            beagle_url: `${OPENROUTER_BASE_URL}/chat/completions`
+          }
         };
       } finally {
         clearTimeout(timer);
@@ -906,7 +1754,6 @@ data:
           consumer_header_name: "X-Beagle-Consumer",
           consumer_header_value: "beagle-operator",
           beagle_url: BEAGLE_PUBLIC_URL,
-          cluster_internal_url: BEAGLE_INTERNAL_URL,
           cached: result.source === "cache",
           cache_ttl_ms: TTL_MS,
           caller,
@@ -919,7 +1766,6 @@ data:
       app.get("/api/auth/beagle-discover", async (_req, res) => {
         res.json({
           beagle_url: BEAGLE_PUBLIC_URL,
-          cluster_internal_url: BEAGLE_INTERNAL_URL,
           auth: {
             consumer_header: "X-Beagle-Consumer",
             consumer_values: ["beagle-operator", "darwin-research"],
@@ -990,13 +1836,13 @@ data:
     // {ok, data, error, meta} envelope. The envelope is opt-in per-route so
     // existing routes continue to work; new mutations use it for safety.
     //
-    
+
     import { randomUUID } from "node:crypto";
-    
+
     // ─── Error codes ───────────────────────────────────────────────────────
     // Retryable: caller can re-attempt with exponential backoff.
     // Non-retryable: caller should surface to user, no automatic retry.
-    
+
     export const ErrorCode = Object.freeze({
       // Retryable
       CLUSTER_UNREACHABLE:  { code: "CLUSTER_UNREACHABLE",  retryable: true,  http: 503 },
@@ -1004,7 +1850,7 @@ data:
       RATE_LIMIT:           { code: "RATE_LIMIT",           retryable: true,  http: 429 },
       TIMEOUT:              { code: "TIMEOUT",              retryable: true,  http: 504 },
       INTERNAL:             { code: "INTERNAL",             retryable: true,  http: 500 },
-    
+
       // Non-retryable
       BAD_REQUEST:          { code: "BAD_REQUEST",          retryable: false, http: 400 },
       UNAUTHORIZED:         { code: "UNAUTHORIZED",         retryable: false, http: 401 },
@@ -1013,7 +1859,7 @@ data:
       HABITAT_BUSY:         { code: "HABITAT_BUSY",         retryable: false, http: 409 },
       CONFLICT:             { code: "CONFLICT",             retryable: false, http: 409 },
     });
-    
+
     /**
      * Build a contract error object.
      * @param {{code, retryable, http}} def — from ErrorCode
@@ -1027,7 +1873,7 @@ data:
         ...extra,
       };
     }
-    
+
     // ─── Envelope ──────────────────────────────────────────────────────────
     //
     // Standard response shape:
@@ -1035,7 +1881,7 @@ data:
     //
     // Legacy routes continue to return their existing payload; new routes use
     // envelopeOk/envelopeErr to emit the contracted shape.
-    
+
     export function envelopeOk(data, meta = {}) {
       const defaultMeta = {
         truthMode: "observed",
@@ -1044,7 +1890,7 @@ data:
       };
       return { ok: true, data, error: null, meta: defaultMeta };
     }
-    
+
     export function envelopeErr(def, message, meta = {}) {
       return {
         ok: false,
@@ -1057,7 +1903,7 @@ data:
         },
       };
     }
-    
+
     /**
      * Wrap an async handler to produce a contract envelope and measure latency.
      * Usage:
@@ -1070,7 +1916,7 @@ data:
         try {
           const result = await handler(req);
           const latency = Date.now() - started;
-    
+
           if (result && result.__envelope === "err") {
             const env = envelopeErr(result.errorDef || ErrorCode.INTERNAL, result.message, {
               ...result.meta,
@@ -1080,7 +1926,7 @@ data:
             res.status(result.errorDef?.http || 500).json(env);
             return;
           }
-    
+
           const env = envelopeOk(result?.data ?? result, {
             ...result?.meta,
             latency_ms: latency,
@@ -1098,7 +1944,7 @@ data:
         }
       };
     }
-    
+
     /**
      * Helper to signal errors from inside a handler.
      * Usage:
@@ -1109,7 +1955,7 @@ data:
       err.code = errorDef.code;
       return err;
     }
-    
+
     // ─── Request-ID idempotency middleware ────────────────────────────────
     //
     // Clients send X-Request-ID on mutations. If the same request_id hits
@@ -1118,11 +1964,11 @@ data:
     //
     // Usage:
     //   app.post("/mutate", idempotent({ ttlMs: 60_000 }), handler);
-    
+
     const idempotencyStore = new Map();  // request_id → { at, response, statusCode }
     const IDEMPOTENCY_TTL_MS_DEFAULT = 60_000;
     const IDEMPOTENCY_MAX_ENTRIES = 2000;
-    
+
     function evictOld() {
       const now = Date.now();
       for (const [k, v] of idempotencyStore) {
@@ -1136,12 +1982,12 @@ data:
         }
       }
     }
-    
+
     export function idempotent({ ttlMs = IDEMPOTENCY_TTL_MS_DEFAULT, requireHeader = false } = {}) {
       return (req, res, next) => {
         evictOld();
         const rid = req.header("X-Request-ID") || req.header("x-request-id");
-    
+
         if (!rid) {
           if (requireHeader) {
             res.status(400).json(envelopeErr(
@@ -1154,9 +2000,9 @@ data:
           req.requestId = randomUUID();
           return next();
         }
-    
+
         req.requestId = rid;
-    
+
         // Replay if we've seen this request_id recently
         const cached = idempotencyStore.get(rid);
         if (cached && Date.now() - cached.at < cached.ttl) {
@@ -1164,7 +2010,7 @@ data:
           res.status(cached.statusCode).json(cached.response);
           return;
         }
-    
+
         // Intercept res.json to cache the response
         const origJson = res.json.bind(res);
         res.json = (body) => {
@@ -1176,18 +2022,18 @@ data:
           });
           return origJson(body);
         };
-    
+
         next();
       };
     }
-    
+
     // ─── MCP Manifest ──────────────────────────────────────────────────────
     //
     // Machine-readable description of all agent-facing endpoints.
     // Published at /api/mcp/manifest.yaml and /api/mcp/manifest.json.
     // Any MCP-compatible client (Claude Desktop, Cursor, ChatGPT Apps,
     // custom agents) can discover our tools without running our stdio server.
-    
+
     export const cockpitManifest = {
       mcp_version: "1.0",
       agent: "beagle-cockpit",
@@ -1526,7 +2372,7 @@ data:
         }
       }
     };
-    
+
     // Minimal YAML serializer for our manifest (avoid pulling js-yaml dependency).
     // Handles strings, numbers, booleans, arrays, plain objects, nulls.
     // Not a full YAML spec — enough for our well-known schema.
@@ -1557,7 +2403,7 @@ data:
       }
       return String(value);
     }
-    
+
     function toYamlInline(value, indent) {
       if (value === null || value === undefined) return "null";
       if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
@@ -1568,15 +2414,15 @@ data:
       }
       return String(value);
     }
-    
+
     export function manifestYaml() {
       return toYaml(cockpitManifest);
     }
-    
+
     export function manifestJson() {
       return cockpitManifest;
     }
-    
+
     /**
      * Register manifest endpoints on an Express app.
      */
@@ -1584,11 +2430,11 @@ data:
       app.get("/api/mcp/manifest.json", (_req, res) => {
         res.json(cockpitManifest);
       });
-    
+
       app.get("/api/mcp/manifest.yaml", (_req, res) => {
         res.type("text/yaml").send(manifestYaml());
       });
-    
+
       // Convenience: `/api/mcp` redirects to the JSON form for discovery tools
       app.get("/api/mcp", (_req, res) => {
         res.json({
@@ -1617,6 +2463,10 @@ data:
       registerAgentRoutes,
       registerAgentWebSocket as attachAgentWebSocket,
     } from "./agent-routes.mjs";
+    import {
+      registerWorkspaceRoutes,
+      registerWorkspaceWebSocket as attachWorkspaceWebSocket,
+    } from "./workspace-routes.mjs";
     import { registerScratchpadRoutes } from "./scratchpad-routes.mjs";
     import { registerJobRoutes } from "./job-routes.mjs";
     import { registerQueueRoutes } from "./queue-routes.mjs";
@@ -2016,8 +2866,7 @@ data:
         return args;
       }
 
-      const token = readFileSync(serviceAccountTokenPath, "utf8").trim();
-      if (!token) {
+      if (!inClusterToken) {
         return args;
       }
 
@@ -2025,7 +2874,7 @@ data:
         "--server",
         inClusterServer,
         "--token",
-        token,
+        inClusterToken,
         "--certificate-authority",
         serviceAccountCaPath,
         "--request-timeout",
@@ -11819,6 +12668,33 @@ data:
     });
     app.use(express.json());
 
+    // ─── Security middleware ────────────────────────────────────────────
+
+    const COCKPIT_AUTH_TOKEN = cleanValue(process.env.PROJECT_COCKPIT_AUTH_TOKEN);
+
+    // Slug validation: reject any :slug param that isn't a safe k8s label value.
+    const VALID_SLUG = /^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/;
+    app.param("slug", (req, res, next, slug) => {
+      if (!VALID_SLUG.test(slug)) {
+        return res.status(400).json({ error: "invalid project slug", truthMode: "stale" });
+      }
+      next();
+    });
+
+    // Auth gate: skip health probes + OPTIONS; require token on everything else.
+    app.use((req, res, next) => {
+      const p = req.path;
+      if (p === "/livez" || p === "/healthz" || req.method === "OPTIONS") return next();
+      if (!COCKPIT_AUTH_TOKEN) return next(); // no token configured = open (dev mode)
+      const bearer = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+      const headerToken = req.headers["x-cockpit-token"] || "";
+      if (bearer === COCKPIT_AUTH_TOKEN || headerToken === COCKPIT_AUTH_TOKEN) return next();
+      // Allow Tailscale-authenticated requests (operator sidecar sets this header)
+      const tsUser = req.headers["tailscale-user-login"];
+      if (tsUser) return next();
+      return res.status(401).json({ error: "unauthorized", truthMode: "stale" });
+    });
+
     app.get("/livez", (_req, res) => {
       res.json({ ok: true });
     });
@@ -13023,6 +13899,12 @@ data:
     // ─── Agent routes (persistent agent pods — Claude Code, Codex, etc.) ────
     registerAgentRoutes(app);
 
+    // ─── Notebook terminal workspace routes — Sounio Workbench v1 ──────────
+    registerWorkspaceRoutes(app, {
+      getProjectOrThrow,
+      readCatalog: loadCatalog,
+    });
+
     // ─── Agent scratchpad — shared notepad between agent + iOS ──────────────
     registerScratchpadRoutes(app);
 
@@ -13052,16 +13934,43 @@ data:
     // Both WSS use noServer: true and we route via a single upgrade handler.
     const wss = new WebSocketServer({ noServer: true });
     const agentWss = new WebSocketServer({ noServer: true });
+    const workspaceWss = new WebSocketServer({ noServer: true });
     attachAgentWebSocket(agentWss);
+    attachWorkspaceWebSocket(workspaceWss, { getProjectOrThrow });
 
     server.on("upgrade", (req, socket, head) => {
+      // Auth check for WebSocket upgrades
+      if (COCKPIT_AUTH_TOKEN) {
+        const wsUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+        const token = wsUrl.searchParams.get("token") || "";
+        const tsUser = req.headers["tailscale-user-login"];
+        if (token !== COCKPIT_AUTH_TOKEN && !tsUser) {
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+      }
+
       const urlPath = (req.url || "").split("?")[0];
       if (urlPath === "/ws/terminal") {
         wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
         return;
       }
-      if (/^\/ws\/projects\/[^/]+\/agent\/[^/]+$/.test(urlPath)) {
+      const agentMatch = urlPath.match(/^\/ws\/projects\/([^/]+)\/agent\/([^/]+)$/);
+      if (agentMatch) {
+        const [, wsSlug, wsKind] = agentMatch;
+        // Validate slug and kind before proceeding
+        if (!VALID_SLUG.test(wsSlug)) { socket.destroy(); return; }
+        const validKinds = ["claude-code", "codex", "local-sglang", "custom"];
+        if (!validKinds.includes(wsKind)) { socket.destroy(); return; }
         agentWss.handleUpgrade(req, socket, head, (ws) => agentWss.emit("connection", ws, req));
+        return;
+      }
+      const workspaceMatch = urlPath.match(/^\/ws\/workspaces\/([^/]+)\/sessions\/([^/]+)\/panes\/([^/]+)$/);
+      if (workspaceMatch) {
+        const [, wsSlug] = workspaceMatch;
+        if (!VALID_SLUG.test(wsSlug)) { socket.destroy(); return; }
+        workspaceWss.handleUpgrade(req, socket, head, (ws) => workspaceWss.emit("connection", ws, req));
         return;
       }
       socket.destroy();
@@ -13173,99 +14082,33 @@ data:
       }, memoryWarmIntervalMs).unref();
     });
   job-presets.mjs: |
-    // job-presets.mjs
+    // Job preset helpers.
     //
-    // Named job templates so agents don't have to hand-assemble image + command +
-    // mounts every time. `cockpit_submit_job` accepts a `preset` param; the
-    // preset's fields are deep-merged under the caller's body (caller wins on
-    // conflict). Each preset stamps `labels["sounio.dev/preset"]` so the
-    // reconciler can render a clean kind label into cognitive state.
+    // Presets are optional sugar over the explicit job submission payload. The
+    // server must stay bootable even when no preset catalog is configured, so this
+    // module deliberately defaults to an empty catalog and returns the caller's
+    // payload unchanged.
 
-    // The active workspace PVC is RWO/RWOP (ceph-rbd-ssd-rwop), attached to
-    // the sounio-workspace-habitat StatefulSet — it can't be mounted by a
-    // second pod. Presets therefore clone the sounio repo from GitHub into an
-    // emptyDir at runtime. The runner image ships git + bash; for presets that
-    // need the `souc` compiler, bake it into a fatter image as a follow-up.
-
-    const IMAGE = () =>
-      process.env.PROJECT_COCKPIT_SOUNIO_RUNNER_IMAGE || "ttl.sh/beagle-sounio:latest";
-    const REPO = process.env.PROJECT_COCKPIT_SOUNIO_REPO
-      || "https://github.com/sounio-lang/sounio.git";
-    const BRANCH = process.env.PROJECT_COCKPIT_SOUNIO_BRANCH
-      || "integration/sounio-dev-ready-base";
-
-    export const JOB_PRESETS = {
-      // Smoke preset — actually exercises the baked-in souc compiler on a
-      // bundled example. Closes the full agent → cockpit → K8s → beagle →
-      // cognitive state loop with a real compiler invocation.
-      "sounio-compile-example": {
-        image: IMAGE(),
-        command: [
-          "bash",
-          "-lc",
-          `set -euo pipefail; souc info | head -3; souc check /opt/sounio/examples/hello.sio && echo "souc-check-ok"`
-        ],
-        resources: { cpu: "1", memory: "2Gi", gpu: 0 },
-        data_mounts: ["work-tmp"],
-        timeout_seconds: 180,
-        campaign: "sounio-smoke"
-      },
-
-      // Full test suite — runs against the baked sounio tree at /opt/sounio.
-      // Scripts are relative to that root, SOUC_BIN points at the wrapper.
-      "sounio-test-suite": {
-        image: IMAGE(),
-        command: [
-          "bash",
-          "-lc",
-          `set -euo pipefail; cd /opt/sounio && export SOUC_BIN=/opt/sounio/bin/souc && bash scripts/run_sio_test_suite.sh`
-        ],
-        resources: { cpu: "2", memory: "4Gi", gpu: 0 },
-        data_mounts: ["work-tmp"],
-        timeout_seconds: 900,
-        campaign: "sounio-ci"
-      },
-
-      // Stdlib hyper-execution gate — same pattern, longer budget.
-      "sounio-stdlib-gate": {
-        image: IMAGE(),
-        command: [
-          "bash",
-          "-lc",
-          `set -euo pipefail; cd /opt/sounio && export SOUC_BIN=/opt/sounio/bin/souc && bash scripts/stdlib_hyper_execution_gate.sh`
-        ],
-        resources: { cpu: "4", memory: "8Gi", gpu: 0 },
-        data_mounts: ["work-tmp"],
-        timeout_seconds: 1800,
-        campaign: "sounio-ci"
-      }
-    };
-
-    export function applyPreset(presetName, body) {
-      if (!presetName) return body;
-      const preset = JOB_PRESETS[presetName];
-      if (!preset) {
-        const err = new Error(
-          `unknown preset "${presetName}". Available: ${Object.keys(JOB_PRESETS).join(", ")}`
-        );
-        err.statusCode = 400;
-        throw err;
-      }
-      // Caller body wins on conflict; preset provides defaults.
-      const merged = { ...preset, ...body };
-      merged.labels = { ...(preset.labels || {}), ...(body.labels || {}), "sounio.dev/preset": presetName };
-      merged._preset = presetName;
-      return merged;
-    }
+    const PRESETS = Object.freeze({});
 
     export function listPresets() {
-      return Object.keys(JOB_PRESETS).map((name) => ({
-        name,
-        image: JOB_PRESETS[name].image,
-        campaign: JOB_PRESETS[name].campaign,
-        timeout_seconds: JOB_PRESETS[name].timeout_seconds,
-        resources: JOB_PRESETS[name].resources
-      }));
+      return Object.entries(PRESETS).map(([id, preset]) => ({ id, ...preset }));
+    }
+
+    export function applyPreset(presetId, rawOptions = {}) {
+      const id = typeof presetId === "string" ? presetId.trim() : "";
+      const preset = id ? PRESETS[id] : null;
+      if (!preset) return { ...rawOptions };
+
+      return {
+        ...preset,
+        ...rawOptions,
+        labels: {
+          ...(preset.labels || {}),
+          ...(rawOptions.labels || {}),
+          "sounio.dev/preset": id,
+        },
+      };
     }
   job-reconciler.mjs: |
     // job-reconciler.mjs
@@ -13314,6 +14157,8 @@ data:
       if (tok.error) {
         throw new Error(`auth: ${tok.error}`);
       }
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 10000);
       const resp = await fetch(`${BEAGLE_URL}${path}`, {
         method: "POST",
         headers: {
@@ -13321,8 +14166,9 @@ data:
           "X-Beagle-Consumer": CONSUMER,
           "Authorization": `Bearer ${tok.token}`
         },
-        body: JSON.stringify(body)
-      });
+        body: JSON.stringify(body),
+        signal: ctrl.signal
+      }).finally(() => clearTimeout(timeout));
       if (!resp.ok) {
         const text = await resp.text().catch(() => "");
         throw new Error(`${path} → ${resp.status}: ${text.slice(0, 200)}`);
@@ -13454,7 +14300,7 @@ data:
     // Supported `kind`:
     //   "k8s"   — native K8s Job (default)
     //   "slurm" — Slurm via Slinky (sbatch wrapper) — stub, pending ops wiring
-    
+
     import { spawn } from "node:child_process";
     import { randomBytes } from "node:crypto";
     import fs from "node:fs/promises";
@@ -13464,7 +14310,7 @@ data:
     import { ErrorCode, contractFailure, idempotent, withEnvelope } from "./contract.mjs";
     import { applyPreset, listPresets } from "./job-presets.mjs";
     import { fetchDarwinHpcAdapterConfig, fetchOperatorToken } from "./auth-bridge.mjs";
-    
+
     const NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
     const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
     const DEFAULT_IMAGE = process.env.PROJECT_COCKPIT_JOB_DEFAULT_IMAGE || "ttl.sh/beagle-sounio:latest";
@@ -13503,7 +14349,9 @@ data:
       ? runtimeCatalogPath
       : path.join(rootDir, "public", "project-catalog.json");
     let hpcProjectCatalogCache = null;
-    
+    let hpcProjectCatalogCachedAt = 0;
+    const HPC_CATALOG_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
     // Known data mount profiles — maps short name → k8s volume + mountPath
     const MOUNT_PROFILES = {
       "orangefs-training": {
@@ -13525,7 +14373,7 @@ data:
         mount:  { name: "work-tmp", mountPath: "/work" }
       }
     };
-    
+
     function runKubectl(args, { input, timeoutMs = 15000 } = {}) {
       return new Promise((resolve, reject) => {
         const child = spawn(KUBECTL, args, { stdio: ["pipe", "pipe", "pipe"] });
@@ -13546,11 +14394,11 @@ data:
         if (input !== undefined) { child.stdin.write(input); child.stdin.end(); }
       });
     }
-    
+
     function shortId() {
       return randomBytes(4).toString("hex");
     }
-    
+
     function cleanString(value) {
       if (typeof value === "string") {
         return value.trim();
@@ -13560,7 +14408,7 @@ data:
       }
       return "";
     }
-    
+
     function buildDefaultRunLabel(slug, profileId) {
       const base = `${slug}-${profileId.replace(/-v\d+$/, "")}-${shortId()}`
         .toLowerCase()
@@ -13580,15 +14428,17 @@ data:
     }
 
     async function loadHpcProjectCatalog() {
-      if (hpcProjectCatalogCache) {
+      if (hpcProjectCatalogCache && (Date.now() - hpcProjectCatalogCachedAt) < HPC_CATALOG_TTL_MS) {
         return hpcProjectCatalogCache;
       }
       try {
         const raw = await fs.readFile(publicCatalogPath, "utf8");
         const parsed = JSON.parse(raw);
         hpcProjectCatalogCache = Array.isArray(parsed?.projects) ? parsed.projects : [];
+        hpcProjectCatalogCachedAt = Date.now();
       } catch {
         hpcProjectCatalogCache = [];
+        hpcProjectCatalogCachedAt = Date.now();
       }
       return hpcProjectCatalogCache;
     }
@@ -13703,7 +14553,7 @@ data:
         via: "cockpit-darwin-hpc-deterministic-fallback"
       };
     }
-    
+
     function resolveHpcProfileId(body = {}) {
       const explicit =
         cleanString(body.profile_id) ||
@@ -13714,14 +14564,14 @@ data:
       if (explicit) {
         return explicit;
       }
-    
+
       const legacyKind =
         cleanString(body.kind).toLowerCase() ||
         cleanString(body.job_kind).toLowerCase() ||
         cleanString(body.preset).toLowerCase();
       return HPC_LEGACY_KIND_MAP[legacyKind] || "";
     }
-    
+
     function normalizeHpcSubmitRequest(slug, body = {}) {
       const profileId = resolveHpcProfileId(body);
       if (!HPC_ALLOWED_PROFILES.has(profileId)) {
@@ -13730,7 +14580,7 @@ data:
           `unsupported HPC profile: ${profileId || "(missing)"}`
         );
       }
-    
+
       const parameters =
         body.parameters && typeof body.parameters === "object" && !Array.isArray(body.parameters)
           ? { ...body.parameters }
@@ -13740,16 +14590,16 @@ data:
         cleanString(parameters.runLabel) ||
         cleanString(body.run_label) ||
         cleanString(body.runLabel);
-    
+
       parameters.run_label = incomingRunLabel || buildDefaultRunLabel(slug, profileId);
       delete parameters.runLabel;
-    
+
       return {
         profile_id: profileId,
         parameters
       };
     }
-    
+
     async function proxyDarwinHpc(method, path, { body, timeoutMs } = {}) {
       const tokenResult = await fetchOperatorToken();
       if (tokenResult.error || !tokenResult.token) {
@@ -13758,7 +14608,7 @@ data:
           tokenResult.error || "beagle operator token unavailable"
         );
       }
-    
+
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
@@ -13856,25 +14706,25 @@ data:
         );
       }
     }
-    
+
     export async function listHpcProfiles() {
       return proxyDarwinHpc("GET", "/api/darwin/hpc/profiles", { timeoutMs: HPC_READ_TIMEOUT_MS });
     }
-    
-        export async function submitHpcJob(slug, body = {}) {
-          const request = normalizeHpcSubmitRequest(slug, body);
-          if (await hasMappedHpcWorkstream(slug)) {
-            const workstreamId = await resolveHpcWorkstreamId(slug);
-            const orchestration = await proxyDarwinHpc(
-              "POST",
-              `/api/darwin/workstreams/${workstreamId}/workbench-run`,
-              {
-                body: buildWorkbenchRunRequest(slug, request),
-                timeoutMs: HPC_SUBMIT_TIMEOUT_MS
-              }
-            );
-            return {
-              job_id: orchestration.run?.submitted_job_id,
+
+    export async function submitHpcJob(slug, body = {}) {
+      const request = normalizeHpcSubmitRequest(slug, body);
+      if (await hasMappedHpcWorkstream(slug)) {
+        const workstreamId = await resolveHpcWorkstreamId(slug);
+        const orchestration = await proxyDarwinHpc(
+          "POST",
+          `/api/darwin/workstreams/${workstreamId}/workbench-run`,
+          {
+            body: buildWorkbenchRunRequest(slug, request),
+            timeoutMs: HPC_SUBMIT_TIMEOUT_MS
+          }
+        );
+        return {
+          job_id: orchestration.run?.submitted_job_id,
           job_name: `darwin-${request.profile_id}-${request.parameters.run_label}`,
           partition: request.profile_id.startsWith("gpu-") ? "gpu" : "cpu",
           profile_id: request.profile_id,
@@ -13906,7 +14756,7 @@ data:
         via: "cockpit-darwin-hpc"
       };
     }
-    
+
     export async function getHpcJobStatus(jobId) {
       const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/jobs/${jobId}`, {
         timeoutMs: HPC_READ_TIMEOUT_MS
@@ -13916,7 +14766,7 @@ data:
         via: "cockpit-darwin-hpc"
       };
     }
-    
+
     export async function getHpcJobTextArtifact(jobId, stream) {
       const payload = await proxyDarwinHpc("GET", `/api/darwin/hpc/jobs/${jobId}/${stream}`, {
         timeoutMs: HPC_READ_TIMEOUT_MS
@@ -13976,7 +14826,7 @@ data:
           throw error;
         }
       }
-    
+
       const fallback = await getHpcDeterministicResultBinding(slug, jobId);
       return {
         job_id: asNumericJobId(jobId),
@@ -14014,7 +14864,7 @@ data:
           throw error;
         }
       }
-    
+
       const fallback = await getHpcDeterministicResultBinding(slug, jobId);
       return {
         job_id: asNumericJobId(jobId),
@@ -14030,9 +14880,9 @@ data:
         via: fallback.via
       };
     }
-    
+
     // ─── K8s Job manifest rendering ───────────────────────────────────────
-    
+
     function renderK8sJob({ slug, campaign, image, command, resources, dataMounts, timeoutSec, jobId, extraLabels }) {
       const cpuReq = resources?.cpu || "2";
       const memReq = resources?.memory || "8Gi";
@@ -14041,7 +14891,7 @@ data:
       const cpuLim = resources?.cpuLimit || cpuReq;
       const memLim = resources?.memoryLimit || memReq;
       const gpu = Number(resources?.gpu || 0);
-    
+
       const volumes = [];
       const volumeMounts = [];
       for (const profile of (dataMounts || [])) {
@@ -14050,7 +14900,7 @@ data:
         volumes.push(m.volume);
         volumeMounts.push(m.mount);
       }
-    
+
       // GPU-specific additions
       const nodeSelector = {};
       const tolerations = [
@@ -14060,7 +14910,7 @@ data:
         requests: { cpu: cpuReq, memory: memReq },
         limits: { cpu: cpuLim, memory: memLim }
       };
-    
+
       if (gpu > 0) {
         nodeSelector["sounio.dev/accelerator-class"] = "gpu";
         tolerations.push(
@@ -14070,7 +14920,7 @@ data:
         containerResources.requests["nvidia.com/gpu"] = gpu;
         containerResources.limits["nvidia.com/gpu"] = gpu;
       }
-    
+
       const spec = {
         apiVersion: "batch/v1",
         kind: "Job",
@@ -14121,26 +14971,26 @@ data:
           }
         }
       };
-    
+
       return spec;
     }
-    
+
     // ─── Lifecycle operations ────────────────────────────────────────────
-    
+
     export async function submitJob(slug, rawOpts) {
       // Preset expansion: body wins over preset on any shared field; preset
       // stamps sounio.dev/preset label used by the reconciler as kind_label.
       const opts = applyPreset(rawOpts.preset, rawOpts);
       const kind = opts.kind || "k8s";
       const jobId = shortId();
-    
+
       if (kind === "slurm") {
         // Stub — future Slinky/sbatch integration
         const err = new Error("slurm submission not yet wired (use kind: 'k8s' for now)");
         err.statusCode = 501;
         throw err;
       }
-    
+
       const manifest = renderK8sJob({
         slug,
         campaign: opts.campaign,
@@ -14152,12 +15002,12 @@ data:
         jobId,
         extraLabels: opts.labels
       });
-    
+
       await runKubectl(
         ["-n", NAMESPACE, "apply", "-f", "-"],
         { input: JSON.stringify(manifest) }
       );
-    
+
       return {
         job_id: jobId,
         job_name: manifest.metadata.name,
@@ -14169,7 +15019,7 @@ data:
         truthMode: "observed"
       };
     }
-    
+
     // Compute a normalized phase from a K8s Job manifest. Shared between the
     // single-job status endpoint and the reconciler so state classification
     // stays consistent.
@@ -14182,7 +15032,7 @@ data:
       if ((job.status?.active || 0) === 0 && !completed && !failed) return "Pending";
       return "Running";
     }
-    
+
     // Reconciler-facing: list every cockpit-managed Job in the namespace, not
     // scoped to a single project slug.
     export async function listAllCockpitJobs() {
@@ -14198,7 +15048,7 @@ data:
         return [];
       }
     }
-    
+
     // Tail pod logs for a job — used by the reconciler to capture error context
     // when a Job terminates in Failed phase. Best-effort; returns empty on any
     // kubectl hiccup so a single bad pod doesn't break the whole reconciler tick.
@@ -14215,7 +15065,7 @@ data:
         return "";
       }
     }
-    
+
     export async function getJobStatus(slug, jobId) {
       const jobName = `job-${slug}-${jobId}`;
       try {
@@ -14225,9 +15075,9 @@ data:
           "-o", "json"
         ]);
         const job = JSON.parse(raw);
-    
+
         const phase = phaseFromJobManifest(job);
-    
+
         // Pull pod list to give more context
         let pods = [];
         try {
@@ -14244,7 +15094,7 @@ data:
             ready: p.status.containerStatuses?.every(c => c.ready) ?? false
           }));
         } catch { /* pods optional */ }
-    
+
         return {
           job_id: jobId,
           job_name: jobName,
@@ -14264,7 +15114,7 @@ data:
         throw e;
       }
     }
-    
+
     export async function listJobs(slug) {
       try {
         const raw = await runKubectl([
@@ -14287,7 +15137,7 @@ data:
         return [];
       }
     }
-    
+
     export async function cancelJob(slug, jobId) {
       const jobName = `job-${slug}-${jobId}`;
       await runKubectl([
@@ -14297,9 +15147,9 @@ data:
       ]);
       return { job_id: jobId, status: "cancelled", truthMode: "observed" };
     }
-    
+
     // ─── Route registration ─────────────────────────────────────────────
-    
+
     export function registerJobRoutes(app) {
       app.get(
         "/api/projects/:slug/hpc/profiles",
@@ -14310,7 +15160,7 @@ data:
           }
         }))
       );
-    
+
       app.post(
         "/api/projects/:slug/hpc/jobs/submit",
         idempotent(),
@@ -14318,7 +15168,7 @@ data:
           data: await submitHpcJob(req.params.slug, req.body || {})
         }))
       );
-    
+
       app.get(
         "/api/projects/:slug/hpc/jobs/:jobId",
         withEnvelope(async (req) => ({
@@ -14328,7 +15178,7 @@ data:
           }
         }))
       );
-    
+
       app.get(
         "/api/projects/:slug/hpc/jobs/:jobId/artifact",
         async (req, res, next) => {
@@ -14354,7 +15204,7 @@ data:
           }
         }))
       );
-    
+
       app.get(
         "/api/projects/:slug/hpc/jobs/:jobId/stdout-object",
         async (req, res, next) => {
@@ -14380,7 +15230,7 @@ data:
           }
         }))
       );
-    
+
       app.get(
         "/api/projects/:slug/hpc/jobs/:jobId/stderr-object",
         async (req, res, next) => {
@@ -14436,7 +15286,7 @@ data:
           }
         }))
       );
-    
+
       app.post("/api/projects/:slug/jobs/submit", idempotent(), async (req, res) => {
         try {
           const result = await submitJob(req.params.slug, req.body || {});
@@ -14450,7 +15300,7 @@ data:
           });
         }
       });
-    
+
       app.get("/api/projects/:slug/jobs/:jobId", async (req, res) => {
         try {
           const status = await getJobStatus(req.params.slug, req.params.jobId);
@@ -14459,7 +15309,7 @@ data:
           res.status(500).json({ error: e.message, truthMode: "stale" });
         }
       });
-    
+
       app.get("/api/projects/:slug/jobs", async (req, res) => {
         try {
           const jobs = await listJobs(req.params.slug);
@@ -14468,11 +15318,11 @@ data:
           res.status(500).json({ error: e.message, truthMode: "stale" });
         }
       });
-    
+
       app.get("/api/jobs/presets", (_req, res) => {
         res.json({ presets: listPresets(), truthMode: "observed" });
       });
-    
+
       app.post("/api/projects/:slug/jobs/:jobId/cancel", idempotent(), async (req, res) => {
         try {
           const result = await cancelJob(req.params.slug, req.params.jobId);
@@ -14497,7 +15347,13 @@ data:
       idempotent,
       withEnvelope
     } from "./contract.mjs";
-    import { proxyBeagleCompletion, proxyDiscussionLabCompletion } from "./auth-bridge.mjs";
+    import { getHpcResult, listHpcResults } from "./job-routes.mjs";
+    import {
+      proxyBeagleCompletion,
+      proxyCheapProviderCompletion,
+      proxySubscriptionBridgeCompletion,
+      proxyDiscussionLabCompletion
+    } from "./auth-bridge.mjs";
     import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
     function cleanString(value) {
@@ -14565,6 +15421,34 @@ data:
       return "observed";
     }
 
+    function normalizeCheapDiscussionProfile(value) {
+      const normalized = cleanString(value).toLowerCase();
+      if (!normalized) {
+        return "";
+      }
+      if (["grok", "grok_fast", "grok-fast"].includes(normalized)) {
+        return "grok";
+      }
+      if (["kimi", "kimi_k2", "kimi-k2", "moonshot"].includes(normalized)) {
+        return "kimi";
+      }
+      return "";
+    }
+
+    function normalizeSubscriptionDiscussionProfile(value) {
+      const normalized = cleanString(value).toLowerCase();
+      if (!normalized) {
+        return "";
+      }
+      if (["claude", "claude-code", "claudecode", "claude-max", "claude_max"].includes(normalized)) {
+        return "claude-code";
+      }
+      if (["codex", "codex-chat", "codex-pro", "chatgpt-pro"].includes(normalized)) {
+        return "codex";
+      }
+      return "";
+    }
+
     function buildMeta(generatedAt, ...values) {
       return {
         generatedAt: cleanString(generatedAt) || new Date().toISOString(),
@@ -14629,6 +15513,85 @@ data:
         return "conference";
       }
       return "internal";
+    }
+
+    function normalizePhysioPolicy(raw = {}) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return null;
+      }
+
+      const modeLabel = cleanString(raw.modeLabel || raw.mode_label);
+      const routeLabel = cleanString(raw.routeLabel || raw.route_label);
+      const companionInstruction = cleanString(
+        raw.companionInstruction || raw.companion_instruction
+      );
+      const noteInstruction = cleanString(raw.noteInstruction || raw.note_instruction);
+      const pacingInstruction = cleanString(
+        raw.pacingInstruction || raw.pacing_instruction
+      );
+      const discussionProfile = cleanString(
+        raw.discussionProfile || raw.discussion_profile
+      ).toLowerCase();
+      const suggestedPlaceholder = cleanString(
+        raw.suggestedPlaceholder || raw.suggested_placeholder
+      );
+      const preferLocal =
+        raw.preferLocal === true || raw.prefer_local === true;
+
+      if (
+        !modeLabel &&
+        !routeLabel &&
+        !companionInstruction &&
+        !noteInstruction &&
+        !pacingInstruction &&
+        !discussionProfile &&
+        !suggestedPlaceholder &&
+        !preferLocal
+      ) {
+        return null;
+      }
+
+      return {
+        modeLabel,
+        routeLabel,
+        companionInstruction,
+        noteInstruction,
+        pacingInstruction,
+        discussionProfile,
+        suggestedPlaceholder,
+        preferLocal
+      };
+    }
+
+    function buildMobileChatSystem(system, flowState, physioPolicy) {
+      const lines = [];
+      const systemText = cleanString(system);
+      if (systemText) {
+        lines.push(systemText);
+      }
+      const normalizedFlowState = cleanString(flowState).toUpperCase();
+      if (normalizedFlowState) {
+        lines.push(`Flow state: ${normalizedFlowState}.`);
+      }
+      if (physioPolicy?.modeLabel) {
+        lines.push(`Companion mode: ${physioPolicy.modeLabel}.`);
+      }
+      if (physioPolicy?.routeLabel) {
+        lines.push(`Route posture: ${physioPolicy.routeLabel}.`);
+      }
+      if (physioPolicy?.companionInstruction) {
+        lines.push(`Companion behavior: ${physioPolicy.companionInstruction}`);
+      }
+      if (physioPolicy?.noteInstruction) {
+        lines.push(`Note behavior: ${physioPolicy.noteInstruction}`);
+      }
+      if (physioPolicy?.pacingInstruction) {
+        lines.push(`Pacing behavior: ${physioPolicy.pacingInstruction}`);
+      }
+      if (physioPolicy?.suggestedPlaceholder) {
+        lines.push(`Prompting stance: ${physioPolicy.suggestedPlaceholder}`);
+      }
+      return lines.filter(Boolean).join("\n\n");
     }
 
     function estimateTokenCount(prompt, system, response) {
@@ -14713,6 +15676,16 @@ data:
       const pods = Array.isArray(session.pods) ? session.pods : [];
       const primaryPod = pods[0] || {};
       const exists = Boolean(session.name);
+      const activity = session.activity && typeof session.activity === "object"
+        ? {
+            summary: cleanString(session.activity.summary || ""),
+            source: cleanString(session.activity.source || ""),
+            updatedAt: cleanString(session.activity.updatedAt || session.activity.updated_at || ""),
+            author: cleanString(session.activity.author || ""),
+            excerpt: cleanString(session.activity.excerpt || ""),
+            consciousnessState: session.activity.consciousnessState || null
+          }
+        : null;
 
       return {
         kind: cleanString(session.kind || ""),
@@ -14728,8 +15701,256 @@ data:
           phase: cleanString(pod.phase || ""),
           ready: Boolean(pod.ready),
           node: cleanString(pod.node || "")
-        }))
+        })),
+        activity
       };
+    }
+
+    function extractHpcResultRecords(payload = {}) {
+      const candidates = [
+        payload?.results,
+        payload?.data?.results,
+        payload?.data?.items,
+        payload?.data?.entries,
+        payload?.items,
+        payload?.entries,
+        payload?.data,
+        payload
+      ];
+      for (const candidate of candidates) {
+        if (Array.isArray(candidate)) {
+          return candidate;
+        }
+      }
+      return [];
+    }
+
+    function normalizeHpcResultRecord(record = {}) {
+      return {
+        jobId: cleanString(record.job_id || record.jobId),
+        submittedJobId: cleanString(record.submitted_job_id || record.submittedJobId),
+        publishedResultJobId: cleanString(
+          record.published_result_job_id || record.publishedResultJobId
+        ),
+        profileId: cleanString(record.profile_id || record.profileId),
+        requestedRunLabel: cleanString(
+          record.requested_run_label || record.requestedRunLabel || record.run_label || record.runLabel
+        ),
+        publishedResultRunLabel: cleanString(
+          record.published_result_run_label || record.publishedResultRunLabel || record.run_label || record.runLabel
+        ),
+        publicationState: cleanString(
+          record.publication_state ||
+          record.publicationState ||
+          record.state ||
+          record.run_scoped_publication?.publication_state ||
+          record.runScopedPublication?.publicationState
+        ),
+        finalJobState: cleanString(
+          record.final_job_state ||
+          record.finalJobState ||
+          record.state ||
+          record.run_scoped_publication?.final_job_state ||
+          record.runScopedPublication?.finalJobState
+        ),
+        manifestKey: cleanString(
+          record.published_result_manifest_key ||
+          record.publishedResultManifestKey ||
+          record.artifact_manifest_key ||
+          record.artifactManifestKey
+        ),
+        resultManifestObjectKey: cleanString(
+          record.result_manifest_object_key ||
+          record.resultManifestObjectKey ||
+          record.artifact_object_key ||
+          record.artifactObjectKey
+        ),
+        resultLookupScope: cleanString(
+          record.result_lookup_scope || record.resultLookupScope
+        ),
+        nodeList: cleanString(record.node_list || record.nodeList),
+        sourcePhase: cleanString(record.source_phase || record.sourcePhase),
+        retentionScope: cleanString(record.retention_scope || record.retentionScope),
+        latestResultAt: latestIso(
+          record.updated_at,
+          record.updatedAt,
+          record.completed_at,
+          record.completedAt,
+          record.published_at,
+          record.publishedAt,
+          record.publication_time,
+          record.publicationTime,
+          record.end_time,
+          record.endTime,
+          record.start_time,
+          record.startTime,
+          record.submitted_at,
+          record.submittedAt,
+          record.submit_time,
+          record.submitTime,
+          record.created_at,
+          record.createdAt,
+          record.run_scoped_publication?.updated_at,
+          record.runScopedPublication?.updatedAt,
+          record.run_scoped_publication?.published_at,
+          record.runScopedPublication?.publishedAt,
+          record.run_result_identity_receipt?.updated_at,
+          record.runResultIdentityReceipt?.updatedAt,
+          record.deterministic_result_binding?.updated_at,
+          record.deterministicResultBinding?.updatedAt
+        ),
+        via: cleanString(record.via)
+      };
+    }
+
+    function preferNonEmptyValue(current, fallback) {
+      if (typeof current === "string") {
+        return current.trim() ? current : fallback;
+      }
+      if (current !== null && current !== undefined) {
+        return current;
+      }
+      return fallback;
+    }
+
+    function mergeNormalizedHpcResultRecords(primary = {}, fallback = {}) {
+      const merged = {};
+      const keys = new Set([...Object.keys(fallback || {}), ...Object.keys(primary || {})]);
+      for (const key of keys) {
+        merged[key] = preferNonEmptyValue(primary[key], fallback[key]);
+      }
+      return merged;
+    }
+
+    function compareLatestResult(left = {}, right = {}) {
+      const leftTime = Date.parse(cleanString(left.latestResultAt || "")) || 0;
+      const rightTime = Date.parse(cleanString(right.latestResultAt || "")) || 0;
+      return rightTime - leftTime;
+    }
+
+    function buildLaneResultSummary(slug, workstreamId, result = {}) {
+      const lookupJobId = cleanString(
+        result.submittedJobId || result.jobId || result.publishedResultJobId
+      );
+      const resultJobId = cleanString(result.publishedResultJobId || result.jobId);
+      const runLabel = cleanString(
+        result.publishedResultRunLabel || result.requestedRunLabel
+      );
+      const profileId = cleanString(result.profileId);
+      const publicationState = cleanString(result.publicationState);
+      const finalJobState = cleanString(result.finalJobState);
+      const manifestKey = cleanString(result.manifestKey);
+      const resultManifestObjectKey = cleanString(result.resultManifestObjectKey);
+      const nodeList = cleanString(result.nodeList);
+      const sourcePhase = cleanString(result.sourcePhase);
+      const retentionScope = cleanString(result.retentionScope);
+      const resultReady = Boolean(
+        manifestKey || resultManifestObjectKey || resultJobId
+      );
+      const stateParts = [publicationState, finalJobState].filter(Boolean);
+
+      let signalLine = "No published result has returned yet.";
+      if (runLabel && stateParts.length > 0) {
+        signalLine = `Latest returned work: ${runLabel} · ${stateParts.join(" · ")}`;
+      } else if (runLabel) {
+        signalLine = `Latest returned work: ${runLabel}`;
+      } else if (profileId && stateParts.length > 0) {
+        signalLine = `Latest ${profileId} result is ${stateParts.join(" · ")}`;
+      } else if (profileId) {
+        signalLine = `Latest returned work came through ${profileId}`;
+      } else if (stateParts.length > 0) {
+        signalLine = `Latest returned work is ${stateParts.join(" · ")}`;
+      }
+      const qualifiers = [nodeList, sourcePhase, retentionScope].filter(Boolean);
+      if (qualifiers.length > 0 && signalLine !== "No published result has returned yet.") {
+        signalLine = `${signalLine} · ${qualifiers.join(" · ")}`;
+      }
+
+      let recommendedAction = resultReady
+        ? "Open what came back and decide whether it deserves promotion."
+        : "Keep watching this lane until the latest run resolves into a published result.";
+      if (!lookupJobId) {
+        recommendedAction = "Run new work in this lane so Beagle has something concrete to bring back.";
+      }
+
+      return {
+        projectSlug: slug,
+        workstreamId,
+        lookupJobId,
+        submittedJobId: cleanString(result.submittedJobId),
+        publishedResultJobId: cleanString(result.publishedResultJobId),
+        profileId,
+        requestedRunLabel: cleanString(result.requestedRunLabel),
+        publishedResultRunLabel: runLabel,
+        publicationState,
+        finalJobState,
+        manifestKey,
+        resultManifestObjectKey,
+        resultLookupScope: cleanString(result.resultLookupScope),
+        latestResultAt: cleanString(result.latestResultAt),
+        resultReady,
+        signalLine,
+        recommendedAction,
+        resultRoute: lookupJobId ? `/api/projects/${slug}/hpc/results/${lookupJobId}` : "",
+        manifestRoute: lookupJobId
+          ? `/api/projects/${slug}/hpc/results/${lookupJobId}/manifest`
+          : "",
+        artifactRoute: lookupJobId
+          ? `/api/projects/${slug}/hpc/jobs/${lookupJobId}/artifact`
+          : "",
+        stdoutRoute: lookupJobId
+          ? `/api/projects/${slug}/hpc/jobs/${lookupJobId}/stdout-object`
+          : "",
+        via: cleanString(result.via || "cockpit-darwin-hpc")
+      };
+    }
+
+    async function buildProjectLaneResultSummary(project = {}) {
+      const slug = cleanString(project?.projectSlug || project?.slug);
+      const workstreamId = cleanString(
+        project?.workstreamId ||
+        project?.workspace?.workstreamId ||
+        project?.workspaceState?.workstreamId ||
+        ""
+      );
+      if (!slug || !workstreamId) {
+        return null;
+      }
+
+      try {
+        const listPayload = await listHpcResults({ workstream_id: workstreamId });
+        const latest = extractHpcResultRecords(listPayload)
+          .map(normalizeHpcResultRecord)
+          .filter(
+            (entry) =>
+              cleanString(entry.jobId || entry.submittedJobId || entry.publishedResultJobId)
+          )
+          .sort(compareLatestResult)[0];
+
+        if (!latest) {
+          return null;
+        }
+
+        const detailLookupId = cleanString(
+          latest.submittedJobId || latest.jobId || latest.publishedResultJobId
+        );
+        let detailed = latest;
+        if (detailLookupId) {
+          try {
+            const detailPayload = await getHpcResult(slug, detailLookupId);
+            detailed = mergeNormalizedHpcResultRecords(
+              normalizeHpcResultRecord(detailPayload?.data || detailPayload),
+              latest
+            );
+          } catch {
+            detailed = latest;
+          }
+        }
+
+        return buildLaneResultSummary(slug, workstreamId, detailed);
+      } catch {
+        return null;
+      }
     }
 
     function inferClusterHealth(catalog = {}) {
@@ -14777,41 +15998,90 @@ data:
         req.body?.requires_high_quality === true || req.body?.requiresHighQuality === true;
       const offlineRequired =
         req.body?.offline_required === true || req.body?.offlineRequired === true;
+      const requestedFlowState = cleanString(
+        req.body?.flowState || req.body?.flow_state
+      );
+      const requestedPhysioPolicy = normalizePhysioPolicy(
+        req.body?.physioPolicy || req.body?.physio_policy
+      );
       const requestedDiscussionProfile = cleanString(
         req.body?.discussionProfile || req.body?.discussion_profile
       );
+      const effectiveDiscussionProfile =
+        requestedDiscussionProfile ||
+        cleanString(requestedPhysioPolicy?.discussionProfile);
+      const effectiveSystem = buildMobileChatSystem(
+        req.body?.system,
+        requestedFlowState,
+        requestedPhysioPolicy
+      );
+      let appliedDiscussionProfile = effectiveDiscussionProfile || "cluster";
 
       let result;
-      if (
-        requestedDiscussionProfile &&
+      const subscriptionProfile = normalizeSubscriptionDiscussionProfile(effectiveDiscussionProfile);
+      const cheapProviderProfile = normalizeCheapDiscussionProfile(effectiveDiscussionProfile);
+      if (subscriptionProfile) {
+        appliedDiscussionProfile = subscriptionProfile;
+        result = await proxySubscriptionBridgeCompletion({
+          prompt,
+          system: effectiveSystem,
+          provider: subscriptionProfile,
+          projectSlug: cleanString(req.body?.projectSlug || req.body?.project_slug),
+          projectFamily: cleanString(req.body?.projectFamily || req.body?.project_family),
+          publicationScope: cleanString(req.body?.publicationScope || req.body?.publication_scope),
+          readCatalog: deps.readCatalog
+        });
+      } else if (cheapProviderProfile) {
+        appliedDiscussionProfile = cheapProviderProfile;
+        result = await proxyCheapProviderCompletion({
+          prompt,
+          system: effectiveSystem,
+          provider: cheapProviderProfile
+        });
+      } else if (
+        effectiveDiscussionProfile &&
         !["cluster", "cluster-default", "default"].includes(
-          requestedDiscussionProfile.toLowerCase()
+          effectiveDiscussionProfile.toLowerCase()
         )
       ) {
         const catalog = await deps.readCatalog();
-        const profile = findDiscussionLabProfile(catalog, requestedDiscussionProfile);
+        const profile = findDiscussionLabProfile(catalog, effectiveDiscussionProfile);
         if (!profile) {
-          throw contractFailure(
-            ErrorCode.NOT_FOUND,
-            `unknown discussion profile: ${requestedDiscussionProfile}`
-          );
+          if (["qwen3b", "yi6b"].includes(effectiveDiscussionProfile.toLowerCase())) {
+            appliedDiscussionProfile = "cluster";
+            result = await proxyBeagleCompletion({
+              prompt,
+              system: effectiveSystem,
+              requires_math: requiresMath,
+              requires_high_quality: requiresHighQuality,
+              offline_required: offlineRequired
+            });
+          } else {
+            throw contractFailure(
+              ErrorCode.NOT_FOUND,
+              `unknown discussion profile: ${effectiveDiscussionProfile}`
+            );
+          }
+        } else {
+          const profileStatus = cleanString(profile?.status || "").toLowerCase();
+          if (profileStatus !== "available") {
+            throw contractFailure(
+              ErrorCode.CONFLICT,
+              `discussion profile ${cleanString(profile?.id || requestedDiscussionProfile)} is ${profileStatus || "unavailable"}`
+            );
+          }
+          appliedDiscussionProfile = cleanString(profile?.id) || effectiveDiscussionProfile;
+          result = await proxyDiscussionLabCompletion({
+            prompt,
+            system: effectiveSystem,
+            profile
+          });
         }
-        const profileStatus = cleanString(profile?.status || "").toLowerCase();
-        if (profileStatus !== "available") {
-          throw contractFailure(
-            ErrorCode.CONFLICT,
-            `discussion profile ${cleanString(profile?.id || requestedDiscussionProfile)} is ${profileStatus || "unavailable"}`
-          );
-        }
-        result = await proxyDiscussionLabCompletion({
-          prompt,
-          system,
-          profile
-        });
       } else {
+        appliedDiscussionProfile = "cluster";
         result = await proxyBeagleCompletion({
           prompt,
-          system,
+          system: effectiveSystem,
           requires_math: requiresMath,
           requires_high_quality: requiresHighQuality,
           offline_required: offlineRequired
@@ -14848,9 +16118,18 @@ data:
         agentKind: cleanString(result.payload?.agentKind || result.payload?.agent_kind),
         sessionId: cleanString(result.payload?.sessionId || result.payload?.session_id),
         podName: cleanString(result.payload?.podName || result.payload?.pod_name),
+        conversationMode:
+          cleanString(result.payload?.conversationMode || result.payload?.conversation_mode)
+          || cleanString(requestedPhysioPolicy?.modeLabel),
+        appliedDiscussionProfile:
+          cleanString(result.payload?.appliedDiscussionProfile || result.payload?.applied_discussion_profile)
+          || appliedDiscussionProfile,
+        flowState:
+          cleanString(result.payload?.flowState || result.payload?.flow_state)
+          || requestedFlowState.toUpperCase(),
         tokensUsed: Number.isFinite(totalTokens) && totalTokens > 0
           ? totalTokens
-          : estimateTokenCount(prompt, system, responseText),
+          : estimateTokenCount(prompt, effectiveSystem, responseText),
         generatedAt,
         truthMode: cleanString(result.payload?.truthMode) || "observed",
         beagleUrl: cleanString(result.payload?.beagle_url || result.beagleUrl || "")
@@ -14909,9 +16188,24 @@ data:
                 if (!slug) {
                   return null;
                 }
-                const [clientSessions, agentSessions] = await Promise.all([
+                const resolvedProject = await deps.getProjectOrThrow(slug).catch(() => entry);
+                const laneProject = {
+                  projectSlug: cleanString(
+                    resolvedProject?.projectSlug || resolvedProject?.slug || slug
+                  ),
+                  slug,
+                  workstreamId: cleanString(
+                    resolvedProject?.workstreamId ||
+                    resolvedProject?.workspace?.workstreamId ||
+                    resolvedProject?.workspaceState?.workstreamId ||
+                    entry?.workstreamId ||
+                    entry?.workspace?.workstreamId
+                  )
+                };
+                const [clientSessions, agentSessions, laneResult] = await Promise.all([
                   deps.listProjectSessions(slug),
-                  listAgentSessions(slug).catch(() => [])
+                  listAgentSessions(slug).catch(() => []),
+                  buildProjectLaneResultSummary(laneProject)
                 ]);
                 const activeClientSessions = Array.isArray(clientSessions?.active)
                   ? clientSessions.active.map(normalizeClientSession)
@@ -14922,7 +16216,8 @@ data:
                 return {
                   slug,
                   activeClientSessions,
-                  activeAgentSessions
+                  activeAgentSessions,
+                  laneResult
                 };
               })
             );
@@ -14944,7 +16239,10 @@ data:
                   filtered.map((entry) =>
                     entry.activeClientSessions.map((session) => session.lastMemorySyncAt)
                   )
-                )
+                ),
+                laneResults: filtered
+                  .map((entry) => entry.laneResult)
+                  .filter(Boolean)
               },
               meta: buildMeta(generatedAt, catalog)
             };
@@ -15002,6 +16300,17 @@ data:
               new Date().toISOString();
             const goWorkNowPacket = goWorkNow?.goWorkNow || {};
             const operatingPosture = goWorkNow?.operatingPosture || null;
+            const laneProject = {
+              projectSlug: cleanString(project?.projectSlug || project?.slug || req.params.slug),
+              slug: cleanString(project?.projectSlug || project?.slug || req.params.slug),
+              workstreamId: cleanString(
+                project?.workstreamId ||
+                project?.workspace?.workstreamId ||
+                goWorkNowPacket?.workspaceState?.workstreamId ||
+                goWorkNowPacket?.workspace?.workstreamId
+              )
+            };
+            const laneResult = await buildProjectLaneResultSummary(laneProject);
 
             return {
               data: {
@@ -15018,6 +16327,7 @@ data:
                 operatingPosture,
                 workspaceState: goWorkNowPacket?.workspaceState || null,
                 latestObservedOperation: goWorkNowPacket?.latestObservedOperation || null,
+                laneResult,
                 actions: normalizeActionList(project, goWorkNowPacket, operatingPosture),
                 generatedAt
               },
@@ -15131,7 +16441,8 @@ data:
                 : ["mobile-idea"],
               project_family: projectFamily,
               publication_scope: publicationScope,
-              promotion_state: "synced"
+              promotion_state: "synced",
+              consciousness_state: req.body?.consciousness_state || req.body?.consciousnessState
             });
             appendScratchpadEntry(project.projectSlug, entry);
             await annotateClientSession(req, deps, project.projectSlug, "mobile-idea:saved");
@@ -15470,6 +16781,9 @@ data:
                 agentKind: completion.agentKind || null,
                 sessionId: completion.sessionId || null,
                 podName: completion.podName || null,
+                conversation_mode: completion.conversationMode || null,
+                applied_discussion_profile: completion.appliedDiscussionProfile || null,
+                flow_state: completion.flowState || null,
                 tokens_used: completion.tokensUsed
               },
               meta: buildMeta(completion.generatedAt, {
@@ -15494,6 +16808,9 @@ data:
             agentKind: completion.agentKind || null,
             sessionId: completion.sessionId || null,
             podName: completion.podName || null,
+            conversation_mode: completion.conversationMode || null,
+            applied_discussion_profile: completion.appliedDiscussionProfile || null,
+            flow_state: completion.flowState || null,
             tokens_used: completion.tokensUsed,
             truthMode: completion.truthMode
           });
@@ -15527,6 +16844,9 @@ data:
           "workspaceRoot": "/workspace/sounio",
           "workspacePod": "sounio-workspace-habitat-0",
           "workspaceContainer": "workspace-ide",
+          "workspaceAgentService": "sounio-workspace-habitat",
+          "workspaceAgentPort": 4371,
+          "workbenchAuthority": "workspace-agent",
           "preferredPrBase": "integration/sounio-dev-ready-base",
           "workstreamId": "sounio-lang-main",
           "envFile": "/home/devsounio/beagle/k8s/workspace-platform/catalog/always-on/sounio.env",
@@ -16077,6 +17397,7 @@ data:
 
         // Try Slurm scontrol
         if (SLURM_LOGIN_HOST) {
+          if (!/^\d+$/.test(jobId)) return res.status(400).json({ error: "invalid jobId", truthMode: "stale" });
           const out = await runSsh(SLURM_LOGIN_HOST, `scontrol show job ${jobId} 2>/dev/null`);
           if (out) return res.json({ source: "slurm", detail: out, truthMode: "observed" });
         }
@@ -16140,6 +17461,30 @@ data:
       });
     }
 
+    function cleanString(value) {
+      if (typeof value === "string") return value.trim();
+      if (typeof value === "number" || typeof value === "boolean") return String(value).trim();
+      return "";
+    }
+
+    function normalizeConsciousnessState(raw) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+      const hrv = Number(raw.hrv_ms ?? raw.hrvMs);
+      const readiness = Number(raw.readiness);
+      const intensity = cleanString(raw.intensity);
+      const circadianPhase = cleanString(raw.circadian_phase ?? raw.circadianPhase);
+      if (!Number.isFinite(hrv) && !Number.isFinite(readiness) && !intensity && !circadianPhase) {
+        return null;
+      }
+      return {
+        hrv_ms: Number.isFinite(hrv) ? hrv : null,
+        readiness: Number.isFinite(readiness) ? readiness : null,
+        intensity: intensity || null,
+        circadian_phase: circadianPhase || null,
+        captured_at: new Date().toISOString()
+      };
+    }
+
     export function buildScratchpadEntry(slug, body = {}) {
       const text = String(body.text || "").trim();
       if (!text) {
@@ -16154,6 +17499,9 @@ data:
         project_family: String(body.project_family || body.projectFamily || "").slice(0, 32),
         publication_scope: String(body.publication_scope || body.publicationScope || "").slice(0, 32),
         promotion_state: String(body.promotion_state || body.promotionState || "").slice(0, 32),
+        consciousness_state: normalizeConsciousnessState(
+          body.consciousness_state || body.consciousnessState
+        ),
         created_at: new Date().toISOString()
       };
     }
@@ -16162,6 +17510,15 @@ data:
       const file = fileFor(slug);
       ensureDir(file);
       fs.appendFileSync(file, JSON.stringify(entry) + "\n");
+
+      // Trim file to MAX_ENTRIES if it has grown too large
+      try {
+        const content = fs.readFileSync(file, "utf8");
+        const lines = content.split("\n").filter(Boolean);
+        if (lines.length > MAX_ENTRIES * 2) {
+          fs.writeFileSync(file, lines.slice(-MAX_ENTRIES).join("\n") + "\n");
+        }
+      } catch { /* best effort */ }
     }
 
     export function deleteScratchpadEntry(slug, entryId) {
@@ -16211,6 +17568,1222 @@ data:
           }
         }
       );
+    }
+  workspace-routes.mjs: |
+    // Workspace routes — Beagle Notebook Terminal v1.
+    //
+    // This service is intentionally workspace-scoped. It persists sessions, panes,
+    // and enriched terminal block logs in cluster storage, while canonical memory
+    // still lives in beagle-core via assisted-import.
+
+    import fs from "node:fs/promises";
+    import path from "node:path";
+    import { createHash, randomUUID } from "node:crypto";
+    import pty from "node-pty";
+    import { WebSocket } from "ws";
+    import { fetchOperatorToken } from "./auth-bridge.mjs";
+
+    const WORKBENCH_DIR =
+      process.env.PROJECT_COCKPIT_WORKBENCH_DIR || "/var/lib/beagle/workbench";
+    const WORKBENCH_AUTHORITY =
+      process.env.PROJECT_COCKPIT_WORKBENCH_AUTHORITY || "cockpit-local";
+    const WORKSPACE_AGENT_PORT = Number(process.env.PROJECT_COCKPIT_WORKSPACE_AGENT_PORT || 4371);
+    const WORKSPACE_AGENT_TIMEOUT_MS = Number(process.env.PROJECT_COCKPIT_WORKSPACE_AGENT_TIMEOUT_MS || 2500);
+    const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
+    const BEAGLE_INTERNAL_URL =
+      process.env.PROJECT_COCKPIT_BEAGLE_INTERNAL_URL ||
+      "http://beagle-core.beagle.svc.cluster.local:8080";
+    const WORKBENCH_PROTOCOL = "beagle-terminal-v1";
+    const WORKBENCH_BRIDGE_VERSION = "beagle-warp-bridge-v0.1";
+
+    const AGENT_KINDS = new Set([
+      "human",
+      "claude-code",
+      "codex",
+      "cursor",
+      "opencode",
+      "kimi",
+      "custom",
+    ]);
+
+    const SECRET_PATTERNS = [
+      /(?:api[_-]?key|client[_-]?secret|refresh[_-]?token|access[_-]?token|password|passwd)\s*[:=]/i,
+      /bearer\s+[a-z0-9._~+/=-]{16,}/i,
+      /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+      /\bsk-[a-zA-Z0-9]{20,}/,
+      /\bghp_[a-zA-Z0-9]{20,}/,
+      /\bxox[baprs]-[a-zA-Z0-9-]{20,}/,
+    ];
+
+    const AUTO_MEMORY_COMMAND_PATTERNS = [
+      /\b(codex|claude|claude-code|cursor|opencode|kimi)\b/i,
+      /\b(swift test|xcodebuild|cargo test|npm test|pytest|pnpm test|bun test|build)\b/i,
+      /\b(git diff|git show|git commit|git status|git log|diffstat)\b/i,
+      /\b(kubectl|helm|terraform|rollout|deploy|apply)\b/i,
+      /\b(plan|decision|summary|next action|sounio|beagle|paperrun)\b/i,
+    ];
+
+    const AUTO_MEMORY_OUTPUT_PATTERNS = [
+      /\b(BUILD SUCCEEDED|BUILD FAILED|tests? passed|tests? failed|FAILED|error|warning)\b/i,
+      /\bdiff --git\b/i,
+      /\b(decision|next action|summary|approval|approved|rejected)\b/i,
+    ];
+
+    function cleanString(value) {
+      if (typeof value === "string") return value.trim();
+      if (typeof value === "number" || typeof value === "boolean") return String(value).trim();
+      return "";
+    }
+
+    function safeId(value, fallback = "default") {
+      const cleaned = cleanString(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9_.:-]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "");
+      return cleaned || fallback;
+    }
+
+    function nowIso() {
+      return new Date().toISOString();
+    }
+
+    function hashObject(payload) {
+      return `sha256:${createHash("sha256").update(JSON.stringify(payload)).digest("hex")}`;
+    }
+
+    function bridgeMetadata({ sourceModel = "beagle", rendererHint = WORKBENCH_PROTOCOL, payload = {} } = {}) {
+      const cleanSource = safeId(sourceModel, "beagle");
+      return {
+        sourceModel: cleanSource,
+        source_model: cleanSource,
+        bridgeVersion: WORKBENCH_BRIDGE_VERSION,
+        bridge_version: WORKBENCH_BRIDGE_VERSION,
+        rendererHint,
+        renderer_hint: rendererHint,
+        bridgeHash: hashObject({
+          sourceModel: cleanSource,
+          rendererHint,
+          payload,
+        }),
+      };
+    }
+
+    function jsonResponse(handler) {
+      return async (req, res) => {
+        try {
+          const payload = await handler(req, res);
+          if (!res.headersSent) res.json(payload);
+        } catch (error) {
+          const status = Number(error?.statusCode || error?.status || 500);
+          if (!res.headersSent) {
+            res.status(status).json({
+              error: error?.message || "workspace request failed",
+              truthMode: "stale",
+            });
+          }
+        }
+      };
+    }
+
+    function workspaceDir(slug) {
+      return path.join(WORKBENCH_DIR, safeId(slug));
+    }
+
+    function sessionsPath(slug) {
+      return path.join(workspaceDir(slug), "sessions.json");
+    }
+
+    function blockLogPath(slug, sessionId) {
+      return path.join(workspaceDir(slug), "sessions", safeId(sessionId), "blocks.ndjson");
+    }
+
+    async function ensureWorkspaceDir(slug, sessionId = "") {
+      await fs.mkdir(workspaceDir(slug), { recursive: true, mode: 0o700 });
+      if (sessionId) {
+        await fs.mkdir(path.dirname(blockLogPath(slug, sessionId)), { recursive: true, mode: 0o700 });
+      }
+    }
+
+    async function readJsonFile(filePath, fallback) {
+      try {
+        return JSON.parse(await fs.readFile(filePath, "utf8"));
+      } catch (error) {
+        if (error?.code === "ENOENT") return fallback;
+        throw error;
+      }
+    }
+
+    async function writeJsonFile(filePath, payload) {
+      await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+      await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+    }
+
+    async function readSessions(slug) {
+      return await readJsonFile(sessionsPath(slug), { sessions: [] });
+    }
+
+    async function writeSessions(slug, state) {
+      await writeJsonFile(sessionsPath(slug), {
+        ...state,
+        updatedAt: nowIso(),
+      });
+    }
+
+    function normalizePane(pane = {}, index = 0) {
+      const kind = AGENT_KINDS.has(cleanString(pane.kind)) ? cleanString(pane.kind) : "human";
+      return {
+        id: cleanString(pane.id) || (index === 0 ? "pane-main" : `pane-${randomUUID()}`),
+        title: cleanString(pane.title) || (kind === "human" ? "Shell" : kind),
+        kind,
+        status: cleanString(pane.status) || "idle",
+        createdAt: cleanString(pane.createdAt) || nowIso(),
+        lastAttachedAt: cleanString(pane.lastAttachedAt),
+        cwd: cleanString(pane.cwd),
+        agent: pane.agent || null,
+      };
+    }
+
+    function normalizeSession(slug, session = {}) {
+      const panes = Array.isArray(session.panes) && session.panes.length > 0
+        ? session.panes.map(normalizePane)
+        : [normalizePane({ id: "pane-main", kind: "human", title: "Shell" }, 0)];
+      const base = {
+        id: cleanString(session.id) || `wb-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`,
+        projectSlug: cleanString(session.projectSlug) || slug,
+        title: cleanString(session.title) || "Sounio Workbench",
+        status: cleanString(session.status) || "active",
+        layout: cleanString(session.layout) || "notebook",
+        createdAt: cleanString(session.createdAt) || nowIso(),
+        updatedAt: cleanString(session.updatedAt) || nowIso(),
+        lastAttachedAt: cleanString(session.lastAttachedAt),
+        lastMemoryStatus: session.lastMemoryStatus || null,
+        panes,
+      };
+      const bridge = bridgeMetadata({
+        sourceModel: cleanString(session.sourceModel || session.source_model || "beagle"),
+        rendererHint: cleanString(session.rendererHint || session.renderer_hint || WORKBENCH_PROTOCOL),
+        payload: {
+          id: base.id,
+          projectSlug: base.projectSlug,
+          panes: base.panes.map((pane) => pane.id),
+        },
+      });
+      return {
+        ...base,
+        sourceModel: bridge.sourceModel,
+        bridgeVersion: bridge.bridgeVersion,
+        sessionHash: cleanString(session.sessionHash || session.session_hash) || bridge.bridgeHash,
+        rendererHint: bridge.rendererHint,
+      };
+    }
+
+    async function getOrCreateSession(slug, sessionId = "", body = {}) {
+      await ensureWorkspaceDir(slug);
+      const state = await readSessions(slug);
+      const requestedId = cleanString(sessionId || body.session_id || body.sessionId);
+      const found = state.sessions.find((entry) => cleanString(entry.id) === requestedId);
+      if (found) return normalizeSession(slug, found);
+
+      const session = normalizeSession(slug, {
+        id: requestedId,
+        title: cleanString(body.title),
+        layout: cleanString(body.layout),
+      });
+      state.sessions = [session, ...state.sessions].slice(0, 80);
+      await writeSessions(slug, state);
+      await ensureWorkspaceDir(slug, session.id);
+      return session;
+    }
+
+    async function updateSession(slug, sessionId, mutate) {
+      const state = await readSessions(slug);
+      const index = state.sessions.findIndex((entry) => cleanString(entry.id) === cleanString(sessionId));
+      if (index < 0) {
+        const error = new Error("workspace session not found");
+        error.statusCode = 404;
+        throw error;
+      }
+      const next = normalizeSession(slug, mutate(normalizeSession(slug, state.sessions[index])));
+      next.updatedAt = nowIso();
+      state.sessions[index] = next;
+      await writeSessions(slug, state);
+      return next;
+    }
+
+    function hasSecret(text) {
+      const value = cleanString(text);
+      if (!value) return false;
+      return SECRET_PATTERNS.some((pattern) => pattern.test(value));
+    }
+
+    function stripControl(text) {
+      return cleanString(text)
+        .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
+    }
+
+    function detectAgentState(text) {
+      const value = stripControl(text).toLowerCase();
+      if (!value) return "";
+      if (value.includes("running tests") || value.includes("test failed") || value.includes("test passed")) {
+        return "running_tests";
+      }
+      if (value.includes("approval") || value.includes("allow this") || value.includes("proceed?")) {
+        return "approval_wait";
+      }
+      if (value.includes("thinking") || value.includes("planning")) return "thinking";
+      if (value.includes("done") || value.includes("complete")) return "done";
+      return "";
+    }
+
+    function detectWorkbenchSignals(text) {
+      const value = stripControl(text);
+      const signals = [];
+      if (/\b(swift test|xcodebuild|cargo test|npm test|pytest|tests? passed|tests? failed|BUILD SUCCEEDED|BUILD FAILED)\b/i.test(value)) {
+        signals.push({ type: "test_detected", status: /fail|failed|BUILD FAILED/i.test(value) ? "failed" : "observed" });
+      }
+      if (/\bdiff --git\b|\bfiles? changed\b|\bdiffstat\b/i.test(value)) {
+        signals.push({ type: "diff_detected", status: "observed" });
+      }
+      if (/\b(approval|approve|allow this|proceed\?|confirm)\b/i.test(value)) {
+        signals.push({ type: "approval_requested", status: "pending" });
+      }
+      return signals;
+    }
+
+    function shouldAutoRememberBlock(block) {
+      if (!block || block.privacyClass === "restricted_local_only") return false;
+      const command = cleanString(block.command);
+      const output = cleanString(block.outputPreview);
+      if (!command && !output) return false;
+      if (hasSecret(`${command}\n${output}`)) return false;
+      return AUTO_MEMORY_COMMAND_PATTERNS.some((pattern) => pattern.test(command)) ||
+        AUTO_MEMORY_OUTPUT_PATTERNS.some((pattern) => pattern.test(output));
+    }
+
+    async function appendBlockEvent(slug, sessionId, event) {
+      await ensureWorkspaceDir(slug, sessionId);
+      await fs.appendFile(blockLogPath(slug, sessionId), `${JSON.stringify(event)}\n`, { mode: 0o600 });
+    }
+
+    async function readBlockEvents(slug, sessionId) {
+      try {
+        const raw = await fs.readFile(blockLogPath(slug, sessionId), "utf8");
+        return raw
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => JSON.parse(line));
+      } catch (error) {
+        if (error?.code === "ENOENT") return [];
+        throw error;
+      }
+    }
+
+    function foldBlocks(events) {
+      const byId = new Map();
+      for (const event of events) {
+        const blockId = cleanString(event.blockId || event.block_id);
+        if (!blockId) continue;
+        if (!byId.has(blockId)) {
+          byId.set(blockId, {
+            id: blockId,
+            sessionId: cleanString(event.sessionId),
+            paneId: cleanString(event.paneId),
+            kind: "command",
+            title: "",
+            command: "",
+            outputPreview: "",
+            outputByteCount: 0,
+            startedAt: cleanString(event.at) || nowIso(),
+            finishedAt: "",
+            durationMs: null,
+            exitCode: null,
+            status: "running",
+            privacyClass: "sensitive",
+            memoryStatus: "not_saved",
+            tags: [],
+            provenance: {},
+            sourceModel: cleanString(event.sourceModel || event.source_model || "beagle"),
+            bridgeVersion: cleanString(event.bridgeVersion || event.bridge_version || WORKBENCH_BRIDGE_VERSION),
+            blockHash: "",
+            sessionHash: cleanString(event.sessionHash || event.session_hash),
+            rendererHint: cleanString(event.rendererHint || event.renderer_hint || WORKBENCH_PROTOCOL),
+          });
+        }
+        const block = byId.get(blockId);
+        if (event.type === "block_started") {
+          block.kind = cleanString(event.kind) || block.kind;
+          block.title = cleanString(event.title) || block.title;
+          block.command = cleanString(event.command) || block.command;
+          block.startedAt = cleanString(event.startedAt || event.at) || block.startedAt;
+          block.status = "running";
+          block.privacyClass = cleanString(event.privacyClass) || block.privacyClass;
+          block.tags = Array.isArray(event.tags) ? event.tags : block.tags;
+          block.provenance = event.provenance || block.provenance;
+          block.sourceModel = cleanString(event.sourceModel || event.source_model) || block.sourceModel;
+          block.bridgeVersion = cleanString(event.bridgeVersion || event.bridge_version) || block.bridgeVersion;
+          block.blockHash = cleanString(event.blockHash || event.block_hash) || block.blockHash;
+          block.sessionHash = cleanString(event.sessionHash || event.session_hash) || block.sessionHash;
+          block.rendererHint = cleanString(event.rendererHint || event.renderer_hint) || block.rendererHint;
+        }
+        if (event.type === "block_output") {
+          const chunk = String(event.data || "");
+          block.outputByteCount += Buffer.byteLength(chunk);
+          if (block.outputPreview.length < 12000) {
+            block.outputPreview = `${block.outputPreview}${chunk}`.slice(0, 12000);
+          }
+        }
+        if (event.type === "block_finished") {
+          block.finishedAt = cleanString(event.finishedAt || event.at) || nowIso();
+          block.durationMs = Number.isFinite(Number(event.durationMs)) ? Number(event.durationMs) : block.durationMs;
+          block.exitCode = Number.isFinite(Number(event.exitCode)) ? Number(event.exitCode) : block.exitCode;
+          block.status = cleanString(event.status) || "finished";
+          block.privacyClass = cleanString(event.privacyClass) || block.privacyClass;
+        }
+        if (event.type === "memory") {
+          block.memoryStatus = cleanString(event.status) || block.memoryStatus;
+          block.memoryEventId = cleanString(event.memoryEventId);
+          block.auditEventId = cleanString(event.auditEventId);
+          block.memoryError = cleanString(event.error);
+        }
+        if (event.type === "secret_redacted") {
+          block.privacyClass = "restricted_local_only";
+          block.status = "blocked";
+          block.memoryStatus = "blocked";
+        }
+      }
+      for (const block of byId.values()) {
+        if (!block.blockHash) {
+          block.blockHash = hashObject({
+            id: block.id,
+            command: block.command,
+            outputByteCount: block.outputByteCount,
+            startedAt: block.startedAt,
+          });
+        }
+      }
+      return Array.from(byId.values()).sort((left, right) =>
+        cleanString(right.startedAt).localeCompare(cleanString(left.startedAt))
+      );
+    }
+
+    function workspaceSummaryFromProject(project = {}) {
+      return {
+        slug: cleanString(project.projectSlug || project.slug),
+        title: cleanString(project.displayName || project.title || project.projectSlug || project.slug),
+        namespace: cleanString(project.namespace || "beagle"),
+        workspaceRoot: cleanString(project.workspaceRoot || "/workspace"),
+        workspacePod: cleanString(project.workspacePod),
+        workspaceContainer: cleanString(project.workspaceContainer || "workspace-ide"),
+        branch: cleanString(project.branch),
+        truthMode: cleanString(project.truthMode || "observed"),
+      };
+    }
+
+    function resolveWorkspaceTarget(project = {}) {
+      const slug = cleanString(project.projectSlug || project.slug || "sounio");
+      const pod =
+        cleanString(project.workspacePod) ||
+        cleanString(project.workspaceWorkloadName) ||
+        `${slug}-workspace-0`;
+      return {
+        namespace: cleanString(project.namespace || "beagle"),
+        pod,
+        container: cleanString(project.workspaceContainer || "workspace-ide"),
+        workspaceRoot: cleanString(project.workspaceRoot || "/workspace"),
+      };
+    }
+
+    function workspaceAgentServiceName(project = {}, slug = "sounio") {
+      const explicit =
+        cleanString(project.workspaceAgentService) ||
+        cleanString(project.workspaceAgentServiceName) ||
+        cleanString(project.workspaceService);
+      if (explicit) return explicit;
+      const pod = cleanString(project.workspacePod);
+      if (pod) return pod.replace(/-\d+$/, "");
+      const workload = cleanString(project.workspaceWorkloadName);
+      if (workload) return workload;
+      return `${safeId(slug)}-workspace`;
+    }
+
+    function workspaceAgentBaseUrl(project = {}, slug = "sounio") {
+      const explicit = cleanString(project.workspaceAgentUrl || project.workspace_agent_url);
+      if (explicit) return explicit.replace(/\/+$/, "");
+      const namespace = cleanString(project.namespace || "beagle");
+      const service = workspaceAgentServiceName(project, slug);
+      const port = Number(project.workspaceAgentPort || project.workspace_agent_port || WORKSPACE_AGENT_PORT);
+      return `http://${service}.${namespace}.svc.cluster.local:${port}`;
+    }
+
+    async function proxyWorkspaceAgentJson(req, res, project, agentPath) {
+      if (WORKBENCH_AUTHORITY !== "workspace-agent") return false;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), WORKSPACE_AGENT_TIMEOUT_MS);
+      try {
+        const response = await fetch(`${workspaceAgentBaseUrl(project, req.params.slug)}${agentPath}`, {
+          method: req.method,
+          headers: {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "x-beagle-workbench-gateway": "project-cockpit",
+          },
+          body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body || {}),
+          signal: controller.signal,
+        });
+        const text = await response.text();
+        let payload = {};
+        try {
+          payload = text ? JSON.parse(text) : {};
+        } catch {
+          payload = { raw: text };
+        }
+        if (!response.ok) {
+          if (response.status === 404) return false;
+          const error = new Error(payload?.error || `workspace_agent_http_${response.status}`);
+          error.statusCode = response.status;
+          throw error;
+        }
+        if (!res.headersSent) res.status(response.status).json(payload);
+        return true;
+      } catch (error) {
+        if (error?.name === "AbortError" || error?.code === "ECONNREFUSED" || error?.code === "ENOTFOUND") {
+          return false;
+        }
+        if (String(error?.message || "").includes("fetch failed")) return false;
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function tryProxyWorkspaceAgentWebSocket(clientWs, project, { slug, sessionId, paneId }) {
+      if (WORKBENCH_AUTHORITY !== "workspace-agent") return false;
+      const base = workspaceAgentBaseUrl(project, slug).replace(/^http/, "ws");
+      const upstreamUrl = `${base}/v1/sessions/${encodeURIComponent(sessionId)}/panes/${encodeURIComponent(paneId)}/stream`;
+      return await new Promise((resolve) => {
+        let settled = false;
+        let opened = false;
+        const upstream = new WebSocket(upstreamUrl, {
+          handshakeTimeout: WORKSPACE_AGENT_TIMEOUT_MS,
+          headers: {
+            "x-beagle-workbench-gateway": "project-cockpit",
+          },
+        });
+        const settle = (value) => {
+          if (settled) return;
+          settled = true;
+          resolve(value);
+        };
+        const timer = setTimeout(() => {
+          if (!opened) {
+            upstream.terminate();
+            settle(false);
+          }
+        }, WORKSPACE_AGENT_TIMEOUT_MS);
+        upstream.on("open", () => {
+          opened = true;
+          clearTimeout(timer);
+          upstream.on("message", (data, isBinary) => {
+            if (clientWs.readyState === clientWs.OPEN) clientWs.send(data, { binary: isBinary });
+          });
+          clientWs.on("message", (data, isBinary) => {
+            if (upstream.readyState === upstream.OPEN) upstream.send(data, { binary: isBinary });
+          });
+          upstream.on("close", () => {
+            if (clientWs.readyState === clientWs.OPEN) clientWs.close();
+          });
+          clientWs.on("close", () => {
+            if (upstream.readyState === upstream.OPEN) upstream.close();
+          });
+          upstream.on("error", (error) => {
+            if (clientWs.readyState === clientWs.OPEN) {
+              send(clientWs, {
+                type: "exit",
+                data: `workspace-agent stream error: ${error?.message || "unknown"}`,
+              });
+              clientWs.close();
+            }
+          });
+          settle(true);
+        });
+        upstream.on("error", () => {
+          clearTimeout(timer);
+          if (!opened) settle(false);
+        });
+      });
+    }
+
+    function kubectlExecArgs(project, command, { tty = true } = {}) {
+      const target = resolveWorkspaceTarget(project);
+      const args = ["-n", target.namespace, "exec"];
+      if (tty) args.push("-it");
+      args.push(target.pod, "-c", target.container, "--", ...command);
+      return args;
+    }
+
+    function commandTitle(command) {
+      const stripped = stripControl(command).replace(/\s+/g, " ").trim();
+      if (!stripped) return "Command";
+      return stripped.length > 72 ? `${stripped.slice(0, 69)}...` : stripped;
+    }
+
+    function send(ws, payload) {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify(payload));
+      }
+    }
+
+    async function rememberBlock({ slug, sessionId, block, requestBody = {} }) {
+      const combined = `${block.command}\n${block.outputPreview}`;
+      const at = nowIso();
+      if (block.privacyClass === "restricted_local_only" || hasSecret(combined)) {
+        await appendBlockEvent(slug, sessionId, {
+          type: "memory",
+          blockId: block.id,
+          sessionId,
+          paneId: block.paneId,
+          at,
+          status: "blocked",
+          error: "restricted_or_secret_detected",
+        });
+        return {
+          status: "blocked",
+          privacyClass: "restricted_local_only",
+          reason: "restricted_or_secret_detected",
+        };
+      }
+
+      const output = cleanString(block.outputPreview).slice(0, 8000);
+      const summary = cleanString(requestBody.summary) || [
+        `Workbench terminal block: ${commandTitle(block.command)}`,
+        output ? `Output preview: ${output.slice(0, 1400)}` : "No output captured.",
+      ].join("\n\n");
+      const payload = {
+        source_platform: "beagle-apple",
+        source_surface: "beagle-workbench",
+        import_scope: "workbench_terminal_block",
+        session_id: sessionId,
+        project_ref: slug,
+        privacy_class: "sensitive",
+        title: commandTitle(block.command),
+        confidence_score: 0.82,
+        create_chronoself_commit: false,
+        turns: [
+          {
+            role: "user",
+            content: block.command || commandTitle(block.title),
+            timestamp: block.startedAt,
+            metadata: {
+              terminal_block_id: block.id,
+              pane_id: block.paneId,
+              block_kind: block.kind,
+            },
+          },
+          {
+            role: "assistant",
+            content: summary,
+            timestamp: block.finishedAt || at,
+            metadata: {
+              terminal_block_id: block.id,
+              output_byte_count: block.outputByteCount,
+              exit_code: block.exitCode,
+              duration_ms: block.durationMs,
+            },
+          },
+        ],
+        tags: [
+          "workbench",
+          "terminal-block",
+          `project:${slug}`,
+          `source_model:${block.sourceModel || "beagle"}`,
+          block.kind ? `block:${block.kind}` : "block:command",
+          ...(Array.isArray(block.tags) ? block.tags : []),
+        ],
+        metadata: {
+          workspace_session_id: sessionId,
+          terminal_block_id: block.id,
+          pane_id: block.paneId,
+          command_hash: createHash("sha256").update(block.command || "").digest("hex"),
+          source_runtime: WORKBENCH_PROTOCOL,
+          source_model: block.sourceModel || "beagle",
+          bridge_version: block.bridgeVersion || WORKBENCH_BRIDGE_VERSION,
+          block_hash: block.blockHash || hashObject({ id: block.id, command: block.command }),
+          session_hash: block.sessionHash || hashObject({ sessionId }),
+          renderer_hint: block.rendererHint || WORKBENCH_PROTOCOL,
+          restricted_leak_check: "passed",
+          remembered_from: "project-cockpit",
+        },
+      };
+
+      const tokenResult = await fetchOperatorToken().catch((error) => ({ error: error.message }));
+      if (tokenResult.error || !tokenResult.token) {
+        await appendBlockEvent(slug, sessionId, {
+          type: "memory",
+          blockId: block.id,
+          sessionId,
+          paneId: block.paneId,
+          at,
+          status: "queued",
+          error: tokenResult.error || "operator_token_unavailable",
+        });
+        return {
+          status: "queued",
+          reason: tokenResult.error || "operator_token_unavailable",
+        };
+      }
+
+      const response = await fetch(`${BEAGLE_INTERNAL_URL}/api/exocortex/v1/memory/assisted-import`, {
+        method: "POST",
+        headers: {
+          "accept": "application/json",
+          "content-type": "application/json",
+          "x-beagle-consumer": "beagle-operator",
+          "authorization": `Bearer ${tokenResult.token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const resultText = await response.text();
+      let result = {};
+      try {
+        result = resultText ? JSON.parse(resultText) : {};
+      } catch {
+        result = { raw: resultText };
+      }
+
+      if (!response.ok) {
+        await appendBlockEvent(slug, sessionId, {
+          type: "memory",
+          blockId: block.id,
+          sessionId,
+          paneId: block.paneId,
+          at,
+          status: "failed",
+          error: result?.error || `core_http_${response.status}`,
+        });
+        return {
+          status: "failed",
+          error: result?.error || `core_http_${response.status}`,
+        };
+      }
+
+      const memoryEventId = cleanString(
+        result?.memory_event_id ||
+        result?.memoryEventId ||
+        result?.memory_event?.id ||
+        result?.memoryEvent?.id
+      );
+      const auditEventId = cleanString(
+        result?.audit_event_id ||
+        result?.auditEventId ||
+        result?.audit_event?.id ||
+        result?.auditEvent?.id
+      );
+
+      await appendBlockEvent(slug, sessionId, {
+        type: "memory",
+        blockId: block.id,
+        sessionId,
+        paneId: block.paneId,
+        at,
+        status: "remembered",
+        memoryEventId,
+        auditEventId,
+      });
+      return {
+        status: "remembered",
+        memoryEventId,
+        auditEventId,
+      };
+    }
+
+    export function registerWorkspaceRoutes(app, deps = {}) {
+      const getProjectOrThrow = deps.getProjectOrThrow || (async () => ({}));
+      const readCatalog = deps.readCatalog || (async () => ({ projects: [] }));
+
+      app.get("/api/workspaces", jsonResponse(async () => {
+        const catalog = await readCatalog();
+        const projects = Array.isArray(catalog?.projects) ? catalog.projects : [];
+        return {
+          workspaces: projects.map(workspaceSummaryFromProject).filter((entry) => entry.slug),
+          truthMode: projects.length > 0 ? "observed" : "declared",
+        };
+      }));
+
+      app.get("/api/workspaces/:slug/sessions", jsonResponse(async (req, res) => {
+        const project = await getProjectOrThrow(req.params.slug);
+        if (await proxyWorkspaceAgentJson(req, res, project, "/v1/sessions")) return undefined;
+        await ensureWorkspaceDir(req.params.slug);
+        const state = await readSessions(req.params.slug);
+        return {
+          projectSlug: req.params.slug,
+          sessions: state.sessions.map((entry) => normalizeSession(req.params.slug, entry)),
+        };
+      }));
+
+      app.post("/api/workspaces/:slug/sessions", jsonResponse(async (req, res) => {
+        const project = await getProjectOrThrow(req.params.slug);
+        if (await proxyWorkspaceAgentJson(req, res, project, "/v1/sessions")) return undefined;
+        const session = await getOrCreateSession(req.params.slug, "", req.body || {});
+        return { session };
+      }));
+
+      app.get("/api/workspaces/:slug/sessions/:sessionId", jsonResponse(async (req, res) => {
+        const project = await getProjectOrThrow(req.params.slug);
+        if (await proxyWorkspaceAgentJson(req, res, project, `/v1/sessions/${encodeURIComponent(req.params.sessionId)}`)) return undefined;
+        const session = await getOrCreateSession(req.params.slug, req.params.sessionId);
+        return { session };
+      }));
+
+      app.post("/api/workspaces/:slug/sessions/:sessionId/panes", jsonResponse(async (req, res) => {
+        const project = await getProjectOrThrow(req.params.slug);
+        if (await proxyWorkspaceAgentJson(req, res, project, `/v1/sessions/${encodeURIComponent(req.params.sessionId)}/panes`)) return undefined;
+        await getOrCreateSession(req.params.slug, req.params.sessionId);
+        const pane = normalizePane({
+          id: cleanString(req.body?.id) || `pane-${randomUUID().slice(0, 10)}`,
+          kind: cleanString(req.body?.kind) || "human",
+          title: cleanString(req.body?.title),
+          cwd: cleanString(req.body?.cwd),
+        });
+        const session = await updateSession(req.params.slug, req.params.sessionId, (current) => {
+          const panes = current.panes.some((entry) => entry.id === pane.id)
+            ? current.panes.map((entry) => entry.id === pane.id ? pane : entry)
+            : [...current.panes, pane];
+          return { ...current, panes };
+        });
+        return { pane, session };
+      }));
+
+      app.get("/api/workspaces/:slug/sessions/:sessionId/blocks", jsonResponse(async (req, res) => {
+        const project = await getProjectOrThrow(req.params.slug);
+        if (await proxyWorkspaceAgentJson(req, res, project, `/v1/sessions/${encodeURIComponent(req.params.sessionId)}/blocks`)) return undefined;
+        await getOrCreateSession(req.params.slug, req.params.sessionId);
+        const events = await readBlockEvents(req.params.slug, req.params.sessionId);
+        return {
+          projectSlug: req.params.slug,
+          sessionId: req.params.sessionId,
+          blocks: foldBlocks(events),
+        };
+      }));
+
+      app.post("/api/workspaces/:slug/sessions/:sessionId/blocks/:blockId/remember", jsonResponse(async (req, res) => {
+        const project = await getProjectOrThrow(req.params.slug);
+        if (await proxyWorkspaceAgentJson(req, res, project, `/v1/sessions/${encodeURIComponent(req.params.sessionId)}/blocks/${encodeURIComponent(req.params.blockId)}/remember`)) return undefined;
+        await getOrCreateSession(req.params.slug, req.params.sessionId);
+        const blocks = foldBlocks(await readBlockEvents(req.params.slug, req.params.sessionId));
+        const block = blocks.find((entry) => entry.id === req.params.blockId);
+        if (!block) {
+          const error = new Error("terminal block not found");
+          error.statusCode = 404;
+          throw error;
+        }
+        const memory = await rememberBlock({
+          slug: req.params.slug,
+          sessionId: req.params.sessionId,
+          block,
+          requestBody: req.body || {},
+        });
+        await updateSession(req.params.slug, req.params.sessionId, (current) => ({
+          ...current,
+          lastMemoryStatus: {
+            blockId: block.id,
+            status: memory.status,
+            privacyClass: memory.privacyClass,
+            reason: memory.reason,
+            error: memory.error,
+            memoryEventId: memory.memoryEventId,
+            auditEventId: memory.auditEventId,
+            sourceModel: block.sourceModel || "beagle",
+            bridgeVersion: block.bridgeVersion || WORKBENCH_BRIDGE_VERSION,
+            updatedAt: nowIso(),
+          },
+        }));
+        return { blockId: block.id, memory };
+      }));
+    }
+
+    export function registerWorkspaceWebSocket(wss, deps = {}) {
+      const getProjectOrThrow = deps.getProjectOrThrow || (async () => ({}));
+
+      wss.on("connection", async (ws, req) => {
+        const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+        const match = url.pathname.match(/^\/ws\/workspaces\/([^/]+)\/sessions\/([^/]+)\/panes\/([^/]+)$/);
+        if (!match) {
+          send(ws, { type: "error", data: "invalid workspace websocket path" });
+          ws.close();
+          return;
+        }
+        const [, slug, sessionId, paneId] = match.map(decodeURIComponent);
+        let project;
+        try {
+          project = await getProjectOrThrow(slug);
+          if (await tryProxyWorkspaceAgentWebSocket(ws, project, { slug, sessionId, paneId })) {
+            return;
+          }
+          const session = await getOrCreateSession(slug, sessionId);
+          await updateSession(slug, session.id, (current) => ({
+            ...current,
+            lastAttachedAt: nowIso(),
+            panes: current.panes.map((pane) =>
+              pane.id === paneId ? { ...pane, status: "attached", lastAttachedAt: nowIso() } : pane
+            ),
+          }));
+        } catch (error) {
+          send(ws, { type: "error", data: error?.message || "workspace attach failed" });
+          ws.close();
+          return;
+        }
+
+        const target = resolveWorkspaceTarget(project);
+        const shellCommand =
+          'cd "$WORKSPACE_ROOT" && export TERM="${TERM:-xterm-256color}" && export BEAGLE_WORKBENCH=1 && exec "${SHELL:-/bin/bash}" -l';
+        const proc = pty.spawn(
+          KUBECTL,
+          kubectlExecArgs(
+            project,
+            [
+              "env",
+              `WORKSPACE_ROOT=${target.workspaceRoot}`,
+              `TERM=xterm-256color`,
+              "sh",
+              "-lc",
+              shellCommand,
+            ],
+            { tty: true }
+          ),
+          {
+            name: "xterm-256color",
+            cols: 120,
+            rows: 34,
+            cwd: process.cwd(),
+            env: process.env,
+          }
+        );
+
+        let inputBuffer = "";
+        let activeBlock = null;
+
+        async function rememberBlockById(blockId, trigger = "manual") {
+          const blocks = foldBlocks(await readBlockEvents(slug, sessionId));
+          const block = blocks.find((entry) => entry.id === blockId);
+          if (!block) return null;
+          if (trigger === "auto" && !shouldAutoRememberBlock(block)) return null;
+          const memory = await rememberBlock({
+            slug,
+            sessionId,
+            block,
+            requestBody: { summary: trigger === "auto" ? "Auto-safe Workbench memory import." : "" },
+          });
+          await updateSession(slug, sessionId, (current) => ({
+            ...current,
+            lastMemoryStatus: {
+              blockId,
+              status: memory.status,
+              privacyClass: memory.privacyClass,
+              reason: memory.reason,
+              error: memory.error,
+              memoryEventId: memory.memoryEventId,
+              auditEventId: memory.auditEventId,
+              updatedAt: nowIso(),
+            },
+          })).catch(() => {});
+          const event = {
+            type: "memory_imported",
+            sessionId,
+            paneId,
+            blockId,
+            at: nowIso(),
+            trigger,
+            status: memory.status,
+            memoryEventId: memory.memoryEventId,
+            auditEventId: memory.auditEventId,
+            sourceModel: block.sourceModel || "beagle",
+            bridgeVersion: block.bridgeVersion || WORKBENCH_BRIDGE_VERSION,
+          };
+          await appendBlockEvent(slug, sessionId, event);
+          send(ws, event);
+          return memory;
+        }
+
+        async function finishActiveBlock(status = "finished", exitCode = null) {
+          if (!activeBlock) return;
+          const finishedBlockId = activeBlock.id;
+          const finishedAt = nowIso();
+          const event = {
+            type: "block_finished",
+            blockId: finishedBlockId,
+            sessionId,
+            paneId,
+            at: finishedAt,
+            finishedAt,
+            durationMs: Date.now() - activeBlock.startedAtMs,
+            exitCode,
+            status,
+            privacyClass: activeBlock.privacyClass,
+            sourceModel: activeBlock.sourceModel,
+            bridgeVersion: WORKBENCH_BRIDGE_VERSION,
+            blockHash: activeBlock.blockHash,
+            sessionHash: activeBlock.sessionHash,
+            rendererHint: WORKBENCH_PROTOCOL,
+          };
+          await appendBlockEvent(slug, sessionId, event);
+          send(ws, event);
+          activeBlock = null;
+          if (!["detached", "terminal_exit"].includes(status)) {
+            void rememberBlockById(finishedBlockId, "auto").catch((error) => {
+              send(ws, {
+                type: "memory_imported",
+                sessionId,
+                paneId,
+                blockId: finishedBlockId,
+                at: nowIso(),
+                trigger: "auto",
+                status: "failed",
+                error: error?.message || "auto_memory_failed",
+              });
+            });
+          }
+        }
+
+        async function startBlockFromInput(commandText) {
+          const command = stripControl(commandText);
+          if (!command || command.length > 6000) return;
+          await finishActiveBlock("observed_no_exit", null);
+          const restricted = hasSecret(command);
+          const blockId = `block-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+          const startedAt = nowIso();
+          activeBlock = {
+            id: blockId,
+            command: restricted ? "[restricted command redacted]" : command,
+            startedAtMs: Date.now(),
+            privacyClass: restricted ? "restricted_local_only" : "sensitive",
+            sourceModel: "beagle",
+            sessionHash: hashObject({ slug, sessionId }),
+            blockHash: hashObject({ blockId, sessionId, paneId, command }),
+          };
+          const bridge = bridgeMetadata({
+            sourceModel: "beagle",
+            rendererHint: WORKBENCH_PROTOCOL,
+            payload: { blockId, sessionId, paneId, command },
+          });
+          const event = {
+            type: "block_started",
+            blockId,
+            sessionId,
+            paneId,
+            at: startedAt,
+            startedAt,
+            kind: "command",
+            title: restricted ? "Restricted command" : commandTitle(command),
+            command: activeBlock.command,
+            privacyClass: activeBlock.privacyClass,
+            tags: ["workbench", "terminal-block", `project:${slug}`, "source_model:beagle"],
+            sourceModel: "beagle",
+            bridgeVersion: WORKBENCH_BRIDGE_VERSION,
+            blockHash: activeBlock.blockHash,
+            sessionHash: activeBlock.sessionHash,
+            rendererHint: WORKBENCH_PROTOCOL,
+            provenance: {
+              protocol: WORKBENCH_PROTOCOL,
+              bridge_version: bridge.bridgeVersion,
+              bridge_hash: bridge.bridgeHash,
+              source_model: "beagle",
+              renderer_hint: WORKBENCH_PROTOCOL,
+              source_surface: "beagle-workbench",
+              workspace_pod: target.pod,
+            },
+          };
+          await appendBlockEvent(slug, sessionId, event);
+          send(ws, event);
+          if (restricted) {
+            const redacted = {
+              type: "secret_redacted",
+              blockId,
+              sessionId,
+              paneId,
+              at: nowIso(),
+              reason: "input_secret_detected",
+            };
+            await appendBlockEvent(slug, sessionId, redacted);
+            send(ws, redacted);
+          }
+        }
+
+        proc.onData(async (data) => {
+          send(ws, { type: "data", data });
+          const rawEvent = {
+            type: "raw_output",
+            sessionId,
+            paneId,
+            at: nowIso(),
+            data,
+            sourceModel: "beagle",
+            bridgeVersion: WORKBENCH_BRIDGE_VERSION,
+          };
+          send(ws, rawEvent);
+          if (activeBlock) {
+            if (hasSecret(data)) {
+              activeBlock.privacyClass = "restricted_local_only";
+              const redacted = {
+                type: "secret_redacted",
+                blockId: activeBlock.id,
+                sessionId,
+                paneId,
+                at: nowIso(),
+                reason: "output_secret_detected",
+              };
+              await appendBlockEvent(slug, sessionId, redacted);
+              send(ws, redacted);
+            }
+            const blockEvent = {
+              type: "block_output",
+              blockId: activeBlock.id,
+              sessionId,
+              paneId,
+              at: nowIso(),
+              data: activeBlock.privacyClass === "restricted_local_only" && hasSecret(data)
+                ? "[restricted output redacted]"
+                : data,
+              sourceModel: activeBlock.sourceModel,
+              bridgeVersion: WORKBENCH_BRIDGE_VERSION,
+            };
+            await appendBlockEvent(slug, sessionId, blockEvent);
+            send(ws, blockEvent);
+          }
+          const agentState = detectAgentState(data);
+          if (agentState) {
+            const event = {
+              type: "agent_state",
+              sessionId,
+              paneId,
+              at: nowIso(),
+              state: agentState,
+              sourceModel: "beagle",
+              bridgeVersion: WORKBENCH_BRIDGE_VERSION,
+            };
+            await appendBlockEvent(slug, sessionId, event);
+            send(ws, event);
+          }
+          for (const signal of detectWorkbenchSignals(data)) {
+            const event = {
+              ...signal,
+              sessionId,
+              paneId,
+              at: nowIso(),
+              sourceModel: "beagle",
+              bridgeVersion: WORKBENCH_BRIDGE_VERSION,
+            };
+            await appendBlockEvent(slug, sessionId, event);
+            send(ws, event);
+          }
+        });
+
+        proc.onExit(async ({ exitCode, signal }) => {
+          await finishActiveBlock("terminal_exit", exitCode);
+          send(ws, {
+            type: "exit",
+            data: signal ? `terminal exited (${exitCode}, signal ${signal})` : `terminal exited (${exitCode})`,
+          });
+          ws.close();
+        });
+
+        send(ws, {
+          type: "ready",
+          data: {
+            projectSlug: slug,
+            sessionId,
+            paneId,
+            protocol: WORKBENCH_PROTOCOL,
+            sourceModel: "beagle",
+            bridgeVersion: WORKBENCH_BRIDGE_VERSION,
+            rendererHint: WORKBENCH_PROTOCOL,
+          },
+        });
+
+        ws.on("message", async (payload) => {
+          try {
+            const message = JSON.parse(String(payload));
+            if (message.type === "input" || message.type === "paste") {
+              const text = String(message.data || "");
+              inputBuffer += text;
+              if (text.includes("\n") || text.includes("\r")) {
+                const command = inputBuffer.split(/\r?\n/)[0];
+                inputBuffer = "";
+                await startBlockFromInput(command);
+              }
+              proc.write(text);
+              return;
+            }
+            if (message.type === "resize") {
+              proc.resize(Number(message.cols || 120), Number(message.rows || 34));
+              return;
+            }
+            if (message.type === "signal") {
+              const signal = cleanString(message.signal || "SIGINT");
+              if (signal === "SIGINT") proc.write("\u0003");
+              if (signal === "SIGTERM") proc.kill();
+              return;
+            }
+            if (message.type === "stop_process") {
+              proc.kill();
+              return;
+            }
+            if (message.type === "focus") {
+              send(ws, {
+                type: "warp_bridge_event",
+                sessionId,
+                paneId,
+                at: nowIso(),
+                event: "focus",
+                sourceModel: "beagle",
+                bridgeVersion: WORKBENCH_BRIDGE_VERSION,
+              });
+              return;
+            }
+            if (message.type === "approve") {
+              await appendBlockEvent(slug, sessionId, {
+                type: "approval_requested",
+                sessionId,
+                paneId,
+                at: nowIso(),
+                status: "approved",
+                sourceModel: "beagle",
+                bridgeVersion: WORKBENCH_BRIDGE_VERSION,
+              });
+              proc.write(String(message.data || "y\n"));
+              return;
+            }
+            if (message.type === "start_process") {
+              const command = cleanString(message.command);
+              if (command) {
+                await startBlockFromInput(command);
+                proc.write(`${command}\n`);
+              }
+              return;
+            }
+            if (message.type === "mark_block") {
+              await finishActiveBlock("marked", null);
+              return;
+            }
+            if (message.type === "attach_block_to_memory") {
+              const blockId = cleanString(message.blockId || message.block_id);
+              if (blockId) await rememberBlockById(blockId, "manual");
+              return;
+            }
+          } catch {
+            const text = String(payload);
+            proc.write(text);
+          }
+        });
+
+        ws.on("close", async () => {
+          await finishActiveBlock("detached", null).catch(() => {});
+          proc.kill();
+        });
+      });
     }
 kind: ConfigMap
 metadata:

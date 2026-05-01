@@ -202,11 +202,7 @@ where
     }
 
     /// Bootstrap phase: execute signature on inputs and collect traces
-    pub async fn bootstrap<F, Fut>(
-        &self,
-        inputs: &[I],
-        execute_fn: F,
-    ) -> SignatureResult<usize>
+    pub async fn bootstrap<F, Fut>(&self, inputs: &[I], execute_fn: F) -> SignatureResult<usize>
     where
         F: Fn(&S, &I) -> Fut + Send + Sync,
         Fut: std::future::Future<Output = SignatureResult<O>> + Send,
@@ -242,10 +238,7 @@ where
     }
 
     /// Propose improved instructions based on traces
-    pub async fn propose_instructions<F, Fut>(
-        &self,
-        propose_fn: F,
-    ) -> SignatureResult<Vec<String>>
+    pub async fn propose_instructions<F, Fut>(&self, propose_fn: F) -> SignatureResult<Vec<String>>
     where
         F: Fn(String) -> Fut + Send + Sync,
         Fut: std::future::Future<Output = SignatureResult<String>> + Send,
@@ -354,7 +347,10 @@ Return each variant as a numbered list:
     {
         let mut scores = Vec::new();
 
-        for input in validation_inputs.iter().take(self.config.validation_batch_size) {
+        for input in validation_inputs
+            .iter()
+            .take(self.config.validation_batch_size)
+        {
             match execute_fn(&self.signature, input, instructions).await {
                 Ok(output) => {
                     let score = (self.metric)(&output);
@@ -448,8 +444,8 @@ impl OptimizationStats {
         let avg_score = scores.iter().sum::<f64>() / scores.len() as f64;
         let avg_latency = latencies.iter().sum::<f64>() / latencies.len() as f64;
 
-        let variance = scores.iter().map(|s| (s - avg_score).powi(2)).sum::<f64>()
-            / scores.len() as f64;
+        let variance =
+            scores.iter().map(|s| (s - avg_score).powi(2)).sum::<f64>() / scores.len() as f64;
 
         Self {
             trace_count: traces.len(),

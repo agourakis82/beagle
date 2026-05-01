@@ -55,7 +55,9 @@ impl OpenRouterClient {
     }
 
     pub fn check_available() -> bool {
-        !env::var("OPENROUTER_API_KEY").unwrap_or_default().is_empty()
+        !env::var("OPENROUTER_API_KEY")
+            .unwrap_or_default()
+            .is_empty()
     }
 }
 

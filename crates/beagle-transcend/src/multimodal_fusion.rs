@@ -257,13 +257,13 @@ impl LearnedProjection {
         let weight = Array2::from_shape_fn((output_dim, input_dim), |_| rng.gen_range(-std..std));
         let bias = Array1::zeros(output_dim);
 
-Self {
+        Self {
             weight,
             bias,
             input_dim,
             output_dim,
         }
-}
+    }
 
     /// Create with He initialization (good for ReLU/GELU)
     pub fn new_he(input_dim: usize, output_dim: usize) -> Self {
@@ -276,13 +276,13 @@ Self {
         let weight = Array2::from_shape_fn((output_dim, input_dim), |_| rng.gen_range(-std..std));
         let bias = Array1::zeros(output_dim);
 
-Self {
+        Self {
             weight,
             bias,
             input_dim,
             output_dim,
         }
-}
+    }
 
     /// Forward pass: y = Wx + b
     pub fn forward(&self, input: &Array2<f32>) -> Array2<f32> {
@@ -375,14 +375,14 @@ impl RotaryPositionEmbedding {
             }
         }
 
-Self {
+        Self {
             dim,
             max_seq_len,
             cos_cache,
             sin_cache,
             base,
         }
-}
+    }
 
     /// Apply RoPE to query/key tensors
     pub fn apply(&self, x: &Array2<f32>, start_pos: usize) -> Array2<f32> {

@@ -538,6 +538,127 @@ public actor CockpitClient {
         return await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)/stop")
     }
 
+    // MARK: - Workspace / Notebook Terminal
+
+    public func workspaces() async -> Truthful<WorkspaceListResponse> {
+        await fetch(WorkspaceListResponse.self, path: "/api/workspaces")
+    }
+
+    public func workspaceSessions(slug: String) async -> Truthful<WorkspaceSessionListResponse> {
+        await fetch(
+            WorkspaceSessionListResponse.self,
+            path: "/api/workspaces/\(slug)/sessions"
+        )
+    }
+
+    public func createWorkspaceSession(
+        slug: String,
+        title: String = "Sounio Workbench",
+        layout: NotebookTerminalLayout = .notebook
+    ) async -> Truthful<WorkspaceSessionResponse> {
+        await post(
+            WorkspaceSessionResponse.self,
+            path: "/api/workspaces/\(slug)/sessions",
+            body: [
+                "title": title,
+                "layout": layout.rawValue
+            ]
+        )
+    }
+
+    public func workspaceSession(slug: String, sessionId: String) async -> Truthful<WorkspaceSessionResponse> {
+        await fetch(
+            WorkspaceSessionResponse.self,
+            path: "/api/workspaces/\(slug)/sessions/\(sessionId)"
+        )
+    }
+
+    public func agentRegistry(slug: String) async -> Truthful<AgentRegistryResponse> {
+        await fetch(
+            AgentRegistryResponse.self,
+            path: "/api/workspaces/\(slug)/agents/registry"
+        )
+    }
+
+    public func agentRoute(
+        slug: String,
+        task: String,
+        privacyClass: String = "sensitive"
+    ) async -> Truthful<AgentRouteResponse> {
+        await post(
+            AgentRouteResponse.self,
+            path: "/api/workspaces/\(slug)/agents/route",
+            body: [
+                "task": task,
+                "privacy_class": privacyClass
+            ]
+        )
+    }
+
+    public func startAgentRole(
+        slug: String,
+        roleOrKind: String,
+        sessionId: String? = nil,
+        task: String = "",
+        providerSlot: String? = nil
+    ) async -> Truthful<AgentStartResponse> {
+        var body: [String: any Sendable] = [
+            "task": task
+        ]
+        if let sessionId, !sessionId.isEmpty {
+            body["session_id"] = sessionId
+        }
+        if let providerSlot, !providerSlot.isEmpty {
+            body["provider_slot"] = providerSlot
+        }
+        return await post(
+            AgentStartResponse.self,
+            path: "/api/workspaces/\(slug)/agents/\(roleOrKind)/start",
+            body: body
+        )
+    }
+
+    public func createWorkspacePane(
+        slug: String,
+        sessionId: String,
+        kind: String = "human",
+        title: String = "Shell"
+    ) async -> Truthful<WorkspacePaneResponse> {
+        await post(
+            WorkspacePaneResponse.self,
+            path: "/api/workspaces/\(slug)/sessions/\(sessionId)/panes",
+            body: [
+                "kind": kind,
+                "title": title
+            ]
+        )
+    }
+
+    public func workspaceBlocks(slug: String, sessionId: String) async -> Truthful<WorkspaceBlocksResponse> {
+        await fetch(
+            WorkspaceBlocksResponse.self,
+            path: "/api/workspaces/\(slug)/sessions/\(sessionId)/blocks"
+        )
+    }
+
+    public func rememberWorkspaceBlock(
+        slug: String,
+        sessionId: String,
+        blockId: String,
+        summary: String = ""
+    ) async -> Truthful<WorkspaceRememberBlockResponse> {
+        var body: [String: any Sendable] = ["confirmed": true]
+        if !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["summary"] = summary
+        }
+        return await post(
+            WorkspaceRememberBlockResponse.self,
+            path: "/api/workspaces/\(slug)/sessions/\(sessionId)/blocks/\(blockId)/remember",
+            body: body,
+            timeout: 30
+        )
+    }
+
     // MARK: - Habitat Actions
 
     public func executeAction(slug: String, actionId: String) async -> Truthful<ActionResponse> {

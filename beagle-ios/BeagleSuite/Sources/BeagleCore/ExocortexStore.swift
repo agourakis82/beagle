@@ -21,12 +21,19 @@ public final class ExocortexStore {
     public var truthSetStatus: Truthful<MemoryTruthSetStatus>?
     public var recentGraph: Truthful<MemoryGraphRecentResponse>?
     public var recentWorlds: Truthful<MemoryWorldsRecentResponse>?
+    public var spatialControlRoom: Truthful<ControlRoomSnapshot>?
+    public var mindPalace: Truthful<MindPalaceSnapshot>?
+    public var spatialDesk: Truthful<SpatialDeskSnapshot>?
+    public var focusCoach: Truthful<FocusCoachState>?
     public var memoryCandidates: Truthful<MemoryCandidateListResponse>?
     public var memoryGovernanceStatus: Truthful<MemoryGovernanceStatus>?
     public var memoryContradictions: Truthful<MemoryContradictionListResponse>?
+    public var sounioWorkday: Truthful<SounioWorkdaySnapshot>?
+    public var recentSounioMoments: Truthful<SounioMomentListResponse>?
     public var lastGraphRagQuery: Truthful<GraphRagQueryResponse>?
     public var lastAssistedImport: Truthful<AssistedImportBatchResult>?
     public var mcpTools: Truthful<MCPToolListResult>?
+    public var cachedHomeSnapshot: ExocortexHomeSnapshot?
     public var isLoading = false
     public var modelContext: ModelContext?
 
@@ -79,6 +86,33 @@ public final class ExocortexStore {
         recentWorlds = await client.memoryWorldsRecent(limit: limit)
     }
 
+    public func refreshSpatialControlRoom(projectSlug: String = "sounio") async {
+        spatialControlRoom = await client.spatialControlRoom(projectSlug: projectSlug)
+    }
+
+    public func refreshMindPalace() async {
+        mindPalace = await client.mindPalace()
+        if let snapshot = mindPalace?.value {
+            spatialDesk = .observed(snapshot.desk, source: "mind-palace")
+            focusCoach = .observed(snapshot.focusCoach, source: "mind-palace")
+        }
+    }
+
+    public func refreshSpatialDesk() async {
+        spatialDesk = await client.spatialDesk()
+    }
+
+    public func refreshFocusCoach() async {
+        focusCoach = await client.focusCoachStatus()
+    }
+
+    @discardableResult
+    public func recordFocusCoachEvent(_ request: FocusCoachEventRequest) async -> Truthful<FocusCoachState> {
+        let result = await client.recordFocusCoachEvent(request)
+        focusCoach = result
+        return result
+    }
+
     public func refreshMemoryCandidates(limit: Int = 20) async {
         memoryCandidates = await client.memoryCandidates(limit: limit)
     }
@@ -89,6 +123,33 @@ public final class ExocortexStore {
 
     public func refreshMemoryContradictions(limit: Int = 20) async {
         memoryContradictions = await client.memoryContradictions(limit: limit)
+    }
+
+    public func refreshSounioWorkday(projectSlug: String = "sounio", limit: Int = 20) async {
+        sounioWorkday = await client.sounioWorkdayStatus(projectSlug: projectSlug, limit: limit)
+    }
+
+    public func refreshRecentSounioMoments(projectSlug: String = "sounio", limit: Int = 20) async {
+        recentSounioMoments = await client.recentSounioMoments(projectSlug: projectSlug, limit: limit)
+    }
+
+    @discardableResult
+    public func reviewSounioMoment(
+        _ moment: SounioMoment,
+        decision: String,
+        rationale: String? = nil
+    ) async -> Truthful<SounioMoment> {
+        let result = await client.reviewSounioMoment(
+            momentId: moment.id,
+            decision: decision,
+            rationale: rationale,
+            evidenceRefs: moment.evidenceRefs
+        )
+        if result.value != nil {
+            await refreshSounioWorkday(projectSlug: moment.projectSlug)
+            await refreshRecentSounioMoments(projectSlug: moment.projectSlug)
+        }
+        return result
     }
 
     @discardableResult
@@ -136,6 +197,7 @@ public final class ExocortexStore {
         else {
             return
         }
+        cachedHomeSnapshot = snapshot
         home = .remembered(snapshot, observedAt: cached.capturedAt, source: "swiftdata-cache")
     }
 

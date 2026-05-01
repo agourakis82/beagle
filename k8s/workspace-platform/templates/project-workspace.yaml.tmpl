@@ -22,6 +22,9 @@ spec:
     - name: ssh
       port: 2222
       targetPort: ssh
+    - name: workbench
+      port: 4371
+      targetPort: workbench
 ---
 apiVersion: v1
 kind: Service
@@ -39,6 +42,9 @@ spec:
     - name: ssh
       port: 2222
       targetPort: ssh
+    - name: workbench
+      port: 4371
+      targetPort: workbench
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -305,6 +311,102 @@ ${WORKSPACE_TOLERATIONS_BLOCK}
             - name: workspace-ssh-authorized-keys
               mountPath: /var/run/beagle-workspace-ssh
               readOnly: true
+        - name: beagle-pty-supervisor
+          image: ${WORKSPACE_AGENT_IMAGE}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            appArmorProfile:
+              type: Unconfined
+          command:
+            - node
+            - /app/src/pty-supervisor.mjs
+          env:
+            - name: BEAGLE_WORKSPACE_SLUG
+              value: ${PROJECT_SLUG}
+            - name: PROJECT_SLUG
+              value: ${PROJECT_SLUG}
+            - name: BEAGLE_WORKSPACE_ROOT
+              value: ${PROJECT_WORKSPACE_ROOT}
+            - name: PROJECT_WORKSPACE_ROOT
+              value: ${PROJECT_WORKSPACE_ROOT}
+            - name: BEAGLE_PTY_SUPERVISOR_HOST
+              value: 127.0.0.1
+            - name: BEAGLE_PTY_SUPERVISOR_PORT
+              value: "4372"
+            - name: SHELL
+              value: /bin/bash
+          volumeMounts:
+            - name: workspace-data
+              mountPath: /workspace
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -lc
+                - curl -fsS http://127.0.0.1:4372/v1/health >/dev/null
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -lc
+                - curl -fsS http://127.0.0.1:4372/v1/health >/dev/null
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 2
+        - name: beagle-workspace-agent
+          image: ${WORKSPACE_AGENT_IMAGE}
+          imagePullPolicy: IfNotPresent
+          command:
+            - node
+            - /app/src/server.mjs
+          env:
+            - name: BEAGLE_WORKSPACE_SLUG
+              value: ${PROJECT_SLUG}
+            - name: PROJECT_SLUG
+              value: ${PROJECT_SLUG}
+            - name: BEAGLE_WORKSPACE_ROOT
+              value: ${PROJECT_WORKSPACE_ROOT}
+            - name: PROJECT_WORKSPACE_ROOT
+              value: ${PROJECT_WORKSPACE_ROOT}
+            - name: BEAGLE_WORKBENCH_DIR
+              value: /workspace/.beagle/workbench
+            - name: BEAGLE_WORKSPACE_AGENT_PORT
+              value: "4371"
+            - name: BEAGLE_PTY_SUPERVISOR_URL
+              value: http://127.0.0.1:4372
+            - name: BEAGLE_CORE_URL
+              value: http://beagle-core.beagle.svc.cluster.local:8080
+          envFrom:
+            - secretRef:
+                name: ${CORE_SECRETS_SECRET_NAME}
+                optional: true
+          ports:
+            - name: workbench
+              containerPort: 4371
+          volumeMounts:
+            - name: workspace-data
+              mountPath: /workspace
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -lc
+                - curl -fsS http://127.0.0.1:4371/v1/ready >/dev/null
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -lc
+                - curl -fsS http://127.0.0.1:4371/v1/health >/dev/null
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 2
       volumes:
         - name: workspace-config
           configMap:

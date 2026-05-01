@@ -1,5 +1,87 @@
 # Beagle MCP Tool Manifest Changelog
 
+## beagle-mcp-v3.5-model-ecology-router
+
+- Tool count: 79
+- Tool manifest hash: `sha256:3397d62e813ebaf2853d9ba7eb6f90611e5500b1585e15322d63d701350ac7d2`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains absent. The new surface is role-routing and failed-write recovery, not destructive control.
+- Added model ecology and LC-NE rescue tools:
+  - `beagle_agent_registry`
+  - `beagle_agent_route`
+  - `beagle_write_probe`
+  - `beagle_failed_write_inbox`
+  - `beagle_failed_write_rescue`
+- Beagle now exposes role-first routing for Sounio/Beagle agents and a reviewed rescue path for Claude iOS failed writes into sensitive cluster-canonical Episode+Atom/SounioMoment memory.
+
+## beagle-mcp-v3.4-live-memory-ranking
+
+- Tool count: 74
+- Tool manifest hash: `sha256:ed740c5b25e53ba86590d10684c221a1539c68d60b2d85f292a15860b61334cb`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains absent. This is a schema-only retrieval update.
+- `beagle_graphrag_query` now accepts optional `ranking_policy=strict_recent_guarded|legacy_stable`. The default core policy boosts live Workbench/Codex/Claude/Sounio memory while Stable Fact Guard protects canonical facts such as portfolio identity, Mandic RA, DOI, dates and institutional rules.
+- Tool responses may include `ranking_trace`, `recency_boost_applied`, and `stable_fact_guard_applied` from core without requiring clients to change existing calls.
+
+## beagle-mcp-v3.0-multimodal-composer
+
+- Tool count: 74
+- Tool manifest hash: `sha256:299863bdaf387f78ec91618d05972e1b66709eb06f08455bc9b000f5aa5b61ec`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from capture, visual evidence, Sounio typing, review, Apple, MCP, and local-agent surfaces.
+- Added explicit multimodal capture tools:
+  - `beagle_capture_session_start`
+  - `beagle_capture_session_status`
+  - `beagle_visual_evidence_analyze`
+  - `beagle_capture_review_promote`
+- The v3.0 surface makes the anti-creepy posture protocol-visible: capture sessions are user-initiated, visual analysis is local-first, external multimodal processing requires confirmation, and promotions are append-only Sounio moments or claim seeds.
+
+## beagle-mcp-v2.9-ambient-sounio-workday
+
+- Tool count: 70
+- Tool manifest hash: `sha256:bdcdd1935751e4573f843277e0e7b940782fb6968d4371b9bf4af8fdd97d5ce6`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from public, mobile, local-agent, Sounio Workday, ambient typing, review, PaperRun, digest, and approval surfaces.
+- Added Ambient Sounio tools:
+  - `beagle_sounio_moment_type`
+  - `beagle_sounio_workday_status`
+  - `beagle_sounio_moment_review`
+- Added readable Sounio resources:
+  - `beagle://sounio/workday/current`
+  - `beagle://sounio/moments/recent`
+- The v2.9 surface makes the everyday loop explicit: Beagle observes real work/capture surfaces, while Sounio types intentions, decisions, Claim<T> seeds, evidence and next gestures conservatively.
+
+## beagle-mcp-v2.5-sounio-claims-theatre
+
+- Tool count: 67
+- Tool manifest hash: `sha256:f3acd71e00696b189d16df381195235a8cb2a464c0e7a06dac05c15e48be8e6e`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from public, mobile, local-agent, Sounio, PaperRun, Theatre, digest, claim-review, and approval surfaces.
+- Added Sounio Claim<T> and PaperRun Theatre tools:
+  - `beagle_sounio_claim_check`
+  - `beagle_sounio_paperrun_add_claim`
+  - `beagle_sounio_claim_review`
+  - `beagle_sounio_paperrun_theatre`
+  - `beagle_sounio_public_digest`
+- The v2.5 surface makes the boundary explicit: Beagle observes the research/process trace, while Sounio types claims epistemically as Belief, Contest, Knowledge, or Robust.
+- Public digest remains sanitized; full trace packs and private corpus references stay cluster-only.
+
+## beagle-mcp-v2.4-sounio-paperrun
+
+- Tool count: 62
+- Tool manifest hash: `sha256:07d659172b334b5ee0769ad6f6b2477d1c76f3979e2fa16954433aad8da8afd8`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; `admin:destructive` remains reserved and absent from public, mobile, local-agent, Sounio, PaperRun, Temporal runner, artifact, and approval surfaces.
+- Added Sounio PaperRun tools:
+  - `beagle_sounio_program_check`
+  - `beagle_sounio_paperrun_start`
+  - `beagle_sounio_paperrun_status`
+  - `beagle_sounio_paperrun_approve_step`
+  - `beagle_sounio_trace_query`
+- Added readable Sounio resource:
+  - `beagle://sounio/paperrun/current`
+- The v2.4 surface turns Sounio into an operational IR for durable cognitive workflows: program validation, PaperRun start/status, human approval, trace query, and Beagle paper artifacts remain audited, non-destructive, and linked to cluster-canonical memory.
+
 ## beagle-mcp-v2.3-context-compiler-policy
 
 - Tool count: 57

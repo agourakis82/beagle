@@ -99,6 +99,52 @@ const AgentStartSchema = z.object({
     objective: z.string().optional(),
 });
 
+const AgentRegistrySchema = z.object({
+    project_slug: z.string().default("sounio"),
+});
+
+const AgentRouteSchema = z.object({
+    project_slug: z.string().default("sounio"),
+    task: z.string().min(1),
+    privacy_class: PrivacyClassSchema.optional().default("sensitive"),
+    arousal_mode: z
+        .enum(["phasic_focus", "tonic_explore", "blocked", "recovering", "fatigued"])
+        .optional(),
+    fallback_roles: z.array(z.string()).optional(),
+});
+
+const WriteProbeSchema = z.object({
+    principal: z.string().optional().default("mcp-agent"),
+    source_platform: z.string().optional().default("mcp"),
+    source_surface: z.string().optional().default("mcp"),
+    required_scopes: z.array(z.string()).optional().default(["memory:write"]),
+    granted_scopes: z.array(z.string()).optional().default([]),
+    payload_kind: z.string().optional().default("memory_write"),
+    metadata: z.record(z.unknown()).optional().default({}),
+});
+
+const FailedWriteInboxSchema = z.object({
+    limit: z.number().int().min(1).max(100).optional().default(25),
+});
+
+const FailedWriteRescueSchema = z.object({
+    failed_write_id: z.string().optional(),
+    reason: z.string().optional().default("claude_ios_failed_write_rescue"),
+    source_platform: z.string().optional().default("claude"),
+    source_surface: z.string().optional().default("claude-ios"),
+    principal: z.string().optional().default("claude-ios"),
+    summary: z.string().optional(),
+    session_id: z.string().optional(),
+    project_ref: z.string().optional().default("sounio"),
+    privacy_class: PrivacyClassSchema.optional().default("sensitive"),
+    payload_kind: z.string().optional().default("sounio_insight"),
+    turns: z.array(OmniTurnSchema).optional().default([]),
+    tags: z.array(z.string()).optional().default([]),
+    artifact_refs: z.array(z.string()).optional().default([]),
+    candidate_refs: z.array(z.string()).optional().default([]),
+    metadata: z.record(z.unknown()).optional().default({}),
+});
+
 const ProjectMemorySchema = z.object({
     rebuild: z.boolean().optional().default(false),
     source_refs: z.array(z.string()).optional().default([]),
@@ -119,6 +165,7 @@ const GraphRagQuerySchema = z.object({
     query: z.string().min(1),
     scope: z.string().optional(),
     max_items: z.number().int().min(1).max(20).optional().default(5),
+    ranking_policy: z.enum(["strict_recent_guarded", "legacy_stable"]).optional(),
     mode: z
         .enum([
             "hypermemory_multivector",
@@ -210,6 +257,162 @@ const DreamCycleRunSchema = z.object({
     mode: z.enum(["manual", "nightly"]).optional().default("manual"),
     triggered_by: z.string().optional().default("mcp-agent"),
     dry_run: z.boolean().optional().default(true),
+});
+
+const SounioGovernanceSchema = z.object({
+    privacy_class: PrivacyClassSchema.optional().default("sensitive"),
+    provenance: z.record(z.unknown()).default({ source: "mcp-agent" }),
+    restricted_leak_check: z.record(z.unknown()).default({ status: "required" }),
+    human_approval_required: z.boolean().optional().default(true),
+    policy_refs: z.array(z.string()).optional().default([]),
+});
+
+const SounioStepSchema = z.object({
+    id: z.string().min(1),
+    title: z.string().min(1),
+    objective: z.string().optional(),
+    agent: z.string().optional(),
+    strategy: z.string().optional(),
+    requires_human_approval: z.boolean().optional().default(false),
+    provenance: z.record(z.unknown()).default({ source: "mcp-agent" }),
+    governance: z.record(z.unknown()).default({ privacy_class: "sensitive", restricted_policy: "exclude" }),
+});
+
+const SounioProgramSchema = z.object({
+    id: z.string().min(1),
+    sounio_version: z.string().optional().default("0.1"),
+    kind: z.string().optional().default("WorkProgram"),
+    intent: z.string().min(1),
+    context: z.record(z.unknown()).optional().default({}),
+    plan: z.array(SounioStepSchema).min(1),
+    actions: z.array(z.record(z.unknown())).optional().default([]),
+    evidence: z.array(z.record(z.unknown())).optional().default([]),
+    decisions: z.array(z.record(z.unknown())).optional().default([]),
+    checks: z.array(z.record(z.unknown())).optional().default([]),
+    outcome: z.string().optional(),
+    next_action: z.string().optional(),
+    governance: SounioGovernanceSchema,
+});
+
+const SounioProgramCheckSchema = z.object({
+    source_format: z.enum(["json", "yaml", "sio"]).optional().default("json"),
+    program: SounioProgramSchema,
+});
+
+const SounioPaperRunStartSchema = z.object({
+    paper_id: z.string().optional(),
+    title: z.string().optional(),
+    principal: z.string().optional().default("mcp-agent"),
+    surface: z.string().optional().default("mcp-sounio-paperrun"),
+    temporal_namespace: z.string().optional(),
+    temporal_task_queue: z.string().optional(),
+    program: SounioProgramSchema.optional(),
+    dry_run: z.boolean().optional().default(false),
+});
+
+const SounioPaperRunStatusSchema = z.object({
+    paper_run_id: z.string().min(1),
+});
+
+const SounioPaperRunApproveStepSchema = z.object({
+    paper_run_id: z.string().min(1),
+    step_id: z.string().min(1),
+    reviewer: z.string().optional().default("demetrios"),
+    decision: z.enum(["approved", "rejected", "needs_revision"]).optional().default("approved"),
+    rationale: z.string().optional(),
+});
+
+const SounioClaimInputSchema = z.object({
+    id: z.string().optional(),
+    claim_text: z.string().min(1),
+    subject: z.string().optional(),
+    value_type: z.string().optional().default("Claim<T>"),
+    epistemic_status: z.enum(["belief", "contest", "knowledge", "robust"]).optional().default("belief"),
+    evidence_refs: z.array(z.string()).optional().default([]),
+    provenance: z.record(z.unknown()).optional().default({ source: "mcp-agent" }),
+    confidence: z.number().min(0).max(1).optional(),
+    contestation: z.record(z.unknown()).optional().default({}),
+    review_state: z.string().optional().default("unreviewed"),
+    promotion_rule: z.string().optional(),
+    publication_readiness: z.string().optional().default("not_ready"),
+    section_id: z.string().optional(),
+    agent_refs: z.array(z.string()).optional().default([]),
+    contract_refs: z.array(z.string()).optional().default([]),
+    artifact_refs: z.array(z.string()).optional().default([]),
+    chronoself_commit_refs: z.array(z.string()).optional().default([]),
+    privacy_class: PrivacyClassSchema.optional().default("sensitive"),
+    rationale: z.string().optional(),
+});
+
+const SounioClaimCheckSchema = z.object({
+    claim: SounioClaimInputSchema,
+});
+
+const SounioMomentTypeSchema = z.object({
+    source_event_refs: z.array(z.string()).optional().default([]),
+    source_platform: z.string().optional().default("mcp-agent"),
+    source_surface: z.string().optional().default("mcp-sounio-moment"),
+    project_slug: z.string().optional().default("sounio"),
+    session_id: z.string().optional(),
+    intent_text: z.string().optional(),
+    summary: z.string().optional(),
+    evidence_refs: z.array(z.string()).optional().default([]),
+    claim_seeds: z.array(SounioClaimInputSchema).optional().default([]),
+    decision_seeds: z.array(z.string()).optional().default([]),
+    next_action: z.string().optional(),
+    privacy_class: PrivacyClassSchema.optional().default("sensitive"),
+    review_state: z.string().optional().default("unreviewed"),
+    provenance: z.record(z.unknown()).optional().default({ source: "mcp-agent" }),
+    tags: z.array(z.string()).optional().default(["sounio", "ambient-typing"]),
+});
+
+const SounioWorkdayStatusSchema = z.object({
+    project_slug: z.string().optional().default("sounio"),
+    limit: z.number().int().min(1).max(100).optional().default(20),
+});
+
+const SounioMomentReviewSchema = z.object({
+    moment_id: z.string().min(1),
+    reviewer: z.string().optional().default("demetrios"),
+    decision: z.enum(["approved", "rejected", "needs_revision", "mark_contest", "promote_claim_seed"]),
+    rationale: z.string().optional(),
+    evidence_refs: z.array(z.string()).optional().default([]),
+    review_state: z.string().optional(),
+    provenance: z.record(z.unknown()).optional().default({ source: "mcp-agent-review" }),
+});
+
+const SounioPaperRunAddClaimSchema = z.object({
+    paper_run_id: z.string().min(1),
+    claim: SounioClaimInputSchema,
+    principal: z.string().optional().default("mcp-agent"),
+    surface: z.string().optional().default("mcp-sounio-theatre"),
+});
+
+const SounioClaimReviewSchema = z.object({
+    paper_run_id: z.string().min(1),
+    claim_id: z.string().min(1),
+    reviewer: z.string().optional().default("demetrios"),
+    decision: z
+        .enum(["approved", "rejected", "needs_evidence", "contest", "promote_to_knowledge", "promote_to_robust"])
+        .default("approved"),
+    rationale: z.string().optional(),
+    evidence_refs: z.array(z.string()).optional().default([]),
+    epistemic_status: z.enum(["belief", "contest", "knowledge", "robust"]).optional(),
+    publication_readiness: z.string().optional(),
+    provenance: z.record(z.unknown()).optional().default({ source: "mcp-agent-review" }),
+});
+
+const SounioPaperRunTheatreSchema = z.object({
+    paper_run_id: z.string().min(1),
+});
+
+const SounioPublicDigestSchema = z.object({
+    paper_run_id: z.string().min(1),
+});
+
+const SounioTraceQuerySchema = z.object({
+    paper_run_id: z.string().optional(),
+    limit: z.number().int().min(1).max(500).optional().default(50),
 });
 
 const MemoryEngineBakeoffRunSchema = z.object({
@@ -348,6 +551,74 @@ const AssistedImportBatchSchema = z.object({
     original_date: z.string().optional(),
     confidence_score: z.number().min(0).max(1).optional(),
     create_chronoself_commit: z.boolean().optional().default(false),
+    capture_session_id: z.string().optional(),
+    artifact_refs: z.array(z.string()).optional().default([]),
+    transcription_segments: z
+        .array(
+            z.object({
+                text: z.string().min(1),
+                start_ms: z.number().int().min(0).optional(),
+                end_ms: z.number().int().min(0).optional(),
+                confidence: z.number().min(0).max(1).optional(),
+                source: z.string().optional(),
+            }),
+        )
+        .optional()
+        .default([]),
+    visual_evidence_refs: z.array(z.string()).optional().default([]),
+});
+
+const CaptureSessionStartSchema = z.object({
+    project_slug: z.string().optional().default("sounio"),
+    mode: z.enum(["text", "thinking_aloud", "visual_evidence", "multimodal"]).optional().default("thinking_aloud"),
+    surface: z.string().optional().default("mcp-capture"),
+    principal: z.string().optional().default("mcp-agent"),
+    title: z.string().optional(),
+    privacy_class: PrivacyClassSchema.optional().default("sensitive"),
+    metadata: z.record(z.unknown()).optional().default({}),
+});
+
+const CaptureSessionStatusSchema = z.object({
+    session_id: z.string().min(1),
+});
+
+const VisualEvidenceAnalyzeSchema = z.object({
+    artifact_id: z.string().min(1),
+    prompt: z.string().optional(),
+    allow_external_model: z.boolean().optional().default(false),
+    preferred_provider: z.enum(["openai-responses-vision", "claude-vision", "local-only"]).optional(),
+    local_analysis: z.record(z.unknown()).optional().default({}),
+    redaction_summary: z.string().optional(),
+    principal: z.string().optional().default("mcp-agent"),
+    surface: z.string().optional().default("mcp-visual-evidence"),
+});
+
+const CaptureReviewCandidateSchema = z.object({
+    id: z.string().optional(),
+    kind: z.enum(["moment", "decision", "claim_seed", "tension", "next_action"]).default("moment"),
+    title: z.string().min(1),
+    summary: z.string().min(1),
+    evidence_refs: z.array(z.string()).optional().default([]),
+    claim_text: z.string().optional(),
+    decision_text: z.string().optional(),
+    next_action: z.string().optional(),
+    epistemic_status: z.enum(["belief", "contest", "knowledge", "robust"]).optional().default("belief"),
+    confidence: z.number().min(0).max(1).optional(),
+    privacy_class: PrivacyClassSchema.optional().default("sensitive"),
+    provenance: z.record(z.unknown()).optional().default({}),
+});
+
+const CaptureReviewPromoteSchema = z.object({
+    session_id: z.string().optional(),
+    artifact_id: z.string().optional(),
+    project_slug: z.string().optional().default("sounio"),
+    source_surface: z.string().optional().default("mcp-capture-review"),
+    candidates: z.array(CaptureReviewCandidateSchema).min(1),
+    decision: z.string().optional().default("promote"),
+    reviewer: z.string().optional().default("demetrios"),
+    promote: z.boolean().optional().default(true),
+    privacy_class: PrivacyClassSchema.optional().default("sensitive"),
+    provenance: z.record(z.unknown()).optional().default({}),
 });
 
 function uniqueNonEmpty(values: Array<string | undefined>): string[] {
@@ -515,6 +786,10 @@ function assistedImportPayload(input: AssistedImportBatchInput): OmniImportReque
         batch_index: input.batch_index,
         batch_total: input.batch_total,
         coverage: input.coverage,
+        capture_session_id: input.capture_session_id,
+        artifact_refs: input.artifact_refs,
+        transcription_segments: input.transcription_segments,
+        visual_evidence_refs: input.visual_evidence_refs,
         explicit_import_only: true,
     };
 
@@ -612,6 +887,10 @@ function workMemoryCapturePayload(input: z.infer<typeof WorkMemoryCaptureSchema>
         title: `${input.agent_kind} work memory ${input.phase}: ${input.project_slug}`,
         confidence_score: 0.82,
         create_chronoself_commit: false,
+        capture_session_id: undefined,
+        artifact_refs: [],
+        transcription_segments: [],
+        visual_evidence_refs: [],
     };
 }
 
@@ -804,11 +1083,300 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                     original_date: { type: "string" },
                     confidence_score: { type: "number", minimum: 0, maximum: 1 },
                     create_chronoself_commit: { type: "boolean", default: false },
+                    capture_session_id: { type: "string" },
+                    artifact_refs: { type: "array", items: { type: "string" } },
+                    transcription_segments: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            required: ["text"],
+                            properties: {
+                                text: { type: "string" },
+                                start_ms: { type: "number", minimum: 0 },
+                                end_ms: { type: "number", minimum: 0 },
+                                confidence: { type: "number", minimum: 0, maximum: 1 },
+                                source: { type: "string" },
+                            },
+                        },
+                    },
+                    visual_evidence_refs: { type: "array", items: { type: "string" } },
                 },
             },
             handler: async (args: unknown) => {
                 const parsed = AssistedImportBatchSchema.parse(args ?? {});
                 return sanitizeOutput(await client.assistedImportBatch(parsed));
+            },
+        },
+        {
+            name: "beagle_agent_registry",
+            description:
+                "Read the role-first Sounio/Beagle model ecology registry: Builder, code worker, semanticist, maintainer, platform operator, global reader, audiovisual memory, local sensor, and coding UI.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project_slug: { type: "string", default: "sounio" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const { project_slug } = AgentRegistrySchema.parse(args ?? {});
+                return sanitizeOutput(await client.agentRegistry(project_slug));
+            },
+        },
+        {
+            name: "beagle_agent_route",
+            description:
+                "Route a task to a Beagle agent role using deterministic Sounio/Beagle model ecology rules and LC-NE arousal mode.",
+            inputSchema: {
+                type: "object",
+                required: ["task"],
+                properties: {
+                    project_slug: { type: "string", default: "sounio" },
+                    task: { type: "string" },
+                    privacy_class: {
+                        type: "string",
+                        enum: ["public", "sensitive", "restricted"],
+                        default: "sensitive",
+                    },
+                    arousal_mode: {
+                        type: "string",
+                        enum: ["phasic_focus", "tonic_explore", "blocked", "recovering", "fatigued"],
+                    },
+                    fallback_roles: { type: "array", items: { type: "string" } },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = AgentRouteSchema.parse(args ?? {});
+                const { project_slug, ...body } = parsed;
+                return sanitizeOutput(await client.agentRoute(project_slug, body));
+            },
+        },
+        {
+            name: "beagle_write_probe",
+            description:
+                "Diagnose whether a Claude iOS, MCP, Apple, or agent surface has the scopes and core write health needed to create memory.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    principal: { type: "string", default: "mcp-agent" },
+                    source_platform: { type: "string", default: "mcp" },
+                    source_surface: { type: "string", default: "mcp" },
+                    required_scopes: { type: "array", items: { type: "string" }, default: ["memory:write"] },
+                    granted_scopes: { type: "array", items: { type: "string" } },
+                    payload_kind: { type: "string", default: "memory_write" },
+                    metadata: { type: "object", additionalProperties: true },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = WriteProbeSchema.parse(args ?? {});
+                return sanitizeOutput(await client.writeProbe(parsed));
+            },
+        },
+        {
+            name: "beagle_failed_write_inbox",
+            description:
+                "List append-only failed-write inbox items awaiting diagnosis or reviewed rescue into cluster-canonical memory.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    limit: { type: "number", minimum: 1, maximum: 100, default: 25 },
+                },
+            },
+            handler: async (args: unknown) => {
+                const { limit } = FailedWriteInboxSchema.parse(args ?? {});
+                return sanitizeOutput(await client.failedWriteInbox(limit));
+            },
+        },
+        {
+            name: "beagle_failed_write_rescue",
+            description:
+                "Rescue a reviewed failed Claude iOS or agent memory write into GraphRAG++ as sensitive Episode+Atom and conservative SounioMoment/Claim<T> seeds. Restricted payloads remain blocked.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    failed_write_id: { type: "string" },
+                    reason: { type: "string", default: "claude_ios_failed_write_rescue" },
+                    source_platform: { type: "string", default: "claude" },
+                    source_surface: { type: "string", default: "claude-ios" },
+                    principal: { type: "string", default: "claude-ios" },
+                    summary: { type: "string" },
+                    session_id: { type: "string" },
+                    project_ref: { type: "string", default: "sounio" },
+                    privacy_class: {
+                        type: "string",
+                        enum: ["public", "sensitive", "restricted"],
+                        default: "sensitive",
+                    },
+                    payload_kind: { type: "string", default: "sounio_insight" },
+                    turns: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            required: ["role", "content"],
+                            properties: {
+                                role: { type: "string" },
+                                content: { type: "string" },
+                                timestamp: { type: "string" },
+                                model: { type: "string" },
+                            },
+                        },
+                    },
+                    tags: { type: "array", items: { type: "string" } },
+                    artifact_refs: { type: "array", items: { type: "string" } },
+                    candidate_refs: { type: "array", items: { type: "string" } },
+                    metadata: { type: "object", additionalProperties: true },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = FailedWriteRescueSchema.parse(args ?? {});
+                return sanitizeOutput(await client.failedWriteRescue(parsed));
+            },
+        },
+        {
+            name: "beagle_capture_session_start",
+            description:
+                "Start an explicit user-visible multimodal capture session for Text, Thinking Aloud voice, or Visual Evidence. Beagle does not perform ambient adtech-style listening.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project_slug: { type: "string", default: "sounio" },
+                    mode: {
+                        type: "string",
+                        enum: ["text", "thinking_aloud", "visual_evidence", "multimodal"],
+                        default: "thinking_aloud",
+                    },
+                    surface: { type: "string", default: "mcp-capture" },
+                    principal: { type: "string", default: "mcp-agent" },
+                    title: { type: "string" },
+                    privacy_class: {
+                        type: "string",
+                        enum: ["public", "sensitive", "restricted"],
+                        default: "sensitive",
+                    },
+                    metadata: { type: "object", additionalProperties: true },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = CaptureSessionStartSchema.parse(args ?? {});
+                return sanitizeOutput(await client.captureSessionStart(parsed));
+            },
+        },
+        {
+            name: "beagle_capture_session_status",
+            description:
+                "Read the current status and provenance policy for an explicit multimodal capture session.",
+            inputSchema: {
+                type: "object",
+                required: ["session_id"],
+                properties: {
+                    session_id: { type: "string" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = CaptureSessionStatusSchema.parse(args ?? {});
+                return sanitizeOutput(await client.captureSessionStatus(parsed.session_id));
+            },
+        },
+        {
+            name: "beagle_visual_evidence_analyze",
+            description:
+                "Analyze a private visual evidence artifact into conservative Sounio claim seeds, tensions, missing evidence, and provenance. External vision providers require explicit confirmation.",
+            inputSchema: {
+                type: "object",
+                required: ["artifact_id"],
+                properties: {
+                    artifact_id: { type: "string" },
+                    prompt: { type: "string" },
+                    allow_external_model: { type: "boolean", default: false },
+                    preferred_provider: {
+                        type: "string",
+                        enum: ["openai-responses-vision", "claude-vision", "local-only"],
+                    },
+                    local_analysis: { type: "object", additionalProperties: true },
+                    redaction_summary: { type: "string" },
+                    principal: { type: "string", default: "mcp-agent" },
+                    surface: { type: "string", default: "mcp-visual-evidence" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = VisualEvidenceAnalyzeSchema.parse(args ?? {});
+                return sanitizeOutput(await client.visualEvidenceAnalyze(parsed));
+            },
+        },
+        {
+            name: "beagle_capture_review_promote",
+            description:
+                "Review and optionally promote multimodal capture candidates into SounioMoment and Claim<T> seeds. Restricted candidates are not promoted.",
+            inputSchema: {
+                type: "object",
+                required: ["candidates"],
+                properties: {
+                    session_id: { type: "string" },
+                    artifact_id: { type: "string" },
+                    project_slug: { type: "string", default: "sounio" },
+                    source_surface: { type: "string", default: "mcp-capture-review" },
+                    candidates: {
+                        type: "array",
+                        minItems: 1,
+                        items: {
+                            type: "object",
+                            required: ["title", "summary"],
+                            properties: {
+                                id: { type: "string" },
+                                kind: {
+                                    type: "string",
+                                    enum: ["moment", "decision", "claim_seed", "tension", "next_action"],
+                                    default: "moment",
+                                },
+                                title: { type: "string" },
+                                summary: { type: "string" },
+                                evidence_refs: { type: "array", items: { type: "string" } },
+                                claim_text: { type: "string" },
+                                decision_text: { type: "string" },
+                                next_action: { type: "string" },
+                                epistemic_status: {
+                                    type: "string",
+                                    enum: ["belief", "contest", "knowledge", "robust"],
+                                    default: "belief",
+                                },
+                                confidence: { type: "number", minimum: 0, maximum: 1 },
+                                privacy_class: {
+                                    type: "string",
+                                    enum: ["public", "sensitive", "restricted"],
+                                    default: "sensitive",
+                                },
+                                provenance: { type: "object", additionalProperties: true },
+                            },
+                        },
+                    },
+                    decision: { type: "string", default: "promote" },
+                    reviewer: { type: "string", default: "demetrios" },
+                    promote: { type: "boolean", default: true },
+                    privacy_class: {
+                        type: "string",
+                        enum: ["public", "sensitive", "restricted"],
+                        default: "sensitive",
+                    },
+                    provenance: { type: "object", additionalProperties: true },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = CaptureReviewPromoteSchema.parse(args ?? {});
+                const candidates = parsed.candidates.map((candidate, index) => ({
+                    ...candidate,
+                    id:
+                        candidate.id ??
+                        `capture-candidate-${crypto
+                            .createHash("sha256")
+                            .update(`${candidate.title}\n${candidate.summary}\n${index}`)
+                            .digest("hex")
+                            .slice(0, 16)}`,
+                }));
+                return sanitizeOutput(
+                    await client.captureReviewPromote({
+                        ...parsed,
+                        candidates,
+                    }),
+                );
             },
         },
         {
@@ -852,6 +1420,12 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                     query: { type: "string" },
                     scope: { type: "string" },
                     max_items: { type: "number", minimum: 1, maximum: 20, default: 5 },
+                    ranking_policy: {
+                        type: "string",
+                        enum: ["strict_recent_guarded", "legacy_stable"],
+                        description:
+                            "Optional retrieval ranking policy. strict_recent_guarded boosts recent work memory while Stable Fact Guard protects canonical facts.",
+                    },
                     mode: {
                         type: "string",
                         enum: [
@@ -1143,6 +1717,313 @@ export function exocortexTools(client: BeagleClient): McpTool[] {
                     engine: engine.status === "fulfilled" ? engine.value : { error: String(engine.reason) },
                     core: core.status === "fulfilled" ? core.value : { error: String(core.reason) },
                 });
+            },
+        },
+        {
+            name: "beagle_sounio_program_check",
+            description:
+                "Validate a Sounio v0.1 Work IR program before it is compiled into durable Temporal PaperRun execution, Beagle memory projection, ContextPack, audit trace, or paper artifacts.",
+            inputSchema: {
+                type: "object",
+                required: ["program"],
+                properties: {
+                    source_format: { type: "string", enum: ["json", "yaml", "sio"], default: "json" },
+                    program: { type: "object", additionalProperties: true },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioProgramCheckSchema.parse(args ?? {});
+                return sanitizeOutput(await client.sounioProgramCheck(parsed));
+            },
+        },
+        {
+            name: "beagle_sounio_claim_check",
+            description:
+                "Validate a Sounio Claim<T> without writing it. Sounio types the claim as Belief, Contest, Knowledge, or Robust using evidence, provenance, confidence, review state, and publication-readiness gates.",
+            inputSchema: {
+                type: "object",
+                required: ["claim"],
+                properties: {
+                    claim: {
+                        type: "object",
+                        required: ["claim_text"],
+                        properties: {
+                            id: { type: "string" },
+                            claim_text: { type: "string" },
+                            subject: { type: "string" },
+                            value_type: { type: "string", default: "Claim<T>" },
+                            epistemic_status: {
+                                type: "string",
+                                enum: ["belief", "contest", "knowledge", "robust"],
+                                default: "belief",
+                            },
+                            evidence_refs: { type: "array", items: { type: "string" }, default: [] },
+                            provenance: { type: "object", additionalProperties: true },
+                            confidence: { type: "number", minimum: 0, maximum: 1 },
+                            contestation: { type: "object", additionalProperties: true },
+                            review_state: { type: "string", default: "unreviewed" },
+                            promotion_rule: { type: "string" },
+                            publication_readiness: { type: "string", default: "not_ready" },
+                            section_id: { type: "string" },
+                            agent_refs: { type: "array", items: { type: "string" }, default: [] },
+                            contract_refs: { type: "array", items: { type: "string" }, default: [] },
+                            artifact_refs: { type: "array", items: { type: "string" }, default: [] },
+                            chronoself_commit_refs: { type: "array", items: { type: "string" }, default: [] },
+                            privacy_class: {
+                                type: "string",
+                                enum: ["public", "sensitive", "restricted"],
+                                default: "sensitive",
+                            },
+                            rationale: { type: "string" },
+                        },
+                    },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioClaimCheckSchema.parse(args ?? {});
+                return sanitizeOutput(await client.sounioClaimCheck(parsed));
+            },
+        },
+        {
+            name: "beagle_sounio_moment_type",
+            description:
+                "Append an ambient SounioMoment derived from visible work, Apple capture, Watch microintention, Codex/Claude Code work memory, or agent conversation. Claims remain conservative seeds (Belief/Contest) until evidence and review promote them.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    source_event_refs: { type: "array", items: { type: "string" }, default: [] },
+                    source_platform: { type: "string", default: "mcp-agent" },
+                    source_surface: { type: "string", default: "mcp-sounio-moment" },
+                    project_slug: { type: "string", default: "sounio" },
+                    session_id: { type: "string" },
+                    intent_text: { type: "string" },
+                    summary: { type: "string" },
+                    evidence_refs: { type: "array", items: { type: "string" }, default: [] },
+                    claim_seeds: { type: "array", items: { type: "object", additionalProperties: true }, default: [] },
+                    decision_seeds: { type: "array", items: { type: "string" }, default: [] },
+                    next_action: { type: "string" },
+                    privacy_class: {
+                        type: "string",
+                        enum: ["public", "sensitive", "restricted"],
+                        default: "sensitive",
+                    },
+                    review_state: { type: "string", default: "unreviewed" },
+                    provenance: { type: "object", additionalProperties: true },
+                    tags: { type: "array", items: { type: "string" }, default: ["sounio", "ambient-typing"] },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioMomentTypeSchema.parse(args ?? {});
+                return sanitizeOutput(await client.sounioMomentType(parsed));
+            },
+        },
+        {
+            name: "beagle_sounio_workday_status",
+            description:
+                "Read the current Sounio Workday snapshot: recent moments, decisions, Claim<T> seeds, tensions, agents involved, evidence references, review queue, and next gesture.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    project_slug: { type: "string", default: "sounio" },
+                    limit: { type: "number", minimum: 1, maximum: 100, default: 20 },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioWorkdayStatusSchema.parse(args ?? {});
+                return sanitizeOutput(await client.sounioWorkdayStatus(parsed.project_slug, parsed.limit));
+            },
+        },
+        {
+            name: "beagle_sounio_moment_review",
+            description:
+                "Review a SounioMoment from the ambient workday. This can approve, reject, request revision, mark contestation, or mark a claim seed for later promotion; it never performs destructive actions.",
+            inputSchema: {
+                type: "object",
+                required: ["moment_id", "decision"],
+                properties: {
+                    moment_id: { type: "string" },
+                    reviewer: { type: "string", default: "demetrios" },
+                    decision: {
+                        type: "string",
+                        enum: ["approved", "rejected", "needs_revision", "mark_contest", "promote_claim_seed"],
+                    },
+                    rationale: { type: "string" },
+                    evidence_refs: { type: "array", items: { type: "string" }, default: [] },
+                    review_state: { type: "string" },
+                    provenance: { type: "object", additionalProperties: true },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioMomentReviewSchema.parse(args ?? {});
+                const { moment_id, ...body } = parsed;
+                return sanitizeOutput(await client.sounioMomentReview(moment_id, body));
+            },
+        },
+        {
+            name: "beagle_sounio_paperrun_start",
+            description:
+                "Start the v2.4 Sounio PaperRun for the Beagle self-writing systems paper. It creates a durable Temporal workflow request, ContextPack, trace event, memory event, and claim registry without submitting anything externally.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    paper_id: { type: "string" },
+                    title: { type: "string" },
+                    principal: { type: "string", default: "mcp-agent" },
+                    surface: { type: "string", default: "mcp-sounio-paperrun" },
+                    temporal_namespace: { type: "string" },
+                    temporal_task_queue: { type: "string" },
+                    program: { type: "object", additionalProperties: true },
+                    dry_run: { type: "boolean", default: false },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioPaperRunStartSchema.parse(args ?? {});
+                return sanitizeOutput(await client.sounioPaperRunStart(parsed));
+            },
+        },
+        {
+            name: "beagle_sounio_paperrun_status",
+            description:
+                "Read a Sounio PaperRun status by ID, including Temporal workflow ID, approval state, section status, claim registry, citation registry, and artifact references.",
+            inputSchema: {
+                type: "object",
+                required: ["paper_run_id"],
+                properties: {
+                    paper_run_id: { type: "string" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioPaperRunStatusSchema.parse(args ?? {});
+                return sanitizeOutput(await client.sounioPaperRunStatus(parsed.paper_run_id));
+            },
+        },
+        {
+            name: "beagle_sounio_paperrun_approve_step",
+            description:
+                "Record the human approval, rejection, or revision request for one Sounio PaperRun step. This only signals/records the durable workflow state; it performs no external publication.",
+            inputSchema: {
+                type: "object",
+                required: ["paper_run_id", "step_id"],
+                properties: {
+                    paper_run_id: { type: "string" },
+                    step_id: { type: "string" },
+                    reviewer: { type: "string", default: "demetrios" },
+                    decision: {
+                        type: "string",
+                        enum: ["approved", "rejected", "needs_revision"],
+                        default: "approved",
+                    },
+                    rationale: { type: "string" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioPaperRunApproveStepSchema.parse(args ?? {});
+                const { paper_run_id, ...body } = parsed;
+                return sanitizeOutput(await client.sounioPaperRunApproveStep(paper_run_id, body));
+            },
+        },
+        {
+            name: "beagle_sounio_paperrun_add_claim",
+            description:
+                "Append a Sounio Claim<T> to a PaperRun's epistemic claim graph. This records provenance, memory, trace, and audit metadata but never publishes or performs destructive actions.",
+            inputSchema: {
+                type: "object",
+                required: ["paper_run_id", "claim"],
+                properties: {
+                    paper_run_id: { type: "string" },
+                    claim: { type: "object", additionalProperties: true },
+                    principal: { type: "string", default: "mcp-agent" },
+                    surface: { type: "string", default: "mcp-sounio-theatre" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioPaperRunAddClaimSchema.parse(args ?? {});
+                const { paper_run_id, ...body } = parsed;
+                return sanitizeOutput(await client.sounioPaperRunAddClaim(paper_run_id, body));
+            },
+        },
+        {
+            name: "beagle_sounio_claim_review",
+            description:
+                "Review or promote a Sounio Claim<T> inside a PaperRun. Knowledge<T> requires evidence plus provenance; Robust<T> requires independent verification or replication provenance.",
+            inputSchema: {
+                type: "object",
+                required: ["paper_run_id", "claim_id", "decision"],
+                properties: {
+                    paper_run_id: { type: "string" },
+                    claim_id: { type: "string" },
+                    reviewer: { type: "string", default: "demetrios" },
+                    decision: {
+                        type: "string",
+                        enum: [
+                            "approved",
+                            "rejected",
+                            "needs_evidence",
+                            "contest",
+                            "promote_to_knowledge",
+                            "promote_to_robust",
+                        ],
+                        default: "approved",
+                    },
+                    rationale: { type: "string" },
+                    evidence_refs: { type: "array", items: { type: "string" }, default: [] },
+                    epistemic_status: { type: "string", enum: ["belief", "contest", "knowledge", "robust"] },
+                    publication_readiness: { type: "string" },
+                    provenance: { type: "object", additionalProperties: true },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioClaimReviewSchema.parse(args ?? {});
+                const { paper_run_id, claim_id, ...body } = parsed;
+                return sanitizeOutput(await client.sounioClaimReview(paper_run_id, claim_id, body));
+            },
+        },
+        {
+            name: "beagle_sounio_paperrun_theatre",
+            description:
+                "Read the PaperRun Theatre snapshot: manuscript, epistemic claim graph, evidence table, agent contributions, approvals, Sounio score, public/private trace boundaries, and next human action.",
+            inputSchema: {
+                type: "object",
+                required: ["paper_run_id"],
+                properties: {
+                    paper_run_id: { type: "string" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioPaperRunTheatreSchema.parse(args ?? {});
+                return sanitizeOutput(await client.sounioPaperRunTheatre(parsed.paper_run_id));
+            },
+        },
+        {
+            name: "beagle_sounio_public_digest",
+            description:
+                "Generate and read the sanitized public digest for a PaperRun, including public claims, Sedenion SSM demonstration summary, disclosure, and explicit exclusion of private/restricted traces.",
+            inputSchema: {
+                type: "object",
+                required: ["paper_run_id"],
+                properties: {
+                    paper_run_id: { type: "string" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioPublicDigestSchema.parse(args ?? {});
+                return sanitizeOutput(await client.sounioPaperRunPublicDigest(parsed.paper_run_id));
+            },
+        },
+        {
+            name: "beagle_sounio_trace_query",
+            description:
+                "Read Sounio PaperRun trace events for the self-writing Beagle paper: workflow starts, ContextPacks, claim checks, approvals, artifacts, and memory/audit links.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    paper_run_id: { type: "string" },
+                    limit: { type: "number", minimum: 1, maximum: 500, default: 50 },
+                },
+            },
+            handler: async (args: unknown) => {
+                const parsed = SounioTraceQuerySchema.parse(args ?? {});
+                return sanitizeOutput(await client.sounioTraceQuery(parsed.paper_run_id, parsed.limit));
             },
         },
         {

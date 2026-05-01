@@ -14,8 +14,14 @@ import BeagleCore
 
 struct ConversationView: View {
     @Bindable var conversation: ConversationStore
+    let onRefresh: (() async -> Void)?
     @State private var inputText = ""
     @State private var userScrolledUp = false
+
+    init(conversation: ConversationStore, onRefresh: (() async -> Void)? = nil) {
+        self.conversation = conversation
+        self.onRefresh = onRefresh
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -116,6 +122,11 @@ struct ConversationView: View {
                     }
                 }
                 .padding(.vertical, BeagleSpacing.md)
+            }
+            .refreshable {
+                if let onRefresh {
+                    await onRefresh()
+                }
             }
             .onChange(of: conversation.messages.count) {
                 guard !userScrolledUp else { return }

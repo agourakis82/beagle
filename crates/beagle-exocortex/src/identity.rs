@@ -112,7 +112,8 @@ impl UserProfile {
 
     /// Update expertise based on interaction
     pub fn update_expertise(&mut self, domain: &str, demonstrated_level: f32) {
-        let entry = self.expertise_levels
+        let entry = self
+            .expertise_levels
             .entry(domain.to_string())
             .or_insert_with(|| ExpertiseLevel::new(0.3));
 

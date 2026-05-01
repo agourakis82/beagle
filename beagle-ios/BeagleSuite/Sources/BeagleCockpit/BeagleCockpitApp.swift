@@ -288,7 +288,7 @@ struct RootView: View {
                 Group {
                     switch sidebarSelection {
                     case .mind:
-                        BeagleSurface(bootError: $bootError)
+                        SpatialDeskMissionControlView()
                     case .capture:
                         ThoughtCaptureView()
                     case .deep:
@@ -301,7 +301,7 @@ struct RootView: View {
                     case .settings:
                         ModelSettingsView()
                     case nil:
-                        BeagleSurface(bootError: $bootError)
+                        SpatialDeskMissionControlView()
                     }
                 }
             }

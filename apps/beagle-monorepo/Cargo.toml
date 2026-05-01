@@ -54,6 +54,7 @@ beagle-checkpoint = { path = "../../crates/beagle-checkpoint" }
 # beagle-ontic = { path = "../../crates/beagle-ontic" }
 axum = { version = "0.7", features = ["macros", "query"] }
 tempfile = "3.8"
+base64 = { workspace = true }
 
 [features]
 default = []

@@ -14,6 +14,10 @@ import {
   registerAgentRoutes,
   registerAgentWebSocket as attachAgentWebSocket,
 } from "./agent-routes.mjs";
+import {
+  registerWorkspaceRoutes,
+  registerWorkspaceWebSocket as attachWorkspaceWebSocket,
+} from "./workspace-routes.mjs";
 import { registerScratchpadRoutes } from "./scratchpad-routes.mjs";
 import { registerJobRoutes } from "./job-routes.mjs";
 import { registerQueueRoutes } from "./queue-routes.mjs";
@@ -11446,6 +11450,12 @@ registerMobileRoutes(app, {
 // ─── Agent routes (persistent agent pods — Claude Code, Codex, etc.) ────
 registerAgentRoutes(app);
 
+// ─── Notebook terminal workspace routes — Sounio Workbench v1 ──────────
+registerWorkspaceRoutes(app, {
+  getProjectOrThrow,
+  readCatalog: loadCatalog,
+});
+
 // ─── Agent scratchpad — shared notepad between agent + iOS ──────────────
 registerScratchpadRoutes(app);
 
@@ -11475,7 +11485,9 @@ if (Number.isFinite(keepAliveTimeoutMs) && keepAliveTimeoutMs > 0) {
 // Both WSS use noServer: true and we route via a single upgrade handler.
 const wss = new WebSocketServer({ noServer: true });
 const agentWss = new WebSocketServer({ noServer: true });
+const workspaceWss = new WebSocketServer({ noServer: true });
 attachAgentWebSocket(agentWss);
+attachWorkspaceWebSocket(workspaceWss, { getProjectOrThrow });
 
 server.on("upgrade", (req, socket, head) => {
   // Auth check for WebSocket upgrades
@@ -11503,6 +11515,13 @@ server.on("upgrade", (req, socket, head) => {
     const validKinds = ["claude-code", "codex", "local-sglang", "custom"];
     if (!validKinds.includes(wsKind)) { socket.destroy(); return; }
     agentWss.handleUpgrade(req, socket, head, (ws) => agentWss.emit("connection", ws, req));
+    return;
+  }
+  const workspaceMatch = urlPath.match(/^\/ws\/workspaces\/([^/]+)\/sessions\/([^/]+)\/panes\/([^/]+)$/);
+  if (workspaceMatch) {
+    const [, wsSlug] = workspaceMatch;
+    if (!VALID_SLUG.test(wsSlug)) { socket.destroy(); return; }
+    workspaceWss.handleUpgrade(req, socket, head, (ws) => workspaceWss.emit("connection", ws, req));
     return;
   }
   socket.destroy();

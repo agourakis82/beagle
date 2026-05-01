@@ -1,0 +1,12 @@
+SPDX-License-Identifier: AGPL-3.0-only
+
+The Beagle Warp Workbench boundary is licensed under the GNU Affero General
+Public License version 3 only.
+
+This directory may include or derive from Warp code under AGPL-3.0. The license
+boundary is intentional: Beagle's private data, cluster memories, truthsets,
+secrets, and non-Workbench services are not licensed by this notice and must not
+be copied into this directory.
+
+The full AGPL-3.0 text is available from the GNU Project:
+https://www.gnu.org/licenses/agpl-3.0.en.html

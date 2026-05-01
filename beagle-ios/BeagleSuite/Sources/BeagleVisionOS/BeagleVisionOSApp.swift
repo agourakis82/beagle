@@ -65,6 +65,38 @@ struct BeagleVisionOSApp: App {
         }
         .immersionStyle(selection: .constant(.mixed), in: .mixed)
 
+        // MARK: - Beagle Spatial Control Room
+
+        WindowGroup("Spatial Control Room", id: "spatial-control-room") {
+            NavigationStack {
+                SpatialControlRoomView()
+            }
+            .preferredColorScheme(.dark)
+            .tint(BeagleTheme.truthObserved)
+        }
+        .defaultSize(width: 1100, height: 760)
+
+        ImmersiveSpace(id: "beagle-control-room") {
+            SpatialControlRoomImmersiveView()
+        }
+        .immersionStyle(selection: .constant(.mixed), in: .mixed)
+
+        // MARK: - Beagle Mind Palace / Spatial Desk
+
+        WindowGroup("Mind Palace", id: "mind-palace") {
+            NavigationStack {
+                MindPalaceSpatialDeskView()
+            }
+            .preferredColorScheme(.dark)
+            .tint(BeagleTheme.truthObserved)
+        }
+        .defaultSize(width: 1180, height: 800)
+
+        ImmersiveSpace(id: "beagle-mind-palace") {
+            MindPalaceImmersiveView()
+        }
+        .immersionStyle(selection: .constant(.mixed), in: .mixed)
+
         // MARK: - Cluster Volume (retained from v1)
 
         WindowGroup("Cluster Volume", id: "cluster-volume") {
@@ -194,6 +226,23 @@ struct SpatialMindView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
+
+                Button {
+                    openWindow(id: "spatial-control-room")
+                } label: {
+                    Label("Spatial Control Room", systemImage: "visionpro")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    openWindow(id: "mind-palace")
+                } label: {
+                    Label("Mind Palace", systemImage: "rectangle.3.group.bubble.left")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(BeagleTheme.truthObserved)
             }
             .padding(.horizontal)
             .padding(.bottom)

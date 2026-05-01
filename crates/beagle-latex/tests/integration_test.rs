@@ -1,8 +1,6 @@
 //! Integration tests for beagle-latex PDF generation
 
-use beagle_latex::{
-    PdfConfig, PdfGenerator, LatexEngine, CitationStyle, PdfMetadata, Author,
-};
+use beagle_latex::{Author, CitationStyle, LatexEngine, PdfConfig, PdfGenerator, PdfMetadata};
 use std::path::PathBuf;
 use tempfile::TempDir;
 
@@ -49,14 +47,12 @@ This concludes the test.
         custom_preamble: None,
         metadata: PdfMetadata {
             title: "Test Paper".to_string(),
-            authors: vec![
-                Author {
-                    name: "Test Author".to_string(),
-                    affiliation: Some("Test University".to_string()),
-                    email: Some("test@example.com".to_string()),
-                    orcid: None,
-                }
-            ],
+            authors: vec![Author {
+                name: "Test Author".to_string(),
+                affiliation: Some("Test University".to_string()),
+                email: Some("test@example.com".to_string()),
+                orcid: None,
+            }],
             abstract_text: Some("This is a test abstract.".to_string()),
             keywords: vec!["test".to_string(), "pdf".to_string()],
             date: None,
@@ -70,7 +66,10 @@ This concludes the test.
 
     // Generate PDF
     let generator = PdfGenerator::new(config).unwrap();
-    let result = generator.generate_pdf(&markdown_path, &pdf_path, None).await.unwrap();
+    let result = generator
+        .generate_pdf(&markdown_path, &pdf_path, None)
+        .await
+        .unwrap();
 
     // Verify PDF was created
     assert!(pdf_path.exists());
@@ -78,9 +77,9 @@ This concludes the test.
     assert!(result.generation_time_secs > 0.0);
     assert_eq!(result.template_used, "beagle-scientific");
 
-    println!("PDF generated: {} bytes in {:.2}s",
-        result.file_size_bytes,
-        result.generation_time_secs
+    println!(
+        "PDF generated: {} bytes in {:.2}s",
+        result.file_size_bytes, result.generation_time_secs
     );
 }
 
@@ -123,7 +122,10 @@ Mathematics work in our PDF generation!
 
     let config = PdfConfig::default();
     let generator = PdfGenerator::new(config).unwrap();
-    let result = generator.generate_pdf(&markdown_path, &pdf_path, None).await.unwrap();
+    let result = generator
+        .generate_pdf(&markdown_path, &pdf_path, None)
+        .await
+        .unwrap();
 
     assert!(pdf_path.exists());
     println!("Math PDF generated: {} bytes", result.file_size_bytes);
@@ -145,13 +147,7 @@ Testing different templates.
 
     std::fs::write(&markdown_path, markdown).unwrap();
 
-    let templates = vec![
-        "beagle-scientific",
-        "nature",
-        "ieee",
-        "arxiv",
-        "minimal",
-    ];
+    let templates = vec!["beagle-scientific", "nature", "ieee", "arxiv", "minimal"];
 
     for template in templates {
         let pdf_path = temp_dir.path().join(format!("test_{}.pdf", template));
@@ -160,14 +156,19 @@ Testing different templates.
         config.template = template.to_string();
 
         let generator = PdfGenerator::new(config).unwrap();
-        let result = generator.generate_pdf(&markdown_path, &pdf_path, None).await;
+        let result = generator
+            .generate_pdf(&markdown_path, &pdf_path, None)
+            .await;
 
         if result.is_ok() {
             assert!(pdf_path.exists());
             println!("Template '{}': OK", template);
         } else {
-            println!("Template '{}': {} (may need specific LaTeX packages)",
-                template, result.unwrap_err());
+            println!(
+                "Template '{}': {} (may need specific LaTeX packages)",
+                template,
+                result.unwrap_err()
+            );
         }
     }
 }
@@ -197,11 +198,7 @@ fn test_citation_styles() {
     ];
 
     for style in styles {
-        println!("{}: {} - {}",
-            style,
-            style.csl_file(),
-            style.description()
-        );
+        println!("{}: {} - {}", style, style.csl_file(), style.description());
 
         if style.is_numbered() {
             println!("  Format: Numbered");

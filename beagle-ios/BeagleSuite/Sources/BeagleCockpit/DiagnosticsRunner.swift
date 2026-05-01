@@ -285,6 +285,8 @@ final class DiagnosticsRunner {
             return String(text.prefix(40))
         case .ready(let projectSlug):
             return "ready · \(projectSlug)"
+        case .workbenchEvent(let event):
+            return "workbench · \(event.type)"
         case .exit(let code, _):
             return "exit(\(code))"
         }

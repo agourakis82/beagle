@@ -5,17 +5,18 @@
 //! MCP agents render or mutate it through this contract.
 
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use beagle_config::beagle_data_dir;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     env,
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Write},
@@ -49,6 +50,30 @@ const MEMORY_TRUTH_CASES_LOG: &str = "memory_truth_cases.jsonl";
 const CONTEXT_PACKS_LOG: &str = "context_packs.jsonl";
 const MEMORY_EFFECTIVENESS_EVENTS_LOG: &str = "memory_effectiveness_events.jsonl";
 const MEMORY_DREAMCYCLE_RUNS_LOG: &str = "memory_dreamcycle_runs.jsonl";
+const SOUNIO_PROGRAMS_LOG: &str = "sounio_programs.jsonl";
+const SOUNIO_TRACE_EVENTS_LOG: &str = "sounio_trace_events.jsonl";
+const SOUNIO_PAPERRUNS_LOG: &str = "sounio_paperruns.jsonl";
+const SOUNIO_CLAIMS_LOG: &str = "sounio_claims.jsonl";
+const SOUNIO_CLAIM_REVIEWS_LOG: &str = "sounio_claim_reviews.jsonl";
+const SOUNIO_MOMENTS_LOG: &str = "sounio_moments.jsonl";
+const SOUNIO_MOMENT_REVIEWS_LOG: &str = "sounio_moment_reviews.jsonl";
+const CAPTURE_SESSIONS_LOG: &str = "capture_sessions.jsonl";
+const CAPTURE_EVENTS_LOG: &str = "capture_events.jsonl";
+const CAPTURE_VISUAL_ARTIFACTS_LOG: &str = "capture_visual_artifacts.jsonl";
+const CAPTURE_VISUAL_ANALYSES_LOG: &str = "capture_visual_analyses.jsonl";
+const CAPTURE_REVIEWS_LOG: &str = "capture_reviews.jsonl";
+const CAPTURE_VISUAL_ARTIFACTS_DIR: &str = "capture_visual_artifacts";
+const FAILED_WRITES_LOG: &str = "failed_writes.jsonl";
+const SPATIAL_WORLDS_LOG: &str = "spatial_worlds.jsonl";
+const SPATIAL_EVIDENCE_LOG: &str = "sounio_spatial_evidence.jsonl";
+const SPATIAL_GENERATION_RUNS_LOG: &str = "spatial_generation_runs.jsonl";
+const CONVERSATION_PORTALS_LOG: &str = "conversation_portals.jsonl";
+const PROMOTED_CONVERSATION_CLIPS_LOG: &str = "promoted_conversation_clips.jsonl";
+const FOCUS_COACH_EVENTS_LOG: &str = "focus_coach_events.jsonl";
+const SPATIAL_SCHEMA: &str = "beagle-spatial-control-room-v3.6";
+const MIND_PALACE_SCHEMA: &str = "beagle-spatial-desk-mind-palace-v3.7";
+const CONVERSATION_PORTAL_SCHEMA: &str = "beagle-conversation-portal-v3.7";
+const FOCUS_COACH_SCHEMA: &str = "beagle-focus-coach-v3.7";
 const AGENT_OBSERVATIONS_LOG: &str = "agent_observations.jsonl";
 const PROJECT_STATES_LOG: &str = "project_states.jsonl";
 const CAUSAL_HYPOTHESES_LOG: &str = "causal_hypotheses.jsonl";
@@ -62,6 +87,16 @@ const MEMORY_BENCH_SCHEMA: &str = "beagle-memory-truth-hypermemory-v1.9";
 const MEMORY_TRUTH_SCHEMA: &str = "beagle-private-memory-truthset-v1.9";
 const CONTEXT_COMPILER_SCHEMA: &str = "beagle-adaptive-context-compiler-v2.3";
 const MEMORY_POLICY_SCHEMA: &str = "beagle-memory-policy-learner-v2.3";
+const SOUNIO_WORK_IR_SCHEMA: &str = "sounio-work-ir-v0.1";
+const SOUNIO_PAPERRUN_SCHEMA: &str = "beagle-sounio-paperrun-v2.4";
+const SOUNIO_CLAIM_SCHEMA: &str = "sounio-claim-epistemic-v0.1";
+const SOUNIO_THEATRE_SCHEMA: &str = "beagle-sounio-paperrun-theatre-v2.5";
+const SOUNIO_PUBLIC_DIGEST_SCHEMA: &str = "beagle-sounio-public-digest-v2.5";
+const SOUNIO_MOMENT_SCHEMA: &str = "sounio-ambient-moment-v2.9";
+const SOUNIO_WORKDAY_SCHEMA: &str = "beagle-sounio-workday-v2.9";
+const CAPTURE_SESSION_SCHEMA: &str = "beagle-multimodal-capture-session-v3.0";
+const VISUAL_EVIDENCE_SCHEMA: &str = "beagle-visual-evidence-v3.0";
+const CAPTURE_REVIEW_SCHEMA: &str = "beagle-capture-review-v3.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextSnapshot {
@@ -582,6 +617,472 @@ pub struct MemoryWorldsRecentResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpatialAssetManifest {
+    #[serde(default)]
+    pub pano_url: Option<String>,
+    #[serde(default)]
+    pub collider_mesh_url: Option<String>,
+    #[serde(default)]
+    pub hq_mesh_urls: Vec<String>,
+    #[serde(default)]
+    pub spz_urls: BTreeMap<String, String>,
+    #[serde(default)]
+    pub ply_urls: BTreeMap<String, String>,
+    #[serde(default)]
+    pub coordinate_system: Option<String>,
+    #[serde(default)]
+    pub coordinate_transform: Option<String>,
+    #[serde(default)]
+    pub asset_root: Option<String>,
+    #[serde(default)]
+    pub degraded_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpatialWorld {
+    pub id: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub schema_version: String,
+    pub project_slug: String,
+    pub world_id: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    pub display_name: String,
+    pub status: String,
+    #[serde(default)]
+    pub world_marble_url: Option<String>,
+    pub assets: SpatialAssetManifest,
+    pub model: String,
+    pub permission: String,
+    pub prompt_hash: String,
+    pub prompt_summary: String,
+    pub privacy_policy: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ControlRoomSnapshot {
+    pub id: String,
+    pub generated_at: String,
+    pub schema_version: String,
+    pub project_slug: String,
+    #[serde(default)]
+    pub spatial_world: Option<SpatialWorld>,
+    #[serde(default)]
+    pub memory_worlds: Vec<MemoryWorld>,
+    #[serde(default)]
+    pub agent_lanes: Vec<String>,
+    #[serde(default)]
+    pub pods_wall: Vec<String>,
+    #[serde(default)]
+    pub incident_corridor: Vec<String>,
+    #[serde(default)]
+    pub compiler_map: Vec<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioSpatialEvidence {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub world_id: String,
+    pub project_slug: String,
+    pub evidence_type: String,
+    #[serde(default)]
+    pub claim_seed_refs: Vec<String>,
+    #[serde(default)]
+    pub memory_world_refs: Vec<String>,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    pub epistemic_status: String,
+    pub privacy_class: String,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpatialProviderSlot {
+    pub id: String,
+    pub label: String,
+    pub provider_family: String,
+    pub artifact_type: String,
+    pub cost_tier: String,
+    pub privacy_tier: String,
+    pub maturity: String,
+    pub enabled: bool,
+    pub requires_secret: bool,
+    pub setup_status: String,
+    #[serde(default)]
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpatialGenerationRun {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub project_slug: String,
+    pub provider_slot: String,
+    pub purpose: String,
+    pub status: String,
+    pub prompt_hash: String,
+    pub sanitized_prompt_summary: String,
+    pub approved: bool,
+    pub budget_policy: String,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    #[serde(default)]
+    pub world_id: Option<String>,
+    #[serde(default)]
+    pub asset_refs: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MindPalaceRoom {
+    pub id: String,
+    pub title: String,
+    pub room_type: String,
+    pub state: String,
+    #[serde(default)]
+    pub project_slug: Option<String>,
+    pub source_family: String,
+    pub tension: String,
+    pub next_action: String,
+    pub freshness: String,
+    pub truth_mode: String,
+    pub priority: f64,
+    #[serde(default)]
+    pub desk_item_refs: Vec<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeskItem {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub detail: String,
+    pub state: String,
+    pub priority: f64,
+    #[serde(default)]
+    pub room_id: Option<String>,
+    #[serde(default)]
+    pub source_ref: Option<String>,
+    #[serde(default)]
+    pub actions: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpatialDeskSnapshot {
+    pub id: String,
+    pub generated_at: String,
+    pub schema_version: String,
+    #[serde(default)]
+    pub active_items: Vec<DeskItem>,
+    #[serde(default)]
+    pub pinned_room_ids: Vec<String>,
+    #[serde(default)]
+    pub portals: Vec<ConversationPortal>,
+    #[serde(default)]
+    pub agent_lanes: Vec<String>,
+    #[serde(default)]
+    pub focus_strip: Vec<String>,
+    #[serde(default)]
+    pub proof_panels: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpatialAction {
+    pub id: String,
+    pub title: String,
+    pub kind: String,
+    #[serde(default)]
+    pub target_ref: Option<String>,
+    pub reason: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpatialActionMenu {
+    pub id: String,
+    pub generated_at: String,
+    pub mode: String,
+    #[serde(default)]
+    pub actions: Vec<SpatialAction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NextBestPlaceDecision {
+    pub id: String,
+    pub generated_at: String,
+    pub room_id: String,
+    pub title: String,
+    pub reason: String,
+    pub source_mode: String,
+    pub confidence: f64,
+    #[serde(default)]
+    pub candidate_room_ids: Vec<String>,
+    #[serde(default)]
+    pub readiness_context: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FocusIntervention {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub reason: String,
+    pub priority: f64,
+    pub status: String,
+    #[serde(default)]
+    pub due_at: Option<String>,
+    #[serde(default)]
+    pub actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FocusSession {
+    pub id: String,
+    pub started_at: String,
+    #[serde(default)]
+    pub ended_at: Option<String>,
+    pub mode: String,
+    #[serde(default)]
+    pub project_slug: Option<String>,
+    pub status: String,
+    #[serde(default)]
+    pub notes: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FocusCoachState {
+    pub id: String,
+    pub generated_at: String,
+    pub schema_version: String,
+    pub mode: String,
+    #[serde(default)]
+    pub active_session: Option<FocusSession>,
+    #[serde(default)]
+    pub interventions: Vec<FocusIntervention>,
+    pub hydration_due: bool,
+    #[serde(default)]
+    pub calendar_nudge: Option<String>,
+    pub session_minutes: u32,
+    pub can_override: bool,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FocusCoachEvent {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub event_kind: String,
+    pub status: String,
+    #[serde(default)]
+    pub intervention_id: Option<String>,
+    #[serde(default)]
+    pub project_slug: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub snoozed_minutes: Option<u32>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationPortal {
+    pub id: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub schema_version: String,
+    pub title: String,
+    pub provider: String,
+    pub surface: String,
+    pub status: String,
+    pub source_mode: String,
+    pub privacy_class: String,
+    #[serde(default)]
+    pub source_ref: Option<String>,
+    #[serde(default)]
+    pub promoted_clip_refs: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromotedConversationClip {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub portal_id: String,
+    pub content_hash: String,
+    pub summary: String,
+    #[serde(default)]
+    pub project_ref: Option<String>,
+    pub privacy_class: String,
+    #[serde(default)]
+    pub memory_event_id: Option<String>,
+    #[serde(default)]
+    pub sounio_moment_id: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MindPalaceSnapshot {
+    pub id: String,
+    pub generated_at: String,
+    pub schema_version: String,
+    #[serde(default)]
+    pub rooms: Vec<MindPalaceRoom>,
+    pub desk: SpatialDeskSnapshot,
+    pub next_best_place: NextBestPlaceDecision,
+    pub action_menu: SpatialActionMenu,
+    pub focus_coach: FocusCoachState,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateConversationPortalRequest {
+    pub title: String,
+    pub provider: String,
+    #[serde(default)]
+    pub surface: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub source_mode: Option<String>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub source_ref: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PromoteConversationPortalRequest {
+    pub selected_text: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub project_ref: Option<String>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FocusCoachEventRequest {
+    pub event_kind: String,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub intervention_id: Option<String>,
+    #[serde(default)]
+    pub project_slug: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub snoozed_minutes: Option<u32>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateSpatialWorldRequest {
+    #[serde(default)]
+    pub project_slug: Option<String>,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub prompt_summary: Option<String>,
+    #[serde(default)]
+    pub sanitized_prompt: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub permission: Option<String>,
+    #[serde(default)]
+    pub approved: Option<bool>,
+    #[serde(default)]
+    pub purpose: Option<String>,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+    #[serde(default)]
+    pub world_id: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub world_marble_url: Option<String>,
+    #[serde(default)]
+    pub assets: Option<SpatialAssetManifest>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SpatialWorldQuery {
+    #[serde(default)]
+    pub project_slug: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateSounioSpatialEvidenceRequest {
+    pub project_slug: String,
+    #[serde(default)]
+    pub evidence_type: Option<String>,
+    #[serde(default)]
+    pub claim_seed_refs: Vec<String>,
+    #[serde(default)]
+    pub memory_world_refs: Vec<String>,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub epistemic_status: Option<String>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryExportRequest {
     #[serde(default)]
     pub limit: Option<usize>,
@@ -877,6 +1378,8 @@ pub struct GraphRagQueryRequest {
     pub max_items: Option<usize>,
     #[serde(default)]
     pub mode: Option<String>,
+    #[serde(default)]
+    pub ranking_policy: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1008,6 +1511,587 @@ pub struct MemoryPolicyStatus {
     pub promotion_gate: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub degraded_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioGovernance {
+    #[serde(default = "default_sensitive_privacy_class")]
+    pub privacy_class: String,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    #[serde(default)]
+    pub restricted_leak_check: serde_json::Value,
+    #[serde(default)]
+    pub human_approval_required: bool,
+    #[serde(default)]
+    pub policy_refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioStep {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub objective: Option<String>,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub strategy: Option<String>,
+    #[serde(default)]
+    pub requires_human_approval: bool,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    #[serde(default)]
+    pub governance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioAction {
+    pub id: String,
+    pub action_type: String,
+    pub target: String,
+    #[serde(default)]
+    pub parameters: serde_json::Value,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioEvidence {
+    pub id: String,
+    pub claim_ref: String,
+    pub source_ref: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub confidence: Option<f64>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioDecision {
+    pub id: String,
+    pub summary: String,
+    #[serde(default)]
+    pub rationale: Option<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioCheck {
+    pub id: String,
+    pub check_type: String,
+    pub description: String,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioProgram {
+    pub id: String,
+    #[serde(default = "default_sounio_version")]
+    pub sounio_version: String,
+    #[serde(default = "default_sounio_program_kind")]
+    pub kind: String,
+    pub intent: String,
+    #[serde(default)]
+    pub context: serde_json::Value,
+    #[serde(default)]
+    pub plan: Vec<SounioStep>,
+    #[serde(default)]
+    pub actions: Vec<SounioAction>,
+    #[serde(default)]
+    pub evidence: Vec<SounioEvidence>,
+    #[serde(default)]
+    pub decisions: Vec<SounioDecision>,
+    #[serde(default)]
+    pub checks: Vec<SounioCheck>,
+    #[serde(default)]
+    pub outcome: Option<String>,
+    #[serde(default)]
+    pub next_action: Option<String>,
+    pub governance: SounioGovernance,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SounioProgramCheckRequest {
+    #[serde(default)]
+    pub source_format: Option<String>,
+    pub program: SounioProgram,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioProgramCheckResponse {
+    pub status: String,
+    pub program_hash: String,
+    pub schema_version: String,
+    #[serde(default)]
+    pub errors: Vec<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub temporal_spec: serde_json::Value,
+    #[serde(default)]
+    pub memory_projection_preview: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioTraceEvent {
+    pub id: String,
+    pub created_at: String,
+    pub paper_run_id: String,
+    pub program_id: String,
+    pub step_id: String,
+    pub event_type: String,
+    pub status: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub context_pack_id: Option<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StartPaperRunRequest {
+    #[serde(default)]
+    pub paper_id: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub principal: Option<String>,
+    #[serde(default)]
+    pub surface: Option<String>,
+    #[serde(default)]
+    pub temporal_namespace: Option<String>,
+    #[serde(default)]
+    pub temporal_task_queue: Option<String>,
+    #[serde(default)]
+    pub program: Option<SounioProgram>,
+    #[serde(default)]
+    pub dry_run: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ApprovePaperRunStepRequest {
+    pub step_id: String,
+    #[serde(default)]
+    pub reviewer: Option<String>,
+    #[serde(default)]
+    pub decision: Option<String>,
+    #[serde(default)]
+    pub rationale: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaperRun {
+    pub id: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub schema_version: String,
+    pub paper_id: String,
+    pub title: String,
+    pub status: String,
+    pub temporal_workflow_id: String,
+    pub temporal_namespace: String,
+    pub temporal_task_queue: String,
+    pub temporal_status: String,
+    pub sounio_program_id: String,
+    pub sounio_program_hash: String,
+    pub manuscript_version: String,
+    #[serde(default)]
+    pub section_status: BTreeMap<String, String>,
+    #[serde(default)]
+    pub claim_registry: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub citation_registry: Vec<serde_json::Value>,
+    pub approval_state: String,
+    #[serde(default)]
+    pub pending_approval_step: Option<String>,
+    #[serde(default)]
+    pub context_pack_id: Option<String>,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    #[serde(default)]
+    pub interaction_summary: Option<String>,
+    #[serde(default)]
+    pub claim_lifecycle_status: BTreeMap<String, String>,
+    #[serde(default)]
+    pub public_digest_status: Option<String>,
+    #[serde(default)]
+    pub current_stage: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PaperRunArtifactsResponse {
+    pub paper_run_id: String,
+    pub generated_at: String,
+    pub manuscript_markdown: String,
+    pub provenance_pack: serde_json::Value,
+    pub artifact_refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SounioTraceQuery {
+    #[serde(default)]
+    pub paper_run_id: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SounioTraceListResponse {
+    pub events: Vec<SounioTraceEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioClaimInput {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub claim_text: String,
+    #[serde(default)]
+    pub subject: Option<String>,
+    #[serde(default)]
+    pub value_type: Option<String>,
+    #[serde(default)]
+    pub epistemic_status: Option<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    #[serde(default)]
+    pub confidence: Option<f64>,
+    #[serde(default)]
+    pub contestation: serde_json::Value,
+    #[serde(default)]
+    pub review_state: Option<String>,
+    #[serde(default)]
+    pub promotion_rule: Option<String>,
+    #[serde(default)]
+    pub publication_readiness: Option<String>,
+    #[serde(default)]
+    pub section_id: Option<String>,
+    #[serde(default)]
+    pub agent_refs: Vec<String>,
+    #[serde(default)]
+    pub contract_refs: Vec<String>,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub chronoself_commit_refs: Vec<String>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub rationale: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioClaim {
+    pub id: String,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(default)]
+    pub paper_run_id: Option<String>,
+    #[serde(default)]
+    pub section_id: Option<String>,
+    pub claim_text: String,
+    pub subject: String,
+    #[serde(default)]
+    pub value_type: Option<String>,
+    pub epistemic_status: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    pub confidence: f64,
+    #[serde(default)]
+    pub contestation: serde_json::Value,
+    pub review_state: String,
+    pub promotion_rule: String,
+    pub publication_readiness: String,
+    #[serde(default)]
+    pub agent_refs: Vec<String>,
+    #[serde(default)]
+    pub contract_refs: Vec<String>,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub chronoself_commit_refs: Vec<String>,
+    #[serde(default = "default_sensitive_privacy_class")]
+    pub privacy_class: String,
+    #[serde(default)]
+    pub rationale: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SounioClaimCheckRequest {
+    pub claim: SounioClaimInput,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioClaimCheckResponse {
+    pub status: String,
+    pub schema_version: String,
+    pub normalized_claim: SounioClaim,
+    #[serde(default)]
+    pub errors: Vec<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub required_evidence: Vec<String>,
+    #[serde(default)]
+    pub promotion_gate: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AddPaperRunClaimRequest {
+    pub claim: SounioClaimInput,
+    #[serde(default)]
+    pub principal: Option<String>,
+    #[serde(default)]
+    pub surface: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReviewSounioClaimRequest {
+    #[serde(default)]
+    pub reviewer: Option<String>,
+    pub decision: String,
+    #[serde(default)]
+    pub rationale: Option<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub epistemic_status: Option<String>,
+    #[serde(default)]
+    pub publication_readiness: Option<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioClaimReview {
+    pub id: String,
+    pub created_at: String,
+    pub paper_run_id: String,
+    pub claim_id: String,
+    pub reviewer: String,
+    pub decision: String,
+    #[serde(default)]
+    pub rationale: Option<String>,
+    pub previous_status: String,
+    pub new_status: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SounioMomentTypeRequest {
+    #[serde(default)]
+    pub source_event_refs: Vec<String>,
+    #[serde(default)]
+    pub source_platform: Option<String>,
+    #[serde(default)]
+    pub source_surface: Option<String>,
+    #[serde(default)]
+    pub project_slug: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub intent_text: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub claim_seeds: Vec<SounioClaimInput>,
+    #[serde(default)]
+    pub decision_seeds: Vec<String>,
+    #[serde(default)]
+    pub next_action: Option<String>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub review_state: Option<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SounioMomentReviewRequest {
+    #[serde(default)]
+    pub reviewer: Option<String>,
+    pub decision: String,
+    #[serde(default)]
+    pub rationale: Option<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub review_state: Option<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioMomentReview {
+    pub id: String,
+    pub created_at: String,
+    pub moment_id: String,
+    pub reviewer: String,
+    pub decision: String,
+    #[serde(default)]
+    pub rationale: Option<String>,
+    pub previous_state: String,
+    pub new_state: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioMoment {
+    pub id: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub schema_version: String,
+    pub project_slug: String,
+    pub moment_type: String,
+    pub intent: String,
+    pub summary: String,
+    pub source_platform: String,
+    pub source_surface: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub source_event_refs: Vec<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub claim_seeds: Vec<SounioClaim>,
+    #[serde(default)]
+    pub decision_seeds: Vec<String>,
+    #[serde(default)]
+    pub next_action: Option<String>,
+    pub privacy_class: String,
+    pub review_state: String,
+    pub restricted_leak_check: String,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioMomentListResponse {
+    pub generated_at: String,
+    pub schema_version: String,
+    #[serde(default)]
+    pub project_slug: Option<String>,
+    #[serde(default)]
+    pub moments: Vec<SounioMoment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioWorkdaySnapshot {
+    pub generated_at: String,
+    pub schema_version: String,
+    pub project_slug: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_moment: Option<SounioMoment>,
+    #[serde(default)]
+    pub moments: Vec<SounioMoment>,
+    #[serde(default)]
+    pub claim_seeds: Vec<SounioClaim>,
+    #[serde(default)]
+    pub decision_seeds: Vec<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub tensions: Vec<String>,
+    #[serde(default)]
+    pub agents: Vec<String>,
+    pub next_action: String,
+    pub review_queue_count: usize,
+    pub restricted_leak_check: String,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SounioClaimGraph {
+    pub paper_run_id: String,
+    pub generated_at: String,
+    pub schema_version: String,
+    #[serde(default)]
+    pub claims: Vec<SounioClaim>,
+    #[serde(default)]
+    pub edges: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub status_counts: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub unsupported_claim_ids: Vec<String>,
+    #[serde(default)]
+    pub robust_claim_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaperRunTheatreSnapshot {
+    pub paper_run_id: String,
+    pub generated_at: String,
+    pub schema_version: String,
+    pub paper_run: PaperRun,
+    pub manuscript_markdown: String,
+    pub claim_graph: SounioClaimGraph,
+    #[serde(default)]
+    pub trace_events: Vec<SounioTraceEvent>,
+    #[serde(default)]
+    pub agent_contributions: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub approvals: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub evidence_table: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub sounio_score: serde_json::Value,
+    pub current_stage: String,
+    pub next_action: String,
+    pub public_digest_status: String,
+    pub private_trace_ref: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublicDigestArtifact {
+    pub paper_run_id: String,
+    pub generated_at: String,
+    pub schema_version: String,
+    pub title: String,
+    pub thesis: String,
+    #[serde(default)]
+    pub sanitized_claims: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub sedenion_ssm_case: serde_json::Value,
+    #[serde(default)]
+    pub public_trace_digest: Vec<serde_json::Value>,
+    pub disclosure: String,
+    pub excluded_private_trace_policy: String,
+    pub manuscript_excerpt: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1203,6 +2287,14 @@ pub struct GraphRagQueryResponse {
     pub policy_gate: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dreamcycle_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ranking_policy: Option<String>,
+    #[serde(default)]
+    pub ranking_trace: serde_json::Value,
+    #[serde(default)]
+    pub recency_boost_applied: bool,
+    #[serde(default)]
+    pub stable_fact_guard_applied: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1429,6 +2521,20 @@ pub struct TrustContext {
     pub policy_gate: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dreamcycle_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sounio_paperrun_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sounio_temporal_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sounio_pending_approval: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sounio_latest_artifact: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sounio_workday_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sounio_latest_moment: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sounio_pending_moment_review: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1453,6 +2559,8 @@ pub struct ExocortexHomeSnapshot {
     pub agent_context: Option<AgentContext>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trust_context: Option<TrustContext>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sounio_workday_context: Option<SounioWorkdaySnapshot>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1465,6 +2573,22 @@ pub struct HomeQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct LimitQuery {
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SounioMomentsQuery {
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub project_slug: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SounioWorkdayQuery {
+    #[serde(default)]
+    pub project_slug: Option<String>,
     #[serde(default)]
     pub limit: Option<usize>,
 }
@@ -1525,6 +2649,19 @@ pub struct AssistedImportTurn {
     pub model: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TranscriptionSegment {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AssistedImportBatchRequest {
     pub source_platform: String,
@@ -1559,6 +2696,14 @@ pub struct AssistedImportBatchRequest {
     pub confidence_score: Option<f64>,
     #[serde(default)]
     pub create_chronoself_commit: Option<bool>,
+    #[serde(default)]
+    pub capture_session_id: Option<String>,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub transcription_segments: Vec<TranscriptionSegment>,
+    #[serde(default)]
+    pub visual_evidence_refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1580,6 +2725,388 @@ pub struct AssistedImportBatchResponse {
     pub memory_event: Option<MemoryEvent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audit_event: Option<AuditEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sounio_moment: Option<SounioMoment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WriteProbeRequest {
+    #[serde(default)]
+    pub principal: Option<String>,
+    #[serde(default)]
+    pub source_platform: Option<String>,
+    #[serde(default)]
+    pub source_surface: Option<String>,
+    #[serde(default)]
+    pub required_scopes: Vec<String>,
+    #[serde(default)]
+    pub granted_scopes: Vec<String>,
+    #[serde(default)]
+    pub payload_kind: Option<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WriteProbeResponse {
+    pub status: String,
+    pub can_write: bool,
+    pub missing_scopes: Vec<String>,
+    pub required_scopes: Vec<String>,
+    pub granted_scopes: Vec<String>,
+    pub core_write_health: String,
+    pub checked_at: String,
+    pub principal: String,
+    pub source_surface: String,
+    pub payload_kind: String,
+    pub diagnostics: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailedWriteInboxItem {
+    pub id: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub status: String,
+    pub reason: String,
+    pub source_platform: String,
+    pub source_surface: String,
+    pub principal: String,
+    pub summary: String,
+    pub privacy_class: String,
+    pub payload_kind: String,
+    pub retry_eligible: bool,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub candidate_refs: Vec<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rescue_memory_event_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rescue_audit_event_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FailedWriteRecordRequest {
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub source_platform: Option<String>,
+    #[serde(default)]
+    pub source_surface: Option<String>,
+    #[serde(default)]
+    pub principal: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub payload_kind: Option<String>,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FailedWriteRescueRequest {
+    #[serde(default)]
+    pub failed_write_id: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub source_platform: Option<String>,
+    #[serde(default)]
+    pub source_surface: Option<String>,
+    #[serde(default)]
+    pub principal: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub project_ref: Option<String>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub payload_kind: Option<String>,
+    #[serde(default)]
+    pub turns: Vec<AssistedImportTurn>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub candidate_refs: Vec<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FailedWriteInboxResponse {
+    pub items: Vec<FailedWriteInboxItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FailedWriteRescueResponse {
+    pub item: FailedWriteInboxItem,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assisted_import: Option<AssistedImportBatchResponse>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CaptureSessionStartRequest {
+    #[serde(default)]
+    pub project_slug: Option<String>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub surface: Option<String>,
+    #[serde(default)]
+    pub principal: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureSession {
+    pub id: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub schema_version: String,
+    pub project_slug: String,
+    pub mode: String,
+    pub surface: String,
+    pub principal: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub privacy_class: String,
+    pub status: String,
+    pub raw_audio_policy: String,
+    pub raw_image_policy: String,
+    #[serde(default)]
+    pub transcription_segments: Vec<TranscriptionSegment>,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    pub review_state: String,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CaptureSessionEventRequest {
+    pub event_type: String,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub transcription_segments: Vec<TranscriptionSegment>,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureSessionEvent {
+    pub id: String,
+    pub created_at: String,
+    pub session_id: String,
+    pub event_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub transcription_segments: Vec<TranscriptionSegment>,
+    #[serde(default)]
+    pub artifact_refs: Vec<String>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    pub privacy_class: String,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct VisualEvidenceArtifactRequest {
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub project_slug: Option<String>,
+    #[serde(default)]
+    pub source_surface: Option<String>,
+    #[serde(default)]
+    pub source_kind: Option<String>,
+    #[serde(default)]
+    pub media_type: Option<String>,
+    pub content_hash: String,
+    #[serde(default)]
+    pub content_ref: Option<String>,
+    #[serde(default)]
+    pub artifact_data_base64: Option<String>,
+    #[serde(default)]
+    pub artifact_byte_count: Option<usize>,
+    #[serde(default)]
+    pub local_summary: Option<String>,
+    #[serde(default)]
+    pub extracted_text: Option<String>,
+    #[serde(default)]
+    pub local_hints: Vec<String>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub confirmation_state: Option<String>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisualEvidenceArtifact {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub project_slug: String,
+    pub source_surface: String,
+    pub source_kind: String,
+    pub media_type: String,
+    pub content_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_byte_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extracted_text: Option<String>,
+    #[serde(default)]
+    pub local_hints: Vec<String>,
+    pub privacy_class: String,
+    pub confirmation_state: String,
+    pub private_artifact_policy: String,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureReviewCandidate {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub summary: String,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epistemic_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    #[serde(default = "default_sensitive_privacy_class")]
+    pub privacy_class: String,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct VisualEvidenceAnalyzeRequest {
+    pub artifact_id: String,
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub allow_external_model: Option<bool>,
+    #[serde(default)]
+    pub preferred_provider: Option<String>,
+    #[serde(default)]
+    pub local_analysis: serde_json::Value,
+    #[serde(default)]
+    pub redaction_summary: Option<String>,
+    #[serde(default)]
+    pub principal: Option<String>,
+    #[serde(default)]
+    pub surface: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisualEvidenceAnalysis {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub artifact_id: String,
+    pub mode: String,
+    pub provider: String,
+    pub status: String,
+    pub summary: String,
+    #[serde(default)]
+    pub claim_map: Vec<CaptureReviewCandidate>,
+    #[serde(default)]
+    pub evidence_refs: Vec<String>,
+    #[serde(default)]
+    pub tensions: Vec<String>,
+    #[serde(default)]
+    pub missing_evidence: Vec<String>,
+    pub restricted_leak_check: String,
+    pub requires_confirmation: bool,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub degraded_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CaptureReviewRequest {
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub artifact_id: Option<String>,
+    #[serde(default)]
+    pub project_slug: Option<String>,
+    #[serde(default)]
+    pub source_surface: Option<String>,
+    #[serde(default)]
+    pub candidates: Vec<CaptureReviewCandidate>,
+    #[serde(default)]
+    pub decision: Option<String>,
+    #[serde(default)]
+    pub reviewer: Option<String>,
+    #[serde(default)]
+    pub promote: Option<bool>,
+    #[serde(default)]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub provenance: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureReviewResult {
+    pub id: String,
+    pub created_at: String,
+    pub schema_version: String,
+    pub status: String,
+    pub promoted_count: usize,
+    #[serde(default)]
+    pub sounio_moments: Vec<SounioMoment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_event: Option<MemoryEvent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audit_event: Option<AuditEvent>,
+    #[serde(default)]
+    pub candidates: Vec<CaptureReviewCandidate>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1679,6 +3206,42 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(memory_assisted_import_handler),
         )
         .route(
+            "/api/exocortex/v1/write/probe",
+            post(write_probe_handler),
+        )
+        .route(
+            "/api/exocortex/v1/failed-writes",
+            get(failed_writes_handler).post(failed_write_record_handler),
+        )
+        .route(
+            "/api/exocortex/v1/failed-writes/rescue",
+            post(failed_write_rescue_handler),
+        )
+        .route(
+            "/api/exocortex/v1/capture/sessions",
+            post(capture_session_start_handler),
+        )
+        .route(
+            "/api/exocortex/v1/capture/sessions/:session_id",
+            get(capture_session_status_handler),
+        )
+        .route(
+            "/api/exocortex/v1/capture/sessions/:session_id/events",
+            post(capture_session_event_handler),
+        )
+        .route(
+            "/api/exocortex/v1/capture/visual/artifacts",
+            post(capture_visual_artifact_handler),
+        )
+        .route(
+            "/api/exocortex/v1/capture/visual/analyze",
+            post(capture_visual_analyze_handler),
+        )
+        .route(
+            "/api/exocortex/v1/capture/review",
+            post(capture_review_handler),
+        )
+        .route(
             "/api/exocortex/v1/context/compile",
             post(context_compile_handler),
         )
@@ -1701,6 +3264,66 @@ pub fn exocortex_routes() -> Router<AppState> {
         .route(
             "/api/exocortex/v1/memory/dreamcycle/status",
             get(memory_dreamcycle_status_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/programs/check",
+            post(sounio_program_check_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/claims/check",
+            post(sounio_claim_check_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/moments/type",
+            post(sounio_moment_type_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/moments/recent",
+            get(sounio_moments_recent_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/moments/:moment_id/review",
+            post(sounio_moment_review_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/workday/status",
+            get(sounio_workday_status_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/paperruns",
+            post(sounio_paperrun_start_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/paperruns/:paper_run_id",
+            get(sounio_paperrun_get_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/paperruns/:paper_run_id/approve-step",
+            post(sounio_paperrun_approve_step_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/paperruns/:paper_run_id/artifacts",
+            get(sounio_paperrun_artifacts_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/paperruns/:paper_run_id/claims",
+            post(sounio_paperrun_add_claim_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/paperruns/:paper_run_id/claims/:claim_id/review",
+            post(sounio_claim_review_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/paperruns/:paper_run_id/theatre",
+            get(sounio_paperrun_theatre_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/paperruns/:paper_run_id/public-digest",
+            get(sounio_paperrun_public_digest_handler),
+        )
+        .route(
+            "/api/exocortex/v1/sounio/trace",
+            get(sounio_trace_query_handler),
         )
         .route(
             "/api/exocortex/v1/memory/export",
@@ -1795,6 +3418,62 @@ pub fn exocortex_routes() -> Router<AppState> {
             get(memory_worlds_recent_handler),
         )
         .route(
+            "/api/exocortex/v1/spatial/worlds/marble",
+            post(spatial_world_marble_handler),
+        )
+        .route(
+            "/api/exocortex/v1/spatial/worlds/:world_id",
+            get(spatial_world_get_handler),
+        )
+        .route(
+            "/api/exocortex/v1/spatial/worlds/:world_id/assets",
+            get(spatial_world_assets_handler),
+        )
+        .route(
+            "/api/exocortex/v1/spatial/projects/:slug/control-room",
+            get(spatial_control_room_handler),
+        )
+        .route(
+            "/api/exocortex/v1/spatial/worlds/:world_id/sounio/evidence",
+            post(spatial_sounio_evidence_handler),
+        )
+        .route(
+            "/api/exocortex/v1/mind-palace",
+            get(mind_palace_handler),
+        )
+        .route(
+            "/api/exocortex/v1/mind-palace/rooms",
+            get(mind_palace_rooms_handler),
+        )
+        .route(
+            "/api/exocortex/v1/mind-palace/desk",
+            get(mind_palace_desk_handler),
+        )
+        .route(
+            "/api/exocortex/v1/mind-palace/next-best-place",
+            get(mind_palace_next_best_place_handler),
+        )
+        .route(
+            "/api/exocortex/v1/mind-palace/action-menu",
+            get(mind_palace_action_menu_handler),
+        )
+        .route(
+            "/api/exocortex/v1/conversation-portals",
+            post(conversation_portal_create_handler),
+        )
+        .route(
+            "/api/exocortex/v1/conversation-portals/:portal_id/promote",
+            post(conversation_portal_promote_handler),
+        )
+        .route(
+            "/api/exocortex/v1/focus-coach/status",
+            get(focus_coach_status_handler),
+        )
+        .route(
+            "/api/exocortex/v1/focus-coach/events",
+            post(focus_coach_event_handler),
+        )
+        .route(
             "/api/exocortex/v1/graphrag/query",
             post(graphrag_query_handler),
         )
@@ -1865,6 +3544,117 @@ async fn memory_assisted_import_handler(
     Ok(Json(result))
 }
 
+async fn write_probe_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<WriteProbeRequest>,
+) -> Result<Json<WriteProbeResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let result = repo.write_probe(req).map_err(internal_error)?;
+    Ok(Json(result))
+}
+
+async fn failed_writes_handler(
+    State(_state): State<AppState>,
+    Query(query): Query<LimitQuery>,
+) -> Result<Json<FailedWriteInboxResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let items = repo
+        .failed_write_inbox(query.limit.unwrap_or(50))
+        .map_err(internal_error)?;
+    Ok(Json(FailedWriteInboxResponse { items }))
+}
+
+async fn failed_write_record_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<FailedWriteRecordRequest>,
+) -> Result<Json<FailedWriteInboxItem>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let item = repo.record_failed_write(req).map_err(internal_error)?;
+    Ok(Json(item))
+}
+
+async fn failed_write_rescue_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<FailedWriteRescueRequest>,
+) -> Result<Json<FailedWriteRescueResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let response = repo.rescue_failed_write(req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn capture_session_start_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<CaptureSessionStartRequest>,
+) -> Result<Json<CaptureSession>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let session = repo.start_capture_session(req).map_err(internal_error)?;
+    Ok(Json(session))
+}
+
+async fn capture_session_status_handler(
+    State(_state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Result<Json<CaptureSession>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    repo.capture_session(&session_id)
+        .map_err(internal_error)?
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+async fn capture_session_event_handler(
+    State(_state): State<AppState>,
+    Path(session_id): Path<String>,
+    Json(req): Json<CaptureSessionEventRequest>,
+) -> Result<Json<CaptureSessionEvent>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let event = repo
+        .append_capture_session_event(&session_id, req)
+        .map_err(internal_error)?;
+    Ok(Json(event))
+}
+
+async fn capture_visual_artifact_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<VisualEvidenceArtifactRequest>,
+) -> Result<Json<VisualEvidenceArtifact>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let artifact = repo
+        .create_visual_evidence_artifact(req)
+        .map_err(internal_error)?;
+    Ok(Json(artifact))
+}
+
+async fn capture_visual_analyze_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<VisualEvidenceAnalyzeRequest>,
+) -> Result<Json<VisualEvidenceAnalysis>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let analysis = repo.analyze_visual_evidence(req).map_err(internal_error)?;
+    Ok(Json(analysis))
+}
+
+async fn capture_review_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<CaptureReviewRequest>,
+) -> Result<Json<CaptureReviewResult>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let result = repo
+        .review_capture_candidates(req)
+        .map_err(internal_error)?;
+    Ok(Json(result))
+}
+
 async fn context_compile_handler(
     State(_state): State<AppState>,
     Json(req): Json<ContextCompileRequest>,
@@ -1925,6 +3715,179 @@ async fn memory_dreamcycle_status_handler(
     repo.ensure().map_err(internal_error)?;
     let status = repo.dreamcycle_status().map_err(internal_error)?;
     Ok(Json(status))
+}
+
+async fn sounio_program_check_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<SounioProgramCheckRequest>,
+) -> Result<Json<SounioProgramCheckResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let response = repo.check_sounio_program(req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn sounio_claim_check_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<SounioClaimCheckRequest>,
+) -> Result<Json<SounioClaimCheckResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let response = repo.check_sounio_claim(req).map_err(internal_error)?;
+    Ok(Json(response))
+}
+
+async fn sounio_moment_type_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<SounioMomentTypeRequest>,
+) -> Result<Json<SounioMoment>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let moment = repo.type_sounio_moment(req).map_err(internal_error)?;
+    Ok(Json(moment))
+}
+
+async fn sounio_moments_recent_handler(
+    State(_state): State<AppState>,
+    Query(query): Query<SounioMomentsQuery>,
+) -> Result<Json<SounioMomentListResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let moments = repo.sounio_moments_recent(query).map_err(internal_error)?;
+    Ok(Json(moments))
+}
+
+async fn sounio_moment_review_handler(
+    State(_state): State<AppState>,
+    Path(moment_id): Path<String>,
+    Json(req): Json<SounioMomentReviewRequest>,
+) -> Result<Json<SounioMoment>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let moment = repo
+        .review_sounio_moment(&moment_id, req)
+        .map_err(internal_error)?;
+    Ok(Json(moment))
+}
+
+async fn sounio_workday_status_handler(
+    State(_state): State<AppState>,
+    Query(query): Query<SounioWorkdayQuery>,
+) -> Result<Json<SounioWorkdaySnapshot>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let snapshot = repo.sounio_workday_status(query).map_err(internal_error)?;
+    Ok(Json(snapshot))
+}
+
+async fn sounio_paperrun_start_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<StartPaperRunRequest>,
+) -> Result<Json<PaperRun>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let run = repo.start_paper_run(req).map_err(internal_error)?;
+    Ok(Json(run))
+}
+
+async fn sounio_paperrun_get_handler(
+    State(_state): State<AppState>,
+    Path(paper_run_id): Path<String>,
+) -> Result<Json<PaperRun>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    repo.paper_run(&paper_run_id)
+        .map_err(internal_error)?
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+async fn sounio_paperrun_approve_step_handler(
+    State(_state): State<AppState>,
+    Path(paper_run_id): Path<String>,
+    Json(req): Json<ApprovePaperRunStepRequest>,
+) -> Result<Json<PaperRun>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let run = repo
+        .approve_paper_run_step(&paper_run_id, req)
+        .map_err(internal_error)?;
+    Ok(Json(run))
+}
+
+async fn sounio_paperrun_artifacts_handler(
+    State(_state): State<AppState>,
+    Path(paper_run_id): Path<String>,
+) -> Result<Json<PaperRunArtifactsResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let artifacts = repo
+        .paper_run_artifacts(&paper_run_id)
+        .map_err(internal_error)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(artifacts))
+}
+
+async fn sounio_paperrun_add_claim_handler(
+    State(_state): State<AppState>,
+    Path(paper_run_id): Path<String>,
+    Json(req): Json<AddPaperRunClaimRequest>,
+) -> Result<Json<SounioClaim>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let claim = repo
+        .add_paper_run_claim(&paper_run_id, req)
+        .map_err(internal_error)?;
+    Ok(Json(claim))
+}
+
+async fn sounio_claim_review_handler(
+    State(_state): State<AppState>,
+    Path((paper_run_id, claim_id)): Path<(String, String)>,
+    Json(req): Json<ReviewSounioClaimRequest>,
+) -> Result<Json<SounioClaim>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let claim = repo
+        .review_sounio_claim(&paper_run_id, &claim_id, req)
+        .map_err(internal_error)?;
+    Ok(Json(claim))
+}
+
+async fn sounio_paperrun_theatre_handler(
+    State(_state): State<AppState>,
+    Path(paper_run_id): Path<String>,
+) -> Result<Json<PaperRunTheatreSnapshot>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let snapshot = repo
+        .paper_run_theatre(&paper_run_id)
+        .map_err(internal_error)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(snapshot))
+}
+
+async fn sounio_paperrun_public_digest_handler(
+    State(_state): State<AppState>,
+    Path(paper_run_id): Path<String>,
+) -> Result<Json<PublicDigestArtifact>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let digest = repo
+        .paper_run_public_digest(&paper_run_id)
+        .map_err(internal_error)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(digest))
+}
+
+async fn sounio_trace_query_handler(
+    State(_state): State<AppState>,
+    Query(query): Query<SounioTraceQuery>,
+) -> Result<Json<SounioTraceListResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let events = repo.sounio_trace_events(query).map_err(internal_error)?;
+    Ok(Json(SounioTraceListResponse { events }))
 }
 
 async fn memory_export_handler(
@@ -2212,6 +4175,150 @@ async fn memory_worlds_recent_handler(
     Ok(Json(response))
 }
 
+async fn spatial_world_marble_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<CreateSpatialWorldRequest>,
+) -> Result<Json<SpatialWorld>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let world = repo.create_spatial_world(req).map_err(internal_error)?;
+    Ok(Json(world))
+}
+
+async fn spatial_world_get_handler(
+    State(_state): State<AppState>,
+    Path(world_id): Path<String>,
+) -> Result<Json<SpatialWorld>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    repo.spatial_world(&world_id)
+        .map_err(internal_error)?
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+async fn spatial_world_assets_handler(
+    State(_state): State<AppState>,
+    Path(world_id): Path<String>,
+) -> Result<Json<SpatialAssetManifest>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    repo.spatial_world(&world_id)
+        .map_err(internal_error)?
+        .map(|world| Json(world.assets))
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
+async fn spatial_control_room_handler(
+    State(_state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<Json<ControlRoomSnapshot>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let snapshot = repo.control_room_snapshot(&slug).map_err(internal_error)?;
+    Ok(Json(snapshot))
+}
+
+async fn spatial_sounio_evidence_handler(
+    State(_state): State<AppState>,
+    Path(world_id): Path<String>,
+    Json(req): Json<CreateSounioSpatialEvidenceRequest>,
+) -> Result<Json<SounioSpatialEvidence>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let evidence = repo
+        .create_spatial_evidence(&world_id, req)
+        .map_err(internal_error)?;
+    Ok(Json(evidence))
+}
+
+async fn mind_palace_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<MindPalaceSnapshot>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let snapshot = repo.mind_palace_snapshot().map_err(internal_error)?;
+    Ok(Json(snapshot))
+}
+
+async fn mind_palace_rooms_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<Vec<MindPalaceRoom>>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let snapshot = repo.mind_palace_snapshot().map_err(internal_error)?;
+    Ok(Json(snapshot.rooms))
+}
+
+async fn mind_palace_desk_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<SpatialDeskSnapshot>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let snapshot = repo.mind_palace_snapshot().map_err(internal_error)?;
+    Ok(Json(snapshot.desk))
+}
+
+async fn mind_palace_next_best_place_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<NextBestPlaceDecision>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let snapshot = repo.mind_palace_snapshot().map_err(internal_error)?;
+    Ok(Json(snapshot.next_best_place))
+}
+
+async fn mind_palace_action_menu_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<SpatialActionMenu>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let snapshot = repo.mind_palace_snapshot().map_err(internal_error)?;
+    Ok(Json(snapshot.action_menu))
+}
+
+async fn conversation_portal_create_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<CreateConversationPortalRequest>,
+) -> Result<Json<ConversationPortal>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let portal = repo.create_conversation_portal(req).map_err(internal_error)?;
+    Ok(Json(portal))
+}
+
+async fn conversation_portal_promote_handler(
+    State(_state): State<AppState>,
+    Path(portal_id): Path<String>,
+    Json(req): Json<PromoteConversationPortalRequest>,
+) -> Result<Json<PromotedConversationClip>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let clip = repo
+        .promote_conversation_portal_clip(&portal_id, req)
+        .map_err(internal_error)?;
+    Ok(Json(clip))
+}
+
+async fn focus_coach_status_handler(
+    State(_state): State<AppState>,
+) -> Result<Json<FocusCoachState>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let state = repo.focus_coach_status().map_err(internal_error)?;
+    Ok(Json(state))
+}
+
+async fn focus_coach_event_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<FocusCoachEventRequest>,
+) -> Result<Json<FocusCoachState>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let state = repo.record_focus_coach_event(req).map_err(internal_error)?;
+    Ok(Json(state))
+}
+
 async fn graphrag_query_handler(
     State(_state): State<AppState>,
     Json(req): Json<GraphRagQueryRequest>,
@@ -2409,6 +4516,955 @@ impl ExocortexRepository {
         Ok(imported)
     }
 
+    fn start_capture_session(
+        &self,
+        req: CaptureSessionStartRequest,
+    ) -> anyhow::Result<CaptureSession> {
+        self.ensure()?;
+        let now = Utc::now().to_rfc3339();
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        anyhow::ensure!(
+            privacy_class != "restricted",
+            "restricted capture sessions must stay local until explicit review"
+        );
+        let mode = req
+            .mode
+            .as_deref()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "thinking_aloud".to_string());
+        let surface = req
+            .surface
+            .as_deref()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "beagle-apple-composer".to_string());
+        let project_slug = req
+            .project_slug
+            .as_deref()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "sounio".to_string());
+        let principal = req
+            .principal
+            .as_deref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "beagle-apple-app".to_string());
+        let id = stable_id("capture-session", &[&project_slug, &surface, &mode, &now]);
+        let session = CaptureSession {
+            id: id.clone(),
+            created_at: now.clone(),
+            updated_at: now,
+            schema_version: CAPTURE_SESSION_SCHEMA.to_string(),
+            project_slug,
+            mode,
+            surface: surface.clone(),
+            principal: principal.clone(),
+            title: req.title,
+            privacy_class: privacy_class.clone(),
+            status: "active".to_string(),
+            raw_audio_policy: "local_ttl_short_discard_after_transcription".to_string(),
+            raw_image_policy: "private_cluster_artifact_hash_merkle_provenance".to_string(),
+            transcription_segments: Vec::new(),
+            artifact_refs: Vec::new(),
+            evidence_refs: Vec::new(),
+            review_state: "open".to_string(),
+            provenance: merge_json_objects(
+                serde_json::json!({
+                    "beagle_observes": true,
+                    "sounio_types": false,
+                    "anti_creepy_policy": "user_initiated_visible_session_only",
+                    "ambient_listening": false,
+                    "surface": surface,
+                    "principal": principal,
+                    "privacy_class": privacy_class
+                }),
+                req.metadata,
+            ),
+        };
+        self.append_jsonl(CAPTURE_SESSIONS_LOG, &session)?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some(session.principal.clone()),
+            action: Some("capture.session_start".to_string()),
+            tool_name: Some("beagle_capture_session_start".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: metadata_array_strings(&session.provenance, "scopes")
+                .unwrap_or_default(),
+            status: Some("success".to_string()),
+            source: Some(session.surface.clone()),
+            target_ref: Some(format!("capture_session:{}", session.id)),
+            summary: Some(format!(
+                "Started explicit {} capture session for {}.",
+                session.mode, session.project_slug
+            )),
+            metadata: Some(serde_json::json!({
+                "capture_session_id": session.id.clone(),
+                "project_slug": session.project_slug.clone(),
+                "mode": session.mode.clone(),
+                "privacy_class": session.privacy_class.clone(),
+                "anti_creepy_policy": "no_ambient_adtech_capture"
+            })),
+        })?;
+        Ok(session)
+    }
+
+    fn capture_session(&self, session_id: &str) -> anyhow::Result<Option<CaptureSession>> {
+        self.ensure()?;
+        Ok(self
+            .read_recent_jsonl::<CaptureSession>(CAPTURE_SESSIONS_LOG, usize::MAX)?
+            .into_iter()
+            .find(|session| session.id == session_id))
+    }
+
+    fn append_capture_session_event(
+        &self,
+        session_id: &str,
+        req: CaptureSessionEventRequest,
+    ) -> anyhow::Result<CaptureSessionEvent> {
+        self.ensure()?;
+        anyhow::ensure!(
+            self.capture_session(session_id)?.is_some(),
+            "capture session not found"
+        );
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        anyhow::ensure!(
+            privacy_class != "restricted",
+            "restricted capture events must stay in local review-only outbox"
+        );
+        let now = Utc::now().to_rfc3339();
+        let event_type = if req.event_type.trim().is_empty() {
+            "note".to_string()
+        } else {
+            req.event_type.trim().to_lowercase()
+        };
+        let id = stable_id(
+            "capture-event",
+            &[
+                session_id,
+                &event_type,
+                req.text.as_deref().unwrap_or(""),
+                &now,
+            ],
+        );
+        let event = CaptureSessionEvent {
+            id: id.clone(),
+            created_at: now,
+            session_id: session_id.to_string(),
+            event_type,
+            text: req.text.map(|value| truncate_chars(value.trim(), 4000)),
+            transcription_segments: req
+                .transcription_segments
+                .into_iter()
+                .map(normalize_transcription_segment)
+                .collect(),
+            artifact_refs: dedupe_strings(req.artifact_refs, 32),
+            evidence_refs: dedupe_strings(req.evidence_refs, 48),
+            privacy_class,
+            metadata: req.metadata,
+        };
+        self.append_jsonl(CAPTURE_EVENTS_LOG, &event)?;
+        Ok(event)
+    }
+
+    fn create_visual_evidence_artifact(
+        &self,
+        req: VisualEvidenceArtifactRequest,
+    ) -> anyhow::Result<VisualEvidenceArtifact> {
+        self.ensure()?;
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        anyhow::ensure!(
+            privacy_class != "restricted",
+            "restricted visual artifacts require explicit local review before cluster storage"
+        );
+        anyhow::ensure!(
+            req.content_hash.trim().starts_with("sha256:"),
+            "visual artifact content_hash must be sha256:<hex>"
+        );
+        let now = Utc::now().to_rfc3339();
+        let project_slug = req
+            .project_slug
+            .as_deref()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "sounio".to_string());
+        let source_surface = req
+            .source_surface
+            .as_deref()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "beagle-apple-visual-capture".to_string());
+        let source_kind = req
+            .source_kind
+            .as_deref()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "image".to_string());
+        let media_type = req
+            .media_type
+            .as_deref()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "image".to_string());
+        let requested_content_ref = req.content_ref.clone();
+        let id = stable_id(
+            "visual-artifact",
+            &[
+                &project_slug,
+                &source_surface,
+                &source_kind,
+                &req.content_hash,
+            ],
+        );
+        let mut content_ref = requested_content_ref;
+        let mut artifact_byte_count = req.artifact_byte_count;
+        if let Some(encoded) = req
+            .artifact_data_base64
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let encoded = encoded
+                .split_once(',')
+                .map(|(_, payload)| payload)
+                .unwrap_or(encoded);
+            let bytes = BASE64_STANDARD
+                .decode(encoded)
+                .map_err(|err| anyhow::anyhow!("invalid visual artifact base64: {err}"))?;
+            anyhow::ensure!(
+                bytes.len() <= 24 * 1024 * 1024,
+                "visual artifact payload exceeds 24MB safety limit"
+            );
+            let computed_hash = sha256_content_hash(&bytes);
+            anyhow::ensure!(
+                computed_hash == req.content_hash.trim(),
+                "visual artifact content_hash does not match payload"
+            );
+            if let Some(expected_count) = artifact_byte_count {
+                anyhow::ensure!(
+                    expected_count == bytes.len(),
+                    "visual artifact byte count does not match payload"
+                );
+            }
+            let artifact_dir = self.root.join(CAPTURE_VISUAL_ARTIFACTS_DIR).join(&id);
+            fs::create_dir_all(&artifact_dir)?;
+            let filename = format!("artifact.{}", media_type_extension(&media_type));
+            fs::write(artifact_dir.join(&filename), &bytes)?;
+            content_ref = Some(format!(
+                "cluster-private://exocortex/{CAPTURE_VISUAL_ARTIFACTS_DIR}/{id}/{filename}"
+            ));
+            artifact_byte_count = Some(bytes.len());
+        }
+        let artifact = VisualEvidenceArtifact {
+            id: id.clone(),
+            created_at: now.clone(),
+            schema_version: VISUAL_EVIDENCE_SCHEMA.to_string(),
+            session_id: req.session_id,
+            project_slug,
+            source_surface,
+            source_kind,
+            media_type,
+            content_hash: req.content_hash.trim().to_string(),
+            content_ref,
+            artifact_byte_count,
+            local_summary: req
+                .local_summary
+                .map(|value| truncate_chars(value.trim(), 1000)),
+            extracted_text: req
+                .extracted_text
+                .map(|value| truncate_chars(value.trim(), 6000)),
+            local_hints: dedupe_strings(req.local_hints, 48),
+            privacy_class,
+            confirmation_state: req
+                .confirmation_state
+                .unwrap_or_else(|| "local_preview_only".to_string()),
+            private_artifact_policy:
+                "raw_image_private_cluster_artifact_public_digest_uses_sanitized_derivatives"
+                    .to_string(),
+            provenance: merge_json_objects(
+                serde_json::json!({
+                    "schema_version": VISUAL_EVIDENCE_SCHEMA,
+                    "local_first": true,
+                    "external_model_requires_confirmation": true,
+                    "raw_artifact_stored": artifact_byte_count.is_some(),
+                    "created_at": now
+                }),
+                req.metadata,
+            ),
+        };
+        self.append_jsonl(CAPTURE_VISUAL_ARTIFACTS_LOG, &artifact)?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: metadata_string(&artifact.provenance, "principal")
+                .or_else(|| Some(artifact.source_surface.clone())),
+            action: Some("capture.visual_artifact".to_string()),
+            tool_name: Some("beagle_visual_evidence_artifact_create".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: metadata_array_strings(&artifact.provenance, "scopes")
+                .unwrap_or_default(),
+            status: Some("success".to_string()),
+            source: Some(artifact.source_surface.clone()),
+            target_ref: Some(format!("visual_artifact:{}", artifact.id)),
+            summary: Some("Stored private visual evidence artifact metadata.".to_string()),
+            metadata: Some(serde_json::json!({
+                "artifact_id": artifact.id.clone(),
+                "content_hash": artifact.content_hash.clone(),
+                "artifact_byte_count": artifact.artifact_byte_count,
+                "content_ref": artifact.content_ref.clone(),
+                "privacy_class": artifact.privacy_class.clone(),
+                "confirmation_state": artifact.confirmation_state.clone(),
+                "restricted_leak_check": "passed:no_restricted_artifact"
+            })),
+        })?;
+        Ok(artifact)
+    }
+
+    fn analyze_visual_evidence(
+        &self,
+        req: VisualEvidenceAnalyzeRequest,
+    ) -> anyhow::Result<VisualEvidenceAnalysis> {
+        self.ensure()?;
+        let artifact = self
+            .read_recent_jsonl::<VisualEvidenceArtifact>(CAPTURE_VISUAL_ARTIFACTS_LOG, usize::MAX)?
+            .into_iter()
+            .find(|artifact| artifact.id == req.artifact_id)
+            .ok_or_else(|| anyhow::anyhow!("visual artifact not found"))?;
+        anyhow::ensure!(
+            artifact.privacy_class != "restricted",
+            "restricted visual artifacts cannot be analyzed automatically"
+        );
+        let now = Utc::now().to_rfc3339();
+        let allow_external = req.allow_external_model.unwrap_or(false);
+        let provider = if allow_external {
+            req.preferred_provider
+                .clone()
+                .unwrap_or_else(|| "openai-responses-vision".to_string())
+        } else {
+            "apple-vision-local-preview".to_string()
+        };
+        let prompt = req.prompt.clone().unwrap_or_else(|| {
+            "Identify conceptual claims, evidence, tensions, and missing evidence.".to_string()
+        });
+        let local_text = [
+            artifact.local_summary.clone(),
+            artifact.extracted_text.clone(),
+            metadata_string(&req.local_analysis, "summary"),
+            Some(prompt.clone()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n");
+        let summary = if local_text.trim().is_empty() {
+            "Visual evidence captured; local preview has no extracted text yet.".to_string()
+        } else {
+            truncate_chars(local_text.trim(), 500)
+        };
+        let evidence_refs = vec![
+            format!("visual_artifact:{}", artifact.id),
+            artifact.content_hash.clone(),
+        ];
+        let candidate = CaptureReviewCandidate {
+            id: stable_id("capture-candidate", &[&artifact.id, &summary]),
+            kind: "claim_seed".to_string(),
+            title: "Visual claim seed".to_string(),
+            summary: summary.clone(),
+            evidence_refs: evidence_refs.clone(),
+            claim_text: Some(format!("Visual evidence suggests: {}", summary)),
+            decision_text: None,
+            next_action: Some(
+                "Review the claim seed and attach missing evidence before promotion.".to_string(),
+            ),
+            epistemic_status: Some("belief".to_string()),
+            confidence: Some(if allow_external { 0.72 } else { 0.54 }),
+            privacy_class: artifact.privacy_class.clone(),
+            provenance: serde_json::json!({
+                "artifact_id": artifact.id,
+                "provider": provider,
+                "local_first": true,
+                "external_model_allowed": allow_external,
+                "redaction_summary": req.redaction_summary
+            }),
+        };
+        let analysis = VisualEvidenceAnalysis {
+            id: stable_id(
+                "visual-analysis",
+                &[&artifact.id, &provider, if allow_external { "external" } else { "local" }],
+            ),
+            created_at: now.clone(),
+            schema_version: VISUAL_EVIDENCE_SCHEMA.to_string(),
+            artifact_id: artifact.id.clone(),
+            mode: if allow_external {
+                "confirmed_external_multimodal".to_string()
+            } else {
+                "local_preview".to_string()
+            },
+            provider: provider.clone(),
+            status: "analysis_ready".to_string(),
+            summary,
+            claim_map: vec![candidate],
+            evidence_refs,
+            tensions: vec![
+                "visual evidence can support claim seeds but cannot promote them to knowledge without provenance review"
+                    .to_string(),
+            ],
+            missing_evidence: vec![
+                "human review of image redaction and claim relevance".to_string(),
+                "source context for the diagram/photo/document".to_string(),
+            ],
+            restricted_leak_check: "passed:no_restricted_visual_content_indexed".to_string(),
+            requires_confirmation: !allow_external,
+            provenance: serde_json::json!({
+                "principal": req.principal.unwrap_or_else(|| "beagle-apple-app".to_string()),
+                "surface": req.surface.unwrap_or_else(|| artifact.source_surface.clone()),
+                "artifact_id": artifact.id,
+                "provider": provider,
+                "allow_external_model": allow_external,
+                "external_model_call": if allow_external { "provider_config_required" } else { "not_requested" },
+                "analysis_is_derivative": true
+            }),
+            degraded_reason: if allow_external {
+                Some(
+                    "Core recorded confirmed visual analysis intent; provider execution is delegated to configured multimodal worker."
+                        .to_string(),
+                )
+            } else {
+                Some("External multimodal model requires explicit user confirmation.".to_string())
+            },
+        };
+        self.append_jsonl(CAPTURE_VISUAL_ANALYSES_LOG, &analysis)?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: metadata_string(&analysis.provenance, "principal"),
+            action: Some("capture.visual_analyze".to_string()),
+            tool_name: Some("beagle_visual_evidence_analyze".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: metadata_array_strings(&analysis.provenance, "scopes")
+                .unwrap_or_default(),
+            status: Some("success".to_string()),
+            source: metadata_string(&analysis.provenance, "surface"),
+            target_ref: Some(format!("visual_analysis:{}", analysis.id)),
+            summary: Some("Created VisualEvidenceAnalysis claim map.".to_string()),
+            metadata: Some(serde_json::json!({
+                "analysis_id": analysis.id.clone(),
+                "artifact_id": analysis.artifact_id.clone(),
+                "provider": analysis.provider.clone(),
+                "requires_confirmation": analysis.requires_confirmation,
+                "restricted_leak_check": analysis.restricted_leak_check.clone()
+            })),
+        })?;
+        Ok(analysis)
+    }
+
+    fn review_capture_candidates(
+        &self,
+        req: CaptureReviewRequest,
+    ) -> anyhow::Result<CaptureReviewResult> {
+        self.ensure()?;
+        let now = Utc::now().to_rfc3339();
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        anyhow::ensure!(
+            privacy_class != "restricted",
+            "restricted capture reviews require local-only explicit handling"
+        );
+        let project_slug = req
+            .project_slug
+            .clone()
+            .unwrap_or_else(|| "sounio".to_string());
+        let source_surface = req
+            .source_surface
+            .clone()
+            .unwrap_or_else(|| "beagle-apple-capture-review".to_string());
+        let reviewer = req
+            .reviewer
+            .clone()
+            .unwrap_or_else(|| "demetrios".to_string());
+        let promote = req.promote.unwrap_or(false);
+        let mut moments = Vec::new();
+        if promote {
+            for candidate in req.candidates.iter().filter(|candidate| {
+                normalize_privacy_class(Some(&candidate.privacy_class)) != "restricted"
+            }) {
+                let evidence_refs = candidate.evidence_refs.clone();
+                let claim_seeds = candidate
+                    .claim_text
+                    .as_ref()
+                    .map(|claim_text| {
+                        vec![SounioClaimInput {
+                            id: None,
+                            claim_text: claim_text.clone(),
+                            subject: Some(project_slug.clone()),
+                            value_type: Some("Claim<T>".to_string()),
+                            epistemic_status: Some(
+                                candidate
+                                    .epistemic_status
+                                    .clone()
+                                    .unwrap_or_else(|| "belief".to_string()),
+                            ),
+                            evidence_refs: evidence_refs.clone(),
+                            provenance: serde_json::json!({
+                                "source": "capture_review",
+                                "candidate_id": candidate.id,
+                                "reviewer": reviewer,
+                            }),
+                            confidence: candidate.confidence,
+                            contestation: serde_json::Value::Null,
+                            review_state: Some("unreviewed".to_string()),
+                            promotion_rule: None,
+                            publication_readiness: Some("not_ready".to_string()),
+                            section_id: None,
+                            agent_refs: vec![source_surface.clone()],
+                            contract_refs: Vec::new(),
+                            artifact_refs: req
+                                .artifact_id
+                                .clone()
+                                .map(|value| vec![value])
+                                .unwrap_or_default(),
+                            chronoself_commit_refs: Vec::new(),
+                            privacy_class: Some(candidate.privacy_class.clone()),
+                            rationale: Some(
+                                "Capture review promotes a conservative Sounio Claim<T> seed."
+                                    .to_string(),
+                            ),
+                        }]
+                    })
+                    .unwrap_or_default();
+                let moment = self.type_sounio_moment(SounioMomentTypeRequest {
+                    source_event_refs: [
+                        req.session_id
+                            .clone()
+                            .map(|value| format!("capture_session:{value}")),
+                        req.artifact_id
+                            .clone()
+                            .map(|value| format!("visual_artifact:{value}")),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .collect(),
+                    source_platform: Some("beagle-apple".to_string()),
+                    source_surface: Some(source_surface.clone()),
+                    project_slug: Some(project_slug.clone()),
+                    session_id: req.session_id.clone(),
+                    intent_text: Some(candidate.title.clone()),
+                    summary: Some(candidate.summary.clone()),
+                    evidence_refs,
+                    claim_seeds,
+                    decision_seeds: candidate
+                        .decision_text
+                        .clone()
+                        .map(|value| vec![value])
+                        .unwrap_or_default(),
+                    next_action: candidate.next_action.clone(),
+                    privacy_class: Some(candidate.privacy_class.clone()),
+                    review_state: Some("reviewed".to_string()),
+                    provenance: merge_json_objects(
+                        serde_json::json!({
+                            "reviewer": reviewer,
+                            "capture_review": true,
+                            "candidate_id": candidate.id,
+                            "decision": req.decision.clone().unwrap_or_else(|| "promote".to_string())
+                        }),
+                        candidate.provenance.clone(),
+                    ),
+                    tags: vec![
+                        "multimodal-composer".to_string(),
+                        "sounio-moment".to_string(),
+                        format!("project:{project_slug}"),
+                    ],
+                })?;
+                moments.push(moment);
+            }
+        }
+        let id = stable_id(
+            "capture-review",
+            &[
+                req.session_id.as_deref().unwrap_or("no-session"),
+                req.artifact_id.as_deref().unwrap_or("no-artifact"),
+                &reviewer,
+                &now,
+            ],
+        );
+        let memory_event = if promote {
+            Some(self.create_memory_event(CreateMemoryEventRequest {
+                source: Some(source_surface.clone()),
+                kind: Some("capture_review".to_string()),
+                content_ref: Some(format!("capture_review:{id}")),
+                summary: Some(format!(
+                    "Reviewed {} multimodal capture candidate(s); promoted {}.",
+                    req.candidates.len(),
+                    moments.len()
+                )),
+                tags: vec![
+                    "multimodal-composer".to_string(),
+                    "capture-review".to_string(),
+                    format!("project:{project_slug}"),
+                ],
+                metadata: Some(serde_json::json!({
+                    "capture_review_id": id.clone(),
+                    "capture_session_id": req.session_id.clone(),
+                    "artifact_id": req.artifact_id.clone(),
+                    "promoted_moment_ids": moments.iter().map(|moment| moment.id.clone()).collect::<Vec<_>>(),
+                    "privacy_class": privacy_class,
+                    "restricted_leak_check": "passed:no_restricted_candidate_promoted"
+                })),
+                linked_chronoself_commits: Vec::new(),
+                confidence: Some(0.78),
+            })?)
+        } else {
+            None
+        };
+        let audit = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some(reviewer.clone()),
+            action: Some("capture.review".to_string()),
+            tool_name: Some("beagle_capture_review_promote".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: metadata_array_strings(&req.provenance, "scopes").unwrap_or_default(),
+            status: Some(if promote { "success" } else { "reviewed" }.to_string()),
+            source: Some(source_surface.clone()),
+            target_ref: Some(format!("capture_review:{id}")),
+            summary: Some("Reviewed multimodal capture candidates.".to_string()),
+            metadata: Some(serde_json::json!({
+                "capture_review_id": id.clone(),
+                "promote": promote,
+                "candidate_count": req.candidates.len(),
+                "promoted_count": moments.len(),
+                "privacy_class": privacy_class,
+                "restricted_leak_check": "passed:no_restricted_candidate_promoted"
+            })),
+        })?;
+        let result = CaptureReviewResult {
+            id,
+            created_at: now,
+            schema_version: CAPTURE_REVIEW_SCHEMA.to_string(),
+            status: if promote {
+                "promoted".to_string()
+            } else {
+                "reviewed_without_promotion".to_string()
+            },
+            promoted_count: moments.len(),
+            sounio_moments: moments,
+            memory_event,
+            audit_event: Some(audit),
+            candidates: req.candidates,
+        };
+        self.append_jsonl(CAPTURE_REVIEWS_LOG, &result)?;
+        Ok(result)
+    }
+
+    fn write_probe(&self, req: WriteProbeRequest) -> anyhow::Result<WriteProbeResponse> {
+        self.ensure()?;
+        let required_scopes = if req.required_scopes.is_empty() {
+            vec!["memory:write".to_string()]
+        } else {
+            req.required_scopes
+                .iter()
+                .map(|scope| scope.trim().to_string())
+                .filter(|scope| !scope.is_empty())
+                .collect::<Vec<_>>()
+        };
+        let granted_scopes = req
+            .granted_scopes
+            .iter()
+            .map(|scope| scope.trim().to_string())
+            .filter(|scope| !scope.is_empty())
+            .collect::<Vec<_>>();
+        let granted = granted_scopes.iter().cloned().collect::<BTreeSet<_>>();
+        let missing_scopes = required_scopes
+            .iter()
+            .filter(|scope| !granted.contains(*scope))
+            .cloned()
+            .collect::<Vec<_>>();
+        let principal = req
+            .principal
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "unknown-principal".to_string());
+        let source_surface = req
+            .source_surface
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "unknown-surface".to_string());
+        let payload_kind = req
+            .payload_kind
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "memory_write".to_string());
+        Ok(WriteProbeResponse {
+            status: if missing_scopes.is_empty() {
+                "ok".to_string()
+            } else {
+                "missing_scope".to_string()
+            },
+            can_write: missing_scopes.is_empty(),
+            missing_scopes,
+            required_scopes,
+            granted_scopes,
+            core_write_health: "append_only_ready".to_string(),
+            checked_at: Utc::now().to_rfc3339(),
+            principal,
+            source_surface,
+            payload_kind,
+            diagnostics: serde_json::json!({
+                "canonical_store": "/var/lib/beagle/exocortex",
+                "failed_write_log": FAILED_WRITES_LOG,
+                "probe_metadata": req.metadata
+            }),
+        })
+    }
+
+    fn failed_write_inbox(&self, limit: usize) -> anyhow::Result<Vec<FailedWriteInboxItem>> {
+        self.read_recent_jsonl::<FailedWriteInboxItem>(FAILED_WRITES_LOG, limit)
+    }
+
+    fn record_failed_write(
+        &self,
+        req: FailedWriteRecordRequest,
+    ) -> anyhow::Result<FailedWriteInboxItem> {
+        self.ensure()?;
+        let now = Utc::now().to_rfc3339();
+        let source_platform = req
+            .source_platform
+            .unwrap_or_else(|| "claude".to_string())
+            .trim()
+            .to_lowercase();
+        let source_surface = req
+            .source_surface
+            .unwrap_or_else(|| "claude-ios".to_string())
+            .trim()
+            .to_lowercase();
+        let principal = req
+            .principal
+            .unwrap_or_else(|| "claude-ios".to_string())
+            .trim()
+            .to_string();
+        let summary = req
+            .summary
+            .unwrap_or_else(|| "Failed memory write observed.".to_string());
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        let payload_kind = req
+            .payload_kind
+            .unwrap_or_else(|| "memory_write".to_string())
+            .trim()
+            .to_string();
+        let id = stable_id(
+            "failed-write",
+            &[&source_platform, &source_surface, &principal, &summary, &now],
+        );
+        let item = FailedWriteInboxItem {
+            id: id.clone(),
+            created_at: now.clone(),
+            updated_at: now,
+            status: "observed".to_string(),
+            reason: req.reason.unwrap_or_else(|| "write_failed".to_string()),
+            source_platform: source_platform.clone(),
+            source_surface: source_surface.clone(),
+            principal: principal.clone(),
+            summary: summary.clone(),
+            privacy_class,
+            payload_kind,
+            retry_eligible: true,
+            artifact_refs: req.artifact_refs,
+            candidate_refs: Vec::new(),
+            metadata: req.metadata,
+            rescue_memory_event_id: None,
+            rescue_audit_event_id: None,
+        };
+        self.append_jsonl(FAILED_WRITES_LOG, &item)?;
+        self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some(principal),
+            action: Some("memory.failed_write_observed".to_string()),
+            tool_name: Some("beagle_failed_write_inbox".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: Vec::new(),
+            status: Some("observed".to_string()),
+            source: Some(source_surface),
+            target_ref: Some(format!("failed_write:{}", id)),
+            summary: Some(summary),
+            metadata: Some(serde_json::json!({
+                "source_platform": source_platform,
+                "failed_write_id": id,
+                "append_only_log": FAILED_WRITES_LOG
+            })),
+        })?;
+        Ok(item)
+    }
+
+    fn rescue_failed_write(
+        &self,
+        req: FailedWriteRescueRequest,
+    ) -> anyhow::Result<FailedWriteRescueResponse> {
+        self.ensure()?;
+        anyhow::ensure!(
+            !req.turns.is_empty()
+                || req
+                    .summary
+                    .as_deref()
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false),
+            "failed-write rescue requires reviewed visible turns or a reviewed summary"
+        );
+        let now = Utc::now().to_rfc3339();
+        let source_platform = req
+            .source_platform
+            .clone()
+            .unwrap_or_else(|| "claude".to_string())
+            .trim()
+            .to_lowercase();
+        let source_surface = req
+            .source_surface
+            .clone()
+            .unwrap_or_else(|| "claude-ios".to_string())
+            .trim()
+            .to_lowercase();
+        let principal = req
+            .principal
+            .clone()
+            .unwrap_or_else(|| "claude-ios".to_string())
+            .trim()
+            .to_string();
+        let summary = req
+            .summary
+            .clone()
+            .unwrap_or_else(|| "Reviewed failed write rescued into Beagle memory.".to_string());
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        let payload_kind = req
+            .payload_kind
+            .clone()
+            .unwrap_or_else(|| "sounio_insight".to_string());
+        let failed_write_id = req.failed_write_id.clone().unwrap_or_else(|| {
+            stable_id(
+                "failed-write",
+                &[&source_platform, &source_surface, &principal, &summary, &now],
+            )
+        });
+        let mut item = FailedWriteInboxItem {
+            id: failed_write_id.clone(),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            status: "rescue_pending".to_string(),
+            reason: req
+                .reason
+                .clone()
+                .unwrap_or_else(|| "claude_ios_failed_write_rescue".to_string()),
+            source_platform: source_platform.clone(),
+            source_surface: source_surface.clone(),
+            principal: principal.clone(),
+            summary: summary.clone(),
+            privacy_class: privacy_class.clone(),
+            payload_kind: payload_kind.clone(),
+            retry_eligible: privacy_class != "restricted",
+            artifact_refs: req.artifact_refs.clone(),
+            candidate_refs: req.candidate_refs.clone(),
+            metadata: req.metadata.clone(),
+            rescue_memory_event_id: None,
+            rescue_audit_event_id: None,
+        };
+
+        if privacy_class == "restricted" {
+            item.status = "blocked_restricted".to_string();
+            item.retry_eligible = false;
+            self.append_jsonl(FAILED_WRITES_LOG, &item)?;
+            return Ok(FailedWriteRescueResponse {
+                item,
+                assisted_import: None,
+            });
+        }
+
+        let mut turns = req.turns;
+        if turns.is_empty() {
+            turns.push(AssistedImportTurn {
+                role: "assistant".to_string(),
+                content: summary.clone(),
+                timestamp: Some(now.clone()),
+                model: Some("failed-write-rescue".to_string()),
+            });
+        }
+        let mut tags = req.tags;
+        merge_unique(
+            &mut tags,
+            vec![
+                "failed-write-rescue".to_string(),
+                "claude-ios".to_string(),
+                "sounio".to_string(),
+                "claim-seed".to_string(),
+                payload_kind.clone(),
+            ],
+            32,
+        );
+        let mut metadata = ensure_object(req.metadata);
+        metadata.insert(
+            "failed_write_id".to_string(),
+            serde_json::Value::String(failed_write_id.clone()),
+        );
+        metadata.insert(
+            "failed_write_reason".to_string(),
+            serde_json::Value::String(item.reason.clone()),
+        );
+        metadata.insert(
+            "principal".to_string(),
+            serde_json::Value::String(principal.clone()),
+        );
+        metadata.insert(
+            "surface_claimed".to_string(),
+            serde_json::Value::String(source_surface.clone()),
+        );
+        metadata.insert(
+            "surface_observed".to_string(),
+            serde_json::Value::String("anthropic-cloud".to_string()),
+        );
+        metadata.insert(
+            "rescue_reviewed".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        metadata.insert(
+            "candidate_refs".to_string(),
+            serde_json::json!(item.candidate_refs.clone()),
+        );
+
+        let import = self.assisted_import_batch(AssistedImportBatchRequest {
+            source_platform: source_platform.clone(),
+            source_surface: source_surface.clone(),
+            import_scope: "failed_write_rescue".to_string(),
+            session_id: req
+                .session_id
+                .unwrap_or_else(|| format!("failed-write-rescue-{}", Uuid::new_v4())),
+            project_ref: req.project_ref.or_else(|| Some("sounio".to_string())),
+            batch_index: 1,
+            batch_total: 1,
+            turns,
+            tags,
+            metadata: serde_json::Value::Object(metadata),
+            coverage: serde_json::json!({
+                "review": "human_requested_rescue",
+                "raw_artifact_policy": "private_cluster_only",
+                "claims_start_as": "belief_or_contest"
+            }),
+            extracted: None,
+            privacy_class: Some(privacy_class.clone()),
+            title: Some(format!("Failed-write rescue: {summary}")),
+            original_date: Some(now),
+            confidence_score: Some(0.74),
+            create_chronoself_commit: Some(false),
+            capture_session_id: None,
+            artifact_refs: item.artifact_refs.clone(),
+            transcription_segments: Vec::new(),
+            visual_evidence_refs: Vec::new(),
+        })?;
+        item.status = if import.status == "imported" {
+            "rescued".to_string()
+        } else {
+            format!("rescue_{}", import.status)
+        };
+        item.updated_at = Utc::now().to_rfc3339();
+        item.rescue_memory_event_id = import.memory_event.as_ref().map(|event| event.id.clone());
+        item.rescue_audit_event_id = import.audit_event.as_ref().map(|event| event.id.clone());
+        self.append_jsonl(FAILED_WRITES_LOG, &item)?;
+        Ok(FailedWriteRescueResponse {
+            item,
+            assisted_import: Some(import),
+        })
+    }
+
     fn assisted_import_batch(
         &self,
         req: AssistedImportBatchRequest,
@@ -2446,6 +5502,10 @@ impl ExocortexRepository {
             .and_then(|value| value.as_str())
             .unwrap_or("cluster-core")
             .to_string();
+        let capture_session_id = req.capture_session_id.clone();
+        let artifact_refs = req.artifact_refs.clone();
+        let transcription_segments = req.transcription_segments.clone();
+        let visual_evidence_refs = req.visual_evidence_refs.clone();
 
         if privacy_class == "restricted" {
             let audit = self.create_audit_event(CreateAuditEventRequest {
@@ -2490,6 +5550,7 @@ impl ExocortexRepository {
                 projection: None,
                 memory_event: None,
                 audit_event: Some(audit),
+                sounio_moment: None,
             });
         }
 
@@ -2507,6 +5568,12 @@ impl ExocortexRepository {
             ],
             32,
         );
+        if capture_session_id.is_some() && !tags.iter().any(|tag| tag == "capture-session") {
+            tags.push("capture-session".to_string());
+        }
+        if !visual_evidence_refs.is_empty() && !tags.iter().any(|tag| tag == "visual-evidence") {
+            tags.push("visual-evidence".to_string());
+        }
         if let Some(project) = req
             .project_ref
             .as_deref()
@@ -2556,6 +5623,30 @@ impl ExocortexRepository {
             "explicit_import_only".to_string(),
             serde_json::Value::Bool(true),
         );
+        if let Some(capture_session_id) = capture_session_id.clone() {
+            metadata.insert(
+                "capture_session_id".to_string(),
+                serde_json::Value::String(capture_session_id),
+            );
+        }
+        if !artifact_refs.is_empty() {
+            metadata.insert(
+                "artifact_refs".to_string(),
+                serde_json::json!(artifact_refs.clone()),
+            );
+        }
+        if !transcription_segments.is_empty() {
+            metadata.insert(
+                "transcription_segments".to_string(),
+                serde_json::json!(transcription_segments.clone()),
+            );
+        }
+        if !visual_evidence_refs.is_empty() {
+            metadata.insert(
+                "visual_evidence_refs".to_string(),
+                serde_json::json!(visual_evidence_refs.clone()),
+            );
+        }
         metadata.insert(
             "privacy_class".to_string(),
             serde_json::Value::String(privacy_class.clone()),
@@ -2591,10 +5682,23 @@ impl ExocortexRepository {
             privacy_class: Some(privacy_class.clone()),
             metadata: Some(serde_json::Value::Object(metadata.clone())),
         })?;
-        let source_refs = vec![
+        let mut source_refs = vec![
             format!("omnimemory:{}", imported.id),
             imported.raw_content_ref.clone(),
         ];
+        if let Some(capture_session_id) = capture_session_id.clone() {
+            source_refs.push(format!("capture_session:{capture_session_id}"));
+        }
+        source_refs.extend(
+            artifact_refs
+                .iter()
+                .map(|value| format!("artifact:{value}")),
+        );
+        source_refs.extend(
+            visual_evidence_refs
+                .iter()
+                .map(|value| format!("visual_evidence:{value}")),
+        );
         let projection = match self
             .read_recent_jsonl::<MemoryProjectionRun>(MEMORY_PROJECTION_RUNS_LOG, 1)?
             .into_iter()
@@ -2610,6 +5714,7 @@ impl ExocortexRepository {
             "Assisted import batch {}/{} from {} via {}",
             req.batch_index, req.batch_total, source_platform, source_surface
         );
+        let req_project_ref = req.project_ref.clone();
         let memory_event = self.create_memory_event(CreateMemoryEventRequest {
             source: Some(source_surface.clone()),
             kind: Some("assisted_import_batch".to_string()),
@@ -2624,10 +5729,14 @@ impl ExocortexRepository {
                 "principal": principal,
                 "import_scope": import_scope,
                 "session_id": req.session_id,
-                "project_ref": req.project_ref,
+                "project_ref": req_project_ref,
                 "batch_index": req.batch_index,
                 "batch_total": req.batch_total,
                 "privacy_class": privacy_class,
+                "capture_session_id": capture_session_id,
+                "artifact_refs": artifact_refs,
+                "transcription_segments": transcription_segments,
+                "visual_evidence_refs": visual_evidence_refs,
                 "coverage": req.coverage,
                 "omnimemory_source_refs": source_refs,
                 "projection": projection,
@@ -2657,11 +5766,101 @@ impl ExocortexRepository {
                 "batch_index": req.batch_index,
                 "batch_total": req.batch_total,
                 "privacy_class": privacy_class,
+                "capture_session_id": capture_session_id,
+                "artifact_refs": artifact_refs,
+                "visual_evidence_refs": visual_evidence_refs,
                 "tool_manifest_hash": tool_manifest_hash,
                 "memory_event_id": memory_event.id,
                 "projection_run_id": projection.id,
             })),
         })?;
+        let project_slug = req
+            .project_ref
+            .clone()
+            .or_else(|| imported.extracted.projects_mentioned.first().cloned())
+            .unwrap_or_else(|| "sounio".to_string());
+        let moment_evidence_refs = vec![
+            format!("omnimemory:{}", imported.id),
+            format!("memory_event:{}", memory_event.id),
+            format!("memory_projection_run:{}", projection.id),
+        ];
+        let claim_seeds = imported
+            .extracted
+            .hypotheses
+            .iter()
+            .take(5)
+            .map(|hypothesis| SounioClaimInput {
+                id: None,
+                claim_text: hypothesis.clone(),
+                subject: Some(project_slug.clone()),
+                value_type: Some("Claim<T>".to_string()),
+                epistemic_status: Some("belief".to_string()),
+                evidence_refs: moment_evidence_refs.clone(),
+                provenance: serde_json::json!({
+                    "source": "assisted_import",
+                    "omnimemory_id": imported.id,
+                    "memory_event_id": memory_event.id,
+                    "projection_run_id": projection.id,
+                    "source_platform": source_platform,
+                    "source_surface": source_surface
+                }),
+                confidence: Some(imported.confidence_score.min(0.72)),
+                contestation: serde_json::Value::Null,
+                review_state: Some("unreviewed".to_string()),
+                promotion_rule: None,
+                publication_readiness: Some("not_ready".to_string()),
+                section_id: None,
+                agent_refs: vec![principal.clone()],
+                contract_refs: Vec::new(),
+                artifact_refs: Vec::new(),
+                chronoself_commit_refs: imported.linked_chronoself_commits.clone(),
+                privacy_class: Some(privacy_class.clone()),
+                rationale: Some(
+                    "Ambient Sounio typing creates conservative claim seeds from imported hypotheses."
+                        .to_string(),
+                ),
+            })
+            .collect::<Vec<_>>();
+        let sounio_moment = self
+            .type_sounio_moment(SounioMomentTypeRequest {
+                source_event_refs: moment_evidence_refs.clone(),
+                source_platform: Some(source_platform.clone()),
+                source_surface: Some(source_surface.clone()),
+                project_slug: Some(project_slug),
+                session_id: imported.session_id.clone(),
+                intent_text: imported
+                    .extracted
+                    .key_insights
+                    .first()
+                    .cloned()
+                    .or_else(|| imported.title.clone()),
+                summary: Some(format!(
+                    "Ambient Sounio moment from {} via {}: {}",
+                    source_platform,
+                    source_surface,
+                    imported
+                        .extracted
+                        .key_insights
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| truncate_chars(&imported.raw_content_ref, 80))
+                )),
+                evidence_refs: moment_evidence_refs,
+                claim_seeds,
+                decision_seeds: imported.extracted.decisions.clone(),
+                next_action: imported.extracted.unresolved_questions.first().cloned(),
+                privacy_class: Some(privacy_class.clone()),
+                review_state: Some("unreviewed".to_string()),
+                provenance: serde_json::json!({
+                    "principal": principal,
+                    "surface_claimed": source_surface,
+                    "surface_observed": surface_observed,
+                    "tool_manifest_hash": tool_manifest_hash,
+                    "assisted_import_batch": true
+                }),
+                tags: tags.clone(),
+            })
+            .ok();
 
         Ok(AssistedImportBatchResponse {
             status: "imported".to_string(),
@@ -2676,6 +5875,7 @@ impl ExocortexRepository {
             projection: Some(projection),
             memory_event: Some(memory_event),
             audit_event: Some(audit),
+            sounio_moment,
         })
     }
 
@@ -3531,12 +6731,1079 @@ impl ExocortexRepository {
         })
     }
 
+    fn create_spatial_world(&self, req: CreateSpatialWorldRequest) -> anyhow::Result<SpatialWorld> {
+        self.ensure()?;
+        let project_slug = req
+            .project_slug
+            .as_deref()
+            .map(normalize_project_slug)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "sounio".to_string());
+        let sanitized_prompt = req
+            .sanitized_prompt
+            .clone()
+            .or(req.prompt_summary.clone())
+            .unwrap_or_else(|| "Sounio Control Room spatial world".to_string());
+        ensure_spatial_prompt_is_safe(&sanitized_prompt)?;
+        anyhow::ensure!(
+            req.approved.unwrap_or(false),
+            "Marble world generation requires explicit approved=true metadata"
+        );
+        let model = normalize_marble_model(req.model.as_deref());
+        let permission = normalize_marble_permission(req.permission.as_deref());
+        anyhow::ensure!(
+            permission != "public",
+            "spatial worlds default to private/non-public Marble permissions"
+        );
+        let now = Utc::now().to_rfc3339();
+        let prompt_hash = format!("sha256:{}", content_hash(sanitized_prompt.as_bytes()));
+        let purpose = req
+            .purpose
+            .as_deref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("control-room");
+        let world_id = req.world_id.clone().unwrap_or_else(|| {
+            stable_id(
+                "spatial-world",
+                &[&project_slug, purpose, &prompt_hash, &model],
+            )
+        });
+        let assets = req.assets.unwrap_or_else(default_spatial_assets);
+        let display_name = req
+            .display_name
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| format!("{} Spatial Control Room", project_slug));
+        let tags = dedupe_strings(
+            req.tags
+                .into_iter()
+                .chain([
+                    "spatial-control-room".to_string(),
+                    "marble".to_string(),
+                    format!("project:{}", project_slug),
+                    "sounio-spatial-evidence".to_string(),
+                ])
+                .collect(),
+            32,
+        );
+        let mut provenance = req.provenance.as_object().cloned().unwrap_or_default();
+        provenance.insert(
+            "schema_version".to_string(),
+            serde_json::Value::String(SPATIAL_SCHEMA.to_string()),
+        );
+        provenance.insert(
+            "canonical_truth".to_string(),
+            serde_json::Value::String("JSONL/Merkle/Chronoself remains authoritative".to_string()),
+        );
+        provenance.insert(
+            "derived_artifact".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        provenance.insert(
+            "sanitized_prompt_only".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        let world = SpatialWorld {
+            id: stable_id("spatial", &[&world_id, &prompt_hash]),
+            created_at: now.clone(),
+            updated_at: now,
+            schema_version: SPATIAL_SCHEMA.to_string(),
+            project_slug: project_slug.clone(),
+            world_id: world_id.clone(),
+            operation_id: req.operation_id,
+            display_name,
+            status: req.status.unwrap_or_else(|| "requested".to_string()),
+            world_marble_url: req.world_marble_url,
+            assets,
+            model,
+            permission,
+            prompt_hash,
+            prompt_summary: truncate_chars(&sanitized_prompt, 280),
+            privacy_policy:
+                "cluster-private derived artifact; private memory and raw logs are never sent to Marble"
+                    .to_string(),
+            tags,
+            provenance: serde_json::Value::Object(provenance),
+        };
+        self.append_jsonl(SPATIAL_WORLDS_LOG, &world)?;
+        let memory_world = self.spatial_memory_world(&world)?;
+        self.append_jsonl(MEMORY_WORLDS_LOG, &memory_world)?;
+        let event = MemoryEvent {
+            id: Uuid::new_v4().to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            source: "spatial-control-room".to_string(),
+            kind: "spatial_world".to_string(),
+            content_ref: Some(format!("spatial_world:{}", world.world_id)),
+            summary: format!(
+                "Registered {} Marble spatial world for {}.",
+                world.model, world.project_slug
+            ),
+            tags: world.tags.clone(),
+            metadata: serde_json::json!({
+                "world_id": world.world_id,
+                "operation_id": world.operation_id,
+                "prompt_hash": world.prompt_hash,
+                "permission": world.permission,
+                "privacy_policy": world.privacy_policy,
+                "memory_world_id": memory_world.id
+            }),
+            linked_chronoself_commits: Vec::new(),
+            confidence: 0.82,
+        };
+        self.append_jsonl(MEMORY_EVENTS_LOG, &event)?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some("beagle-spatial-api".to_string()),
+            action: Some("spatial.world.register".to_string()),
+            tool_name: None,
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: Vec::new(),
+            status: Some("success".to_string()),
+            source: Some("beagle-core".to_string()),
+            target_ref: Some(format!("spatial_world:{}", world.world_id)),
+            summary: Some("Registered Marble spatial world metadata.".to_string()),
+            metadata: Some(serde_json::json!({
+                "model": world.model,
+                "permission": world.permission,
+                "prompt_hash": world.prompt_hash,
+                "sanitized_prompt_only": true
+            })),
+        })?;
+        Ok(world)
+    }
+
+    fn spatial_world(&self, world_id: &str) -> anyhow::Result<Option<SpatialWorld>> {
+        Ok(self
+            .read_recent_jsonl::<SpatialWorld>(SPATIAL_WORLDS_LOG, usize::MAX)?
+            .into_iter()
+            .find(|world| world.world_id == world_id || world.id == world_id))
+    }
+
+    fn control_room_snapshot(&self, slug: &str) -> anyhow::Result<ControlRoomSnapshot> {
+        self.ensure()?;
+        let project_slug = normalize_project_slug(slug);
+        let spatial_world = self
+            .read_recent_jsonl::<SpatialWorld>(SPATIAL_WORLDS_LOG, usize::MAX)?
+            .into_iter()
+            .find(|world| world.project_slug == project_slug && world.permission != "public");
+        let memory_worlds = self
+            .read_recent_jsonl::<MemoryWorld>(MEMORY_WORLDS_LOG, 24)?
+            .into_iter()
+            .filter(|world| {
+                world.tags.iter().any(|tag| tag == &format!("project:{}", project_slug))
+                    || world.provenance["project_slug"].as_str() == Some(project_slug.as_str())
+            })
+            .take(8)
+            .collect::<Vec<_>>();
+        let evidence_refs = self
+            .read_recent_jsonl::<SounioSpatialEvidence>(SPATIAL_EVIDENCE_LOG, 24)?
+            .into_iter()
+            .filter(|evidence| evidence.project_slug == project_slug && evidence.privacy_class != "restricted")
+            .map(|evidence| evidence.id)
+            .take(8)
+            .collect::<Vec<_>>();
+        let agent_lanes = vec![
+            "Builder: Claude/Codex".to_string(),
+            "Code Worker: MiniMax/Qwen".to_string(),
+            "Long Thought: Kimi".to_string(),
+            "Platform Operator: GLM".to_string(),
+            "Shell".to_string(),
+        ];
+        Ok(ControlRoomSnapshot {
+            id: stable_id("control-room", &[&project_slug, SPATIAL_SCHEMA]),
+            generated_at: Utc::now().to_rfc3339(),
+            schema_version: SPATIAL_SCHEMA.to_string(),
+            project_slug: project_slug.clone(),
+            spatial_world,
+            memory_worlds,
+            agent_lanes,
+            pods_wall: vec![
+                "beagle-core".to_string(),
+                "beagle-mcp-server".to_string(),
+                "beagle-workspace-agent".to_string(),
+                "world-console".to_string(),
+            ],
+            incident_corridor: vec!["recent audit events".to_string(), "failed-write rescue".to_string()],
+            compiler_map: vec![
+                "Sounio IR".to_string(),
+                "Claim<T>".to_string(),
+                "Temporal PaperRun".to_string(),
+            ],
+            evidence_refs,
+            provenance: serde_json::json!({
+                "source": "beagle-core-spatial",
+                "schema_version": SPATIAL_SCHEMA,
+                "canonical_store": "/var/lib/beagle/exocortex",
+                "surface": "visionOS"
+            }),
+        })
+    }
+
+    fn create_spatial_evidence(
+        &self,
+        world_id: &str,
+        req: CreateSounioSpatialEvidenceRequest,
+    ) -> anyhow::Result<SounioSpatialEvidence> {
+        self.ensure()?;
+        let world = self
+            .spatial_world(world_id)?
+            .ok_or_else(|| anyhow::anyhow!("spatial world not found: {}", world_id))?;
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        anyhow::ensure!(
+            privacy_class != "restricted",
+            "restricted spatial evidence requires explicit local review before cluster write"
+        );
+        let epistemic_status = normalize_epistemic_status(req.epistemic_status.as_deref());
+        anyhow::ensure!(
+            epistemic_status == "belief" || epistemic_status == "contest",
+            "spatial worlds can seed belief/contest claims only"
+        );
+        let now = Utc::now().to_rfc3339();
+        let evidence = SounioSpatialEvidence {
+            id: stable_id(
+                "spatial-evidence",
+                &[&world.world_id, &req.project_slug, &now],
+            ),
+            created_at: now,
+            schema_version: SPATIAL_SCHEMA.to_string(),
+            world_id: world.world_id.clone(),
+            project_slug: normalize_project_slug(&req.project_slug),
+            evidence_type: req
+                .evidence_type
+                .unwrap_or_else(|| "spatial_memory_world".to_string()),
+            claim_seed_refs: dedupe_strings(req.claim_seed_refs, 32),
+            memory_world_refs: dedupe_strings(req.memory_world_refs, 32),
+            artifact_refs: dedupe_strings(req.artifact_refs, 32),
+            epistemic_status,
+            privacy_class,
+            provenance: serde_json::json!({
+                "world_id": world.world_id,
+                "spatial_world_ref": world.id,
+                "input": req.provenance,
+                "claim_policy": "belief_or_contest_only",
+                "restricted_leak_check": "passed:no_restricted_spatial_evidence"
+            }),
+        };
+        self.append_jsonl(SPATIAL_EVIDENCE_LOG, &evidence)?;
+        let event = MemoryEvent {
+            id: Uuid::new_v4().to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            source: "sounio-spatial-evidence".to_string(),
+            kind: "spatial_evidence".to_string(),
+            content_ref: Some(evidence.id.clone()),
+            summary: format!(
+                "Linked spatial world {} as Sounio {} evidence.",
+                evidence.world_id, evidence.epistemic_status
+            ),
+            tags: vec![
+                "spatial-evidence".to_string(),
+                "sounio".to_string(),
+                format!("project:{}", evidence.project_slug),
+            ],
+            metadata: serde_json::json!({
+                "world_id": evidence.world_id,
+                "epistemic_status": evidence.epistemic_status,
+                "claim_seed_refs": evidence.claim_seed_refs,
+                "memory_world_refs": evidence.memory_world_refs
+            }),
+            linked_chronoself_commits: Vec::new(),
+            confidence: 0.78,
+        };
+        self.append_jsonl(MEMORY_EVENTS_LOG, &event)?;
+        Ok(evidence)
+    }
+
+    fn spatial_memory_world(&self, world: &SpatialWorld) -> anyhow::Result<MemoryWorld> {
+        let material = vec![
+            world.world_id.clone(),
+            world.prompt_hash.clone(),
+            serde_json::to_string(&world.assets)?,
+        ];
+        Ok(MemoryWorld {
+            id: stable_id("world", &[&world.world_id, &world.prompt_hash]),
+            created_at: Utc::now().to_rfc3339(),
+            world_type: "spatial-control-room".to_string(),
+            source_ref: format!("spatial_world:{}", world.world_id),
+            title: Some(world.display_name.clone()),
+            merkle_root: merkle_hash(&material),
+            valid_from: Some(world.created_at.clone()),
+            valid_until: None,
+            node_count: 6,
+            edge_count: 8,
+            runtime_hint: "visionOS+Marble".to_string(),
+            tags: world.tags.clone(),
+            provenance: serde_json::json!({
+                "source": "SpatialWorld",
+                "schema_version": SPATIAL_SCHEMA,
+                "project_slug": world.project_slug,
+                "world_id": world.world_id,
+                "content_addressed": true,
+                "derived_artifact": true,
+                "canonical_store": "/var/lib/beagle/exocortex"
+            }),
+        })
+    }
+
+    fn mind_palace_snapshot(&self) -> anyhow::Result<MindPalaceSnapshot> {
+        self.ensure()?;
+        let rooms = self.derive_mind_palace_rooms()?;
+        let focus_coach = self.focus_coach_status()?;
+        let portals = self.conversation_portals_recent(8)?;
+        let desk = self.spatial_desk_snapshot(&rooms, portals, &focus_coach)?;
+        let next_best_place = self.next_best_place_decision(&rooms, &focus_coach)?;
+        let action_menu = self.spatial_action_menu(&rooms, &next_best_place, &focus_coach)?;
+        Ok(MindPalaceSnapshot {
+            id: stable_id("mind-palace", &[MIND_PALACE_SCHEMA, "memory-derived"]),
+            generated_at: Utc::now().to_rfc3339(),
+            schema_version: MIND_PALACE_SCHEMA.to_string(),
+            rooms,
+            desk,
+            next_best_place,
+            action_menu,
+            focus_coach,
+            provenance: serde_json::json!({
+                "source": "cluster-jsonl-derived",
+                "canonical_store": "/var/lib/beagle/exocortex",
+                "surface": "ipad+visionos",
+                "policy": "Mission Control + Spatial Desk + Portal Promote",
+                "sounio_is_one_room_not_the_whole_palace": true
+            }),
+        })
+    }
+
+    fn derive_mind_palace_rooms(&self) -> anyhow::Result<Vec<MindPalaceRoom>> {
+        let memory_events = self.read_recent_jsonl::<MemoryEvent>(MEMORY_EVENTS_LOG, 96)?;
+        let imports = self.read_recent_jsonl::<OmniConversation>(OMNIMEMORY_LOG, 96)?;
+        let moments = self.read_recent_jsonl::<SounioMoment>(SOUNIO_MOMENTS_LOG, 48)?;
+        let worlds = self.read_recent_jsonl::<SpatialWorld>(SPATIAL_WORLDS_LOG, 24)?;
+        let paper_runs = self.read_recent_jsonl::<PaperRun>(SOUNIO_PAPERRUNS_LOG, 12)?;
+        let portals = self.conversation_portals_recent(24)?;
+        let mut rooms: BTreeMap<String, MindPalaceRoom> = BTreeMap::new();
+
+        for event in memory_events.iter().filter(|event| {
+            metadata_string(&event.metadata, "privacy_class").as_deref() != Some("restricted")
+        }) {
+            for tag in event.tags.iter().filter_map(|tag| tag.strip_prefix("project:")) {
+                let slug = normalize_project_slug(tag);
+                upsert_mind_palace_room(
+                    &mut rooms,
+                    mind_palace_project_room(
+                        &slug,
+                        "memory-events",
+                        Some(format!("memory_event:{}", event.id)),
+                        if event.source.contains("work") || event.kind.contains("import") {
+                            0.86
+                        } else {
+                            0.68
+                        },
+                    ),
+                );
+            }
+            if event.source.contains("codex")
+                || event.source.contains("claude")
+                || event.source.contains("workbench")
+                || event.tags.iter().any(|tag| tag.contains("agent:"))
+            {
+                upsert_mind_palace_room(
+                    &mut rooms,
+                    mind_palace_room(
+                        "parallel-work",
+                        "Parallel Workbench",
+                        "workspace",
+                        "active",
+                        None,
+                        "agent work memory",
+                        "Many agents can make progress while conversation continues elsewhere.",
+                        "Open the Workbench drawer and inspect the latest remembered block.",
+                        0.91,
+                        Some(format!("memory_event:{}", event.id)),
+                        vec!["workbench".to_string(), "agents".to_string()],
+                    ),
+                );
+            }
+        }
+
+        for import in imports
+            .iter()
+            .filter(|import| import.privacy_class != "restricted")
+        {
+            for project in &import.extracted.projects_mentioned {
+                let slug = normalize_project_slug(project);
+                upsert_mind_palace_room(
+                    &mut rooms,
+                    mind_palace_project_room(
+                        &slug,
+                        &format!("{} import", import.source_platform),
+                        Some(format!("omnimemory:{}", import.id)),
+                        0.74,
+                    ),
+                );
+            }
+            if import.tags.iter().any(|tag| {
+                tag.contains("claude") || tag.contains("chatgpt") || tag.contains("grok")
+            }) {
+                upsert_mind_palace_room(
+                    &mut rooms,
+                    mind_palace_room(
+                        "free-thought",
+                        "Free Thought",
+                        "conversation",
+                        "open",
+                        None,
+                        "conversation imports",
+                        "Not every useful thought belongs to a project immediately.",
+                        "Keep the thread available, then promote only the useful clips.",
+                        0.73,
+                        Some(format!("omnimemory:{}", import.id)),
+                        vec!["free_thought".to_string(), "conversation".to_string()],
+                    ),
+                );
+            }
+        }
+
+        for moment in moments.iter().filter(|moment| moment.privacy_class != "restricted") {
+            let slug = normalize_project_slug(&moment.project_slug);
+            upsert_mind_palace_room(
+                &mut rooms,
+                mind_palace_project_room(
+                    &slug,
+                    "Sounio moments",
+                    Some(format!("sounio_moment:{}", moment.id)),
+                    0.88,
+                ),
+            );
+        }
+
+        for world in worlds.iter().filter(|world| world.permission != "public") {
+            upsert_mind_palace_room(
+                &mut rooms,
+                mind_palace_room(
+                    "spatial-forge",
+                    "Spatial Forge",
+                    "spatial",
+                    &world.status,
+                    Some(world.project_slug.clone()),
+                    "spatial worlds",
+                    "Worlds are powerful evidence surfaces, but they are still derived artifacts.",
+                    "Review generated assets and link only sanitized spatial evidence.",
+                    0.79,
+                    Some(format!("spatial_world:{}", world.world_id)),
+                    vec![
+                        "spatial".to_string(),
+                        "world-console".to_string(),
+                        format!("project:{}", world.project_slug),
+                    ],
+                ),
+            );
+        }
+
+        for run in paper_runs {
+            upsert_mind_palace_room(
+                &mut rooms,
+                mind_palace_room(
+                    "paper-theatre",
+                    "Paper Theatre",
+                    "paper",
+                    run.status.as_str(),
+                    Some("beagle".to_string()),
+                    "PaperRun",
+                    "The paper should be a living trace of the system, not a detached artifact.",
+                    run.pending_approval_step
+                        .as_deref()
+                        .or(run.current_stage.as_deref())
+                        .unwrap_or("Open PaperRun Theatre and review unsupported claims."),
+                    0.7,
+                    Some(format!("paperrun:{}", run.id)),
+                    vec!["paperrun".to_string(), "sounio".to_string()],
+                ),
+            );
+        }
+
+        if !portals.is_empty() {
+            upsert_mind_palace_room(
+                &mut rooms,
+                mind_palace_room(
+                    "conversation-portals",
+                    "Conversation Portals",
+                    "portal",
+                    "available",
+                    None,
+                    "Claude/GPT desktop portals",
+                    "Portals are reference windows until you explicitly promote a clip.",
+                    "Promote only the useful selected idea, not the whole external conversation.",
+                    0.84,
+                    portals.first().map(|portal| format!("portal:{}", portal.id)),
+                    vec!["portal".to_string(), "promote".to_string()],
+                ),
+            );
+        }
+
+        if rooms.is_empty() {
+            upsert_mind_palace_room(
+                &mut rooms,
+                mind_palace_room(
+                    "free-thought",
+                    "Free Thought",
+                    "conversation",
+                    "seed",
+                    None,
+                    "declared seed",
+                    "The palace starts open until live memory supplies stronger rooms.",
+                    "Capture or promote the next useful thought.",
+                    0.62,
+                    None,
+                    vec!["free_thought".to_string()],
+                ),
+            );
+            upsert_mind_palace_room(
+                &mut rooms,
+                mind_palace_project_room("beagle", "declared seed", None, 0.6),
+            );
+        }
+
+        let mut out = rooms.into_values().collect::<Vec<_>>();
+        out.sort_by(|a, b| {
+            b.priority
+                .partial_cmp(&a.priority)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.title.cmp(&b.title))
+        });
+        out.truncate(12);
+        Ok(out)
+    }
+
+    fn spatial_desk_snapshot(
+        &self,
+        rooms: &[MindPalaceRoom],
+        portals: Vec<ConversationPortal>,
+        focus: &FocusCoachState,
+    ) -> anyhow::Result<SpatialDeskSnapshot> {
+        let mut items = Vec::new();
+        for room in rooms.iter().take(6) {
+            items.push(DeskItem {
+                id: stable_id("desk-item", &[&room.id, &room.state]),
+                kind: room.room_type.clone(),
+                title: room.title.clone(),
+                detail: room.tension.clone(),
+                state: room.state.clone(),
+                priority: room.priority,
+                room_id: Some(room.id.clone()),
+                source_ref: room.evidence_refs.first().cloned(),
+                actions: vec![
+                    "open".to_string(),
+                    "prove".to_string(),
+                    "promote".to_string(),
+                ],
+                provenance: serde_json::json!({
+                    "source": "mind_palace_room",
+                    "truth_mode": room.truth_mode
+                }),
+            });
+        }
+        for portal in portals.iter().take(4) {
+            items.push(DeskItem {
+                id: stable_id("desk-portal", &[&portal.id, &portal.updated_at]),
+                kind: "conversation_portal".to_string(),
+                title: portal.title.clone(),
+                detail: format!(
+                    "{} portal via {}; promote explicit clips only.",
+                    portal.provider, portal.source_mode
+                ),
+                state: portal.status.clone(),
+                priority: 0.78,
+                room_id: Some("conversation-portals".to_string()),
+                source_ref: Some(format!("conversation_portal:{}", portal.id)),
+                actions: vec!["open_portal".to_string(), "promote_clip".to_string()],
+                provenance: serde_json::json!({
+                    "provider": portal.provider,
+                    "privacy_class": portal.privacy_class,
+                    "no_scraping": true
+                }),
+            });
+        }
+        Ok(SpatialDeskSnapshot {
+            id: stable_id("spatial-desk", &[MIND_PALACE_SCHEMA, "mission-control"]),
+            generated_at: Utc::now().to_rfc3339(),
+            schema_version: MIND_PALACE_SCHEMA.to_string(),
+            active_items: items,
+            pinned_room_ids: rooms.iter().take(4).map(|room| room.id.clone()).collect(),
+            portals,
+            agent_lanes: spatial_desk_agent_lanes(),
+            focus_strip: focus
+                .interventions
+                .iter()
+                .take(3)
+                .map(|intervention| intervention.title.clone())
+                .collect(),
+            proof_panels: vec![
+                "Memory provenance".to_string(),
+                "Portal promotions".to_string(),
+                "Spatial artifact policy".to_string(),
+            ],
+            provenance: serde_json::json!({
+                "source": "beagle-core",
+                "layout": "Spatial Desk",
+                "entry": "Command First",
+                "cluster_only": true
+            }),
+        })
+    }
+
+    fn next_best_place_decision(
+        &self,
+        rooms: &[MindPalaceRoom],
+        focus: &FocusCoachState,
+    ) -> anyhow::Result<NextBestPlaceDecision> {
+        let selected = rooms
+            .iter()
+            .find(|room| room.id == "parallel-work" || room.state == "active")
+            .or_else(|| rooms.first())
+            .cloned()
+            .unwrap_or_else(|| {
+                mind_palace_room(
+                    "free-thought",
+                    "Free Thought",
+                    "conversation",
+                    "seed",
+                    None,
+                    "fallback",
+                    "No live room has enough evidence yet.",
+                    "Capture the next useful thought.",
+                    0.5,
+                    None,
+                    vec!["free_thought".to_string()],
+                )
+            });
+        Ok(NextBestPlaceDecision {
+            id: stable_id("next-best-place", &[&selected.id, &selected.state]),
+            generated_at: Utc::now().to_rfc3339(),
+            room_id: selected.id.clone(),
+            title: selected.title.clone(),
+            reason: format!(
+                "{} Continuity says this room is live; readiness says {}.",
+                selected.next_action, focus.mode
+            ),
+            source_mode: "continuity+readiness".to_string(),
+            confidence: (selected.priority * 0.92).clamp(0.0, 0.96),
+            candidate_room_ids: rooms.iter().take(5).map(|room| room.id.clone()).collect(),
+            readiness_context: serde_json::json!({
+                "focus_mode": focus.mode,
+                "hydration_due": focus.hydration_due,
+                "session_minutes": focus.session_minutes,
+                "can_override": focus.can_override
+            }),
+        })
+    }
+
+    fn spatial_action_menu(
+        &self,
+        rooms: &[MindPalaceRoom],
+        next: &NextBestPlaceDecision,
+        focus: &FocusCoachState,
+    ) -> anyhow::Result<SpatialActionMenu> {
+        let portal_enabled = rooms.iter().any(|room| room.id == "conversation-portals");
+        Ok(SpatialActionMenu {
+            id: stable_id("spatial-action-menu", &[MIND_PALACE_SCHEMA, &next.room_id]),
+            generated_at: Utc::now().to_rfc3339(),
+            mode: "parallel-spaces".to_string(),
+            actions: vec![
+                SpatialAction {
+                    id: "continue-place".to_string(),
+                    title: "Continue".to_string(),
+                    kind: "open_room".to_string(),
+                    target_ref: Some(next.room_id.clone()),
+                    reason: next.reason.clone(),
+                    enabled: true,
+                },
+                SpatialAction {
+                    id: "open-workbench".to_string(),
+                    title: "Open Workbench".to_string(),
+                    kind: "open_workbench".to_string(),
+                    target_ref: Some("workspace:sounio".to_string()),
+                    reason: "Keep coding agents visible while planning and chatting elsewhere."
+                        .to_string(),
+                    enabled: true,
+                },
+                SpatialAction {
+                    id: "reflect".to_string(),
+                    title: "Reflect".to_string(),
+                    kind: "open_memory_lens".to_string(),
+                    target_ref: None,
+                    reason: "Open Memory Lens / proof panels without stopping the workspace."
+                        .to_string(),
+                    enabled: true,
+                },
+                SpatialAction {
+                    id: "promote-portal".to_string(),
+                    title: "Promote Portal".to_string(),
+                    kind: "promote_conversation_clip".to_string(),
+                    target_ref: Some("conversation-portals".to_string()),
+                    reason: "Turn a selected Claude/GPT idea into memory explicitly.".to_string(),
+                    enabled: portal_enabled,
+                },
+                SpatialAction {
+                    id: "generate-space".to_string(),
+                    title: "Generate Space".to_string(),
+                    kind: "spatial_generation_draft".to_string(),
+                    target_ref: Some("spatial-forge".to_string()),
+                    reason:
+                        "Draft a sanitized spatial world or asset request before any paid generation."
+                            .to_string(),
+                    enabled: true,
+                },
+                SpatialAction {
+                    id: "focus-coach".to_string(),
+                    title: "Focus Coach".to_string(),
+                    kind: "focus_intervention".to_string(),
+                    target_ref: focus.interventions.first().map(|item| item.id.clone()),
+                    reason: "Calendar, hydration, breaks, and closure keep the exocortex humane."
+                        .to_string(),
+                    enabled: true,
+                },
+            ],
+        })
+    }
+
+    fn conversation_portals_recent(&self, limit: usize) -> anyhow::Result<Vec<ConversationPortal>> {
+        let mut seen = BTreeSet::new();
+        Ok(self
+            .read_recent_jsonl::<ConversationPortal>(CONVERSATION_PORTALS_LOG, limit.max(32))?
+            .into_iter()
+            .filter(|portal| portal.privacy_class != "restricted")
+            .filter(|portal| seen.insert(portal.id.clone()))
+            .take(limit)
+            .collect())
+    }
+
+    fn create_conversation_portal(
+        &self,
+        req: CreateConversationPortalRequest,
+    ) -> anyhow::Result<ConversationPortal> {
+        self.ensure()?;
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        anyhow::ensure!(
+            privacy_class != "restricted",
+            "restricted portals must stay local/review-only and cannot be written to cluster"
+        );
+        let title = truncate_chars(req.title.trim(), 120);
+        anyhow::ensure!(!title.is_empty(), "conversation portal title is required");
+        let provider = normalize_provider_label(&req.provider);
+        let surface = req
+            .surface
+            .as_deref()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "desktop-portal".to_string());
+        let now = Utc::now().to_rfc3339();
+        let portal = ConversationPortal {
+            id: stable_id("portal", &[&title, &provider, &surface, &now]),
+            created_at: now.clone(),
+            updated_at: now,
+            schema_version: CONVERSATION_PORTAL_SCHEMA.to_string(),
+            title,
+            provider,
+            surface,
+            status: req.status.unwrap_or_else(|| "reference_only".to_string()),
+            source_mode: req
+                .source_mode
+                .unwrap_or_else(|| "portal+promote".to_string()),
+            privacy_class,
+            source_ref: req.source_ref,
+            promoted_clip_refs: Vec::new(),
+            tags: dedupe_strings(
+                req.tags
+                    .into_iter()
+                    .chain(["conversation-portal".to_string(), "portal-promote".to_string()])
+                    .collect(),
+                32,
+            ),
+            provenance: merge_json_objects(
+                serde_json::json!({
+                    "schema_version": CONVERSATION_PORTAL_SCHEMA,
+                    "no_scraping": true,
+                    "promotion_required_for_memory": true
+                }),
+                req.provenance,
+            ),
+        };
+        self.append_jsonl(CONVERSATION_PORTALS_LOG, &portal)?;
+        Ok(portal)
+    }
+
+    fn promote_conversation_portal_clip(
+        &self,
+        portal_id: &str,
+        req: PromoteConversationPortalRequest,
+    ) -> anyhow::Result<PromotedConversationClip> {
+        self.ensure()?;
+        let mut portal = self
+            .read_recent_jsonl::<ConversationPortal>(CONVERSATION_PORTALS_LOG, usize::MAX)?
+            .into_iter()
+            .find(|portal| portal.id == portal_id)
+            .ok_or_else(|| anyhow::anyhow!("conversation portal not found: {portal_id}"))?;
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        anyhow::ensure!(
+            privacy_class != "restricted",
+            "restricted portal clips require local review and cannot be promoted automatically"
+        );
+        ensure_promoted_clip_is_safe(&req.selected_text)?;
+        let content_hash = format!("sha256:{}", content_hash(req.selected_text.as_bytes()));
+        let summary = req
+            .summary
+            .as_deref()
+            .map(|value| truncate_chars(value.trim(), 360))
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| truncate_chars(&req.selected_text, 240));
+        let project_ref = req
+            .project_ref
+            .as_deref()
+            .map(normalize_project_slug)
+            .filter(|value| !value.is_empty())
+            .or_else(|| Some("free_thought".to_string()));
+        let mut tags = dedupe_strings(
+            req.tags
+                .clone()
+                .into_iter()
+                .chain(portal.tags.clone())
+                .chain([
+                    "conversation-portal".to_string(),
+                    "promoted-clip".to_string(),
+                    format!("provider:{}", portal.provider),
+                    format!("privacy:{}", privacy_class),
+                ])
+                .collect(),
+            32,
+        );
+        if let Some(project) = &project_ref {
+            merge_unique(&mut tags, vec![format!("project:{}", project)], 32);
+        }
+        let import = self.assisted_import_batch(AssistedImportBatchRequest {
+            source_platform: portal.provider.clone(),
+            source_surface: portal.surface.clone(),
+            import_scope: "promoted_conversation_clip".to_string(),
+            session_id: format!("portal-{}", portal.id),
+            project_ref: project_ref.clone(),
+            batch_index: 1,
+            batch_total: 1,
+            turns: vec![AssistedImportTurn {
+                role: "user".to_string(),
+                content: req.selected_text.clone(),
+                timestamp: Some(Utc::now().to_rfc3339()),
+                model: None,
+            }],
+            tags: tags.clone(),
+            metadata: merge_json_objects(
+                serde_json::json!({
+                    "principal": "demetrios",
+                    "surface_observed": "portal+promote",
+                    "portal_id": portal.id,
+                    "content_hash": content_hash.clone(),
+                    "explicit_selection": true,
+                    "no_window_scraping": true
+                }),
+                req.provenance.clone(),
+            ),
+            coverage: serde_json::json!({
+                "portal_promote": true,
+                "selected_clip_only": true
+            }),
+            extracted: Some(OmniExtraction {
+                key_insights: vec![summary.clone()],
+                decisions: Vec::new(),
+                hypotheses: Vec::new(),
+                belief_changes: Vec::new(),
+                emotional_state: None,
+                identity_signals: None,
+                projects_mentioned: project_ref.clone().into_iter().collect(),
+                unresolved_questions: Vec::new(),
+            }),
+            privacy_class: Some(privacy_class.clone()),
+            title: Some(format!("Promoted {} portal clip", portal.provider)),
+            original_date: Some(Utc::now().to_rfc3339()),
+            confidence_score: Some(0.82),
+            create_chronoself_commit: Some(false),
+            capture_session_id: None,
+            artifact_refs: Vec::new(),
+            transcription_segments: Vec::new(),
+            visual_evidence_refs: Vec::new(),
+        })?;
+        let now = Utc::now().to_rfc3339();
+        let clip = PromotedConversationClip {
+            id: stable_id("portal-clip", &[&portal.id, &content_hash]),
+            created_at: now.clone(),
+            schema_version: CONVERSATION_PORTAL_SCHEMA.to_string(),
+            portal_id: portal.id.clone(),
+            content_hash,
+            summary,
+            project_ref,
+            privacy_class,
+            memory_event_id: import.memory_event.as_ref().map(|event| event.id.clone()),
+            sounio_moment_id: import.sounio_moment.as_ref().map(|moment| moment.id.clone()),
+            tags,
+            provenance: serde_json::json!({
+                "portal": portal,
+                "assisted_import_status": import.status,
+                "explicit_selection_only": true,
+                "restricted_leak_check": "passed:no_restricted_portal_clip"
+            }),
+        };
+        self.append_jsonl(PROMOTED_CONVERSATION_CLIPS_LOG, &clip)?;
+        portal.updated_at = now;
+        portal.status = "promoted".to_string();
+        merge_unique(
+            &mut portal.promoted_clip_refs,
+            vec![format!("promoted_clip:{}", clip.id)],
+            48,
+        );
+        self.append_jsonl(CONVERSATION_PORTALS_LOG, &portal)?;
+        Ok(clip)
+    }
+
+    fn focus_coach_status(&self) -> anyhow::Result<FocusCoachState> {
+        self.ensure()?;
+        let events = self.read_recent_jsonl::<FocusCoachEvent>(FOCUS_COACH_EVENTS_LOG, 48)?;
+        let active_start = events
+            .iter()
+            .find(|event| event.event_kind == "start_focus" && event.status != "ended");
+        let session_minutes = active_start
+            .and_then(|event| chrono::DateTime::parse_from_rfc3339(&event.created_at).ok())
+            .map(|started| {
+                (Utc::now() - started.with_timezone(&Utc))
+                    .num_minutes()
+                    .max(0) as u32
+            })
+            .unwrap_or(0);
+        let latest_snooze = events
+            .iter()
+            .find(|event| event.event_kind == "snooze")
+            .and_then(|event| event.snoozed_minutes)
+            .unwrap_or(0);
+        let hydration_due = session_minutes >= 35 && latest_snooze == 0;
+        let mut interventions = Vec::new();
+        if session_minutes >= 75 {
+            interventions.push(FocusIntervention {
+                id: "close-loop-break".to_string(),
+                kind: "break".to_string(),
+                title: "Close loop, then pause".to_string(),
+                reason: "This focus block is long enough that memory quality and body state benefit from a short closure.".to_string(),
+                priority: 0.94,
+                status: "suggested".to_string(),
+                due_at: None,
+                actions: vec!["summarize".to_string(), "hydrate".to_string(), "pause".to_string()],
+            });
+        } else if hydration_due {
+            interventions.push(FocusIntervention {
+                id: "hydrate".to_string(),
+                kind: "hydration".to_string(),
+                title: "Water + posture check".to_string(),
+                reason: "Gentle physiological upkeep while agents keep running.".to_string(),
+                priority: 0.72,
+                status: "suggested".to_string(),
+                due_at: None,
+                actions: vec!["drink_water".to_string(), "snooze".to_string()],
+            });
+        }
+        interventions.push(FocusIntervention {
+            id: "calendar-guard".to_string(),
+            kind: "calendar".to_string(),
+            title: "Calendar guard".to_string(),
+            reason: "Keep commitments visible while parallel workspaces run.".to_string(),
+            priority: 0.64,
+            status: "available".to_string(),
+            due_at: None,
+            actions: vec!["open_calendar".to_string(), "snooze".to_string()],
+        });
+        let mode = if session_minutes >= 75 {
+            "recovering"
+        } else if session_minutes >= 25 {
+            "focused"
+        } else {
+            "available"
+        };
+        Ok(FocusCoachState {
+            id: stable_id("focus-coach", &[FOCUS_COACH_SCHEMA, mode]),
+            generated_at: Utc::now().to_rfc3339(),
+            schema_version: FOCUS_COACH_SCHEMA.to_string(),
+            mode: mode.to_string(),
+            active_session: active_start.map(|event| FocusSession {
+                id: stable_id("focus-session", &[&event.created_at, event.project_slug.as_deref().unwrap_or("free")]),
+                started_at: event.created_at.clone(),
+                ended_at: None,
+                mode: "focus".to_string(),
+                project_slug: event.project_slug.clone(),
+                status: "active".to_string(),
+                notes: event.notes.clone().into_iter().collect(),
+                provenance: event.provenance.clone(),
+            }),
+            interventions,
+            hydration_due,
+            calendar_nudge: Some("Keep real commitments visible beside agent work.".to_string()),
+            session_minutes,
+            can_override: true,
+            provenance: serde_json::json!({
+                "schema_version": FOCUS_COACH_SCHEMA,
+                "not_medical_advice": true,
+                "operator_can_override": true,
+                "source": "focus_coach_events.jsonl"
+            }),
+        })
+    }
+
+    fn record_focus_coach_event(
+        &self,
+        req: FocusCoachEventRequest,
+    ) -> anyhow::Result<FocusCoachState> {
+        self.ensure()?;
+        let event_kind = req.event_kind.trim().to_lowercase().replace('-', "_");
+        anyhow::ensure!(!event_kind.is_empty(), "focus coach event_kind is required");
+        let event = FocusCoachEvent {
+            id: Uuid::new_v4().to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            schema_version: FOCUS_COACH_SCHEMA.to_string(),
+            event_kind,
+            status: req.status.unwrap_or_else(|| "recorded".to_string()),
+            intervention_id: req.intervention_id,
+            project_slug: req.project_slug.map(|value| normalize_project_slug(&value)),
+            notes: req.notes.map(|value| truncate_chars(value.trim(), 500)),
+            snoozed_minutes: req.snoozed_minutes,
+            provenance: merge_json_objects(
+                serde_json::json!({
+                    "source": "beagle-focus-coach",
+                    "operator_can_override": true
+                }),
+                req.provenance,
+            ),
+        };
+        self.append_jsonl(FOCUS_COACH_EVENTS_LOG, &event)?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some("beagle-focus-coach".to_string()),
+            action: Some("focus_coach.event".to_string()),
+            tool_name: None,
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: Vec::new(),
+            status: Some("success".to_string()),
+            source: Some("focus-coach".to_string()),
+            target_ref: Some(format!("focus_event:{}", event.id)),
+            summary: Some(format!("Recorded focus coach event {}.", event.event_kind)),
+            metadata: Some(serde_json::json!({
+                "schema_version": FOCUS_COACH_SCHEMA,
+                "event_kind": event.event_kind,
+                "project_slug": event.project_slug,
+                "snoozed_minutes": event.snoozed_minutes
+            })),
+        })?;
+        self.focus_coach_status()
+    }
+
     fn graphrag_query(&self, req: GraphRagQueryRequest) -> anyhow::Result<GraphRagQueryResponse> {
         self.ensure()?;
         let max_items = req.max_items.unwrap_or(5).clamp(1, 20);
         let requested_mode = req.mode.clone().unwrap_or_else(memory_hot_path_mode);
         let is_multivector = requested_mode.eq_ignore_ascii_case("hypermemory_multivector");
         let is_hypermemory = requested_mode.eq_ignore_ascii_case("hypermemory") || is_multivector;
+        let ranking_policy = memory_ranking_policy(req.ranking_policy.as_deref());
         let runtime_configured = graph_runtime_configured();
         let graph_runtime = graph_runtime_name();
         let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, usize::MAX)?;
@@ -3544,6 +7811,7 @@ impl ExocortexRepository {
         if atoms.is_empty() {
             let strategy_used = retrieval_strategy_for(&req.query);
             let subqueries = retrieval_subqueries_for(&req.query, &strategy_used);
+            let stable_fact_guard_applied = stable_fact_guard_applies(&req.query, &[]);
             return Ok(GraphRagQueryResponse {
                 summary: format!(
                     "No GraphRAG++ projected memory matches found for '{}'.",
@@ -3638,11 +7906,20 @@ impl ExocortexRepository {
                 policy_version: Some(memory_policy_version()),
                 policy_gate: memory_policy_gate_json(),
                 dreamcycle_status: Some(dreamcycle_mode()),
+                ranking_policy: Some(ranking_policy.clone()),
+                ranking_trace: ranking_trace_json(&[], &ranking_policy, stable_fact_guard_applied),
+                recency_boost_applied: false,
+                stable_fact_guard_applied,
             });
         }
 
         let query_tokens = tokenize(&req.query);
         let scope = req.scope.as_ref().map(|scope| scope.to_lowercase());
+        let stable_fact_guard_applied = stable_fact_guard_applies(&req.query, &query_tokens);
+        let episode_by_id = episodes
+            .iter()
+            .map(|episode| (episode.id.as_str(), episode))
+            .collect::<BTreeMap<_, _>>();
         let mut scored = atoms
             .iter()
             .filter(|atom| {
@@ -3656,26 +7933,41 @@ impl ExocortexRepository {
                     })
                     .unwrap_or(true)
             })
+            .filter(|atom| {
+                !is_restricted_memory(atom, episode_by_id.get(atom.episode_id.as_str()).copied())
+            })
             .filter_map(|atom| {
-                let score = if is_hypermemory {
+                let base_score = if is_hypermemory {
                     hypermemory_atom_score(atom, &query_tokens)
                 } else {
                     atom_score(atom, &query_tokens)
                 };
-                (score > 0.0).then_some((atom.clone(), score))
+                let ranked = rank_memory_atom(
+                    atom,
+                    episode_by_id.get(atom.episode_id.as_str()).copied(),
+                    base_score,
+                    &query_tokens,
+                    &ranking_policy,
+                    stable_fact_guard_applied,
+                );
+                (ranked.final_score > 0.0).then_some(ranked)
             })
             .collect::<Vec<_>>();
         scored.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
+            b.final_score
+                .partial_cmp(&a.final_score)
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| b.0.occurred_at.cmp(&a.0.occurred_at))
+                .then_with(|| b.atom.occurred_at.cmp(&a.atom.occurred_at))
         });
         scored.truncate(max_items);
+        let ranking_trace = ranking_trace_json(&scored, &ranking_policy, stable_fact_guard_applied);
+        let recency_boost_applied = scored.iter().any(|item| item.recency_boost > 0.0);
 
         let mut matched_episodes = Vec::<MemoryEpisode>::new();
         let mut evidence = Vec::<GraphRagEvidence>::new();
         let mut relations = Vec::<MemoryRelation>::new();
-        for (atom, score) in &scored {
+        for ranked in &scored {
+            let atom = &ranked.atom;
             if let Some(episode) = episodes
                 .iter()
                 .find(|episode| episode.id == atom.episode_id)
@@ -3688,7 +7980,7 @@ impl ExocortexRepository {
                     episode_id: atom.episode_id.clone(),
                     atom_type: atom.atom_type.clone(),
                     text: atom.text.clone(),
-                    score: *score,
+                    score: ranked.final_score,
                     source_refs: atom.source_refs.clone(),
                     provenance: episode.provenance.clone(),
                 });
@@ -3749,7 +8041,10 @@ impl ExocortexRepository {
         };
 
         let matched_episode_count = matched_episodes.len();
-        let matched_atoms = scored.into_iter().map(|(atom, _)| atom).collect::<Vec<_>>();
+        let matched_atoms = scored
+            .into_iter()
+            .map(|ranked| ranked.atom)
+            .collect::<Vec<_>>();
         let worlds = self.read_recent_jsonl::<MemoryWorld>(MEMORY_WORLDS_LOG, max_items)?;
         let communities = memory_communities(&matched_atoms, &worlds);
         let evidence_graph =
@@ -3920,6 +8215,8 @@ impl ExocortexRepository {
                 "canonical_store": "/var/lib/beagle/exocortex",
                 "derived_indexes": "rebuildable",
                 "runtime_configured": runtime_configured,
+                "ranking_policy": ranking_policy.clone(),
+                "stable_fact_guard_applied": stable_fact_guard_applied,
                 "hypermemory": {
                     "enabled": is_hypermemory,
                     "multivector": is_multivector,
@@ -3996,6 +8293,10 @@ impl ExocortexRepository {
             policy_version: Some(memory_policy_version()),
             policy_gate: memory_policy_gate_json(),
             dreamcycle_status: Some(dreamcycle_mode()),
+            ranking_policy: Some(ranking_policy),
+            ranking_trace,
+            recency_boost_applied,
+            stable_fact_guard_applied,
         })
     }
 
@@ -4495,6 +8796,7 @@ impl ExocortexRepository {
             scope: req.scope.clone(),
             max_items: req.max_items,
             mode: Some(mode.clone()),
+            ranking_policy: None,
         })?;
         let evidence_refs = query_response
             .evidence
@@ -4781,6 +9083,1091 @@ impl ExocortexRepository {
             candidate_outputs_active: false,
             degraded_reason: None,
         })
+    }
+
+    fn check_sounio_program(
+        &self,
+        req: SounioProgramCheckRequest,
+    ) -> anyhow::Result<SounioProgramCheckResponse> {
+        let mut errors = validate_sounio_program(&req.program);
+        let privacy_class = normalize_privacy_class(Some(&req.program.governance.privacy_class));
+        if privacy_class == "restricted" {
+            errors.push(
+                "program governance privacy_class=restricted is blocked from PaperRun v2.4"
+                    .to_string(),
+            );
+        }
+        let warnings = sounio_program_warnings(&req.program, req.source_format.as_deref());
+        let program_hash = sounio_program_hash(&req.program)?;
+        Ok(SounioProgramCheckResponse {
+            status: if errors.is_empty() {
+                "valid".to_string()
+            } else {
+                "invalid".to_string()
+            },
+            program_hash,
+            schema_version: SOUNIO_WORK_IR_SCHEMA.to_string(),
+            errors,
+            warnings,
+            temporal_spec: sounio_temporal_spec(&req.program),
+            memory_projection_preview: sounio_memory_projection_preview(&req.program),
+        })
+    }
+
+    fn check_sounio_claim(
+        &self,
+        req: SounioClaimCheckRequest,
+    ) -> anyhow::Result<SounioClaimCheckResponse> {
+        let (claim, errors, warnings) = materialize_sounio_claim(req.claim, None, None)?;
+        Ok(SounioClaimCheckResponse {
+            status: if errors.is_empty() {
+                "valid".to_string()
+            } else {
+                "invalid".to_string()
+            },
+            schema_version: SOUNIO_CLAIM_SCHEMA.to_string(),
+            required_evidence: sounio_claim_required_evidence(&claim),
+            promotion_gate: sounio_claim_promotion_gate(&claim),
+            normalized_claim: claim,
+            errors,
+            warnings,
+        })
+    }
+
+    fn type_sounio_moment(&self, req: SounioMomentTypeRequest) -> anyhow::Result<SounioMoment> {
+        self.ensure()?;
+        let now = Utc::now().to_rfc3339();
+        let privacy_class = normalize_privacy_class(req.privacy_class.as_deref());
+        anyhow::ensure!(
+            privacy_class != "restricted",
+            "restricted payloads require explicit local review before Sounio typing"
+        );
+
+        let source_platform = req
+            .source_platform
+            .as_deref()
+            .map(normalize_source_platform)
+            .unwrap_or_else(|| "mcp-agent".to_string());
+        let source_surface = req
+            .source_surface
+            .as_deref()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "sounio-ambient-typing".to_string());
+        let project_slug = req
+            .project_slug
+            .as_deref()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "sounio".to_string());
+        let mut evidence_refs = req.evidence_refs.clone();
+        merge_unique(&mut evidence_refs, req.source_event_refs.clone(), 48);
+        let intent = req
+            .intent_text
+            .as_deref()
+            .or(req.summary.as_deref())
+            .map(|value| truncate_chars(value.trim(), 240))
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| {
+                "Type this ambient work signal into the Sounio workday.".to_string()
+            });
+        let summary = req
+            .summary
+            .as_deref()
+            .map(|value| truncate_chars(value.trim(), 360))
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| intent.clone());
+        let mut claim_seeds = Vec::new();
+        let mut claim_warnings = Vec::new();
+        for input in req.claim_seeds {
+            let (claim, errors, warnings) = materialize_sounio_claim(input, None, None)?;
+            anyhow::ensure!(
+                errors.is_empty(),
+                "Sounio moment claim seed invalid: {}",
+                errors.join("; ")
+            );
+            claim_warnings.extend(warnings);
+            claim_seeds.push(claim);
+        }
+        let id = stable_id(
+            "sounio-moment",
+            &[
+                &project_slug,
+                req.session_id.as_deref().unwrap_or("ambient"),
+                &source_platform,
+                &source_surface,
+                &summary,
+            ],
+        );
+        let moment = SounioMoment {
+            id,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            schema_version: SOUNIO_MOMENT_SCHEMA.to_string(),
+            project_slug: project_slug.clone(),
+            moment_type: infer_sounio_moment_type(&source_platform, &source_surface, &req.tags),
+            intent,
+            summary,
+            source_platform: source_platform.clone(),
+            source_surface: source_surface.clone(),
+            session_id: req.session_id.clone(),
+            source_event_refs: req.source_event_refs.clone(),
+            evidence_refs: evidence_refs.clone(),
+            claim_seeds,
+            decision_seeds: req.decision_seeds.clone(),
+            next_action: req.next_action.clone(),
+            privacy_class: privacy_class.clone(),
+            review_state: req.review_state.unwrap_or_else(|| "unreviewed".to_string()),
+            restricted_leak_check: "passed:no_restricted_payload_typed".to_string(),
+            provenance: merge_json_objects(
+                serde_json::json!({
+                    "schema_version": SOUNIO_MOMENT_SCHEMA,
+                    "beagle_observes": true,
+                    "sounio_types": true,
+                    "source_platform": source_platform,
+                    "source_surface": source_surface,
+                    "claim_seed_warnings": claim_warnings,
+                    "restricted_policy": "restricted never enters ambient typing automatically"
+                }),
+                req.provenance,
+            ),
+            tags: req.tags,
+        };
+        self.append_jsonl(SOUNIO_MOMENTS_LOG, &moment)?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some(
+                metadata_string(&moment.provenance, "principal")
+                    .unwrap_or_else(|| moment.source_surface.clone()),
+            ),
+            action: Some("sounio.moment_type".to_string()),
+            tool_name: Some("beagle_sounio_moment_type".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: metadata_array_strings(&moment.provenance, "scopes")
+                .unwrap_or_default(),
+            status: Some("success".to_string()),
+            source: Some(moment.source_surface.clone()),
+            target_ref: Some(format!("sounio_moment:{}", moment.id)),
+            summary: Some(format!(
+                "Sounio typed ambient moment for {} as {}.",
+                moment.project_slug, moment.moment_type
+            )),
+            metadata: Some(serde_json::json!({
+                "moment_id": moment.id,
+                "project_slug": moment.project_slug,
+                "privacy_class": moment.privacy_class,
+                "claim_seed_count": moment.claim_seeds.len(),
+                "decision_seed_count": moment.decision_seeds.len(),
+                "restricted_leak_check": moment.restricted_leak_check,
+                "schema_version": SOUNIO_MOMENT_SCHEMA
+            })),
+        })?;
+        Ok(moment)
+    }
+
+    fn sounio_moments_recent(
+        &self,
+        query: SounioMomentsQuery,
+    ) -> anyhow::Result<SounioMomentListResponse> {
+        let project_slug = query
+            .project_slug
+            .as_deref()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty());
+        let mut seen = BTreeSet::new();
+        let moments = self
+            .read_recent_jsonl::<SounioMoment>(
+                SOUNIO_MOMENTS_LOG,
+                query.limit.unwrap_or(25).min(100),
+            )?
+            .into_iter()
+            .filter(|moment| moment.privacy_class != "restricted")
+            .filter(|moment| {
+                project_slug
+                    .as_ref()
+                    .map(|slug| &moment.project_slug == slug)
+                    .unwrap_or(true)
+            })
+            .filter(|moment| seen.insert(moment.id.clone()))
+            .collect::<Vec<_>>();
+        Ok(SounioMomentListResponse {
+            generated_at: Utc::now().to_rfc3339(),
+            schema_version: SOUNIO_MOMENT_SCHEMA.to_string(),
+            project_slug,
+            moments,
+        })
+    }
+
+    fn review_sounio_moment(
+        &self,
+        moment_id: &str,
+        req: SounioMomentReviewRequest,
+    ) -> anyhow::Result<SounioMoment> {
+        self.ensure()?;
+        let mut moment = self
+            .read_recent_jsonl::<SounioMoment>(SOUNIO_MOMENTS_LOG, usize::MAX)?
+            .into_iter()
+            .find(|moment| moment.id == moment_id)
+            .ok_or_else(|| anyhow::anyhow!("Sounio moment not found: {moment_id}"))?;
+        anyhow::ensure!(
+            moment.privacy_class != "restricted",
+            "restricted Sounio moments cannot enter cluster review flow"
+        );
+        let decision = req.decision.trim().to_lowercase();
+        anyhow::ensure!(
+            matches!(
+                decision.as_str(),
+                "approved" | "rejected" | "needs_revision" | "mark_contest" | "promote_claim_seed"
+            ),
+            "moment review decision must be approved, rejected, needs_revision, mark_contest, or promote_claim_seed"
+        );
+        let previous_state = moment.review_state.clone();
+        for evidence_ref in &req.evidence_refs {
+            if !moment.evidence_refs.contains(evidence_ref) {
+                moment.evidence_refs.push(evidence_ref.clone());
+            }
+        }
+        moment.review_state = req
+            .review_state
+            .clone()
+            .unwrap_or_else(|| match decision.as_str() {
+                "approved" => "approved".to_string(),
+                "rejected" => "rejected".to_string(),
+                "needs_revision" => "needs_revision".to_string(),
+                "mark_contest" => "contest".to_string(),
+                _ => "reviewed_claim_seed".to_string(),
+            });
+        if decision == "mark_contest" {
+            for claim in &mut moment.claim_seeds {
+                claim.epistemic_status = "contest".to_string();
+                claim.review_state = "contested".to_string();
+            }
+        }
+        moment.updated_at = Utc::now().to_rfc3339();
+        moment.provenance = merge_json_objects(
+            moment.provenance.clone(),
+            serde_json::json!({
+                "latest_review_decision": decision,
+                "latest_reviewer": req.reviewer.clone().unwrap_or_else(|| "demetrios".to_string()),
+                "latest_review_rationale": req.rationale.clone()
+            }),
+        );
+        if !req.provenance.is_null() {
+            moment.provenance =
+                merge_json_objects(moment.provenance.clone(), req.provenance.clone());
+        }
+        self.append_jsonl(SOUNIO_MOMENTS_LOG, &moment)?;
+        let review = SounioMomentReview {
+            id: Uuid::new_v4().to_string(),
+            created_at: moment.updated_at.clone(),
+            moment_id: moment.id.clone(),
+            reviewer: req.reviewer.unwrap_or_else(|| "demetrios".to_string()),
+            decision: decision.clone(),
+            rationale: req.rationale,
+            previous_state,
+            new_state: moment.review_state.clone(),
+            evidence_refs: moment.evidence_refs.clone(),
+            provenance: serde_json::json!({
+                "schema_version": SOUNIO_MOMENT_SCHEMA,
+                "project_slug": moment.project_slug,
+                "source_surface": moment.source_surface,
+                "restricted_leak_check": moment.restricted_leak_check
+            }),
+        };
+        self.append_jsonl(SOUNIO_MOMENT_REVIEWS_LOG, &review)?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some(review.reviewer.clone()),
+            action: Some("sounio.moment_review".to_string()),
+            tool_name: Some("beagle_sounio_moment_review".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["memory:write".to_string()],
+            granted_scopes: Vec::new(),
+            status: Some("success".to_string()),
+            source: Some("sounio-workday-review".to_string()),
+            target_ref: Some(format!("sounio_moment:{}", moment.id)),
+            summary: Some(format!("Reviewed Sounio moment as {}.", decision)),
+            metadata: Some(serde_json::json!({
+                "moment_id": moment.id,
+                "review_id": review.id,
+                "decision": review.decision,
+                "new_state": review.new_state,
+                "restricted_leak_check": moment.restricted_leak_check
+            })),
+        })?;
+        Ok(moment)
+    }
+
+    fn sounio_workday_status(
+        &self,
+        query: SounioWorkdayQuery,
+    ) -> anyhow::Result<SounioWorkdaySnapshot> {
+        let project_slug = query
+            .project_slug
+            .as_deref()
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "sounio".to_string());
+        let moments_response = self.sounio_moments_recent(SounioMomentsQuery {
+            limit: query.limit.or(Some(20)),
+            project_slug: Some(project_slug.clone()),
+        })?;
+        let moments = moments_response.moments;
+        let latest_moment = moments.first().cloned();
+        let mut claim_seeds = Vec::new();
+        let mut claim_seen = BTreeSet::new();
+        let mut decision_seeds = Vec::new();
+        let mut evidence_refs = Vec::new();
+        let mut tensions = Vec::new();
+        let mut agents = Vec::new();
+        for moment in &moments {
+            merge_unique(&mut decision_seeds, moment.decision_seeds.clone(), 32);
+            merge_unique(&mut evidence_refs, moment.evidence_refs.clone(), 64);
+            merge_unique(
+                &mut agents,
+                vec![
+                    moment.source_platform.clone(),
+                    moment.source_surface.clone(),
+                ],
+                24,
+            );
+            for claim in &moment.claim_seeds {
+                if claim_seen.insert(claim.id.clone()) {
+                    claim_seeds.push(claim.clone());
+                }
+                if claim.epistemic_status == "contest" {
+                    tensions.push(format!(
+                        "Contested claim seed: {}",
+                        truncate_chars(&claim.claim_text, 120)
+                    ));
+                }
+            }
+            if moment.review_state.contains("revision") || moment.review_state == "contest" {
+                tensions.push(format!(
+                    "Moment {} needs review: {}",
+                    moment.id,
+                    truncate_chars(&moment.summary, 120)
+                ));
+            }
+        }
+        tensions.truncate(12);
+        let review_queue_count = moments
+            .iter()
+            .filter(|moment| {
+                !matches!(
+                    moment.review_state.as_str(),
+                    "approved" | "rejected" | "reviewed_claim_seed"
+                )
+            })
+            .count();
+        let status = if moments.is_empty() {
+            "waiting-for-first-sounio-moment".to_string()
+        } else if review_queue_count > 0 {
+            "active-review-needed".to_string()
+        } else {
+            "active-audited".to_string()
+        };
+        let next_action = latest_moment
+            .as_ref()
+            .and_then(|moment| moment.next_action.clone())
+            .or_else(|| {
+                if review_queue_count > 0 {
+                    Some("Review the latest Sounio moment and decide whether any Claim<T> seed needs evidence.".to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| {
+                format!("Capture the next real Sounio work gesture for {}.", project_slug)
+            });
+        Ok(SounioWorkdaySnapshot {
+            generated_at: Utc::now().to_rfc3339(),
+            schema_version: SOUNIO_WORKDAY_SCHEMA.to_string(),
+            project_slug,
+            status,
+            latest_moment,
+            moments,
+            claim_seeds,
+            decision_seeds,
+            evidence_refs,
+            tensions,
+            agents,
+            next_action,
+            review_queue_count,
+            restricted_leak_check: "passed:restricted_filtered_from_workday".to_string(),
+            provenance: serde_json::json!({
+                "canonical_source": "/var/lib/beagle/exocortex/sounio_moments.jsonl",
+                "cluster_only": true,
+                "beagle_observes": true,
+                "sounio_types": true
+            }),
+        })
+    }
+
+    fn add_paper_run_claim(
+        &self,
+        paper_run_id: &str,
+        req: AddPaperRunClaimRequest,
+    ) -> anyhow::Result<SounioClaim> {
+        self.ensure()?;
+        let mut run = self
+            .paper_run(paper_run_id)?
+            .ok_or_else(|| anyhow::anyhow!("PaperRun not found: {paper_run_id}"))?;
+        let principal = req.principal.unwrap_or_else(|| "mcp-agent".to_string());
+        let surface = req
+            .surface
+            .unwrap_or_else(|| "sounio-paperrun-theatre".to_string());
+        let (claim, errors, warnings) =
+            materialize_sounio_claim(req.claim, Some(paper_run_id.to_string()), Some(&run))?;
+        anyhow::ensure!(
+            errors.is_empty(),
+            "Sounio claim invalid: {}",
+            errors.join("; ")
+        );
+
+        self.append_jsonl(SOUNIO_CLAIMS_LOG, &claim)?;
+        let claims = self.sounio_claims_for_paper_run(paper_run_id)?;
+        run.updated_at = Utc::now().to_rfc3339();
+        run.current_stage = Some("claim_check".to_string());
+        run.public_digest_status = Some("stale_after_claim_change".to_string());
+        run.claim_lifecycle_status = claim_lifecycle_status(&claims);
+        run.claim_registry = claims.iter().map(sounio_claim_summary).collect();
+        run.interaction_summary = Some(format!(
+            "{} claim(s) tracked in the Sounio epistemic claim graph.",
+            claims.len()
+        ));
+        self.append_jsonl(SOUNIO_PAPERRUNS_LOG, &run)?;
+
+        self.append_sounio_trace(SounioTraceEvent {
+            id: Uuid::new_v4().to_string(),
+            created_at: claim.created_at.clone(),
+            paper_run_id: paper_run_id.to_string(),
+            program_id: run.sounio_program_id.clone(),
+            step_id: "claim_check".to_string(),
+            event_type: "sounio_claim_added".to_string(),
+            status: claim.epistemic_status.clone(),
+            summary: Some(format!(
+                "Added Sounio Claim<T> '{}' as {}.",
+                truncate_chars(&claim.claim_text, 160),
+                claim.epistemic_status
+            )),
+            context_pack_id: run.context_pack_id.clone(),
+            provenance: serde_json::json!({
+                "principal": principal,
+                "surface": surface,
+                "claim_id": claim.id,
+                "schema_version": SOUNIO_CLAIM_SCHEMA,
+                "warnings": warnings
+            }),
+            artifact_refs: claim.artifact_refs.clone(),
+        })?;
+        let _ = self.create_memory_event(CreateMemoryEventRequest {
+            source: Some("sounio-claim".to_string()),
+            kind: Some("sounio_claim_added".to_string()),
+            content_ref: Some(format!("sounio_claim:{}", claim.id)),
+            summary: Some(format!(
+                "Sounio typed claim {} as {}",
+                claim.id, claim.epistemic_status
+            )),
+            tags: vec![
+                "sounio".to_string(),
+                "claim".to_string(),
+                format!("epistemic:{}", claim.epistemic_status),
+                "project:beagle".to_string(),
+            ],
+            metadata: Some(serde_json::json!({
+                "paper_run_id": paper_run_id,
+                "claim_id": claim.id,
+                "epistemic_status": claim.epistemic_status,
+                "privacy_class": claim.privacy_class,
+                "beagle_observes": true,
+                "sounio_types": true
+            })),
+            linked_chronoself_commits: Vec::new(),
+            confidence: Some(claim.confidence),
+        })?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some("beagle-core".to_string()),
+            action: Some("sounio.claim_add".to_string()),
+            tool_name: Some("beagle_sounio_claim_check".to_string()),
+            risk_level: Some("write".to_string()),
+            required_scopes: vec!["research:run".to_string()],
+            granted_scopes: vec!["research:run".to_string()],
+            status: Some("success".to_string()),
+            source: Some("sounio-paperrun-theatre".to_string()),
+            target_ref: Some(format!("sounio_claim:{}", claim.id)),
+            summary: Some("Added epistemically typed Sounio claim.".to_string()),
+            metadata: Some(serde_json::json!({
+                "paper_run_id": paper_run_id,
+                "claim_id": claim.id,
+                "epistemic_status": claim.epistemic_status,
+                "schema_version": SOUNIO_CLAIM_SCHEMA
+            })),
+        })?;
+        Ok(claim)
+    }
+
+    fn review_sounio_claim(
+        &self,
+        paper_run_id: &str,
+        claim_id: &str,
+        req: ReviewSounioClaimRequest,
+    ) -> anyhow::Result<SounioClaim> {
+        self.ensure()?;
+        let mut run = self
+            .paper_run(paper_run_id)?
+            .ok_or_else(|| anyhow::anyhow!("PaperRun not found: {paper_run_id}"))?;
+        let mut claim = self
+            .sounio_claim(paper_run_id, claim_id)?
+            .ok_or_else(|| anyhow::anyhow!("Sounio claim not found: {claim_id}"))?;
+        let previous_status = claim.epistemic_status.clone();
+        let decision = req.decision.trim().to_lowercase();
+        anyhow::ensure!(
+            matches!(
+                decision.as_str(),
+                "approved"
+                    | "rejected"
+                    | "needs_evidence"
+                    | "contest"
+                    | "promote_to_knowledge"
+                    | "promote_to_robust"
+            ),
+            "claim review decision must be approved, rejected, needs_evidence, contest, promote_to_knowledge, or promote_to_robust"
+        );
+
+        for evidence_ref in req.evidence_refs {
+            if !claim.evidence_refs.contains(&evidence_ref) {
+                claim.evidence_refs.push(evidence_ref);
+            }
+        }
+        if !req.provenance.is_null() {
+            claim.provenance = merge_json_objects(claim.provenance.clone(), req.provenance.clone());
+        }
+        if let Some(readiness) = req.publication_readiness {
+            claim.publication_readiness = readiness;
+        }
+        if let Some(status) = req.epistemic_status {
+            claim.epistemic_status = normalize_epistemic_status(Some(&status));
+        }
+
+        match decision.as_str() {
+            "rejected" => {
+                claim.review_state = "rejected".to_string();
+                claim.publication_readiness = "excluded".to_string();
+            }
+            "needs_evidence" => {
+                claim.review_state = "needs_evidence".to_string();
+                claim.epistemic_status = "contest".to_string();
+                claim.publication_readiness = "not_ready".to_string();
+            }
+            "contest" => {
+                claim.review_state = "contested".to_string();
+                claim.epistemic_status = "contest".to_string();
+            }
+            "promote_to_knowledge" => {
+                anyhow::ensure!(
+                    sounio_claim_can_be_knowledge(&claim),
+                    "knowledge claims require evidence_refs and non-empty provenance"
+                );
+                claim.review_state = "approved".to_string();
+                claim.epistemic_status = "knowledge".to_string();
+                claim.publication_readiness = "section_ready_with_provenance".to_string();
+            }
+            "promote_to_robust" => {
+                anyhow::ensure!(
+                    sounio_claim_can_be_robust(&claim),
+                    "robust claims require multiple evidence refs and independent verification/replication provenance"
+                );
+                claim.review_state = "approved".to_string();
+                claim.epistemic_status = "robust".to_string();
+                claim.publication_readiness = "public_digest_ready".to_string();
+            }
+            _ => {
+                claim.review_state = "approved".to_string();
+                if claim.epistemic_status == "belief" && sounio_claim_can_be_knowledge(&claim) {
+                    claim.epistemic_status = "knowledge".to_string();
+                }
+            }
+        }
+        claim.updated_at = Utc::now().to_rfc3339();
+        claim.rationale = req.rationale.clone().or(claim.rationale.clone());
+        let (errors, warnings) = validate_materialized_sounio_claim(&claim);
+        anyhow::ensure!(
+            errors.is_empty(),
+            "Sounio claim review invalid: {}",
+            errors.join("; ")
+        );
+
+        self.append_jsonl(SOUNIO_CLAIMS_LOG, &claim)?;
+        let review = SounioClaimReview {
+            id: Uuid::new_v4().to_string(),
+            created_at: claim.updated_at.clone(),
+            paper_run_id: paper_run_id.to_string(),
+            claim_id: claim.id.clone(),
+            reviewer: req.reviewer.unwrap_or_else(|| "demetrios".to_string()),
+            decision: decision.clone(),
+            rationale: req.rationale.clone(),
+            previous_status,
+            new_status: claim.epistemic_status.clone(),
+            evidence_refs: claim.evidence_refs.clone(),
+            provenance: serde_json::json!({
+                "schema_version": SOUNIO_CLAIM_SCHEMA,
+                "warnings": warnings,
+                "publication_readiness": claim.publication_readiness
+            }),
+        };
+        self.append_jsonl(SOUNIO_CLAIM_REVIEWS_LOG, &review)?;
+
+        let claims = self.sounio_claims_for_paper_run(paper_run_id)?;
+        run.updated_at = claim.updated_at.clone();
+        run.current_stage = Some("claim_review".to_string());
+        run.public_digest_status = Some("stale_after_claim_review".to_string());
+        run.claim_lifecycle_status = claim_lifecycle_status(&claims);
+        run.claim_registry = claims.iter().map(sounio_claim_summary).collect();
+        self.append_jsonl(SOUNIO_PAPERRUNS_LOG, &run)?;
+        self.append_sounio_trace(SounioTraceEvent {
+            id: Uuid::new_v4().to_string(),
+            created_at: claim.updated_at.clone(),
+            paper_run_id: paper_run_id.to_string(),
+            program_id: run.sounio_program_id.clone(),
+            step_id: "claim_review".to_string(),
+            event_type: "sounio_claim_review".to_string(),
+            status: claim.epistemic_status.clone(),
+            summary: review.rationale.clone().or_else(|| {
+                Some(format!(
+                    "Claim {} reviewed as {}.",
+                    claim.id, claim.epistemic_status
+                ))
+            }),
+            context_pack_id: run.context_pack_id.clone(),
+            provenance: serde_json::json!({
+                "review_id": review.id,
+                "claim_id": claim.id,
+                "decision": review.decision,
+                "reviewer": review.reviewer
+            }),
+            artifact_refs: claim.artifact_refs.clone(),
+        })?;
+        Ok(claim)
+    }
+
+    fn sounio_claims_for_paper_run(&self, paper_run_id: &str) -> anyhow::Result<Vec<SounioClaim>> {
+        let mut seen = BTreeSet::<String>::new();
+        let mut claims = Vec::new();
+        for claim in self.read_recent_jsonl::<SounioClaim>(SOUNIO_CLAIMS_LOG, usize::MAX)? {
+            if claim.paper_run_id.as_deref() != Some(paper_run_id) {
+                continue;
+            }
+            if seen.insert(claim.id.clone()) {
+                claims.push(claim);
+            }
+        }
+        claims.reverse();
+        Ok(claims)
+    }
+
+    fn sounio_claim(
+        &self,
+        paper_run_id: &str,
+        claim_id: &str,
+    ) -> anyhow::Result<Option<SounioClaim>> {
+        Ok(self
+            .read_recent_jsonl::<SounioClaim>(SOUNIO_CLAIMS_LOG, usize::MAX)?
+            .into_iter()
+            .find(|claim| {
+                claim.paper_run_id.as_deref() == Some(paper_run_id) && claim.id == claim_id
+            }))
+    }
+
+    fn paper_run_theatre(
+        &self,
+        paper_run_id: &str,
+    ) -> anyhow::Result<Option<PaperRunTheatreSnapshot>> {
+        let run = match self.paper_run(paper_run_id)? {
+            Some(run) => run,
+            None => return Ok(None),
+        };
+        let claims = self.sounio_claims_for_paper_run(paper_run_id)?;
+        let claim_graph = build_sounio_claim_graph(paper_run_id, claims);
+        let trace_events = self.sounio_trace_events(SounioTraceQuery {
+            paper_run_id: Some(paper_run_id.to_string()),
+            limit: Some(100),
+        })?;
+        let artifacts = self
+            .paper_run_artifacts(paper_run_id)?
+            .ok_or_else(|| anyhow::anyhow!("PaperRun artifacts unavailable: {paper_run_id}"))?;
+        let agent_contributions = sounio_agent_contributions(&trace_events, &claim_graph.claims);
+        let approvals = sounio_approval_events(&trace_events);
+        let evidence_table = sounio_evidence_table(&claim_graph.claims);
+        let current_stage = run
+            .current_stage
+            .clone()
+            .or_else(|| run.pending_approval_step.clone())
+            .unwrap_or_else(|| run.status.clone());
+        let next_action = if let Some(pending) = &run.pending_approval_step {
+            format!("Review and approve PaperRun step '{pending}'.")
+        } else if !claim_graph.unsupported_claim_ids.is_empty() {
+            "Resolve unsupported Sounio claims before public digest export.".to_string()
+        } else {
+            "Generate public digest and draft the next manuscript section.".to_string()
+        };
+        Ok(Some(PaperRunTheatreSnapshot {
+            paper_run_id: paper_run_id.to_string(),
+            generated_at: Utc::now().to_rfc3339(),
+            schema_version: SOUNIO_THEATRE_SCHEMA.to_string(),
+            paper_run: run.clone(),
+            manuscript_markdown: artifacts.manuscript_markdown,
+            claim_graph: claim_graph.clone(),
+            trace_events,
+            agent_contributions,
+            approvals,
+            evidence_table,
+            sounio_score: sounio_score(&claim_graph),
+            current_stage,
+            next_action,
+            public_digest_status: run
+                .public_digest_status
+                .clone()
+                .unwrap_or_else(|| "not_generated".to_string()),
+            private_trace_ref: format!(
+                "/orangefs/beagle-memory-lab/paperruns/{paper_run_id}/private_trace_pack.jsonl"
+            ),
+        }))
+    }
+
+    fn paper_run_public_digest(
+        &self,
+        paper_run_id: &str,
+    ) -> anyhow::Result<Option<PublicDigestArtifact>> {
+        let run = match self.paper_run(paper_run_id)? {
+            Some(run) => run,
+            None => return Ok(None),
+        };
+        let claims = self
+            .sounio_claims_for_paper_run(paper_run_id)?
+            .into_iter()
+            .filter(|claim| claim.privacy_class != "restricted")
+            .collect::<Vec<_>>();
+        let trace_events = self.sounio_trace_events(SounioTraceQuery {
+            paper_run_id: Some(paper_run_id.to_string()),
+            limit: Some(40),
+        })?;
+        let digest = PublicDigestArtifact {
+            paper_run_id: paper_run_id.to_string(),
+            generated_at: Utc::now().to_rfc3339(),
+            schema_version: SOUNIO_PUBLIC_DIGEST_SCHEMA.to_string(),
+            title: run.title.clone(),
+            thesis: "Beagle observes the agentic research process; Sounio types claims, evidence, provenance, and publication gates.".to_string(),
+            sanitized_claims: claims.iter().map(sounio_public_claim_digest).collect(),
+            sedenion_ssm_case: sedenion_ssm_public_case(&claims),
+            public_trace_digest: trace_events
+                .iter()
+                .filter(|event| !event.provenance.to_string().to_lowercase().contains("restricted"))
+                .take(12)
+                .map(sounio_public_trace_digest)
+                .collect(),
+            disclosure:
+                "AI agents are disclosed as instruments in the research workflow, not as authors. Human approval governs claims and publication."
+                    .to_string(),
+            excluded_private_trace_policy:
+                "Full private traces, private corpus content, and restricted payloads remain cluster-only and are excluded from public exports."
+                    .to_string(),
+            manuscript_excerpt: truncate_chars(&paper_run_markdown(&run), 2_000),
+        };
+        let mut updated = run.clone();
+        updated.updated_at = digest.generated_at.clone();
+        updated.public_digest_status = Some("generated_sanitized".to_string());
+        self.append_jsonl(SOUNIO_PAPERRUNS_LOG, &updated)?;
+        Ok(Some(digest))
+    }
+
+    fn start_paper_run(&self, req: StartPaperRunRequest) -> anyhow::Result<PaperRun> {
+        self.ensure()?;
+        let program = req
+            .program
+            .unwrap_or_else(default_beagle_self_writing_program);
+        let check = self.check_sounio_program(SounioProgramCheckRequest {
+            source_format: Some("json".to_string()),
+            program: program.clone(),
+        })?;
+        anyhow::ensure!(
+            check.status == "valid",
+            "Sounio program invalid: {}",
+            check.errors.join("; ")
+        );
+        let paper_id = req
+            .paper_id
+            .unwrap_or_else(|| "beagle-self-writing-systems-paper".to_string());
+        let title = req.title.unwrap_or_else(default_beagle_paper_title);
+        let principal = req.principal.unwrap_or_else(|| "demetrios".to_string());
+        let surface = req
+            .surface
+            .unwrap_or_else(|| "beagle-sounio-paperrun".to_string());
+        let temporal_namespace = req
+            .temporal_namespace
+            .or_else(|| env::var("SOUNIO_TEMPORAL_NAMESPACE").ok())
+            .unwrap_or_else(|| "beagle".to_string());
+        let temporal_task_queue = req
+            .temporal_task_queue
+            .or_else(|| env::var("SOUNIO_TEMPORAL_TASK_QUEUE").ok())
+            .unwrap_or_else(|| "sounio-paperrun".to_string());
+        let now = Utc::now().to_rfc3339();
+        let run_id = Uuid::new_v4().to_string();
+        let temporal_workflow_id = format!("sounio-paperrun-{}", run_id);
+        let context_pack = self.context_compile(ContextCompileRequest {
+            query: format!(
+                "Beagle self-writing systems paper using Sounio Work IR, Temporal PaperRun, MCP, GraphRAG++, ContextPack, Apple surfaces: {}",
+                title
+            ),
+            scope: Some("sounio-paperrun".to_string()),
+            surface: Some(surface.clone()),
+            task: Some("self-writing-systems-paper".to_string()),
+            max_items: Some(8),
+            mode: Some(memory_hot_path_mode()),
+            token_budget: Some(16_000),
+            agent: Some(principal.clone()),
+            session_id: Some(run_id.clone()),
+        })?;
+        self.append_jsonl(SOUNIO_PROGRAMS_LOG, &program)?;
+        let mut section_status = BTreeMap::new();
+        for section in default_beagle_paper_sections() {
+            section_status.insert(section.to_string(), "planned".to_string());
+        }
+        let pending_approval_step = program
+            .plan
+            .iter()
+            .find(|step| step.requires_human_approval)
+            .map(|step| step.id.clone());
+        let artifact_refs = vec![
+            format!("/orangefs/beagle-memory-lab/paperruns/{run_id}/manuscript.md"),
+            format!("/orangefs/beagle-memory-lab/paperruns/{run_id}/provenance.json"),
+            format!("/orangefs/beagle-memory-lab/paperruns/{run_id}/trace.jsonl"),
+        ];
+        let run = PaperRun {
+            id: run_id.clone(),
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            schema_version: SOUNIO_PAPERRUN_SCHEMA.to_string(),
+            paper_id,
+            title,
+            status: if pending_approval_step.is_some() {
+                "human_approval_pending".to_string()
+            } else {
+                "queued".to_string()
+            },
+            temporal_workflow_id,
+            temporal_namespace,
+            temporal_task_queue,
+            temporal_status: if req.dry_run.unwrap_or(false) {
+                "dry_run_not_started".to_string()
+            } else {
+                "start_requested".to_string()
+            },
+            sounio_program_id: program.id.clone(),
+            sounio_program_hash: check.program_hash.clone(),
+            manuscript_version: "draft-0.1".to_string(),
+            section_status,
+            claim_registry: default_beagle_paper_claims(),
+            citation_registry: default_beagle_paper_citations(),
+            approval_state: if pending_approval_step.is_some() {
+                "waiting_for_human".to_string()
+            } else {
+                "not_required".to_string()
+            },
+            pending_approval_step: pending_approval_step.clone(),
+            context_pack_id: Some(context_pack.id.clone()),
+            artifact_refs,
+            provenance: serde_json::json!({
+                "canonical_source": "/var/lib/beagle/exocortex",
+                "artifact_root": "/orangefs/beagle-memory-lab/paperruns",
+                "sounio_schema": SOUNIO_WORK_IR_SCHEMA,
+                "temporal_worker": "sounio-runner",
+                "context_pack_id": context_pack.id,
+                "human_approval_required": true,
+                "publication": "arxiv systems preprint, no automatic submission"
+            }),
+            interaction_summary: Some(
+                "Beagle observes the paper process; Sounio types claims, evidence, and gates."
+                    .to_string(),
+            ),
+            claim_lifecycle_status: default_beagle_paper_claims()
+                .into_iter()
+                .filter_map(|claim| {
+                    let id = claim.get("id")?.as_str()?.to_string();
+                    let status = claim
+                        .get("status")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("needs_evidence")
+                        .to_string();
+                    Some((id, status))
+                })
+                .collect(),
+            public_digest_status: Some("not_generated".to_string()),
+            current_stage: Some(
+                pending_approval_step
+                    .clone()
+                    .unwrap_or_else(|| "retrieve_state".to_string()),
+            ),
+        };
+        self.append_jsonl(SOUNIO_PAPERRUNS_LOG, &run)?;
+        self.append_sounio_trace(SounioTraceEvent {
+            id: Uuid::new_v4().to_string(),
+            created_at: now.clone(),
+            paper_run_id: run.id.clone(),
+            program_id: program.id.clone(),
+            step_id: "paperrun_start".to_string(),
+            event_type: "workflow_start_requested".to_string(),
+            status: run.temporal_status.clone(),
+            summary: Some(
+                "Sounio PaperRun created for Beagle self-writing systems paper.".to_string(),
+            ),
+            context_pack_id: run.context_pack_id.clone(),
+            provenance: serde_json::json!({
+                "temporal_workflow_id": run.temporal_workflow_id,
+                "program_hash": run.sounio_program_hash,
+                "principal": principal,
+                "surface": surface
+            }),
+            artifact_refs: run.artifact_refs.clone(),
+        })?;
+        let _ = self.create_memory_event(CreateMemoryEventRequest {
+            source: Some("sounio-paperrun".to_string()),
+            kind: Some("self_writing_paper_run".to_string()),
+            content_ref: Some(format!("sounio_paperrun:{}", run.id)),
+            summary: Some(format!("Started Sounio PaperRun for {}", run.title)),
+            tags: vec![
+                "sounio".to_string(),
+                "paperrun".to_string(),
+                "self-writing-paper".to_string(),
+                "project:beagle".to_string(),
+            ],
+            metadata: Some(serde_json::json!({
+                "paper_run_id": run.id,
+                "temporal_workflow_id": run.temporal_workflow_id,
+                "sounio_program_hash": run.sounio_program_hash,
+                "context_pack_id": run.context_pack_id,
+                "privacy_class": "sensitive"
+            })),
+            linked_chronoself_commits: Vec::new(),
+            confidence: Some(0.88),
+        })?;
+        let _ = self.create_audit_event(CreateAuditEventRequest {
+            client_id: Some("beagle-core".to_string()),
+            action: Some("sounio.paperrun_start".to_string()),
+            tool_name: Some("beagle_sounio_paperrun_start".to_string()),
+            risk_level: Some("run".to_string()),
+            required_scopes: vec!["research:run".to_string()],
+            granted_scopes: vec!["research:run".to_string()],
+            status: Some("success".to_string()),
+            source: Some("sounio-paperrun".to_string()),
+            target_ref: Some(format!("sounio_paperrun:{}", run.id)),
+            summary: Some("Started durable Sounio PaperRun scaffold.".to_string()),
+            metadata: Some(serde_json::json!({
+                "schema_version": SOUNIO_PAPERRUN_SCHEMA,
+                "temporal_workflow_id": run.temporal_workflow_id,
+                "sounio_program_hash": run.sounio_program_hash,
+                "context_pack_id": run.context_pack_id,
+            })),
+        })?;
+        Ok(run)
+    }
+
+    fn paper_run(&self, paper_run_id: &str) -> anyhow::Result<Option<PaperRun>> {
+        Ok(self
+            .read_recent_jsonl::<PaperRun>(SOUNIO_PAPERRUNS_LOG, usize::MAX)?
+            .into_iter()
+            .find(|run| run.id == paper_run_id))
+    }
+
+    fn approve_paper_run_step(
+        &self,
+        paper_run_id: &str,
+        req: ApprovePaperRunStepRequest,
+    ) -> anyhow::Result<PaperRun> {
+        self.ensure()?;
+        let mut run = self
+            .paper_run(paper_run_id)?
+            .ok_or_else(|| anyhow::anyhow!("PaperRun not found: {paper_run_id}"))?;
+        let decision = req.decision.unwrap_or_else(|| "approved".to_string());
+        anyhow::ensure!(
+            matches!(
+                decision.as_str(),
+                "approved" | "rejected" | "needs_revision"
+            ),
+            "approval decision must be approved, rejected, or needs_revision"
+        );
+        run.updated_at = Utc::now().to_rfc3339();
+        run.approval_state = decision.clone();
+        run.pending_approval_step = None;
+        run.status = match decision.as_str() {
+            "approved" => "approved_for_temporal_execution".to_string(),
+            "needs_revision" => "revision_requested".to_string(),
+            _ => "rejected".to_string(),
+        };
+        run.temporal_status = if decision == "approved" {
+            "signal_approved".to_string()
+        } else {
+            "paused".to_string()
+        };
+        run.section_status
+            .insert(req.step_id.clone(), decision.clone());
+        self.append_jsonl(SOUNIO_PAPERRUNS_LOG, &run)?;
+        self.append_sounio_trace(SounioTraceEvent {
+            id: Uuid::new_v4().to_string(),
+            created_at: run.updated_at.clone(),
+            paper_run_id: run.id.clone(),
+            program_id: run.sounio_program_id.clone(),
+            step_id: req.step_id.clone(),
+            event_type: "human_approval".to_string(),
+            status: decision.clone(),
+            summary: req.rationale.clone(),
+            context_pack_id: run.context_pack_id.clone(),
+            provenance: serde_json::json!({
+                "reviewer": req.reviewer.unwrap_or_else(|| "demetrios".to_string()),
+                "temporal_workflow_id": run.temporal_workflow_id,
+                "approval_state": run.approval_state
+            }),
+            artifact_refs: run.artifact_refs.clone(),
+        })?;
+        Ok(run)
+    }
+
+    fn paper_run_artifacts(
+        &self,
+        paper_run_id: &str,
+    ) -> anyhow::Result<Option<PaperRunArtifactsResponse>> {
+        let run = match self.paper_run(paper_run_id)? {
+            Some(run) => run,
+            None => return Ok(None),
+        };
+        Ok(Some(PaperRunArtifactsResponse {
+            paper_run_id: run.id.clone(),
+            generated_at: Utc::now().to_rfc3339(),
+            manuscript_markdown: paper_run_markdown(&run),
+            provenance_pack: serde_json::json!({
+                "paper_run": run,
+                "source": "beagle-core-sounio-paperrun",
+                "restricted_policy": "restricted content is excluded from manuscript/export",
+                "publication_policy": "human approval required before external submission"
+            }),
+            artifact_refs: run.artifact_refs,
+        }))
+    }
+
+    fn sounio_trace_events(
+        &self,
+        query: SounioTraceQuery,
+    ) -> anyhow::Result<Vec<SounioTraceEvent>> {
+        let limit = query.limit.unwrap_or(50).clamp(1, 500);
+        let mut events =
+            self.read_recent_jsonl::<SounioTraceEvent>(SOUNIO_TRACE_EVENTS_LOG, limit)?;
+        if let Some(paper_run_id) = query.paper_run_id {
+            events.retain(|event| event.paper_run_id == paper_run_id);
+        }
+        Ok(events)
+    }
+
+    fn append_sounio_trace(&self, event: SounioTraceEvent) -> anyhow::Result<()> {
+        self.append_jsonl(SOUNIO_TRACE_EVENTS_LOG, &event)
     }
 
     fn record_candidate_quorum(
@@ -5105,7 +10492,7 @@ impl ExocortexRepository {
                 status: "forming".to_string(),
                 recent_events: vec!["Bootstrap project for the Beagle exocortex.".to_string()],
                 next_actions: vec![
-                    "Importar conversa, registrar decisão ou iniciar pesquisa.".to_string()
+                    "Importar conversa, registrar decisão ou iniciar pesquisa.".to_string(),
                 ],
                 linked_memories: Vec::new(),
                 last_interaction_at: None,
@@ -5154,7 +10541,14 @@ impl ExocortexRepository {
                     .find_map(|commit| commit.context_snapshot.active_project_ids.first().cloned())
             })
             .or_else(|| Some("sounio".to_string()));
-        let memory_signals = projected_atoms
+        let sounio_workday_context = active_project.as_ref().and_then(|project| {
+            self.sounio_workday_status(SounioWorkdayQuery {
+                project_slug: Some(project.clone()),
+                limit: Some(12),
+            })
+            .ok()
+        });
+        let mut memory_signals = projected_atoms
             .iter()
             .map(|atom| format!("{}: {}", atom.atom_type, atom.text))
             .chain(commits.iter().filter_map(|commit| {
@@ -5171,6 +10565,16 @@ impl ExocortexRepository {
             .chain(memory_events.iter().map(|event| event.summary.clone()))
             .take(5)
             .collect::<Vec<_>>();
+        if let Some(moment) = sounio_workday_context
+            .as_ref()
+            .and_then(|workday| workday.latest_moment.as_ref())
+        {
+            memory_signals.insert(
+                0,
+                format!("Sounio now: {}", truncate_chars(&moment.summary, 160)),
+            );
+            memory_signals.truncate(5);
+        }
         let open_loops = imports
             .iter()
             .flat_map(|import| import.extracted.unresolved_questions.clone())
@@ -5348,6 +10752,10 @@ impl ExocortexRepository {
             .map(|pack| pack.id);
         let policy_status = self.memory_policy_status().ok();
         let dreamcycle_status = self.dreamcycle_status().ok();
+        let latest_paper_run = self
+            .read_recent_jsonl::<PaperRun>(SOUNIO_PAPERRUNS_LOG, 1)
+            .ok()
+            .and_then(|mut runs| runs.pop());
         let trust_context = Some(TrustContext {
             mcp_status: if audit_events.is_empty() {
                 "no-audit-events-yet".to_string()
@@ -5443,6 +10851,35 @@ impl ExocortexRepository {
             dreamcycle_status: dreamcycle_status
                 .as_ref()
                 .map(|status| format!("{}:{}", status.mode, status.status)),
+            sounio_paperrun_status: latest_paper_run
+                .as_ref()
+                .map(|run| format!("{}:{}", run.paper_id, run.status)),
+            sounio_temporal_status: latest_paper_run
+                .as_ref()
+                .map(|run| format!("{}:{}", run.temporal_workflow_id, run.temporal_status)),
+            sounio_pending_approval: latest_paper_run
+                .as_ref()
+                .and_then(|run| run.pending_approval_step.clone()),
+            sounio_latest_artifact: latest_paper_run
+                .as_ref()
+                .and_then(|run| run.artifact_refs.first().cloned()),
+            sounio_workday_status: sounio_workday_context
+                .as_ref()
+                .map(|workday| format!("{}:{}", workday.project_slug, workday.status)),
+            sounio_latest_moment: sounio_workday_context
+                .as_ref()
+                .and_then(|workday| workday.latest_moment.as_ref())
+                .map(|moment| {
+                    format!(
+                        "{}:{}",
+                        moment.moment_type,
+                        truncate_chars(&moment.summary, 80)
+                    )
+                }),
+            sounio_pending_moment_review: sounio_workday_context.as_ref().and_then(|workday| {
+                (workday.review_queue_count > 0)
+                    .then(|| format!("{} pending", workday.review_queue_count))
+            }),
         });
         let temporal_phase = temporal_phase.or_else(|| {
             causal_hypotheses
@@ -5473,6 +10910,7 @@ impl ExocortexRepository {
             temporal_phase,
             agent_context,
             trust_context,
+            sounio_workday_context,
         };
         self.write_snapshot(HOME_SNAPSHOT, &snapshot)?;
         Ok(snapshot)
@@ -5916,6 +11354,33 @@ fn merge_unique(target: &mut Vec<String>, incoming: Vec<String>, limit: usize) {
     target.truncate(limit);
 }
 
+fn infer_sounio_moment_type(platform: &str, surface: &str, tags: &[String]) -> String {
+    let haystack = std::iter::once(platform)
+        .chain(std::iter::once(surface))
+        .chain(tags.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    if haystack.contains("watch") || haystack.contains("microintent") {
+        "microintention".to_string()
+    } else if haystack.contains("codex")
+        || haystack.contains("claude-code")
+        || haystack.contains("work")
+        || haystack.contains("branch")
+    {
+        "work_memory".to_string()
+    } else if haystack.contains("claim") || haystack.contains("paperrun") {
+        "claim_seed".to_string()
+    } else if haystack.contains("siri")
+        || haystack.contains("share")
+        || haystack.contains("beagle-apple")
+    {
+        "apple_capture".to_string()
+    } else {
+        "ambient_observation".to_string()
+    }
+}
+
 fn is_signal_line(line: &str) -> bool {
     line.len() > 40
         && contains_any(
@@ -5974,6 +11439,7 @@ pub(crate) fn query_projected_memory_for_memory_api(
         scope: query.scope,
         max_items: query.max_items,
         mode: None,
+        ranking_policy: None,
     })?;
     Ok(Some(graphrag_to_memory_result(response)))
 }
@@ -6033,6 +11499,14 @@ fn default_assisted_import_scope() -> String {
     "current_conversation".to_string()
 }
 
+fn default_sounio_version() -> String {
+    "0.1".to_string()
+}
+
+fn default_sounio_program_kind() -> String {
+    "WorkProgram".to_string()
+}
+
 fn default_one_u32() -> u32 {
     1
 }
@@ -6049,6 +11523,304 @@ fn normalize_privacy_class(value: Option<&str>) -> String {
         "restricted" | "secret" | "credential" => "restricted".to_string(),
         _ => "sensitive".to_string(),
     }
+}
+
+fn normalize_project_slug(value: &str) -> String {
+    let slug = value
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    if slug.is_empty() {
+        "sounio".to_string()
+    } else {
+        slug
+    }
+}
+
+fn normalize_marble_model(value: Option<&str>) -> String {
+    match value.unwrap_or("marble-1.1").trim().to_lowercase().as_str() {
+        "marble-1.0-draft" | "marble-1.0" | "marble-1.1" | "marble-1.1-plus" => {
+            value.unwrap_or("marble-1.1").trim().to_lowercase()
+        }
+        _ => "marble-1.1".to_string(),
+    }
+}
+
+fn normalize_marble_permission(value: Option<&str>) -> String {
+    match value
+        .unwrap_or("private")
+        .trim()
+        .to_lowercase()
+        .replace('-', "_")
+        .as_str()
+    {
+        "public" => "public".to_string(),
+        "unlisted" | "shared" => "unlisted".to_string(),
+        _ => "private".to_string(),
+    }
+}
+
+fn default_spatial_assets() -> SpatialAssetManifest {
+    SpatialAssetManifest {
+        pano_url: None,
+        collider_mesh_url: None,
+        hq_mesh_urls: Vec::new(),
+        spz_urls: BTreeMap::new(),
+        ply_urls: BTreeMap::new(),
+        coordinate_system: Some("opencv:+x-left,+y-down,+z-forward".to_string()),
+        coordinate_transform: Some("opencv_to_opengl:scale_yz_minus_one".to_string()),
+        asset_root: env::var("BEAGLE_SPATIAL_ASSET_ROOT")
+            .ok()
+            .filter(|value| !value.trim().is_empty()),
+        degraded_reason: Some("Marble assets pending; visionOS should use control room primitives until assets arrive.".to_string()),
+    }
+}
+
+fn ensure_spatial_prompt_is_safe(prompt: &str) -> anyhow::Result<()> {
+    let trimmed = prompt.trim();
+    anyhow::ensure!(!trimmed.is_empty(), "spatial prompt cannot be empty");
+    anyhow::ensure!(
+        trimmed.len() <= 4000,
+        "spatial prompt must be a sanitized summary under 4000 characters"
+    );
+    let lower = trimmed.to_lowercase();
+    let blocked = [
+        "client_secret",
+        "refresh_token",
+        "private key",
+        "-----begin",
+        "bearer ",
+        "api_key",
+        "password:",
+        "passwd",
+        "restricted:",
+        "raw log",
+        "token=",
+        "sk-",
+        "ghp_",
+    ];
+    anyhow::ensure!(
+        !blocked.iter().any(|needle| lower.contains(needle)),
+        "spatial prompt appears to contain restricted or secret material"
+    );
+    Ok(())
+}
+
+fn ensure_promoted_clip_is_safe(text: &str) -> anyhow::Result<()> {
+    let trimmed = text.trim();
+    anyhow::ensure!(
+        !trimmed.is_empty(),
+        "promoted portal clip requires explicit selected text"
+    );
+    anyhow::ensure!(
+        trimmed.len() <= 12_000,
+        "promoted portal clip must stay under 12000 characters"
+    );
+    let lower = trimmed.to_lowercase();
+    let blocked = [
+        "client_secret",
+        "refresh_token",
+        "private key",
+        "-----begin",
+        "bearer ",
+        "api_key",
+        "password:",
+        "passwd",
+        "restricted:",
+        "raw log",
+        "token=",
+        "sk-",
+        "ghp_",
+    ];
+    anyhow::ensure!(
+        !blocked.iter().any(|needle| lower.contains(needle)),
+        "promoted portal clip appears to contain restricted or secret material"
+    );
+    Ok(())
+}
+
+fn normalize_provider_label(value: &str) -> String {
+    let normalized = value
+        .trim()
+        .to_lowercase()
+        .replace(' ', "-")
+        .replace('_', "-")
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-')
+        .collect::<String>();
+    if normalized.is_empty() {
+        "external-chat".to_string()
+    } else {
+        normalized
+    }
+}
+
+fn mind_palace_project_room(
+    project_slug: &str,
+    source_family: &str,
+    evidence_ref: Option<String>,
+    priority: f64,
+) -> MindPalaceRoom {
+    let slug = normalize_project_slug(project_slug);
+    let title = match slug.as_str() {
+        "sounio" => "Sounio".to_string(),
+        "beagle" => "Beagle".to_string(),
+        "free-thought" | "free_thought" => "Free Thought".to_string(),
+        other => title_case_label(other),
+    };
+    mind_palace_room(
+        &format!("project-{}", slug),
+        &title,
+        "project",
+        "active",
+        Some(slug.clone()),
+        source_family,
+        "Project rooms are living drawers: they can run work, hold evidence, and stay open while other conversations continue.",
+        &format!("Open the {} room and review its freshest memory signal.", title),
+        priority,
+        evidence_ref,
+        vec![format!("project:{}", slug), "memory-derived".to_string()],
+    )
+}
+
+fn mind_palace_room(
+    id: &str,
+    title: &str,
+    room_type: &str,
+    state: &str,
+    project_slug: Option<String>,
+    source_family: &str,
+    tension: &str,
+    next_action: &str,
+    priority: f64,
+    evidence_ref: Option<String>,
+    tags: Vec<String>,
+) -> MindPalaceRoom {
+    let evidence_refs = evidence_ref.into_iter().collect::<Vec<_>>();
+    MindPalaceRoom {
+        id: id.to_string(),
+        title: title.to_string(),
+        room_type: room_type.to_string(),
+        state: state.to_string(),
+        project_slug,
+        source_family: source_family.to_string(),
+        tension: tension.to_string(),
+        next_action: next_action.to_string(),
+        freshness: if state == "active" || state == "available" {
+            "fresh".to_string()
+        } else {
+            "remembered".to_string()
+        },
+        truth_mode: if evidence_refs.is_empty() {
+            "declared".to_string()
+        } else {
+            "observed".to_string()
+        },
+        priority: priority.clamp(0.0, 1.0),
+        desk_item_refs: Vec::new(),
+        evidence_refs,
+        tags: dedupe_strings(tags, 32),
+        provenance: serde_json::json!({
+            "schema_version": MIND_PALACE_SCHEMA,
+            "memory_derived": true,
+            "source_family": source_family
+        }),
+    }
+}
+
+fn upsert_mind_palace_room(
+    rooms: &mut BTreeMap<String, MindPalaceRoom>,
+    mut room: MindPalaceRoom,
+) {
+    if let Some(existing) = rooms.get_mut(&room.id) {
+        existing.priority = existing.priority.max(room.priority);
+        existing.state = if existing.state == "active" || room.state != "active" {
+            existing.state.clone()
+        } else {
+            room.state.clone()
+        };
+        merge_unique(&mut existing.evidence_refs, room.evidence_refs, 48);
+        merge_unique(&mut existing.tags, room.tags, 48);
+        if existing.truth_mode != "observed" && !existing.evidence_refs.is_empty() {
+            existing.truth_mode = "observed".to_string();
+        }
+        if existing.next_action.len() < room.next_action.len() {
+            existing.next_action = room.next_action;
+        }
+    } else {
+        room.evidence_refs = dedupe_strings(room.evidence_refs, 48);
+        room.tags = dedupe_strings(room.tags, 48);
+        rooms.insert(room.id.clone(), room);
+    }
+}
+
+fn spatial_desk_agent_lanes() -> Vec<String> {
+    vec![
+        "Primary Builder: Claude/Codex".to_string(),
+        "Code Worker: MiniMax-M2".to_string(),
+        "Long Thought: Kimi K2".to_string(),
+        "Maintainer: Qwen Coder".to_string(),
+        "Platform Operator: GLM Air".to_string(),
+        "Shell".to_string(),
+        "Global Reader: Palmyra X5".to_string(),
+        "Memory Experimenter: Jamba".to_string(),
+        "Video Memory: Pegasus".to_string(),
+        "Local Sensor: LFM2".to_string(),
+    ]
+}
+
+fn title_case_label(value: &str) -> String {
+    value
+        .split(['-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn normalize_transcription_segment(segment: TranscriptionSegment) -> TranscriptionSegment {
+    TranscriptionSegment {
+        text: truncate_chars(segment.text.trim(), 2000),
+        start_ms: segment.start_ms,
+        end_ms: segment.end_ms,
+        confidence: segment.confidence.map(|value| value.clamp(0.0, 1.0)),
+        source: segment
+            .source
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty()),
+    }
+}
+
+fn dedupe_strings(values: Vec<String>, limit: usize) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for value in values {
+        let trimmed = value.trim();
+        if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
+            continue;
+        }
+        out.push(trimmed.to_string());
+        if out.len() >= limit {
+            break;
+        }
+    }
+    out
 }
 
 fn projection_hash(episodes: &[MemoryEpisode], atoms: &[MemoryAtom]) -> anyhow::Result<String> {
@@ -7038,6 +12810,740 @@ fn stable_id(prefix: &str, parts: &[&str]) -> String {
     format!("{}:{}", prefix, hex_digest(hasher.finalize()))
 }
 
+fn sha256_content_hash(bytes: &[u8]) -> String {
+    format!("sha256:{}", content_hash(bytes))
+}
+
+fn media_type_extension(media_type: &str) -> &'static str {
+    match media_type
+        .split(';')
+        .next()
+        .unwrap_or(media_type)
+        .trim()
+        .to_lowercase()
+        .as_str()
+    {
+        "image/png" => "png",
+        "image/heic" | "image/heif" => "heic",
+        "image/webp" => "webp",
+        "application/pdf" => "pdf",
+        _ => "jpg",
+    }
+}
+
+fn normalize_epistemic_status(value: Option<&str>) -> String {
+    match value
+        .unwrap_or("belief")
+        .trim()
+        .to_lowercase()
+        .replace('-', "_")
+        .as_str()
+    {
+        "robust" | "robust<t>" => "robust".to_string(),
+        "knowledge" | "knowledge<t>" => "knowledge".to_string(),
+        "contest" | "contest<t>" | "contested" => "contest".to_string(),
+        _ => "belief".to_string(),
+    }
+}
+
+fn has_non_empty_json_object(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(map) => !map.is_empty(),
+        serde_json::Value::Null => false,
+        _ => true,
+    }
+}
+
+fn sounio_claim_can_be_knowledge(claim: &SounioClaim) -> bool {
+    !claim.evidence_refs.is_empty() && has_non_empty_json_object(&claim.provenance)
+}
+
+fn sounio_claim_can_be_robust(claim: &SounioClaim) -> bool {
+    let provenance = &claim.provenance;
+    let independent = provenance
+        .get("independent_verification")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+        || provenance
+            .get("replicated")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        || provenance
+            .get("verification")
+            .and_then(|value| value.as_str())
+            .map(|value| value.contains("independent") || value.contains("replicat"))
+            .unwrap_or(false);
+    claim.evidence_refs.len() >= 2 && sounio_claim_can_be_knowledge(claim) && independent
+}
+
+fn materialize_sounio_claim(
+    input: SounioClaimInput,
+    paper_run_id: Option<String>,
+    run: Option<&PaperRun>,
+) -> anyhow::Result<(SounioClaim, Vec<String>, Vec<String>)> {
+    let now = Utc::now().to_rfc3339();
+    let claim_text = input.claim_text.trim().to_string();
+    let subject = input
+        .subject
+        .unwrap_or_else(|| "scientific_claim".to_string())
+        .trim()
+        .to_string();
+    let id = input.id.unwrap_or_else(|| {
+        stable_id(
+            "sounio-claim",
+            &[
+                paper_run_id.as_deref().unwrap_or("standalone"),
+                &claim_text,
+                &subject,
+            ],
+        )
+    });
+    let mut claim = SounioClaim {
+        id,
+        created_at: now.clone(),
+        updated_at: now,
+        paper_run_id,
+        section_id: input.section_id,
+        claim_text,
+        subject,
+        value_type: input.value_type.or_else(|| Some("Claim<T>".to_string())),
+        epistemic_status: normalize_epistemic_status(input.epistemic_status.as_deref()),
+        evidence_refs: input.evidence_refs,
+        provenance: input.provenance,
+        confidence: input.confidence.unwrap_or(0.5).clamp(0.0, 1.0),
+        contestation: input.contestation,
+        review_state: input
+            .review_state
+            .unwrap_or_else(|| "unreviewed".to_string()),
+        promotion_rule: input.promotion_rule.unwrap_or_else(|| {
+            "Belief<T> may be created from intention; Knowledge<T> requires evidence+provenance; Robust<T> requires independent verification."
+                .to_string()
+        }),
+        publication_readiness: input
+            .publication_readiness
+            .unwrap_or_else(|| "not_ready".to_string()),
+        agent_refs: input.agent_refs,
+        contract_refs: input.contract_refs,
+        artifact_refs: input.artifact_refs,
+        chronoself_commit_refs: input.chronoself_commit_refs,
+        privacy_class: normalize_privacy_class(input.privacy_class.as_deref()),
+        rationale: input.rationale,
+    };
+    if let Some(run) = run {
+        if claim.agent_refs.is_empty() {
+            claim.agent_refs.push("beagle-agents".to_string());
+        }
+        if claim.artifact_refs.is_empty() {
+            claim.artifact_refs.extend(run.artifact_refs.clone());
+        }
+    }
+    let mut warnings = Vec::new();
+    match claim.epistemic_status.as_str() {
+        "robust" if !sounio_claim_can_be_robust(&claim) => {
+            warnings.push("Robust<T> requires multiple evidence refs and independent verification; claim downgraded.".to_string());
+            claim.epistemic_status = if sounio_claim_can_be_knowledge(&claim) {
+                "knowledge".to_string()
+            } else if claim.evidence_refs.is_empty() {
+                "belief".to_string()
+            } else {
+                "contest".to_string()
+            };
+        }
+        "knowledge" if !sounio_claim_can_be_knowledge(&claim) => {
+            warnings.push(
+                "Knowledge<T> requires evidence_refs and non-empty provenance; claim downgraded."
+                    .to_string(),
+            );
+            claim.epistemic_status = if claim.evidence_refs.is_empty() {
+                "belief".to_string()
+            } else {
+                "contest".to_string()
+            };
+        }
+        _ => {}
+    }
+    if claim.epistemic_status == "knowledge" {
+        claim.publication_readiness = "section_ready_with_provenance".to_string();
+    } else if claim.epistemic_status == "robust" {
+        claim.publication_readiness = "public_digest_ready".to_string();
+    }
+    let (errors, mut validation_warnings) = validate_materialized_sounio_claim(&claim);
+    warnings.append(&mut validation_warnings);
+    Ok((claim, errors, warnings))
+}
+
+fn validate_materialized_sounio_claim(claim: &SounioClaim) -> (Vec<String>, Vec<String>) {
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    if claim.claim_text.trim().is_empty() {
+        errors.push("claim_text is required".to_string());
+    }
+    if claim.subject.trim().is_empty() {
+        errors.push("subject is required".to_string());
+    }
+    if claim.privacy_class == "restricted" {
+        errors.push(
+            "privacy_class=restricted is blocked from Sounio public/active claim flow".to_string(),
+        );
+    }
+    if claim.epistemic_status == "knowledge" && !sounio_claim_can_be_knowledge(claim) {
+        errors.push("Knowledge<T> requires evidence_refs and non-empty provenance".to_string());
+    }
+    if claim.epistemic_status == "robust" && !sounio_claim_can_be_robust(claim) {
+        errors.push("Robust<T> requires multiple evidence refs and independent verification/replication provenance".to_string());
+    }
+    if claim.evidence_refs.is_empty() {
+        warnings.push(
+            "Claim has no evidence_refs and must remain Belief<T> or Contest<T>.".to_string(),
+        );
+    }
+    if !has_non_empty_json_object(&claim.provenance) {
+        warnings
+            .push("Claim provenance is empty; it cannot be promoted to Knowledge<T>.".to_string());
+    }
+    (errors, warnings)
+}
+
+fn sounio_claim_required_evidence(claim: &SounioClaim) -> Vec<String> {
+    match claim.epistemic_status.as_str() {
+        "robust" => vec![
+            "at least two evidence_refs".to_string(),
+            "provenance.independent_verification=true or provenance.replicated=true".to_string(),
+        ],
+        "knowledge" => vec![
+            "at least one evidence_ref".to_string(),
+            "non-empty provenance".to_string(),
+        ],
+        "contest" => vec!["contestation rationale or competing evidence".to_string()],
+        _ => vec!["human review before promotion".to_string()],
+    }
+}
+
+fn sounio_claim_promotion_gate(claim: &SounioClaim) -> serde_json::Value {
+    serde_json::json!({
+        "claim_id": claim.id.clone(),
+        "current_status": claim.epistemic_status.clone(),
+        "can_be_knowledge": sounio_claim_can_be_knowledge(claim),
+        "can_be_robust": sounio_claim_can_be_robust(claim),
+        "rule": claim.promotion_rule.clone(),
+        "beagle_observes": true,
+        "sounio_types": true
+    })
+}
+
+fn merge_json_objects(left: serde_json::Value, right: serde_json::Value) -> serde_json::Value {
+    match (left, right) {
+        (serde_json::Value::Object(mut left), serde_json::Value::Object(right)) => {
+            for (key, value) in right {
+                left.insert(key, value);
+            }
+            serde_json::Value::Object(left)
+        }
+        (_, right) => right,
+    }
+}
+
+fn sounio_claim_summary(claim: &SounioClaim) -> serde_json::Value {
+    serde_json::json!({
+        "id": claim.id.clone(),
+        "text": claim.claim_text.clone(),
+        "subject": claim.subject.clone(),
+        "status": claim.epistemic_status.clone(),
+        "review_state": claim.review_state.clone(),
+        "publication_readiness": claim.publication_readiness.clone(),
+        "evidence_count": claim.evidence_refs.len(),
+        "privacy_class": claim.privacy_class.clone(),
+        "section_id": claim.section_id.clone()
+    })
+}
+
+fn claim_lifecycle_status(claims: &[SounioClaim]) -> BTreeMap<String, String> {
+    claims
+        .iter()
+        .map(|claim| (claim.id.clone(), claim.epistemic_status.clone()))
+        .collect()
+}
+
+fn build_sounio_claim_graph(paper_run_id: &str, claims: Vec<SounioClaim>) -> SounioClaimGraph {
+    let mut status_counts = BTreeMap::<String, usize>::new();
+    let mut edges = Vec::new();
+    let mut unsupported_claim_ids = Vec::new();
+    let mut robust_claim_ids = Vec::new();
+    for claim in &claims {
+        *status_counts
+            .entry(claim.epistemic_status.clone())
+            .or_insert(0) += 1;
+        if claim.epistemic_status == "robust" {
+            robust_claim_ids.push(claim.id.clone());
+        }
+        if claim.evidence_refs.is_empty() || claim.epistemic_status == "belief" {
+            unsupported_claim_ids.push(claim.id.clone());
+        }
+        for evidence_ref in &claim.evidence_refs {
+            edges.push(serde_json::json!({
+                "from": claim.id,
+                "to": evidence_ref,
+                "kind": "supported_by"
+            }));
+        }
+        for agent_ref in &claim.agent_refs {
+            edges.push(serde_json::json!({
+                "from": agent_ref,
+                "to": claim.id,
+                "kind": "contributed_to"
+            }));
+        }
+    }
+    SounioClaimGraph {
+        paper_run_id: paper_run_id.to_string(),
+        generated_at: Utc::now().to_rfc3339(),
+        schema_version: SOUNIO_CLAIM_SCHEMA.to_string(),
+        claims,
+        edges,
+        status_counts,
+        unsupported_claim_ids,
+        robust_claim_ids,
+    }
+}
+
+fn sounio_agent_contributions(
+    events: &[SounioTraceEvent],
+    claims: &[SounioClaim],
+) -> Vec<serde_json::Value> {
+    let mut contributions = Vec::new();
+    for event in events {
+        if let Some(principal) = event
+            .provenance
+            .get("principal")
+            .and_then(|value| value.as_str())
+        {
+            contributions.push(serde_json::json!({
+                "agent": principal,
+                "event_type": event.event_type.clone(),
+                "step_id": event.step_id.clone(),
+                "summary": event.summary.clone()
+            }));
+        }
+    }
+    for claim in claims {
+        for agent in &claim.agent_refs {
+            contributions.push(serde_json::json!({
+                "agent": agent,
+                "claim_id": claim.id.clone(),
+                "epistemic_status": claim.epistemic_status.clone()
+            }));
+        }
+    }
+    contributions
+}
+
+fn sounio_approval_events(events: &[SounioTraceEvent]) -> Vec<serde_json::Value> {
+    events
+        .iter()
+        .filter(|event| {
+            event.event_type.contains("approval") || event.event_type.contains("review")
+        })
+        .map(|event| {
+            serde_json::json!({
+                "event_id": event.id.clone(),
+                "created_at": event.created_at.clone(),
+                "step_id": event.step_id.clone(),
+                "status": event.status.clone(),
+                "summary": event.summary.clone()
+            })
+        })
+        .collect()
+}
+
+fn sounio_evidence_table(claims: &[SounioClaim]) -> Vec<serde_json::Value> {
+    claims
+        .iter()
+        .flat_map(|claim| {
+            claim.evidence_refs.iter().map(move |evidence_ref| {
+                serde_json::json!({
+                    "claim_id": claim.id.clone(),
+                    "evidence_ref": evidence_ref,
+                    "epistemic_status": claim.epistemic_status.clone(),
+                    "provenance": claim.provenance.clone()
+                })
+            })
+        })
+        .collect()
+}
+
+fn sounio_score(graph: &SounioClaimGraph) -> serde_json::Value {
+    let total = graph.claims.len().max(1) as f64;
+    let knowledge = *graph.status_counts.get("knowledge").unwrap_or(&0) as f64;
+    let robust = *graph.status_counts.get("robust").unwrap_or(&0) as f64;
+    let unsupported = graph.unsupported_claim_ids.len() as f64;
+    let score =
+        ((knowledge + (robust * 1.5)) / total - (unsupported / total * 0.25)).clamp(0.0, 1.0);
+    serde_json::json!({
+        "score": (score * 100.0).round() / 100.0,
+        "claim_count": graph.claims.len(),
+        "status_counts": graph.status_counts.clone(),
+        "unsupported_claim_count": graph.unsupported_claim_ids.len(),
+        "robust_claim_count": graph.robust_claim_ids.len(),
+        "interpretation": "Higher when claims carry evidence/provenance and pass Knowledge<T>/Robust<T> gates."
+    })
+}
+
+fn sounio_public_claim_digest(claim: &SounioClaim) -> serde_json::Value {
+    serde_json::json!({
+        "id": claim.id.clone(),
+        "claim_text": claim.claim_text.clone(),
+        "subject": claim.subject.clone(),
+        "epistemic_status": claim.epistemic_status.clone(),
+        "evidence_refs": claim.evidence_refs.clone(),
+        "confidence": claim.confidence,
+        "publication_readiness": claim.publication_readiness.clone(),
+        "provenance_summary": {
+            "has_provenance": has_non_empty_json_object(&claim.provenance),
+            "artifact_refs": claim.artifact_refs.clone(),
+            "contract_refs": claim.contract_refs.clone()
+        }
+    })
+}
+
+fn sounio_public_trace_digest(event: &SounioTraceEvent) -> serde_json::Value {
+    serde_json::json!({
+        "event_id": event.id.clone(),
+        "created_at": event.created_at.clone(),
+        "step_id": event.step_id.clone(),
+        "event_type": event.event_type.clone(),
+        "status": event.status.clone(),
+        "summary": event.summary.clone(),
+        "artifact_count": event.artifact_refs.len()
+    })
+}
+
+fn sedenion_ssm_public_case(claims: &[SounioClaim]) -> serde_json::Value {
+    let claim_refs = claims
+        .iter()
+        .filter(|claim| {
+            let haystack = format!(
+                "{} {} {}",
+                claim.claim_text,
+                claim.subject,
+                claim.evidence_refs.join(" ")
+            )
+            .to_lowercase();
+            haystack.contains("sedenion") || haystack.contains("ssm") || haystack.contains("fano")
+        })
+        .map(sounio_public_claim_digest)
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "case_id": "sedenion-ssm-arc",
+        "role": "first strong Sounio demonstration",
+        "summary": "Sounio is evaluated through the Sedenion SSM arc: hypercomplex primitives, Fano/Cayley-Dickson structure, theorem-like claims, and epistemic verification.",
+        "claims": claim_refs,
+        "public_only": true,
+        "private_artifacts_policy": "raw private traces and corpus remain cluster-only"
+    })
+}
+
+fn sounio_program_hash(program: &SounioProgram) -> anyhow::Result<String> {
+    let mut hasher = Sha256::new();
+    hasher.update(SOUNIO_WORK_IR_SCHEMA.as_bytes());
+    hasher.update(serde_json::to_vec(program)?);
+    Ok(format!("sha256:{}", hex_digest(hasher.finalize())))
+}
+
+fn validate_sounio_program(program: &SounioProgram) -> Vec<String> {
+    let mut errors = Vec::new();
+    if program.id.trim().is_empty() {
+        errors.push("program.id is required".to_string());
+    }
+    if program.intent.trim().is_empty() {
+        errors.push("program.intent is required".to_string());
+    }
+    if program.plan.is_empty() {
+        errors.push("program.plan must contain at least one step".to_string());
+    }
+    if program.governance.provenance.is_null() {
+        errors.push("program.governance.provenance is required".to_string());
+    }
+    if program.governance.restricted_leak_check.is_null() {
+        errors.push("program.governance.restricted_leak_check is required".to_string());
+    }
+    for step in &program.plan {
+        if step.id.trim().is_empty() {
+            errors.push("plan step id is required".to_string());
+        }
+        if step.title.trim().is_empty() {
+            errors.push(format!("plan step {} title is required", step.id));
+        }
+        if step.provenance.is_null() {
+            errors.push(format!("plan step {} provenance is required", step.id));
+        }
+        if step.governance.is_null() {
+            errors.push(format!("plan step {} governance is required", step.id));
+        }
+    }
+    for evidence in &program.evidence {
+        if evidence.source_ref.trim().is_empty() {
+            errors.push(format!("evidence {} source_ref is required", evidence.id));
+        }
+    }
+    errors
+}
+
+fn sounio_program_warnings(program: &SounioProgram, source_format: Option<&str>) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if source_format == Some("sio") {
+        warnings.push(
+            ".sio syntax is planned as sugar over the canonical JSON/YAML IR in v2.4".to_string(),
+        );
+    }
+    if program.evidence.is_empty() {
+        warnings.push(
+            "program.evidence is empty; claims will start as unsupported until source mapping runs"
+                .to_string(),
+        );
+    }
+    if !program.governance.human_approval_required {
+        warnings.push("human_approval_required=false; Beagle PaperRun still requires human approval before publication".to_string());
+    }
+    warnings
+}
+
+fn sounio_temporal_spec(program: &SounioProgram) -> serde_json::Value {
+    serde_json::json!({
+        "workflow_type": "BeagleSelfWritingPaperRun",
+        "task_queue": "sounio-paperrun",
+        "deterministic_steps": program.plan.iter().map(|step| {
+            serde_json::json!({
+                "activity": step.id,
+                "title": step.title,
+                "requires_human_approval": step.requires_human_approval,
+                "retry_policy": {
+                    "maximum_attempts": 3,
+                    "non_retryable_errors": ["restricted_content", "unsupported_claim"]
+                }
+            })
+        }).collect::<Vec<_>>(),
+        "signals": ["approve_step", "request_revision", "abort_without_destructive_side_effect"],
+        "queries": ["status", "trace", "artifact_manifest"]
+    })
+}
+
+fn sounio_memory_projection_preview(program: &SounioProgram) -> serde_json::Value {
+    serde_json::json!({
+        "episode_kind": "sounio_work_program",
+        "atoms": [
+            {"type": "intent", "text": program.intent},
+            {"type": "workflow", "text": program.kind},
+            {"type": "next_action", "text": program.next_action}
+        ],
+        "hyperedges": program.plan.iter().map(|step| {
+            serde_json::json!({
+                "type": "workflow_step",
+                "program": program.id,
+                "step": step.id,
+                "agent": step.agent,
+                "strategy": step.strategy
+            })
+        }).collect::<Vec<_>>()
+    })
+}
+
+fn default_beagle_paper_title() -> String {
+    "Beagle: A Self-Governing Exocortex for Agentic Research, Work Memory, and Durable Cognitive Workflows".to_string()
+}
+
+fn default_beagle_paper_sections() -> Vec<&'static str> {
+    vec![
+        "Introduction",
+        "Related Work",
+        "Architecture",
+        "Sounio IR",
+        "Memory and ContextPack",
+        "MCP and Apple Surfaces",
+        "Evaluation",
+        "Security and Ethics",
+        "Limitations",
+    ]
+}
+
+fn default_beagle_self_writing_program() -> SounioProgram {
+    let provenance = serde_json::json!({
+        "source": "beagle-v2.4-plan",
+        "paper": "self-writing systems preprint",
+        "cluster_only": true
+    });
+    let governance = serde_json::json!({
+        "privacy_class": "sensitive",
+        "requires_provenance": true,
+        "restricted_policy": "exclude",
+        "human_approval_required": true
+    });
+    SounioProgram {
+        id: "beagle-self-writing-paperrun-v24".to_string(),
+        sounio_version: default_sounio_version(),
+        kind: default_sounio_program_kind(),
+        intent: "Write the Beagle systems paper using Beagle/Sounio as the durable, audited work substrate.".to_string(),
+        context: serde_json::json!({
+            "paper_type": "arXiv systems preprint",
+            "thesis": "self-writing paper with traceable agentic memory",
+            "canonical_memory": "/var/lib/beagle/exocortex",
+            "artifact_root": "/orangefs/beagle-memory-lab/paperruns"
+        }),
+        plan: [
+            ("retrieve_state", "Retrieve Beagle/Sounio state", false),
+            ("compile_context", "Compile ContextPack for the paper", false),
+            ("outline", "Create manuscript outline", false),
+            ("source_map", "Map claims to evidence and citations", false),
+            ("draft_section", "Draft Architecture/Methods section", false),
+            ("critical_review", "Run critical review and overclaim guard", false),
+            ("claim_check", "Mark unsupported claims before export", false),
+            ("human_approval", "Human approval gate before manuscript export", true),
+            ("revise", "Apply approved revisions", false),
+            ("export_manuscript", "Export Markdown/LaTeX/PDF draft", false),
+            ("record_effectiveness", "Record memory/context effectiveness", false),
+        ]
+        .iter()
+        .map(|(id, title, approval)| SounioStep {
+            id: id.to_string(),
+            title: title.to_string(),
+            objective: Some(format!("{title} for the Beagle self-writing systems paper.")),
+            agent: Some(if *id == "human_approval" { "demetrios" } else { "beagle-agents" }.to_string()),
+            strategy: Some(match *id {
+                "retrieve_state" => "retrieval_agent",
+                "compile_context" => "context_compiler",
+                "critical_review" | "claim_check" => "governor_critical",
+                _ => "durable_activity",
+            }.to_string()),
+            requires_human_approval: *approval,
+            provenance: provenance.clone(),
+            governance: governance.clone(),
+        })
+        .collect(),
+        actions: vec![
+            SounioAction {
+                id: "compile-to-temporal".to_string(),
+                action_type: "compile".to_string(),
+                target: "Temporal.Workflow:BeagleSelfWritingPaperRun".to_string(),
+                parameters: serde_json::json!({"task_queue": "sounio-paperrun"}),
+                provenance: provenance.clone(),
+            },
+            SounioAction {
+                id: "project-to-memory".to_string(),
+                action_type: "project".to_string(),
+                target: "Beagle.Memory:Episode+Atom+Hyperedge".to_string(),
+                parameters: serde_json::json!({"privacy_class": "sensitive"}),
+                provenance: provenance.clone(),
+            },
+        ],
+        evidence: Vec::new(),
+        decisions: vec![SounioDecision {
+            id: "decision-self-writing-paper".to_string(),
+            summary: "The first Sounio proof artifact is a durable PaperRun for the Beagle self-writing systems paper.".to_string(),
+            rationale: Some("A PaperRun tests continuity, provenance, claims, agents, memory, and publication artifacts in one loop.".to_string()),
+            evidence_refs: Vec::new(),
+            provenance: provenance.clone(),
+        }],
+        checks: vec![
+            SounioCheck {
+                id: "restricted-leak-zero".to_string(),
+                check_type: "security".to_string(),
+                description: "Restricted content must not enter manuscript/export artifacts.".to_string(),
+                status: Some("required".to_string()),
+                required: true,
+                provenance: provenance.clone(),
+            },
+            SounioCheck {
+                id: "unsupported-claims-marked".to_string(),
+                check_type: "paper_quality".to_string(),
+                description: "Every claim is supported by evidence/provenance or marked unsupported.".to_string(),
+                status: Some("required".to_string()),
+                required: true,
+                provenance: provenance.clone(),
+            },
+        ],
+        outcome: None,
+        next_action: Some("Start PaperRun, approve the human gate, then export a reviewed draft.".to_string()),
+        governance: SounioGovernance {
+            privacy_class: "sensitive".to_string(),
+            provenance,
+            restricted_leak_check: serde_json::json!({"status": "required", "policy": "exclude_restricted"}),
+            human_approval_required: true,
+            policy_refs: vec![
+                "admin:destructive absent".to_string(),
+                "human approval before publication".to_string(),
+            ],
+        },
+    }
+}
+
+fn default_beagle_paper_claims() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({
+            "id": "claim-exocortex-loop",
+            "text": "Beagle implements a durable exocortex loop connecting memory, agents, MCP, Apple surfaces, and audited action.",
+            "status": "needs_evidence",
+            "required_evidence": ["MCP manifest", "GraphRAG++ memory", "Apple capture", "audit trail"]
+        }),
+        serde_json::json!({
+            "id": "claim-sounio-ir",
+            "text": "Sounio models cognitive work as a replayable, auditable intermediate representation.",
+            "status": "needs_evidence",
+            "required_evidence": ["SounioProgram", "Temporal workflow", "SounioTraceEvent"]
+        }),
+        serde_json::json!({
+            "id": "claim-self-writing-method",
+            "text": "The paper production process itself can be captured as evidence for the system architecture.",
+            "status": "unsupported_until_paperrun_trace_exists",
+            "required_evidence": ["PaperRun trace", "ContextPack", "human approval"]
+        }),
+    ]
+}
+
+fn default_beagle_paper_citations() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({"id": "temporal-docs", "title": "Temporal durable execution documentation", "status": "source-map-pending"}),
+        serde_json::json!({"id": "mcp-spec", "title": "Model Context Protocol specification", "status": "source-map-pending"}),
+        serde_json::json!({"id": "literate-programming", "title": "Literate Programming", "status": "source-map-pending"}),
+        serde_json::json!({"id": "research-object-crate", "title": "Workflow Run RO-Crate", "status": "source-map-pending"}),
+    ]
+}
+
+fn paper_run_markdown(run: &PaperRun) -> String {
+    let mut text = format!(
+        "# {}\n\n**PaperRun:** `{}`  \n**Temporal workflow:** `{}`  \n**Sounio program hash:** `{}`  \n**Status:** `{}`\n\n",
+        run.title, run.id, run.temporal_workflow_id, run.sounio_program_hash, run.status
+    );
+    text.push_str("## Abstract\n\n");
+    text.push_str(
+        "TODO: draft after ContextPack, source mapping, critical review, and human approval.\n\n",
+    );
+    for section in default_beagle_paper_sections() {
+        let status = run
+            .section_status
+            .get(section)
+            .cloned()
+            .unwrap_or_else(|| "planned".to_string());
+        text.push_str(&format!("## {section}\n\n_Status: {status}._\n\n"));
+    }
+    text.push_str("## Claim Registry\n\n");
+    for claim in &run.claim_registry {
+        let id = claim
+            .get("id")
+            .and_then(|value| value.as_str())
+            .unwrap_or("claim");
+        let status = claim
+            .get("status")
+            .and_then(|value| value.as_str())
+            .unwrap_or("needs_evidence");
+        let claim_text = claim
+            .get("text")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        text.push_str(&format!("- `{id}` [{status}]: {claim_text}\n"));
+    }
+    text.push_str("\n## Publication Guard\n\nNo automatic arXiv submission. Human approval is required before external release.\n");
+    text
+}
+
 fn atoms_from_import(import: &OmniConversation, episode: &MemoryEpisode) -> Vec<MemoryAtom> {
     let mut atoms = Vec::new();
     push_atoms(
@@ -7241,6 +13747,383 @@ fn hypermemory_atom_score(atom: &MemoryAtom, query_tokens: &[String]) -> f64 {
         .clamp(0.0, 1.0)
 }
 
+#[derive(Debug, Clone)]
+struct RankedMemoryAtom {
+    atom: MemoryAtom,
+    base_score: f64,
+    final_score: f64,
+    exact_boost: f64,
+    recency_boost: f64,
+    source_boost: f64,
+    stable_boost: f64,
+    reasons: Vec<String>,
+}
+
+fn memory_ranking_policy(requested: Option<&str>) -> String {
+    let raw = requested
+        .map(ToOwned::to_owned)
+        .or_else(|| env::var("BEAGLE_MEMORY_RANKING_POLICY").ok())
+        .unwrap_or_else(|| "strict_recent_guarded".to_string())
+        .to_lowercase();
+    match raw.as_str() {
+        "legacy_stable" => "legacy_stable".to_string(),
+        _ => "strict_recent_guarded".to_string(),
+    }
+}
+
+fn stable_fact_guard_applies(query: &str, query_tokens: &[String]) -> bool {
+    let q = query.to_lowercase();
+    let stable_terms = [
+        "portfolio",
+        "mandic",
+        "ra",
+        "18224624",
+        "doi",
+        "e-mail",
+        "email",
+        "congresso",
+        "congress",
+        "cpc",
+        "dmh",
+        "data",
+        "date",
+        "identidade",
+        "identity",
+        "histórico",
+        "historico",
+        "history",
+        "rapamicina",
+        "cistinose",
+        "phd",
+        "mensa",
+        "publicação",
+        "publicacao",
+        "publication",
+    ];
+    stable_terms.iter().any(|term| q.contains(term))
+        || query_tokens
+            .iter()
+            .any(|token| token.starts_with("10.") || token.starts_with("ra_"))
+}
+
+fn is_restricted_memory(atom: &MemoryAtom, episode: Option<&MemoryEpisode>) -> bool {
+    let mut material = vec![
+        atom.privacy_class.to_lowercase(),
+        atom.tags.join(" ").to_lowercase(),
+        atom.source_refs.join(" ").to_lowercase(),
+    ];
+    if let Some(episode) = episode {
+        material.push(episode.privacy_class.to_lowercase());
+        material.push(episode.tags.join(" ").to_lowercase());
+        material.push(episode.provenance.to_string().to_lowercase());
+    }
+    material
+        .join(" ")
+        .split_whitespace()
+        .any(|token| token == "restricted" || token == "restricted_local_only")
+}
+
+fn rank_memory_atom(
+    atom: &MemoryAtom,
+    episode: Option<&MemoryEpisode>,
+    base_score: f64,
+    query_tokens: &[String],
+    ranking_policy: &str,
+    stable_fact_guard: bool,
+) -> RankedMemoryAtom {
+    if ranking_policy == "legacy_stable" {
+        return RankedMemoryAtom {
+            atom: atom.clone(),
+            base_score,
+            final_score: base_score,
+            exact_boost: 0.0,
+            recency_boost: 0.0,
+            source_boost: 0.0,
+            stable_boost: 0.0,
+            reasons: vec!["legacy_stable policy kept historical score order".to_string()],
+        };
+    }
+
+    let material = ranking_material(atom, episode);
+    let exact_hits = query_tokens
+        .iter()
+        .filter(|token| token.len() >= 4 && material.contains(token.as_str()))
+        .count();
+    let id_hits = query_tokens
+        .iter()
+        .filter(|token| {
+            token.len() >= 6 && looks_like_identifier(token) && material.contains(token.as_str())
+        })
+        .count();
+    let live_work_material = is_live_work_material(&material);
+    let stable_fact_material = is_stable_fact_material(&material);
+    let stable_fact_source = is_stable_fact_source(atom, episode, &material);
+    let mut exact_boost = ((exact_hits as f64 * 0.045) + (id_hits as f64 * 0.18)).clamp(0.0, 0.42);
+    if stable_fact_guard && live_work_material && !stable_fact_source {
+        exact_boost *= 0.35;
+    }
+    let source_boost = if !stable_fact_guard && live_work_material {
+        0.14
+    } else {
+        0.0
+    };
+    let stable_boost = if stable_fact_guard && stable_fact_source {
+        0.5
+    } else if stable_fact_guard && stable_fact_material && !live_work_material {
+        0.2
+    } else if stable_fact_guard && stable_fact_material {
+        0.0
+    } else {
+        0.0
+    };
+    let recency_boost = recency_boost_for(atom, episode, stable_fact_guard, stable_fact_source);
+    let weighted_base = if stable_fact_guard && live_work_material && !stable_fact_source {
+        base_score * 0.25
+    } else if stable_fact_guard && stable_fact_source {
+        base_score * 0.9
+    } else if stable_fact_guard {
+        base_score * 0.82
+    } else {
+        base_score * 0.58
+    };
+    let confidence_boost = if stable_fact_guard {
+        atom.confidence * 0.04
+    } else {
+        atom.confidence * 0.08
+    };
+    let final_score = (weighted_base
+        + exact_boost
+        + source_boost
+        + stable_boost
+        + recency_boost
+        + confidence_boost)
+        .clamp(0.0, 1.0);
+
+    let mut reasons = Vec::new();
+    if exact_boost > 0.0 {
+        reasons.push(format!("exact_or_identifier_boost={exact_boost:.3}"));
+    }
+    if recency_boost > 0.0 {
+        reasons.push(format!("recency_boost={recency_boost:.3}"));
+    }
+    if source_boost > 0.0 {
+        reasons.push(format!("live_work_source_boost={source_boost:.3}"));
+    }
+    if stable_boost > 0.0 {
+        reasons.push(format!("stable_fact_guard_boost={stable_boost:.3}"));
+    }
+    if stable_fact_guard {
+        reasons.push("Stable Fact Guard reduced recency pressure.".to_string());
+    }
+
+    RankedMemoryAtom {
+        atom: atom.clone(),
+        base_score,
+        final_score,
+        exact_boost,
+        recency_boost,
+        source_boost,
+        stable_boost,
+        reasons,
+    }
+}
+
+fn ranking_material(atom: &MemoryAtom, episode: Option<&MemoryEpisode>) -> String {
+    let mut parts = vec![
+        atom.id.as_str(),
+        atom.episode_id.as_str(),
+        atom.atom_type.as_str(),
+        atom.text.as_str(),
+        atom.normalized_text.as_str(),
+    ]
+    .into_iter()
+    .map(ToOwned::to_owned)
+    .collect::<Vec<_>>();
+    parts.extend(atom.tags.clone());
+    parts.extend(atom.source_refs.clone());
+    parts.extend(atom.relations.iter().flat_map(|relation| {
+        [
+            relation.subject.clone(),
+            relation.predicate.clone(),
+            relation.object.clone(),
+        ]
+    }));
+    if let Some(episode) = episode {
+        parts.extend([
+            episode.id.clone(),
+            episode.source.clone(),
+            episode.source_ref.clone(),
+            episode.content_hash.clone(),
+            episode.privacy_class.clone(),
+        ]);
+        if let Some(platform) = &episode.source_platform {
+            parts.push(platform.clone());
+        }
+        if let Some(session_id) = &episode.session_id {
+            parts.push(session_id.clone());
+        }
+        if let Some(title) = &episode.title {
+            parts.push(title.clone());
+        }
+        parts.extend(episode.tags.clone());
+        parts.extend(episode.linked_chronoself_commits.clone());
+        parts.push(episode.provenance.to_string());
+    }
+    parts.join(" ").to_lowercase()
+}
+
+fn looks_like_identifier(token: &str) -> bool {
+    token.chars().any(|ch| ch.is_ascii_digit())
+        || token.contains('-')
+        || token.contains('_')
+        || token.starts_with("sha")
+}
+
+fn is_live_work_material(material: &str) -> bool {
+    [
+        "workbench",
+        "terminal-block",
+        "codex",
+        "claude-code",
+        "beagle-workbench",
+        "beagle-apple",
+        "source_surface",
+        "memory_event_id",
+        "audit_event_id",
+        "branch",
+        "commit",
+    ]
+    .iter()
+    .any(|term| material.contains(term))
+}
+
+fn is_stable_fact_material(material: &str) -> bool {
+    [
+        "portfolio",
+        "mandic",
+        "ra_18224624",
+        "18224624",
+        "doi",
+        "congresso",
+        "cpc_2026",
+        "dmh_2026",
+        "rapamicina",
+        "cistinose",
+        "documento_canonico",
+        "v3_final",
+    ]
+    .iter()
+    .any(|term| material.contains(term))
+}
+
+fn is_stable_fact_source(
+    atom: &MemoryAtom,
+    episode: Option<&MemoryEpisode>,
+    material: &str,
+) -> bool {
+    let stable_tags_or_refs = atom
+        .tags
+        .iter()
+        .chain(atom.source_refs.iter())
+        .any(|value| {
+            let value = value.to_lowercase();
+            [
+                "portfolio_institucional",
+                "documento_canonico",
+                "v3_final",
+                "mandic",
+                "ra_18224624",
+                "doi",
+                "publication",
+                "publicacao",
+            ]
+            .iter()
+            .any(|term| value.contains(term))
+        });
+    let stable_episode = episode.is_some_and(|episode| {
+        let source = episode.source.to_lowercase();
+        let source_platform = episode
+            .source_platform
+            .as_deref()
+            .unwrap_or_default()
+            .to_lowercase();
+        let source_surface = episode
+            .provenance
+            .get("metadata")
+            .and_then(|metadata| metadata.get("source_surface"))
+            .and_then(|surface| surface.as_str())
+            .unwrap_or_default()
+            .to_lowercase();
+        source.contains("portfolio")
+            || source_platform.contains("portfolio")
+            || source_surface.contains("portfolio-import")
+            || episode.tags.iter().any(|tag| {
+                let tag = tag.to_lowercase();
+                tag.contains("portfolio_institucional")
+                    || tag.contains("documento_canonico")
+                    || tag.contains("v3_final")
+            })
+    });
+
+    stable_episode
+        || stable_tags_or_refs
+        || (is_stable_fact_material(material) && !is_live_work_material(material))
+}
+
+fn recency_boost_for(
+    atom: &MemoryAtom,
+    episode: Option<&MemoryEpisode>,
+    stable_fact_guard: bool,
+    stable_fact_source: bool,
+) -> f64 {
+    let timestamp = atom
+        .occurred_at
+        .as_deref()
+        .or_else(|| episode.and_then(|episode| episode.occurred_at.as_deref()))
+        .or_else(|| Some(atom.created_at.as_str()))
+        .and_then(|date| chrono::DateTime::parse_from_rfc3339(date).ok());
+    let Some(timestamp) = timestamp else {
+        return 0.0;
+    };
+    let age_hours = (Utc::now() - timestamp.with_timezone(&Utc))
+        .num_hours()
+        .max(0) as f64;
+    if stable_fact_guard {
+        if !stable_fact_source {
+            return 0.0;
+        }
+        (0.045 / (1.0 + age_hours / 720.0)).clamp(0.0, 0.045)
+    } else {
+        (0.36 / (1.0 + age_hours / 168.0)).clamp(0.0, 0.36)
+    }
+}
+
+fn ranking_trace_json(
+    ranked: &[RankedMemoryAtom],
+    ranking_policy: &str,
+    stable_fact_guard_applied: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "policy": ranking_policy,
+        "stable_fact_guard_applied": stable_fact_guard_applied,
+        "top": ranked.iter().take(8).map(|item| {
+            serde_json::json!({
+                "atom_id": item.atom.id,
+                "episode_id": item.atom.episode_id,
+                "atom_type": item.atom.atom_type,
+                "base_score": item.base_score,
+                "final_score": item.final_score,
+                "exact_boost": item.exact_boost,
+                "recency_boost": item.recency_boost,
+                "source_boost": item.source_boost,
+                "stable_boost": item.stable_boost,
+                "occurred_at": item.atom.occurred_at,
+                "reasons": item.reasons,
+            })
+        }).collect::<Vec<_>>()
+    })
+}
+
 fn truncate_chars(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
 }
@@ -7422,10 +14305,11 @@ mod tests {
         let trust = home.trust_context.unwrap();
         assert_eq!(trust.mcp_status, "audit-log-observed");
         assert_eq!(trust.tool_manifest_hash.as_deref(), Some("sha256:test"));
-        assert!(home
-            .memory_signals
-            .iter()
-            .any(|signal| signal.contains("audited")));
+        assert!(
+            home.memory_signals
+                .iter()
+                .any(|signal| signal.contains("audited"))
+        );
     }
 
     #[test]
@@ -7445,10 +14329,12 @@ mod tests {
         .unwrap();
         let projects = repo.active_projects().unwrap();
         assert_eq!(projects[0].id, "beagle-apple-suite");
-        assert!(projects[0]
-            .recent_events
-            .iter()
-            .any(|event| event.contains("iPhone")));
+        assert!(
+            projects[0]
+                .recent_events
+                .iter()
+                .any(|event| event.contains("iPhone"))
+        );
     }
 
     #[test]
@@ -7532,21 +14418,32 @@ mod tests {
                 scope: None,
                 max_items: Some(5),
                 mode: None,
+                ranking_policy: None,
             })
             .unwrap();
-        assert_eq!(result.evidence.len(), 1);
-        assert_eq!(result.evidence[0].atom_type, "decision");
+        assert!(!result.evidence.is_empty());
         assert!(result
-            .relations
+            .evidence
             .iter()
-            .any(|relation| relation.subject == "beagle"));
+            .any(|evidence| evidence.atom_type == "decision"
+                && evidence
+                    .text
+                    .contains("GraphRAG++ persistente deve ser o núcleo")));
+        assert!(
+            result
+                .relations
+                .iter()
+                .any(|relation| relation.subject == "beagle")
+        );
         assert!(result.degraded_reason.is_some());
-        assert_eq!(result.mode.as_deref(), Some("graphsearch-lite"));
-        assert!(result
-            .evidence_graph
-            .as_ref()
-            .map(|graph| !graph.nodes.is_empty() && !graph.merkle_root.is_empty())
-            .unwrap_or(false));
+        assert_eq!(result.mode.as_deref(), Some("hypermemory_multivector"));
+        assert!(
+            result
+                .evidence_graph
+                .as_ref()
+                .map(|graph| !graph.nodes.is_empty() && !graph.merkle_root.is_empty())
+                .unwrap_or(false)
+        );
         assert!(!result.retrieval_trace.is_empty());
     }
 
@@ -7586,19 +14483,249 @@ mod tests {
                 scope: None,
                 max_items: Some(5),
                 mode: Some("hypermemory".to_string()),
+                ranking_policy: None,
             })
             .unwrap();
 
         assert_eq!(result.mode.as_deref(), Some("hypermemory"));
         assert!(!result.evidence.is_empty());
-        assert!(result
-            .retrieval_trace
-            .iter()
-            .any(|step| step.stage == "hypermemory-topic-world-selection"));
+        assert!(
+            result
+                .retrieval_trace
+                .iter()
+                .any(|step| step.stage == "hypermemory-topic-world-selection")
+        );
         assert_eq!(
             result.provenance["hypermemory"]["authority"].as_str(),
             Some("derived-advisory")
         );
+    }
+
+    #[test]
+    fn strict_recent_guarded_ranking_prioritizes_exact_recent_workbench_block() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        repo.assisted_import_batch(AssistedImportBatchRequest {
+            source_platform: "codex".to_string(),
+            source_surface: "beagle-workbench".to_string(),
+            import_scope: "workbench_terminal_block".to_string(),
+            session_id: "beagle-v32-pty-smoke".to_string(),
+            project_ref: Some("beagle".to_string()),
+            batch_index: 1,
+            batch_total: 1,
+            turns: vec![AssistedImportTurn {
+                role: "assistant".to_string(),
+                content: "Decisão: v3.2 validou o modelo de Workbench, mas ainda não era o supervisor v3.3.".to_string(),
+                timestamp: Some("2026-04-29T10:00:00Z".to_string()),
+                model: Some("codex".to_string()),
+            }],
+            tags: vec!["workbench".to_string(), "terminal-block".to_string()],
+            metadata: serde_json::json!({
+                "terminal_block_id": "block-v32-old",
+                "branch": "codex/beagle-mcp-public-claude",
+                "commit": "v32old"
+            }),
+            coverage: serde_json::Value::Null,
+            extracted: Some(OmniExtraction {
+                decisions: vec!["v3.2 validou o modelo de Workbench.".to_string()],
+                projects_mentioned: vec!["beagle".to_string()],
+                ..Default::default()
+            }),
+            privacy_class: Some("sensitive".to_string()),
+            title: Some("v3.2 workbench smoke".to_string()),
+            original_date: Some("2026-04-29T10:00:00Z".to_string()),
+            confidence_score: Some(0.82),
+            create_chronoself_commit: Some(false),
+            capture_session_id: None,
+            artifact_refs: Vec::new(),
+            transcription_segments: Vec::new(),
+            visual_evidence_refs: Vec::new(),
+        })
+        .unwrap();
+        repo.assisted_import_batch(AssistedImportBatchRequest {
+            source_platform: "codex".to_string(),
+            source_surface: "beagle-workbench".to_string(),
+            import_scope: "workbench_terminal_block".to_string(),
+            session_id: "wb-mom36qkm-f504bee5".to_string(),
+            project_ref: Some("beagle".to_string()),
+            batch_index: 1,
+            batch_total: 1,
+            turns: vec![AssistedImportTurn {
+                role: "assistant".to_string(),
+                content: "Decisão: beagle-v33-pty-smoke confirmou Durable PTY Supervisor com replay e memória curada.".to_string(),
+                timestamp: Some("2026-04-30T20:30:00Z".to_string()),
+                model: Some("codex".to_string()),
+            }],
+            tags: vec!["workbench".to_string(), "terminal-block".to_string(), "v3.3".to_string()],
+            metadata: serde_json::json!({
+                "terminal_block_id": "block-mom36qlp-697ee4e2",
+                "branch": "codex/beagle-mcp-public-claude",
+                "commit": "062be42",
+                "memory_event_id": "92250283-0ec8-462a-802a-2d69d65b2ae2",
+                "audit_event_id": "b0db505b-4600-4de2-8f54-d1312d7c015e"
+            }),
+            coverage: serde_json::Value::Null,
+            extracted: Some(OmniExtraction {
+                decisions: vec![
+                    "beagle-v33-pty-smoke confirmou Durable PTY Supervisor com replay e memória curada."
+                        .to_string(),
+                ],
+                projects_mentioned: vec!["beagle".to_string()],
+                ..Default::default()
+            }),
+            privacy_class: Some("sensitive".to_string()),
+            title: Some("v3.3 PTY smoke".to_string()),
+            original_date: Some("2026-04-30T20:30:00Z".to_string()),
+            confidence_score: Some(0.92),
+            create_chronoself_commit: Some(false),
+            capture_session_id: None,
+            artifact_refs: Vec::new(),
+            transcription_segments: Vec::new(),
+            visual_evidence_refs: Vec::new(),
+        })
+        .unwrap();
+
+        let response = repo
+            .graphrag_query(GraphRagQueryRequest {
+                query: "beagle-v33-pty-smoke block-mom36qlp".to_string(),
+                scope: None,
+                max_items: Some(5),
+                mode: Some("hypermemory_multivector".to_string()),
+                ranking_policy: Some("strict_recent_guarded".to_string()),
+            })
+            .unwrap();
+        assert_eq!(
+            response.ranking_policy.as_deref(),
+            Some("strict_recent_guarded")
+        );
+        assert!(response.recency_boost_applied);
+        assert!(!response.stable_fact_guard_applied);
+        assert_eq!(
+            response
+                .evidence
+                .first()
+                .and_then(|item| item.provenance["metadata"]["terminal_block_id"].as_str()),
+            Some("block-mom36qlp-697ee4e2")
+        );
+    }
+
+    #[test]
+    fn stable_fact_guard_preserves_portfolio_identity_over_recent_work_memory() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        repo.import_conversation(ImportConversationRequest {
+            source_platform: "portfolio".to_string(),
+            session_id: Some("portfolio_mandic_v3_2026-04-27".to_string()),
+            original_date: Some("2026-04-27T12:00:00Z".to_string()),
+            raw_content: "Portfólio institucional Mandic: Turma IX, RA 18224624, Grupo A."
+                .to_string(),
+            title: Some("Portfolio Mandic v3".to_string()),
+            tags: vec![
+                "portfolio_institucional".to_string(),
+                "mandic".to_string(),
+                "ra_18224624".to_string(),
+                "documento_canonico".to_string(),
+            ],
+            extracted: Some(OmniExtraction {
+                key_insights: vec!["Mandic Turma IX, RA 18224624, Grupo A.".to_string()],
+                projects_mentioned: vec!["portfolio".to_string()],
+                ..Default::default()
+            }),
+            confidence_score: Some(0.97),
+            create_chronoself_commit: None,
+            privacy_class: Some("sensitive".to_string()),
+            metadata: Some(serde_json::json!({"source_surface": "portfolio-import"})),
+        })
+        .unwrap();
+        repo.assisted_import_batch(AssistedImportBatchRequest {
+            source_platform: "codex".to_string(),
+            source_surface: "codex-work-memory".to_string(),
+            import_scope: "agent_work_session".to_string(),
+            session_id: "recent-ra-question".to_string(),
+            project_ref: Some("beagle".to_string()),
+            batch_index: 1,
+            batch_total: 1,
+            turns: vec![AssistedImportTurn {
+                role: "assistant".to_string(),
+                content: "Pergunta recente: qual é meu RA Mandic? verificar no portfólio antes de responder.".to_string(),
+                timestamp: Some("2026-04-30T22:00:00Z".to_string()),
+                model: Some("codex".to_string()),
+            }],
+            tags: vec!["work-memory".to_string(), "codex".to_string()],
+            metadata: serde_json::json!({"branch": "codex/beagle-mcp-public-claude"}),
+            coverage: serde_json::Value::Null,
+            extracted: Some(OmniExtraction {
+                unresolved_questions: vec!["qual é meu RA Mandic?".to_string()],
+                projects_mentioned: vec!["beagle".to_string()],
+                ..Default::default()
+            }),
+            privacy_class: Some("sensitive".to_string()),
+            title: Some("Recent RA question".to_string()),
+            original_date: Some("2026-04-30T22:00:00Z".to_string()),
+            confidence_score: Some(0.75),
+            create_chronoself_commit: Some(false),
+            capture_session_id: None,
+            artifact_refs: Vec::new(),
+            transcription_segments: Vec::new(),
+            visual_evidence_refs: Vec::new(),
+        })
+        .unwrap();
+
+        let response = repo
+            .graphrag_query(GraphRagQueryRequest {
+                query: "qual é meu RA Mandic?".to_string(),
+                scope: None,
+                max_items: Some(5),
+                mode: Some("hypermemory_multivector".to_string()),
+                ranking_policy: Some("strict_recent_guarded".to_string()),
+            })
+            .unwrap();
+        assert!(response.stable_fact_guard_applied);
+        assert_eq!(
+            response
+                .evidence
+                .first()
+                .and_then(|item| item.provenance["metadata"]["source_surface"].as_str()),
+            Some("portfolio-import")
+        );
+    }
+
+    #[test]
+    fn graph_query_filters_restricted_local_only_atoms_from_active_evidence() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        repo.import_conversation(ImportConversationRequest {
+            source_platform: "beagle-apple".to_string(),
+            session_id: Some("restricted-terminal-block".to_string()),
+            original_date: Some("2026-04-30T21:00:00Z".to_string()),
+            raw_content: "Decisão restrita: fake token output should never become active evidence."
+                .to_string(),
+            title: Some("Restricted local block".to_string()),
+            tags: vec!["restricted_local_only".to_string(), "workbench".to_string()],
+            extracted: Some(OmniExtraction {
+                decisions: vec![
+                    "fake token output should never become active evidence.".to_string(),
+                ],
+                projects_mentioned: vec!["beagle".to_string()],
+                ..Default::default()
+            }),
+            confidence_score: Some(0.7),
+            create_chronoself_commit: None,
+            privacy_class: Some("sensitive".to_string()),
+            metadata: Some(serde_json::json!({"privacy_class": "restricted_local_only"})),
+        })
+        .unwrap();
+        let response = repo
+            .graphrag_query(GraphRagQueryRequest {
+                query: "fake token output active evidence".to_string(),
+                scope: None,
+                max_items: Some(5),
+                mode: Some("hypermemory_multivector".to_string()),
+                ranking_policy: Some("strict_recent_guarded".to_string()),
+            })
+            .unwrap();
+        assert!(response.evidence.is_empty());
+        assert_eq!(response.restricted_leak_check["restricted_leak_count"], 0);
     }
 
     #[test]
@@ -7645,11 +14772,13 @@ mod tests {
         assert_eq!(status.latest_score, Some(0.84));
         assert_eq!(status.truthset_id.as_deref(), Some("truth-v19"));
         assert!(status.hot_path_eligible);
-        assert!(status
-            .promotion_gate
-            .as_ref()
-            .map(|gate| gate.eligible)
-            .unwrap_or(false));
+        assert!(
+            status
+                .promotion_gate
+                .as_ref()
+                .map(|gate| gate.eligible)
+                .unwrap_or(false)
+        );
         let home = repo
             .build_home_snapshot(HomeQuery {
                 active_project_slug: None,
@@ -7764,10 +14893,12 @@ mod tests {
         let recent = repo.memory_graph_recent(10).unwrap();
         assert_eq!(recent.status.episode_count, 1);
         assert!(!recent.episodes.is_empty());
-        assert!(recent
-            .atoms
-            .iter()
-            .any(|atom| atom.text.contains("Memory Lens")));
+        assert!(
+            recent
+                .atoms
+                .iter()
+                .any(|atom| atom.text.contains("Memory Lens"))
+        );
         assert_eq!(
             recent.provenance["canonical_store"],
             "/var/lib/beagle/exocortex"
@@ -7806,10 +14937,12 @@ mod tests {
             })
             .unwrap();
         assert_eq!(bakeoff.schema_version, MEMORY_GRAPH_SCHEMA);
-        assert!(bakeoff
-            .candidates
-            .iter()
-            .any(|candidate| candidate.name == "FalkorDB GraphBLAS"));
+        assert!(
+            bakeoff
+                .candidates
+                .iter()
+                .any(|candidate| candidate.name == "FalkorDB GraphBLAS")
+        );
 
         let index = repo
             .index_graph(GraphIndexRequest {
@@ -7826,10 +14959,224 @@ mod tests {
 
         let worlds = repo.memory_worlds_recent(10).unwrap();
         assert_eq!(worlds.graph_status.schema_version, MEMORY_GRAPH_SCHEMA);
-        assert!(worlds
-            .worlds
-            .iter()
-            .any(|world| world.provenance["content_addressed"] == true));
+        assert!(
+            worlds
+                .worlds
+                .iter()
+                .any(|world| world.provenance["content_addressed"] == true)
+        );
+    }
+
+    #[test]
+    fn spatial_world_registers_private_marble_control_room_and_evidence() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        let mut spz_urls = BTreeMap::new();
+        spz_urls.insert(
+            "low_res".to_string(),
+            "https://assets.example/sounio.spz".to_string(),
+        );
+        let world = repo
+            .create_spatial_world(CreateSpatialWorldRequest {
+                project_slug: Some("sounio".to_string()),
+                display_name: Some("Sounio Control Room".to_string()),
+                prompt_summary: Some(
+                    "Sanitized Sounio control room with pods wall, agent lanes, compiler map, and evidence panels."
+                        .to_string(),
+                ),
+                sanitized_prompt: Some(
+                    "Sanitized Sounio control room with pods wall, agent lanes, compiler map, and evidence panels."
+                        .to_string(),
+                ),
+                model: Some("marble-1.1".to_string()),
+                permission: None,
+                approved: Some(true),
+                purpose: Some("control-room".to_string()),
+                operation_id: Some("op-test".to_string()),
+                world_id: Some("world-sounio-test".to_string()),
+                status: Some("ready".to_string()),
+                world_marble_url: Some(
+                    "https://marble.worldlabs.ai/worlds/world-sounio-test".to_string(),
+                ),
+                assets: Some(SpatialAssetManifest {
+                    pano_url: Some("https://assets.example/sounio-pano.png".to_string()),
+                    collider_mesh_url: Some(
+                        "https://assets.example/sounio-collider.glb".to_string(),
+                    ),
+                    hq_mesh_urls: Vec::new(),
+                    spz_urls,
+                    ply_urls: BTreeMap::new(),
+                    coordinate_system: Some("opencv:+x-left,+y-down,+z-forward".to_string()),
+                    coordinate_transform: Some("opencv_to_opengl:scale_yz_minus_one".to_string()),
+                    asset_root: Some("/orangefs/beagle-spatial-worlds/world-sounio-test".to_string()),
+                    degraded_reason: None,
+                }),
+                tags: vec!["sounio".to_string()],
+                provenance: serde_json::json!({"world_console": "mock"}),
+            })
+            .unwrap();
+        assert_eq!(world.permission, "private");
+        assert_eq!(world.model, "marble-1.1");
+        assert!(world.assets.spz_urls.contains_key("low_res"));
+
+        let snapshot = repo.control_room_snapshot("sounio").unwrap();
+        assert_eq!(snapshot.project_slug, "sounio");
+        assert_eq!(
+            snapshot.spatial_world.as_ref().unwrap().world_id,
+            "world-sounio-test"
+        );
+        assert!(snapshot.memory_worlds.iter().any(|memory_world| {
+            memory_world.source_ref == "spatial_world:world-sounio-test"
+        }));
+
+        let evidence = repo
+            .create_spatial_evidence(
+                "world-sounio-test",
+                CreateSounioSpatialEvidenceRequest {
+                    project_slug: "sounio".to_string(),
+                    evidence_type: Some("spatial_memory_world".to_string()),
+                    claim_seed_refs: vec!["claim-seed:sounio-control-room".to_string()],
+                    memory_world_refs: snapshot
+                        .memory_worlds
+                        .iter()
+                        .map(|world| world.id.clone())
+                        .collect(),
+                    artifact_refs: vec!["spatial_world:world-sounio-test".to_string()],
+                    epistemic_status: Some("belief".to_string()),
+                    privacy_class: Some("sensitive".to_string()),
+                    provenance: serde_json::json!({"reviewed": true}),
+                },
+            )
+            .unwrap();
+        assert_eq!(evidence.epistemic_status, "belief");
+        assert_eq!(evidence.privacy_class, "sensitive");
+
+        let public_world = repo.create_spatial_world(CreateSpatialWorldRequest {
+            project_slug: Some("sounio".to_string()),
+            display_name: None,
+            prompt_summary: Some("safe".to_string()),
+            sanitized_prompt: Some("safe".to_string()),
+            model: None,
+            permission: Some("public".to_string()),
+            approved: Some(true),
+            purpose: None,
+            operation_id: None,
+            world_id: None,
+            status: None,
+            world_marble_url: None,
+            assets: None,
+            tags: Vec::new(),
+            provenance: serde_json::Value::Null,
+        });
+        assert!(public_world.is_err());
+    }
+
+    #[test]
+    fn mind_palace_derives_rooms_portals_and_focus_coach() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        repo.create_memory_event(CreateMemoryEventRequest {
+            source: Some("codex-work-memory".to_string()),
+            kind: Some("assisted_import_batch".to_string()),
+            content_ref: Some("omnimemory:test".to_string()),
+            summary: Some("Codex remembered the latest Beagle Spatial Desk decision.".to_string()),
+            tags: vec![
+                "project:beagle".to_string(),
+                "agent:codex".to_string(),
+                "workbench".to_string(),
+            ],
+            metadata: Some(serde_json::json!({
+                "privacy_class": "sensitive",
+                "source_surface": "codex-work-memory"
+            })),
+            linked_chronoself_commits: Vec::new(),
+            confidence: Some(0.88),
+        })
+        .unwrap();
+        let portal = repo
+            .create_conversation_portal(CreateConversationPortalRequest {
+                title: "Claude Desktop idea thread".to_string(),
+                provider: "Claude Desktop".to_string(),
+                surface: Some("desktop-portal".to_string()),
+                status: None,
+                source_mode: None,
+                privacy_class: Some("sensitive".to_string()),
+                source_ref: Some("external-window:claude".to_string()),
+                tags: vec!["project:beagle".to_string()],
+                provenance: serde_json::json!({"operator": "demetrios"}),
+            })
+            .unwrap();
+        let clip = repo
+            .promote_conversation_portal_clip(
+                &portal.id,
+                PromoteConversationPortalRequest {
+                    selected_text: "Insight: Beagle needs a Spatial Desk where agent work and free conversations can happen in parallel.".to_string(),
+                    summary: Some("Spatial Desk parallel exocortex insight.".to_string()),
+                    project_ref: Some("beagle".to_string()),
+                    privacy_class: Some("sensitive".to_string()),
+                    tags: vec!["spatial-desk".to_string()],
+                    provenance: serde_json::json!({"selected_by": "human"}),
+                },
+            )
+            .unwrap();
+        assert!(clip.memory_event_id.is_some());
+        assert!(clip.sounio_moment_id.is_some());
+
+        let state = repo
+            .record_focus_coach_event(FocusCoachEventRequest {
+                event_kind: "start_focus".to_string(),
+                status: Some("active".to_string()),
+                intervention_id: None,
+                project_slug: Some("beagle".to_string()),
+                notes: Some("Implementation focus block.".to_string()),
+                snoozed_minutes: None,
+                provenance: serde_json::Value::Null,
+            })
+            .unwrap();
+        assert_eq!(state.schema_version, FOCUS_COACH_SCHEMA);
+        assert!(state.can_override);
+
+        let palace = repo.mind_palace_snapshot().unwrap();
+        assert_eq!(palace.schema_version, MIND_PALACE_SCHEMA);
+        assert!(
+            palace
+                .rooms
+                .iter()
+                .any(|room| room.id == "parallel-work")
+        );
+        assert!(
+            palace
+                .rooms
+                .iter()
+                .any(|room| room.id == "conversation-portals")
+        );
+        assert!(
+            palace
+                .desk
+                .active_items
+                .iter()
+                .any(|item| item.kind == "conversation_portal")
+        );
+        assert!(
+            palace
+                .action_menu
+                .actions
+                .iter()
+                .any(|action| action.id == "open-workbench")
+        );
+
+        let restricted = repo.promote_conversation_portal_clip(
+            &portal.id,
+            PromoteConversationPortalRequest {
+                selected_text: "restricted: do not import".to_string(),
+                summary: None,
+                project_ref: None,
+                privacy_class: Some("sensitive".to_string()),
+                tags: Vec::new(),
+                provenance: serde_json::Value::Null,
+            },
+        );
+        assert!(restricted.is_err());
     }
 
     #[test]
@@ -7910,6 +15257,10 @@ mod tests {
                 original_date: None,
                 confidence_score: Some(0.88),
                 create_chronoself_commit: Some(false),
+                capture_session_id: None,
+                artifact_refs: Vec::new(),
+                transcription_segments: Vec::new(),
+                visual_evidence_refs: Vec::new(),
             })
             .unwrap();
 
@@ -7934,13 +15285,16 @@ mod tests {
                 scope: None,
                 max_items: Some(5),
                 mode: None,
+                ranking_policy: None,
             })
             .unwrap();
         assert!(!query.evidence.is_empty());
-        assert!(query
-            .evidence
-            .iter()
-            .any(|item| item.provenance["metadata"]["source_surface"] == "claude-ios"));
+        assert!(
+            query
+                .evidence
+                .iter()
+                .any(|item| item.provenance["metadata"]["source_surface"] == "claude-ios")
+        );
     }
 
     #[test]
@@ -7971,6 +15325,10 @@ mod tests {
                 original_date: None,
                 confidence_score: None,
                 create_chronoself_commit: None,
+                capture_session_id: None,
+                artifact_refs: Vec::new(),
+                transcription_segments: Vec::new(),
+                visual_evidence_refs: Vec::new(),
             })
             .unwrap();
 
@@ -8028,6 +15386,10 @@ mod tests {
                 original_date: None,
                 confidence_score: Some(0.93),
                 create_chronoself_commit: Some(false),
+                capture_session_id: None,
+                artifact_refs: Vec::new(),
+                transcription_segments: Vec::new(),
+                visual_evidence_refs: Vec::new(),
             })
             .unwrap();
         assert_eq!(imported.status, "imported");
@@ -8077,10 +15439,12 @@ mod tests {
             .unwrap();
         assert!(export.privacy_policy.contains("restricted"));
         assert_eq!(export.candidates.len(), 1);
-        assert!(export
-            .synthetic_golden_queries
-            .iter()
-            .any(|query| query.domain == "work-memory"));
+        assert!(
+            export
+                .synthetic_golden_queries
+                .iter()
+                .any(|query| query.domain == "work-memory")
+        );
 
         let query = repo
             .graphrag_query(GraphRagQueryRequest {
@@ -8088,6 +15452,7 @@ mod tests {
                 scope: None,
                 max_items: Some(5),
                 mode: Some("adaptive-federation".to_string()),
+                ranking_policy: None,
             })
             .unwrap();
         assert!(!query.mesh_trace.is_empty());
@@ -8133,6 +15498,265 @@ mod tests {
                 .unwrap()
                 .status,
             "promoted"
+        );
+    }
+
+    #[test]
+    fn sounio_program_check_requires_governance_and_blocks_restricted() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        let mut program = default_beagle_self_writing_program();
+        program.governance.privacy_class = "restricted".to_string();
+        program.governance.provenance = serde_json::Value::Null;
+        program.plan[0].provenance = serde_json::Value::Null;
+
+        let checked = repo
+            .check_sounio_program(SounioProgramCheckRequest {
+                source_format: Some("json".to_string()),
+                program,
+            })
+            .unwrap();
+
+        assert_eq!(checked.status, "invalid");
+        assert!(
+            checked
+                .errors
+                .iter()
+                .any(|error| error.contains("privacy_class=restricted"))
+        );
+        assert!(
+            checked
+                .errors
+                .iter()
+                .any(|error| error.contains("governance.provenance"))
+        );
+        assert!(
+            checked
+                .errors
+                .iter()
+                .any(|error| error.contains("retrieve_state provenance"))
+        );
+        assert_eq!(checked.schema_version, SOUNIO_WORK_IR_SCHEMA);
+    }
+
+    #[test]
+    fn sounio_paperrun_creates_trace_artifacts_and_home_trust_signal() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+
+        let run = repo
+            .start_paper_run(StartPaperRunRequest {
+                paper_id: None,
+                title: None,
+                program: None,
+                principal: Some("codex-test".to_string()),
+                surface: Some("unit-test".to_string()),
+                temporal_namespace: None,
+                temporal_task_queue: None,
+                dry_run: Some(true),
+            })
+            .unwrap();
+
+        assert_eq!(run.status, "human_approval_pending");
+        assert_eq!(run.temporal_status, "dry_run_not_started");
+        assert_eq!(run.pending_approval_step.as_deref(), Some("human_approval"));
+        assert!(run.sounio_program_hash.starts_with("sha256:"));
+        assert!(
+            run.artifact_refs
+                .iter()
+                .all(|artifact| artifact.starts_with("/orangefs/beagle-memory-lab/paperruns/"))
+        );
+
+        let artifacts = repo.paper_run_artifacts(&run.id).unwrap().unwrap();
+        assert!(
+            artifacts
+                .manuscript_markdown
+                .contains("Self-Governing Exocortex")
+        );
+        assert_eq!(artifacts.paper_run_id, run.id);
+
+        let approved = repo
+            .approve_paper_run_step(
+                &run.id,
+                ApprovePaperRunStepRequest {
+                    step_id: "human_approval".to_string(),
+                    decision: Some("approved".to_string()),
+                    reviewer: Some("demetrios".to_string()),
+                    rationale: Some("Approved for durable PaperRun smoke.".to_string()),
+                },
+            )
+            .unwrap();
+        assert_eq!(approved.status, "approved_for_temporal_execution");
+        assert_eq!(approved.temporal_status, "signal_approved");
+
+        let traces = repo
+            .sounio_trace_events(SounioTraceQuery {
+                paper_run_id: Some(run.id.clone()),
+                limit: Some(10),
+            })
+            .unwrap();
+        assert_eq!(traces.len(), 2);
+        assert!(
+            traces
+                .iter()
+                .any(|event| event.event_type == "workflow_start_requested")
+        );
+        assert!(
+            traces
+                .iter()
+                .any(|event| event.event_type == "human_approval")
+        );
+
+        let home = repo
+            .build_home_snapshot(HomeQuery {
+                active_project_slug: None,
+                platform: Some("unit-test".to_string()),
+            })
+            .unwrap();
+        let trust = home.trust_context.unwrap();
+        assert_eq!(
+            trust.sounio_paperrun_status.as_deref(),
+            Some("beagle-self-writing-systems-paper:approved_for_temporal_execution")
+        );
+        assert!(
+            trust
+                .sounio_temporal_status
+                .as_deref()
+                .is_some_and(|status| status.ends_with(":signal_approved"))
+        );
+        assert!(trust.sounio_latest_artifact.is_some());
+    }
+
+    #[test]
+    fn sounio_claim_lifecycle_enforces_epistemic_gates_and_digest_sanitization() {
+        let dir = tempdir().unwrap();
+        let repo = ExocortexRepository::new(dir.path().join("exocortex"));
+        let run = repo
+            .start_paper_run(StartPaperRunRequest {
+                paper_id: None,
+                title: None,
+                principal: Some("codex-test".to_string()),
+                surface: Some("unit-test".to_string()),
+                temporal_namespace: None,
+                temporal_task_queue: None,
+                program: None,
+                dry_run: Some(true),
+            })
+            .unwrap();
+
+        let checked = repo
+            .check_sounio_claim(SounioClaimCheckRequest {
+                claim: SounioClaimInput {
+                    id: Some("claim-no-evidence".to_string()),
+                    claim_text: "A claim cannot become Knowledge<T> without evidence.".to_string(),
+                    subject: Some("sounio_claim_gate".to_string()),
+                    value_type: None,
+                    epistemic_status: Some("knowledge".to_string()),
+                    evidence_refs: Vec::new(),
+                    provenance: serde_json::Value::Null,
+                    confidence: Some(0.9),
+                    contestation: serde_json::json!({}),
+                    review_state: None,
+                    promotion_rule: None,
+                    publication_readiness: None,
+                    section_id: Some("Sounio IR".to_string()),
+                    agent_refs: Vec::new(),
+                    contract_refs: Vec::new(),
+                    artifact_refs: Vec::new(),
+                    chronoself_commit_refs: Vec::new(),
+                    privacy_class: Some("sensitive".to_string()),
+                    rationale: None,
+                },
+            })
+            .unwrap();
+        assert_eq!(checked.status, "valid");
+        assert_eq!(checked.normalized_claim.epistemic_status, "belief");
+        assert!(
+            checked
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("Knowledge<T> requires"))
+        );
+
+        let claim = repo
+            .add_paper_run_claim(
+                &run.id,
+                AddPaperRunClaimRequest {
+                    principal: Some("codex-test".to_string()),
+                    surface: Some("unit-test".to_string()),
+                    claim: SounioClaimInput {
+                        id: Some("claim-sedenion-ssm-arc".to_string()),
+                        claim_text: "Sedenion SSM is the first strong Sounio demonstration.".to_string(),
+                        subject: Some("sedenion_ssm_arc".to_string()),
+                        value_type: Some("Claim<T>".to_string()),
+                        epistemic_status: Some("contest".to_string()),
+                        evidence_refs: vec![
+                            "artifact:sedenion_ssm_arc".to_string(),
+                            "theorem_refs:sedenion_ssm".to_string(),
+                        ],
+                        provenance: serde_json::json!({
+                            "source": "unit-test",
+                            "human_review": true
+                        }),
+                        confidence: Some(0.8),
+                        contestation: serde_json::json!({}),
+                        review_state: None,
+                        promotion_rule: None,
+                        publication_readiness: None,
+                        section_id: Some("Sounio IR".to_string()),
+                        agent_refs: vec!["codex-test".to_string()],
+                        contract_refs: Vec::new(),
+                        artifact_refs: vec![
+                            "/orangefs/beagle-memory-lab/paperruns/test/sedenion_ssm_public_case.json"
+                                .to_string(),
+                        ],
+                        chronoself_commit_refs: Vec::new(),
+                        privacy_class: Some("sensitive".to_string()),
+                        rationale: None,
+                    },
+                },
+            )
+            .unwrap();
+        assert_eq!(claim.epistemic_status, "contest");
+
+        let reviewed = repo
+            .review_sounio_claim(
+                &run.id,
+                &claim.id,
+                ReviewSounioClaimRequest {
+                    reviewer: Some("demetrios".to_string()),
+                    decision: "promote_to_knowledge".to_string(),
+                    rationale: Some("Evidence and provenance are present.".to_string()),
+                    evidence_refs: Vec::new(),
+                    epistemic_status: None,
+                    publication_readiness: None,
+                    provenance: serde_json::json!({"human_review": true}),
+                },
+            )
+            .unwrap();
+        assert_eq!(reviewed.epistemic_status, "knowledge");
+        assert_eq!(
+            reviewed.publication_readiness,
+            "section_ready_with_provenance"
+        );
+
+        let theatre = repo.paper_run_theatre(&run.id).unwrap().unwrap();
+        assert_eq!(theatre.claim_graph.status_counts.get("knowledge"), Some(&1));
+        assert!(theatre.next_action.contains("human_approval"));
+
+        let digest = repo.paper_run_public_digest(&run.id).unwrap().unwrap();
+        assert_eq!(digest.schema_version, SOUNIO_PUBLIC_DIGEST_SCHEMA);
+        assert!(
+            digest
+                .sedenion_ssm_case
+                .to_string()
+                .contains("sedenion-ssm-arc")
+        );
+        assert!(
+            !digest
+                .public_trace_digest
+                .iter()
+                .any(|entry| entry.to_string().contains("restricted"))
         );
     }
 }

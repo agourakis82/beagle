@@ -13,7 +13,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use tracing::{debug, info};
 
-use crate::{TwitterAuth, TwitterConfig, User, Tweet};
+use crate::{Tweet, TwitterAuth, TwitterConfig, User};
 
 /// Lists API client
 pub struct ListsClient {
@@ -42,7 +42,12 @@ impl ListsClient {
     }
 
     /// Create a new list
-    pub async fn create_list(&self, name: &str, description: Option<&str>, private: bool) -> Result<TwitterList> {
+    pub async fn create_list(
+        &self,
+        name: &str,
+        description: Option<&str>,
+        private: bool,
+    ) -> Result<TwitterList> {
         let body = json!({
             "name": name,
             "description": description,
@@ -57,7 +62,13 @@ impl ListsClient {
     }
 
     /// Update list metadata
-    pub async fn update_list(&self, list_id: &str, name: Option<&str>, description: Option<&str>, private: Option<bool>) -> Result<TwitterList> {
+    pub async fn update_list(
+        &self,
+        list_id: &str,
+        name: Option<&str>,
+        description: Option<&str>,
+        private: Option<bool>,
+    ) -> Result<TwitterList> {
         let mut body = json!({});
 
         if let Some(name) = name {
@@ -81,7 +92,8 @@ impl ListsClient {
     /// Delete a list
     pub async fn delete_list(&self, list_id: &str) -> Result<()> {
         let endpoint = format!("/lists/{}", list_id);
-        self.request(Method::DELETE, &endpoint, None::<serde_json::Value>).await?;
+        self.request(Method::DELETE, &endpoint, None::<serde_json::Value>)
+            .await?;
 
         info!("Deleted list: {}", list_id);
         Ok(())
@@ -92,7 +104,9 @@ impl ListsClient {
         let endpoint = format!("/lists/{}", list_id);
         let params = self.get_default_list_fields();
 
-        let response = self.request_with_params(Method::GET, &endpoint, params).await?;
+        let response = self
+            .request_with_params(Method::GET, &endpoint, params)
+            .await?;
         let result: ListResponse = response.json().await?;
 
         Ok(result.data)
@@ -103,7 +117,9 @@ impl ListsClient {
         let endpoint = format!("/users/{}/owned_lists", user_id);
         let params = self.get_default_list_fields();
 
-        let response = self.request_with_params(Method::GET, &endpoint, params).await?;
+        let response = self
+            .request_with_params(Method::GET, &endpoint, params)
+            .await?;
         let result: ListsResponse = response.json().await?;
 
         Ok(result.data)
@@ -114,7 +130,9 @@ impl ListsClient {
         let endpoint = format!("/users/{}/list_memberships", user_id);
         let params = self.get_default_list_fields();
 
-        let response = self.request_with_params(Method::GET, &endpoint, params).await?;
+        let response = self
+            .request_with_params(Method::GET, &endpoint, params)
+            .await?;
         let result: ListsResponse = response.json().await?;
 
         Ok(result.data)
@@ -125,7 +143,9 @@ impl ListsClient {
         let endpoint = format!("/users/{}/followed_lists", user_id);
         let params = self.get_default_list_fields();
 
-        let response = self.request_with_params(Method::GET, &endpoint, params).await?;
+        let response = self
+            .request_with_params(Method::GET, &endpoint, params)
+            .await?;
         let result: ListsResponse = response.json().await?;
 
         Ok(result.data)
@@ -136,7 +156,9 @@ impl ListsClient {
         let endpoint = format!("/users/{}/pinned_lists", user_id);
         let params = self.get_default_list_fields();
 
-        let response = self.request_with_params(Method::GET, &endpoint, params).await?;
+        let response = self
+            .request_with_params(Method::GET, &endpoint, params)
+            .await?;
         let result: ListsResponse = response.json().await?;
 
         Ok(result.data)
@@ -158,7 +180,8 @@ impl ListsClient {
     /// Remove member from list
     pub async fn remove_member(&self, list_id: &str, user_id: &str) -> Result<()> {
         let endpoint = format!("/lists/{}/members/{}", list_id, user_id);
-        self.request(Method::DELETE, &endpoint, None::<serde_json::Value>).await?;
+        self.request(Method::DELETE, &endpoint, None::<serde_json::Value>)
+            .await?;
 
         info!("Removed user {} from list {}", user_id, list_id);
         Ok(())
@@ -171,7 +194,9 @@ impl ListsClient {
         let mut params = self.get_default_user_fields();
         params.insert("max_results".to_string(), max_results.to_string());
 
-        let response = self.request_with_params(Method::GET, &endpoint, params).await?;
+        let response = self
+            .request_with_params(Method::GET, &endpoint, params)
+            .await?;
         let result: UsersResponse = response.json().await?;
 
         Ok(result.data)
@@ -195,7 +220,8 @@ impl ListsClient {
     pub async fn unfollow_list(&self, list_id: &str) -> Result<()> {
         let user_id = self.get_authenticated_user_id().await?;
         let endpoint = format!("/users/{}/followed_lists/{}", user_id, list_id);
-        self.request(Method::DELETE, &endpoint, None::<serde_json::Value>).await?;
+        self.request(Method::DELETE, &endpoint, None::<serde_json::Value>)
+            .await?;
 
         info!("Unfollowed list: {}", list_id);
         Ok(())
@@ -219,7 +245,8 @@ impl ListsClient {
     pub async fn unpin_list(&self, list_id: &str) -> Result<()> {
         let user_id = self.get_authenticated_user_id().await?;
         let endpoint = format!("/users/{}/pinned_lists/{}", user_id, list_id);
-        self.request(Method::DELETE, &endpoint, None::<serde_json::Value>).await?;
+        self.request(Method::DELETE, &endpoint, None::<serde_json::Value>)
+            .await?;
 
         info!("Unpinned list: {}", list_id);
         Ok(())
@@ -232,7 +259,9 @@ impl ListsClient {
         let mut params = self.get_default_tweet_fields();
         params.insert("max_results".to_string(), max_results.to_string());
 
-        let response = self.request_with_params(Method::GET, &endpoint, params).await?;
+        let response = self
+            .request_with_params(Method::GET, &endpoint, params)
+            .await?;
         let result: TweetsResponse = response.json().await?;
 
         Ok(result.data)
@@ -245,7 +274,9 @@ impl ListsClient {
         let mut params = self.get_default_user_fields();
         params.insert("max_results".to_string(), max_results.to_string());
 
-        let response = self.request_with_params(Method::GET, &endpoint, params).await?;
+        let response = self
+            .request_with_params(Method::GET, &endpoint, params)
+            .await?;
         let result: UsersResponse = response.json().await?;
 
         Ok(result.data)
@@ -278,7 +309,12 @@ impl ListsClient {
     }
 
     /// Private: Make authenticated request
-    async fn request<T: Serialize>(&self, method: Method, endpoint: &str, body: Option<T>) -> Result<reqwest::Response> {
+    async fn request<T: Serialize>(
+        &self,
+        method: Method,
+        endpoint: &str,
+        body: Option<T>,
+    ) -> Result<reqwest::Response> {
         let url = format!("{}{}", self.config.base_url, endpoint);
 
         let mut request = self.client.request(method.clone(), &url);
@@ -303,13 +339,21 @@ impl ListsClient {
     }
 
     /// Private: Make request with parameters
-    async fn request_with_params(&self, method: Method, endpoint: &str, params: BTreeMap<String, String>) -> Result<reqwest::Response> {
+    async fn request_with_params(
+        &self,
+        method: Method,
+        endpoint: &str,
+        params: BTreeMap<String, String>,
+    ) -> Result<reqwest::Response> {
         let url = format!("{}{}", self.config.base_url, endpoint);
 
         let mut request = self.client.request(method.clone(), &url);
 
         // Add auth headers
-        let headers = self.auth.get_headers(method.as_str(), &url, Some(&params)).await?;
+        let headers = self
+            .auth
+            .get_headers(method.as_str(), &url, Some(&params))
+            .await?;
         request = request.headers(headers);
 
         // Add query params
@@ -330,7 +374,9 @@ impl ListsClient {
     /// Get authenticated user ID
     async fn get_authenticated_user_id(&self) -> Result<String> {
         // This would typically be cached
-        let response = self.request_with_params(Method::GET, "/users/me", BTreeMap::new()).await?;
+        let response = self
+            .request_with_params(Method::GET, "/users/me", BTreeMap::new())
+            .await?;
 
         #[derive(Deserialize)]
         struct UserResponse {
@@ -348,7 +394,9 @@ impl ListsClient {
         let mut params = self.get_default_user_fields();
         params.insert("max_results".to_string(), max_results.to_string());
 
-        let response = self.request_with_params(Method::GET, &endpoint, params).await?;
+        let response = self
+            .request_with_params(Method::GET, &endpoint, params)
+            .await?;
         let result: UsersResponse = response.json().await?;
 
         Ok(result.data)
@@ -357,11 +405,17 @@ impl ListsClient {
     /// Get default list fields
     fn get_default_list_fields(&self) -> BTreeMap<String, String> {
         let mut params = BTreeMap::new();
-        params.insert("list.fields".to_string(),
-            "id,name,created_at,description,follower_count,member_count,private,owner_id".to_string());
+        params.insert(
+            "list.fields".to_string(),
+            "id,name,created_at,description,follower_count,member_count,private,owner_id"
+                .to_string(),
+        );
         params.insert("expansions".to_string(), "owner_id".to_string());
-        params.insert("user.fields".to_string(),
-            "id,name,username,created_at,description,profile_image_url,public_metrics,verified".to_string());
+        params.insert(
+            "user.fields".to_string(),
+            "id,name,username,created_at,description,profile_image_url,public_metrics,verified"
+                .to_string(),
+        );
         params
     }
 
@@ -376,10 +430,14 @@ impl ListsClient {
     /// Get default tweet fields
     fn get_default_tweet_fields(&self) -> BTreeMap<String, String> {
         let mut params = BTreeMap::new();
-        params.insert("tweet.fields".to_string(),
-            "id,text,author_id,created_at,public_metrics,entities,attachments".to_string());
-        params.insert("expansions".to_string(),
-            "author_id,attachments.media_keys".to_string());
+        params.insert(
+            "tweet.fields".to_string(),
+            "id,text,author_id,created_at,public_metrics,entities,attachments".to_string(),
+        );
+        params.insert(
+            "expansions".to_string(),
+            "author_id,attachments.media_keys".to_string(),
+        );
         params
     }
 }
