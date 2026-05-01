@@ -11821,11 +11821,17 @@ function renderProjectLaunchPage(project) {
 
     function summarizeRefresh(registry, sessions) {
       const list = sessions.sessions || [];
+      const selected = selectDefaultSession(list);
       return {
         registryVersion: registry.registryVersion || registry.registry_version || "unknown",
         authority: registry.authority?.authority || sessions.authority?.authority || "unknown",
         supervisor: registry.authority?.supervisor?.status || sessions.authority?.supervisor?.status || "unknown",
         visibleRoles: registry.visibleRoles || registry.visible_roles || [],
+        selectedSession: selected ? {
+          id: selected.id || selected.session_id,
+          title: selected.title,
+          reason: isOperatorSession(selected) ? "operator" : "fallback"
+        } : null,
         latestSessions: list.slice(0, 5).map((session) => ({
           id: session.id || session.session_id,
           title: session.title,
@@ -11833,6 +11839,19 @@ function renderProjectLaunchPage(project) {
           memory: session.lastMemoryStatus?.status || "none"
         }))
       };
+    }
+
+    function isOperatorSession(session) {
+      const title = String(session?.title || "").toLowerCase();
+      return !(
+        title.includes("smoke") ||
+        title.includes("probe") ||
+        title.includes("isolation")
+      );
+    }
+
+    function selectDefaultSession(list) {
+      return list.find(isOperatorSession) || list[0] || null;
     }
 
     function selectShellPane(session) {
@@ -11849,7 +11868,7 @@ function renderProjectLaunchPage(project) {
     }
 
     function connectTerminal(session = null) {
-      const targetSession = session || currentSessions[0];
+      const targetSession = session || selectDefaultSession(currentSessions);
       const pane = selectShellPane(targetSession);
       if (!targetSession?.id || !pane?.id) {
         appendTerminal("\\n[beagle] no shell pane available yet\\n");
@@ -11933,10 +11952,11 @@ function renderProjectLaunchPage(project) {
         renderLanes(registry);
         const list = sessions.sessions || [];
         currentSessions = list;
-        latestSession.textContent = list.length > 0 ? list[0].id || list[0].session_id || "active" : "none";
+        const selected = selectDefaultSession(list);
+        latestSession.textContent = selected ? selected.id || selected.session_id || "active" : "none";
         truthMode.textContent = registry.truthMode || registry.truth_mode || sessions.truthMode || sessions.truth_mode || "observed";
         show(summarizeRefresh(registry, sessions));
-        if (!terminalWs && list.length > 0) connectTerminal(list[0]);
+        if (!terminalWs && selected) connectTerminal(selected);
       } catch (error) {
         lanes.innerHTML = '<span class="pill warn">Workbench unavailable: ' + error.message + '</span>';
         truthMode.textContent = "stale";
@@ -11967,6 +11987,8 @@ function renderProjectLaunchPage(project) {
           });
         }
         await refresh();
+        const refreshed = currentSessions.find((entry) => entry.id === sessionId || entry.session_id === sessionId);
+        if (refreshed) connectTerminal(refreshed);
       } catch (error) {
         show(String(error.stack || error.message || error));
       } finally {
