@@ -47,6 +47,10 @@ spec:
   serviceName: sounio-workspace-habitat-internal
   replicas: 1
   podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0
   persistentVolumeClaimRetentionPolicy:
     whenDeleted: Retain
     whenScaled: Retain
@@ -105,7 +109,7 @@ spec:
           effect: NoSchedule
       initContainers:
         - name: normalize-permissions
-          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260406213306-743727:stable
+          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260425-zellij1:stable
           imagePullPolicy: Always
           command:
             - /bin/bash
@@ -116,7 +120,7 @@ spec:
               mountPath: /workspace
       containers:
         - name: workspace-ide
-          image: 192.168.3.207:5003/sounio-lab-sounio-workspace-ide-20260406213306-743727:stable
+          image: 192.168.3.207:5003/sounio-lab-sounio-workspace-ide-20260424070010-slurmnative6:stable
           imagePullPolicy: Always
           securityContext:
             appArmorProfile:
@@ -183,7 +187,7 @@ spec:
               cpu: "6"
               memory: 12Gi
         - name: workspace-ssh
-          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260406213306-743727:stable
+          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260425-zellij1:stable
           imagePullPolicy: Always
           securityContext:
             appArmorProfile:
