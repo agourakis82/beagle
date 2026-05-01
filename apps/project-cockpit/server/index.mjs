@@ -12209,6 +12209,34 @@ function renderWarpBridgeLabPage(project) {
       overflow-wrap: anywhere;
     }
     .field strong { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .score-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .score-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(0,0,0,0.18);
+      min-height: 118px;
+      display: grid;
+      align-content: start;
+      gap: 6px;
+      overflow-wrap: anywhere;
+    }
+    .score-card strong { font-size: 13px; }
+    .score-card span { color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .score-pass { color: var(--ok); }
+    .score-pending { color: var(--warn); }
+    .score-fail { color: var(--danger); }
+    .memo-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr);
+      gap: 12px;
+      align-items: stretch;
+    }
     pre {
       margin: 0;
       min-height: 220px;
@@ -12227,6 +12255,7 @@ function renderWarpBridgeLabPage(project) {
       .compare-grid { grid-template-columns: 1fr; }
       .select-row { grid-template-columns: 1fr; }
       .field-list { grid-template-columns: 1fr; }
+      .score-grid, .memo-grid { grid-template-columns: 1fr; }
       h1 { font-size: clamp(30px, 12vw, 46px); }
       .row { display: grid; }
       .row strong { text-align: left; }
@@ -12302,8 +12331,17 @@ function renderWarpBridgeLabPage(project) {
       </section>
 
       <section class="full">
+        <h2>Bake-off Scorecard</h2>
+        <div id="promotion-gate" class="pill">Loading promotion gate...</div>
+        <div id="scorecard" class="score-grid"></div>
+      </section>
+
+      <section class="full">
         <h2>Decision Memo</h2>
-        <div id="decision-memo" class="memo">Loading decision memo...</div>
+        <div class="memo-grid">
+          <div id="decision-memo" class="memo">Loading decision memo...</div>
+          <pre id="decision-json">Loading decision JSON...</pre>
+        </div>
       </section>
     </div>
   </main>
@@ -12324,7 +12362,10 @@ function renderWarpBridgeLabPage(project) {
     const beaglePreview = document.getElementById("beagle-preview");
     const warpPreview = document.getElementById("warp-preview");
     const fieldDiff = document.getElementById("field-diff");
+    const promotionGate = document.getElementById("promotion-gate");
+    const scorecard = document.getElementById("scorecard");
     const decisionMemo = document.getElementById("decision-memo");
+    const decisionJson = document.getElementById("decision-json");
     let state = { sessions: [], blocksBySession: new Map(), selectedSessionId: "", selectedBlockId: "" };
 
     async function apiJson(path) {
@@ -12466,18 +12507,146 @@ function renderWarpBridgeLabPage(project) {
       )).join("");
     }
 
-    function renderDecisionMemo(beagleBlock, fields) {
+    function metricClass(status) {
+      if (status === "pass") return "score-pass";
+      if (status === "fail") return "score-fail";
+      return "score-pending";
+    }
+
+    function buildBakeOffMetrics(beagleBlock, fields) {
+      const preservedCount = fields.filter((entry) => entry.preserved).length;
+      const hasLiveBlock = beagleBlock.id !== "no-live-block-yet";
+      const restrictedSafe = !beagleBlock.restricted || beagleBlock.outputPreview === "[restricted output redacted]";
+      const hasProvenance = Boolean(beagleBlock.blockHash || beagleBlock.sessionHash || beagleBlock.bridgeVersion);
+      return [
+        {
+          key: "live_block",
+          label: "Live block",
+          status: hasLiveBlock ? "pass" : "pending",
+          evidence: hasLiveBlock ? "Workbench block selected from cluster replay." : "Run a command, refresh, then select a real block."
+        },
+        {
+          key: "bridge_round_trip",
+          label: "Bridge round-trip",
+          status: preservedCount === fields.length ? "pass" : "pending",
+          evidence: preservedCount + "/" + fields.length + " tracked fields preserved."
+        },
+        {
+          key: "provenance",
+          label: "Provenance",
+          status: hasProvenance ? "pass" : "pending",
+          evidence: hasProvenance ? "Bridge version/hash metadata is present." : "No block/session hash available yet."
+        },
+        {
+          key: "restricted_safety",
+          label: "Restricted safety",
+          status: restrictedSafe ? "pass" : "fail",
+          evidence: beagleBlock.restricted ? "Restricted output redacted before preview." : "Selected block is not restricted."
+        },
+        {
+          key: "memory_authority",
+          label: "Memory authority",
+          status: "pass",
+          evidence: "Bake-off route is read-only; canonical memory remains cluster-only."
+        },
+        {
+          key: "license_boundary",
+          label: "AGPL boundary",
+          status: "pass",
+          evidence: "Project Cockpit consumes protocol previews and does not import Warp-derived code."
+        },
+        {
+          key: "vt_fidelity",
+          label: "VT fidelity",
+          status: "pending",
+          evidence: "Renderer escape-sequence fidelity has not been measured yet."
+        },
+        {
+          key: "renderer_latency",
+          label: "Renderer latency",
+          status: "pending",
+          evidence: "Input-to-paint latency still needs iPad/iPhone/macOS measurement."
+        },
+        {
+          key: "apple_usability",
+          label: "Apple usability",
+          status: "pending",
+          evidence: "Dynamic Type, small iPhone width, keyboard shortcuts, and touch ergonomics need device pass."
+        },
+        {
+          key: "secret_scan_audit",
+          label: "Secret-scan audit",
+          status: "pending",
+          evidence: "Bridge preview redacts restricted blocks; end-to-end renderer audit is still pending."
+        }
+      ];
+    }
+
+    function buildPromotionGate(metrics) {
+      const passCount = metrics.filter((metric) => metric.status === "pass").length;
+      const pending = metrics.filter((metric) => metric.status === "pending");
+      const failed = metrics.filter((metric) => metric.status === "fail");
+      const verdict = failed.length
+        ? "block Warp renderer promotion"
+        : "continue dual bridge; do not promote Warp renderer yet";
+      const reason = failed.length
+        ? failed.map((metric) => metric.label).join(", ") + " failed."
+        : pending.length
+          ? pending.map((metric) => metric.label).join(", ") + " still pending."
+          : "All tracked metrics pass; a human promotion memo is still required.";
+      return {
+        eligible: false,
+        state: failed.length ? "blocked" : "not_promoted",
+        verdict,
+        reason,
+        passCount,
+        pendingCount: pending.length,
+        failCount: failed.length,
+        requiredBeforePromotion: pending.map((metric) => metric.key)
+      };
+    }
+
+    function renderScorecard(metrics, promotion) {
+      promotionGate.textContent = "promotion_gate=" + promotion.state + ": " + promotion.verdict;
+      promotionGate.className = promotion.failCount ? "pill danger" : "pill warn";
+      scorecard.innerHTML = metrics.map((metric) => (
+        '<div class="score-card">' +
+          '<strong>' + escapeHtmlClient(metric.label) + '</strong>' +
+          '<b class="' + metricClass(metric.status) + '">' + escapeHtmlClient(metric.status) + '</b>' +
+          '<span>' + escapeHtmlClient(metric.evidence) + '</span>' +
+        '</div>'
+      )).join("");
+    }
+
+    function renderDecisionMemo(beagleBlock, fields, metrics, promotion) {
       const preservedCount = fields.filter((entry) => entry.preserved).length;
       const restricted = beagleBlock.restricted;
-      const verdict = "continue dual bridge; do not promote Warp renderer yet";
       decisionMemo.innerHTML = [
         '<h3>Verdict</h3>',
-        '<p><strong>' + escapeHtmlClient(verdict) + '</strong></p>',
-        '<p>Bridge conversion is inspectable and preserves ' + preservedCount + '/' + fields.length + ' tracked fields for the selected block. Provenance remains visible, and restricted content is redacted before preview.</p>',
+        '<p><strong>' + escapeHtmlClient(promotion.verdict) + '</strong></p>',
+        '<p>Bridge conversion is inspectable and preserves ' + preservedCount + '/' + fields.length + ' tracked fields for the selected block. The current gate has ' + promotion.passCount + ' passing, ' + promotion.pendingCount + ' pending, and ' + promotion.failCount + ' failing checks.</p>',
         '<p class="' + (restricted ? 'warn' : 'ok') + '">' + (restricted ? 'Selected block is restricted; output is intentionally hidden.' : 'Selected block is safe for outputPreview-level comparison.') + '</p>',
-        '<p>Renderer promotion is blocked until VT fidelity, latency, iPad/iPhone usability, and secret-scan behavior are measured against the Beagle Notebook Terminal.</p>',
+        '<p>Renderer promotion remains blocked until VT fidelity, latency, iPad/iPhone/macOS usability, and secret-scan behavior are measured against the Beagle Notebook Terminal.</p>',
         '<p>Next: live block selection, isolated renderer spike, Apple-device latency pass, and secret-scan audit.</p>'
       ].join("");
+      decisionJson.textContent = JSON.stringify({
+        vendorCommit,
+        bridgeVersion,
+        selectedBlock: {
+          id: beagleBlock.id,
+          sessionId: beagleBlock.sessionId,
+          privacyClass: beagleBlock.privacyClass,
+          memoryStatus: beagleBlock.memoryStatus,
+          blockHash: beagleBlock.blockHash,
+          restrictedRedacted: Boolean(beagleBlock.restricted)
+        },
+        fieldPreservation: fields.map((entry) => ({
+          field: entry.field,
+          preserved: entry.preserved
+        })),
+        metrics,
+        promotionGate: promotion
+      }, null, 2);
     }
 
     function populateSessionSelect(list) {
@@ -12540,6 +12709,8 @@ function renderWarpBridgeLabPage(project) {
       const warpBlock = terminalBlockToWarpBlock(beagleBlock);
       const roundTripBlock = warpBlockToTerminalBlock(warpBlock);
       const fields = preservedFields(beagleBlock, warpBlock, roundTripBlock);
+      const metrics = buildBakeOffMetrics(beagleBlock, fields);
+      const promotion = buildPromotionGate(metrics);
       privacyNote.textContent = beagleBlock.restricted
         ? "restricted_local_only: outputPreview hidden; no memory write occurs here"
         : "outputPreview only: derived preview; no memory write occurs here";
@@ -12547,7 +12718,8 @@ function renderWarpBridgeLabPage(project) {
       beaglePreview.textContent = JSON.stringify(beagleBlock, null, 2);
       warpPreview.textContent = JSON.stringify(warpBlock, null, 2);
       renderFieldDiff(fields);
-      renderDecisionMemo(beagleBlock, fields);
+      renderScorecard(metrics, promotion);
+      renderDecisionMemo(beagleBlock, fields, metrics, promotion);
     }
 
     async function refresh() {
@@ -12568,6 +12740,10 @@ function renderWarpBridgeLabPage(project) {
       } catch (error) {
         authority.textContent = "degraded";
         supervisor.textContent = "unknown";
+        promotionGate.textContent = "promotion_gate=degraded";
+        promotionGate.className = "pill danger";
+        scorecard.innerHTML = "";
+        decisionJson.textContent = "{}";
         decisionMemo.textContent = String(error.stack || error.message || error);
       }
     }
