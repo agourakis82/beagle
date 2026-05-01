@@ -11577,6 +11577,30 @@ function renderProjectLaunchPage(project) {
       font-size: 12px;
       line-height: 1.45;
     }
+    input.command-input {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px 12px;
+      background: rgba(0, 0, 0, 0.28);
+      color: var(--text);
+      font: inherit;
+    }
+    .terminal-output {
+      min-height: 320px;
+      max-height: 46vh;
+      background: rgba(0, 0, 0, 0.34);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .command-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      margin-top: 12px;
+    }
     .lane-list {
       display: grid;
       gap: 8px;
@@ -11597,6 +11621,7 @@ function renderProjectLaunchPage(project) {
       .grid { grid-template-columns: 1fr; }
       h1 { font-size: clamp(30px, 12vw, 46px); }
       button, a.button { width: 100%; text-align: center; }
+      .command-row { grid-template-columns: 1fr; }
       .row { display: grid; }
       .row strong { text-align: left; }
     }
@@ -11637,6 +11662,20 @@ function renderProjectLaunchPage(project) {
     </div>
 
     <section style="margin-top: 18px;">
+      <h2>Shell Lane</h2>
+      <pre id="terminal-output" class="terminal-output">No shell attached yet. Start or refresh a session, then connect.</pre>
+      <form id="terminal-form" class="command-row">
+        <input id="terminal-input" class="command-input" autocomplete="off" spellcheck="false" placeholder="Type a command for /workspace/sounio" />
+        <button class="primary" type="submit">Send</button>
+      </form>
+      <div class="actions">
+        <button id="connect-terminal" type="button">Connect Latest Shell</button>
+        <button id="interrupt-terminal" type="button">Interrupt</button>
+        <button id="remember-block" type="button">Remember Last Block</button>
+      </div>
+    </section>
+
+    <section style="margin-top: 18px;">
       <h2>Response</h2>
       <pre id="output">Opening Beagle Workbench...</pre>
     </section>
@@ -11650,9 +11689,26 @@ function renderProjectLaunchPage(project) {
     const truthMode = document.getElementById("truth-mode");
     const startButton = document.getElementById("start-session");
     const refreshButton = document.getElementById("refresh");
+    const terminalOutput = document.getElementById("terminal-output");
+    const terminalForm = document.getElementById("terminal-form");
+    const terminalInput = document.getElementById("terminal-input");
+    const connectTerminalButton = document.getElementById("connect-terminal");
+    const interruptTerminalButton = document.getElementById("interrupt-terminal");
+    const rememberBlockButton = document.getElementById("remember-block");
+    let currentSessions = [];
+    let currentSessionId = "";
+    let currentPaneId = "";
+    let terminalWs = null;
+    let terminalConnectedKey = "";
+    let lastBlockId = "";
 
     function show(payload) {
       output.textContent = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+    }
+
+    function appendTerminal(text) {
+      terminalOutput.textContent = (terminalOutput.textContent + text).slice(-50000);
+      terminalOutput.scrollTop = terminalOutput.scrollHeight;
     }
 
     async function apiJson(path, options = {}) {
@@ -11725,6 +11781,95 @@ function renderProjectLaunchPage(project) {
       };
     }
 
+    function selectShellPane(session) {
+      const panes = Array.isArray(session?.panes) ? session.panes : [];
+      return panes.find((pane) => pane.kind === "human" || pane.kind === "shell") || panes[0] || null;
+    }
+
+    function closeTerminal() {
+      if (terminalWs) {
+        terminalWs.close();
+        terminalWs = null;
+      }
+      terminalConnectedKey = "";
+    }
+
+    function connectTerminal(session = null) {
+      const targetSession = session || currentSessions[0];
+      const pane = selectShellPane(targetSession);
+      if (!targetSession?.id || !pane?.id) {
+        appendTerminal("\\n[beagle] no shell pane available yet\\n");
+        return;
+      }
+      const key = targetSession.id + ":" + pane.id;
+      if (terminalWs && terminalConnectedKey === key && terminalWs.readyState === WebSocket.OPEN) {
+        return;
+      }
+      closeTerminal();
+      currentSessionId = targetSession.id;
+      currentPaneId = pane.id;
+      terminalConnectedKey = key;
+      terminalOutput.textContent = "[beagle] connecting " + key + "...\\n";
+      const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+      const url = scheme + "//" + location.host + "/ws/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(currentSessionId) + "/panes/" + encodeURIComponent(currentPaneId);
+      terminalWs = new WebSocket(url);
+      terminalWs.addEventListener("open", () => {
+        appendTerminal("[beagle] connected to Shell lane\\n");
+        terminalWs.send(JSON.stringify({ type: "resize", cols: 120, rows: 34 }));
+      });
+      terminalWs.addEventListener("message", (event) => {
+        let message = {};
+        try {
+          message = JSON.parse(String(event.data));
+        } catch (_error) {
+          appendTerminal(String(event.data));
+          return;
+        }
+        if (message.type === "data" || message.type === "raw_output") {
+          appendTerminal(String(message.data || ""));
+          return;
+        }
+        if (message.type === "ready") {
+          appendTerminal("\\n[beagle] ready: " + JSON.stringify(message.data || {}) + "\\n");
+          return;
+        }
+        if (message.type === "block_started") {
+          lastBlockId = message.blockId || message.block_id || "";
+          appendTerminal("\\n[block started] " + (message.title || lastBlockId || "command") + "\\n");
+          return;
+        }
+        if (message.type === "block_finished") {
+          lastBlockId = message.blockId || message.block_id || lastBlockId;
+          appendTerminal("\\n[block finished] " + (message.status || "finished") + " " + (lastBlockId || "") + "\\n");
+          refresh().catch(() => {});
+          return;
+        }
+        if (message.type === "memory_imported") {
+          appendTerminal("\\n[memory] " + (message.status || "updated") + " " + (message.blockId || "") + "\\n");
+          refresh().catch(() => {});
+          return;
+        }
+        if (message.type === "secret_redacted") {
+          appendTerminal("\\n[restricted] secret redacted; block will not be canonical memory\\n");
+          return;
+        }
+        if (message.type === "agent_state") {
+          appendTerminal("\\n[agent] " + (message.state || "updated") + "\\n");
+          return;
+        }
+        if (message.type === "exit" || message.type === "error") {
+          appendTerminal("\\n[" + message.type + "] " + (message.data || message.error || "") + "\\n");
+          return;
+        }
+      });
+      terminalWs.addEventListener("close", () => {
+        appendTerminal("\\n[beagle] shell disconnected\\n");
+      });
+      terminalWs.addEventListener("error", () => {
+        appendTerminal("\\n[beagle] shell websocket error\\n");
+      });
+    }
+
     async function refresh() {
       refreshButton.disabled = true;
       try {
@@ -11732,9 +11877,11 @@ function renderProjectLaunchPage(project) {
         const sessions = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions");
         renderLanes(registry);
         const list = sessions.sessions || [];
+        currentSessions = list;
         latestSession.textContent = list.length > 0 ? list[0].id || list[0].session_id || "active" : "none";
         truthMode.textContent = registry.truthMode || registry.truth_mode || sessions.truthMode || sessions.truth_mode || "observed";
         show(summarizeRefresh(registry, sessions));
+        if (!terminalWs && list.length > 0) connectTerminal(list[0]);
       } catch (error) {
         lanes.innerHTML = '<span class="pill warn">Workbench unavailable: ' + error.message + '</span>';
         truthMode.textContent = "stale";
@@ -11774,6 +11921,45 @@ function renderProjectLaunchPage(project) {
 
     refreshButton.addEventListener("click", refresh);
     startButton.addEventListener("click", startSession);
+    connectTerminalButton.addEventListener("click", () => connectTerminal());
+    interruptTerminalButton.addEventListener("click", () => {
+      if (terminalWs && terminalWs.readyState === WebSocket.OPEN) {
+        terminalWs.send(JSON.stringify({ type: "signal", signal: "SIGINT" }));
+      }
+    });
+    rememberBlockButton.addEventListener("click", async () => {
+      if (!currentSessionId || !lastBlockId) {
+        appendTerminal("\\n[beagle] no finished block to remember yet\\n");
+        return;
+      }
+      try {
+        const remembered = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(currentSessionId) + "/blocks/" + encodeURIComponent(lastBlockId) + "/remember", {
+          method: "POST",
+          body: JSON.stringify({ confirmed: true, summary: "Manual Workbench remember from Project Cockpit launch pad." })
+        });
+        appendTerminal("\\n[memory] " + JSON.stringify(remembered.memory || remembered) + "\\n");
+        await refresh();
+      } catch (error) {
+        appendTerminal("\\n[memory error] " + (error.message || error) + "\\n");
+      }
+    });
+    terminalForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const command = terminalInput.value;
+      if (!command.trim()) return;
+      if (!terminalWs || terminalWs.readyState !== WebSocket.OPEN) {
+        connectTerminal();
+        setTimeout(() => {
+          if (terminalWs && terminalWs.readyState === WebSocket.OPEN) {
+            terminalWs.send(JSON.stringify({ type: "input", data: command + "\\n" }));
+          }
+        }, 450);
+      } else {
+        terminalWs.send(JSON.stringify({ type: "input", data: command + "\\n" }));
+      }
+      terminalInput.value = "";
+      terminalInput.focus();
+    });
     refresh();
   </script>
 </body>
