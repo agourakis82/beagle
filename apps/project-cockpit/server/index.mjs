@@ -12112,6 +12112,7 @@ function renderWarpBridgeLabPage(project) {
       --accent: #75d6ff;
       --ok: #8df3b3;
       --warn: #ffd580;
+      --danger: #ff9aa8;
     }
     * { box-sizing: border-box; }
     body {
@@ -12148,7 +12149,24 @@ function renderWarpBridgeLabPage(project) {
     button, a.button { cursor: pointer; }
     button.primary, a.primary { background: rgba(117,214,255,0.18); border-color: rgba(117,214,255,0.42); }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .compare-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
     .full { grid-column: 1 / -1; }
+    .select-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+      gap: 10px;
+      margin: 12px 0;
+    }
+    select {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 11px;
+      background: rgba(0,0,0,0.28);
+      color: var(--text);
+      font: inherit;
+    }
     .row {
       display: flex;
       align-items: baseline;
@@ -12162,6 +12180,35 @@ function renderWarpBridgeLabPage(project) {
     .row strong { text-align: right; overflow-wrap: anywhere; }
     .ok { color: var(--ok); }
     .warn { color: var(--warn); }
+    .danger { color: var(--danger); }
+    .column {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: rgba(0,0,0,0.18);
+      min-width: 0;
+    }
+    .column h3, .memo h3 { margin: 0 0 10px; font-size: 15px; }
+    .memo {
+      border: 1px solid rgba(117,214,255,0.25);
+      background: rgba(117,214,255,0.08);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .field-list {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .field {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      background: rgba(0,0,0,0.18);
+      overflow-wrap: anywhere;
+    }
+    .field strong { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
     pre {
       margin: 0;
       min-height: 220px;
@@ -12177,6 +12224,9 @@ function renderWarpBridgeLabPage(project) {
     @media (max-width: 760px) {
       main { width: min(100vw - 22px, 1180px); padding-top: 22px; }
       .grid { grid-template-columns: 1fr; }
+      .compare-grid { grid-template-columns: 1fr; }
+      .select-row { grid-template-columns: 1fr; }
+      .field-list { grid-template-columns: 1fr; }
       h1 { font-size: clamp(30px, 12vw, 46px); }
       .row { display: grid; }
       .row strong { text-align: left; }
@@ -12195,6 +12245,9 @@ function renderWarpBridgeLabPage(project) {
         <span class="pill">namespace: ${escapeHtml(namespace)}</span>
         <span class="pill">bridge: ${escapeHtml(bridgeVersion)}</span>
         <span class="pill">vendor: warp@${escapeHtml(vendorCommit.slice(0, 7))}</span>
+        <span class="pill">hot_path=beagle-terminal-v1</span>
+        <span class="pill">warp_renderer=not_promoted</span>
+        <span class="pill">canonical_memory=cluster-only</span>
       </div>
       <div class="actions">
         <a class="button primary" href="/projects/${encodeURIComponent(slug)}">Open Beagle Workbench</a>
@@ -12214,17 +12267,43 @@ function renderWarpBridgeLabPage(project) {
       </section>
 
       <section>
-        <h2>Runtime Status</h2>
+        <h2>Runtime</h2>
         <div class="row"><span>Workspace authority</span><strong id="authority">Loading...</strong></div>
         <div class="row"><span>Supervisor</span><strong id="supervisor">Loading...</strong></div>
         <div class="row"><span>Sessions</span><strong id="sessions-count">Loading...</strong></div>
         <div class="row"><span>Selected session</span><strong id="selected-session">Loading...</strong></div>
+        <div class="row"><span>Selected block</span><strong id="selected-block">Loading...</strong></div>
         <div class="row"><span>Bridge mode</span><strong>dual bridge bake-off</strong></div>
       </section>
 
       <section class="full">
-        <h2>Warp-Derived Conversion Preview</h2>
-        <pre id="preview">Loading live Workbench state...</pre>
+        <h2>Live Block Selection</h2>
+        <div class="select-row">
+          <select id="session-select" aria-label="Workbench session"></select>
+          <select id="block-select" aria-label="Terminal block"></select>
+          <button id="refresh" type="button">Refresh</button>
+        </div>
+        <div id="privacy-note" class="pill">Loading privacy status...</div>
+      </section>
+
+      <section class="full">
+        <h2>Beagle vs Warp-Derived</h2>
+        <div class="compare-grid">
+          <div class="column">
+            <h3>Beagle TerminalBlock</h3>
+            <pre id="beagle-preview">Loading...</pre>
+          </div>
+          <div class="column">
+            <h3>WarpBlock Preview</h3>
+            <pre id="warp-preview">Loading...</pre>
+          </div>
+        </div>
+        <div id="field-diff" class="field-list"></div>
+      </section>
+
+      <section class="full">
+        <h2>Decision Memo</h2>
+        <div id="decision-memo" class="memo">Loading decision memo...</div>
       </section>
     </div>
   </main>
@@ -12233,11 +12312,20 @@ function renderWarpBridgeLabPage(project) {
     const slug = ${JSON.stringify(slug)};
     const bridgeVersion = ${JSON.stringify(bridgeVersion)};
     const vendorCommit = ${JSON.stringify(vendorCommit)};
-    const preview = document.getElementById("preview");
     const authority = document.getElementById("authority");
     const supervisor = document.getElementById("supervisor");
     const sessionsCount = document.getElementById("sessions-count");
     const selectedSession = document.getElementById("selected-session");
+    const selectedBlock = document.getElementById("selected-block");
+    const sessionSelect = document.getElementById("session-select");
+    const blockSelect = document.getElementById("block-select");
+    const refreshButton = document.getElementById("refresh");
+    const privacyNote = document.getElementById("privacy-note");
+    const beaglePreview = document.getElementById("beagle-preview");
+    const warpPreview = document.getElementById("warp-preview");
+    const fieldDiff = document.getElementById("field-diff");
+    const decisionMemo = document.getElementById("decision-memo");
+    let state = { sessions: [], blocksBySession: new Map(), selectedSessionId: "", selectedBlockId: "" };
 
     async function apiJson(path) {
       const response = await fetch(path, { headers: { "accept": "application/json" } });
@@ -12261,25 +12349,205 @@ function renderWarpBridgeLabPage(project) {
       return list.find(isOperatorSession) || list[0] || null;
     }
 
+    function escapeHtmlClient(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function normalizeMemoryStatus(value) {
+      const status = String(value || "not_saved");
+      if (status === "saved") return "remembered";
+      return status;
+    }
+
+    function blockPrivacy(block) {
+      return String(block?.privacyClass || block?.privacy_class || "sensitive");
+    }
+
+    function sanitizeBlock(block) {
+      const privacyClass = blockPrivacy(block);
+      const restricted = privacyClass === "restricted_local_only" || privacyClass === "restricted";
+      return {
+        id: block?.id || "no-live-block-yet",
+        sessionId: block?.sessionId || block?.session_id || "",
+        paneId: block?.paneId || block?.pane_id || "pane-main",
+        kind: block?.kind || "command",
+        title: block?.title || block?.command || "Terminal block",
+        command: restricted ? "[restricted command redacted]" : (block?.command || ""),
+        outputPreview: restricted ? "[restricted output redacted]" : (block?.outputPreview || block?.output_preview || ""),
+        outputByteCount: restricted ? null : (block?.outputByteCount || block?.output_byte_count || null),
+        startedAt: block?.startedAt || block?.started_at || "",
+        finishedAt: block?.finishedAt || block?.finished_at || "",
+        durationMs: block?.durationMs ?? block?.duration_ms ?? null,
+        exitCode: block?.exitCode ?? block?.exit_code ?? null,
+        status: block?.status || "pending",
+        privacyClass,
+        memoryStatus: normalizeMemoryStatus(block?.memoryStatus || block?.memory_status),
+        tags: Array.isArray(block?.tags) ? block.tags : [],
+        sourceModel: block?.sourceModel || block?.source_model || "beagle",
+        bridgeVersion: block?.bridgeVersion || block?.bridge_version || bridgeVersion,
+        blockHash: block?.blockHash || block?.block_hash || null,
+        sessionHash: block?.sessionHash || block?.session_hash || null,
+        rendererHint: block?.rendererHint || block?.renderer_hint || "beagle-terminal-v1",
+        restricted
+      };
+    }
+
     function terminalBlockToWarpBlock(block) {
       return {
         id: block.id,
-        sessionId: block.sessionId || block.session_id,
-        paneId: block.paneId || block.pane_id,
+        sessionId: block.sessionId,
+        paneId: block.paneId,
         type: block.kind || "command",
         title: block.title || block.command || "Terminal block",
         command: block.command || "",
-        outputPreview: block.outputPreview || block.output_preview || "",
+        outputPreview: block.outputPreview || "",
         status: block.status || "finished",
-        memoryStatus: block.memoryStatus || block.memory_status || "not_saved",
+        memoryStatus: block.memoryStatus || "not_saved",
         provenance: {
           source_model: "beagle",
           bridge_version: bridgeVersion,
           renderer_hint: "warp-derived-preview",
           vendor_commit: vendorCommit,
-          block_hash: block.blockHash || block.block_hash || null
+          block_hash: block.blockHash || null,
+          privacy_class: block.privacyClass,
+          restricted_redacted: Boolean(block.restricted)
         }
       };
+    }
+
+    function warpBlockToTerminalBlock(warpBlock) {
+      return {
+        id: warpBlock.id,
+        sessionId: warpBlock.sessionId,
+        paneId: warpBlock.paneId,
+        kind: warpBlock.type,
+        title: warpBlock.title,
+        command: warpBlock.command,
+        outputPreview: warpBlock.outputPreview,
+        status: warpBlock.status,
+        memoryStatus: normalizeMemoryStatus(warpBlock.memoryStatus),
+        sourceModel: "warp",
+        bridgeVersion,
+        rendererHint: "warp-block",
+        blockHash: warpBlock.provenance?.block_hash || null
+      };
+    }
+
+    function preservedFields(beagleBlock, warpBlock, roundTripBlock) {
+      const checks = [
+        ["id", beagleBlock.id, warpBlock.id, roundTripBlock.id],
+        ["session", beagleBlock.sessionId, warpBlock.sessionId, roundTripBlock.sessionId],
+        ["pane", beagleBlock.paneId, warpBlock.paneId, roundTripBlock.paneId],
+        ["command", beagleBlock.command, warpBlock.command, roundTripBlock.command],
+        ["status", beagleBlock.status, warpBlock.status, roundTripBlock.status],
+        ["memoryStatus", beagleBlock.memoryStatus, warpBlock.memoryStatus, roundTripBlock.memoryStatus],
+        ["provenance", beagleBlock.blockHash || "", warpBlock.provenance?.block_hash || "", roundTripBlock.blockHash || ""],
+        ["blockHash", beagleBlock.blockHash || "", warpBlock.provenance?.block_hash || "", roundTripBlock.blockHash || ""]
+      ];
+      return checks.map(([field, beagle, warp, roundTrip]) => ({
+        field,
+        beagle,
+        warp,
+        roundTrip,
+        preserved: String(beagle || "") === String(warp || "") && String(warp || "") === String(roundTrip || "")
+      }));
+    }
+
+    function renderFieldDiff(fields) {
+      fieldDiff.innerHTML = fields.map((entry) => (
+        '<div class="field">' +
+          '<strong>' + escapeHtmlClient(entry.field) + '</strong>' +
+          '<span class="' + (entry.preserved ? 'ok' : 'warn') + '">' + (entry.preserved ? 'preserved' : 'changed') + '</span>' +
+        '</div>'
+      )).join("");
+    }
+
+    function renderDecisionMemo(beagleBlock, fields) {
+      const preservedCount = fields.filter((entry) => entry.preserved).length;
+      const restricted = beagleBlock.restricted;
+      const verdict = "continue dual bridge; do not promote Warp renderer yet";
+      decisionMemo.innerHTML = [
+        '<h3>Verdict</h3>',
+        '<p><strong>' + escapeHtmlClient(verdict) + '</strong></p>',
+        '<p>Bridge conversion is inspectable and preserves ' + preservedCount + '/' + fields.length + ' tracked fields for the selected block. Provenance remains visible, and restricted content is redacted before preview.</p>',
+        '<p class="' + (restricted ? 'warn' : 'ok') + '">' + (restricted ? 'Selected block is restricted; output is intentionally hidden.' : 'Selected block is safe for outputPreview-level comparison.') + '</p>',
+        '<p>Renderer promotion is blocked until VT fidelity, latency, iPad/iPhone usability, and secret-scan behavior are measured against the Beagle Notebook Terminal.</p>',
+        '<p>Next: live block selection, isolated renderer spike, Apple-device latency pass, and secret-scan audit.</p>'
+      ].join("");
+    }
+
+    function populateSessionSelect(list) {
+      sessionSelect.innerHTML = list.map((session) => {
+        const id = session.id || session.session_id;
+        const label = (session.title || "Workbench session") + " - " + id;
+        return '<option value="' + escapeHtmlClient(id) + '">' + escapeHtmlClient(label) + '</option>';
+      }).join("");
+      sessionSelect.value = state.selectedSessionId;
+    }
+
+    function populateBlockSelect(blocks) {
+      if (!blocks.length) {
+        blockSelect.innerHTML = '<option value="no-live-block-yet">No finished block yet</option>';
+        blockSelect.value = "no-live-block-yet";
+        return;
+      }
+      blockSelect.innerHTML = blocks.map((block) => {
+        const label = (block.title || block.command || block.id || "block").slice(0, 96);
+        return '<option value="' + escapeHtmlClient(block.id) + '">' + escapeHtmlClient(label) + '</option>';
+      }).join("");
+      blockSelect.value = state.selectedBlockId || blocks[0].id;
+    }
+
+    async function loadBlocksForSession(sessionId) {
+      if (!sessionId) return [];
+      if (state.blocksBySession.has(sessionId)) return state.blocksBySession.get(sessionId);
+      const blockResponse = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(sessionId) + "/blocks");
+      const blocks = blockResponse.blocks || [];
+      state.blocksBySession.set(sessionId, blocks);
+      return blocks;
+    }
+
+    function emptyBlock(sessionId) {
+      return {
+        id: "no-live-block-yet",
+        sessionId,
+        paneId: "pane-main",
+        kind: "command",
+        title: "No finished block yet",
+        command: "",
+        outputPreview: "Run a command in the Beagle Workbench, then refresh this lab.",
+        status: "pending",
+        memoryStatus: "not_saved",
+        privacyClass: "sensitive",
+        blockHash: null,
+        tags: []
+      };
+    }
+
+    async function renderSelectedBlock() {
+      const blocks = await loadBlocksForSession(state.selectedSessionId);
+      populateBlockSelect(blocks);
+      const rawBlock = blocks.find((block) => block.id === (state.selectedBlockId || blockSelect.value)) || blocks[0] || emptyBlock(state.selectedSessionId);
+      state.selectedBlockId = rawBlock.id;
+      blockSelect.value = rawBlock.id;
+      selectedBlock.textContent = rawBlock.id;
+
+      const beagleBlock = sanitizeBlock(rawBlock);
+      const warpBlock = terminalBlockToWarpBlock(beagleBlock);
+      const roundTripBlock = warpBlockToTerminalBlock(warpBlock);
+      const fields = preservedFields(beagleBlock, warpBlock, roundTripBlock);
+      privacyNote.textContent = beagleBlock.restricted
+        ? "restricted_local_only: outputPreview hidden; no memory write occurs here"
+        : "outputPreview only: derived preview; no memory write occurs here";
+      privacyNote.className = beagleBlock.restricted ? "pill warn" : "pill";
+      beaglePreview.textContent = JSON.stringify(beagleBlock, null, 2);
+      warpPreview.textContent = JSON.stringify(warpBlock, null, 2);
+      renderFieldDiff(fields);
+      renderDecisionMemo(beagleBlock, fields);
     }
 
     async function refresh() {
@@ -12288,52 +12556,33 @@ function renderWarpBridgeLabPage(project) {
         const sessions = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions");
         const list = sessions.sessions || [];
         const selected = selectSession(list);
+        state.sessions = list;
+        state.blocksBySession = new Map();
+        state.selectedSessionId = state.selectedSessionId || selected?.id || selected?.session_id || "";
         authority.textContent = registry.authority?.authority || sessions.authority?.authority || "unknown";
         supervisor.textContent = registry.authority?.supervisor?.status || sessions.authority?.supervisor?.status || "unknown";
         sessionsCount.textContent = String(list.length);
-        selectedSession.textContent = selected ? (selected.id || selected.session_id) : "none";
-
-        let blocks = [];
-        if (selected?.id) {
-          const blockResponse = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(selected.id) + "/blocks");
-          blocks = blockResponse.blocks || [];
-        }
-        const sample = blocks[0] || {
-          id: "no-live-block-yet",
-          sessionId: selected?.id || "",
-          paneId: "pane-main",
-          kind: "command",
-          title: "No finished block yet",
-          command: "",
-          outputPreview: "Run a command in the Beagle Workbench, then refresh this lab.",
-          status: "pending",
-          memoryStatus: "not_saved"
-        };
-        preview.textContent = JSON.stringify({
-          warp_workbench_boundary: {
-            path: "apps/warp-workbench",
-            vendor_path: "apps/warp-workbench/vendor/warp",
-            vendor_commit: vendorCommit,
-            bridge_version: bridgeVersion,
-            hot_path: "beagle-terminal-v1",
-            renderer_authority: "not_promoted"
-          },
-          beagle_terminal_block: sample,
-          warp_block_preview: terminalBlockToWarpBlock(sample),
-          bakeoff_questions: [
-            "Does Warp's block model improve clarity over Beagle TerminalBlock?",
-            "Can provenance survive round-trip conversion?",
-            "Does renderer latency stay acceptable on iPad/iPhone?",
-            "Do memory imports remain secret-scanned and cluster-canonical?"
-          ]
-        }, null, 2);
+        selectedSession.textContent = state.selectedSessionId || "none";
+        populateSessionSelect(list);
+        await renderSelectedBlock();
       } catch (error) {
         authority.textContent = "degraded";
         supervisor.textContent = "unknown";
-        preview.textContent = String(error.stack || error.message || error);
+        decisionMemo.textContent = String(error.stack || error.message || error);
       }
     }
 
+    sessionSelect.addEventListener("change", async () => {
+      state.selectedSessionId = sessionSelect.value;
+      state.selectedBlockId = "";
+      selectedSession.textContent = state.selectedSessionId || "none";
+      await renderSelectedBlock();
+    });
+    blockSelect.addEventListener("change", async () => {
+      state.selectedBlockId = blockSelect.value;
+      await renderSelectedBlock();
+    });
+    refreshButton.addEventListener("click", refresh);
     refresh();
   </script>
 </body>
