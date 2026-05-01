@@ -11678,21 +11678,28 @@ function renderProjectLaunchPage(project) {
 
     function roleName(role) {
       if (typeof role === "string") return role;
-      return role.label || role.displayName || role.display_name || role.role || role.id || role.kind || "agent";
+      return role.title || role.label || role.displayName || role.display_name || role.role || role.id || role.kind || "agent";
     }
 
     function roleDetail(role) {
       if (typeof role === "string") return "provider slot pending";
       const slots = role.providerSlots || role.provider_slots || role.slots || [];
       const enabled = Array.isArray(slots) ? slots.find((slot) => slot.enabled !== false) || slots[0] : null;
-      const provider = enabled ? enabled.model_id || enabled.modelId || enabled.command || enabled.provider || "" : "";
-      const readiness = role.readiness || role.status || enabled?.status || "";
-      return [provider, readiness].filter(Boolean).join(" - ") || "provider slot pending";
+      const readiness = role.readiness && typeof role.readiness === "object" ? role.readiness : {};
+      const provider = enabled ? enabled.title || enabled.model_id || enabled.modelId || enabled.command || enabled.provider || "" : "";
+      const status = readiness.status || role.status || enabled?.status || "";
+      const reason = readiness.reason || role.subtitle || "";
+      return [provider, status, reason].filter(Boolean).join(" - ") || "provider slot pending";
     }
 
     function renderLanes(registry) {
-      const roles = registry.visibleRoles || registry.visible_roles || registry.roles || [];
-      const selected = Array.isArray(roles) ? roles.slice(0, 8) : [];
+      const allRoles = Array.isArray(registry.roles) ? registry.roles : [];
+      const byRole = new Map(allRoles.map((role) => [role.role || role.id || role.kind, role]));
+      const visibleRefs = registry.visibleRoles || registry.visible_roles || [];
+      const selected = (Array.isArray(visibleRefs) && visibleRefs.length > 0
+        ? visibleRefs.map((entry) => typeof entry === "string" ? byRole.get(entry) || entry : entry)
+        : allRoles.filter((role) => role.visible !== false)
+      ).filter(Boolean).slice(0, 8);
       if (selected.length === 0) {
         lanes.innerHTML = '<span class="pill warn">No role lanes reported by workspace-agent yet.</span>';
         return;
@@ -11700,6 +11707,22 @@ function renderProjectLaunchPage(project) {
       lanes.innerHTML = selected.map((role) =>
         '<div class="lane"><strong>' + roleName(role) + '</strong><span>' + roleDetail(role) + '</span></div>'
       ).join("");
+    }
+
+    function summarizeRefresh(registry, sessions) {
+      const list = sessions.sessions || [];
+      return {
+        registryVersion: registry.registryVersion || registry.registry_version || "unknown",
+        authority: registry.authority?.authority || sessions.authority?.authority || "unknown",
+        supervisor: registry.authority?.supervisor?.status || sessions.authority?.supervisor?.status || "unknown",
+        visibleRoles: registry.visibleRoles || registry.visible_roles || [],
+        latestSessions: list.slice(0, 5).map((session) => ({
+          id: session.id || session.session_id,
+          title: session.title,
+          panes: Array.isArray(session.panes) ? session.panes.length : 0,
+          memory: session.lastMemoryStatus?.status || "none"
+        }))
+      };
     }
 
     async function refresh() {
@@ -11711,7 +11734,7 @@ function renderProjectLaunchPage(project) {
         const list = sessions.sessions || [];
         latestSession.textContent = list.length > 0 ? list[0].id || list[0].session_id || "active" : "none";
         truthMode.textContent = registry.truthMode || registry.truth_mode || sessions.truthMode || sessions.truth_mode || "observed";
-        show({ registry, sessions });
+        show(summarizeRefresh(registry, sessions));
       } catch (error) {
         lanes.innerHTML = '<span class="pill warn">Workbench unavailable: ' + error.message + '</span>';
         truthMode.textContent = "stale";
@@ -11734,7 +11757,8 @@ function renderProjectLaunchPage(project) {
         });
         const session = created.session || created;
         const sessionId = session.id || session.sessionId || session.session_id;
-        if (sessionId) {
+        const panes = Array.isArray(session.panes) ? session.panes : [];
+        if (sessionId && panes.length === 0) {
           await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(sessionId) + "/panes", {
             method: "POST",
             body: JSON.stringify({ kind: "human", title: "Shell" })
