@@ -418,6 +418,7 @@ export function hashObject(payload) {
 
 export function stripControl(text) {
   return cleanString(text)
+    .replace(/\x1b\][^\u0007]*(?:\u0007|\x1b\\)/g, "")
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
 }

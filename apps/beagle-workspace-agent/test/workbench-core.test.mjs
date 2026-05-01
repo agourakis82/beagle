@@ -8,6 +8,7 @@ import {
   normalizeSession,
   routeAgentTask,
   shouldAutoRememberBlock,
+  stripControl,
 } from "../src/workbench-core.mjs";
 
 test("foldBlocks preserves restricted state after secret redaction", () => {
@@ -117,4 +118,10 @@ test("missing CLI setup noise is not auto-memory", () => {
     }),
     false,
   );
+});
+
+test("stripControl removes OSC title sequences before snapshot replay", () => {
+  const cleaned = stripControl("\u001b]0;node@sounio: /workspace/sounio\u0007node@sounio$ echo ok\r\n");
+  assert.equal(cleaned.includes("]0;"), false);
+  assert.equal(cleaned.includes("node@sounio$ echo ok"), true);
 });

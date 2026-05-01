@@ -23,6 +23,7 @@ import {
   readBlockEvents,
   readSessions,
   routeAgentTask,
+  safeId,
   shouldAutoRememberBlock,
   stripControl,
   updateSession,
@@ -502,6 +503,7 @@ async function rememberBlockById(ws, sessionId, paneId, blockId, trigger = "manu
 
 wss.on("connection", async (ws, req, context) => {
   const { sessionId, paneId } = context;
+  const supervisorPaneId = safeId(`${sessionId}:${paneId}`);
   const session = await getOrCreateSession(rootDir, slug, sessionId);
   await updateSession(rootDir, slug, session.id, (current) => ({
     ...current,
@@ -514,7 +516,7 @@ wss.on("connection", async (ws, req, context) => {
   try {
     await supervisorJson("/v1/spawn", {
       sessionId,
-      paneId,
+      paneId: supervisorPaneId,
       cwd: cleanString(pane.cwd) || workspaceRoot,
       cols: Number(context.cols || 120),
       rows: Number(context.rows || 34),
@@ -531,7 +533,7 @@ wss.on("connection", async (ws, req, context) => {
 
   let activeBlock = null;
   let inputBuffer = "";
-  const supervisorWs = new WebSocket(`${supervisorUrl.replace(/^http/, "ws")}/v1/panes/${encodeURIComponent(paneId)}/stream`);
+  const supervisorWs = new WebSocket(`${supervisorUrl.replace(/^http/, "ws")}/v1/panes/${encodeURIComponent(supervisorPaneId)}/stream`);
 
   async function finishActiveBlock(status = "finished", exitCode = null) {
     if (!activeBlock) return;
@@ -721,31 +723,31 @@ wss.on("connection", async (ws, req, context) => {
           inputBuffer = "";
           await startBlock(command);
         }
-        await supervisorJson(`/v1/panes/${encodeURIComponent(paneId)}/input`, { data: text });
+        await supervisorJson(`/v1/panes/${encodeURIComponent(supervisorPaneId)}/input`, { data: text });
         return;
       }
       if (message.type === "resize") {
-        await supervisorJson(`/v1/panes/${encodeURIComponent(paneId)}/resize`, { cols: Number(message.cols || 120), rows: Number(message.rows || 34) });
+        await supervisorJson(`/v1/panes/${encodeURIComponent(supervisorPaneId)}/resize`, { cols: Number(message.cols || 120), rows: Number(message.rows || 34) });
         return;
       }
       if (message.type === "signal") {
-        await supervisorJson(`/v1/panes/${encodeURIComponent(paneId)}/signal`, { signal: cleanString(message.signal || "SIGINT") });
+        await supervisorJson(`/v1/panes/${encodeURIComponent(supervisorPaneId)}/signal`, { signal: cleanString(message.signal || "SIGINT") });
         return;
       }
       if (message.type === "stop_process") {
-        await supervisorJson(`/v1/panes/${encodeURIComponent(paneId)}/terminate`, {});
+        await supervisorJson(`/v1/panes/${encodeURIComponent(supervisorPaneId)}/terminate`, {});
         return;
       }
       if (message.type === "approve") {
         await appendBlockEvent(rootDir, slug, sessionId, { type: "approval_requested", sessionId, paneId, at: nowIso(), status: "approved", sourceModel: "beagle", bridgeVersion: WORKBENCH_BRIDGE_VERSION, authority: "workspace-agent" });
-        await supervisorJson(`/v1/panes/${encodeURIComponent(paneId)}/input`, { data: String(message.data || "y\n") });
+        await supervisorJson(`/v1/panes/${encodeURIComponent(supervisorPaneId)}/input`, { data: String(message.data || "y\n") });
         return;
       }
       if (message.type === "start_process") {
         const command = cleanString(message.command);
         if (command) {
           await startBlock(command);
-          await supervisorJson(`/v1/panes/${encodeURIComponent(paneId)}/input`, { data: `${command}\n` });
+          await supervisorJson(`/v1/panes/${encodeURIComponent(supervisorPaneId)}/input`, { data: `${command}\n` });
         }
         return;
       }
@@ -763,7 +765,7 @@ wss.on("connection", async (ws, req, context) => {
         return;
       }
     } catch {
-      await supervisorJson(`/v1/panes/${encodeURIComponent(paneId)}/input`, { data: String(payload) }).catch(() => {});
+      await supervisorJson(`/v1/panes/${encodeURIComponent(supervisorPaneId)}/input`, { data: String(payload) }).catch(() => {});
     }
   });
 

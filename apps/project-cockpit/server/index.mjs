@@ -11733,9 +11733,30 @@ function renderProjectLaunchPage(project) {
       return result;
     }
 
+    function stripBareOscFragments(value) {
+      return String(value || "")
+        .split("\\n")
+        .map((line) => {
+          for (const marker of ["]0;", "]2;"]) {
+            let start = line.indexOf(marker);
+            while (start !== -1) {
+              const promptStart = line.indexOf("node@", start + marker.length);
+              if (promptStart === -1) {
+                line = line.slice(0, start);
+                break;
+              }
+              line = line.slice(0, start) + line.slice(promptStart);
+              start = line.indexOf(marker);
+            }
+          }
+          return line;
+        })
+        .join("\\n");
+    }
+
     function appendTerminal(text) {
       const ESC = String.fromCharCode(27);
-      const cleaned = stripOscSequences(text)
+      const cleaned = stripBareOscFragments(stripOscSequences(text))
         .replace(new RegExp(ESC + "\\\\[[0-?]*[ -/]*[@-~]", "g"), "")
         .replace(new RegExp(ESC + "[>=]", "g"), "")
         .split("\\r\\n").join("\\n")
