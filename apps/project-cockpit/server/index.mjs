@@ -11647,6 +11647,7 @@ function renderProjectLaunchPage(project) {
         <div class="actions">
           <button class="primary" id="start-session">Start Shell Session</button>
           <button id="refresh">Refresh</button>
+          <a class="button" href="/projects/${encodeURIComponent(slug)}/warp">Warp Bridge Lab</a>
           <a class="button" href="/api/workspaces/${encodeURIComponent(slug)}/agents/registry">Registry JSON</a>
           <a class="button" href="/api/workspaces/${encodeURIComponent(slug)}/sessions">Sessions JSON</a>
         </div>
@@ -12086,7 +12087,269 @@ function renderProjectLaunchPage(project) {
 </html>`;
 }
 
+function renderWarpBridgeLabPage(project) {
+  const slug = project.projectSlug || project.slug || "sounio";
+  const title = `${project.title || slug} Warp Bridge Lab`;
+  const authority = project.workbench?.authority || project.workspace?.authority || "workspace-agent";
+  const namespace = project.namespace || "beagle";
+  const vendorCommit = "805b3e2a576e689a1e414f01ed3fc51e9e704d69";
+  const bridgeVersion = "beagle-warp-bridge-v0.2";
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(title)}</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07090d;
+      --panel: rgba(255,255,255,0.07);
+      --panel2: rgba(255,255,255,0.045);
+      --line: rgba(255,255,255,0.16);
+      --text: #f4f7fb;
+      --muted: #a7b1c2;
+      --accent: #75d6ff;
+      --ok: #8df3b3;
+      --warn: #ffd580;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top left, rgba(117,214,255,0.16), transparent 34rem), var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(100vw - 32px, 1180px); margin: 0 auto; padding: 34px 0 42px; }
+    header, section {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: linear-gradient(180deg, var(--panel), var(--panel2));
+      padding: 18px;
+      backdrop-filter: blur(18px);
+    }
+    header { margin-bottom: 16px; }
+    .eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: .12em; font-size: 12px; margin: 0 0 8px; }
+    h1 { margin: 0; font-size: clamp(34px, 5vw, 64px); letter-spacing: 0; }
+    h2 { margin: 0 0 12px; font-size: 18px; }
+    p { color: var(--muted); line-height: 1.55; }
+    a { color: inherit; }
+    .meta, .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .pill, a.button, button {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 11px;
+      background: rgba(0,0,0,0.18);
+      color: var(--text);
+      text-decoration: none;
+      font: inherit;
+    }
+    button, a.button { cursor: pointer; }
+    button.primary, a.primary { background: rgba(117,214,255,0.18); border-color: rgba(117,214,255,0.42); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .full { grid-column: 1 / -1; }
+    .row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 9px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .row:last-child { border-bottom: 0; }
+    .row span { color: var(--muted); }
+    .row strong { text-align: right; overflow-wrap: anywhere; }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    pre {
+      margin: 0;
+      min-height: 220px;
+      max-height: 50vh;
+      overflow: auto;
+      white-space: pre-wrap;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.34);
+      padding: 12px;
+      color: #eaf2ff;
+    }
+    @media (max-width: 760px) {
+      main { width: min(100vw - 22px, 1180px); padding-top: 22px; }
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: clamp(30px, 12vw, 46px); }
+      .row { display: grid; }
+      .row strong { text-align: left; }
+      button, a.button { width: 100%; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Beagle Workbench AGPL Showcase</p>
+      <h1>${escapeHtml(title)}</h1>
+      <p>This is the visible bridge surface for the Warp-derived Workbench spike. The hot path remains Beagle Terminal Protocol v1; Warp-derived concepts are evaluated through a dual bridge before any renderer authority switch.</p>
+      <div class="meta">
+        <span class="pill">authority: ${escapeHtml(authority)}</span>
+        <span class="pill">namespace: ${escapeHtml(namespace)}</span>
+        <span class="pill">bridge: ${escapeHtml(bridgeVersion)}</span>
+        <span class="pill">vendor: warp@${escapeHtml(vendorCommit.slice(0, 7))}</span>
+      </div>
+      <div class="actions">
+        <a class="button primary" href="/projects/${encodeURIComponent(slug)}">Open Beagle Workbench</a>
+        <a class="button" href="/api/workspaces/${encodeURIComponent(slug)}/sessions">Sessions JSON</a>
+        <a class="button" href="/api/workspaces/${encodeURIComponent(slug)}/agents/registry">Agent Registry</a>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section>
+        <h2>Boundary</h2>
+        <div class="row"><span>Warp source</span><strong>apps/warp-workbench/vendor/warp</strong></div>
+        <div class="row"><span>Vendor commit</span><strong>${escapeHtml(vendorCommit)}</strong></div>
+        <div class="row"><span>License boundary</span><strong>AGPL-3.0-only</strong></div>
+        <div class="row"><span>Core dependency</span><strong class="ok">protocol-only</strong></div>
+        <div class="row"><span>Private data</span><strong class="ok">cluster-only</strong></div>
+      </section>
+
+      <section>
+        <h2>Runtime Status</h2>
+        <div class="row"><span>Workspace authority</span><strong id="authority">Loading...</strong></div>
+        <div class="row"><span>Supervisor</span><strong id="supervisor">Loading...</strong></div>
+        <div class="row"><span>Sessions</span><strong id="sessions-count">Loading...</strong></div>
+        <div class="row"><span>Selected session</span><strong id="selected-session">Loading...</strong></div>
+        <div class="row"><span>Bridge mode</span><strong>dual bridge bake-off</strong></div>
+      </section>
+
+      <section class="full">
+        <h2>Warp-Derived Conversion Preview</h2>
+        <pre id="preview">Loading live Workbench state...</pre>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const slug = ${JSON.stringify(slug)};
+    const bridgeVersion = ${JSON.stringify(bridgeVersion)};
+    const vendorCommit = ${JSON.stringify(vendorCommit)};
+    const preview = document.getElementById("preview");
+    const authority = document.getElementById("authority");
+    const supervisor = document.getElementById("supervisor");
+    const sessionsCount = document.getElementById("sessions-count");
+    const selectedSession = document.getElementById("selected-session");
+
+    async function apiJson(path) {
+      const response = await fetch(path, { headers: { "accept": "application/json" } });
+      const text = await response.text();
+      let payload;
+      try {
+        payload = text ? JSON.parse(text) : {};
+      } catch (_error) {
+        payload = { raw: text };
+      }
+      if (!response.ok) throw new Error(payload.error || payload.raw || response.statusText);
+      return payload;
+    }
+
+    function isOperatorSession(session) {
+      const title = String(session?.title || "").toLowerCase();
+      return !(title.includes("smoke") || title.includes("probe") || title.includes("isolation"));
+    }
+
+    function selectSession(list) {
+      return list.find(isOperatorSession) || list[0] || null;
+    }
+
+    function terminalBlockToWarpBlock(block) {
+      return {
+        id: block.id,
+        sessionId: block.sessionId || block.session_id,
+        paneId: block.paneId || block.pane_id,
+        type: block.kind || "command",
+        title: block.title || block.command || "Terminal block",
+        command: block.command || "",
+        outputPreview: block.outputPreview || block.output_preview || "",
+        status: block.status || "finished",
+        memoryStatus: block.memoryStatus || block.memory_status || "not_saved",
+        provenance: {
+          source_model: "beagle",
+          bridge_version: bridgeVersion,
+          renderer_hint: "warp-derived-preview",
+          vendor_commit: vendorCommit,
+          block_hash: block.blockHash || block.block_hash || null
+        }
+      };
+    }
+
+    async function refresh() {
+      try {
+        const registry = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/agents/registry");
+        const sessions = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions");
+        const list = sessions.sessions || [];
+        const selected = selectSession(list);
+        authority.textContent = registry.authority?.authority || sessions.authority?.authority || "unknown";
+        supervisor.textContent = registry.authority?.supervisor?.status || sessions.authority?.supervisor?.status || "unknown";
+        sessionsCount.textContent = String(list.length);
+        selectedSession.textContent = selected ? (selected.id || selected.session_id) : "none";
+
+        let blocks = [];
+        if (selected?.id) {
+          const blockResponse = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(selected.id) + "/blocks");
+          blocks = blockResponse.blocks || [];
+        }
+        const sample = blocks[0] || {
+          id: "no-live-block-yet",
+          sessionId: selected?.id || "",
+          paneId: "pane-main",
+          kind: "command",
+          title: "No finished block yet",
+          command: "",
+          outputPreview: "Run a command in the Beagle Workbench, then refresh this lab.",
+          status: "pending",
+          memoryStatus: "not_saved"
+        };
+        preview.textContent = JSON.stringify({
+          warp_workbench_boundary: {
+            path: "apps/warp-workbench",
+            vendor_path: "apps/warp-workbench/vendor/warp",
+            vendor_commit: vendorCommit,
+            bridge_version: bridgeVersion,
+            hot_path: "beagle-terminal-v1",
+            renderer_authority: "not_promoted"
+          },
+          beagle_terminal_block: sample,
+          warp_block_preview: terminalBlockToWarpBlock(sample),
+          bakeoff_questions: [
+            "Does Warp's block model improve clarity over Beagle TerminalBlock?",
+            "Can provenance survive round-trip conversion?",
+            "Does renderer latency stay acceptable on iPad/iPhone?",
+            "Do memory imports remain secret-scanned and cluster-canonical?"
+          ]
+        }, null, 2);
+      } catch (error) {
+        authority.textContent = "degraded";
+        supervisor.textContent = "unknown";
+        preview.textContent = String(error.stack || error.message || error);
+      }
+    }
+
+    refresh();
+  </script>
+</body>
+</html>`;
+}
+
 if (!existsSync(distDir)) {
+  app.get("/projects/:slug/warp", async (req, res) => {
+    try {
+      const project = await getProjectOrThrow(req.params.slug);
+      res.type("html").send(renderWarpBridgeLabPage(project));
+    } catch (error) {
+      res.status(error.statusCode || 500).type("text/plain").send(error.message || "project unavailable");
+    }
+  });
+
   app.get(["/projects/:slug", "/projects/:slug/viewer"], async (req, res) => {
     try {
       const project = await getProjectOrThrow(req.params.slug);
