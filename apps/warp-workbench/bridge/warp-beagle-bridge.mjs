@@ -5,7 +5,7 @@
 
 import { createHash } from "node:crypto";
 
-export const BRIDGE_VERSION = "beagle-warp-bridge-v0.1";
+export const BRIDGE_VERSION = "beagle-warp-bridge-v0.2";
 export const WARP_VENDOR_COMMIT = "805b3e2a576e689a1e414f01ed3fc51e9e704d69";
 export const WARP_VENDOR_URL = "https://github.com/warpdotdev/Warp.git";
 

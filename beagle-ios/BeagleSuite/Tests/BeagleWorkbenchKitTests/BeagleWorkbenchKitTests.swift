@@ -7,7 +7,7 @@ import Foundation
     let boundary = BeagleWorkbenchBoundary()
 
     #expect(boundary.license == "AGPL-3.0-only")
-    #expect(boundary.bridgeVersion == "beagle-warp-bridge-v0.1")
+    #expect(boundary.bridgeVersion == "beagle-warp-bridge-v0.2")
     #expect(boundary.canonicalMemory.contains("cluster"))
     #expect(boundary.privateDataPolicy.contains("no-private-memory"))
     #expect(BeagleWorkbenchBoundary.warpVendorCommit == "805b3e2a576e689a1e414f01ed3fc51e9e704d69")
@@ -25,7 +25,7 @@ import Foundation
         status: "finished",
         memoryStatus: "remembered",
         sourceModel: "beagle",
-        bridgeVersion: "beagle-warp-bridge-v0.1",
+        bridgeVersion: "beagle-warp-bridge-v0.2",
         blockHash: "sha256:test"
     )
     let envelope = WorkbenchBridgeEnvelope(

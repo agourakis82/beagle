@@ -22,7 +22,7 @@ const BEAGLE_INTERNAL_URL =
   process.env.PROJECT_COCKPIT_BEAGLE_INTERNAL_URL ||
   "http://beagle-core.beagle.svc.cluster.local:8080";
 const WORKBENCH_PROTOCOL = "beagle-terminal-v1";
-const WORKBENCH_BRIDGE_VERSION = "beagle-warp-bridge-v0.1";
+const WORKBENCH_BRIDGE_VERSION = "beagle-warp-bridge-v0.2";
 
 const AGENT_KINDS = new Set([
   "human",

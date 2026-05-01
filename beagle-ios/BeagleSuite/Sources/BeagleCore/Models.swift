@@ -1857,7 +1857,7 @@ public struct WarpBridgeStatus: Codable, Sendable {
 
     public init(
         sourceModel: String = "beagle",
-        bridgeVersion: String = "beagle-warp-bridge-v0.1",
+        bridgeVersion: String = "beagle-warp-bridge-v0.2",
         rendererHint: String = "beagle-terminal-v1",
         bridgeHash: String? = nil,
         vendorCommit: String? = nil

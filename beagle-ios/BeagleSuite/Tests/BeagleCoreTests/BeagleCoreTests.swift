@@ -1862,7 +1862,7 @@ import SwiftData
         "updatedAt": "2026-04-30T10:01:00Z",
         "lastAttachedAt": "2026-04-30T10:02:00Z",
         "sourceModel": "beagle",
-        "bridgeVersion": "beagle-warp-bridge-v0.1",
+        "bridgeVersion": "beagle-warp-bridge-v0.2",
         "sessionHash": "sha256:session",
         "rendererHint": "beagle-terminal-v1",
         "lastMemoryStatus": {
@@ -1871,7 +1871,7 @@ import SwiftData
           "memoryEventId": "memory-1",
           "auditEventId": "audit-1",
           "sourceModel": "beagle",
-          "bridgeVersion": "beagle-warp-bridge-v0.1"
+          "bridgeVersion": "beagle-warp-bridge-v0.2"
         },
         "panes": [{
           "id": "pane-main",
@@ -1892,7 +1892,7 @@ import SwiftData
     #expect(decoded.session.panes.first?.id == "pane-main")
     #expect(decoded.session.lastMemoryStatus?.status == "remembered")
     #expect(decoded.session.sourceModel == "beagle")
-    #expect(decoded.session.bridgeVersion == "beagle-warp-bridge-v0.1")
+    #expect(decoded.session.bridgeVersion == "beagle-warp-bridge-v0.2")
     #expect(decoded.session.sessionHash == "sha256:session")
 }
 
@@ -1919,7 +1919,7 @@ import SwiftData
         "memoryStatus": "not_saved",
         "tags": ["workbench", "terminal-block", "project:sounio"],
         "sourceModel": "beagle",
-        "bridgeVersion": "beagle-warp-bridge-v0.1",
+        "bridgeVersion": "beagle-warp-bridge-v0.2",
         "blockHash": "sha256:block",
         "sessionHash": "sha256:session",
         "rendererHint": "beagle-terminal-v1"

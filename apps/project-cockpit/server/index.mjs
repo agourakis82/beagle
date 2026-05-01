@@ -11657,6 +11657,7 @@ function renderProjectLaunchPage(project) {
         <div class="row"><span>Project</span><strong>${escapeHtml(slug)}</strong></div>
         <div class="row"><span>WebSocket base</span><strong>${escapeHtml(wsBase)}/...</strong></div>
         <div class="row"><span>Latest session</span><strong id="latest-session">Loading...</strong></div>
+        <div class="row"><span>Warp bridge</span><strong id="warp-bridge">Loading...</strong></div>
         <div class="row"><span>Truth mode</span><strong id="truth-mode">Loading...</strong></div>
       </section>
     </div>
@@ -11686,6 +11687,7 @@ function renderProjectLaunchPage(project) {
     const output = document.getElementById("output");
     const lanes = document.getElementById("lanes");
     const latestSession = document.getElementById("latest-session");
+    const warpBridge = document.getElementById("warp-bridge");
     const truthMode = document.getElementById("truth-mode");
     const startButton = document.getElementById("start-session");
     const refreshButton = document.getElementById("refresh");
@@ -11862,6 +11864,8 @@ function renderProjectLaunchPage(project) {
           title: selected.title,
           reason: isOperatorSession(selected) ? "operator" : "fallback"
         } : null,
+        warpBridge: registry.authority?.bridgeVersion || sessions.authority?.bridgeVersion || selected?.bridgeVersion || "not_reported",
+        warpBoundary: "apps/warp-workbench -> vendor/warp@805b3e2",
         latestSessions: list.slice(0, 5).map((session) => ({
           id: session.id || session.session_id,
           title: session.title,
@@ -11985,6 +11989,7 @@ function renderProjectLaunchPage(project) {
         currentSessions = list;
         const selected = selectDefaultSession(list);
         latestSession.textContent = selected ? selected.id || selected.session_id || "active" : "none";
+        warpBridge.textContent = registry.authority?.bridgeVersion || sessions.authority?.bridgeVersion || selected?.bridgeVersion || "not reported";
         truthMode.textContent = registry.truthMode || registry.truth_mode || sessions.truthMode || sessions.truth_mode || "observed";
         show(summarizeRefresh(registry, sessions));
         if (!terminalWs && selected) connectTerminal(selected);

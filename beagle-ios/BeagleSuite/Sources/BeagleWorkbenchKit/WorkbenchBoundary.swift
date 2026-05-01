@@ -28,7 +28,7 @@ public enum WorkbenchMemoryImportState: String, Codable, Sendable {
 }
 
 public struct BeagleWorkbenchBoundary: Codable, Sendable {
-    public static let bridgeVersion = "beagle-warp-bridge-v0.1"
+    public static let bridgeVersion = "beagle-warp-bridge-v0.2"
     public static let warpVendorCommit = "805b3e2a576e689a1e414f01ed3fc51e9e704d69"
 
     public let license: String
