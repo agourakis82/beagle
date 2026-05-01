@@ -1939,6 +1939,25 @@ function cleanValue(value) {
   return String(value || "").trim();
 }
 
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return char;
+    }
+  });
+}
+
 function previewOutput(value, maxLines = 12) {
   const lines = cleanValue(value)
     .split("\n")
@@ -11402,6 +11421,351 @@ app.post(
     };
   })
 );
+
+function renderProjectLaunchPage(project) {
+  const slug = cleanValue(project.projectSlug || "sounio");
+  const title = `${slug} Workday`;
+  const workspaceRoot = cleanValue(project.workspaceRoot || "");
+  const authority = cleanValue(project.workbenchAuthority || process.env.PROJECT_COCKPIT_WORKBENCH_AUTHORITY || "workspace-agent");
+  const namespace = cleanValue(project.namespace || "beagle");
+  const wsBase = `/ws/workspaces/${encodeURIComponent(slug)}`;
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Beagle ${escapeHtml(title)}</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080a0f;
+      --panel: rgba(255, 255, 255, 0.075);
+      --panel-strong: rgba(255, 255, 255, 0.12);
+      --text: #f6f7fb;
+      --muted: #a9b0c2;
+      --line: rgba(255, 255, 255, 0.16);
+      --accent: #79f2c0;
+      --warn: #f6c76f;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top left, rgba(70, 135, 255, 0.14), transparent 32rem), var(--bg);
+      color: var(--text);
+    }
+    main {
+      width: min(1120px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+    header {
+      display: grid;
+      gap: 12px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      margin: 0;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(32px, 7vw, 62px);
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      max-width: 720px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.5;
+      margin: 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+      gap: 18px;
+      margin-top: 22px;
+    }
+    section, .panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 18px;
+      backdrop-filter: blur(18px);
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 9px;
+      color: var(--muted);
+      background: rgba(0, 0, 0, 0.18);
+      font-size: 12px;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    button, a.button {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font: inherit;
+      font-weight: 650;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    button.primary {
+      color: #05120d;
+      background: var(--accent);
+      border-color: transparent;
+    }
+    button:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+    .status {
+      display: grid;
+      gap: 10px;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .row strong {
+      color: var(--text);
+      overflow-wrap: anywhere;
+      text-align: right;
+    }
+    pre {
+      min-height: 170px;
+      max-height: 360px;
+      overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin: 0;
+      color: #d7deeb;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .lane-list {
+      display: grid;
+      gap: 8px;
+    }
+    .lane {
+      display: grid;
+      gap: 4px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.16);
+    }
+    .lane strong, .lane span { overflow-wrap: anywhere; }
+    .lane span { color: var(--muted); font-size: 13px; }
+    .warn { color: var(--warn); }
+    @media (max-width: 760px) {
+      main { width: min(100vw - 22px, 1120px); padding-top: 22px; }
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: clamp(30px, 12vw, 46px); }
+      button, a.button { width: 100%; text-align: center; }
+      .row { display: grid; }
+      .row strong { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Beagle Sounio Workday MVP</p>
+      <h1>${escapeHtml(title)}</h1>
+      <p class="subtitle">Fallback launch pad for the live Workbench. It talks to the cluster Project Cockpit and workspace-agent; canonical memory remains in Beagle Core on the cluster.</p>
+      <div class="meta">
+        <span class="pill">authority: ${escapeHtml(authority)}</span>
+        <span class="pill">namespace: ${escapeHtml(namespace)}</span>
+        <span class="pill">workspace: ${escapeHtml(workspaceRoot || "declared")}</span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section>
+        <h2>Agent Fabric</h2>
+        <div id="lanes" class="lane-list"><span class="pill">Loading lanes...</span></div>
+        <div class="actions">
+          <button class="primary" id="start-session">Start Shell Session</button>
+          <button id="refresh">Refresh</button>
+          <a class="button" href="/api/workspaces/${encodeURIComponent(slug)}/agents/registry">Registry JSON</a>
+          <a class="button" href="/api/workspaces/${encodeURIComponent(slug)}/sessions">Sessions JSON</a>
+        </div>
+      </section>
+
+      <section class="status">
+        <h2>Live State</h2>
+        <div class="row"><span>Project</span><strong>${escapeHtml(slug)}</strong></div>
+        <div class="row"><span>WebSocket base</span><strong>${escapeHtml(wsBase)}/...</strong></div>
+        <div class="row"><span>Latest session</span><strong id="latest-session">Loading...</strong></div>
+        <div class="row"><span>Truth mode</span><strong id="truth-mode">Loading...</strong></div>
+      </section>
+    </div>
+
+    <section style="margin-top: 18px;">
+      <h2>Response</h2>
+      <pre id="output">Opening Beagle Workbench...</pre>
+    </section>
+  </main>
+
+  <script>
+    const slug = ${JSON.stringify(slug)};
+    const output = document.getElementById("output");
+    const lanes = document.getElementById("lanes");
+    const latestSession = document.getElementById("latest-session");
+    const truthMode = document.getElementById("truth-mode");
+    const startButton = document.getElementById("start-session");
+    const refreshButton = document.getElementById("refresh");
+
+    function show(payload) {
+      output.textContent = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+    }
+
+    async function apiJson(path, options = {}) {
+      const response = await fetch(path, {
+        ...options,
+        headers: {
+          "content-type": "application/json",
+          ...(options.headers || {})
+        }
+      });
+      const text = await response.text();
+      let payload;
+      try {
+        payload = text ? JSON.parse(text) : {};
+      } catch (_error) {
+        payload = { raw: text };
+      }
+      if (!response.ok) {
+        throw new Error(payload.error || payload.raw || response.statusText);
+      }
+      return payload;
+    }
+
+    function roleName(role) {
+      if (typeof role === "string") return role;
+      return role.label || role.displayName || role.display_name || role.role || role.id || role.kind || "agent";
+    }
+
+    function roleDetail(role) {
+      if (typeof role === "string") return "provider slot pending";
+      const slots = role.providerSlots || role.provider_slots || role.slots || [];
+      const enabled = Array.isArray(slots) ? slots.find((slot) => slot.enabled !== false) || slots[0] : null;
+      const provider = enabled ? enabled.model_id || enabled.modelId || enabled.command || enabled.provider || "" : "";
+      const readiness = role.readiness || role.status || enabled?.status || "";
+      return [provider, readiness].filter(Boolean).join(" - ") || "provider slot pending";
+    }
+
+    function renderLanes(registry) {
+      const roles = registry.visibleRoles || registry.visible_roles || registry.roles || [];
+      const selected = Array.isArray(roles) ? roles.slice(0, 8) : [];
+      if (selected.length === 0) {
+        lanes.innerHTML = '<span class="pill warn">No role lanes reported by workspace-agent yet.</span>';
+        return;
+      }
+      lanes.innerHTML = selected.map((role) =>
+        '<div class="lane"><strong>' + roleName(role) + '</strong><span>' + roleDetail(role) + '</span></div>'
+      ).join("");
+    }
+
+    async function refresh() {
+      refreshButton.disabled = true;
+      try {
+        const registry = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/agents/registry");
+        const sessions = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions");
+        renderLanes(registry);
+        const list = sessions.sessions || [];
+        latestSession.textContent = list.length > 0 ? list[0].id || list[0].session_id || "active" : "none";
+        truthMode.textContent = registry.truthMode || registry.truth_mode || sessions.truthMode || sessions.truth_mode || "observed";
+        show({ registry, sessions });
+      } catch (error) {
+        lanes.innerHTML = '<span class="pill warn">Workbench unavailable: ' + error.message + '</span>';
+        truthMode.textContent = "stale";
+        show(String(error.stack || error.message || error));
+      } finally {
+        refreshButton.disabled = false;
+      }
+    }
+
+    async function startSession() {
+      startButton.disabled = true;
+      try {
+        const created = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions", {
+          method: "POST",
+          body: JSON.stringify({
+            title: "Sounio Workday MVP",
+            layout: "notebook",
+            sourceModel: "beagle"
+          })
+        });
+        const session = created.session || created;
+        const sessionId = session.id || session.sessionId || session.session_id;
+        if (sessionId) {
+          await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(sessionId) + "/panes", {
+            method: "POST",
+            body: JSON.stringify({ kind: "human", title: "Shell" })
+          });
+        }
+        await refresh();
+      } catch (error) {
+        show(String(error.stack || error.message || error));
+      } finally {
+        startButton.disabled = false;
+      }
+    }
+
+    refreshButton.addEventListener("click", refresh);
+    startButton.addEventListener("click", startSession);
+    refresh();
+  </script>
+</body>
+</html>`;
+}
+
+if (!existsSync(distDir)) {
+  app.get(["/projects/:slug", "/projects/:slug/viewer"], async (req, res) => {
+    try {
+      const project = await getProjectOrThrow(req.params.slug);
+      res.type("html").send(renderProjectLaunchPage(project));
+    } catch (error) {
+      res.status(error.statusCode || 500).type("text/plain").send(error.message || "project unavailable");
+    }
+  });
+}
 
 if (existsSync(distDir)) {
   app.use(express.static(distDir));
