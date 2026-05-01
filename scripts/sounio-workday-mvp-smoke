@@ -16,6 +16,10 @@ COCKPIT_URL="${COCKPIT_URL:-http://project-cockpit.beagle.svc.cluster.local}"
 BEAGLE_CORE_URL="${BEAGLE_CORE_URL:-http://beagle-core.beagle.svc.cluster.local:8080}"
 PROJECT_SLUG="${PROJECT_SLUG:-sounio}"
 SMOKE_REMEMBER_LATEST="${SMOKE_REMEMBER_LATEST:-false}"
+export COCKPIT_URL
+export BEAGLE_CORE_URL
+export PROJECT_SLUG
+export SMOKE_REMEMBER_LATEST
 
 node <<'NODE'
 const cockpitUrl = process.env.COCKPIT_URL.replace(/\/+$/, "");
