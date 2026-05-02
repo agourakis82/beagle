@@ -320,6 +320,86 @@ import Foundation
     #expect(first.lanes.first?.runtimeAvailable == true)
 }
 
+@Test func visualWorkbenchCanvasUsesLiveBlocksBeforeReplayRefresh() {
+    let session = WorkspaceSession(id: "session-1", projectSlug: "sounio", title: "Sounio Workday")
+    let replayBlock = TerminalBlock(
+        id: "block-live",
+        sessionId: "session-1",
+        paneId: "pane-main",
+        title: "swift test",
+        command: "swift test",
+        outputPreview: "old replay output",
+        status: "finished",
+        memoryStatus: "not_saved",
+        blockHash: "sha256:old"
+    )
+    let liveBlock = TerminalBlockLiveState(
+        id: "block-live",
+        sessionId: "session-1",
+        paneId: "pane-main",
+        title: "swift test",
+        command: "swift test",
+        outputPreview: "fresh live pass",
+        status: "finished",
+        memoryStatus: "remembered",
+        memoryEventId: "memory-live"
+    )
+    let lane = AgentLaneState(
+        id: "shell",
+        title: "Shell",
+        kind: "human",
+        paneId: "pane-main",
+        status: "live",
+        detail: "Attached to workspace",
+        isActive: true
+    )
+
+    let state = VisualWorkCanvasState.synthesized(
+        projectSlug: "sounio",
+        session: session,
+        lanes: [lane],
+        blocks: [replayBlock],
+        liveBlocks: [liveBlock],
+        selectedBlockId: "block-live",
+        workMemoryLine: "latest memory",
+        workMemoryStatus: "remembered"
+    )
+
+    #expect(state.selectedArtifact?.summary == "fresh live pass")
+    #expect(state.selectedArtifact?.memoryStatus == "remembered")
+    #expect(state.selectedArtifact?.provenanceRefs == ["memory-live"])
+    #expect(state.selectedArtifact?.evidenceBadges.contains("live") == true)
+    #expect(state.recentArtifacts.count == 1)
+    #expect(state.lanes.first?.currentArtifact?.summary == "fresh live pass")
+}
+
+@Test func visualWorkbenchLiveBlocksRedactRestrictedOutput() {
+    let liveBlock = TerminalBlockLiveState(
+        id: "block-secret-live",
+        sessionId: "session-1",
+        paneId: "pane-main",
+        title: "export token",
+        command: "export OPENAI_API_KEY=secret-value",
+        outputPreview: "secret-value leaked in terminal",
+        status: "finished",
+        privacyClass: "restricted_local_only",
+        memoryStatus: "blocked",
+        auditEventId: "audit-redacted"
+    )
+
+    let artifact = VisualWorkArtifact(liveBlock: liveBlock)
+
+    #expect(artifact.restrictedRedacted)
+    #expect(artifact.title == "[restricted command redacted]")
+    #expect(artifact.summary == "[restricted output redacted]")
+    #expect(!artifact.title.contains("secret-value"))
+    #expect(!artifact.summary.contains("secret-value"))
+    #expect(artifact.memoryStatus == "blocked")
+    #expect(artifact.provenanceRefs == ["audit-redacted"])
+    #expect(artifact.evidenceBadges.contains("restricted redacted"))
+    #expect(artifact.evidenceBadges.contains("live"))
+}
+
 @Test func visualWorkbenchExtractsTouchedFilesAndRuntimeSheetIdentity() {
     let output = "\u{001B}[32mSources/App/WorkView.swift\u{001B}[0m | 20 +++++\nREADME.md | 2 +\n2 files changed"
     let files = VisualWorkArtifact.extractTouchedFiles(from: output)

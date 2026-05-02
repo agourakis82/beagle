@@ -620,25 +620,46 @@ struct WorkView: View {
             await rememberBlock(selected)
             return
         }
+        if let selectedBlockId,
+           let selected = terminal.liveBlocks.first(where: { $0.id == selectedBlockId }) {
+            await rememberBlockId(
+                selected.id,
+                title: selected.title,
+                fallbackSessionId: selected.sessionId
+            )
+            return
+        }
         if let latest = terminalBlocks.first {
             await rememberBlock(latest)
+            return
+        }
+        if let latest = terminal.liveBlocks.first {
+            await rememberBlockId(
+                latest.id,
+                title: latest.title,
+                fallbackSessionId: latest.sessionId
+            )
             return
         }
         await recordWorkMemory()
     }
 
     private func rememberBlock(_ block: TerminalBlock) async {
-        guard let session = workspaceSession else { return }
+        await rememberBlockId(block.id, title: block.title, fallbackSessionId: block.sessionId)
+    }
+
+    private func rememberBlockId(_ blockId: String, title: String, fallbackSessionId: String? = nil) async {
+        guard let sessionId = workspaceSession?.id ?? fallbackSessionId else { return }
         workMemoryStatus = "Curating block..."
         let response = await CockpitClient.shared.rememberWorkspaceBlock(
             slug: activeSlug,
-            sessionId: session.id,
-            blockId: block.id
+            sessionId: sessionId,
+            blockId: blockId
         )
         if let payload = response.value {
             switch payload.memory.status {
             case "remembered":
-                workMemoryStatus = "Remembered block \(block.title)"
+                workMemoryStatus = "Remembered block \(title)"
             case "blocked":
                 workMemoryStatus = "Blocked: restricted or secret-like content"
             case "queued":
@@ -725,6 +746,7 @@ struct WorkView: View {
             session: workspaceSession,
             lanes: agentConsoleSnapshot.lanes,
             blocks: terminalBlocks,
+            liveBlocks: terminal.liveBlocks,
             selectedBlockId: selectedBlockId,
             workMemoryLine: latestWorkMemoryLine,
             workMemoryStatus: workMemoryStatus

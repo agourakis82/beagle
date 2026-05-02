@@ -98,8 +98,60 @@ public struct VisualWorkArtifact: Codable, Identifiable, Sendable, Equatable {
         )
     }
 
+    public init(liveBlock: TerminalBlockLiveState) {
+        let restricted = Self.isRestricted(liveBlock.privacyClass)
+        let kind = Self.kind(
+            kind: liveBlock.kind,
+            title: liveBlock.title,
+            command: liveBlock.command,
+            tags: []
+        )
+        let displayCommand = restricted ? "[restricted command redacted]" : liveBlock.command
+        let displayOutput = restricted ? "[restricted output redacted]" : liveBlock.outputPreview
+        let fallbackTitle = displayCommand.isEmpty ? liveBlock.title : displayCommand
+        let touchedFiles = restricted ? [] : Self.extractTouchedFiles(from: displayOutput)
+        let summary = Self.summary(
+            kind: kind,
+            command: displayCommand,
+            output: displayOutput,
+            status: liveBlock.status,
+            exitCode: liveBlock.exitCode
+        )
+        self.init(
+            id: "artifact:\(liveBlock.id)",
+            kind: kind,
+            title: fallbackTitle.isEmpty ? liveBlock.kind.capitalized : fallbackTitle,
+            summary: summary,
+            status: liveBlock.status,
+            memoryStatus: liveBlock.memoryStatus,
+            sourceBlockId: liveBlock.id,
+            paneId: liveBlock.paneId,
+            restrictedRedacted: restricted,
+            provenanceRefs: [liveBlock.memoryEventId, liveBlock.auditEventId].compactMap { $0 },
+            touchedFiles: touchedFiles,
+            evidenceBadges: Self.evidenceBadges(
+                kind: kind,
+                status: liveBlock.status,
+                memoryStatus: liveBlock.memoryStatus,
+                outputPreview: liveBlock.outputPreview,
+                touchedFiles: touchedFiles,
+                restricted: restricted,
+                isLive: true
+            )
+        )
+    }
+
     public static func kind(for block: TerminalBlock) -> VisualWorkArtifactKind {
-        let haystack = [block.kind, block.title, block.command, block.tags.joined(separator: " ")]
+        kind(kind: block.kind, title: block.title, command: block.command, tags: block.tags)
+    }
+
+    private static func kind(
+        kind: String,
+        title: String,
+        command: String,
+        tags: [String]
+    ) -> VisualWorkArtifactKind {
+        let haystack = [kind, title, command, tags.joined(separator: " ")]
             .joined(separator: " ")
             .lowercased()
         if haystack.contains("approval") { return .approval }
@@ -119,7 +171,7 @@ public struct VisualWorkArtifact: Codable, Identifiable, Sendable, Equatable {
         if haystack.contains("codex") || haystack.contains("claude") || haystack.contains("kimi") {
             return .agent
         }
-        if block.kind == "command" { return .runtime }
+        if kind == "command" { return .runtime }
         return .unknown
     }
 
@@ -177,14 +229,37 @@ public struct VisualWorkArtifact: Codable, Identifiable, Sendable, Equatable {
         touchedFiles: [String],
         restricted: Bool
     ) -> [String] {
-        var badges = [kind.rawValue, block.status]
-        if !block.memoryStatus.isEmpty {
-            badges.append(block.memoryStatus)
+        evidenceBadges(
+            kind: kind,
+            status: block.status,
+            memoryStatus: block.memoryStatus,
+            outputPreview: block.outputPreview,
+            touchedFiles: touchedFiles,
+            restricted: restricted,
+            isLive: false
+        )
+    }
+
+    private static func evidenceBadges(
+        kind: VisualWorkArtifactKind,
+        status: String,
+        memoryStatus: String,
+        outputPreview: String,
+        touchedFiles: [String],
+        restricted: Bool,
+        isLive: Bool
+    ) -> [String] {
+        var badges = [kind.rawValue, status]
+        if !memoryStatus.isEmpty {
+            badges.append(memoryStatus)
+        }
+        if isLive {
+            badges.append("live")
         }
         if !touchedFiles.isEmpty {
             badges.append("files:\(touchedFiles.count)")
         }
-        let output = block.outputPreview.lowercased()
+        let output = outputPreview.lowercased()
         if output.contains("passed") || output.contains("success") {
             badges.append("pass")
         } else if output.contains("failed") || output.contains("error") {
@@ -288,14 +363,28 @@ public struct VisualAgentLaneSnapshot: Codable, Identifiable, Sendable, Equatabl
         self.artifacts = artifacts
     }
 
-    public init(lane: AgentLaneState, blocks: [TerminalBlock] = []) {
-        let laneBlocks = blocks
+    public init(
+        lane: AgentLaneState,
+        blocks: [TerminalBlock] = [],
+        liveBlocks: [TerminalBlockLiveState] = []
+    ) {
+        let laneLiveArtifacts = liveBlocks
+            .filter { block in
+                guard let paneId = lane.paneId else { return false }
+                return block.paneId == paneId
+            }
+            .map(VisualWorkArtifact.init(liveBlock:))
+        let laneReplayArtifacts = blocks
             .filter { block in
                 guard let paneId = lane.paneId else { return false }
                 return block.paneId == paneId
             }
             .map(VisualWorkArtifact.init(block:))
-        let current = laneBlocks.first
+            .filter { artifact in
+                !laneLiveArtifacts.contains(where: { $0.sourceBlockId == artifact.sourceBlockId })
+            }
+        let laneArtifacts = laneLiveArtifacts + laneReplayArtifacts
+        let current = laneArtifacts.first
         let readiness = lane.status == "needs_setup" ? "needs_setup" : (lane.paneId == nil ? "not_started" : "ready")
         self.init(
             id: lane.id,
@@ -313,7 +402,7 @@ public struct VisualAgentLaneSnapshot: Codable, Identifiable, Sendable, Equatabl
             isScout: lane.isScout,
             runtimeAvailable: lane.paneId != nil,
             currentArtifact: current,
-            artifacts: Array(laneBlocks.prefix(4))
+            artifacts: Array(laneArtifacts.prefix(4))
         )
     }
 }
@@ -362,12 +451,21 @@ public struct VisualWorkCanvasState: Codable, Sendable, Equatable {
         session: WorkspaceSession?,
         lanes: [AgentLaneState],
         blocks: [TerminalBlock],
+        liveBlocks: [TerminalBlockLiveState] = [],
         selectedBlockId: String?,
         workMemoryLine: String,
         workMemoryStatus: String
     ) -> VisualWorkCanvasState {
-        let visualLanes = lanes.map { VisualAgentLaneSnapshot(lane: $0, blocks: blocks) }
-        let artifacts = blocks.map(VisualWorkArtifact.init(block:))
+        let liveArtifacts = liveBlocks.map(VisualWorkArtifact.init(liveBlock:))
+        let replayArtifacts = blocks
+            .map(VisualWorkArtifact.init(block:))
+            .filter { artifact in
+                !liveArtifacts.contains(where: { $0.sourceBlockId == artifact.sourceBlockId })
+            }
+        let artifacts = liveArtifacts + replayArtifacts
+        let visualLanes = lanes.map {
+            VisualAgentLaneSnapshot(lane: $0, blocks: blocks, liveBlocks: liveBlocks)
+        }
         let selected = selectedBlockId
             .flatMap { id in artifacts.first(where: { $0.sourceBlockId == id }) }
             ?? artifacts.first
