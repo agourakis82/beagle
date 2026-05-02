@@ -3,7 +3,7 @@ import http from "node:http";
 import https from "node:https";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
@@ -12087,6 +12087,90 @@ function renderProjectLaunchPage(project) {
 </html>`;
 }
 
+function readRendererProbeResults(projectSlug) {
+  const candidateDirs = [
+    cleanValue(process.env.PROJECT_COCKPIT_RENDERER_PROBE_DIR),
+    path.join("/workspace/.beagle/workbench/renderer-probes", projectSlug),
+    path.join("/workspace/.beagle/workbench/renderer-probes"),
+    path.resolve(rootDir, "..", "warp-workbench", "renderer", "results", projectSlug),
+    path.resolve(rootDir, "..", "warp-workbench", "renderer", "results"),
+  ].filter(Boolean);
+  const seen = new Set();
+  const files = [];
+  for (const dir of candidateDirs) {
+    if (!existsSync(dir) || seen.has(dir)) continue;
+    seen.add(dir);
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+        const file = path.join(dir, entry.name);
+        const stat = statSync(file);
+        files.push({ file, mtimeMs: stat.mtimeMs });
+      }
+    } catch (_error) {
+      // Probe results are optional and derived; unreadable paths degrade to not_measured.
+    }
+  }
+  files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const results = [];
+  for (const item of files.slice(0, 8)) {
+    try {
+      const payload = JSON.parse(readFileSync(item.file, "utf8"));
+      const notes = Array.isArray(payload.fidelity_notes)
+        ? payload.fidelity_notes.slice(0, 4).map((note) => String(note).slice(0, 260))
+        : [];
+      results.push({
+        file: path.basename(item.file),
+        updatedAt: new Date(item.mtimeMs).toISOString(),
+        schemaVersion: payload.schema_version || "unknown",
+        status: payload.status || "unknown",
+        platform: payload.platform || "unknown",
+        arch: payload.arch || "unknown",
+        renderer: payload.renderer?.name || "warp-metal-probe",
+        promoted: Boolean(payload.renderer?.promoted),
+        hotPath: payload.renderer?.hot_path || "beagle-terminal-v1",
+        bridgeVersion: payload.bridge?.version || "beagle-warp-bridge-v0.2",
+        vendorCommit: payload.bridge?.vendor_commit || "805b3e2a576e689a1e414f01ed3fc51e9e704d69",
+        fixture: payload.fixture
+          ? {
+              blockId: payload.fixture.block_id || "",
+              privacyClass: payload.fixture.privacy_class || "",
+              restrictedRedacted: Boolean(payload.fixture.restricted_redacted),
+              outputPreviewBytes: payload.fixture.output_preview_bytes ?? null,
+            }
+          : null,
+        timingMs: payload.timing_ms?.total ?? null,
+        fidelityNotes: notes,
+        artifact: payload.artifact_path ? path.basename(String(payload.artifact_path)) : null,
+      });
+    } catch (_error) {
+      results.push({
+        file: path.basename(item.file),
+        updatedAt: new Date(item.mtimeMs).toISOString(),
+        schemaVersion: "unknown",
+        status: "unreadable",
+        platform: "unknown",
+        arch: "unknown",
+        renderer: "unknown",
+        promoted: false,
+        hotPath: "beagle-terminal-v1",
+        bridgeVersion: "beagle-warp-bridge-v0.2",
+        vendorCommit: "805b3e2a576e689a1e414f01ed3fc51e9e704d69",
+        fixture: null,
+        timingMs: null,
+        fidelityNotes: ["Probe result JSON could not be parsed."],
+        artifact: null,
+      });
+    }
+  }
+  return {
+    state: results.length ? "measured" : "not_measured",
+    searchedDirs: Array.from(seen).map((dir) => path.basename(dir)),
+    latest: results[0] || null,
+    results,
+  };
+}
+
 function renderWarpBridgeLabPage(project) {
   const slug = project.projectSlug || project.slug || "sounio";
   const title = `${project.title || slug} Warp Bridge Lab`;
@@ -12094,6 +12178,7 @@ function renderWarpBridgeLabPage(project) {
   const namespace = project.namespace || "beagle";
   const vendorCommit = "805b3e2a576e689a1e414f01ed3fc51e9e704d69";
   const bridgeVersion = "beagle-warp-bridge-v0.2";
+  const rendererProbeResults = readRendererProbeResults(slug);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -12231,6 +12316,19 @@ function renderWarpBridgeLabPage(project) {
     .score-pass { color: var(--ok); }
     .score-pending { color: var(--warn); }
     .score-fail { color: var(--danger); }
+    .probe-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .probe-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(0,0,0,0.18);
+    }
+    .probe-item h3 { margin: 0 0 8px; font-size: 14px; }
+    .probe-item p { margin: 6px 0 0; font-size: 13px; }
     .memo-grid {
       display: grid;
       grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr);
@@ -12337,6 +12435,12 @@ function renderWarpBridgeLabPage(project) {
       </section>
 
       <section class="full">
+        <h2>Renderer Probe Results</h2>
+        <div id="renderer-probe-state" class="pill">Loading renderer probe...</div>
+        <div id="renderer-probe-results" class="probe-list"></div>
+      </section>
+
+      <section class="full">
         <h2>Decision Memo</h2>
         <div class="memo-grid">
           <div id="decision-memo" class="memo">Loading decision memo...</div>
@@ -12350,6 +12454,7 @@ function renderWarpBridgeLabPage(project) {
     const slug = ${JSON.stringify(slug)};
     const bridgeVersion = ${JSON.stringify(bridgeVersion)};
     const vendorCommit = ${JSON.stringify(vendorCommit)};
+    const rendererProbe = ${JSON.stringify(rendererProbeResults)};
     const authority = document.getElementById("authority");
     const supervisor = document.getElementById("supervisor");
     const sessionsCount = document.getElementById("sessions-count");
@@ -12364,6 +12469,8 @@ function renderWarpBridgeLabPage(project) {
     const fieldDiff = document.getElementById("field-diff");
     const promotionGate = document.getElementById("promotion-gate");
     const scorecard = document.getElementById("scorecard");
+    const rendererProbeState = document.getElementById("renderer-probe-state");
+    const rendererProbeResults = document.getElementById("renderer-probe-results");
     const decisionMemo = document.getElementById("decision-memo");
     const decisionJson = document.getElementById("decision-json");
     let state = { sessions: [], blocksBySession: new Map(), selectedSessionId: "", selectedBlockId: "" };
@@ -12518,6 +12625,8 @@ function renderWarpBridgeLabPage(project) {
       const hasLiveBlock = beagleBlock.id !== "no-live-block-yet";
       const restrictedSafe = !beagleBlock.restricted || beagleBlock.outputPreview === "[restricted output redacted]";
       const hasProvenance = Boolean(beagleBlock.blockHash || beagleBlock.sessionHash || beagleBlock.bridgeVersion);
+      const latestProbe = rendererProbe.latest;
+      const probeMeasured = Boolean(latestProbe);
       return [
         {
           key: "live_block",
@@ -12560,6 +12669,14 @@ function renderWarpBridgeLabPage(project) {
           label: "VT fidelity",
           status: "pending",
           evidence: "Renderer escape-sequence fidelity has not been measured yet."
+        },
+        {
+          key: "renderer_probe",
+          label: "Renderer probe",
+          status: "pending",
+          evidence: probeMeasured
+            ? "Latest probe returned " + latestProbe.status + " on " + latestProbe.platform + "/" + latestProbe.arch + "."
+            : "No renderer probe result JSON found yet."
         },
         {
           key: "renderer_latency",
@@ -12618,6 +12735,32 @@ function renderWarpBridgeLabPage(project) {
       )).join("");
     }
 
+    function renderRendererProbeResults() {
+      rendererProbeState.textContent = "renderer_probe=" + rendererProbe.state;
+      rendererProbeState.className = rendererProbe.state === "measured" ? "pill warn" : "pill";
+      if (!rendererProbe.results.length) {
+        rendererProbeResults.innerHTML = '<div class="probe-item"><h3>not_measured</h3><p>No probe JSON found. Run the isolated AGPL probe and place its JSON in the configured renderer-probe directory.</p></div>';
+        return;
+      }
+      rendererProbeResults.innerHTML = rendererProbe.results.map((result) => {
+        const fixture = result.fixture
+          ? 'fixture=' + escapeHtmlClient(result.fixture.blockId || "unknown") + ' · privacy=' + escapeHtmlClient(result.fixture.privacyClass || "unknown") + ' · redacted=' + escapeHtmlClient(String(result.fixture.restrictedRedacted))
+          : 'fixture=none';
+        const notes = (result.fidelityNotes || []).map((note) => '<p>' + escapeHtmlClient(note) + '</p>').join("");
+        return (
+          '<div class="probe-item">' +
+            '<h3>' + escapeHtmlClient(result.status) + ' · ' + escapeHtmlClient(result.platform) + '/' + escapeHtmlClient(result.arch) + '</h3>' +
+            '<div class="row"><span>File</span><strong>' + escapeHtmlClient(result.file) + '</strong></div>' +
+            '<div class="row"><span>Renderer</span><strong>' + escapeHtmlClient(result.renderer) + '</strong></div>' +
+            '<div class="row"><span>Hot path</span><strong>' + escapeHtmlClient(result.hotPath) + '</strong></div>' +
+            '<div class="row"><span>Timing</span><strong>' + escapeHtmlClient(result.timingMs == null ? "not_reported" : result.timingMs + "ms") + '</strong></div>' +
+            '<p>' + fixture + '</p>' +
+            notes +
+          '</div>'
+        );
+      }).join("");
+    }
+
     function renderDecisionMemo(beagleBlock, fields, metrics, promotion) {
       const preservedCount = fields.filter((entry) => entry.preserved).length;
       const restricted = beagleBlock.restricted;
@@ -12639,6 +12782,18 @@ function renderWarpBridgeLabPage(project) {
           memoryStatus: beagleBlock.memoryStatus,
           blockHash: beagleBlock.blockHash,
           restrictedRedacted: Boolean(beagleBlock.restricted)
+        },
+        rendererProbe: {
+          state: rendererProbe.state,
+          latest: rendererProbe.latest
+            ? {
+                status: rendererProbe.latest.status,
+                platform: rendererProbe.latest.platform,
+                arch: rendererProbe.latest.arch,
+                timingMs: rendererProbe.latest.timingMs,
+                promoted: rendererProbe.latest.promoted
+              }
+            : null
         },
         fieldPreservation: fields.map((entry) => ({
           field: entry.field,
@@ -12719,6 +12874,7 @@ function renderWarpBridgeLabPage(project) {
       warpPreview.textContent = JSON.stringify(warpBlock, null, 2);
       renderFieldDiff(fields);
       renderScorecard(metrics, promotion);
+      renderRendererProbeResults();
       renderDecisionMemo(beagleBlock, fields, metrics, promotion);
     }
 
