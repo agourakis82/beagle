@@ -32,6 +32,8 @@ public struct VisualWorkArtifact: Codable, Identifiable, Sendable, Equatable {
     public let paneId: String?
     public let restrictedRedacted: Bool
     public let provenanceRefs: [String]
+    public let touchedFiles: [String]
+    public let evidenceBadges: [String]
 
     public init(
         id: String,
@@ -43,7 +45,9 @@ public struct VisualWorkArtifact: Codable, Identifiable, Sendable, Equatable {
         sourceBlockId: String? = nil,
         paneId: String? = nil,
         restrictedRedacted: Bool = false,
-        provenanceRefs: [String] = []
+        provenanceRefs: [String] = [],
+        touchedFiles: [String] = [],
+        evidenceBadges: [String] = []
     ) {
         self.id = id
         self.kind = kind
@@ -55,6 +59,8 @@ public struct VisualWorkArtifact: Codable, Identifiable, Sendable, Equatable {
         self.paneId = paneId
         self.restrictedRedacted = restrictedRedacted
         self.provenanceRefs = provenanceRefs
+        self.touchedFiles = touchedFiles
+        self.evidenceBadges = evidenceBadges
     }
 
     public init(block: TerminalBlock) {
@@ -63,6 +69,7 @@ public struct VisualWorkArtifact: Codable, Identifiable, Sendable, Equatable {
         let displayCommand = restricted ? "[restricted command redacted]" : block.command
         let displayOutput = restricted ? "[restricted output redacted]" : block.outputPreview
         let fallbackTitle = displayCommand.isEmpty ? block.title : displayCommand
+        let touchedFiles = restricted ? [] : Self.extractTouchedFiles(from: displayOutput)
         let summary = Self.summary(
             kind: kind,
             command: displayCommand,
@@ -80,7 +87,14 @@ public struct VisualWorkArtifact: Codable, Identifiable, Sendable, Equatable {
             sourceBlockId: block.id,
             paneId: block.paneId,
             restrictedRedacted: restricted,
-            provenanceRefs: [block.blockHash, block.memoryEventId, block.auditEventId].compactMap { $0 }
+            provenanceRefs: [block.blockHash, block.memoryEventId, block.auditEventId].compactMap { $0 },
+            touchedFiles: touchedFiles,
+            evidenceBadges: Self.evidenceBadges(
+                kind: kind,
+                block: block,
+                touchedFiles: touchedFiles,
+                restricted: restricted
+            )
         )
     }
 
@@ -111,6 +125,88 @@ public struct VisualWorkArtifact: Codable, Identifiable, Sendable, Equatable {
 
     public static func isRestricted(_ privacyClass: String) -> Bool {
         privacyClass == "restricted" || privacyClass == "restricted_local_only"
+    }
+
+    public static func extractTouchedFiles(from output: String) -> [String] {
+        let cleaned = stripANSI(output)
+        let candidates = cleaned
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> String? in
+                let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else { return nil }
+                if value.localizedCaseInsensitiveContains("files changed")
+                    || value.localizedCaseInsensitiveContains("file changed") {
+                    return nil
+                }
+                if let pipeIndex = value.firstIndex(of: "|") {
+                    let file = value[..<pipeIndex].trimmingCharacters(in: .whitespaces)
+                    return file.isEmpty ? nil : file
+                }
+                if let arrowRange = value.range(of: " -> ") {
+                    let prefix = value[..<arrowRange.lowerBound]
+                    let suffix = value[arrowRange.upperBound...]
+                    let joined = "\(prefix)\(suffix)".trimmingCharacters(in: .whitespaces)
+                    return joined.isEmpty ? nil : joined
+                }
+                let first = value.split(separator: " ").first.map(String.init) ?? ""
+                if first.contains("/")
+                    || first.hasSuffix(".swift")
+                    || first.hasSuffix(".ts")
+                    || first.hasSuffix(".tsx")
+                    || first.hasSuffix(".js")
+                    || first.hasSuffix(".py")
+                    || first.hasSuffix(".rs")
+                    || first.hasSuffix(".sio")
+                    || first.hasSuffix(".md") {
+                    return first.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+                }
+                return nil
+            }
+        var seen = Set<String>()
+        let unique = candidates.filter { file in
+            guard !seen.contains(file) else { return false }
+            seen.insert(file)
+            return true
+        }
+        return Array(unique.prefix(8))
+    }
+
+    private static func evidenceBadges(
+        kind: VisualWorkArtifactKind,
+        block: TerminalBlock,
+        touchedFiles: [String],
+        restricted: Bool
+    ) -> [String] {
+        var badges = [kind.rawValue, block.status]
+        if !block.memoryStatus.isEmpty {
+            badges.append(block.memoryStatus)
+        }
+        if !touchedFiles.isEmpty {
+            badges.append("files:\(touchedFiles.count)")
+        }
+        let output = block.outputPreview.lowercased()
+        if output.contains("passed") || output.contains("success") {
+            badges.append("pass")
+        } else if output.contains("failed") || output.contains("error") {
+            badges.append("attention")
+        }
+        if restricted {
+            badges.append("restricted redacted")
+        }
+        var seen = Set<String>()
+        return badges.filter { badge in
+            guard !badge.isEmpty, !seen.contains(badge) else { return false }
+            seen.insert(badge)
+            return true
+        }
+    }
+
+    private static func stripANSI(_ value: String) -> String {
+        value.replacingOccurrences(
+            of: "\u{001B}\\[[0-9;?]*[ -/]*[@-~]",
+            with: "",
+            options: .regularExpression
+        )
     }
 
     private static func summary(
@@ -303,11 +399,15 @@ public struct VisualWorkCanvasState: Codable, Sendable, Equatable {
     }
 }
 
-public struct RuntimeLogPresentationState: Codable, Sendable, Equatable {
+public struct RuntimeLogPresentationState: Codable, Identifiable, Sendable, Equatable {
     public let title: String
     public let sessionId: String?
     public let paneId: String?
     public let isRuntimePrimary: Bool
+
+    public var id: String {
+        [title, sessionId, paneId, String(isRuntimePrimary)].compactMap { $0 }.joined(separator: ":")
+    }
 
     public init(
         title: String = "Runtime Log",

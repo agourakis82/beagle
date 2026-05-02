@@ -30,7 +30,7 @@ struct WorkView: View {
     @State private var workbenchStatus = "Notebook terminal warming up"
     @State private var workbenchError: String?
     @State private var isRefreshingWorkbench = false
-    @State private var showLaneTerminal = false
+    @State private var runtimeLogPresentation: RuntimeLogPresentationState?
     @State private var showScoutLanes = false
     @State private var showRendererBakeOff = false
     @State private var rendererJudgments: [RendererHumanJudgment] = []
@@ -70,7 +70,12 @@ struct WorkView: View {
 
                         VisualWorkCanvas(
                             state: visualCanvasState,
-                            onRuntime: { showLaneTerminal = true },
+                            onSelectArtifact: { artifact in
+                                if let blockId = artifact.sourceBlockId {
+                                    selectedBlockId = blockId
+                                }
+                            },
+                            onRuntime: { presentRuntimeLog() },
                             onRemember: { Task { await rememberSelectedOrLatestBlock() } },
                             onBakeOff: {
                                 if selectedBakeOffSample != nil {
@@ -91,7 +96,7 @@ struct WorkView: View {
                                 selectedBlockId = block.id
                                 showRendererBakeOff = true
                             },
-                            onRuntime: { showLaneTerminal = true }
+                            onRuntime: { presentRuntimeLog() }
                         )
                         .frame(width: 340)
                     }
@@ -106,7 +111,7 @@ struct WorkView: View {
                                 Task { await openLane(lane, startProcess: lane != "shell", showTerminal: true) }
                             },
                             onShowTerminal: {
-                                showLaneTerminal = true
+                                presentRuntimeLog()
                             }
                         )
                         .padding(.horizontal, BeagleSpacing.md)
@@ -146,7 +151,7 @@ struct WorkView: View {
                 } else {
                     AgentConsoleDock(
                         state: workbenchDockState,
-                        onInput: { showLaneTerminal = true },
+                        onInput: { presentRuntimeLog() },
                         onInterrupt: { terminal.sendSignal("SIGINT") },
                         onApprove: { terminal.approve() },
                         onRemember: { Task { await rememberSelectedOrLatestBlock() } },
@@ -209,16 +214,16 @@ struct WorkView: View {
                 SounioPaperWorkbenchView()
             }
         }
-        .sheet(isPresented: $showLaneTerminal) {
+        .sheet(item: $runtimeLogPresentation) { runtime in
             NavigationStack {
                 terminalColumn
-                    .navigationTitle(activePane?.title ?? "Workbench Terminal")
+                    .navigationTitle(runtime.title)
                     #if !os(macOS)
                     .navigationBarTitleDisplayMode(.inline)
                     #endif
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { showLaneTerminal = false }
+                            Button("Done") { runtimeLogPresentation = nil }
                         }
                     }
             }
@@ -468,7 +473,7 @@ struct WorkView: View {
         let pane = prepared.pane
         connectWorkbenchPane(pane)
         if showTerminal {
-            showLaneTerminal = true
+            presentRuntimeLog(title: pane.title, paneId: pane.id)
         }
         if startProcess, let command = prepared.startCommand ?? launchCommand(for: lane) {
             try? await Task.sleep(for: .milliseconds(650))
@@ -682,6 +687,15 @@ struct WorkView: View {
         async let home: Void = exocortex.refresh(activeProjectSlug: activeSlug, platform: "beagle-apple-work")
         async let graph: Void = exocortex.refreshRecentGraph(limit: 16)
         _ = await (home, graph)
+    }
+
+    private func presentRuntimeLog(title: String? = nil, paneId: String? = nil) {
+        runtimeLogPresentation = RuntimeLogPresentationState(
+            title: title ?? activePane?.title ?? "Runtime Log",
+            sessionId: workspaceSession?.id,
+            paneId: paneId ?? activePane?.id,
+            isRuntimePrimary: false
+        )
     }
 
     // MARK: - Computed
@@ -1428,6 +1442,7 @@ private struct VisualAgentLaneCard: View {
 
 private struct VisualWorkCanvas: View {
     let state: VisualWorkCanvasState
+    let onSelectArtifact: (VisualWorkArtifact) -> Void
     let onRuntime: () -> Void
     let onRemember: () -> Void
     let onBakeOff: () -> Void
@@ -1436,7 +1451,11 @@ private struct VisualWorkCanvas: View {
         ScrollView {
             VStack(alignment: .leading, spacing: BeagleSpacing.md) {
                 hero
-                WorkArtifactStrip(artifacts: state.recentArtifacts)
+                WorkArtifactStrip(
+                    artifacts: state.recentArtifacts,
+                    selectedArtifactId: state.selectedArtifact?.id,
+                    onSelect: onSelectArtifact
+                )
                 selectedArtifactPanel
             }
             .padding(BeagleSpacing.lg)
@@ -1520,16 +1539,21 @@ private struct VisualWorkCanvas: View {
                             .foregroundStyle(BeagleTheme.textSecondary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
-                        HStack(spacing: 8) {
-                            artifactPill(artifact.kind.rawValue)
-                            artifactPill(artifact.status)
-                            if let memory = artifact.memoryStatus {
-                                artifactPill(memory)
-                            }
-                            if artifact.restrictedRedacted {
-                                artifactPill("restricted redacted")
+                        if !artifact.touchedFiles.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Touched files")
+                                    .font(BeagleFont.caption2.font)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                ForEach(artifact.touchedFiles, id: \.self) { file in
+                                    Label(file, systemImage: "doc.text")
+                                        .font(BeagleFont.caption2.font)
+                                        .foregroundStyle(BeagleTheme.textSecondary)
+                                        .lineLimit(1)
+                                }
                             }
                         }
+                        FlowPillRow(labels: artifact.evidenceBadges)
                     }
                 }
             }
@@ -1559,6 +1583,8 @@ private struct VisualWorkCanvas: View {
 
 private struct WorkArtifactStrip: View {
     let artifacts: [VisualWorkArtifact]
+    let selectedArtifactId: String?
+    let onSelect: (VisualWorkArtifact) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
@@ -1577,29 +1603,69 @@ private struct WorkArtifactStrip: View {
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], spacing: 10) {
                     ForEach(artifacts) { artifact in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 6) {
-                                Image(systemName: artifactIcon(artifact.kind))
-                                    .foregroundStyle(artifact.restrictedRedacted ? BeagleTheme.postureWarm : BeagleTheme.truthRemembered)
-                                Text(artifact.kind.rawValue)
-                                    .font(BeagleFont.caption2.font)
+                        Button {
+                            onSelect(artifact)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: artifactIcon(artifact.kind))
+                                        .foregroundStyle(artifact.restrictedRedacted ? BeagleTheme.postureWarm : BeagleTheme.truthRemembered)
+                                    Text(artifact.kind.rawValue)
+                                        .font(BeagleFont.caption2.font)
+                                        .fontWeight(.semibold)
+                                        .foregroundStyle(BeagleTheme.textTertiary)
+                                    Spacer(minLength: 4)
+                                    if artifact.id == selectedArtifactId {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundStyle(BeagleTheme.truthObserved)
+                                    }
+                                }
+                                Text(artifact.title)
+                                    .font(BeagleFont.caption.font)
                                     .fontWeight(.semibold)
-                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                    .foregroundStyle(BeagleTheme.textPrimary)
+                                    .lineLimit(2)
+                                Text(artifact.summary)
+                                    .font(BeagleFont.caption2.font)
+                                    .foregroundStyle(BeagleTheme.textSecondary)
+                                    .lineLimit(3)
+                                if !artifact.touchedFiles.isEmpty {
+                                    Label("\(artifact.touchedFiles.count) file\(artifact.touchedFiles.count == 1 ? "" : "s")", systemImage: "doc.on.doc")
+                                        .font(BeagleFont.caption2.font)
+                                        .foregroundStyle(BeagleTheme.textTertiary)
+                                }
                             }
-                            Text(artifact.title)
-                                .font(BeagleFont.caption.font)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(BeagleTheme.textPrimary)
-                                .lineLimit(2)
-                            Text(artifact.summary)
-                                .font(BeagleFont.caption2.font)
-                                .foregroundStyle(BeagleTheme.textSecondary)
-                                .lineLimit(3)
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(BeagleTheme.surface1.opacity(0.54), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(artifact.id == selectedArtifactId ? BeagleTheme.truthObserved.opacity(0.72) : BeagleTheme.hairline, lineWidth: 1)
+                            )
                         }
-                        .padding(10)
-                        .background(BeagleTheme.surface1.opacity(0.54), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(BeagleTheme.hairline, lineWidth: 1))
+                        .buttonStyle(.plain)
                     }
+                }
+            }
+        }
+    }
+}
+
+private struct FlowPillRow: View {
+    let labels: [String]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(labels, id: \.self) { label in
+                    Text(label)
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(label.contains("restricted") ? BeagleTheme.postureWarm : BeagleTheme.textTertiary)
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(BeagleTheme.surface0.opacity(0.65), in: Capsule())
                 }
             }
         }

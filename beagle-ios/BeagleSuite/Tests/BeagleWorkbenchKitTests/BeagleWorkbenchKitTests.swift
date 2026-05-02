@@ -252,6 +252,8 @@ import Foundation
     #expect(!artifact.summary.contains("secret-value"))
     #expect(artifact.memoryStatus == "blocked")
     #expect(artifact.provenanceRefs.contains("sha256:secret"))
+    #expect(artifact.touchedFiles.isEmpty)
+    #expect(artifact.evidenceBadges.contains("restricted redacted"))
 }
 
 @Test func visualWorkbenchCanvasIsDeterministicAndClassifiesArtifacts() {
@@ -273,7 +275,7 @@ import Foundation
         paneId: "pane-main",
         title: "git diff --stat",
         command: "git diff --stat",
-        outputPreview: "2 files changed",
+        outputPreview: "Sources/Sounio/Compiler.swift | 12 +++---\nTests/SounioTests/CompilerTests.swift | 4 ++\n2 files changed",
         status: "finished",
         blockHash: "sha256:diff"
     )
@@ -310,8 +312,28 @@ import Foundation
     #expect(first == second)
     #expect(first.selectedArtifact?.kind == .test)
     #expect(first.recentArtifacts.map(\.kind).contains(.diff))
+    #expect(first.recentArtifacts.first(where: { $0.kind == .diff })?.touchedFiles == [
+        "Sources/Sounio/Compiler.swift",
+        "Tests/SounioTests/CompilerTests.swift"
+    ])
     #expect(first.restrictedLeakCheck == "passed:no_restricted_visual_payload")
     #expect(first.lanes.first?.runtimeAvailable == true)
+}
+
+@Test func visualWorkbenchExtractsTouchedFilesAndRuntimeSheetIdentity() {
+    let output = "\u{001B}[32mSources/App/WorkView.swift\u{001B}[0m | 20 +++++\nREADME.md | 2 +\n2 files changed"
+    let files = VisualWorkArtifact.extractTouchedFiles(from: output)
+    let runtime = RuntimeLogPresentationState(
+        title: "Shell",
+        sessionId: "session-1",
+        paneId: "pane-main",
+        isRuntimePrimary: false
+    )
+
+    #expect(files == ["Sources/App/WorkView.swift", "README.md"])
+    #expect(runtime.id.contains("Shell"))
+    #expect(runtime.id.contains("session-1"))
+    #expect(runtime.id.contains("pane-main"))
 }
 
 @Test func visualAgentLaneSnapshotReflectsNeedsSetupAndRuntime() {
