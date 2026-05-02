@@ -169,3 +169,63 @@ import Foundation
     #expect(judged.humanJudgmentScore == 4)
     #expect(judged.promotionAllowed == false)
 }
+
+@Test func appleDevicePassEvidenceEncodesSanitizedClusterPayload() throws {
+    let sample = WorkbenchBakeOffSample(
+        id: "sample-session-block",
+        sessionId: "session-1",
+        paneId: "pane-main",
+        blockId: "block-1",
+        title: "swift test",
+        command: "swift test",
+        outputPreview: "very long terminal output that should not be exported",
+        status: "finished",
+        privacyClass: "sensitive",
+        memoryStatus: "remembered",
+        blockHash: "sha256:block"
+    )
+    let gate = WorkbenchAppleDeviceGate(
+        status: "needs_human_device_pass",
+        formFactor: .ipadOrMac,
+        viewportWidth: 1180,
+        touchTargetReady: true,
+        dynamicTypeReady: true,
+        restrictedLeakCheck: "passed:no_restricted_output",
+        vtFidelityStatus: "pass",
+        latencyStatus: "pass",
+        humanJudgmentScore: 3,
+        promotionAllowed: false,
+        blockers: ["physical iPad/iPhone input-to-paint pass not recorded"]
+    )
+    let evidence = AppleDevicePassEvidence(
+        projectSlug: "sounio",
+        sample: sample,
+        gate: gate,
+        selectedCandidate: .beagleTerminal,
+        inputToPaintMs: 14.22,
+        notes: "Sanitized preflight evidence only.",
+        device: [
+            "platform": "macOS",
+            "form_factor": "mac",
+            "os_version": "local-preflight",
+            "build": "codex-sprint"
+        ],
+        createdAt: "2026-05-02T12:00:00Z"
+    )
+
+    let data = try JSONEncoder().encode(evidence)
+    let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let decoded = try JSONDecoder().decode(AppleDevicePassEvidence.self, from: data)
+
+    #expect(object["schema_version"] as? String == "beagle-apple-device-pass-v0.1")
+    #expect(object["project_slug"] as? String == "sounio")
+    #expect(object["selected_candidate"] as? String == "beagle-terminal-v1")
+    #expect(object["canonical_memory_written"] as? Bool == false)
+    #expect(object["promotion_allowed"] as? Bool == false)
+    #expect(object["command"] == nil)
+    #expect(object["output_preview"] == nil)
+    #expect(decoded.blockId == "block-1")
+    #expect(decoded.gateStatus == "needs_human_device_pass")
+    #expect(decoded.inputToPaintMs == 14.22)
+    #expect(decoded.canonicalMemoryWritten == false)
+}

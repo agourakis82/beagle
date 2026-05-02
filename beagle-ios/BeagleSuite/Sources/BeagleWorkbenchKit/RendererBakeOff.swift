@@ -354,6 +354,87 @@ public struct WorkbenchAppleDeviceGate: Codable, Sendable, Equatable {
     }
 }
 
+public struct AppleDevicePassEvidence: Codable, Sendable, Equatable {
+    public let schemaVersion: String
+    public let projectSlug: String
+    public let sampleId: String
+    public let sessionId: String
+    public let blockId: String
+    public let selectedCandidate: String
+    public let device: [String: String]
+    public let gateStatus: String
+    public let viewportWidth: Double?
+    public let dynamicTypeReady: Bool
+    public let touchTargetReady: Bool
+    public let inputToPaintMs: Double?
+    public let humanScore: Int?
+    public let restrictedLeakCheck: String
+    public let vtFidelityStatus: String
+    public let latencyStatus: String
+    public let blockers: [String]
+    public let notes: String
+    public let promotionAllowed: Bool
+    public let canonicalMemoryWritten: Bool
+    public let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case projectSlug = "project_slug"
+        case sampleId = "sample_id"
+        case sessionId = "session_id"
+        case blockId = "block_id"
+        case selectedCandidate = "selected_candidate"
+        case device
+        case gateStatus = "gate_status"
+        case viewportWidth = "viewport_width"
+        case dynamicTypeReady = "dynamic_type_ready"
+        case touchTargetReady = "touch_target_ready"
+        case inputToPaintMs = "input_to_paint_ms"
+        case humanScore = "human_score"
+        case restrictedLeakCheck = "restricted_leak_check"
+        case vtFidelityStatus = "vt_fidelity_status"
+        case latencyStatus = "latency_status"
+        case blockers
+        case notes
+        case promotionAllowed = "promotion_allowed"
+        case canonicalMemoryWritten = "canonical_memory_written"
+        case createdAt = "created_at"
+    }
+
+    public init(
+        projectSlug: String,
+        sample: WorkbenchBakeOffSample,
+        gate: WorkbenchAppleDeviceGate,
+        selectedCandidate: WorkbenchRendererCandidate,
+        inputToPaintMs: Double? = nil,
+        notes: String = "",
+        device: [String: String] = [:],
+        createdAt: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        self.schemaVersion = "beagle-apple-device-pass-v0.1"
+        self.projectSlug = projectSlug
+        self.sampleId = sample.id
+        self.sessionId = sample.sessionId
+        self.blockId = sample.blockId
+        self.selectedCandidate = selectedCandidate.rawValue
+        self.device = device
+        self.gateStatus = gate.status
+        self.viewportWidth = gate.viewportWidth
+        self.dynamicTypeReady = gate.dynamicTypeReady
+        self.touchTargetReady = gate.touchTargetReady
+        self.inputToPaintMs = inputToPaintMs
+        self.humanScore = gate.humanJudgmentScore
+        self.restrictedLeakCheck = gate.restrictedLeakCheck
+        self.vtFidelityStatus = gate.vtFidelityStatus
+        self.latencyStatus = gate.latencyStatus
+        self.blockers = gate.blockers
+        self.notes = notes
+        self.promotionAllowed = false
+        self.canonicalMemoryWritten = false
+        self.createdAt = createdAt
+    }
+}
+
 public struct RendererHumanJudgment: Codable, Identifiable, Sendable, Equatable {
     public let id: String
     public let sampleId: String

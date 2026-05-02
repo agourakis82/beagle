@@ -12192,6 +12192,195 @@ function readRendererProbeResults(projectSlug) {
   };
 }
 
+function safeArtifactPart(value) {
+  return String(value || "sample")
+    .replace(/[^a-zA-Z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96) || "sample";
+}
+
+function restrictedLookingText(value) {
+  const text = String(value || "").toLowerCase();
+  return (
+    text.includes("client_secret") ||
+    text.includes("refresh_token") ||
+    text.includes("private key") ||
+    text.includes("-----begin") ||
+    text.includes("bearer ") ||
+    text.includes("api_key") ||
+    text.includes("password:") ||
+    text.includes("passwd") ||
+    /\bsk-[a-z0-9]{20,}/i.test(text) ||
+    /\bghp_[a-z0-9_]{20,}/i.test(text)
+  );
+}
+
+function appleDevicePassDirs(projectSlug) {
+  const base = cleanValue(process.env.PROJECT_COCKPIT_APPLE_DEVICE_PASS_DIR)
+    || (cleanValue(process.env.PROJECT_COCKPIT_RENDERER_PROBE_DIR)
+      ? path.join(cleanValue(process.env.PROJECT_COCKPIT_RENDERER_PROBE_DIR), "apple-device-pass")
+      : path.join("/tmp", "project-cockpit", "apple-device-pass"));
+  return [
+    path.join(base, projectSlug),
+    base,
+    path.join("/workspace/.beagle/workbench/apple-device-pass", projectSlug),
+    path.join("/workspace/.beagle/workbench/apple-device-pass"),
+    path.resolve(rootDir, "apple-device-pass", projectSlug),
+    path.resolve(rootDir, "apple-device-pass"),
+  ].filter(Boolean);
+}
+
+function normalizeAppleDevicePass(projectSlug, body = {}) {
+  const notes = cleanValue(body.notes).slice(0, 600);
+  if (restrictedLookingText(notes)) {
+    const error = new Error("device pass notes look restricted; redact before upload");
+    error.statusCode = 400;
+    throw error;
+  }
+  const humanScoreRaw = Number(body.human_score ?? body.humanScore ?? 0);
+  const humanScore = Number.isFinite(humanScoreRaw)
+    ? Math.max(1, Math.min(5, Math.round(humanScoreRaw)))
+    : null;
+  const viewportWidth = Number(body.viewport_width ?? body.viewportWidth ?? 0);
+  const inputToPaintMs = Number(body.input_to_paint_ms ?? body.inputToPaintMs ?? 0);
+  const dynamicTypeReady = body.dynamic_type_ready ?? body.dynamicTypeReady ?? true;
+  const touchTargetReady = body.touch_target_ready ?? body.touchTargetReady ?? true;
+  const restrictedLeakCheck = cleanValue(body.restricted_leak_check || body.restrictedLeakCheck || "passed:no_restricted_output");
+  const vtFidelityStatus = cleanValue(body.vt_fidelity_status || body.vtFidelityStatus || "not_measured");
+  const latencyStatus = cleanValue(body.latency_status || body.latencyStatus || "not_measured");
+  const blockers = Array.isArray(body.blockers)
+    ? body.blockers.map((item) => cleanValue(item).slice(0, 160)).filter(Boolean).slice(0, 12)
+    : [];
+  const computedBlockers = [...blockers];
+  if (!humanScore || humanScore < 4) computedBlockers.push("human device score below 4");
+  if (restrictedLeakCheck !== "passed:no_restricted_output") computedBlockers.push("restricted leak check failed");
+  if (vtFidelityStatus !== "pass") computedBlockers.push("VT fidelity not passed");
+  if (latencyStatus !== "pass") computedBlockers.push("latency budget not passed");
+  if (!dynamicTypeReady) computedBlockers.push("large Dynamic Type not verified");
+  if (!touchTargetReady) computedBlockers.push("touch targets below 44pt");
+
+  const gateStatus = computedBlockers.length ? "needs_human_device_pass" : "device_pass";
+  return {
+    schema_version: "beagle-apple-device-pass-v0.1",
+    project_slug: projectSlug,
+    sample_id: cleanValue(body.sample_id || body.sampleId || ""),
+    session_id: cleanValue(body.session_id || body.sessionId || ""),
+    block_id: cleanValue(body.block_id || body.blockId || ""),
+    selected_candidate: cleanValue(body.selected_candidate || body.selectedCandidate || "beagle-terminal-v1"),
+    device: {
+      platform: cleanValue(body.device?.platform || body.platform || "apple"),
+      form_factor: cleanValue(body.device?.form_factor || body.form_factor || body.formFactor || "unknown"),
+      os_version: cleanValue(body.device?.os_version || body.os_version || body.osVersion || ""),
+      build: cleanValue(body.device?.build || body.build || ""),
+    },
+    gate_status: gateStatus,
+    viewport_width: Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : null,
+    dynamic_type_ready: Boolean(dynamicTypeReady),
+    touch_target_ready: Boolean(touchTargetReady),
+    input_to_paint_ms: Number.isFinite(inputToPaintMs) && inputToPaintMs > 0 ? Math.round(inputToPaintMs * 100) / 100 : null,
+    human_score: humanScore,
+    restricted_leak_check: restrictedLeakCheck,
+    vt_fidelity_status: vtFidelityStatus,
+    latency_status: latencyStatus,
+    blockers: Array.from(new Set(computedBlockers)).slice(0, 12),
+    notes,
+    promotion_allowed: false,
+    canonical_memory_written: false,
+    created_at: cleanValue(body.created_at || body.createdAt) || new Date().toISOString(),
+  };
+}
+
+function readAppleDevicePassResults(projectSlug) {
+  const seen = new Set();
+  const files = [];
+  for (const dir of appleDevicePassDirs(projectSlug)) {
+    if (!existsSync(dir) || seen.has(dir)) continue;
+    seen.add(dir);
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+        const file = path.join(dir, entry.name);
+        const stat = statSync(file);
+        files.push({ file, mtimeMs: stat.mtimeMs });
+      }
+    } catch (_error) {
+      // Device pass evidence is optional and derived.
+    }
+  }
+  files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const results = [];
+  for (const item of files.slice(0, 8)) {
+    try {
+      const payload = JSON.parse(readFileSync(item.file, "utf8"));
+      results.push({
+        file: path.basename(item.file),
+        updatedAt: new Date(item.mtimeMs).toISOString(),
+        schemaVersion: payload.schema_version || "unknown",
+        status: payload.gate_status || payload.status || "unknown",
+        sampleId: payload.sample_id || "",
+        sessionId: payload.session_id || "",
+        blockId: payload.block_id || "",
+        selectedCandidate: payload.selected_candidate || "",
+        device: payload.device || {},
+        viewportWidth: payload.viewport_width ?? null,
+        inputToPaintMs: payload.input_to_paint_ms ?? null,
+        humanScore: payload.human_score ?? null,
+        restrictedLeakCheck: payload.restricted_leak_check || "unknown",
+        vtFidelityStatus: payload.vt_fidelity_status || "unknown",
+        latencyStatus: payload.latency_status || "unknown",
+        blockers: Array.isArray(payload.blockers) ? payload.blockers.slice(0, 12) : [],
+        promotionAllowed: Boolean(payload.promotion_allowed),
+        canonicalMemoryWritten: Boolean(payload.canonical_memory_written),
+        notes: cleanValue(payload.notes).slice(0, 600),
+      });
+    } catch (_error) {
+      results.push({
+        file: path.basename(item.file),
+        updatedAt: new Date(item.mtimeMs).toISOString(),
+        schemaVersion: "unknown",
+        status: "unreadable",
+        sampleId: "",
+        sessionId: "",
+        blockId: "",
+        selectedCandidate: "",
+        device: {},
+        viewportWidth: null,
+        inputToPaintMs: null,
+        humanScore: null,
+        restrictedLeakCheck: "unknown",
+        vtFidelityStatus: "unknown",
+        latencyStatus: "unknown",
+        blockers: ["device pass result JSON could not be parsed"],
+        promotionAllowed: false,
+        canonicalMemoryWritten: false,
+        notes: "",
+      });
+    }
+  }
+  return {
+    state: results.length ? "measured" : "not_measured",
+    searchedDirs: Array.from(seen).map((dir) => path.basename(dir)),
+    latest: results[0] || null,
+    results,
+  };
+}
+
+async function writeAppleDevicePassResult(projectSlug, body) {
+  const payload = normalizeAppleDevicePass(projectSlug, body);
+  const dir = appleDevicePassDirs(projectSlug)[0];
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  const stem = safeArtifactPart(payload.sample_id || payload.block_id || "device-pass");
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = path.join(dir, `${timestamp}-${stem}.json`);
+  await fs.writeFile(file, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+  return {
+    status: "recorded",
+    file: path.basename(file),
+    result: payload,
+    truthMode: "observed",
+  };
+}
+
 function renderWarpBridgeLabPage(project) {
   const slug = project.projectSlug || project.slug || "sounio";
   const title = `${project.title || slug} Warp Bridge Lab`;
@@ -12200,6 +12389,7 @@ function renderWarpBridgeLabPage(project) {
   const vendorCommit = "805b3e2a576e689a1e414f01ed3fc51e9e704d69";
   const bridgeVersion = "beagle-warp-bridge-v0.2";
   const rendererProbeResults = readRendererProbeResults(slug);
+  const appleDevicePassResults = readAppleDevicePassResults(slug);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -12467,6 +12657,12 @@ function renderWarpBridgeLabPage(project) {
       </section>
 
       <section class="full">
+        <h2>Apple Device Pass Results</h2>
+        <div id="apple-device-pass-state" class="pill">Loading Apple device pass...</div>
+        <div id="apple-device-pass-results" class="probe-list"></div>
+      </section>
+
+      <section class="full">
         <h2>Decision Memo</h2>
         <div class="memo-grid">
           <div id="decision-memo" class="memo">Loading decision memo...</div>
@@ -12481,6 +12677,7 @@ function renderWarpBridgeLabPage(project) {
     const bridgeVersion = ${JSON.stringify(bridgeVersion)};
     const vendorCommit = ${JSON.stringify(vendorCommit)};
     const rendererProbe = ${JSON.stringify(rendererProbeResults)};
+    const appleDevicePass = ${JSON.stringify(appleDevicePassResults)};
     const authority = document.getElementById("authority");
     const supervisor = document.getElementById("supervisor");
     const sessionsCount = document.getElementById("sessions-count");
@@ -12500,6 +12697,8 @@ function renderWarpBridgeLabPage(project) {
     const scorecard = document.getElementById("scorecard");
     const rendererProbeState = document.getElementById("renderer-probe-state");
     const rendererProbeResults = document.getElementById("renderer-probe-results");
+    const appleDevicePassState = document.getElementById("apple-device-pass-state");
+    const appleDevicePassResults = document.getElementById("apple-device-pass-results");
     const decisionMemo = document.getElementById("decision-memo");
     const decisionJson = document.getElementById("decision-json");
     let state = {
@@ -12669,6 +12868,8 @@ function renderWarpBridgeLabPage(project) {
       const probeMeasured = Boolean(latestProbe);
       const vtFidelity = latestProbe?.vtFidelity || null;
       const latencyBudget = latestProbe?.latencyBudget || null;
+      const latestDevicePass = appleDevicePass.latest;
+      const devicePassMeasured = Boolean(latestDevicePass);
       const secretAudit = state.restrictedAudit || { status: "pending", blockId: "" };
       const secretAuditPass = secretAudit.status === "pass" && secretAudit.outputExposed === false && secretAudit.redacted === true;
       return [
@@ -12735,8 +12936,10 @@ function renderWarpBridgeLabPage(project) {
         {
           key: "apple_usability",
           label: "Apple usability",
-          status: "pending",
-          evidence: "Dynamic Type, small iPhone width, keyboard shortcuts, and touch ergonomics need device pass."
+          status: latestDevicePass?.status === "device_pass" ? "pass" : "pending",
+          evidence: devicePassMeasured
+            ? "Latest Apple device pass=" + latestDevicePass.status + " score=" + (latestDevicePass.humanScore || "pending") + " form=" + (latestDevicePass.device?.form_factor || "unknown") + "."
+            : "Dynamic Type, small iPhone width, keyboard shortcuts, and touch ergonomics need device pass."
         },
         {
           key: "secret_scan_audit",
@@ -12814,6 +13017,33 @@ function renderWarpBridgeLabPage(project) {
             latency +
             '<p>' + fixture + '</p>' +
             notes +
+          '</div>'
+        );
+      }).join("");
+    }
+
+    function renderAppleDevicePassResults() {
+      appleDevicePassState.textContent = "apple_device_pass=" + appleDevicePass.state;
+      appleDevicePassState.className = appleDevicePass.latest?.status === "device_pass" ? "pill ok" : "pill warn";
+      if (!appleDevicePass.results.length) {
+        appleDevicePassResults.innerHTML = '<div class="probe-item"><h3>not_measured</h3><p>No sanitized Apple device pass JSON has been recorded yet. Record one from the Workbench after a real device session.</p></div>';
+        return;
+      }
+      appleDevicePassResults.innerHTML = appleDevicePass.results.map((result) => {
+        const device = result.device || {};
+        const blockers = (result.blockers || []).map((blocker) => '<p>' + escapeHtmlClient(blocker) + '</p>').join("");
+        return (
+          '<div class="probe-item">' +
+            '<h3>' + escapeHtmlClient(result.status) + ' · ' + escapeHtmlClient(device.form_factor || "unknown") + '</h3>' +
+            '<div class="row"><span>File</span><strong>' + escapeHtmlClient(result.file) + '</strong></div>' +
+            '<div class="row"><span>Block</span><strong>' + escapeHtmlClient(result.blockId || "unknown") + '</strong></div>' +
+            '<div class="row"><span>Candidate</span><strong>' + escapeHtmlClient(result.selectedCandidate || "unknown") + '</strong></div>' +
+            '<div class="row"><span>Score</span><strong>' + escapeHtmlClient(result.humanScore == null ? "pending" : result.humanScore + "/5") + '</strong></div>' +
+            '<div class="row"><span>Input-to-paint</span><strong>' + escapeHtmlClient(result.inputToPaintMs == null ? "not_reported" : result.inputToPaintMs + "ms") + '</strong></div>' +
+            '<div class="row"><span>Leak check</span><strong>' + escapeHtmlClient(result.restrictedLeakCheck) + '</strong></div>' +
+            '<div class="row"><span>Canonical memory</span><strong>' + escapeHtmlClient(result.canonicalMemoryWritten ? "unexpected" : "not_written") + '</strong></div>' +
+            (result.notes ? '<p>' + escapeHtmlClient(result.notes) + '</p>' : '') +
+            blockers +
           '</div>'
         );
       }).join("");
@@ -12935,6 +13165,10 @@ function renderWarpBridgeLabPage(project) {
                 latencyBudget: rendererProbe.latest.latencyBudget
               }
             : null
+        },
+        appleDevicePass: {
+          state: appleDevicePass.state,
+          latest: appleDevicePass.latest
         },
         restrictedAudit: state.restrictedAudit,
         fieldPreservation: fields.map((entry) => ({
@@ -13069,6 +13303,7 @@ function renderWarpBridgeLabPage(project) {
       renderFieldDiff(fields);
       renderScorecard(metrics, promotion);
       renderRendererProbeResults();
+      renderAppleDevicePassResults();
       renderDecisionMemo(beagleBlock, fields, metrics, promotion);
     }
 
@@ -13117,6 +13352,14 @@ function renderWarpBridgeLabPage(project) {
 </body>
 </html>`;
 }
+
+app.get("/api/workspaces/:slug/warp/device-pass", jsonResponse(async (req) => {
+  return readAppleDevicePassResults(req.params.slug);
+}));
+
+app.post("/api/workspaces/:slug/warp/device-pass", jsonResponse(async (req) => {
+  return writeAppleDevicePassResult(req.params.slug, req.body || {});
+}));
 
 if (!existsSync(distDir)) {
   app.get("/projects/:slug/warp", async (req, res) => {
