@@ -12366,6 +12366,37 @@ function renderVisualWorkbenchPrototypePage(project) {
       gap: 8px;
       align-content: start;
     }
+    .route-decision {
+      display: none;
+      border: 1px solid rgba(125, 240, 189, 0.26);
+      background: rgba(125, 240, 189, 0.07);
+      border-radius: 8px;
+      padding: 12px;
+      gap: 10px;
+    }
+    .route-decision.visible { display: grid; }
+    .workflow-steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .workflow-step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.16);
+      padding: 9px;
+      min-height: 64px;
+    }
+    .workflow-step strong {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .workflow-step span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.28;
+    }
     .artifact-strip {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -12439,6 +12470,32 @@ function renderVisualWorkbenchPrototypePage(project) {
       overflow-wrap: anywhere;
     }
     .spatial-zone span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+    .portal-preview {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border-top: 1px solid var(--line);
+    }
+    .portal-grid {
+      display: grid;
+      gap: 8px;
+    }
+    .portal-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.16);
+      padding: 10px;
+      display: grid;
+      gap: 5px;
+    }
+    .portal-card strong {
+      overflow-wrap: anywhere;
+    }
+    .portal-card span {
       color: var(--muted);
       font-size: 12px;
       line-height: 1.3;
@@ -12526,7 +12583,7 @@ function renderVisualWorkbenchPrototypePage(project) {
       .lane-top { grid-template-columns: 32px minmax(0, 1fr); }
       .lane-top .badge { grid-column: 1 / -1; width: fit-content; }
       .kv { grid-template-columns: 1fr; }
-      .mission-row, .spatial-zones { grid-template-columns: 1fr; }
+      .mission-row, .spatial-zones, .workflow-steps { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -12595,6 +12652,7 @@ function renderVisualWorkbenchPrototypePage(project) {
               </div>
             </div>
           </div>
+          <div id="route-decision" class="route-decision" aria-label="Route decision"></div>
           <div id="artifact-strip" class="artifact-strip"></div>
         </div>
 
@@ -12623,6 +12681,7 @@ function renderVisualWorkbenchPrototypePage(project) {
         </div>
         <div id="inspector" class="inspector-body"></div>
         <div id="spatial-deck" class="spatial-preview"></div>
+        <div id="portal-deck" class="portal-preview"></div>
       </aside>
     </section>
   </main>
@@ -12655,6 +12714,7 @@ function renderVisualWorkbenchPrototypePage(project) {
       roles: seededRoles,
       selectedRole: "primary_builder",
       selectedBlockId: "",
+      routeDecision: null,
       loading: true,
       loadError: ""
     };
@@ -12675,6 +12735,8 @@ function renderVisualWorkbenchPrototypePage(project) {
     const fixtureRibbon = document.getElementById("fixture-ribbon");
     const intentInput = document.getElementById("intent-input");
     const spatialDeck = document.getElementById("spatial-deck");
+    const routeDecisionPanel = document.getElementById("route-decision");
+    const portalDeck = document.getElementById("portal-deck");
     const fixtureSession = {
       id: "fixture-sounio-workday",
       status: "design_fixture",
@@ -12810,13 +12872,57 @@ function renderVisualWorkbenchPrototypePage(project) {
     }
 
     function routeIntentToRole(intent) {
+      return routeIntentDetails(intent).role;
+    }
+
+    function routeIntentDetails(intent) {
       const text = String(intent || "").toLowerCase();
-      if (text.includes("claim") || text.includes("type") || text.includes("semantic") || text.includes("sounio")) return "long_thought_architect";
-      if (text.includes("test") || text.includes("refactor") || text.includes("compiler") || text.includes("bug")) return "code_worker";
-      if (text.includes("k8s") || text.includes("kubectl") || text.includes("deploy") || text.includes("pod") || text.includes("incident")) return "platform_operator";
-      if (text.includes("lint") || text.includes("small patch") || text.includes("maintenance")) return "maintenance_agent";
-      if (text.includes("shell") || text.includes("runtime") || text.includes("log")) return "shell";
-      return "primary_builder";
+      if (text.includes("claim") || text.includes("type") || text.includes("semantic") || text.includes("sounio")) {
+        return {
+          role: "long_thought_architect",
+          reason: "Semantic or Sounio-language work needs long thought before edits.",
+          arousal: "tonic_explore",
+          expected: ["semantic note", "claim seeds", "open questions", "proof needs"]
+        };
+      }
+      if (text.includes("test") || text.includes("refactor") || text.includes("compiler") || text.includes("bug")) {
+        return {
+          role: "code_worker",
+          reason: "Bounded code/test work should go to a worker lane with visible artifacts.",
+          arousal: "phasic_focus",
+          expected: ["patch sketch", "test command", "diff summary", "memory candidate"]
+        };
+      }
+      if (text.includes("k8s") || text.includes("kubectl") || text.includes("deploy") || text.includes("pod") || text.includes("incident")) {
+        return {
+          role: "platform_operator",
+          reason: "Infrastructure intent needs operator context, approvals, and incident provenance.",
+          arousal: "recovering",
+          expected: ["runbook step", "cluster check", "approval gate", "incident note"]
+        };
+      }
+      if (text.includes("lint") || text.includes("small patch") || text.includes("maintenance")) {
+        return {
+          role: "maintenance_agent",
+          reason: "Low-risk repair loop can be routed to a maintenance lane.",
+          arousal: "phasic_focus",
+          expected: ["lint result", "small diff", "test loop", "memory summary"]
+        };
+      }
+      if (text.includes("shell") || text.includes("runtime") || text.includes("log")) {
+        return {
+          role: "shell",
+          reason: "Runtime inspection stays available, but it is no longer the primary surface.",
+          arousal: "phasic_focus",
+          expected: ["runtime log", "redaction check", "proof link", "manual decision"]
+        };
+      }
+      return {
+        role: "primary_builder",
+        reason: "High-level or ambiguous work starts with the primary builder lane.",
+        arousal: "phasic_focus",
+        expected: ["plan", "decision", "diff/test summary", "next action"]
+      };
     }
 
     function laneLabel(roleName) {
@@ -13018,6 +13124,55 @@ function renderVisualWorkbenchPrototypePage(project) {
         '</div>';
     }
 
+    function renderRouteDecision() {
+      const decision = state.routeDecision;
+      if (!decision) {
+        routeDecisionPanel.classList.remove("visible");
+        routeDecisionPanel.innerHTML = "";
+        return;
+      }
+      const expected = decision.expected || [];
+      routeDecisionPanel.classList.add("visible");
+      routeDecisionPanel.innerHTML =
+        '<div class="panel-title">' +
+          '<h2>Route decision</h2>' +
+          '<span class="caption">' + escapeHtmlClient(decision.reason || "") + '</span>' +
+        '</div>' +
+        '<div class="lane-meta">' +
+          '<span class="badge ready">' + escapeHtmlClient(laneLabel(decision.role)) + '</span>' +
+          '<span class="pill">' + escapeHtmlClient(decision.arousal || "phasic_focus") + '</span>' +
+          '<span class="pill">privacy: sensitive review</span>' +
+          '<span class="pill">no command execution</span>' +
+        '</div>' +
+        '<div class="workflow-steps">' +
+          expected.map(function(item, index) {
+            return '<div class="workflow-step"><strong>' + escapeHtmlClient("artifact " + (index + 1)) + '</strong><span>' + escapeHtmlClient(item) + '</span></div>';
+          }).join("") +
+        '</div>';
+    }
+
+    function renderPortals() {
+      const portals = [
+        { title: "Claude / Claude Code", mode: "Portal + Promote", detail: "Reference conversation or coding run; promote selected clip only after redaction." },
+        { title: "ChatGPT", mode: "Portal + Promote", detail: "No invisible scraping. Import selected exchange/export with provenance." },
+        { title: "Grok / other chats", mode: "Manual import", detail: "Conversation stays outside Beagle until explicitly promoted." }
+      ];
+      portalDeck.innerHTML =
+        '<div class="panel-title">' +
+          '<h2>Conversation portals</h2>' +
+          '<span class="caption">Separate from terminal. External chats become memory only by Promote.</span>' +
+        '</div>' +
+        '<div class="portal-grid">' +
+          portals.map(function(portal) {
+            return '<div class="portal-card">' +
+              '<div class="lane-meta"><span class="badge">' + escapeHtmlClient(portal.mode) + '</span></div>' +
+              '<strong>' + escapeHtmlClient(portal.title) + '</strong>' +
+              '<span>' + escapeHtmlClient(portal.detail) + '</span>' +
+            '</div>';
+          }).join("") +
+        '</div>';
+    }
+
     function renderRuntime() {
       const block = selectedBlock();
       if (!block) {
@@ -13037,11 +13192,15 @@ function renderVisualWorkbenchPrototypePage(project) {
       renderInspector();
       renderRuntime();
       renderSpatialDeck();
+      renderRouteDecision();
+      renderPortals();
     }
 
     function draftIntent(shouldCreateBlock) {
       const intent = String(intentInput.value || "").trim() || "Plan the next Sounio workday step visually, then preserve proof and memory only after review.";
-      const targetRole = routeIntentToRole(intent);
+      const decision = routeIntentDetails(intent);
+      const targetRole = decision.role;
+      state.routeDecision = decision;
       state.selectedRole = targetRole;
       nextGesture.textContent = "Routed to " + laneLabel(targetRole) + ".";
       if (shouldCreateBlock) {
