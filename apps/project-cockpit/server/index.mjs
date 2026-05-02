@@ -12805,13 +12805,18 @@ function renderWarpBridgeLabPage(project) {
     function probeCommand() {
       const fixture = fixtureFileName();
       return [
-        "npm --silent --prefix apps/warp-workbench run renderer:probe --",
-        "--fixture",
-        fixture,
+        "npm --silent --prefix apps/warp-workbench run renderer:probe:block --",
+        "--base-url",
+        "http://127.0.0.1:4370",
+        "--project",
+        slug,
+        "--session-id",
+        state.currentBeagleBlock?.sessionId || state.selectedSessionId || "",
+        "--block-id",
+        state.currentBeagleBlock?.id || "no-live-block-yet",
         "--out-dir",
         "/workspace/.beagle/workbench/renderer-probes/" + slug,
-        "--sample-id",
-        (state.currentBeagleBlock?.id || "no-live-block-yet")
+        "  # fixture download: " + fixture
       ].join(" ");
     }
 

@@ -6,9 +6,10 @@
   "license": "AGPL-3.0-only",
   "description": "AGPL boundary and bridge spike for the Warp-derived Beagle Workbench.",
   "scripts": {
-    "check": "node --check bridge/warp-beagle-bridge.mjs && node --check renderer/warp-metal-probe.mjs && node --test test/*.test.mjs",
+    "check": "node --check bridge/warp-beagle-bridge.mjs && node --check renderer/warp-metal-probe.mjs && node --check renderer/probe-workbench-block.mjs && node --test test/*.test.mjs",
     "renderer:check": "node renderer/warp-metal-probe.mjs --check",
     "renderer:probe": "node renderer/warp-metal-probe.mjs",
+    "renderer:probe:block": "node renderer/probe-workbench-block.mjs",
     "test": "node --test test/*.test.mjs"
   }
 }

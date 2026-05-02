@@ -84,6 +84,9 @@ beagle-ios/exportOptions*.plist
 beagle-ios/*.mobileprovision
 beagle-ios/*.dSYM.zip
 
+# Derived Warp renderer probe outputs
+apps/warp-workbench/renderer/results/
+
 # Docker
 docker-compose.override.yml
 

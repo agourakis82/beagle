@@ -9,6 +9,7 @@ import test from "node:test";
 
 const root = path.resolve(new URL("../../../", import.meta.url).pathname);
 const probe = path.join(root, "apps/warp-workbench/renderer/warp-metal-probe.mjs");
+const blockProbe = path.join(root, "apps/warp-workbench/renderer/probe-workbench-block.mjs");
 
 test("renderer probe returns explicit partial status without writing memory", () => {
   const result = spawnSync(process.execPath, [probe, "--check"], { encoding: "utf8" });
@@ -80,4 +81,45 @@ test("renderer probe can persist derived JSON result to an output directory", ()
   const persisted = JSON.parse(fs.readFileSync(path.join(outDir, files[0]), "utf8"));
   assert.equal(persisted.fixture.block_id, "block-normal");
   assert.equal(persisted.renderer.hot_path, "beagle-terminal-v1");
+});
+
+test("workbench block probe sanitizes selected block before invoking renderer probe", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "beagle-warp-block-probe-"));
+  const blocksFile = path.join(dir, "blocks.json");
+  const outDir = path.join(dir, "results");
+  fs.writeFileSync(blocksFile, JSON.stringify({
+    blocks: [
+      {
+        id: "block-sensitive",
+        sessionId: "session-3",
+        paneId: "pane-main",
+        title: "Restricted block",
+        command: "export TOKEN=secret-block-token",
+        outputPreview: "secret-block-token",
+        privacyClass: "restricted_local_only",
+        memoryStatus: "blocked",
+        blockHash: "sha256:block-sensitive",
+      },
+    ],
+  }));
+
+  const result = spawnSync(process.execPath, [
+    blockProbe,
+    "--blocks-file",
+    blocksFile,
+    "--project",
+    "sounio",
+    "--block-id",
+    "block-sensitive",
+    "--out-dir",
+    outDir,
+  ], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.doesNotMatch(result.stdout, /secret-block-token/);
+  const payload = JSON.parse(result.stdout);
+
+  assert.equal(payload.fixture.block_id, "block-sensitive");
+  assert.equal(payload.fixture.restricted_redacted, true);
+  const persistedFiles = fs.readdirSync(outDir).filter((file) => file.endsWith(".json"));
+  assert.equal(persistedFiles.length, 1);
 });
