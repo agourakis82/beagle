@@ -50,23 +50,63 @@ struct WorkView: View {
                 )
 
                 if proxy.size.width >= 980 {
-                    HStack(spacing: 0) {
-                        VisualAgentLaneBoard(
-                            lanes: visualCanvasState.lanes,
+                    VisualWorkbenchStage(
+                        state: visualCanvasState,
+                        onOpenLane: { lane in
+                            Task { await openLane(lane.id, startProcess: false, showTerminal: false) }
+                        },
+                        onStartLane: { lane in
+                            Task { await openLane(lane.id, startProcess: lane.kind != "human", showTerminal: false) }
+                        },
+                        onRuntimeLane: { lane in
+                            Task { await openLane(lane.id, startProcess: false, showTerminal: true) }
+                        },
+                        onSelectArtifact: { artifact in
+                            if let blockId = artifact.sourceBlockId {
+                                selectedBlockId = blockId
+                            }
+                        },
+                        onRememberArtifact: { artifact in
+                            Task { await rememberArtifact(artifact) }
+                        },
+                        onBakeOffArtifact: { artifact in
+                            if let blockId = artifact.sourceBlockId {
+                                selectedBlockId = blockId
+                                showRendererBakeOff = true
+                            }
+                        },
+                        onRuntime: { presentRuntimeLog() }
+                    )
+                } else {
+                    VStack(spacing: 0) {
+                        AgentConsoleView(
+                            snapshot: agentConsoleSnapshot,
                             onOpenLane: { lane in
-                                Task { await openLane(lane.id, startProcess: false, showTerminal: false) }
+                                Task { await openLane(lane, startProcess: false, showTerminal: false) }
                             },
                             onStartLane: { lane in
-                                Task { await openLane(lane.id, startProcess: lane.kind != "human", showTerminal: false) }
+                                Task { await openLane(lane, startProcess: lane != "shell", showTerminal: false) }
                             },
-                            onRuntime: { lane in
-                                Task { await openLane(lane.id, startProcess: false, showTerminal: true) }
+                            onShowTerminal: {
+                                presentRuntimeLog()
                             }
                         )
-                        .frame(width: 300)
-
-                        Divider().overlay(BeagleTheme.hairline)
-
+                        .padding(.horizontal, BeagleSpacing.md)
+                        .padding(.vertical, BeagleSpacing.sm)
+                        if !scoutAgentRoles.isEmpty {
+                            ScoutLaneDrawer(
+                                isExpanded: $showScoutLanes,
+                                lanes: scoutAgentRoles.map(agentLaneState),
+                                onOpenLane: { lane in
+                                    Task { await openLane(lane, startProcess: false, showTerminal: false) }
+                                },
+                                onStartLane: { lane in
+                                    Task { await openLane(lane, startProcess: true, showTerminal: false) }
+                                }
+                            )
+                            .padding(.horizontal, BeagleSpacing.md)
+                            .padding(.bottom, BeagleSpacing.xs)
+                        }
                         VisualWorkCanvas(
                             state: visualCanvasState,
                             onSelectArtifact: { artifact in
@@ -82,63 +122,22 @@ struct WorkView: View {
                                 }
                             }
                         )
-
-                        Divider().overlay(BeagleTheme.hairline)
-
-                        WorkMemoryInspector(
-                            state: visualCanvasState,
-                            blocks: terminalBlocks,
-                            selectedBlockId: selectedBlockId,
-                            onSelect: { block in selectedBlockId = block.id },
-                            onRemember: { block in Task { await rememberBlock(block) } },
-                            onBakeOff: { block in
-                                selectedBlockId = block.id
-                                showRendererBakeOff = true
-                            },
-                            onRuntime: { presentRuntimeLog() }
-                        )
-                        .frame(width: 340)
-                    }
-                } else {
-                    VStack(spacing: 0) {
-                        AgentConsoleView(
-                            snapshot: agentConsoleSnapshot,
-                            onOpenLane: { lane in
-                                Task { await openLane(lane, startProcess: false, showTerminal: true) }
-                            },
-                            onStartLane: { lane in
-                                Task { await openLane(lane, startProcess: lane != "shell", showTerminal: true) }
-                            },
-                            onShowTerminal: {
-                                presentRuntimeLog()
-                            }
-                        )
-                        .padding(.horizontal, BeagleSpacing.md)
-                        .padding(.vertical, BeagleSpacing.sm)
-                        if !scoutAgentRoles.isEmpty {
-                            ScoutLaneDrawer(
-                                isExpanded: $showScoutLanes,
-                                lanes: scoutAgentRoles.map(agentLaneState),
-                                onOpenLane: { lane in
-                                    Task { await openLane(lane, startProcess: false, showTerminal: true) }
-                                },
-                                onStartLane: { lane in
-                                    Task { await openLane(lane, startProcess: true, showTerminal: true) }
+                        CompactEvidenceRail(
+                            artifacts: visualCanvasState.recentArtifacts,
+                            selectedArtifactId: visualCanvasState.selectedArtifact?.id,
+                            onSelect: { artifact in
+                                if let blockId = artifact.sourceBlockId {
+                                    selectedBlockId = blockId
                                 }
-                            )
-                            .padding(.horizontal, BeagleSpacing.md)
-                            .padding(.bottom, BeagleSpacing.xs)
-                        }
-                        CompactBlockRail(
-                            blocks: terminalBlocks,
-                            selectedBlockId: selectedBlockId,
-                            onSelect: { block in selectedBlockId = block.id },
-                            onRemember: { block in
-                                Task { await rememberBlock(block) }
                             },
-                            onBakeOff: { block in
-                                selectedBlockId = block.id
-                                showRendererBakeOff = true
+                            onRemember: { artifact in
+                                Task { await rememberArtifact(artifact) }
+                            },
+                            onBakeOff: { artifact in
+                                if let blockId = artifact.sourceBlockId {
+                                    selectedBlockId = blockId
+                                    showRendererBakeOff = true
+                                }
                             }
                         )
                         latestWorkMemoryStrip
@@ -146,7 +145,17 @@ struct WorkView: View {
                 }
 
                 if proxy.size.width >= 980 {
-                    quickAccessStrip
+                    VisualWorkbenchActionDock(
+                        state: workbenchDockState,
+                        onInterrupt: { terminal.sendSignal("SIGINT") },
+                        onApprove: { terminal.approve() },
+                        onRemember: { Task { await rememberSelectedOrLatestBlock() } },
+                        onFocus: { Task { await openLane("primary_builder", startProcess: true, showTerminal: false) } },
+                        onScout: { Task { await openLane("long_thought_architect", startProcess: true, showTerminal: false) } },
+                        onCompare: { Task { await openLane("code_worker", startProcess: true, showTerminal: false) } },
+                        onRuntime: { presentRuntimeLog() },
+                        onRefresh: { Task { await prepareWorkbench(forceNew: false) } }
+                    )
                 } else {
                     AgentConsoleDock(
                         state: workbenchDockState,
@@ -154,9 +163,9 @@ struct WorkView: View {
                         onInterrupt: { terminal.sendSignal("SIGINT") },
                         onApprove: { terminal.approve() },
                         onRemember: { Task { await rememberSelectedOrLatestBlock() } },
-                        onFocus: { Task { await openLane("primary_builder", startProcess: true, showTerminal: true) } },
-                        onScout: { Task { await openLane("long_thought_architect", startProcess: true, showTerminal: true) } },
-                        onCompare: { Task { await openLane("code_worker", startProcess: true, showTerminal: true) } },
+                        onFocus: { Task { await openLane("primary_builder", startProcess: true, showTerminal: false) } },
+                        onScout: { Task { await openLane("long_thought_architect", startProcess: true, showTerminal: false) } },
+                        onCompare: { Task { await openLane("code_worker", startProcess: true, showTerminal: false) } },
                         onOpenTerminal: { Task { await openLane("shell", startProcess: false, showTerminal: true) } }
                     )
                 }
@@ -641,6 +650,18 @@ struct WorkView: View {
             return
         }
         await recordWorkMemory()
+    }
+
+    private func rememberArtifact(_ artifact: VisualWorkArtifact) async {
+        guard let blockId = artifact.sourceBlockId else {
+            await recordWorkMemory()
+            return
+        }
+        await rememberBlockId(
+            blockId,
+            title: artifact.title,
+            fallbackSessionId: workspaceSession?.id
+        )
     }
 
     private func rememberBlock(_ block: TerminalBlock) async {
@@ -1299,6 +1320,115 @@ private struct AgentConsoleDock: View {
     }
 }
 
+private struct VisualWorkbenchActionDock: View {
+    let state: WorkbenchActionDockState
+    let onInterrupt: () -> Void
+    let onApprove: () -> Void
+    let onRemember: () -> Void
+    let onFocus: () -> Void
+    let onScout: () -> Void
+    let onCompare: () -> Void
+    let onRuntime: () -> Void
+    let onRefresh: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            visualDockButton("Focus", icon: "scope", tint: BeagleTheme.truthObserved, action: onFocus)
+            visualDockButton("Scout", icon: "brain.head.profile", tint: BeagleTheme.truthRemembered, action: onScout)
+            visualDockButton("Compare", icon: "arrow.triangle.branch", tint: BeagleTheme.textData, action: onCompare)
+            Divider().overlay(BeagleTheme.hairline).frame(height: 24)
+            visualDockButton("Remember", icon: "externaldrive.connected.to.line.below", tint: BeagleTheme.truthObserved, isEnabled: state.canRemember, action: onRemember)
+            visualDockButton("Approve", icon: "checkmark.seal", tint: BeagleTheme.truthObserved, isEnabled: state.canApprove, action: onApprove)
+            visualDockButton("Interrupt", icon: "pause.circle", tint: BeagleTheme.postureWarm, isEnabled: state.canInterrupt, action: onInterrupt)
+            Spacer(minLength: BeagleSpacing.md)
+            visualDockButton("Refresh", icon: "arrow.clockwise", tint: BeagleTheme.textSecondary, action: onRefresh)
+            visualDockButton("Runtime Log", icon: "terminal", tint: BeagleTheme.textTertiary, action: onRuntime)
+        }
+        .padding(.horizontal, BeagleSpacing.lg)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Rectangle().fill(BeagleTheme.hairline).frame(height: 1)
+        }
+    }
+
+    private func visualDockButton(
+        _ label: String,
+        icon: String,
+        tint: Color,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(label, systemImage: icon)
+                .font(BeagleFont.caption.font)
+                .fontWeight(.semibold)
+                .lineLimit(1)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 8)
+                .background(tint.opacity(isEnabled ? 0.13 : 0.05), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isEnabled ? tint : BeagleTheme.textTertiary.opacity(0.55))
+        .disabled(!isEnabled)
+    }
+}
+
+private struct VisualWorkbenchStage: View {
+    let state: VisualWorkCanvasState
+    let onOpenLane: (VisualAgentLaneSnapshot) -> Void
+    let onStartLane: (VisualAgentLaneSnapshot) -> Void
+    let onRuntimeLane: (VisualAgentLaneSnapshot) -> Void
+    let onSelectArtifact: (VisualWorkArtifact) -> Void
+    let onRememberArtifact: (VisualWorkArtifact) -> Void
+    let onBakeOffArtifact: (VisualWorkArtifact) -> Void
+    let onRuntime: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VisualAgentLaneBoard(
+                lanes: state.lanes,
+                onOpenLane: onOpenLane,
+                onStartLane: onStartLane,
+                onRuntime: onRuntimeLane
+            )
+            .frame(maxHeight: 252)
+
+            Divider().overlay(BeagleTheme.hairline)
+
+            HStack(spacing: 0) {
+                VisualWorkCanvas(
+                    state: state,
+                    onSelectArtifact: onSelectArtifact,
+                    onRuntime: onRuntime,
+                    onRemember: {
+                        if let artifact = state.selectedArtifact {
+                            onRememberArtifact(artifact)
+                        }
+                    },
+                    onBakeOff: {
+                        if let artifact = state.selectedArtifact {
+                            onBakeOffArtifact(artifact)
+                        }
+                    }
+                )
+
+                Divider().overlay(BeagleTheme.hairline)
+
+                WorkMemoryInspector(
+                    state: state,
+                    selectedArtifactId: state.selectedArtifact?.id,
+                    onSelect: onSelectArtifact,
+                    onRemember: onRememberArtifact,
+                    onBakeOff: onBakeOffArtifact,
+                    onRuntime: onRuntime
+                )
+                .frame(width: 360)
+            }
+        }
+    }
+}
+
 private struct VisualAgentLaneBoard: View {
     let lanes: [VisualAgentLaneSnapshot]
     let onOpenLane: (VisualAgentLaneSnapshot) -> Void
@@ -1307,25 +1437,27 @@ private struct VisualAgentLaneBoard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.md) {
-            HStack(alignment: .top, spacing: 9) {
-                Image(systemName: "sparkles.rectangle.stack")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(BeagleTheme.truthObserved)
-                    .frame(width: 30, height: 30)
-                    .background(BeagleTheme.truthObserved.opacity(0.13), in: RoundedRectangle(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Agent Deck")
-                        .font(BeagleFont.headline.font)
-                        .foregroundStyle(BeagleTheme.textPrimary)
-                    Text("Pick a role. Beagle keeps the runtime, memory, and proof behind the bench.")
-                        .font(BeagleFont.caption.font)
-                        .foregroundStyle(BeagleTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            HStack(alignment: .firstTextBaseline) {
+                Text("Agent Deck")
+                    .font(BeagleFont.headline.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                Text("roles first, providers second")
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                Spacer()
+                Label("runtime hidden until requested", systemImage: "terminal.fill")
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
             }
 
-            ScrollView {
-                LazyVStack(spacing: BeagleSpacing.sm) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHGrid(
+                    rows: [
+                        GridItem(.fixed(92), spacing: 10),
+                        GridItem(.fixed(92), spacing: 10)
+                    ],
+                    spacing: 10
+                ) {
                     ForEach(lanes) { lane in
                         VisualAgentLaneCard(
                             lane: lane,
@@ -1333,13 +1465,20 @@ private struct VisualAgentLaneBoard: View {
                             onStart: { onStartLane(lane) },
                             onRuntime: { onRuntime(lane) }
                         )
+                        .frame(width: 260)
                     }
                 }
-                .padding(.bottom, BeagleSpacing.md)
+                .padding(.trailing, BeagleSpacing.lg)
             }
         }
         .padding(BeagleSpacing.lg)
-        .background(BeagleTheme.surface0.opacity(0.78))
+        .background(
+            LinearGradient(
+                colors: [BeagleTheme.surface0.opacity(0.90), BeagleTheme.surface1.opacity(0.66)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
     }
 }
 
@@ -1350,7 +1489,7 @@ private struct VisualAgentLaneCard: View {
     let onRuntime: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        HStack(alignment: .top, spacing: 10) {
             Button(action: onOpen) {
                 HStack(alignment: .top, spacing: 9) {
                     Image(systemName: icon)
@@ -1392,37 +1531,24 @@ private struct VisualAgentLaneCard: View {
                 }
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 6) {
-                lanePill(lane.readiness, icon: lane.readiness == "needs_setup" ? "wrench.and.screwdriver" : "checkmark.circle")
-                if lane.pendingApproval {
-                    lanePill("approval", icon: "checkmark.seal")
-                }
-                if lane.currentArtifact?.restrictedRedacted == true {
-                    lanePill("redacted", icon: "lock.shield")
-                }
-            }
-
-            if let setupGap = lane.setupGap, !setupGap.isEmpty {
-                Text(setupGap)
-                    .font(BeagleFont.caption2.font)
-                    .foregroundStyle(BeagleTheme.postureWarm)
-                    .lineLimit(2)
-            }
-
-            HStack(spacing: 8) {
+            VStack(spacing: 7) {
                 Button(action: onStart) {
-                    Label(lane.runtimeAvailable ? "Resume" : "Start", systemImage: lane.runtimeAvailable ? "play.circle" : "plus.circle")
+                    Image(systemName: lane.runtimeAvailable ? "play.circle.fill" : "plus.circle.fill")
+                        .font(.system(size: 17, weight: .semibold))
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(BeagleTheme.truthObserved)
                 Button(action: onRuntime) {
-                    Label("Log", systemImage: "terminal")
+                    Image(systemName: "terminal")
+                        .font(.system(size: 13, weight: .semibold))
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(BeagleTheme.textTertiary)
             }
-            .font(BeagleFont.caption2.font)
-            .buttonStyle(.borderless)
-            .foregroundStyle(BeagleTheme.truthObserved)
         }
-        .padding(12)
+        .padding(11)
         .background(background, in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -1775,11 +1901,10 @@ private struct FlowPillRow: View {
 
 private struct WorkMemoryInspector: View {
     let state: VisualWorkCanvasState
-    let blocks: [TerminalBlock]
-    let selectedBlockId: String?
-    let onSelect: (TerminalBlock) -> Void
-    let onRemember: (TerminalBlock) -> Void
-    let onBakeOff: (TerminalBlock) -> Void
+    let selectedArtifactId: String?
+    let onSelect: (VisualWorkArtifact) -> Void
+    let onRemember: (VisualWorkArtifact) -> Void
+    let onBakeOff: (VisualWorkArtifact) -> Void
     let onRuntime: () -> Void
 
     var body: some View {
@@ -1803,7 +1928,7 @@ private struct WorkMemoryInspector: View {
 
             GlassPanel(elevation: .flush, truth: .observed) {
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("Cluster memory")
+                    Text("What Beagle can safely remember")
                         .font(BeagleFont.caption2.font)
                         .fontWeight(.semibold)
                         .foregroundStyle(BeagleTheme.textTertiary)
@@ -1822,13 +1947,13 @@ private struct WorkMemoryInspector: View {
             }
 
             HStack {
-                Text("Proof blocks")
+                Text("Evidence Objects")
                     .font(BeagleFont.caption2.font)
                     .fontWeight(.semibold)
                     .foregroundStyle(BeagleTheme.textTertiary)
                 Spacer()
                 Button(action: onRuntime) {
-                    Label("Runtime", systemImage: "terminal")
+                    Label("Runtime Log", systemImage: "terminal")
                         .labelStyle(.iconOnly)
                 }
                 .buttonStyle(.plain)
@@ -1837,16 +1962,16 @@ private struct WorkMemoryInspector: View {
 
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    if blocks.isEmpty {
+                    if state.recentArtifacts.isEmpty {
                         InspectorEmptyState(hasVisualArtifacts: !state.recentArtifacts.isEmpty)
                     } else {
-                        ForEach(blocks) { block in
-                            TerminalBlockRow(
-                                block: block,
-                                isSelected: block.id == selectedBlockId,
-                                onSelect: { onSelect(block) },
-                                onRemember: { onRemember(block) },
-                                onBakeOff: { onBakeOff(block) }
+                        ForEach(state.recentArtifacts) { artifact in
+                            VisualProofArtifactRow(
+                                artifact: artifact,
+                                isSelected: artifact.id == selectedArtifactId,
+                                onSelect: { onSelect(artifact) },
+                                onRemember: { onRemember(artifact) },
+                                onBakeOff: { onBakeOff(artifact) }
                             )
                         }
                     }
@@ -1856,6 +1981,76 @@ private struct WorkMemoryInspector: View {
         }
         .padding(BeagleSpacing.md)
         .background(BeagleTheme.surface0.opacity(0.70))
+    }
+}
+
+private struct VisualProofArtifactRow: View {
+    let artifact: VisualWorkArtifact
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onRemember: () -> Void
+    let onBakeOff: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Button(action: onSelect) {
+                HStack(alignment: .top, spacing: 9) {
+                    Image(systemName: artifactIcon(artifact.kind))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(tint)
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(artifact.title)
+                            .font(BeagleFont.caption.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                            .lineLimit(2)
+                        Text(artifact.summary)
+                            .font(BeagleFont.caption2.font)
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .lineLimit(3)
+                        FlowPillRow(labels: artifact.evidenceBadges)
+                    }
+                    Spacer(minLength: 4)
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(BeagleTheme.truthObserved)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+
+            HStack(spacing: 8) {
+                Button(action: onRemember) {
+                    Label("Remember", systemImage: "externaldrive.connected.to.line.below")
+                }
+                .disabled(artifact.sourceBlockId == nil)
+                Button(action: onBakeOff) {
+                    Label("Compare", systemImage: "rectangle.split.2x1")
+                }
+                .disabled(artifact.sourceBlockId == nil || artifact.restrictedRedacted)
+            }
+            .font(BeagleFont.caption2.font)
+            .buttonStyle(.borderless)
+            .foregroundStyle(BeagleTheme.truthObserved)
+        }
+        .padding(12)
+        .background(BeagleTheme.surface1.opacity(isSelected ? 0.68 : 0.44), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? BeagleTheme.truthObserved.opacity(0.70) : BeagleTheme.hairline, lineWidth: 1)
+        )
+    }
+
+    private var tint: Color {
+        if artifact.restrictedRedacted { return BeagleTheme.postureWarm }
+        switch artifact.memoryStatus {
+        case "remembered": return BeagleTheme.truthObserved
+        case "blocked": return BeagleTheme.postureWarm
+        case "failed": return BeagleTheme.stateError
+        default: return BeagleTheme.truthRemembered
+        }
     }
 }
 
@@ -2053,25 +2248,34 @@ private struct WorkbenchInspector: View {
     }
 }
 
-private struct CompactBlockRail: View {
-    let blocks: [TerminalBlock]
-    let selectedBlockId: String?
-    let onSelect: (TerminalBlock) -> Void
-    let onRemember: (TerminalBlock) -> Void
-    let onBakeOff: (TerminalBlock) -> Void
+private struct CompactEvidenceRail: View {
+    let artifacts: [VisualWorkArtifact]
+    let selectedArtifactId: String?
+    let onSelect: (VisualWorkArtifact) -> Void
+    let onRemember: (VisualWorkArtifact) -> Void
+    let onBakeOff: (VisualWorkArtifact) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: BeagleSpacing.sm) {
-                ForEach(blocks.prefix(12)) { block in
-                    TerminalBlockRow(
-                        block: block,
-                        isSelected: block.id == selectedBlockId,
-                        onSelect: { onSelect(block) },
-                        onRemember: { onRemember(block) },
-                        onBakeOff: { onBakeOff(block) }
-                    )
-                    .frame(width: 260)
+                if artifacts.isEmpty {
+                    Text("Evidence will appear here after an agent or shell action.")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .padding(12)
+                        .frame(width: 280, alignment: .leading)
+                        .background(BeagleTheme.surface1.opacity(0.44), in: RoundedRectangle(cornerRadius: 8))
+                } else {
+                    ForEach(artifacts.prefix(12)) { artifact in
+                        VisualProofArtifactRow(
+                            artifact: artifact,
+                            isSelected: artifact.id == selectedArtifactId,
+                            onSelect: { onSelect(artifact) },
+                            onRemember: { onRemember(artifact) },
+                            onBakeOff: { onBakeOff(artifact) }
+                        )
+                        .frame(width: 280)
+                    }
                 }
             }
             .padding(.horizontal, BeagleSpacing.md)
