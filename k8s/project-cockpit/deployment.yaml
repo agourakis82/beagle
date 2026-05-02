@@ -31,7 +31,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: project-cockpit
-          image: 192.168.3.207:5003/project-cockpit:sounio-workday-mvp-0660087
+          image: 192.168.3.207:5003/project-cockpit:sounio-workday-mvp-82065a4
           imagePullPolicy: Always
           ports:
             - name: http
