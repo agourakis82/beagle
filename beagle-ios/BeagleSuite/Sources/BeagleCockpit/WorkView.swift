@@ -2,9 +2,8 @@
 //  WorkView.swift
 //  BeagleCockpit
 //
-//  The Work tab. Terminal, agents, and operational access.
-//  First-class terminal that connects to workspace tmux.
-//  Quick access to Platform, ControlRoom, HPC, ScienceJobs.
+//  The Work tab. Visual-first agent lanes backed by a hidden workspace runtime.
+//  Runtime logs remain available on demand, but the first surface is the bench.
 //
 
 import SwiftUI
@@ -27,7 +26,7 @@ struct WorkView: View {
     @State private var activePane: TerminalPane?
     @State private var terminalBlocks: [TerminalBlock] = []
     @State private var selectedBlockId: String?
-    @State private var workbenchStatus = "Notebook terminal warming up"
+    @State private var workbenchStatus = "Preparing agent deck"
     @State private var workbenchError: String?
     @State private var isRefreshingWorkbench = false
     @State private var runtimeLogPresentation: RuntimeLogPresentationState?
@@ -47,7 +46,7 @@ struct WorkView: View {
                     connectionState: terminal.connectionState,
                     status: workbenchStatus,
                     error: workbenchError,
-                    blockCount: terminalBlocks.count
+                    blockCount: visualCanvasState.recentArtifacts.count
                 )
 
                 if proxy.size.width >= 980 {
@@ -384,7 +383,7 @@ struct WorkView: View {
 
     private func prepareWorkbench(forceNew: Bool = false) async {
         workbenchError = nil
-        workbenchStatus = "Opening Notebook Terminal..."
+        workbenchStatus = "Opening Agent Deck..."
         let slug = activeSlug
         await refreshAgentRegistry()
 
@@ -400,8 +399,8 @@ struct WorkView: View {
             } else if let created = (await CockpitClient.shared.createWorkspaceSession(slug: slug)).value?.session {
                 session = created
             } else {
-                workbenchError = "Workspace service unavailable; using raw terminal fallback."
-                workbenchStatus = "Fallback terminal"
+                workbenchError = "Workspace agent unavailable. Runtime recovery is available."
+                workbenchStatus = "Recovery runtime"
                 terminal.connectTerminal(slug: slug)
                 return
             }
@@ -973,24 +972,33 @@ private struct WorkbenchHeader: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: BeagleSpacing.sm) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Sounio Workbench")
-                    .font(BeagleFont.headline.font)
-                    .foregroundStyle(BeagleTheme.textPrimary)
-                Text(subtitle)
-                    .font(BeagleFont.caption.font)
-                    .foregroundStyle(BeagleTheme.textSecondary)
-                    .lineLimit(1)
+            HStack(alignment: .center, spacing: 11) {
+                Image(systemName: "rectangle.3.group.bubble.left")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(BeagleTheme.truthObserved)
+                    .frame(width: 36, height: 36)
+                    .background(BeagleTheme.truthObserved.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Sounio Agent Deck")
+                        .font(BeagleFont.headline.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    Text(subtitle)
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineLimit(2)
+                }
             }
             Spacer(minLength: BeagleSpacing.sm)
             HStack(spacing: 6) {
                 headerPill(connectionLabel, icon: connectionIcon, tint: connectionTint)
                 headerPill(authorityLabel, icon: "externaldrive.badge.checkmark", tint: authorityTint)
-                headerPill("\(blockCount) blocks", icon: "text.badge.checkmark", tint: BeagleTheme.truthRemembered)
+                if blockCount > 0 {
+                    headerPill("\(blockCount) artifacts", icon: "text.badge.checkmark", tint: BeagleTheme.truthRemembered)
+                }
             }
         }
-        .padding(.horizontal, BeagleSpacing.md)
-        .padding(.vertical, BeagleSpacing.sm)
+        .padding(.horizontal, BeagleSpacing.lg)
+        .padding(.vertical, 12)
         .background(.ultraThinMaterial)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -1001,25 +1009,21 @@ private struct WorkbenchHeader: View {
 
     private var subtitle: String {
         if let error, !error.isEmpty {
-            return "\(slug) · \(error)"
+            return "\(slug) needs attention · \(error.replacingOccurrences(of: "fallback", with: "recovery"))"
         }
-        let sessionPart = session?.id ?? "session pending"
-        let panePart = pane?.title ?? "pane pending"
-        let supervisor = session?.authorityStatus?.supervisor?.status
-        let authority = session?.authorityStatus?.authority
-        let suffix = [authority, supervisor].compactMap { value in
-            guard let value, !value.isEmpty else { return nil }
-            return value
-        }.joined(separator: "/")
-        return "\(slug) · \(panePart) · \(sessionPart) · \(suffix.isEmpty ? status : "\(status) · \(suffix)")"
+        if case .connected = connectionState {
+            let lane = pane?.title ?? "visual lanes"
+            return "\(slug) is live · \(lane) ready · memory is cluster-canonical"
+        }
+        return "\(slug) · choose a lane to begin a focused workday"
     }
 
     private var authorityLabel: String {
         switch session?.authorityStatus?.authority {
-        case "workspace-agent": return "agent"
+        case "workspace-agent": return "workspace"
         case "cockpit-local": return "local"
-        case let value?: return value
-        case nil: return "local"
+        case let value? where !value.isEmpty: return value
+        default: return "warming"
         }
     }
 
@@ -1037,9 +1041,9 @@ private struct WorkbenchHeader: View {
     private var connectionLabel: String {
         switch connectionState {
         case .connected: return "live"
-        case .connecting: return "connecting"
-        case .reconnecting: return "reconnecting"
-        case .failed: return "stale"
+        case .connecting: return "waking"
+        case .reconnecting: return "rejoining"
+        case .failed: return "attention"
         case .disconnected: return "offline"
         }
     }
@@ -1049,7 +1053,7 @@ private struct WorkbenchHeader: View {
         case .connected: return "dot.radiowaves.left.and.right"
         case .connecting, .reconnecting: return "arrow.triangle.2.circlepath"
         case .failed: return "exclamationmark.triangle"
-        case .disconnected: return "circle.dashed"
+        case .disconnected: return "moon"
         }
     }
 
@@ -1069,6 +1073,7 @@ private struct WorkbenchHeader: View {
             Text(label)
                 .font(BeagleFont.caption2.font)
                 .fontWeight(.semibold)
+                .lineLimit(1)
         }
         .foregroundStyle(tint)
         .padding(.horizontal, 9)
@@ -1120,8 +1125,10 @@ private struct AgentConsoleView: View {
 
     private var subtitle: String {
         let authority = snapshot.authority ?? "workspace"
-        let session = snapshot.sessionId ?? "session pending"
-        return "\(snapshot.projectSlug) · \(authority) · \(session)"
+        if snapshot.sessionId == nil {
+            return "\(snapshot.projectSlug) · choose a lane to wake the workspace"
+        }
+        return "\(snapshot.projectSlug) · \(authority) · visual lanes ready"
     }
 }
 
@@ -1299,17 +1306,22 @@ private struct VisualAgentLaneBoard: View {
     let onRuntime: (VisualAgentLaneSnapshot) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Agent Lanes")
-                    .font(BeagleFont.caption.font)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(BeagleTheme.textTertiary)
-                    .textCase(.uppercase)
-                Text("Visual first. Runtime hidden until requested.")
-                    .font(BeagleFont.caption2.font)
-                    .foregroundStyle(BeagleTheme.textSecondary)
-                    .lineLimit(2)
+        VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: "sparkles.rectangle.stack")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(BeagleTheme.truthObserved)
+                    .frame(width: 30, height: 30)
+                    .background(BeagleTheme.truthObserved.opacity(0.13), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Agent Deck")
+                        .font(BeagleFont.headline.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    Text("Pick a role. Beagle keeps the runtime, memory, and proof behind the bench.")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             ScrollView {
@@ -1326,8 +1338,8 @@ private struct VisualAgentLaneBoard: View {
                 .padding(.bottom, BeagleSpacing.md)
             }
         }
-        .padding(BeagleSpacing.md)
-        .background(BeagleTheme.surface0.opacity(0.74))
+        .padding(BeagleSpacing.lg)
+        .background(BeagleTheme.surface0.opacity(0.78))
     }
 }
 
@@ -1403,7 +1415,7 @@ private struct VisualAgentLaneCard: View {
                     Label(lane.runtimeAvailable ? "Resume" : "Start", systemImage: lane.runtimeAvailable ? "play.circle" : "plus.circle")
                 }
                 Button(action: onRuntime) {
-                    Label("Runtime", systemImage: "terminal")
+                    Label("Log", systemImage: "terminal")
                 }
             }
             .font(BeagleFont.caption2.font)
@@ -1473,11 +1485,15 @@ private struct VisualWorkCanvas: View {
         ScrollView {
             VStack(alignment: .leading, spacing: BeagleSpacing.md) {
                 hero
-                WorkArtifactStrip(
-                    artifacts: state.recentArtifacts,
-                    selectedArtifactId: state.selectedArtifact?.id,
-                    onSelect: onSelectArtifact
-                )
+                if state.recentArtifacts.isEmpty {
+                    EmptyWorkdayPanel(onStart: onRuntime)
+                } else {
+                    WorkArtifactStrip(
+                        artifacts: state.recentArtifacts,
+                        selectedArtifactId: state.selectedArtifact?.id,
+                        onSelect: onSelectArtifact
+                    )
+                }
                 selectedArtifactPanel
             }
             .padding(BeagleSpacing.lg)
@@ -1496,12 +1512,12 @@ private struct VisualWorkCanvas: View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Visual Workbench")
+                    Text("Active Work")
                         .font(BeagleFont.caption.font)
                         .fontWeight(.semibold)
                         .foregroundStyle(BeagleTheme.textTertiary)
                         .textCase(.uppercase)
-                    Text(state.headline)
+                    Text(displayHeadline)
                         .font(BeagleFont.title2.font)
                         .foregroundStyle(BeagleTheme.textPrimary)
                         .lineLimit(3)
@@ -1515,7 +1531,7 @@ private struct VisualWorkCanvas: View {
                     .padding(.vertical, 5)
                     .background(BeagleTheme.surface1.opacity(0.7), in: Capsule())
             }
-            Text(state.primaryAction)
+            Text(displayPrimaryAction)
                 .font(BeagleFont.body.font)
                 .foregroundStyle(BeagleTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1523,11 +1539,13 @@ private struct VisualWorkCanvas: View {
                 Button(action: onRemember) {
                     Label("Remember", systemImage: "externaldrive.connected.to.line.below")
                 }
+                .disabled(state.selectedArtifact == nil)
                 Button(action: onBakeOff) {
                     Label("Bake-off", systemImage: "rectangle.split.2x1")
                 }
+                .disabled(state.selectedArtifact == nil)
                 Button(action: onRuntime) {
-                    Label("Show Runtime Log", systemImage: "terminal")
+                    Label("Runtime Log", systemImage: "terminal")
                 }
             }
             .font(BeagleFont.caption.font)
@@ -1536,6 +1554,16 @@ private struct VisualWorkCanvas: View {
         .padding(BeagleSpacing.lg)
         .background(BeagleTheme.surface1.opacity(0.62), in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(BeagleTheme.hairline, lineWidth: 1))
+    }
+
+    private var displayHeadline: String {
+        state.selectedArtifact == nil ? "Start a Sounio workday without staring at a terminal" : state.headline
+    }
+
+    private var displayPrimaryAction: String {
+        state.selectedArtifact == nil
+            ? "Choose Claude/Codex, MiniMax, Kimi, Qwen, GLM, or Shell. As work happens, Beagle turns meaningful blocks into visual artifacts you can remember."
+            : state.primaryAction
     }
 
     @ViewBuilder
@@ -1583,12 +1611,7 @@ private struct VisualWorkCanvas: View {
             .background(BeagleTheme.surface1.opacity(0.50), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(BeagleTheme.hairline, lineWidth: 1))
         } else {
-            Text("Start a lane or select a curated block to populate this visual canvas.")
-                .font(BeagleFont.body.font)
-                .foregroundStyle(BeagleTheme.textSecondary)
-                .padding(BeagleSpacing.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(BeagleTheme.surface1.opacity(0.48), in: RoundedRectangle(cornerRadius: 8))
+            EmptyProofPanel()
         }
     }
 
@@ -1600,6 +1623,62 @@ private struct VisualWorkCanvas: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(BeagleTheme.surface0.opacity(0.65), in: Capsule())
+    }
+}
+
+private struct EmptyWorkdayPanel: View {
+    let onStart: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: BeagleSpacing.md) {
+            Image(systemName: "play.rectangle.on.rectangle")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(BeagleTheme.truthRemembered)
+                .frame(width: 44, height: 44)
+                .background(BeagleTheme.truthRemembered.opacity(0.13), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 8) {
+                Text("No work artifacts yet")
+                    .font(BeagleFont.headline.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                Text("Start or resume a lane. The first command, agent step, test, diff, approval, or memory import will appear here as an object, not as terminal noise.")
+                    .font(BeagleFont.body.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(action: onStart) {
+                    Label("Open Runtime Only If Needed", systemImage: "terminal")
+                }
+                .font(BeagleFont.caption.font)
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(BeagleSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BeagleTheme.surface1.opacity(0.50), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(BeagleTheme.hairline, lineWidth: 1))
+    }
+}
+
+private struct EmptyProofPanel: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: BeagleSpacing.md) {
+            Image(systemName: "doc.badge.clock")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .frame(width: 42, height: 42)
+                .background(BeagleTheme.surface1.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 6) {
+                Text("The bench is waiting for evidence")
+                    .font(BeagleFont.headline.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                Text("When a lane produces a block, this area becomes the interpreted summary: what changed, whether it touched files, memory status, provenance, and what to do next.")
+                    .font(BeagleFont.body.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(BeagleSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BeagleTheme.surface1.opacity(0.48), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -1705,11 +1784,22 @@ private struct WorkMemoryInspector: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.md) {
-            Text("Memory Inspector")
-                .font(BeagleFont.caption.font)
-                .fontWeight(.semibold)
-                .foregroundStyle(BeagleTheme.textTertiary)
-                .textCase(.uppercase)
+            HStack(alignment: .center, spacing: 9) {
+                Image(systemName: "externaldrive.connected.to.line.below")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(BeagleTheme.truthObserved)
+                    .frame(width: 30, height: 30)
+                    .background(BeagleTheme.truthObserved.opacity(0.13), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Memory & Proof")
+                        .font(BeagleFont.headline.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    Text("Cluster memory, provenance, review state.")
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineLimit(2)
+                }
+            }
 
             GlassPanel(elevation: .flush, truth: .observed) {
                 VStack(alignment: .leading, spacing: 7) {
@@ -1747,14 +1837,18 @@ private struct WorkMemoryInspector: View {
 
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    ForEach(blocks) { block in
-                        TerminalBlockRow(
-                            block: block,
-                            isSelected: block.id == selectedBlockId,
-                            onSelect: { onSelect(block) },
-                            onRemember: { onRemember(block) },
-                            onBakeOff: { onBakeOff(block) }
-                        )
+                    if blocks.isEmpty {
+                        InspectorEmptyState(hasVisualArtifacts: !state.recentArtifacts.isEmpty)
+                    } else {
+                        ForEach(blocks) { block in
+                            TerminalBlockRow(
+                                block: block,
+                                isSelected: block.id == selectedBlockId,
+                                onSelect: { onSelect(block) },
+                                onRemember: { onRemember(block) },
+                                onBakeOff: { onBakeOff(block) }
+                            )
+                        }
                     }
                 }
                 .padding(.bottom, BeagleSpacing.md)
@@ -1762,6 +1856,29 @@ private struct WorkMemoryInspector: View {
         }
         .padding(BeagleSpacing.md)
         .background(BeagleTheme.surface0.opacity(0.70))
+    }
+}
+
+private struct InspectorEmptyState: View {
+    let hasVisualArtifacts: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("No replay blocks yet", systemImage: "rectangle.dashed")
+                .font(BeagleFont.caption.font)
+                .fontWeight(.semibold)
+                .foregroundStyle(BeagleTheme.textSecondary)
+            Text(hasVisualArtifacts
+                ? "Live artifacts are visible on the bench. Replay will fill this proof list after refresh."
+                : "Start a lane. Proof blocks will appear here after Beagle observes work.")
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BeagleTheme.surface1.opacity(0.42), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(BeagleTheme.hairline, lineWidth: 1))
     }
 }
 
