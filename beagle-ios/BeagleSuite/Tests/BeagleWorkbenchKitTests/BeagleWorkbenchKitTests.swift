@@ -229,3 +229,143 @@ import Foundation
     #expect(decoded.inputToPaintMs == 14.22)
     #expect(decoded.canonicalMemoryWritten == false)
 }
+
+@Test func visualWorkbenchArtifactsRedactRestrictedBlocks() {
+    let block = TerminalBlock(
+        id: "block-secret",
+        sessionId: "session-1",
+        paneId: "pane-main",
+        title: "export token",
+        command: "export OPENAI_API_KEY=secret-value",
+        outputPreview: "secret-value leaked in terminal",
+        privacyClass: "restricted_local_only",
+        memoryStatus: "blocked",
+        blockHash: "sha256:secret"
+    )
+
+    let artifact = VisualWorkArtifact(block: block)
+
+    #expect(artifact.restrictedRedacted)
+    #expect(artifact.title == "[restricted command redacted]")
+    #expect(artifact.summary == "[restricted output redacted]")
+    #expect(!artifact.title.contains("secret-value"))
+    #expect(!artifact.summary.contains("secret-value"))
+    #expect(artifact.memoryStatus == "blocked")
+    #expect(artifact.provenanceRefs.contains("sha256:secret"))
+}
+
+@Test func visualWorkbenchCanvasIsDeterministicAndClassifiesArtifacts() {
+    let session = WorkspaceSession(id: "session-1", projectSlug: "sounio", title: "Sounio Workday")
+    let testBlock = TerminalBlock(
+        id: "block-test",
+        sessionId: "session-1",
+        paneId: "pane-main",
+        title: "swift test",
+        command: "swift test",
+        outputPreview: "Test Suite passed",
+        status: "finished",
+        memoryStatus: "remembered",
+        blockHash: "sha256:test"
+    )
+    let diffBlock = TerminalBlock(
+        id: "block-diff",
+        sessionId: "session-1",
+        paneId: "pane-main",
+        title: "git diff --stat",
+        command: "git diff --stat",
+        outputPreview: "2 files changed",
+        status: "finished",
+        blockHash: "sha256:diff"
+    )
+    let lane = AgentLaneState(
+        id: "shell",
+        title: "Shell",
+        kind: "human",
+        paneId: "pane-main",
+        status: "live",
+        detail: "Attached to workspace",
+        memoryStatus: "remembered",
+        isActive: true
+    )
+
+    let first = VisualWorkCanvasState.synthesized(
+        projectSlug: "sounio",
+        session: session,
+        lanes: [lane],
+        blocks: [testBlock, diffBlock],
+        selectedBlockId: "block-test",
+        workMemoryLine: "latest memory",
+        workMemoryStatus: "remembered"
+    )
+    let second = VisualWorkCanvasState.synthesized(
+        projectSlug: "sounio",
+        session: session,
+        lanes: [lane],
+        blocks: [testBlock, diffBlock],
+        selectedBlockId: "block-test",
+        workMemoryLine: "latest memory",
+        workMemoryStatus: "remembered"
+    )
+
+    #expect(first == second)
+    #expect(first.selectedArtifact?.kind == .test)
+    #expect(first.recentArtifacts.map(\.kind).contains(.diff))
+    #expect(first.restrictedLeakCheck == "passed:no_restricted_visual_payload")
+    #expect(first.lanes.first?.runtimeAvailable == true)
+}
+
+@Test func visualAgentLaneSnapshotReflectsNeedsSetupAndRuntime() {
+    let needsSetup = AgentLaneState(
+        id: "primary_builder",
+        title: "Claude / Codex",
+        kind: "codex",
+        status: "needs_setup",
+        detail: "Codex is not on PATH",
+        readinessReason: "codex is not on PATH"
+    )
+    let setupSnapshot = VisualAgentLaneSnapshot(lane: needsSetup)
+
+    #expect(setupSnapshot.readiness == "needs_setup")
+    #expect(setupSnapshot.setupGap == "codex is not on PATH")
+    #expect(setupSnapshot.runtimeAvailable == false)
+
+    let block = TerminalBlock(
+        id: "block-1",
+        sessionId: "session-1",
+        paneId: "pane-main",
+        title: "codex",
+        command: "codex",
+        outputPreview: "bash: codex: command not found",
+        status: "finished",
+        memoryStatus: "failed",
+        blockHash: "sha256:block"
+    )
+    let readyLane = AgentLaneState(
+        id: "primary_builder",
+        title: "Claude / Codex",
+        kind: "codex",
+        paneId: "pane-main",
+        status: "idle",
+        detail: "Ready",
+        isActive: true
+    )
+    let readySnapshot = VisualAgentLaneSnapshot(lane: readyLane, blocks: [block])
+
+    #expect(readySnapshot.readiness == "ready")
+    #expect(readySnapshot.runtimeAvailable)
+    #expect(readySnapshot.currentArtifact?.kind == .agent)
+    #expect(readySnapshot.memoryStatus == "failed")
+}
+
+@Test func spatialAgentDeckFallbackUsesVisualLanes() {
+    let deck = SpatialAgentDeckSnapshot.fallback(
+        projectSlug: "sounio",
+        laneTitles: ["Claude/Codex", "MiniMax", "Kimi", "Shell"]
+    )
+
+    #expect(deck.projectSlug == "sounio")
+    #expect(deck.lanes.count == 4)
+    #expect(deck.lanes.last?.kind == "human")
+    #expect(deck.activeTask.contains("Sounio"))
+    #expect(deck.proofLine.contains("cluster"))
+}

@@ -9,6 +9,7 @@
 import SwiftUI
 import RealityKit
 import BeagleCore
+import BeagleWorkbenchKit
 
 struct MindPalaceSpatialDeskView: View {
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
@@ -22,6 +23,7 @@ struct MindPalaceSpatialDeskView: View {
                 header
                 if let snapshot {
                     rooms(snapshot.rooms)
+                    agentDeck(snapshot.desk.agentLanes)
                     actionMenu(snapshot.actionMenu)
                     portals(snapshot.desk.portals)
                 } else {
@@ -50,6 +52,65 @@ struct MindPalaceSpatialDeskView: View {
             .tint(BeagleTheme.truthObserved)
             .padding(14)
             .glassBackgroundEffect()
+        }
+    }
+
+    private func agentDeck(_ agentLanes: [String]) -> some View {
+        let deck = SpatialAgentDeckSnapshot.fallback(
+            projectSlug: "sounio",
+            laneTitles: agentLanes.isEmpty ? defaultAgentDeckLanes : agentLanes
+        )
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("AGENT DECK")
+                .font(BeagleTheme.uiFont(size: 11, weight: .semibold))
+                .tracking(1.2)
+                .foregroundStyle(BeagleTheme.textTertiary)
+            GlassPanel(truth: .observed) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 14) {
+                        Image(systemName: "rectangle.3.group.bubble.left")
+                            .font(.system(size: 26, weight: .semibold))
+                            .foregroundStyle(BeagleTheme.truthObserved)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(deck.activeTask)
+                                .font(BeagleTheme.uiFont(size: 16, weight: .semibold))
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                            Text(deck.memoryLine)
+                                .font(BeagleTheme.uiFont(size: 12))
+                                .foregroundStyle(BeagleTheme.textSecondary)
+                                .lineLimit(2)
+                            Text(deck.proofLine)
+                                .font(BeagleTheme.dataFont(size: 11))
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                        }
+                        Spacer()
+                    }
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 210))], spacing: 10) {
+                        ForEach(deck.lanes) { lane in
+                            HStack(alignment: .top, spacing: 9) {
+                                Image(systemName: lane.kind == "human" ? "terminal" : "slider.horizontal.3")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(lane.readiness == "needs_setup" ? BeagleTheme.truthDeclared : BeagleTheme.truthObserved)
+                                    .frame(width: 18)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(lane.title)
+                                        .font(BeagleTheme.uiFont(size: 13, weight: .semibold))
+                                        .foregroundStyle(BeagleTheme.textPrimary)
+                                        .lineLimit(1)
+                                    Text(lane.taskSummary)
+                                        .font(BeagleTheme.uiFont(size: 11))
+                                        .foregroundStyle(BeagleTheme.textSecondary)
+                                        .lineLimit(2)
+                                }
+                                Spacer(minLength: 4)
+                            }
+                            .padding(10)
+                            .glassBackgroundEffect()
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -159,6 +220,10 @@ struct MindPalaceSpatialDeskView: View {
             .background(.thinMaterial, in: Capsule())
             .foregroundStyle(BeagleTheme.textSecondary)
     }
+
+    private var defaultAgentDeckLanes: [String] {
+        ["Claude/Codex", "MiniMax", "Kimi", "Qwen", "GLM", "Shell"]
+    }
 }
 
 struct MindPalaceImmersiveView: View {
@@ -223,14 +288,27 @@ enum MindPalaceSpatialRenderer {
     }
 
     private static func addAgents(to root: Entity, lanes: [String]) {
-        for (index, lane) in lanes.prefix(8).enumerated() {
-            let agent = ModelEntity(
-                mesh: .generateSphere(radius: 0.045),
-                materials: [material(UIColor(red: 0.82, green: 0.66, blue: 1.0, alpha: 0.72))]
+        let deck = lanes.isEmpty ? ["Claude-Codex", "MiniMax", "Kimi", "Qwen", "GLM", "Shell"] : lanes
+        for (index, lane) in deck.prefix(8).enumerated() {
+            let instrument = Entity()
+            instrument.name = "agent-deck-\(safeEntityName(lane))"
+            instrument.position = SIMD3<Float>(0.86, -0.34 + Float(index) * 0.1, -1.36)
+
+            let body = ModelEntity(
+                mesh: .generateBox(size: SIMD3<Float>(0.18, 0.048, 0.035)),
+                materials: [material(UIColor(red: 0.72, green: 0.78, blue: 1.0, alpha: 0.58))]
             )
-            agent.position = SIMD3<Float>(0.9, -0.32 + Float(index) * 0.1, -1.35)
-            agent.name = "instrument-\(lane)"
-            root.addChild(agent)
+            body.name = "\(instrument.name)-body"
+            let status = ModelEntity(
+                mesh: .generateSphere(radius: 0.018),
+                materials: [material(UIColor(red: 0.42, green: 0.96, blue: 0.76, alpha: 0.82))]
+            )
+            status.position = SIMD3<Float>(-0.07, 0.035, 0)
+            status.name = "\(instrument.name)-status"
+
+            instrument.addChild(body)
+            instrument.addChild(status)
+            root.addChild(instrument)
         }
     }
 
@@ -252,6 +330,17 @@ enum MindPalaceSpatialRenderer {
         material.roughness = 0.28
         material.metallic = 0.08
         return material
+    }
+
+    private static func safeEntityName(_ value: String) -> String {
+        value
+            .lowercased()
+            .map { character in
+                character.isLetter || character.isNumber ? character : "-"
+            }
+            .reduce(into: "") { partial, character in
+                partial.append(character)
+            }
     }
 }
 #endif

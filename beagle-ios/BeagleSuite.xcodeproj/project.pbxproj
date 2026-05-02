@@ -63,6 +63,7 @@
 		E73BE34C11A09D57EE250508 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 639809058407AA2A7F31CBFA /* ConversationView.swift */; };
 		E7D7E3A1DBEE70B042E893B4 /* BuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 902E0125E6DDA133D4486E04 /* BuildInfo.swift */; };
 		E90459441F120031896D82A3 /* SpatialTriadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81EA117A445504E0B157182 /* SpatialTriadView.swift */; };
+		EB384F03246A4789BF44FDA1 /* BeagleWorkbenchKit in Frameworks */ = {isa = PBXBuildFile; productRef = 19404BEBA13FB54406BE5069 /* BeagleWorkbenchKit */; };
 		EFC226181CCAC66E7086F83E /* ScienceJobsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77EBB6E9F932B4C6400037BD /* ScienceJobsView.swift */; };
 		FB770F638C6B2329AB979A4F /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 85AA837F77CBB98A5A3D1297 /* BeagleCore */; };
 		FD773EBDECB3C46EB77F7469 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */; };
@@ -197,6 +198,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FB770F638C6B2329AB979A4F /* BeagleCore in Frameworks */,
+				EB384F03246A4789BF44FDA1 /* BeagleWorkbenchKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -343,6 +345,7 @@
 			name = BeagleVisionOS;
 			packageProductDependencies = (
 				85AA837F77CBB98A5A3D1297 /* BeagleCore */,
+				19404BEBA13FB54406BE5069 /* BeagleWorkbenchKit */,
 			);
 			productName = BeagleVisionOS;
 			productReference = 67516A1FA21422BE9A964B96 /* BeagleVisionOS.app */;

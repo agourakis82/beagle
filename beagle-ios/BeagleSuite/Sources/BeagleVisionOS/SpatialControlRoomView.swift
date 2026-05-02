@@ -11,6 +11,7 @@
 import SwiftUI
 import RealityKit
 import BeagleCore
+import BeagleWorkbenchKit
 
 struct SpatialControlRoomView: View {
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
@@ -113,21 +114,49 @@ struct SpatialControlRoomView: View {
     }
 
     private var lanesPanel: some View {
-        GlassPanel(truth: .observed) {
+        let deck = SpatialAgentDeckSnapshot.fallback(
+            projectSlug: projectSlug,
+            laneTitles: snapshot?.agentLanes ?? defaultLanes
+        )
+        return GlassPanel(truth: .observed) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("AGENT LANES")
+                Text("SPATIAL AGENT DECK")
                     .font(BeagleTheme.uiFont(size: 11, weight: .semibold))
                     .tracking(1.1)
                     .foregroundStyle(BeagleTheme.textTertiary)
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(deck.activeTask)
+                            .font(BeagleTheme.uiFont(size: 15, weight: .semibold))
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                        Text(deck.memoryLine)
+                            .font(BeagleTheme.uiFont(size: 12))
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .lineLimit(2)
+                        Text(deck.proofLine)
+                            .font(BeagleTheme.dataFont(size: 11))
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                    }
+                    Spacer()
+                }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 210))], spacing: 10) {
-                    ForEach(snapshot?.agentLanes ?? defaultLanes, id: \.self) { lane in
+                    ForEach(deck.lanes) { lane in
                         HStack(spacing: 8) {
-                            Image(systemName: "person.2.wave.2")
-                                .foregroundStyle(BeagleTheme.truthObserved)
-                            Text(lane)
-                                .font(BeagleTheme.uiFont(size: 13, weight: .medium))
-                                .foregroundStyle(BeagleTheme.textPrimary)
-                                .lineLimit(2)
+                            Image(systemName: lane.kind == "human" ? "terminal" : "rectangle.3.group")
+                                .foregroundStyle(lane.readiness == "needs_setup" ? BeagleTheme.truthDeclared : BeagleTheme.truthObserved)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(lane.title)
+                                    .font(BeagleTheme.uiFont(size: 13, weight: .semibold))
+                                    .foregroundStyle(BeagleTheme.textPrimary)
+                                    .lineLimit(1)
+                                Text(lane.status)
+                                    .font(BeagleTheme.dataFont(size: 11))
+                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                    .lineLimit(1)
+                            }
                             Spacer()
                         }
                         .padding(10)
@@ -263,14 +292,27 @@ enum MarbleSplatRenderer {
     }
 
     private static func addAgentLanes(to root: Entity, lanes: [String]) {
-        for (index, _) in lanes.prefix(6).enumerated() {
-            let orb = ModelEntity(
-                mesh: .generateSphere(radius: 0.055),
-                materials: [glassMaterial(UIColor(red: 0.82, green: 0.68, blue: 1.0, alpha: 0.75))]
+        let deck = lanes.isEmpty ? ["Claude-Codex", "MiniMax", "Kimi", "Qwen", "GLM", "Shell"] : lanes
+        for (index, lane) in deck.prefix(6).enumerated() {
+            let instrument = Entity()
+            instrument.name = "spatial-agent-deck-\(safeEntityName(lane))"
+            instrument.position = SIMD3<Float>(0.84, -0.23 + Float(index) * 0.13, -1.36)
+
+            let body = ModelEntity(
+                mesh: .generateBox(size: SIMD3<Float>(0.22, 0.052, 0.038)),
+                materials: [glassMaterial(UIColor(red: 0.74, green: 0.74, blue: 1.0, alpha: 0.68))]
             )
-            orb.position = SIMD3<Float>(0.85, -0.2 + Float(index) * 0.13, -1.35)
-            orb.name = "agent-lane-\(index)"
-            root.addChild(orb)
+            body.name = "\(instrument.name)-instrument"
+            let status = ModelEntity(
+                mesh: .generateSphere(radius: 0.018),
+                materials: [glassMaterial(UIColor(red: 0.42, green: 0.96, blue: 0.74, alpha: 0.88))]
+            )
+            status.position = SIMD3<Float>(-0.09, 0.038, 0)
+            status.name = "\(instrument.name)-status"
+
+            instrument.addChild(body)
+            instrument.addChild(status)
+            root.addChild(instrument)
         }
     }
 
@@ -310,6 +352,17 @@ enum MarbleSplatRenderer {
         material.roughness = 0.25
         material.metallic = 0.1
         return material
+    }
+
+    private static func safeEntityName(_ value: String) -> String {
+        value
+            .lowercased()
+            .map { character in
+                character.isLetter || character.isNumber ? character : "-"
+            }
+            .reduce(into: "") { partial, character in
+                partial.append(character)
+            }
     }
 }
 #endif
