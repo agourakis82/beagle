@@ -115,6 +115,54 @@ public struct WorkbenchRendererScore: Codable, Identifiable, Sendable, Equatable
     }
 }
 
+public struct RendererProbeVTFidelity: Codable, Sendable, Equatable {
+    public let status: String
+    public let mode: String
+    public let notes: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case mode
+        case notes
+    }
+
+    public init(status: String = "not_measured", mode: String = "unknown", notes: [String] = []) {
+        self.status = status
+        self.mode = mode
+        self.notes = notes
+    }
+}
+
+public struct RendererProbeLatencyBudget: Codable, Sendable, Equatable {
+    public let status: String
+    public let totalMs: Double?
+    public let thresholdMs: Double?
+    public let scope: String
+    public let note: String
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case totalMs = "total_ms"
+        case thresholdMs = "threshold_ms"
+        case scope
+        case note
+    }
+
+    public init(
+        status: String = "not_measured",
+        totalMs: Double? = nil,
+        thresholdMs: Double? = nil,
+        scope: String = "unknown",
+        note: String = ""
+    ) {
+        self.status = status
+        self.totalMs = totalMs
+        self.thresholdMs = thresholdMs
+        self.scope = scope
+        self.note = note
+    }
+}
+
 public struct WarpMetalProbeResult: Codable, Sendable, Equatable {
     public let schemaVersion: String
     public let status: String
@@ -124,6 +172,8 @@ public struct WarpMetalProbeResult: Codable, Sendable, Equatable {
     public let vendorCommit: String
     public let reason: String?
     public let artifactPath: String?
+    public let vtFidelity: RendererProbeVTFidelity?
+    public let latencyBudget: RendererProbeLatencyBudget?
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -134,6 +184,8 @@ public struct WarpMetalProbeResult: Codable, Sendable, Equatable {
         case renderer
         case fidelityNotes = "fidelity_notes"
         case artifactPath = "artifact_path"
+        case vtFidelity = "vt_fidelity"
+        case latencyBudget = "latency_budget"
     }
 
     public init(
@@ -144,7 +196,9 @@ public struct WarpMetalProbeResult: Codable, Sendable, Equatable {
         bridgeVersion: String = BeagleWorkbenchBoundary.bridgeVersion,
         vendorCommit: String = BeagleWorkbenchBoundary.warpVendorCommit,
         reason: String? = nil,
-        artifactPath: String? = nil
+        artifactPath: String? = nil,
+        vtFidelity: RendererProbeVTFidelity? = nil,
+        latencyBudget: RendererProbeLatencyBudget? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.status = status
@@ -154,6 +208,8 @@ public struct WarpMetalProbeResult: Codable, Sendable, Equatable {
         self.vendorCommit = vendorCommit
         self.reason = reason
         self.artifactPath = artifactPath
+        self.vtFidelity = vtFidelity
+        self.latencyBudget = latencyBudget
     }
 
     public init(from decoder: Decoder) throws {
@@ -168,6 +224,8 @@ public struct WarpMetalProbeResult: Codable, Sendable, Equatable {
         let notes = try container.decodeIfPresent([String].self, forKey: .fidelityNotes)
         self.reason = notes?.last
         self.artifactPath = try container.decodeIfPresent(String.self, forKey: .artifactPath)
+        self.vtFidelity = try container.decodeIfPresent(RendererProbeVTFidelity.self, forKey: .vtFidelity)
+        self.latencyBudget = try container.decodeIfPresent(RendererProbeLatencyBudget.self, forKey: .latencyBudget)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -184,6 +242,115 @@ public struct WarpMetalProbeResult: Codable, Sendable, Equatable {
             try container.encode([reason], forKey: .fidelityNotes)
         }
         try container.encodeIfPresent(artifactPath, forKey: .artifactPath)
+        try container.encodeIfPresent(vtFidelity, forKey: .vtFidelity)
+        try container.encodeIfPresent(latencyBudget, forKey: .latencyBudget)
+    }
+}
+
+public enum WorkbenchAppleFormFactor: String, Codable, Sendable, Equatable {
+    case compactPhone
+    case regularPhone
+    case ipadOrMac
+    case vision
+
+    public static func from(width: Double) -> WorkbenchAppleFormFactor {
+        if width < 390 { return .compactPhone }
+        if width < 760 { return .regularPhone }
+        return .ipadOrMac
+    }
+}
+
+public struct WorkbenchAppleDeviceGate: Codable, Sendable, Equatable {
+    public let status: String
+    public let formFactor: WorkbenchAppleFormFactor
+    public let viewportWidth: Double
+    public let touchTargetReady: Bool
+    public let dynamicTypeReady: Bool
+    public let restrictedLeakCheck: String
+    public let vtFidelityStatus: String
+    public let latencyStatus: String
+    public let humanJudgmentScore: Int?
+    public let promotionAllowed: Bool
+    public let blockers: [String]
+
+    public init(
+        status: String,
+        formFactor: WorkbenchAppleFormFactor,
+        viewportWidth: Double,
+        touchTargetReady: Bool,
+        dynamicTypeReady: Bool,
+        restrictedLeakCheck: String,
+        vtFidelityStatus: String,
+        latencyStatus: String,
+        humanJudgmentScore: Int?,
+        promotionAllowed: Bool,
+        blockers: [String]
+    ) {
+        self.status = status
+        self.formFactor = formFactor
+        self.viewportWidth = viewportWidth
+        self.touchTargetReady = touchTargetReady
+        self.dynamicTypeReady = dynamicTypeReady
+        self.restrictedLeakCheck = restrictedLeakCheck
+        self.vtFidelityStatus = vtFidelityStatus
+        self.latencyStatus = latencyStatus
+        self.humanJudgmentScore = humanJudgmentScore
+        self.promotionAllowed = promotionAllowed
+        self.blockers = blockers
+    }
+
+    public static func evaluate(
+        sample: WorkbenchBakeOffSample,
+        probe: WarpMetalProbeResult? = nil,
+        judgments: [RendererHumanJudgment] = [],
+        viewportWidth: Double,
+        dynamicTypeReady: Bool = true,
+        touchTargetReady: Bool = true
+    ) -> WorkbenchAppleDeviceGate {
+        let formFactor = WorkbenchAppleFormFactor.from(width: viewportWidth)
+        let restrictedSafe = !sample.restrictedRedacted || sample.outputPreview == "[restricted output redacted]"
+        let leakCheck = restrictedSafe ? "passed:no_restricted_output" : "failed:restricted_output_visible"
+        let sampleJudgments = judgments.filter { $0.sampleId == sample.id }
+        let bestHumanScore = sampleJudgments.map(\.score).max()
+        let vtStatus = probe?.vtFidelity?.status ?? "not_measured"
+        let latencyStatus = probe?.latencyBudget?.status ?? "not_measured"
+
+        var blockers: [String] = []
+        if !restrictedSafe { blockers.append("restricted output visible") }
+        if !touchTargetReady { blockers.append("touch targets below 44pt") }
+        if !dynamicTypeReady { blockers.append("large Dynamic Type not verified") }
+        if vtStatus != "pass" { blockers.append("VT fidelity not passed") }
+        if latencyStatus != "pass" { blockers.append("latency budget not passed") }
+        if bestHumanScore == nil { blockers.append("human device judgment missing") }
+        if let bestHumanScore, bestHumanScore < 4 { blockers.append("human device score below 4") }
+
+        let preflightReady = restrictedSafe && touchTargetReady && dynamicTypeReady
+        let humanReady = (bestHumanScore ?? 0) >= 4
+        let measuredReady = vtStatus == "pass" && latencyStatus == "pass"
+        let status: String
+        if preflightReady && measuredReady && humanReady {
+            status = "device_pass"
+        } else if preflightReady && measuredReady {
+            status = "needs_human_device_pass"
+        } else if preflightReady {
+            status = "preflight_ready"
+        } else {
+            status = "blocked"
+        }
+
+        return WorkbenchAppleDeviceGate(
+            status: status,
+            formFactor: formFactor,
+            viewportWidth: viewportWidth,
+            touchTargetReady: touchTargetReady,
+            dynamicTypeReady: dynamicTypeReady,
+            restrictedLeakCheck: leakCheck,
+            vtFidelityStatus: vtStatus,
+            latencyStatus: latencyStatus,
+            humanJudgmentScore: bestHumanScore,
+            promotionAllowed: false,
+            blockers: blockers
+        )
     }
 }
 

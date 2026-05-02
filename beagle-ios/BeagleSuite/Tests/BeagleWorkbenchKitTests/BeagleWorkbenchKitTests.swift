@@ -89,3 +89,83 @@ import Foundation
     #expect(low.score == 1)
     #expect(high.score == 5)
 }
+
+@Test func warpMetalProbeDecodesVtAndLatencyBudget() throws {
+    let json = """
+    {
+      "schema_version": "beagle-warp-metal-probe-v0.1",
+      "status": "unsupported_or_partial",
+      "platform": "darwin",
+      "arch": "arm64",
+      "bridge": {
+        "version": "beagle-warp-bridge-v0.2",
+        "vendor_commit": "805b3e2a576e689a1e414f01ed3fc51e9e704d69"
+      },
+      "vt_fidelity": {
+        "status": "pass",
+        "mode": "terminalblock_to_warpblock_preview",
+        "notes": ["CSI/OSC preserved"]
+      },
+      "latency_budget": {
+        "status": "pass",
+        "total_ms": 14.22,
+        "threshold_ms": 50,
+        "scope": "probe_conversion_only",
+        "note": "Derived probe latency only"
+      },
+      "fidelity_notes": ["not promoted"]
+    }
+    """.data(using: .utf8)!
+
+    let decoded = try JSONDecoder().decode(WarpMetalProbeResult.self, from: json)
+
+    #expect(decoded.status == "unsupported_or_partial")
+    #expect(decoded.vtFidelity?.status == "pass")
+    #expect(decoded.vtFidelity?.mode == "terminalblock_to_warpblock_preview")
+    #expect(decoded.latencyBudget?.status == "pass")
+    #expect(decoded.latencyBudget?.totalMs == 14.22)
+    #expect(decoded.latencyBudget?.scope == "probe_conversion_only")
+}
+
+@Test func appleDeviceGateRequiresHumanPassBeforePromotion() {
+    let sample = WorkbenchBakeOffSample(
+        id: "sample-1",
+        sessionId: "session-1",
+        paneId: "pane-main",
+        blockId: "block-1",
+        title: "swift test",
+        command: "swift test",
+        outputPreview: "passed",
+        status: "finished",
+        privacyClass: "sensitive",
+        memoryStatus: "remembered",
+        blockHash: "sha256:block"
+    )
+    let probe = WarpMetalProbeResult(
+        status: "unsupported_or_partial",
+        platform: "darwin",
+        arch: "arm64",
+        vtFidelity: RendererProbeVTFidelity(status: "pass", mode: "terminalblock_to_warpblock_preview"),
+        latencyBudget: RendererProbeLatencyBudget(status: "pass", totalMs: 14.22, thresholdMs: 50, scope: "probe_conversion_only")
+    )
+    let preHuman = WorkbenchAppleDeviceGate.evaluate(
+        sample: sample,
+        probe: probe,
+        viewportWidth: 1024
+    )
+    let judged = WorkbenchAppleDeviceGate.evaluate(
+        sample: sample,
+        probe: probe,
+        judgments: [
+            RendererHumanJudgment(sampleId: sample.id, selectedCandidate: .beagleTerminal, score: 4)
+        ],
+        viewportWidth: 1024
+    )
+
+    #expect(preHuman.status == "needs_human_device_pass")
+    #expect(preHuman.promotionAllowed == false)
+    #expect(preHuman.blockers.contains("human device judgment missing"))
+    #expect(judged.status == "device_pass")
+    #expect(judged.humanJudgmentScore == 4)
+    #expect(judged.promotionAllowed == false)
+}

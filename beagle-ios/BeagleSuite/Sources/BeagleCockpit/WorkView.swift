@@ -1454,6 +1454,7 @@ private struct RendererBakeOffSheet: View {
                             WarpRendererPane(sample: sample, selectedCandidate: selectedCandidate)
                         }
                     }
+                    appleDeviceGatePanel(width: proxy.size.width)
                     scorePanel
                     recentJudgments
                 }
@@ -1529,6 +1530,60 @@ private struct RendererBakeOffSheet: View {
                     metricPill(sample.bridgeVersion)
                     metricPill("\(Int(Date().timeIntervalSince(openedAt) * 1000))ms open")
                 }
+            }
+        }
+    }
+
+    private func appleDeviceGatePanel(width: CGFloat) -> some View {
+        let gate = WorkbenchAppleDeviceGate.evaluate(
+            sample: sample,
+            judgments: judgments,
+            viewportWidth: Double(width),
+            dynamicTypeReady: true,
+            touchTargetReady: true
+        )
+        return GlassPanel(elevation: .flush, truth: gate.status == "blocked" ? .stale : .observed) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Apple device gate")
+                            .font(BeagleFont.caption.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .textCase(.uppercase)
+                        Text(gate.status.replacingOccurrences(of: "_", with: " "))
+                            .font(BeagleFont.body.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(gate.blockers.isEmpty ? BeagleTheme.truthObserved : BeagleTheme.postureWarm)
+                    }
+                    Spacer()
+                    Text(gate.formFactor.rawValue)
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(BeagleTheme.surface1.opacity(0.7), in: Capsule())
+                }
+                HStack(spacing: 8) {
+                    metricPill("width \(Int(gate.viewportWidth))")
+                    metricPill(gate.restrictedLeakCheck)
+                    metricPill("VT \(gate.vtFidelityStatus)")
+                    metricPill("latency \(gate.latencyStatus)")
+                    if let score = gate.humanJudgmentScore {
+                        metricPill("human \(score)/5")
+                    } else {
+                        metricPill("human pending")
+                    }
+                }
+                if !gate.blockers.isEmpty {
+                    Text(gate.blockers.joined(separator: " · "))
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text("Promotion remains disabled here; this panel only proves whether the Apple surface is ready for a human device pass.")
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
             }
         }
     }
