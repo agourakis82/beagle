@@ -11647,6 +11647,7 @@ function renderProjectLaunchPage(project) {
         <div class="actions">
           <button class="primary" id="start-session">Start Shell Session</button>
           <button id="refresh">Refresh</button>
+          <a class="button" href="/projects/${encodeURIComponent(slug)}/workbench-v2">Visual Workbench v2</a>
           <a class="button" href="/projects/${encodeURIComponent(slug)}/warp">Warp Bridge Lab</a>
           <a class="button" href="/api/workspaces/${encodeURIComponent(slug)}/agents/registry">Registry JSON</a>
           <a class="button" href="/api/workspaces/${encodeURIComponent(slug)}/sessions">Sessions JSON</a>
@@ -12081,6 +12082,820 @@ function renderProjectLaunchPage(project) {
       terminalInput.value = "";
       terminalInput.focus();
     });
+    refresh();
+  </script>
+</body>
+</html>`;
+}
+
+function renderVisualWorkbenchPrototypePage(project) {
+  const slug = cleanValue(project.projectSlug || "sounio");
+  const title = `${slug} Agent Deck`;
+  const workspaceRoot = cleanValue(project.workspaceRoot || "");
+  const authority = cleanValue(project.workbenchAuthority || process.env.PROJECT_COCKPIT_WORKBENCH_AUTHORITY || "workspace-agent");
+  const namespace = cleanValue(project.namespace || "beagle");
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Beagle ${escapeHtml(title)}</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080b0f;
+      --surface: rgba(15, 19, 24, 0.92);
+      --surface-2: rgba(255, 255, 255, 0.072);
+      --surface-3: rgba(255, 255, 255, 0.12);
+      --line: rgba(255, 255, 255, 0.15);
+      --line-strong: rgba(255, 255, 255, 0.25);
+      --text: #f5f7fb;
+      --muted: #a8b1be;
+      --dim: #737f90;
+      --green: #7df0bd;
+      --blue: #7fb6ff;
+      --amber: #f2c36b;
+      --red: #ff8a8a;
+      --violet: #c5a8ff;
+      --shadow: 0 18px 56px rgba(0, 0, 0, 0.38);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(145deg, rgba(9, 12, 17, 0.92), rgba(9, 13, 15, 0.98)),
+        radial-gradient(circle at 12% 12%, rgba(125, 240, 189, 0.12), transparent 34rem),
+        radial-gradient(circle at 88% 20%, rgba(127, 182, 255, 0.10), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+    }
+    main {
+      width: min(1440px, calc(100vw - 28px));
+      margin: 0 auto;
+      padding: 24px 0 32px;
+    }
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 20px;
+      padding: 18px 0 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      margin: 0 0 7px;
+      color: var(--green);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      font-weight: 750;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(34px, 6vw, 76px);
+      line-height: 0.92;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      max-width: 840px;
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.45;
+    }
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .pill, .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 9px;
+      color: var(--muted);
+      background: rgba(0, 0, 0, 0.22);
+      font-size: 12px;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+    .badge.ready { color: var(--green); border-color: rgba(125, 240, 189, 0.38); }
+    .badge.warn { color: var(--amber); border-color: rgba(242, 195, 107, 0.36); }
+    .badge.blocked { color: var(--red); border-color: rgba(255, 138, 138, 0.36); }
+    .header-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    button, a.button {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px 12px;
+      min-height: 40px;
+      font: inherit;
+      font-weight: 680;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    button.primary, a.button.primary {
+      color: #06120d;
+      background: var(--green);
+      border-color: transparent;
+    }
+    button.ghost { color: var(--muted); }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    .stage {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.78fr) minmax(420px, 1.32fr) minmax(300px, 0.86fr);
+      gap: 14px;
+      margin-top: 18px;
+      min-height: calc(100vh - 178px);
+    }
+    .panel {
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(22px);
+      min-width: 0;
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 15px;
+      border-bottom: 1px solid var(--line);
+    }
+    .panel-title {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+    h2, h3, p { letter-spacing: 0; }
+    h2 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+    .caption {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+    .lane-board {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      max-height: calc(100vh - 260px);
+      overflow: auto;
+    }
+    .lane-card {
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.18);
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .lane-card.selected {
+      border-color: rgba(125, 240, 189, 0.55);
+      background: rgba(125, 240, 189, 0.085);
+    }
+    .lane-top {
+      display: grid;
+      grid-template-columns: 36px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }
+    .lane-icon {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--green);
+      font-weight: 800;
+    }
+    .lane-name, .artifact-title, .memory-title {
+      font-weight: 760;
+      overflow-wrap: anywhere;
+    }
+    .lane-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .lane-task {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .canvas {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-height: 0;
+    }
+    .active-work {
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .work-hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    .work-hero h2 {
+      font-size: clamp(26px, 3.6vw, 42px);
+      line-height: 1.02;
+      max-width: 760px;
+    }
+    .next-move {
+      border: 1px solid rgba(125, 240, 189, 0.32);
+      background: rgba(125, 240, 189, 0.09);
+      border-radius: 8px;
+      padding: 12px;
+      width: min(100%, 560px);
+    }
+    .next-move strong { display: block; margin-bottom: 5px; }
+    .artifact-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .artifact {
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.18);
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      min-height: 108px;
+    }
+    .artifact-body, .memory-body {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.38;
+      overflow-wrap: anywhere;
+    }
+    .evidence-frontier {
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+      overflow: auto;
+      min-height: 0;
+    }
+    .evidence-item, .memory-item {
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.18);
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .evidence-item.selected {
+      border-color: rgba(127, 182, 255, 0.48);
+      background: rgba(127, 182, 255, 0.08);
+    }
+    .inspector-body {
+      display: grid;
+      gap: 12px;
+      padding: 12px;
+      max-height: calc(100vh - 252px);
+      overflow: auto;
+    }
+    .memory-item { cursor: default; }
+    .kv {
+      display: grid;
+      grid-template-columns: 108px minmax(0, 1fr);
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .kv strong {
+      color: var(--text);
+      font-weight: 650;
+      overflow-wrap: anywhere;
+    }
+    .dock {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px;
+      border-top: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.16);
+    }
+    .runtime {
+      position: fixed;
+      inset: auto 18px 18px auto;
+      width: min(780px, calc(100vw - 36px));
+      max-height: min(620px, calc(100vh - 36px));
+      display: none;
+      grid-template-rows: auto minmax(0, 1fr);
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: rgba(8, 11, 15, 0.98);
+      box-shadow: 0 24px 90px rgba(0, 0, 0, 0.56);
+      z-index: 10;
+      overflow: hidden;
+    }
+    .runtime.open { display: grid; }
+    pre {
+      margin: 0;
+      padding: 14px;
+      min-height: 240px;
+      overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: #d7deeb;
+      font-size: 12px;
+      line-height: 1.45;
+      background: rgba(0, 0, 0, 0.28);
+    }
+    .empty {
+      color: var(--muted);
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      line-height: 1.45;
+    }
+    @media (max-width: 1080px) {
+      header { grid-template-columns: 1fr; align-items: start; }
+      .header-actions { justify-content: flex-start; }
+      .stage { grid-template-columns: 1fr; min-height: auto; }
+      .lane-board, .inspector-body { max-height: none; }
+      .artifact-strip { grid-template-columns: 1fr; }
+      .work-hero { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 680px) {
+      main { width: min(100vw - 18px, 1440px); padding-top: 12px; }
+      h1 { font-size: clamp(34px, 14vw, 54px); }
+      button, a.button { width: 100%; justify-content: center; text-align: center; }
+      .lane-top { grid-template-columns: 32px minmax(0, 1fr); }
+      .lane-top .badge { grid-column: 1 / -1; width: fit-content; }
+      .kv { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">Beagle v4 visual-first prototype</p>
+        <h1>${escapeHtml(title)}</h1>
+        <p class="subtitle">A web-first workbench for validating the actual experience: visual agent lanes, active work canvas, memory/proof inspector, and runtime logs only on demand.</p>
+        <div class="pills">
+          <span class="pill">project: ${escapeHtml(slug)}</span>
+          <span class="pill">authority: ${escapeHtml(authority)}</span>
+          <span class="pill">namespace: ${escapeHtml(namespace)}</span>
+          <span class="pill">workspace: ${escapeHtml(workspaceRoot || "declared")}</span>
+          <span class="pill">runtime=hidden</span>
+          <span class="pill">canonical_memory=cluster-only</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <a class="button primary" href="/projects/${encodeURIComponent(slug)}/workbench-v2">Agent Deck</a>
+        <a class="button" href="/projects/${encodeURIComponent(slug)}">Runtime Launchpad</a>
+        <a class="button" href="/projects/${encodeURIComponent(slug)}/warp">Warp Lab</a>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <section class="stage" aria-label="Visual Workbench">
+      <aside class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>Agent Lanes</h2>
+            <span class="caption">Role-first, provider second. Missing tools become setup gaps.</span>
+          </div>
+          <span id="lane-count" class="badge">loading</span>
+        </div>
+        <div id="lane-board" class="lane-board">
+          <div class="empty">Loading agent ecology from the workspace registry...</div>
+        </div>
+      </aside>
+
+      <section class="panel canvas">
+        <div class="active-work">
+          <div class="work-hero">
+            <div>
+              <span id="selected-kind" class="badge ready">visual-first</span>
+              <h2 id="work-title">Sounio work, without staring at a terminal.</h2>
+              <p id="work-summary" class="subtitle">The terminal still runs underneath Beagle Terminal Protocol v1, but the default surface is a lab bench: lanes, artifacts, memory, proof, and approvals.</p>
+            </div>
+            <div class="next-move">
+              <strong>Next gesture</strong>
+              <span id="next-gesture" class="caption">Pick a lane or evidence object.</span>
+            </div>
+          </div>
+          <div id="artifact-strip" class="artifact-strip"></div>
+        </div>
+
+        <div id="evidence-frontier" class="evidence-frontier">
+          <div class="empty">Evidence objects will appear from real Workbench blocks, with restricted output redacted.</div>
+        </div>
+
+        <div class="dock">
+          <button id="focus-action" class="primary" type="button">Focus</button>
+          <button id="scout-action" type="button">Scout</button>
+          <button id="compare-action" type="button">Compare</button>
+          <button id="remember-action" type="button">Remember</button>
+          <button id="approve-action" type="button">Approve</button>
+          <button id="interrupt-action" type="button">Interrupt</button>
+          <button id="runtime-action" class="ghost" type="button">Show Runtime Log</button>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>Memory & Proof</h2>
+            <span class="caption">What this block became, why it matters, and whether it is safe to remember.</span>
+          </div>
+          <span id="memory-badge" class="badge">not_saved</span>
+        </div>
+        <div id="inspector" class="inspector-body"></div>
+      </aside>
+    </section>
+  </main>
+
+  <section id="runtime-panel" class="runtime" aria-label="Runtime Log">
+    <div class="panel-header">
+      <div class="panel-title">
+        <h2>Runtime Log</h2>
+        <span id="runtime-subtitle" class="caption">Hidden by default. Opened only when you ask.</span>
+      </div>
+      <button id="close-runtime" type="button">Close</button>
+    </div>
+    <pre id="runtime-output">No runtime block selected.</pre>
+  </section>
+
+  <script>
+    const slug = ${JSON.stringify(slug)};
+    const seededRoles = [
+      { role: "primary_builder", kind: "codex", title: "Claude / Codex", subtitle: "High-stakes implementation", readiness: { status: "needs_setup", reason: "codex/claude CLI not confirmed in this workspace" } },
+      { role: "code_worker", kind: "minimax", title: "MiniMax Worker", subtitle: "Refactors, tests, compiler bugs", readiness: { status: "ready", reason: "provider slot can be configured independently" } },
+      { role: "long_thought_architect", kind: "kimi", title: "Kimi Architect", subtitle: "Deep Sounio semantics", readiness: { status: "needs_setup", reason: "kimi CLI/provider not confirmed in this workspace" } },
+      { role: "maintenance_agent", kind: "qwen-coder", title: "Qwen Maintainer", subtitle: "Cheap lint and repair loops", readiness: { status: "needs_setup", reason: "Qwen provider not confirmed in this workspace" } },
+      { role: "platform_operator", kind: "glm-air", title: "GLM Operator", subtitle: "Kubernetes and incidents", readiness: { status: "needs_setup", reason: "GLM provider not confirmed in this workspace" } },
+      { role: "shell", kind: "human", title: "Shell Runtime", subtitle: "Human fallback lane", readiness: { status: "ready", reason: "builtin workspace lane" } }
+    ];
+    const state = {
+      registry: null,
+      sessions: [],
+      blocks: [],
+      roles: seededRoles,
+      selectedRole: "primary_builder",
+      selectedBlockId: "",
+      loading: true,
+      loadError: ""
+    };
+
+    const laneBoard = document.getElementById("lane-board");
+    const laneCount = document.getElementById("lane-count");
+    const artifactStrip = document.getElementById("artifact-strip");
+    const evidenceFrontier = document.getElementById("evidence-frontier");
+    const inspector = document.getElementById("inspector");
+    const selectedKind = document.getElementById("selected-kind");
+    const workTitle = document.getElementById("work-title");
+    const workSummary = document.getElementById("work-summary");
+    const nextGesture = document.getElementById("next-gesture");
+    const memoryBadge = document.getElementById("memory-badge");
+    const runtimePanel = document.getElementById("runtime-panel");
+    const runtimeOutput = document.getElementById("runtime-output");
+    const runtimeSubtitle = document.getElementById("runtime-subtitle");
+
+    function escapeHtmlClient(value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, function(char) {
+        if (char === "&") return "&amp;";
+        if (char === "<") return "&lt;";
+        if (char === ">") return "&gt;";
+        if (char === '"') return "&quot;";
+        if (char === "'") return "&#39;";
+        return char;
+      });
+    }
+
+    function asArray(value) {
+      return Array.isArray(value) ? value : [];
+    }
+
+    function normalizeStatus(value) {
+      const status = String(value || "unknown");
+      if (status === "ready" || status === "remembered") return "ready";
+      if (status === "blocked" || status === "restricted_local_only") return "blocked";
+      if (status === "needs_setup" || status === "failed" || status === "queued") return "warn";
+      return "";
+    }
+
+    function roleInitial(role) {
+      const source = String(role.title || role.role || "?").trim();
+      return source ? source.slice(0, 1).toUpperCase() : "?";
+    }
+
+    function roleTask(role) {
+      const readiness = role.readiness || {};
+      const reason = readiness.reason || role.roleSummary || role.subtitle || "Ready for focused work.";
+      if (readiness.status === "needs_setup") return "Setup gap: " + reason;
+      if (role.role === "shell") return "Runtime available, but kept behind the visual bench.";
+      if (role.role === "code_worker") return "Best for compiler bugs, tests, refactors, and bounded edits.";
+      if (role.role === "long_thought_architect") return "Best for Sounio semantics, Claim<T>, and language architecture.";
+      if (role.role === "platform_operator") return "Best for cluster health, runbooks, incidents, and deploy recovery.";
+      if (role.role === "maintenance_agent") return "Best for low-risk patches, lint, and repair loops.";
+      return reason;
+    }
+
+    function roleHeadline(role) {
+      const headlines = {
+        primary_builder: "Primary builder lane",
+        code_worker: "Code worker lane",
+        long_thought_architect: "Semantic architecture lane",
+        maintenance_agent: "Maintenance lane",
+        platform_operator: "Platform operator lane",
+        shell: "Runtime lane"
+      };
+      return headlines[role.role] || ((role.title || "Agent") + " lane");
+    }
+
+    function isRestricted(block) {
+      const privacy = String(block && block.privacyClass || "").toLowerCase();
+      return privacy === "restricted" || privacy === "restricted_local_only" || block && block.restricted === true;
+    }
+
+    function blockPreview(block) {
+      if (!block) return "";
+      if (isRestricted(block)) return "Restricted output redacted. Provenance remains visible.";
+      const text = String(block.outputPreview || block.command || block.title || "");
+      return text.replace(/\\u001b\\[[0-9;?]*[A-Za-z]/g, "").replace(/[\\r\\n]+/g, " ").trim().slice(0, 360);
+    }
+
+    function blockKind(block) {
+      const command = String(block && block.command || block && block.title || "").toLowerCase();
+      if (command.includes("test") || command.includes("pytest") || command.includes("swift test") || command.includes("cargo test")) return "test";
+      if (command.includes("git diff") || command.includes("diff")) return "diff";
+      if (command.includes("codex") || command.includes("claude") || command.includes("kimi")) return "agent";
+      if (command.includes("kubectl")) return "ops";
+      return "command";
+    }
+
+    function memoryStatus(block) {
+      if (!block) return "not_saved";
+      if (block.lastMemoryStatus && block.lastMemoryStatus.status) return block.lastMemoryStatus.status;
+      return block.memoryStatus || "not_saved";
+    }
+
+    function latestSession() {
+      return state.sessions[0] || null;
+    }
+
+    function selectedRole() {
+      return state.roles.find(function(role) { return role.role === state.selectedRole; }) || state.roles[0] || seededRoles[0];
+    }
+
+    function selectedBlock() {
+      return state.blocks.find(function(block) { return block.id === state.selectedBlockId; }) || state.blocks[0] || null;
+    }
+
+    function renderLaneBoard() {
+      const visible = state.roles.filter(function(role) { return role.visible !== false; });
+      laneCount.textContent = String(visible.length) + " lanes";
+      laneBoard.innerHTML = visible.map(function(role) {
+        const readiness = role.readiness || {};
+        const readinessStatus = readiness.status || "unknown";
+        const selected = role.role === state.selectedRole ? " selected" : "";
+        const badgeClass = normalizeStatus(readinessStatus);
+        const provider = asArray(role.providerSlots)[0] || {};
+        const providerLabel = provider.title || role.kind || role.role;
+        return '<button class="lane-card' + selected + '" type="button" data-role="' + escapeHtmlClient(role.role) + '">' +
+          '<div class="lane-top">' +
+            '<div class="lane-icon">' + escapeHtmlClient(roleInitial(role)) + '</div>' +
+            '<div><div class="lane-name">' + escapeHtmlClient(role.title || role.role) + '</div><div class="caption">' + escapeHtmlClient(providerLabel) + '</div></div>' +
+            '<span class="badge ' + badgeClass + '">' + escapeHtmlClient(readinessStatus) + '</span>' +
+          '</div>' +
+          '<div class="lane-task">' + escapeHtmlClient(roleTask(role)) + '</div>' +
+          '<div class="lane-meta">' +
+            '<span class="pill">' + escapeHtmlClient(role.arousalRole || "phasic_focus") + '</span>' +
+            '<span class="pill">' + escapeHtmlClient(role.memoryPolicy || "curated") + '</span>' +
+          '</div>' +
+        '</button>';
+      }).join("");
+      laneBoard.querySelectorAll("[data-role]").forEach(function(button) {
+        button.addEventListener("click", function() {
+          state.selectedRole = button.getAttribute("data-role") || state.selectedRole;
+          renderAll();
+        });
+      });
+    }
+
+    function renderArtifacts() {
+      const block = selectedBlock();
+      const role = selectedRole();
+      const session = latestSession();
+      const artifacts = [
+        {
+          title: "Active task",
+          badge: role.readiness && role.readiness.status || "observed",
+          body: roleTask(role)
+        },
+        {
+          title: "Latest evidence",
+          badge: block ? blockKind(block) : "waiting",
+          body: block ? blockPreview(block) : "No Workbench block selected yet."
+        },
+        {
+          title: "Workspace continuity",
+          badge: session ? session.status || "active" : "offline",
+          body: session ? "Session " + session.id + " has " + asArray(session.panes).length + " pane(s)." : "No session loaded from Project Cockpit."
+        }
+      ];
+      artifactStrip.innerHTML = artifacts.map(function(item) {
+        return '<article class="artifact">' +
+          '<span class="badge">' + escapeHtmlClient(item.badge) + '</span>' +
+          '<div class="artifact-title">' + escapeHtmlClient(item.title) + '</div>' +
+          '<div class="artifact-body">' + escapeHtmlClient(item.body) + '</div>' +
+        '</article>';
+      }).join("");
+    }
+
+    function renderEvidence() {
+      if (!state.blocks.length) {
+        evidenceFrontier.innerHTML = '<div class="empty">No blocks found yet. Start work in the existing runtime launchpad, then return here for the visual bench.</div>';
+        return;
+      }
+      evidenceFrontier.innerHTML = state.blocks.slice(0, 12).map(function(block) {
+        const selected = block.id === state.selectedBlockId ? " selected" : "";
+        const restricted = isRestricted(block);
+        const badgeClass = restricted ? "blocked" : normalizeStatus(memoryStatus(block));
+        return '<button class="evidence-item' + selected + '" type="button" data-block="' + escapeHtmlClient(block.id || "") + '">' +
+          '<div class="lane-meta">' +
+            '<span class="badge ' + badgeClass + '">' + escapeHtmlClient(memoryStatus(block)) + '</span>' +
+            '<span class="pill">' + escapeHtmlClient(blockKind(block)) + '</span>' +
+            '<span class="pill">' + escapeHtmlClient(block.privacyClass || "sensitive") + '</span>' +
+          '</div>' +
+          '<div class="artifact-title">' + escapeHtmlClient(block.title || block.command || block.id || "Workbench block") + '</div>' +
+          '<div class="artifact-body">' + escapeHtmlClient(blockPreview(block)) + '</div>' +
+        '</button>';
+      }).join("");
+      evidenceFrontier.querySelectorAll("[data-block]").forEach(function(button) {
+        button.addEventListener("click", function() {
+          state.selectedBlockId = button.getAttribute("data-block") || state.selectedBlockId;
+          renderAll();
+        });
+      });
+    }
+
+    function renderCanvas() {
+      const role = selectedRole();
+      const block = selectedBlock();
+      selectedKind.textContent = role.title || role.role || "Agent lane";
+      const status = role.readiness && role.readiness.status || "unknown";
+      selectedKind.className = "badge " + normalizeStatus(status);
+      workTitle.textContent = roleHeadline(role);
+      workSummary.textContent = roleTask(role);
+      if (block) {
+        nextGesture.textContent = memoryStatus(block) === "remembered" ? "Open proof or compare provenance." : "Review evidence, then remember only if useful.";
+      } else if (state.loadError) {
+        nextGesture.textContent = "Live fetch degraded; use this as the visual contract, then reconnect to cluster.";
+      } else {
+        nextGesture.textContent = status === "needs_setup" ? "Keep lane visible as a setup gap; do not auto-install." : "Choose evidence or start a focused work block.";
+      }
+    }
+
+    function renderInspector() {
+      const block = selectedBlock();
+      const role = selectedRole();
+      const status = memoryStatus(block);
+      memoryBadge.textContent = status;
+      memoryBadge.className = "badge " + normalizeStatus(status);
+      if (!block) {
+        inspector.innerHTML = '<div class="empty">' + escapeHtmlClient(state.loadError || "Select a block to inspect memory status, provenance, privacy, and runtime linkage.") + '</div>';
+        return;
+      }
+      const restricted = isRestricted(block);
+      inspector.innerHTML =
+        '<article class="memory-item">' +
+          '<span class="badge ' + (restricted ? "blocked" : normalizeStatus(status)) + '">' + escapeHtmlClient(restricted ? "restricted redacted" : status) + '</span>' +
+          '<div class="memory-title">' + escapeHtmlClient(block.title || block.command || block.id || "Workbench block") + '</div>' +
+          '<div class="memory-body">' + escapeHtmlClient(blockPreview(block)) + '</div>' +
+        '</article>' +
+        '<article class="memory-item">' +
+          '<div class="memory-title">Sounio typing candidate</div>' +
+          '<div class="memory-body">' + escapeHtmlClient(restricted ? "Blocked from automatic typing. Requires explicit review." : "Candidate SounioMoment only. Claims remain belief/contest until evidence and provenance support promotion.") + '</div>' +
+        '</article>' +
+        '<article class="memory-item">' +
+          '<div class="memory-title">Provenance</div>' +
+          '<div class="kv"><span>role</span><strong>' + escapeHtmlClient(role.role || "") + '</strong></div>' +
+          '<div class="kv"><span>session</span><strong>' + escapeHtmlClient(block.sessionId || "") + '</strong></div>' +
+          '<div class="kv"><span>pane</span><strong>' + escapeHtmlClient(block.paneId || "") + '</strong></div>' +
+          '<div class="kv"><span>block</span><strong>' + escapeHtmlClient(block.id || "") + '</strong></div>' +
+          '<div class="kv"><span>hash</span><strong>' + escapeHtmlClient(block.blockHash || "pending") + '</strong></div>' +
+          '<div class="kv"><span>bridge</span><strong>' + escapeHtmlClient(block.bridgeVersion || "beagle-terminal-v1") + '</strong></div>' +
+        '</article>';
+    }
+
+    function renderRuntime() {
+      const block = selectedBlock();
+      if (!block) {
+        runtimeSubtitle.textContent = "No runtime block selected.";
+        runtimeOutput.textContent = "No runtime block selected.";
+        return;
+      }
+      runtimeSubtitle.textContent = (block.sessionId || "session") + " / " + (block.paneId || "pane") + " / " + (block.id || "block");
+      runtimeOutput.textContent = isRestricted(block) ? "Restricted output redacted. Runtime content is intentionally hidden." : String(block.outputPreview || block.command || "No runtime output preview available.");
+    }
+
+    function renderAll() {
+      renderLaneBoard();
+      renderArtifacts();
+      renderEvidence();
+      renderCanvas();
+      renderInspector();
+      renderRuntime();
+    }
+
+    async function getJson(url) {
+      const response = await fetch(url, { headers: { accept: "application/json" } });
+      if (!response.ok) throw new Error(url + " returned " + response.status);
+      return response.json();
+    }
+
+    async function refresh() {
+      document.getElementById("refresh").disabled = true;
+      try {
+        state.loadError = "";
+        const registry = await getJson("/api/workspaces/" + encodeURIComponent(slug) + "/agents/registry");
+        state.registry = registry;
+        const visibleRoles = asArray(registry.roles).filter(function(role) {
+          return role.visible !== false || asArray(registry.visibleRoles).includes(role.role);
+        });
+        state.roles = visibleRoles.length ? visibleRoles : seededRoles;
+
+        const sessionsPayload = await getJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions");
+        state.sessions = asArray(sessionsPayload.sessions);
+        const session = latestSession();
+        if (session) {
+          const blocksPayload = await getJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(session.id) + "/blocks");
+          state.blocks = asArray(blocksPayload.blocks);
+          state.selectedBlockId = state.selectedBlockId || (state.blocks[0] && state.blocks[0].id) || "";
+        }
+        renderAll();
+      } catch (error) {
+        state.loadError = "Could not load live workspace data: " + String(error.message || error);
+        state.roles = seededRoles;
+        state.blocks = [];
+        renderAll();
+      } finally {
+        document.getElementById("refresh").disabled = false;
+      }
+    }
+
+    document.getElementById("runtime-action").addEventListener("click", function() {
+      runtimePanel.classList.add("open");
+      renderRuntime();
+    });
+    document.getElementById("close-runtime").addEventListener("click", function() {
+      runtimePanel.classList.remove("open");
+    });
+    document.getElementById("focus-action").addEventListener("click", function() {
+      nextGesture.textContent = "Focused on " + (selectedRole().title || selectedRole().role || "lane") + ". Runtime stays hidden until requested.";
+    });
+    document.getElementById("scout-action").addEventListener("click", function() {
+      nextGesture.textContent = "Scout mode: compare a thought lane before touching runtime.";
+    });
+    document.getElementById("compare-action").addEventListener("click", function() {
+      window.location.href = "/projects/" + encodeURIComponent(slug) + "/warp";
+    });
+    document.getElementById("remember-action").addEventListener("click", function() {
+      nextGesture.textContent = "Use existing remember endpoint from the runtime launchpad for this prototype; this view stays read-only.";
+    });
+    document.getElementById("approve-action").addEventListener("click", function() {
+      nextGesture.textContent = "Approval is represented visually here; destructive/runtime approval remains gated by workspace-agent.";
+    });
+    document.getElementById("interrupt-action").addEventListener("click", function() {
+      nextGesture.textContent = "Interrupt is intentionally not sent from this read-only visual prototype.";
+    });
+    document.getElementById("refresh").addEventListener("click", refresh);
+    renderAll();
     refresh();
   </script>
 </body>
@@ -13362,6 +14177,15 @@ app.post("/api/workspaces/:slug/warp/device-pass", jsonResponse(async (req) => {
 }));
 
 if (!existsSync(distDir)) {
+  app.get("/projects/:slug/workbench-v2", async (req, res) => {
+    try {
+      const project = await getProjectOrThrow(req.params.slug);
+      res.type("html").send(renderVisualWorkbenchPrototypePage(project));
+    } catch (error) {
+      res.status(error.statusCode || 500).type("text/plain").send(error.message || "project unavailable");
+    }
+  });
+
   app.get("/projects/:slug/warp", async (req, res) => {
     try {
       const project = await getProjectOrThrow(req.params.slug);
