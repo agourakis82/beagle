@@ -12213,6 +12213,53 @@ function renderVisualWorkbenchPrototypePage(project) {
     }
     button.ghost { color: var(--muted); }
     button:disabled { opacity: 0.55; cursor: wait; }
+    .mission-strip {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.055);
+    }
+    .mission-cell {
+      min-height: 62px;
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.14);
+      padding: 9px;
+      display: grid;
+      gap: 4px;
+      align-content: start;
+    }
+    .mission-cell span {
+      color: var(--dim);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 760;
+    }
+    .mission-cell strong {
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .quick-intents {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-content: start;
+    }
+    .quick-intents button {
+      min-height: 28px;
+      padding: 5px 8px;
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
     .stage {
       display: grid;
       grid-template-columns: minmax(260px, 0.78fr) minmax(420px, 1.32fr) minmax(300px, 0.86fr);
@@ -12572,6 +12619,7 @@ function renderVisualWorkbenchPrototypePage(project) {
       header { grid-template-columns: 1fr; align-items: start; }
       .header-actions { justify-content: flex-start; }
       .stage { grid-template-columns: 1fr; min-height: auto; }
+      .mission-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .lane-board, .inspector-body { max-height: none; }
       .artifact-strip { grid-template-columns: 1fr; }
       .work-hero { grid-template-columns: 1fr; }
@@ -12583,6 +12631,7 @@ function renderVisualWorkbenchPrototypePage(project) {
       .lane-top { grid-template-columns: 32px minmax(0, 1fr); }
       .lane-top .badge { grid-column: 1 / -1; width: fit-content; }
       .kv { grid-template-columns: 1fr; }
+      .mission-strip { grid-template-columns: 1fr; }
       .mission-row, .spatial-zones, .workflow-steps { grid-template-columns: 1fr; }
     }
   </style>
@@ -12611,6 +12660,22 @@ function renderVisualWorkbenchPrototypePage(project) {
         <button id="refresh" type="button">Refresh</button>
       </div>
     </header>
+
+    <section class="mission-strip" aria-label="Mission status">
+      <div class="mission-cell"><span>Mission</span><strong id="mission-now">Sounio Workday</strong></div>
+      <div class="mission-cell"><span>Route</span><strong id="mission-route">Primary builder lane</strong></div>
+      <div class="mission-cell"><span>Evidence</span><strong id="mission-evidence">Waiting for block</strong></div>
+      <div class="mission-cell"><span>Safety</span><strong id="mission-safety">Cluster-only memory</strong></div>
+      <div class="mission-cell">
+        <span>Quick intents</span>
+        <div class="quick-intents">
+          <button type="button" data-quick-intent="Analyze Sounio Claim<T> semantics and list proof needs.">Semantics</button>
+          <button type="button" data-quick-intent="Refactor the Sounio compiler tests and summarize expected diff.">Refactor tests</button>
+          <button type="button" data-quick-intent="Inspect a Kubernetes deploy incident and prepare an approval-gated runbook.">Incident</button>
+          <button type="button" data-quick-intent="Promote a selected Claude or ChatGPT clip after redaction and provenance review.">Promote clip</button>
+        </div>
+      </div>
+    </section>
 
     <section class="stage" aria-label="Visual Workbench">
       <aside class="panel">
@@ -12737,6 +12802,10 @@ function renderVisualWorkbenchPrototypePage(project) {
     const spatialDeck = document.getElementById("spatial-deck");
     const routeDecisionPanel = document.getElementById("route-decision");
     const portalDeck = document.getElementById("portal-deck");
+    const missionNow = document.getElementById("mission-now");
+    const missionRoute = document.getElementById("mission-route");
+    const missionEvidence = document.getElementById("mission-evidence");
+    const missionSafety = document.getElementById("mission-safety");
     const fixtureSession = {
       id: "fixture-sounio-workday",
       status: "design_fixture",
@@ -12915,6 +12984,14 @@ function renderVisualWorkbenchPrototypePage(project) {
           reason: "Runtime inspection stays available, but it is no longer the primary surface.",
           arousal: "phasic_focus",
           expected: ["runtime log", "redaction check", "proof link", "manual decision"]
+        };
+      }
+      if (text.includes("promote") || text.includes("portal") || text.includes("chatgpt") || text.includes("claude") || text.includes("grok")) {
+        return {
+          role: "primary_builder",
+          reason: "Conversation clips need a human-selected Portal + Promote path before memory.",
+          arousal: "recovering",
+          expected: ["selected clip", "redaction", "provenance", "assisted import draft"]
         };
       }
       return {
@@ -13173,6 +13250,22 @@ function renderVisualWorkbenchPrototypePage(project) {
         '</div>';
     }
 
+    function renderMissionStrip() {
+      const role = selectedRole();
+      const block = selectedBlock();
+      const decision = state.routeDecision;
+      missionNow.textContent = decision ? "Intent drafted" : "Sounio Workday";
+      missionRoute.textContent = decision ? laneLabel(decision.role) + " / " + (decision.arousal || "phasic_focus") : roleHeadline(role);
+      missionEvidence.textContent = block ? (block.title || block.command || block.id || "Selected block") : "Waiting for block";
+      if (block && isRestricted(block)) {
+        missionSafety.textContent = "Restricted redacted";
+      } else if (block && block.id && block.id.startsWith("fixture-")) {
+        missionSafety.textContent = "Visual fixture, not canonical";
+      } else {
+        missionSafety.textContent = "Cluster-only memory";
+      }
+    }
+
     function renderRuntime() {
       const block = selectedBlock();
       if (!block) {
@@ -13194,6 +13287,7 @@ function renderVisualWorkbenchPrototypePage(project) {
       renderSpatialDeck();
       renderRouteDecision();
       renderPortals();
+      renderMissionStrip();
     }
 
     function draftIntent(shouldCreateBlock) {
@@ -13291,6 +13385,12 @@ function renderVisualWorkbenchPrototypePage(project) {
     });
     document.getElementById("route-intent-action").addEventListener("click", function() {
       draftIntent(false);
+    });
+    document.querySelectorAll("[data-quick-intent]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        intentInput.value = button.getAttribute("data-quick-intent") || "";
+        draftIntent(false);
+      });
     });
     document.getElementById("refresh").addEventListener("click", refresh);
     renderAll();
