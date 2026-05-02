@@ -12383,6 +12383,18 @@ function renderVisualWorkbenchPrototypePage(project) {
       overflow: auto;
     }
     .memory-item { cursor: default; }
+    .fixture-ribbon {
+      display: none;
+      margin-top: 12px;
+      border: 1px solid rgba(242, 195, 107, 0.36);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--amber);
+      background: rgba(242, 195, 107, 0.08);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .fixture-ribbon.visible { display: block; }
     .kv {
       display: grid;
       grid-template-columns: 108px minmax(0, 1fr);
@@ -12472,6 +12484,7 @@ function renderVisualWorkbenchPrototypePage(project) {
           <span class="pill">runtime=hidden</span>
           <span class="pill">canonical_memory=cluster-only</span>
         </div>
+        <div id="fixture-ribbon" class="fixture-ribbon">Design fixture active: visual-only sample data. No canonical memory, private artifact, or workspace command is being written from this page.</div>
       </div>
       <div class="header-actions">
         <a class="button primary" href="/projects/${encodeURIComponent(slug)}/workbench-v2">Agent Deck</a>
@@ -12584,6 +12597,88 @@ function renderVisualWorkbenchPrototypePage(project) {
     const runtimePanel = document.getElementById("runtime-panel");
     const runtimeOutput = document.getElementById("runtime-output");
     const runtimeSubtitle = document.getElementById("runtime-subtitle");
+    const fixtureRibbon = document.getElementById("fixture-ribbon");
+    const fixtureSession = {
+      id: "fixture-sounio-workday",
+      status: "design_fixture",
+      panes: [{ id: "pane-agent-deck", kind: "fixture" }]
+    };
+    const fixtureBlocks = [
+      {
+        id: "fixture-codex-decision",
+        sessionId: "fixture-sounio-workday",
+        paneId: "codex-lane",
+        title: "Decision: visual-first Workbench",
+        command: "codex summary",
+        outputPreview: "Decision: Beagle Workbench should open as visual agent lanes, active work canvas, and proof inspector. Runtime logs stay behind an explicit action.",
+        privacyClass: "sensitive",
+        memoryStatus: "remembered",
+        blockHash: "sha256:fixture-visual-workbench-decision",
+        bridgeVersion: "beagle-terminal-v1",
+        tags: ["design-fixture", "workbench", "agent:codex"]
+      },
+      {
+        id: "fixture-minimax-worker",
+        sessionId: "fixture-sounio-workday",
+        paneId: "minimax-lane",
+        title: "MiniMax worker patch queue",
+        command: "minimax refactor",
+        outputPreview: "Planned bounded patch: extract VisualAgentLaneSnapshot, classify block signals, and keep restricted output redacted before any memory import.",
+        privacyClass: "sensitive",
+        memoryStatus: "queued",
+        blockHash: "sha256:fixture-minimax-worker",
+        bridgeVersion: "beagle-terminal-v1",
+        tags: ["design-fixture", "workbench", "agent:minimax"]
+      },
+      {
+        id: "fixture-kimi-semantics",
+        sessionId: "fixture-sounio-workday",
+        paneId: "kimi-lane",
+        title: "Kimi semantic note",
+        command: "kimi sounio semantics",
+        outputPreview: "Sounio types the work product: intentions, claims, evidence, decisions, and next actions. Beagle observes and preserves provenance.",
+        privacyClass: "sensitive",
+        memoryStatus: "manual",
+        blockHash: "sha256:fixture-kimi-semantics",
+        bridgeVersion: "beagle-terminal-v1",
+        tags: ["design-fixture", "sounio", "agent:kimi"]
+      },
+      {
+        id: "fixture-test-pass",
+        sessionId: "fixture-sounio-workday",
+        paneId: "shell-lane",
+        title: "Project Cockpit check",
+        command: "npm --prefix apps/project-cockpit run check",
+        outputPreview: "All Project Cockpit server modules passed node --check. Visual prototype route is syntactically valid.",
+        privacyClass: "sensitive",
+        memoryStatus: "remembered",
+        blockHash: "sha256:fixture-project-cockpit-check",
+        bridgeVersion: "beagle-terminal-v1",
+        tags: ["design-fixture", "test", "project:sounio"]
+      },
+      {
+        id: "fixture-restricted-redacted",
+        sessionId: "fixture-sounio-workday",
+        paneId: "shell-lane",
+        title: "Restricted block example",
+        command: "[redacted]",
+        outputPreview: "This should never be visible.",
+        privacyClass: "restricted_local_only",
+        memoryStatus: "blocked",
+        restricted: true,
+        blockHash: "sha256:fixture-restricted",
+        bridgeVersion: "beagle-terminal-v1",
+        tags: ["design-fixture", "restricted"]
+      }
+    ];
+
+    function activateFixture(reason) {
+      state.loadError = reason || "";
+      state.sessions = [fixtureSession];
+      state.blocks = fixtureBlocks;
+      state.selectedBlockId = state.selectedBlockId || fixtureBlocks[0].id;
+      fixtureRibbon.classList.add("visible");
+    }
 
     function escapeHtmlClient(value) {
       return String(value == null ? "" : value).replace(/[&<>"']/g, function(char) {
@@ -12810,6 +12905,7 @@ function renderVisualWorkbenchPrototypePage(project) {
           '<div class="kv"><span>block</span><strong>' + escapeHtmlClient(block.id || "") + '</strong></div>' +
           '<div class="kv"><span>hash</span><strong>' + escapeHtmlClient(block.blockHash || "pending") + '</strong></div>' +
           '<div class="kv"><span>bridge</span><strong>' + escapeHtmlClient(block.bridgeVersion || "beagle-terminal-v1") + '</strong></div>' +
+          '<div class="kv"><span>source</span><strong>' + escapeHtmlClient(block.id && block.id.startsWith("fixture-") ? "visual fixture, not canonical" : "live workspace") + '</strong></div>' +
         '</article>';
     }
 
@@ -12843,6 +12939,7 @@ function renderVisualWorkbenchPrototypePage(project) {
       document.getElementById("refresh").disabled = true;
       try {
         state.loadError = "";
+        fixtureRibbon.classList.remove("visible");
         const registry = await getJson("/api/workspaces/" + encodeURIComponent(slug) + "/agents/registry");
         state.registry = registry;
         const visibleRoles = asArray(registry.roles).filter(function(role) {
@@ -12860,9 +12957,8 @@ function renderVisualWorkbenchPrototypePage(project) {
         }
         renderAll();
       } catch (error) {
-        state.loadError = "Could not load live workspace data: " + String(error.message || error);
         state.roles = seededRoles;
-        state.blocks = [];
+        activateFixture("Could not load live workspace data: " + String(error.message || error));
         renderAll();
       } finally {
         document.getElementById("refresh").disabled = false;
