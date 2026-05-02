@@ -12411,6 +12411,11 @@ function renderWarpBridgeLabPage(project) {
           <button id="refresh" type="button">Refresh</button>
         </div>
         <div id="privacy-note" class="pill">Loading privacy status...</div>
+        <div class="actions">
+          <button id="download-fixture" type="button">Download Fixture JSON</button>
+          <button id="copy-probe-command" type="button">Copy Probe Command</button>
+          <span id="probe-action-note" class="pill">fixture=not_ready</span>
+        </div>
       </section>
 
       <section class="full">
@@ -12463,6 +12468,9 @@ function renderWarpBridgeLabPage(project) {
     const sessionSelect = document.getElementById("session-select");
     const blockSelect = document.getElementById("block-select");
     const refreshButton = document.getElementById("refresh");
+    const downloadFixtureButton = document.getElementById("download-fixture");
+    const copyProbeCommandButton = document.getElementById("copy-probe-command");
+    const probeActionNote = document.getElementById("probe-action-note");
     const privacyNote = document.getElementById("privacy-note");
     const beaglePreview = document.getElementById("beagle-preview");
     const warpPreview = document.getElementById("warp-preview");
@@ -12473,7 +12481,7 @@ function renderWarpBridgeLabPage(project) {
     const rendererProbeResults = document.getElementById("renderer-probe-results");
     const decisionMemo = document.getElementById("decision-memo");
     const decisionJson = document.getElementById("decision-json");
-    let state = { sessions: [], blocksBySession: new Map(), selectedSessionId: "", selectedBlockId: "" };
+    let state = { sessions: [], blocksBySession: new Map(), selectedSessionId: "", selectedBlockId: "", currentBeagleBlock: null };
 
     async function apiJson(path) {
       const response = await fetch(path, { headers: { "accept": "application/json" } });
@@ -12761,6 +12769,78 @@ function renderWarpBridgeLabPage(project) {
       }).join("");
     }
 
+    function selectedFixtureJson() {
+      const block = state.currentBeagleBlock || emptyBlock(state.selectedSessionId);
+      return JSON.stringify({
+        id: block.id,
+        sessionId: block.sessionId,
+        paneId: block.paneId,
+        kind: block.kind,
+        title: block.title,
+        command: block.command,
+        outputPreview: block.outputPreview,
+        outputByteCount: block.outputByteCount,
+        startedAt: block.startedAt,
+        finishedAt: block.finishedAt,
+        durationMs: block.durationMs,
+        exitCode: block.exitCode,
+        status: block.status,
+        privacyClass: block.privacyClass,
+        memoryStatus: block.memoryStatus,
+        tags: block.tags,
+        sourceModel: block.sourceModel,
+        bridgeVersion: block.bridgeVersion,
+        blockHash: block.blockHash,
+        sessionHash: block.sessionHash,
+        rendererHint: block.rendererHint
+      }, null, 2);
+    }
+
+    function fixtureFileName() {
+      const block = state.currentBeagleBlock || {};
+      const safe = String(block.id || "no-live-block-yet").replace(/[^a-zA-Z0-9_.-]+/g, "-").slice(0, 96);
+      return slug + "-" + safe + "-warp-fixture.json";
+    }
+
+    function probeCommand() {
+      const fixture = fixtureFileName();
+      return [
+        "npm --silent --prefix apps/warp-workbench run renderer:probe --",
+        "--fixture",
+        fixture,
+        "--out-dir",
+        "/workspace/.beagle/workbench/renderer-probes/" + slug,
+        "--sample-id",
+        (state.currentBeagleBlock?.id || "no-live-block-yet")
+      ].join(" ");
+    }
+
+    function downloadSelectedFixture() {
+      const blob = new Blob([selectedFixtureJson() + "\\n"], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fixtureFileName();
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      probeActionNote.textContent = "fixture_downloaded=" + fixtureFileName();
+      probeActionNote.className = "pill";
+    }
+
+    async function copySelectedProbeCommand() {
+      const command = probeCommand();
+      try {
+        await navigator.clipboard.writeText(command);
+        probeActionNote.textContent = "probe_command_copied";
+        probeActionNote.className = "pill ok";
+      } catch (_error) {
+        probeActionNote.textContent = command;
+        probeActionNote.className = "pill warn";
+      }
+    }
+
     function renderDecisionMemo(beagleBlock, fields, metrics, promotion) {
       const preservedCount = fields.filter((entry) => entry.preserved).length;
       const restricted = beagleBlock.restricted;
@@ -12861,6 +12941,7 @@ function renderWarpBridgeLabPage(project) {
       selectedBlock.textContent = rawBlock.id;
 
       const beagleBlock = sanitizeBlock(rawBlock);
+      state.currentBeagleBlock = beagleBlock;
       const warpBlock = terminalBlockToWarpBlock(beagleBlock);
       const roundTripBlock = warpBlockToTerminalBlock(warpBlock);
       const fields = preservedFields(beagleBlock, warpBlock, roundTripBlock);
@@ -12870,6 +12951,8 @@ function renderWarpBridgeLabPage(project) {
         ? "restricted_local_only: outputPreview hidden; no memory write occurs here"
         : "outputPreview only: derived preview; no memory write occurs here";
       privacyNote.className = beagleBlock.restricted ? "pill warn" : "pill";
+      probeActionNote.textContent = "fixture=" + fixtureFileName();
+      probeActionNote.className = beagleBlock.restricted ? "pill warn" : "pill";
       beaglePreview.textContent = JSON.stringify(beagleBlock, null, 2);
       warpPreview.textContent = JSON.stringify(warpBlock, null, 2);
       renderFieldDiff(fields);
@@ -12914,6 +12997,8 @@ function renderWarpBridgeLabPage(project) {
       state.selectedBlockId = blockSelect.value;
       await renderSelectedBlock();
     });
+    downloadFixtureButton.addEventListener("click", downloadSelectedFixture);
+    copyProbeCommandButton.addEventListener("click", copySelectedProbeCommand);
     refreshButton.addEventListener("click", refresh);
     refresh();
   </script>

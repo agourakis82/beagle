@@ -47,6 +47,13 @@ function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
+function safeFilePart(value) {
+  return String(value || "sample")
+    .replace(/[^a-zA-Z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96) || "sample";
+}
+
 function commandAvailable(command, args = ["--version"]) {
   const result = spawnSync(command, args, { encoding: "utf8" });
   return {
@@ -159,10 +166,20 @@ function makeProbeResult({ fixturePath = "", checkOnly = false } = {}) {
 
 function main() {
   const fixturePath = argValue("--fixture");
+  const outDir = argValue("--out-dir");
+  const sampleId = argValue("--sample-id");
   const result = makeProbeResult({
     fixturePath,
     checkOnly: hasFlag("--check"),
   });
+  if (outDir) {
+    fs.mkdirSync(outDir, { recursive: true, mode: 0o700 });
+    const stem = safeFilePart(sampleId || result.fixture?.block_id || "probe");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const file = path.join(outDir, `${timestamp}-${stem}.json`);
+    result.result_file = path.resolve(file);
+    fs.writeFileSync(file, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });
+  }
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 
