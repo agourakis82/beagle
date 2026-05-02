@@ -116,9 +116,63 @@ source_surface="${source_surface:-${agent}-work-memory}"
 session_id="${session_id:-${agent}-$(date -u +%Y%m%dT%H%M%SZ)-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
 summary="${summary:-${agent} ${phase} event for ${project_slug} at ${commit}}"
 core_url="${BEAGLE_CORE_URL:-http://beagle-core.tail21cbc4.ts.net}"
+cockpit_url="${BEAGLE_COCKPIT_URL:-${COCKPIT_URL:-http://project-cockpit.tail21cbc4.ts.net}}"
 api_token="${BEAGLE_CORE_API_TOKEN:-${BEAGLE_API_TOKEN:-}}"
 consumer_header_name="${BEAGLE_CORE_CONSUMER_HEADER_NAME:-}"
 consumer_header_value="${BEAGLE_CORE_CONSUMER_HEADER_VALUE:-}"
+
+fetch_cockpit_token() {
+  command -v curl >/dev/null 2>&1 || return 1
+  command -v python3 >/dev/null 2>&1 || return 1
+
+  local candidates=()
+  [[ -n "${BEAGLE_COCKPIT_URL:-}" ]] && candidates+=("${BEAGLE_COCKPIT_URL}")
+  [[ -n "${COCKPIT_URL:-}" ]] && candidates+=("${COCKPIT_URL}")
+  [[ -n "${cockpit_url}" ]] && candidates+=("${cockpit_url}")
+  candidates+=("http://sounio-cockpit.tail21cbc4.ts.net" "http://project-cockpit.tail21cbc4.ts.net")
+
+  local candidate seen=" "
+  for candidate in "${candidates[@]}"; do
+    [[ -n "${candidate}" ]] || continue
+    candidate="${candidate%/}"
+    [[ "${seen}" == *" ${candidate} "* ]] && continue
+    seen="${seen}${candidate} "
+
+    local token_json
+    if ! token_json="$(curl -fsS --max-time 10 "${candidate}/api/auth/beagle-token" 2>/dev/null)"; then
+      continue
+    fi
+
+    local parsed
+    if ! parsed="$(
+      printf '%s' "${token_json}" | python3 -c '
+import json, sys
+p = json.load(sys.stdin)
+print(p.get("token", ""))
+print(p.get("consumer_header_name", ""))
+print(p.get("consumer_header_value", ""))
+' 2>/dev/null
+    )"; then
+      continue
+    fi
+
+    local fetched_token fetched_consumer_header_name fetched_consumer_header_value
+    fetched_token="$(printf '%s\n' "${parsed}" | sed -n '1p')"
+    fetched_consumer_header_name="$(printf '%s\n' "${parsed}" | sed -n '2p')"
+    fetched_consumer_header_value="$(printf '%s\n' "${parsed}" | sed -n '3p')"
+    [[ -n "${fetched_token}" ]] || continue
+
+    cockpit_url="${candidate}"
+    api_token="${fetched_token}"
+    if [[ -n "${fetched_consumer_header_name}" && -n "${fetched_consumer_header_value}" ]]; then
+      consumer_header_name="${fetched_consumer_header_name}"
+      consumer_header_value="${fetched_consumer_header_value}"
+    fi
+    return 0
+  done
+
+  return 1
+}
 
 if [[ -z "${tool_manifest_hash}" ]] && command -v curl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
   tool_manifest_hash="$(
@@ -312,24 +366,40 @@ if [[ "${dry_run}" == "true" ]]; then
 fi
 
 if [[ -z "${api_token}" ]]; then
-  echo "Missing BEAGLE_CORE_API_TOKEN or BEAGLE_API_TOKEN in ${ENV_FILE}." >&2
+  fetch_cockpit_token || true
+fi
+
+if [[ -z "${api_token}" ]]; then
+  echo "Missing BEAGLE_CORE_API_TOKEN or BEAGLE_API_TOKEN in ${ENV_FILE}, and ${cockpit_url%/}/api/auth/beagle-token did not return a token." >&2
   exit 4
 fi
 
-curl_headers=(
-  -H "content-type: application/json"
-  -H "authorization: Bearer ${api_token}"
-)
-if [[ -n "${consumer_header_name}" && -n "${consumer_header_value}" ]]; then
-  curl_headers+=(-H "${consumer_header_name}: ${consumer_header_value}")
-fi
+build_curl_headers() {
+  curl_headers=(
+    -H "content-type: application/json"
+    -H "authorization: Bearer ${api_token}"
+  )
+  if [[ -n "${consumer_header_name}" && -n "${consumer_header_value}" ]]; then
+    curl_headers+=(-H "${consumer_header_name}: ${consumer_header_value}")
+  fi
+}
 
-status="$(
+post_payload() {
+  build_curl_headers
   curl -sS -o "${response}" -w "%{http_code}" \
     -X POST "${core_url%/}/api/exocortex/v1/memory/assisted-import" \
     "${curl_headers[@]}" \
     --data-binary @"${payload}"
-)"
+}
+
+status="$(post_payload)"
+
+if [[ "${status}" == "401" ]]; then
+  if fetch_cockpit_token; then
+    : >"${response}"
+    status="$(post_payload)"
+  fi
+fi
 
 cat "${response}"
 printf '\n'
