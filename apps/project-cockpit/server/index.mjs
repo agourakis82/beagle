@@ -12335,6 +12335,37 @@ function renderVisualWorkbenchPrototypePage(project) {
       width: min(100%, 560px);
     }
     .next-move strong { display: block; margin-bottom: 5px; }
+    .mission-composer {
+      border: 1px solid rgba(127, 182, 255, 0.28);
+      background: rgba(127, 182, 255, 0.07);
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .mission-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: stretch;
+    }
+    .intent-input {
+      width: 100%;
+      min-height: 76px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px 12px;
+      background: rgba(0, 0, 0, 0.24);
+      color: var(--text);
+      font: inherit;
+      line-height: 1.35;
+    }
+    .composer-actions {
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
     .artifact-strip {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -12383,6 +12414,35 @@ function renderVisualWorkbenchPrototypePage(project) {
       overflow: auto;
     }
     .memory-item { cursor: default; }
+    .spatial-preview {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border-top: 1px solid var(--line);
+    }
+    .spatial-zones {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .spatial-zone {
+      min-height: 68px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.16);
+      padding: 10px;
+      display: grid;
+      gap: 4px;
+    }
+    .spatial-zone strong {
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .spatial-zone span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
     .fixture-ribbon {
       display: none;
       margin-top: 12px;
@@ -12466,6 +12526,7 @@ function renderVisualWorkbenchPrototypePage(project) {
       .lane-top { grid-template-columns: 32px minmax(0, 1fr); }
       .lane-top .badge { grid-column: 1 / -1; width: fit-content; }
       .kv { grid-template-columns: 1fr; }
+      .mission-row, .spatial-zones { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -12521,6 +12582,19 @@ function renderVisualWorkbenchPrototypePage(project) {
               <span id="next-gesture" class="caption">Pick a lane or evidence object.</span>
             </div>
           </div>
+          <div class="mission-composer" aria-label="Visual intent composer">
+            <div class="panel-title">
+              <h2>Visual Intent Composer</h2>
+              <span class="caption">Draft an intention. This prototype routes it visually without executing commands or writing canonical memory.</span>
+            </div>
+            <div class="mission-row">
+              <textarea id="intent-input" class="intent-input" spellcheck="true" placeholder="Example: ask Kimi to analyze Sounio Claim<T> semantics, then have MiniMax sketch compiler tests."></textarea>
+              <div class="composer-actions">
+                <button id="draft-intent-action" class="primary" type="button">Draft Intent</button>
+                <button id="route-intent-action" type="button">Route Only</button>
+              </div>
+            </div>
+          </div>
           <div id="artifact-strip" class="artifact-strip"></div>
         </div>
 
@@ -12548,6 +12622,7 @@ function renderVisualWorkbenchPrototypePage(project) {
           <span id="memory-badge" class="badge">not_saved</span>
         </div>
         <div id="inspector" class="inspector-body"></div>
+        <div id="spatial-deck" class="spatial-preview"></div>
       </aside>
     </section>
   </main>
@@ -12598,6 +12673,8 @@ function renderVisualWorkbenchPrototypePage(project) {
     const runtimeOutput = document.getElementById("runtime-output");
     const runtimeSubtitle = document.getElementById("runtime-subtitle");
     const fixtureRibbon = document.getElementById("fixture-ribbon");
+    const intentInput = document.getElementById("intent-input");
+    const spatialDeck = document.getElementById("spatial-deck");
     const fixtureSession = {
       id: "fixture-sounio-workday",
       status: "design_fixture",
@@ -12730,6 +12807,21 @@ function renderVisualWorkbenchPrototypePage(project) {
         shell: "Runtime lane"
       };
       return headlines[role.role] || ((role.title || "Agent") + " lane");
+    }
+
+    function routeIntentToRole(intent) {
+      const text = String(intent || "").toLowerCase();
+      if (text.includes("claim") || text.includes("type") || text.includes("semantic") || text.includes("sounio")) return "long_thought_architect";
+      if (text.includes("test") || text.includes("refactor") || text.includes("compiler") || text.includes("bug")) return "code_worker";
+      if (text.includes("k8s") || text.includes("kubectl") || text.includes("deploy") || text.includes("pod") || text.includes("incident")) return "platform_operator";
+      if (text.includes("lint") || text.includes("small patch") || text.includes("maintenance")) return "maintenance_agent";
+      if (text.includes("shell") || text.includes("runtime") || text.includes("log")) return "shell";
+      return "primary_builder";
+    }
+
+    function laneLabel(roleName) {
+      const role = state.roles.find(function(item) { return item.role === roleName; }) || seededRoles.find(function(item) { return item.role === roleName; }) || {};
+      return role.title || roleName || "Agent lane";
     }
 
     function isRestricted(block) {
@@ -12909,6 +13001,23 @@ function renderVisualWorkbenchPrototypePage(project) {
         '</article>';
     }
 
+    function renderSpatialDeck() {
+      const role = selectedRole();
+      const block = selectedBlock();
+      const blockLabel = block ? block.title || block.command || block.id : "No selected evidence";
+      spatialDeck.innerHTML =
+        '<div class="panel-title">' +
+          '<h2>visionOS Agent Deck preview</h2>' +
+          '<span class="caption">Same state, mapped to spatial instruments later. No Marble dependency for this acceptance slice.</span>' +
+        '</div>' +
+        '<div class="spatial-zones">' +
+          '<div class="spatial-zone"><strong>Central desk</strong><span>' + escapeHtmlClient(roleHeadline(role)) + '</span></div>' +
+          '<div class="spatial-zone"><strong>Agent rail</strong><span>' + escapeHtmlClient(laneLabel(role.role)) + '</span></div>' +
+          '<div class="spatial-zone"><strong>Evidence wall</strong><span>' + escapeHtmlClient(blockLabel) + '</span></div>' +
+          '<div class="spatial-zone"><strong>Runtime corridor</strong><span>Collapsed until explicitly opened.</span></div>' +
+        '</div>';
+    }
+
     function renderRuntime() {
       const block = selectedBlock();
       if (!block) {
@@ -12927,6 +13036,34 @@ function renderVisualWorkbenchPrototypePage(project) {
       renderCanvas();
       renderInspector();
       renderRuntime();
+      renderSpatialDeck();
+    }
+
+    function draftIntent(shouldCreateBlock) {
+      const intent = String(intentInput.value || "").trim() || "Plan the next Sounio workday step visually, then preserve proof and memory only after review.";
+      const targetRole = routeIntentToRole(intent);
+      state.selectedRole = targetRole;
+      nextGesture.textContent = "Routed to " + laneLabel(targetRole) + ".";
+      if (shouldCreateBlock) {
+        const id = "fixture-intent-" + Date.now();
+        state.blocks.unshift({
+          id,
+          sessionId: "fixture-sounio-workday",
+          paneId: targetRole + "-lane",
+          title: "Operator visual intent",
+          command: "visual intent",
+          outputPreview: intent,
+          privacyClass: "sensitive",
+          memoryStatus: "manual",
+          blockHash: "sha256:" + id,
+          bridgeVersion: "beagle-visual-workbench-v2",
+          tags: ["design-fixture", "operator-intent", "role:" + targetRole]
+        });
+        state.sessions = state.sessions.length ? state.sessions : [fixtureSession];
+        state.selectedBlockId = id;
+        fixtureRibbon.classList.add("visible");
+      }
+      renderAll();
     }
 
     async function getJson(url) {
@@ -12989,6 +13126,12 @@ function renderVisualWorkbenchPrototypePage(project) {
     });
     document.getElementById("interrupt-action").addEventListener("click", function() {
       nextGesture.textContent = "Interrupt is intentionally not sent from this read-only visual prototype.";
+    });
+    document.getElementById("draft-intent-action").addEventListener("click", function() {
+      draftIntent(true);
+    });
+    document.getElementById("route-intent-action").addEventListener("click", function() {
+      draftIntent(false);
     });
     document.getElementById("refresh").addEventListener("click", refresh);
     renderAll();
