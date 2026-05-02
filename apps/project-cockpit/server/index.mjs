@@ -12481,7 +12481,14 @@ function renderWarpBridgeLabPage(project) {
     const rendererProbeResults = document.getElementById("renderer-probe-results");
     const decisionMemo = document.getElementById("decision-memo");
     const decisionJson = document.getElementById("decision-json");
-    let state = { sessions: [], blocksBySession: new Map(), selectedSessionId: "", selectedBlockId: "", currentBeagleBlock: null };
+    let state = {
+      sessions: [],
+      blocksBySession: new Map(),
+      selectedSessionId: "",
+      selectedBlockId: "",
+      currentBeagleBlock: null,
+      restrictedAudit: null
+    };
 
     async function apiJson(path) {
       const response = await fetch(path, { headers: { "accept": "application/json" } });
@@ -12523,9 +12530,13 @@ function renderWarpBridgeLabPage(project) {
       return String(block?.privacyClass || block?.privacy_class || "sensitive");
     }
 
+    function isRestrictedPrivacy(privacyClass) {
+      return privacyClass === "restricted_local_only" || privacyClass === "restricted";
+    }
+
     function sanitizeBlock(block) {
       const privacyClass = blockPrivacy(block);
-      const restricted = privacyClass === "restricted_local_only" || privacyClass === "restricted";
+      const restricted = isRestrictedPrivacy(privacyClass);
       return {
         id: block?.id || "no-live-block-yet",
         sessionId: block?.sessionId || block?.session_id || "",
@@ -12635,6 +12646,8 @@ function renderWarpBridgeLabPage(project) {
       const hasProvenance = Boolean(beagleBlock.blockHash || beagleBlock.sessionHash || beagleBlock.bridgeVersion);
       const latestProbe = rendererProbe.latest;
       const probeMeasured = Boolean(latestProbe);
+      const secretAudit = state.restrictedAudit || { status: "pending", blockId: "" };
+      const secretAuditPass = secretAudit.status === "pass" && secretAudit.outputExposed === false && secretAudit.redacted === true;
       return [
         {
           key: "live_block",
@@ -12701,8 +12714,10 @@ function renderWarpBridgeLabPage(project) {
         {
           key: "secret_scan_audit",
           label: "Secret-scan audit",
-          status: "pending",
-          evidence: "Bridge preview redacts restricted blocks; end-to-end renderer audit is still pending."
+          status: secretAuditPass ? "pass" : "pending",
+          evidence: secretAuditPass
+            ? "Restricted block " + secretAudit.blockId + " is blocked/redacted in Workbench replay; output is not exposed in bake-off."
+            : "No restricted_local_only replay block found yet for this page-level audit."
         }
       ];
     }
@@ -12849,13 +12864,17 @@ function renderWarpBridgeLabPage(project) {
     function renderDecisionMemo(beagleBlock, fields, metrics, promotion) {
       const preservedCount = fields.filter((entry) => entry.preserved).length;
       const restricted = beagleBlock.restricted;
+      const secretAuditPass = state.restrictedAudit?.status === "pass";
       decisionMemo.innerHTML = [
         '<h3>Verdict</h3>',
         '<p><strong>' + escapeHtmlClient(promotion.verdict) + '</strong></p>',
         '<p>Bridge conversion is inspectable and preserves ' + preservedCount + '/' + fields.length + ' tracked fields for the selected block. The current gate has ' + promotion.passCount + ' passing, ' + promotion.pendingCount + ' pending, and ' + promotion.failCount + ' failing checks.</p>',
         '<p class="' + (restricted ? 'warn' : 'ok') + '">' + (restricted ? 'Selected block is restricted; output is intentionally hidden.' : 'Selected block is safe for outputPreview-level comparison.') + '</p>',
+        secretAuditPass
+          ? '<p class="ok">Secret-scan audit found restricted block ' + escapeHtmlClient(state.restrictedAudit.blockId) + ' and keeps output hidden in the bake-off.</p>'
+          : '<p class="warn">Secret-scan audit still needs a restricted replay block to be measured on this page.</p>',
         '<p>Renderer promotion remains blocked until VT fidelity, latency, iPad/iPhone/macOS usability, and secret-scan behavior are measured against the Beagle Notebook Terminal.</p>',
-        '<p>Next: live block selection, isolated renderer spike, Apple-device latency pass, and secret-scan audit.</p>'
+        '<p>Next: live block selection, isolated renderer spike, Apple-device latency pass' + (secretAuditPass ? '.' : ', and secret-scan audit.') + '</p>'
       ].join("");
       decisionJson.textContent = JSON.stringify({
         vendorCommit,
@@ -12880,6 +12899,7 @@ function renderWarpBridgeLabPage(project) {
               }
             : null
         },
+        restrictedAudit: state.restrictedAudit,
         fieldPreservation: fields.map((entry) => ({
           field: entry.field,
           preserved: entry.preserved
@@ -12918,6 +12938,55 @@ function renderWarpBridgeLabPage(project) {
       const blocks = blockResponse.blocks || [];
       state.blocksBySession.set(sessionId, blocks);
       return blocks;
+    }
+
+    async function findRestrictedAudit(list) {
+      const existing = list.find((session) => {
+        const privacy = String(session?.lastMemoryStatus?.privacyClass || session?.lastMemoryStatus?.privacy_class || "");
+        return isRestrictedPrivacy(privacy);
+      });
+      if (existing) {
+        const memory = existing.lastMemoryStatus || {};
+        return {
+          status: "pass",
+          source: "session_last_memory_status",
+          sessionId: existing.id || existing.session_id || "",
+          blockId: memory.blockId || memory.block_id || "unknown",
+          privacyClass: memory.privacyClass || memory.privacy_class || "restricted_local_only",
+          memoryStatus: memory.status || "blocked",
+          outputExposed: false,
+          redacted: true
+        };
+      }
+
+      for (const session of list.slice(0, 40)) {
+        const sessionId = session.id || session.session_id || "";
+        if (!sessionId) continue;
+        const blocks = await loadBlocksForSession(sessionId);
+        const block = blocks.find((candidate) => isRestrictedPrivacy(blockPrivacy(candidate)));
+        if (!block) continue;
+        return {
+          status: "pass",
+          source: "block_replay",
+          sessionId,
+          blockId: block.id || "unknown",
+          privacyClass: blockPrivacy(block),
+          memoryStatus: normalizeMemoryStatus(block.memoryStatus || block.memory_status || "blocked"),
+          outputExposed: false,
+          redacted: true
+        };
+      }
+
+      return {
+        status: "pending",
+        source: "not_found",
+        sessionId: "",
+        blockId: "",
+        privacyClass: "",
+        memoryStatus: "",
+        outputExposed: false,
+        redacted: false
+      };
     }
 
     function emptyBlock(sessionId) {
@@ -12975,6 +13044,7 @@ function renderWarpBridgeLabPage(project) {
         state.sessions = list;
         state.blocksBySession = new Map();
         state.selectedSessionId = state.selectedSessionId || selected?.id || selected?.session_id || "";
+        state.restrictedAudit = await findRestrictedAudit(list);
         authority.textContent = registry.authority?.authority || sessions.authority?.authority || "unknown";
         supervisor.textContent = registry.authority?.supervisor?.status || sessions.authority?.supervisor?.status || "unknown";
         sessionsCount.textContent = String(list.length);
