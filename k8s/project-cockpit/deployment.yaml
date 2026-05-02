@@ -31,7 +31,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: project-cockpit
-          image: 192.168.3.207:5003/project-cockpit:sounio-workday-mvp-c63a309
+          image: 192.168.3.207:5003/project-cockpit:sounio-workday-mvp-0660087
           imagePullPolicy: Always
           ports:
             - name: http
@@ -49,6 +49,8 @@ spec:
               value: "20000"
             - name: PROJECT_COCKPIT_MEMORY_CACHE_TTL_MS
               value: "5000"
+            - name: PROJECT_COCKPIT_RENDERER_PROBE_DIR
+              value: /tmp/project-cockpit/renderer-probes
           envFrom:
             - secretRef:
                 name: beagle-core-secrets
