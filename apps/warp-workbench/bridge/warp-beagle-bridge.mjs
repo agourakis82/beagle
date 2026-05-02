@@ -15,6 +15,12 @@ function cleanString(value) {
   return "";
 }
 
+function rawString(value) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
 function hashPayload(payload) {
   return `sha256:${createHash("sha256").update(JSON.stringify(payload)).digest("hex")}`;
 }
@@ -59,7 +65,7 @@ export function bridgeMetadata(sourceModel, payload = {}, rendererHint = "warp-d
 
 export function warpBlockToTerminalBlock(warpBlock = {}) {
   const command = cleanString(warpBlock.command || warpBlock.input);
-  const output = cleanString(warpBlock.output || warpBlock.outputPreview);
+  const output = rawString(warpBlock.output ?? warpBlock.outputPreview);
   const id = cleanString(warpBlock.id || warpBlock.blockId) || hashPayload({ command, output }).slice(7, 23);
   const metadata = bridgeMetadata("warp", { id, command, output }, "warp-block");
   return {
@@ -99,7 +105,7 @@ export function terminalBlockToWarpBlock(block = {}) {
     type: cleanString(block.kind || "command"),
     title: cleanString(block.title),
     command: cleanString(block.command),
-    outputPreview: cleanString(block.outputPreview || block.output_preview),
+    outputPreview: rawString(block.outputPreview ?? block.output_preview),
     status: cleanString(block.status || "finished"),
     exitCode: block.exitCode ?? block.exit_code ?? null,
     durationMs: block.durationMs ?? block.duration_ms ?? null,

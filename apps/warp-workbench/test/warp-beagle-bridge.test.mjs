@@ -56,6 +56,31 @@ test("Beagle TerminalBlock converts into Warp block without losing provenance", 
   assert.equal(block.provenance.bridge_version, BRIDGE_VERSION);
 });
 
+test("Terminal output preview preserves trailing VT line discipline", () => {
+  const outputPreview = "cmd\r\n\x1b[32mok\x1b[0m\r\n";
+  const warpBlock = terminalBlockToWarpBlock({
+    id: "block-vt",
+    sessionId: "session-vt",
+    paneId: "pane-main",
+    kind: "command",
+    title: "cmd",
+    command: "cmd",
+    outputPreview,
+    status: "finished",
+  });
+  const terminalBlock = warpBlockToTerminalBlock({
+    id: "warp-vt",
+    sessionId: "session-vt",
+    paneId: "pane-main",
+    command: "cmd",
+    output: outputPreview,
+    status: "finished",
+  });
+
+  assert.equal(warpBlock.outputPreview, outputPreview);
+  assert.equal(terminalBlock.outputPreview, outputPreview);
+});
+
 test("Sessions and agent states round-trip through the dual bridge", () => {
   const session = warpSessionToWorkspaceSession({
     id: "warp-session",

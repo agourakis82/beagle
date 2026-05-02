@@ -15,6 +15,7 @@ import {
   WARP_VENDOR_COMMIT,
   terminalBlockToWarpBlock,
 } from "../bridge/warp-beagle-bridge.mjs";
+import { analyzeVtFidelity } from "./vt-fidelity.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const boundaryRoot = path.resolve(__dirname, "..");
@@ -109,12 +110,15 @@ function makeProbeResult({ fixturePath = "", checkOnly = false } = {}) {
   const xcrun = os.platform() === "darwin" ? commandAvailable("xcrun", ["-find", "metal"]) : { ok: false };
   const fixture = fixturePath ? sanitizeTerminalBlock(readJson(fixturePath)) : null;
   const warpBlock = fixture ? terminalBlockToWarpBlock(fixture) : null;
+  const vtFidelity = fixture && warpBlock ? analyzeVtFidelity({ terminalBlock: fixture, warpBlock }) : null;
   const renderable = os.platform() === "darwin" && boundary.rendererExists && boundary.shaderExists && xcrun.ok;
   const status = renderable ? "unsupported_or_partial" : "unsupported_or_partial";
   const reason = renderable
     ? "Warp Metal sources and xcrun metal are present, but the upstream renderer is coupled to macOS CAMetalLayer/AppKit window state; standalone offscreen rendering is not promoted in this spike."
     : "Warp Metal probe requires macOS, xcrun metal, and vendored Warp Metal sources.";
   const ended = performance.now();
+  const totalMs = Math.round((ended - started) * 100) / 100;
+  const latencyThresholdMs = 50;
 
   return {
     schema_version: "beagle-warp-metal-probe-v0.1",
@@ -152,8 +156,16 @@ function makeProbeResult({ fixturePath = "", checkOnly = false } = {}) {
           provenance: warpBlock.provenance,
         }
       : null,
+    vt_fidelity: vtFidelity,
     timing_ms: {
-      total: Math.round((ended - started) * 100) / 100,
+      total: totalMs,
+    },
+    latency_budget: {
+      status: totalMs <= latencyThresholdMs ? "pass" : "warn",
+      total_ms: totalMs,
+      threshold_ms: latencyThresholdMs,
+      scope: "probe_conversion_only",
+      note: "Derived probe latency only; not input-to-paint renderer latency.",
     },
     fidelity_notes: [
       "No canonical memory write occurs in renderer probe.",

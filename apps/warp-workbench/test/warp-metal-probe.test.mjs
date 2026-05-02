@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { analyzeVtFidelity } from "../renderer/vt-fidelity.mjs";
 
 const root = path.resolve(new URL("../../../", import.meta.url).pathname);
 const probe = path.join(root, "apps/warp-workbench/renderer/warp-metal-probe.mjs");
@@ -43,8 +44,28 @@ test("renderer probe redacts restricted fixture before WarpBlock preview", () =>
   const payload = JSON.parse(result.stdout);
 
   assert.equal(payload.fixture.restricted_redacted, true);
+  assert.equal(payload.vt_fidelity.status, "pass");
+  assert.equal(payload.vt_fidelity.mode, "restricted_redaction");
   assert.equal(payload.warp_block.id, "block-secret");
   assert.equal(payload.warp_block.memory_status, "blocked");
+});
+
+test("VT fidelity audit preserves terminal escape taxonomy for ANSI fixtures", () => {
+  const outputPreview = "printf color\r\n\x1b[31mred\x1b[0m\r\n\x1b]0;title\x07prompt$ ";
+  const audit = analyzeVtFidelity({
+    terminalBlock: {
+      outputPreview,
+      privacyClass: "sensitive",
+    },
+    warpBlock: {
+      outputPreview,
+    },
+  });
+
+  assert.equal(audit.status, "pass");
+  assert.equal(audit.expected.csi, 2);
+  assert.equal(audit.expected.osc, 1);
+  assert.equal(audit.ratios.esc, 1);
 });
 
 test("renderer probe can persist derived JSON result to an output directory", () => {
@@ -75,6 +96,8 @@ test("renderer probe can persist derived JSON result to an output directory", ()
   const payload = JSON.parse(result.stdout);
 
   assert.equal(payload.fixture.block_id, "block-normal");
+  assert.equal(payload.vt_fidelity.status, "partial");
+  assert.equal(payload.latency_budget.scope, "probe_conversion_only");
   assert.match(path.basename(payload.result_file), /sample-block-normal/);
   const files = fs.readdirSync(outDir).filter((file) => file.endsWith(".json"));
   assert.equal(files.length, 1);

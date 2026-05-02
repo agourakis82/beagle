@@ -12140,6 +12140,27 @@ function readRendererProbeResults(projectSlug) {
             }
           : null,
         timingMs: payload.timing_ms?.total ?? null,
+        vtFidelity: payload.vt_fidelity
+          ? {
+              status: payload.vt_fidelity.status || "unknown",
+              mode: payload.vt_fidelity.mode || "unknown",
+              ratios: payload.vt_fidelity.ratios || {},
+              expected: payload.vt_fidelity.expected || {},
+              observed: payload.vt_fidelity.observed || {},
+              notes: Array.isArray(payload.vt_fidelity.notes)
+                ? payload.vt_fidelity.notes.slice(0, 4).map((note) => String(note).slice(0, 260))
+                : [],
+            }
+          : null,
+        latencyBudget: payload.latency_budget
+          ? {
+              status: payload.latency_budget.status || "unknown",
+              totalMs: payload.latency_budget.total_ms ?? null,
+              thresholdMs: payload.latency_budget.threshold_ms ?? null,
+              scope: payload.latency_budget.scope || "unknown",
+              note: payload.latency_budget.note || "",
+            }
+          : null,
         fidelityNotes: notes,
         artifact: payload.artifact_path ? path.basename(String(payload.artifact_path)) : null,
       });
@@ -12646,6 +12667,8 @@ function renderWarpBridgeLabPage(project) {
       const hasProvenance = Boolean(beagleBlock.blockHash || beagleBlock.sessionHash || beagleBlock.bridgeVersion);
       const latestProbe = rendererProbe.latest;
       const probeMeasured = Boolean(latestProbe);
+      const vtFidelity = latestProbe?.vtFidelity || null;
+      const latencyBudget = latestProbe?.latencyBudget || null;
       const secretAudit = state.restrictedAudit || { status: "pending", blockId: "" };
       const secretAuditPass = secretAudit.status === "pass" && secretAudit.outputExposed === false && secretAudit.redacted === true;
       return [
@@ -12688,8 +12711,10 @@ function renderWarpBridgeLabPage(project) {
         {
           key: "vt_fidelity",
           label: "VT fidelity",
-          status: "pending",
-          evidence: "Renderer escape-sequence fidelity has not been measured yet."
+          status: vtFidelity?.status === "pass" ? "pass" : "pending",
+          evidence: vtFidelity
+            ? "Probe VT audit=" + vtFidelity.status + " mode=" + vtFidelity.mode + "."
+            : "Renderer escape-sequence fidelity has not been measured yet."
         },
         {
           key: "renderer_probe",
@@ -12702,8 +12727,10 @@ function renderWarpBridgeLabPage(project) {
         {
           key: "renderer_latency",
           label: "Renderer latency",
-          status: "pending",
-          evidence: "Input-to-paint latency still needs iPad/iPhone/macOS measurement."
+          status: latencyBudget?.status === "pass" ? "pass" : "pending",
+          evidence: latencyBudget
+            ? "Probe conversion latency " + latencyBudget.totalMs + "ms under " + latencyBudget.thresholdMs + "ms; input-to-paint still needs device pass."
+            : "Input-to-paint latency still needs iPad/iPhone/macOS measurement."
         },
         {
           key: "apple_usability",
@@ -12770,6 +12797,12 @@ function renderWarpBridgeLabPage(project) {
           ? 'fixture=' + escapeHtmlClient(result.fixture.blockId || "unknown") + ' · privacy=' + escapeHtmlClient(result.fixture.privacyClass || "unknown") + ' · redacted=' + escapeHtmlClient(String(result.fixture.restrictedRedacted))
           : 'fixture=none';
         const notes = (result.fidelityNotes || []).map((note) => '<p>' + escapeHtmlClient(note) + '</p>').join("");
+        const vt = result.vtFidelity
+          ? '<div class="row"><span>VT fidelity</span><strong>' + escapeHtmlClient(result.vtFidelity.status + ' / ' + result.vtFidelity.mode) + '</strong></div>'
+          : "";
+        const latency = result.latencyBudget
+          ? '<div class="row"><span>Latency budget</span><strong>' + escapeHtmlClient(result.latencyBudget.status + ' · ' + result.latencyBudget.totalMs + 'ms/' + result.latencyBudget.thresholdMs + 'ms') + '</strong></div>'
+          : "";
         return (
           '<div class="probe-item">' +
             '<h3>' + escapeHtmlClient(result.status) + ' · ' + escapeHtmlClient(result.platform) + '/' + escapeHtmlClient(result.arch) + '</h3>' +
@@ -12777,6 +12810,8 @@ function renderWarpBridgeLabPage(project) {
             '<div class="row"><span>Renderer</span><strong>' + escapeHtmlClient(result.renderer) + '</strong></div>' +
             '<div class="row"><span>Hot path</span><strong>' + escapeHtmlClient(result.hotPath) + '</strong></div>' +
             '<div class="row"><span>Timing</span><strong>' + escapeHtmlClient(result.timingMs == null ? "not_reported" : result.timingMs + "ms") + '</strong></div>' +
+            vt +
+            latency +
             '<p>' + fixture + '</p>' +
             notes +
           '</div>'
@@ -12895,7 +12930,9 @@ function renderWarpBridgeLabPage(project) {
                 platform: rendererProbe.latest.platform,
                 arch: rendererProbe.latest.arch,
                 timingMs: rendererProbe.latest.timingMs,
-                promoted: rendererProbe.latest.promoted
+                promoted: rendererProbe.latest.promoted,
+                vtFidelity: rendererProbe.latest.vtFidelity,
+                latencyBudget: rendererProbe.latest.latencyBudget
               }
             : null
         },
