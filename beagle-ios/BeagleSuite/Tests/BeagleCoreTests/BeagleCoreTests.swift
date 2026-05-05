@@ -25,7 +25,8 @@ import Foundation
         pods: nil,
         status: "running",
         truthMode: "observed",
-        action: nil
+        action: nil,
+        activity: nil
     )
     #expect(running.phase == .running)
 
@@ -38,7 +39,8 @@ import Foundation
         pods: nil,
         status: "paused",
         truthMode: "observed",
-        action: nil
+        action: nil,
+        activity: nil
     )
     #expect(paused.phase == .paused)
 
@@ -51,7 +53,8 @@ import Foundation
         pods: [AgentPod(name: "pod-1", phase: "Pending", ready: false)],
         status: "creating",
         truthMode: "observed",
-        action: "resume"
+        action: "resume",
+        activity: nil
     )
     #expect(pending.phase == .pending)
 }

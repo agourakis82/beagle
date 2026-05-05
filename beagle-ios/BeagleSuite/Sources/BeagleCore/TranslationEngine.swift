@@ -17,7 +17,9 @@
 import Foundation
 import NaturalLanguage
 import Observation
+#if canImport(Translation) && !os(visionOS) && !os(watchOS)
 import Translation
+#endif
 
 // MARK: - Translation Engine
 
@@ -42,7 +44,9 @@ public final class TranslationEngine {
 
     /// The translation configuration for Portuguese -> English.
     /// Trigger by setting this on a view's `.translationTask(configuration:)`.
+    #if canImport(Translation) && !os(visionOS) && !os(watchOS)
     public var activeConfiguration: TranslationSession.Configuration?
+    #endif
 
     /// Detect the dominant language of the given text.
     /// Returns the BCP-47 language code (e.g. "pt", "en", "es") or nil.
@@ -97,12 +101,17 @@ public final class TranslationEngine {
     /// Each call creates a fresh configuration to ensure SwiftUI detects the change.
     public func triggerPendingTranslations() {
         guard !pendingTranslations.isEmpty else { return }
+        #if canImport(Translation) && !os(visionOS) && !os(watchOS)
         // Reset first so SwiftUI sees a nil -> value transition
         activeConfiguration = nil
         activeConfiguration = .init(
             source: Locale.Language(identifier: "pt"),
             target: Locale.Language(identifier: "en")
         )
+        #else
+        // TranslationSession is currently unavailable on visionOS. Keep the
+        // pending items queued so another Apple surface can translate them.
+        #endif
     }
 
     /// Drain pending translations and return them for processing.
@@ -122,6 +131,8 @@ public final class TranslationEngine {
             pendingTranslations.removeAll { $0.id == fid }
         }
         isTranslating = false
+        #if canImport(Translation) && !os(visionOS) && !os(watchOS)
         activeConfiguration = nil
+        #endif
     }
 }

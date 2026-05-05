@@ -13,11 +13,28 @@ import UIKit
 import Social
 import UniformTypeIdentifiers
 import CoreSpotlight
+import AppIntents
 
 @objc(ShareViewController)
 class ShareViewController: SLComposeServiceViewController {
 
     private let appGroupId = "group.dev.sounio.cockpit"
+    private final class SharedURLCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [String] = []
+
+        func append(_ value: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            values.append(value)
+        }
+
+        func snapshot() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return values
+        }
+    }
 
     override func isContentValid() -> Bool {
         // Accept any content with text
@@ -27,7 +44,7 @@ class ShareViewController: SLComposeServiceViewController {
 
     override func didSelectPost() {
         let text = contentText ?? ""
-        var urls: [String] = []
+        let urlCollector = SharedURLCollector()
 
         let group = DispatchGroup()
 
@@ -39,7 +56,7 @@ class ShareViewController: SLComposeServiceViewController {
                         group.enter()
                         provider.loadItem(forTypeIdentifier: UTType.url.identifier) { data, _ in
                             if let url = data as? URL {
-                                urls.append(url.absoluteString)
+                                urlCollector.append(url.absoluteString)
                             }
                             group.leave()
                         }
@@ -49,6 +66,7 @@ class ShareViewController: SLComposeServiceViewController {
         }
 
         group.notify(queue: .main) { [weak self] in
+            let urls = urlCollector.snapshot()
             self?.saveSharedThought(text: text, urls: urls)
             self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
         }

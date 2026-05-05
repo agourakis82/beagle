@@ -8,6 +8,120 @@
 
 import AppIntents
 import BeagleCore
+import Foundation
+
+// MARK: - Project Entity
+
+struct ProjectEntity: AppEntity, Identifiable, Sendable {
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Project"
+    static let defaultQuery = ProjectQuery()
+
+    let id: String
+    let slug: String
+    let posture: String
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(
+            title: "\(slug)",
+            subtitle: "posture: \(posture)"
+        )
+    }
+
+    init(id: String, slug: String, posture: String) {
+        self.id = id
+        self.slug = slug
+        self.posture = posture
+    }
+}
+
+struct ProjectQuery: EntityQuery {
+    func entities(for identifiers: [String]) async throws -> [ProjectEntity] {
+        let catalog = await CockpitClient.shared.catalog()
+        return catalog.value?.projects?
+            .filter { identifiers.contains($0.projectSlug) }
+            .map { ProjectEntity(id: $0.projectSlug, slug: $0.projectSlug, posture: $0.posture.displayLabel) } ?? []
+    }
+
+    func suggestedEntities() async throws -> [ProjectEntity] {
+        let catalog = await CockpitClient.shared.catalog()
+        return catalog.value?.projects?.map {
+            ProjectEntity(id: $0.projectSlug, slug: $0.projectSlug, posture: $0.posture.displayLabel)
+        } ?? []
+    }
+}
+
+// MARK: - Project Operations
+
+struct ShowProjectStatusIntent: AppIntent {
+    static let title: LocalizedStringResource = "Show Project Status"
+    static let description: IntentDescription = "Display the current status of a sovereign project"
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Project")
+    var project: ProjectEntity
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let mission = await CockpitClient.shared.missionControl(slug: project.slug)
+        let posture = mission.value?.project?.posture.displayLabel ?? project.posture
+        let workspace = mission.value?.project?.workspacePod == nil ? "standby" : "live"
+        return .result(dialog: "\(project.slug) is \(posture), workspace \(workspace).")
+    }
+}
+
+struct ActivateHabitatIntent: AppIntent {
+    static let title: LocalizedStringResource = "Activate Project Habitat"
+    static let description: IntentDescription = "Wake a project habitat so you can start working"
+
+    @Parameter(title: "Project")
+    var project: ProjectEntity
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let result = await CockpitClient.shared.executeAction(slug: project.slug, actionId: "activate-habitat")
+        if let output = result.value?.output, !output.isEmpty {
+            return .result(dialog: "Activated \(project.slug): \(output)")
+        }
+        if let error = result.error {
+            return .result(dialog: "Failed to activate \(project.slug): \(error)")
+        }
+        return .result(dialog: "Activating habitat for \(project.slug).")
+    }
+}
+
+struct StandbyHabitatIntent: AppIntent {
+    static let title: LocalizedStringResource = "Standby Project Habitat"
+    static let description: IntentDescription = "Put a project habitat on standby"
+
+    @Parameter(title: "Project")
+    var project: ProjectEntity
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let result = await CockpitClient.shared.executeAction(slug: project.slug, actionId: "standby-habitat")
+        if let output = result.value?.output, !output.isEmpty {
+            return .result(dialog: "Standby \(project.slug): \(output)")
+        }
+        if let error = result.error {
+            return .result(dialog: "Failed to standby \(project.slug): \(error)")
+        }
+        return .result(dialog: "Putting \(project.slug) habitat on standby.")
+    }
+}
+
+struct LatestResearchRunIntent: AppIntent {
+    static let title: LocalizedStringResource = "Latest Research Run"
+    static let description: IntentDescription = "Show the most recent research activity for a project"
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Project")
+    var project: ProjectEntity
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let research = await CockpitClient.shared.researchOperations(slug: project.slug)
+        if let error = research.error {
+            return .result(dialog: "Could not load research operations for \(project.slug): \(error)")
+        }
+        return .result(dialog: "Latest research operations for \(project.slug) are loading.")
+    }
+}
 
 // MARK: - 1. Capture Thought
 
@@ -139,6 +253,23 @@ struct CheckReadinessIntent: AppIntent {
     }
 }
 
+// MARK: - 5. Flow State
+
+struct FlowStateIntent: AppIntent {
+    static let title: LocalizedStringResource = "Flow State"
+    static let description: IntentDescription = "Check your current cognitive flow state"
+    static let openAppWhenRun = false
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let state = await BeagleClient.shared.cognitiveState()
+        if let hrv = state.value?.hrv {
+            let ms = hrv.latestMs ?? 0
+            return .result(dialog: "HRV: \(Int(ms)) ms. You're in \(hrv.displayFlowState) state.")
+        }
+        return .result(dialog: "Could not read flow state. Check Apple Watch and Beagle server connectivity.")
+    }
+}
+
 // MARK: - App Shortcuts Provider
 
 struct BeagleShortcutsProvider: AppShortcutsProvider {
@@ -172,6 +303,42 @@ struct BeagleShortcutsProvider: AppShortcutsProvider {
             systemImageName: "server.rack"
         )
         AppShortcut(
+            intent: ShowProjectStatusIntent(),
+            phrases: [
+                "Show \(.applicationName) project status",
+                "\(.applicationName) status of \(\.$project)"
+            ],
+            shortTitle: "Project Status",
+            systemImageName: "folder.fill"
+        )
+        AppShortcut(
+            intent: ActivateHabitatIntent(),
+            phrases: [
+                "\(.applicationName) activate \(\.$project) habitat",
+                "Wake \(\.$project) in \(.applicationName)"
+            ],
+            shortTitle: "Activate Habitat",
+            systemImageName: "play.circle.fill"
+        )
+        AppShortcut(
+            intent: StandbyHabitatIntent(),
+            phrases: [
+                "\(.applicationName) standby \(\.$project) habitat",
+                "Put \(\.$project) on standby in \(.applicationName)"
+            ],
+            shortTitle: "Standby Habitat",
+            systemImageName: "pause.circle.fill"
+        )
+        AppShortcut(
+            intent: LatestResearchRunIntent(),
+            phrases: [
+                "\(.applicationName) latest research for \(\.$project)",
+                "Show last run in \(.applicationName)"
+            ],
+            shortTitle: "Latest Research",
+            systemImageName: "flask.fill"
+        )
+        AppShortcut(
             intent: CheckReadinessIntent(),
             phrases: [
                 "Check my readiness in \(.applicationName)",
@@ -179,6 +346,15 @@ struct BeagleShortcutsProvider: AppShortcutsProvider {
             ],
             shortTitle: "Check Readiness",
             systemImageName: "heart.text.clipboard"
+        )
+        AppShortcut(
+            intent: FlowStateIntent(),
+            phrases: [
+                "\(.applicationName) flow state",
+                "What's my flow in \(.applicationName)"
+            ],
+            shortTitle: "Flow State",
+            systemImageName: "heart.fill"
         )
     }
 }

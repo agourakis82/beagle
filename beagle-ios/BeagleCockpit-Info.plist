@@ -35,6 +35,8 @@
 	<string>1</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
@@ -55,14 +57,12 @@
 			</dict>
 		</dict>
 	</dict>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Beagle uses the microphone for voice commands.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Beagle reads recovery signals like HRV, sleep, and workouts so the exocortex can adapt to your actual state.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Beagle records mindful minutes and cognitive state markers to track your thinking patterns over time.</string>
-	<key>com.apple.developer.healthkit.background-delivery</key>
-	<true/>
+	<string>Beagle records cognitive state snapshots alongside your thoughts so the exocortex can correlate insights with your physiological state.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Beagle uses the microphone for voice commands.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Beagle uses speech recognition for voice commands.</string>
 	<key>NSUserActivityTypes</key>

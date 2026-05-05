@@ -48,25 +48,19 @@ struct WorkView: View {
         }
         .background(Color(red: 0.02, green: 0.03, blue: 0.06))
         .navigationTitle("Work")
+        #if !os(macOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        showAgentSession = true
-                    } label: {
-                        Label("Agent Sessions", systemImage: "bolt.fill")
-                    }
-                    Button {
-                        showPlatform = true
-                    } label: {
-                        Label("Platform", systemImage: "server.rack")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .foregroundStyle(BeagleTheme.textSecondary)
-                }
+            #if os(macOS)
+            ToolbarItem(placement: .automatic) {
+                overflowMenu
             }
+            #else
+            ToolbarItem(placement: .topBarTrailing) {
+                overflowMenu
+            }
+            #endif
         }
         .task {
             connectTerminal()
@@ -87,6 +81,24 @@ struct WorkView: View {
     }
 
     // MARK: - Quick access strip
+
+    private var overflowMenu: some View {
+        Menu {
+            Button {
+                showAgentSession = true
+            } label: {
+                Label("Agent Sessions", systemImage: "bolt.fill")
+            }
+            Button {
+                showPlatform = true
+            } label: {
+                Label("Platform", systemImage: "server.rack")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .foregroundStyle(BeagleTheme.textSecondary)
+        }
+    }
 
     private var quickAccessStrip: some View {
         HStack(spacing: 0) {

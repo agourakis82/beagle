@@ -281,13 +281,13 @@ struct SpatialTriadView: View {
         // Reveal agents one at a time with staggered animation
         if triad != nil {
             try? await Task.sleep(for: .milliseconds(400))
-            withAnimation { revealedAgents.insert("ATHENA") }
+            withAnimation { _ = revealedAgents.insert("ATHENA") }
 
             try? await Task.sleep(for: .milliseconds(600))
-            withAnimation { revealedAgents.insert("HERMES") }
+            withAnimation { _ = revealedAgents.insert("HERMES") }
 
             try? await Task.sleep(for: .milliseconds(600))
-            withAnimation { revealedAgents.insert("ARGOS") }
+            withAnimation { _ = revealedAgents.insert("ARGOS") }
 
             // Judge appears last, above the triad
             try? await Task.sleep(for: .milliseconds(800))

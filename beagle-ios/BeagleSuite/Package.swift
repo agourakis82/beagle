@@ -25,9 +25,7 @@ let package = Package(
         // On-device LLM inference via Apple MLX
         .package(url: "https://github.com/ml-explore/mlx-swift-lm", branch: "main"),
         // HuggingFace Hub client for model downloads + tokenizers
-        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "1.1.0")),
-        // On-device Whisper speech-to-text
-        .package(url: "https://github.com/argmaxinc/WhisperKit", from: "0.18.0"),
+        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "1.2.0")),
     ],
     targets: [
         // Shared core: API client, truth system, models, Tailnet resolver,
@@ -40,7 +38,6 @@ let package = Package(
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
                 .product(name: "Hub", package: "swift-transformers", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
                 .product(name: "Tokenizers", package: "swift-transformers", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
-                .product(name: "WhisperKit", package: "WhisperKit", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
             ],
             path: "Sources/BeagleCore",
             swiftSettings: [

@@ -126,13 +126,32 @@ struct SpatialMindView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(SpatialSection.allCases, selection: $selectedSection) { section in
-                Label(section.rawValue, systemImage: section.icon)
-                    .font(BeagleTheme.uiFont(size: 15, weight: .medium))
-                    .foregroundStyle(BeagleTheme.textPrimary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(SpatialSection.allCases) { section in
+                        Button {
+                            selectedSection = section
+                        } label: {
+                            Label(section.rawValue, systemImage: section.icon)
+                                .font(BeagleTheme.uiFont(size: 15, weight: .medium))
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background {
+                                    if selectedSection == section {
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .fill(BeagleTheme.truthObserved.opacity(0.18))
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
             }
             .navigationTitle("Beagle")
-            .listStyle(.sidebar)
 
             // Spatial controls at bottom of sidebar
             VStack(spacing: 12) {

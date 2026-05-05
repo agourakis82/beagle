@@ -101,11 +101,11 @@ This is an **extension** of BeagleCockpit:
 7. Add files from `BeagleSuite/Sources/BeagleWidgets/*`
 8. Link `BeagleCore` to the widget target too
 
-### 3e. BeagleIntents (App Intents Extension)
+### 3e. App Intents
 
-App Intents can live in the main app target — no separate extension needed. Just add the files:
+App Intents live in the main BeagleCockpit target — no separate extension needed. Just add the files:
 1. Select BeagleCockpit target → **File → Add Files**
-2. Add `BeagleSuite/Sources/BeagleIntents/*`
+2. Add `BeagleSuite/Sources/BeagleCockpit/BeagleAppIntents.swift`
 
 ---
 

@@ -285,7 +285,10 @@ final class DiagnosticsRunner {
             return String(text.prefix(40))
         case .ready(let projectSlug):
             return "ready · \(projectSlug)"
-        case .exit(let code):
+        case .exit(let code, let detail):
+            if let detail {
+                return "exit(\(code)): \(String(detail.prefix(40)))"
+            }
             return "exit(\(code))"
         }
     }

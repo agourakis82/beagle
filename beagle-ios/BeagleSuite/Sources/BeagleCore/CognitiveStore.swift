@@ -10,7 +10,9 @@
 import Foundation
 import Observation
 import SwiftData
+#if canImport(CoreSpotlight) && !os(watchOS)
 import CoreSpotlight
+#endif
 
 @Observable
 @MainActor
@@ -304,6 +306,7 @@ public final class CognitiveStore {
     // MARK: - Spotlight indexing
 
     private func indexToSpotlight(_ thought: ThoughtCapture) {
+        #if canImport(CoreSpotlight) && !os(watchOS)
         let title = thought.refinedText ?? thought.rawText ?? ""
         guard !title.isEmpty else { return }
 
@@ -322,6 +325,7 @@ public final class CognitiveStore {
         CSSearchableIndex.default().indexSearchableItems([item]) { error in
             if let error { print("[Spotlight] indexing failed: \(error)") }
         }
+        #endif
     }
 
     private func extractKeywords(from text: String) -> [String] {
