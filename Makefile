@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: all fmt lint test rust-test julia-test check-paths ci-local help
+.PHONY: all fmt lint test rust-test julia-test check-paths rescue-check ci-local help
 
 help:
 	@echo "BEAGLE Makefile - Comandos disponíveis:"
@@ -9,6 +9,7 @@ help:
 	@echo "  make rust-test    - Roda testes Rust"
 	@echo "  make julia-test   - Roda testes Julia"
 	@echo "  make check-paths  - Verifica paths hardcoded"
+	@echo "  make rescue-check - Valida a base verde de retomada"
 	@echo "  make test         - Roda todos os testes"
 	@echo "  make ci-local     - Executa pipeline completo (fmt + lint + test + check-paths)"
 
@@ -33,9 +34,11 @@ check-paths:
 		echo "⚠️  scripts/check_paths.sh não encontrado. Pulando verificação de paths."; \
 	fi
 
+rescue-check:
+	bash scripts/rescue-check.sh
+
 test: rust-test julia-test
 
 ci-local: fmt lint test check-paths
 	@echo ""
 	@echo "✅ CI local completo! Se tudo passou, você está pronto para commitar."
-

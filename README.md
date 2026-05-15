@@ -2,6 +2,9 @@
 
 **Exocórtex Científico Pessoal** - Rust + Julia + Swift/Tauri
 
+> Antes de roadmap ou feature nova, leia a estrela-guia do projeto:
+> [BEAGLE_NORTH_STAR.md](BEAGLE_NORTH_STAR.md).
+
 ## 🚀 Versão Atual: v0.3.0
 
 BEAGLE v0.3.0 implementa a camada de **Memory & MCP (Model Context Protocol)**, transformando o BEAGLE em um verdadeiro **exocórtex MCP** acessível via ChatGPT e Claude.
@@ -58,6 +61,7 @@ Siga as instruções em [docs/BEAGLE_MCP.md](docs/BEAGLE_MCP.md).
 
 ## Documentação
 
+- [BEAGLE_NORTH_STAR.md](BEAGLE_NORTH_STAR.md) - Essência, não negociáveis e regra de retomada
 - [BEAGLE_MCP.md](docs/BEAGLE_MCP.md) - Guia do MCP Server
 - [BEAGLE_CORE_v0_1.md](docs/BEAGLE_CORE_v0_1.md) - Documentação técnica do core
 - [BEAGLE_v0_3_RELEASE_NOTES.md](docs/BEAGLE_v0_3_RELEASE_NOTES.md) - Release notes v0.3.0

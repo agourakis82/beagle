@@ -20,6 +20,9 @@ echo "════════════════════════�
 echo "BEAGLE SQLX CONFIGURATION VALIDATION PROTOCOL"
 echo "════════════════════════════════════════════════════════════════════"
 echo ""
+echo "Nota: as verificações de banco usam DATABASE_URL e DB real; a compilação offline"
+echo "é validada separadamente sem DATABASE_URL."
+echo ""
 
 step_result() {
   local status=$1
@@ -51,7 +54,7 @@ fi
 
 # 2. sqlx-data.json existe
 echo -n "[2/7] sqlx-data.json existe... "
-if [ -f "beagle-hypergraph/sqlx-data.json" ]; then
+if [ -f "crates/beagle-hypergraph/sqlx-data.json" ]; then
   step_result pass ""
 else
   step_result fail "Execute configure-sqlx-offline.sh para gerar o arquivo."
@@ -60,7 +63,7 @@ fi
 # 3. sqlx-data.json é JSON válido
 echo -n "[3/7] sqlx-data.json é JSON válido... "
 if command -v jq >/dev/null 2>&1; then
-  if jq empty beagle-hypergraph/sqlx-data.json >/dev/null 2>&1; then
+  if jq empty crates/beagle-hypergraph/sqlx-data.json >/dev/null 2>&1; then
     step_result pass ""
   else
     step_result fail "Conteúdo inválido; regenere com cargo sqlx prepare."
@@ -71,7 +74,7 @@ fi
 
 # 4. Compilação offline
 echo -n "[4/7] Compilação offline... "
-pushd beagle-hypergraph >/dev/null
+pushd crates/beagle-hypergraph >/dev/null
 if (unset DATABASE_URL && cargo check --all-features >/dev/null 2>&1); then
   step_result pass ""
 else
@@ -132,7 +135,6 @@ else
   echo -e "${RED}✗ SOME TESTS FAILED - Review configuration${NC}"
   exit 1
 fi
-
 
 
 

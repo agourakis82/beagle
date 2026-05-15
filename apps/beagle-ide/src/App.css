@@ -37,6 +37,53 @@ body {
   letter-spacing: 2px;
 }
 
+.graph-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.graph-summary span {
+  border: 1px solid rgba(0, 212, 255, 0.5);
+  color: #FFF;
+  padding: 16px;
+  text-align: center;
+}
+
+.north-star-line {
+  color: #FFF;
+  font-size: 14px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.north-star-loop {
+  color: #FFF;
+  display: grid;
+  gap: 8px;
+  list-style-position: inside;
+}
+
+.north-star-loop li {
+  border-left: 2px solid #00D4FF;
+  padding: 6px 0 6px 10px;
+}
+
+.voice-command {
+  margin-bottom: 12px;
+  border: 1px solid #00D4FF;
+  background: transparent;
+  color: #00D4FF;
+  cursor: pointer;
+  font: inherit;
+  padding: 8px 12px;
+}
+
+.voice-command:hover {
+  background: rgba(0, 212, 255, 0.12);
+}
+
 .knowledge-graph {
   grid-column: 1;
   grid-row: 1;
@@ -106,4 +153,3 @@ body {
   background: #00D4FF;
   transition: width 0.3s;
 }
-

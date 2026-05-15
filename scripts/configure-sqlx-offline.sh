@@ -87,9 +87,10 @@ fi
 
 # 6. Geração do sqlx-data.json
 info "[6/8] Gerando sqlx-data.json…"
-pushd beagle-hypergraph >/dev/null
+pushd crates/beagle-hypergraph >/dev/null
 command -v sqlx >/dev/null 2>&1 || cargo install sqlx-cli --no-default-features --features postgres --locked
 warn "Executando: cargo sqlx prepare --database-url \"$DATABASE_URL\" -- --all-features"
+warn "Esta etapa usa DB real para preparar metadados SQLx; a compilação offline é validada depois sem DATABASE_URL."
 cargo sqlx prepare --database-url "$DATABASE_URL" -- --all-features
 success "✓ sqlx-data.json gerado"
 
@@ -115,6 +116,7 @@ echo "  Local:   $(pwd)/sqlx-data.json"
 # 8. Compilação offline
 info "[8/8] Testando compilação offline…"
 unset DATABASE_URL
+info "Validando build offline sem banco local ativo…"
 cargo check --all-features
 success "✓ Compilação offline OK"
 popd >/dev/null
@@ -129,7 +131,6 @@ echo "  ✓ pgvector garantido"
 echo "  ✓ Migrações aplicadas"
 echo "  ✓ sqlx-data.json gerado (${FILE_SIZE} bytes)"
 echo "  ✓ Compilação offline bem-sucedida"
-
 
 
 
