@@ -32,6 +32,39 @@ const fallbackLogs = [
 
 const northStarLoop = 'thought -> memory -> serendipity -> review -> artifact -> feedback';
 
+const workflowSteps = [
+  'Thought captured',
+  'Memory anchor created',
+  'Fertile connection proposed',
+  'Adversarial review drafted',
+  'Draft artifact updated',
+];
+
+const buildWorkflowArtifact = (rawThought) => {
+  const thought = rawThought.trim() || 'Follow the North Star without flattening the research voice.';
+  const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  return {
+    thought,
+    timestamp,
+    memory: `Memory anchor: ${thought}`,
+    connection:
+      'Fertile connection: relate this thought to living memory, scientific evidence, and the current draft.',
+    review:
+      'Adversarial review: what would make this claim false, overfit, generic, or unsupported?',
+    draft: `Draft move: preserve the original thought, then turn it into one testable research paragraph.`,
+  };
+};
+
+const formatArtifactForDraft = (artifact) => `## Preserved Thought (${artifact.timestamp})
+
+${artifact.thought}
+
+- ${artifact.memory}
+- ${artifact.connection}
+- ${artifact.review}
+- ${artifact.draft}`;
+
 const hasTauriRuntime = () =>
   typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__?.invoke);
 
@@ -60,6 +93,8 @@ function App() {
     `# BEAGLE Living Draft\n\nNorth Star loop: ${northStarLoop}\n`
   );
   const [agentLogs, setAgentLogs] = useState([]);
+  const [currentThought, setCurrentThought] = useState('');
+  const [workflowArtifacts, setWorkflowArtifacts] = useState([]);
   const [quantumState, setQuantumState] = useState({ superposition: 0.5, entanglement: 0.3 });
 
   useEffect(() => {
@@ -82,8 +117,24 @@ function App() {
 
   const handleVoiceCommand = async (command) => {
     const response = await invokeBeagle('process_voice_command', { command });
-    setPaperContent(prev => prev + `\n\n${response}`);
+    const artifact = buildWorkflowArtifact(command);
+    setWorkflowArtifacts(prev => [artifact, ...prev].slice(0, 5));
+    setPaperContent(prev => `${prev}\n\n${response}\n\n${formatArtifactForDraft(artifact)}`);
+    setCurrentThought('');
+    setQuantumState(prev => ({
+      superposition: Math.min(1, prev.superposition + 0.08),
+      entanglement: Math.min(1, prev.entanglement + 0.12),
+    }));
   };
+
+  const visibleLogs = [
+    ...agentLogs,
+    ...workflowArtifacts.map((artifact) => ({
+      timestamp: artifact.timestamp,
+      level: 'flow',
+      message: `Preserved thought moved to draft: ${artifact.thought}`,
+    })),
+  ];
 
   return (
     <div className="beagle-ide">
@@ -103,9 +154,21 @@ function App() {
 
       <div className="panel paper-canvas">
         <h2>Paper Canvas</h2>
-        <button className="voice-command" onClick={() => handleVoiceCommand('follow the North Star')}>
-          Preserve Thought
-        </button>
+        <div className="thought-capture">
+          <label htmlFor="thought-input">Thought Capture</label>
+          <textarea
+            id="thought-input"
+            value={currentThought}
+            onChange={(event) => setCurrentThought(event.target.value)}
+            placeholder="Drop the live thought here before it evaporates."
+          />
+          <button
+            className="voice-command"
+            onClick={() => handleVoiceCommand(currentThought || 'follow the North Star')}
+          >
+            Preserve Thought
+          </button>
+        </div>
         <CodeMirror
           value={paperContent}
           height="400px"
@@ -118,7 +181,7 @@ function App() {
       <div className="panel agent-console">
         <h2>Agent Console</h2>
         <div className="logs">
-          {agentLogs.map((log, i) => (
+          {visibleLogs.map((log, i) => (
             <div key={i} className="log-entry">
               <span className="timestamp">{log.timestamp}</span>
               <span className="level">{log.level}</span>
@@ -129,15 +192,26 @@ function App() {
       </div>
 
       <div className="panel quantum-view">
-        <h2>Quantum View</h2>
-        <div className="quantum-visualization">
+        <h2>Living Workflow</h2>
+        <div className="workflow-steps">
+          {workflowSteps.map((step, index) => (
+            <div
+              key={step}
+              className={`workflow-step ${workflowArtifacts.length > 0 ? 'active' : ''}`}
+            >
+              <span>{index + 1}</span>
+              <p>{step}</p>
+            </div>
+          ))}
+        </div>
+        <div className="quantum-visualization research-state">
           <div className="superposition">
             <div className="bar" style={{ width: `${quantumState.superposition * 100}%` }}></div>
-            <span>Superposition: {quantumState.superposition.toFixed(2)}</span>
+            <span>Possibility: {quantumState.superposition.toFixed(2)}</span>
           </div>
           <div className="entanglement">
             <div className="bar" style={{ width: `${quantumState.entanglement * 100}%` }}></div>
-            <span>Entanglement: {quantumState.entanglement.toFixed(2)}</span>
+            <span>Connection: {quantumState.entanglement.toFixed(2)}</span>
           </div>
         </div>
       </div>

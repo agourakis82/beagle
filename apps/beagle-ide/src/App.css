@@ -84,6 +84,38 @@ body {
   background: rgba(0, 212, 255, 0.12);
 }
 
+.thought-capture {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.thought-capture label {
+  color: #FFF;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.thought-capture textarea {
+  min-height: 84px;
+  resize: vertical;
+  border: 1px solid rgba(0, 212, 255, 0.55);
+  background: #101010;
+  color: #FFF;
+  font: inherit;
+  line-height: 1.45;
+  padding: 10px;
+}
+
+.thought-capture textarea::placeholder {
+  color: #777;
+}
+
+.thought-capture textarea:focus {
+  border-color: #00D4FF;
+  outline: 1px solid rgba(0, 212, 255, 0.35);
+}
+
 .knowledge-graph {
   grid-column: 1;
   grid-row: 1;
@@ -139,6 +171,47 @@ body {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.workflow-steps {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.workflow-step {
+  align-items: center;
+  border: 1px solid rgba(0, 212, 255, 0.35);
+  color: #AAA;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 32px 1fr;
+  padding: 10px;
+}
+
+.workflow-step span {
+  align-items: center;
+  border: 1px solid rgba(0, 212, 255, 0.6);
+  color: #00D4FF;
+  display: flex;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.workflow-step p {
+  color: inherit;
+  line-height: 1.35;
+}
+
+.workflow-step.active {
+  border-color: #00D4FF;
+  color: #FFF;
+}
+
+.research-state {
+  border-top: 1px solid rgba(0, 212, 255, 0.35);
+  padding-top: 18px;
 }
 
 .superposition,
