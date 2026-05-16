@@ -33,10 +33,17 @@ It is the coordination layer between:
 - adversarial agents and self-play review;
 - physiological and temporal context;
 - knowledge graphs, symbolic constraints, and retrieval;
+- exotic hypothesis engines for superposition, interference, hyperbolic
+  geometry, paradox, uncertainty, and ontology repair;
 - voice, notes, drafts, and daily research decisions.
 
 The UI should make this coordination visible without forcing the user to hold
 the whole system in working memory.
+
+## Delegated Science Engines
+
+PBPK is delegated to Sounio in the current architecture. BEAGLE should consume
+Sounio outputs as evidence and artifacts, not rebuild that engine internally.
 
 ## Recovery Rule
 

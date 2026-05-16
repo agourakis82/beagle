@@ -1,5 +1,4 @@
 use beagle_smart_router::query_beagle;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
@@ -7,9 +6,6 @@ use tracing::{info, warn};
 
 pub type Amplitude = (f64, f64); // (real, imaginary) → clássico simulado
 
-const DIVERSITY_TEMPERATURE: f64 = 1.3;
-const TOP_P: f64 = 0.95;
-const MAX_TOKENS: u32 = 512;
 const N_HYPOTHESES: usize = 6; // padrão – pode ser configurável
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,7 +23,11 @@ impl Hypothesis {
     }
 
     pub fn normalize_probability(&mut self, total_prob: f64) {
-        self.confidence = self.probability() / total_prob;
+        self.confidence = if total_prob.is_finite() && total_prob > f64::EPSILON {
+            self.probability() / total_prob
+        } else {
+            0.0
+        };
     }
 }
 
@@ -63,20 +63,70 @@ impl HypothesisSet {
 
     pub fn recalculate_total(&mut self) {
         self.total_prob = self.hypotheses.iter().map(|h| h.probability()).sum();
+
+        if self.hypotheses.is_empty() {
+            return;
+        }
+
+        if !self.total_prob.is_finite() || self.total_prob <= f64::EPSILON {
+            let uniform_confidence = 1.0 / self.hypotheses.len() as f64;
+            for h in &mut self.hypotheses {
+                h.confidence = uniform_confidence;
+            }
+            self.total_prob = 0.0;
+            return;
+        }
+
         for h in &mut self.hypotheses {
             h.normalize_probability(self.total_prob);
         }
     }
 
-    pub fn best(&self) -> &Hypothesis {
+    pub fn try_best(&self) -> Option<&Hypothesis> {
         self.hypotheses
             .iter()
-            .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap())
-            .unwrap()
+            .filter(|h| h.confidence.is_finite())
+            .max_by(|a, b| a.confidence.total_cmp(&b.confidence))
+    }
+
+    pub fn best(&self) -> &Hypothesis {
+        self.try_best()
+            .expect("HypothesisSet::best called on an empty or non-finite set")
     }
 
     pub fn is_coherent(&self, threshold: f64) -> bool {
-        self.best().confidence > threshold
+        self.try_best()
+            .map(|best| best.confidence > threshold)
+            .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_hypothesis_set_has_no_best_candidate() {
+        let mut set = HypothesisSet::new();
+
+        set.recalculate_total();
+
+        assert!(set.try_best().is_none());
+        assert!(!set.is_coherent(0.5));
+    }
+
+    #[test]
+    fn zero_amplitude_hypotheses_get_stable_uniform_confidence() {
+        let mut set = HypothesisSet::new();
+        set.add("A".to_string(), Some((0.0, 0.0)));
+        set.add("B".to_string(), Some((0.0, 0.0)));
+
+        assert_eq!(set.hypotheses.len(), 2);
+        assert!(set
+            .hypotheses
+            .iter()
+            .all(|hypothesis| (hypothesis.confidence - 0.5).abs() < 1e-12));
+        assert!(set.try_best().is_some());
     }
 }
 

@@ -4,7 +4,6 @@
 
 use crate::superposition::HypothesisSet;
 use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
-use rand::Rng;
 use tracing::{info, warn};
 
 #[derive(Debug, Clone, Copy)]
