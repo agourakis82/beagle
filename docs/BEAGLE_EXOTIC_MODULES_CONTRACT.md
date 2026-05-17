@@ -61,6 +61,10 @@ The first real slice is deliberately small:
 - `beagle-quantum` now keeps hypothesis sets stable when empty or degenerate.
 - `beagle-quantum` interference now works offline with deterministic lexical
   similarity when embeddings are unavailable.
+- `beagle-quantum` measurement now falls back to a deterministic local critic
+  when the external LLM critic is unavailable.
+- `beagle-quantum` has an offline end-to-end test showing evidence changes
+  hypothesis ranking and measurement collapses to the supported hypothesis.
 
 The next slice should connect these primitives to one living BEAGLE workflow:
 thought capture -> hypothesis set -> evidence interference -> hyperbolic memory

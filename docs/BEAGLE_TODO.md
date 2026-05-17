@@ -80,8 +80,8 @@ Acceptance:
   components.
 - [x] Make `beagle-quantum` hypothesis sets stable when empty or degenerate.
 - [x] Make `beagle-quantum` interference work offline with lexical fallback.
-- [ ] Add `beagle-quantum` measurement fallback for offline critic failure.
-- [ ] Add a small end-to-end test:
+- [x] Add `beagle-quantum` measurement fallback for offline critic failure.
+- [x] Add a small end-to-end test:
   thought -> hypotheses -> evidence -> changed confidence ranking.
 - [ ] Wire `beagle-hyperbolic` into memory placement for captured thoughts.
 - [ ] Add a curvature or anomaly score that can surface fertile links.
@@ -213,4 +213,3 @@ A slice is done only when:
 - `git status --short` is understood.
 - The next action is visible.
 - The work strengthens the living workflow.
-

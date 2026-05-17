@@ -166,6 +166,7 @@ impl Default for InterferenceEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::measurement::{CollapseStrategy, MeasurementOperator};
     use crate::superposition::HypothesisSet;
 
     #[test]
@@ -210,5 +211,44 @@ mod tests {
             .hypotheses
             .iter()
             .all(|hypothesis| hypothesis.confidence.is_finite()));
+    }
+
+    #[tokio::test]
+    async fn offline_evidence_changes_ranking_and_measurement_collapses() {
+        let engine = InterferenceEngine::with_url("http://127.0.0.1:9/v1");
+        let measurement = MeasurementOperator::with_url("http://127.0.0.1:9/v1");
+        let mut set = HypothesisSet::new();
+        set.add(
+            "archive metadata names the patient consent form".to_string(),
+            Some((1.0, 0.0)),
+        );
+        set.add(
+            "entropy increases when temperature rises".to_string(),
+            Some((1.0, 0.0)),
+        );
+
+        assert!(set
+            .hypotheses
+            .iter()
+            .all(|hypothesis| (hypothesis.confidence - 0.5).abs() < 1e-12));
+
+        engine
+            .apply_evidence(
+                &mut set,
+                "temperature increase raises entropy in the system",
+                1.0,
+            )
+            .await
+            .expect("offline evidence should still update amplitudes");
+
+        let best = set.best();
+        assert_eq!(best.content, "entropy increases when temperature rises");
+
+        let collapsed = measurement
+            .collapse(set, CollapseStrategy::CriticGuided)
+            .await
+            .expect("offline measurement should collapse through local fallback");
+
+        assert_eq!(collapsed, "entropy increases when temperature rises");
     }
 }
