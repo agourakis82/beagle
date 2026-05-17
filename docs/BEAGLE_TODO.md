@@ -83,8 +83,9 @@ Acceptance:
 - [x] Add `beagle-quantum` measurement fallback for offline critic failure.
 - [x] Add a small end-to-end test:
   thought -> hypotheses -> evidence -> changed confidence ranking.
-- [ ] Wire `beagle-hyperbolic` into memory placement for captured thoughts.
-- [ ] Add a curvature or anomaly score that can surface fertile links.
+- [x] Add deterministic `HyperbolicMemoryPlacer` for captured-thought placement.
+- [ ] Wire `HyperbolicMemoryPlacer` into `beagle-memory` or the IDE capture flow.
+- [x] Add a curvature or anomaly score that can surface fertile links.
 - [ ] Reframe `beagle-consciousness` as emergence/metacognition metrics, not
   subjective consciousness claims.
 - [ ] Give `beagle-void` a deterministic negative-space analysis output.

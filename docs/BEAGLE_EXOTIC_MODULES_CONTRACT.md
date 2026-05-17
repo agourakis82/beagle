@@ -65,6 +65,10 @@ The first real slice is deliberately small:
   when the external LLM critic is unavailable.
 - `beagle-quantum` has an offline end-to-end test showing evidence changes
   hypothesis ranking and measurement collapses to the supported hypothesis.
+- `beagle-hyperbolic` now exposes a deterministic `HyperbolicMemoryPlacer` for
+  placing captured thoughts in semantic geometry without remote embeddings.
+- `beagle-hyperbolic` placements report nearest neighbors, novelty, and a
+  fertile-link score for surfacing useful unusual connections.
 
 The next slice should connect these primitives to one living BEAGLE workflow:
 thought capture -> hypothesis set -> evidence interference -> hyperbolic memory
