@@ -122,6 +122,11 @@ collect_final_health() {
     for unit in slurmctld slurmrestd munge darwin-slurm-control-adapter; do
       printf '%s=%s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
     done
+    echo "active-scheduler=slurm-pilot"
+    echo "legacy-adapter-mode=legacy-catalog-only"
+    echo
+    echo "## slurm-pilot"
+    kubectl -n slurm-pilot get pods,svc -o wide || true
     echo
     if command -v scontrol >/dev/null 2>&1; then
       echo "## scontrol-ping"
