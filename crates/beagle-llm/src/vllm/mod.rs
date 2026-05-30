@@ -78,7 +78,15 @@ impl VllmClient {
     }
 
     pub fn default() -> Self {
-        Self::new(DEFAULT_VLLM_URL)
+        // Prefer environment-provided base URL so the same binary can target the
+        // in-cluster LiteLLM router (router.llm-router.svc.cluster.local:4000/v1)
+        // or a local vLLM box without recompiling. Falls back to the legacy
+        // t560 default to keep existing setups working.
+        let base = std::env::var("BEAGLE_VLLM_URL")
+            .or_else(|_| std::env::var("OPENAI_API_BASE"))
+            .or_else(|_| std::env::var("OPENAI_BASE_URL"))
+            .unwrap_or_else(|_| DEFAULT_VLLM_URL.to_string());
+        Self::new(base)
     }
 
     /// Executa completions com suporte a batch (n > 1)
