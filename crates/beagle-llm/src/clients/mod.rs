@@ -8,6 +8,7 @@ pub mod cursor;
 pub mod deepseek;
 pub mod grok;
 pub mod local_gemma;
+pub mod minimax;
 pub mod mock;
 
 pub use claude::{ClaudeClient, ClaudeModel};
@@ -18,3 +19,4 @@ pub use cursor::{CursorClient, CursorModel};
 pub use deepseek::DeepSeekClient;
 pub use grok::GrokClient;
 pub use local_gemma::{LocalGemmaClient, GemmaModel};
+pub use minimax::MiniMaxClient;
