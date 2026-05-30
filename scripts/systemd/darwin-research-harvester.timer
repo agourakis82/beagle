@@ -1,0 +1,10 @@
+[Unit]
+Description=Run DARWIN Research Harvester daily
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=24h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

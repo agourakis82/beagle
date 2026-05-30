@@ -1,0 +1,36 @@
+topics:
+  - name: hrv-cognition
+    enabled: true
+    backends: [pubmed, europepmc, openalex]
+    max_results: 10
+    tags: [hrv, cognition, physiology]
+    queries:
+      - "heart rate variability cognitive performance"
+      - "HRV executive function decision making"
+
+  - name: pbpk-antidepressants
+    enabled: true
+    backends: [pubmed, europepmc, crossref]
+    max_results: 10
+    tags: [pbpk, pharmacokinetics, antidepressants]
+    queries:
+      - "PBPK modeling antidepressants"
+      - "physiologically based pharmacokinetic model SSRI"
+
+  - name: rag-security
+    enabled: true
+    backends: [arxiv, openalex]
+    max_results: 10
+    tags: [rag, security, prompt-injection]
+    queries:
+      - "retrieval augmented generation prompt injection"
+      - "RAG data poisoning security"
+
+  - name: mcp-ecosystem
+    enabled: true
+    backends: [openalex, crossref]
+    max_results: 10
+    tags: [mcp, agents, tool-use]
+    queries:
+      - "\"model context protocol\""
+      - "tool calling agents reliability evaluation"

@@ -1,0 +1,21 @@
+collections:
+  - darwin-papers
+  - darwin-docs
+  - darwin-books
+
+# Default top-k per query.
+k: 10
+
+# Golden queries: fill `expect_doc_ids` with real doc_ids from your corpus.
+# - papers: doc_id is `source:id` (e.g., `pubmed:12345678`, `arxiv:2401.01234`)
+# - web/docs: doc_id is the final URL
+tests:
+  - name: hrv-cognition
+    query: "HRV cognitive performance working memory"
+    expect_doc_ids:
+      - "pubmed:REPLACE_ME"
+
+  - name: qdrant-docs
+    query: "Qdrant payload filter must match value"
+    expect_doc_ids:
+      - "https://qdrant.tech/documentation/concepts/filtering/"
