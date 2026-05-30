@@ -10,7 +10,7 @@ SSH_SERVICE="sounio-workspace-tailnet-ssh"
 PROXYGROUP_NS="tailscale"
 PROXYGROUP_NAME="sounio-workspace-ingress"
 WORKSPACE_NS="beagle"
-WORKSPACE_STS="sounio-workspace-habitat"
+WORKSPACE_STS="sounio-workspace-control"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-60}"
 
 pick_kubectl() {
@@ -89,7 +89,7 @@ main() {
     exit 1
   fi
 
-  info "checking workspace habitat readiness"
+  info "checking workspace control readiness"
   if workspace_ready; then
     pass "statefulset/${WORKSPACE_STS} is ready"
   else

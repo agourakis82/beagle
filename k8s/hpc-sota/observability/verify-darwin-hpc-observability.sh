@@ -193,7 +193,7 @@ main() {
   echo "== ServiceMonitors and workloads =="
   check_object servicemonitor darwin-observability-system darwin-dcgm-exporter
   check_object servicemonitor darwin-observability-system ceph-mgr-prometheus
-  check_statefulset_ready beagle sounio-workspace-habitat
+  check_statefulset_ready beagle sounio-workspace-control
 
   echo
   echo "== Prometheus target health =="

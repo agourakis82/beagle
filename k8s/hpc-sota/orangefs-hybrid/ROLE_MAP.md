@@ -41,6 +41,11 @@ Current reality after the `2026-04-24` repair:
   - local premium NVMe tier
   - OrangeFS client
 
+- observed growth candidate:
+  - `/mnt/hpc-local-nvme`
+  - near-GPU storage, but do not promote to OrangeFS server duty without a
+    maintenance window and client canaries
+
 ### r770-proxmox
 
 - role:
@@ -48,9 +53,18 @@ Current reality after the `2026-04-24` repair:
   - local runtime/model cache tier
   - OrangeFS client
 
+- observed growth candidate:
+  - `/mnt/darwin-fast`
+  - near-GPU storage, but promotion would mix compute and storage authority
+    unless explicitly accepted
+
 ## Incoming node
 
 ### HP DL380 G10 with NVMe and GPU
+
+Runbook:
+
+- [DL380_ONBOARDING.md](/home/devsounio/beagle/k8s/hpc-sota/DL380_ONBOARDING.md)
 
 - role from day one:
   - GPU compute

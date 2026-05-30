@@ -96,11 +96,11 @@ else
 fi
 
 section "Cluster-backed surfaces"
-workspace_ready="$(surface_kctl -n beagle get statefulset sounio-workspace-habitat -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)"
+workspace_ready="$(surface_kctl -n beagle get statefulset sounio-workspace-control -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)"
 if [[ "${workspace_ready:-0}" -ge 1 ]]; then
-  pass "sounio-workspace-habitat has ${workspace_ready} ready replica(s)"
+  pass "sounio-workspace-control has ${workspace_ready} ready replica(s)"
 else
-  fail "sounio-workspace-habitat has no ready replicas"
+  fail "sounio-workspace-control has no ready replicas"
 fi
 
 workspace_service_endpoints="$(service_endpoints beagle sounio-workspace)"

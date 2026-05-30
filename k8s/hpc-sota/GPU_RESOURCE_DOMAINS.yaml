@@ -1,0 +1,43 @@
+schema: darwin.gpu_resource_domains.v1
+updated_at: "2026-05-25T02:40:00Z"
+authority:
+  live_state:
+    - /home/devsounio/beagle/k8s/hpc-sota/ops/gpu-lease status
+    - /home/devsounio/projects/sounio/GPU_LEASES.json
+  slurm_admission:
+    script: /home/devsounio/beagle/k8s/hpc-sota/slurm-pilot/scripts/68-manage-gpuorangefs-worker.sh
+    label: sounio.dev/slurm-worker-gpuorangefs
+  kueue_scope: kubernetes-workloads-only
+domains:
+  - name: domain/r740-a5000
+    node: r740-proxmox
+    slurm_node: gpuorangefs-r740-proxmox
+    gpu_model: NVIDIA RTX A5000
+    gpu_count: 1
+    kueue_resource_flavor: gpu-rtx-a5000
+    preferred_serving_deployment: sglang-serving
+    default_batch_partition: gpu-orangefs
+    current_policy: exclusive-batch-or-serving
+  - name: domain/r770-l4
+    node: r770-proxmox
+    slurm_node: gpuorangefs-r770-proxmox
+    gpu_model: NVIDIA L4
+    gpu_count: 1
+    kueue_resource_flavor: gpu-l4
+    preferred_serving_deployment: ""
+    default_batch_partition: gpu-orangefs
+    current_policy: exclusive-batch
+  - name: domain/5860-rtx4000ada
+    node: 5860-proxmox
+    slurm_node: gpuorangefs-5860-proxmox
+    gpu_model: NVIDIA RTX 4000 Ada
+    gpu_count: 1
+    kueue_resource_flavor: gpu-rtx-4000-ada
+    preferred_serving_deployment: ssm-probe-serving
+    default_batch_partition: gpu-orangefs
+    current_policy: exclusive-batch-or-serving
+future_controller_contract:
+  - A GPU domain has exactly one active owner: batch, serving, shared-inference, maintenance, or quarantine.
+  - Kubernetes DRA and Kueue may describe and admit Kubernetes workloads for a domain.
+  - Slurm remains the accounting and execution authority for Slurm jobs.
+  - Cross-plane ownership changes must go through gpu-lease and then Action Ledger when exposed in Cockpit.

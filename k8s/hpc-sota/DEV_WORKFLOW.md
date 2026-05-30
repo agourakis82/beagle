@@ -181,6 +181,8 @@ are:
   - `/home/devsounio/beagle/scripts/infrastructure/check_sounio_tailnet_vips.sh`
 - full shell chain:
   - `/home/devsounio/beagle/scripts/infrastructure/check_project_cockpit_full_shell.sh`
+- Sounio agent contract:
+  - `/home/devsounio/beagle/scripts/infrastructure/check_sounio_agent_contract.sh`
 
 Those checks currently validate:
 
@@ -190,6 +192,8 @@ Those checks currently validate:
 - public HTML routes and their live asset bundles from inside the cockpit pod
 - private `SGLang + Dynamo` runtime truth
 - workspace HTTP reachability on the correct tailnet port (`:8080`)
+- Sounio agent MCP awareness, model registry, action ledger, job submit path,
+  and operator mutation guardrails
 
 ## The main development loops
 

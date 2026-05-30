@@ -178,21 +178,19 @@ main() {
   echo "== Registry backing =="
   check_no_localhost_refs "workspace catalog envs" "${CATALOG_DIR}"
   check_live_image_ref beagle deployment project-cockpit
-  check_live_image_ref beagle statefulset sounio-workspace-habitat
-  if "${KCTL[@]}" -n beagle get deployment sounio-workspace-local >/dev/null 2>&1; then
-    check_live_image_ref beagle deployment sounio-workspace-local
-  elif "${KCTL[@]}" -n beagle get deployment sounio-workspace >/dev/null 2>&1; then
-    check_live_image_ref beagle deployment sounio-workspace
-  fi
+  check_live_image_ref beagle statefulset sounio-workspace-control
 
   echo
   echo "== Promoted Sounio surfaces =="
   check_object beagle service sounio-workspace
-  check_object beagle service sounio-workspace-habitat
-  check_statefulset_ready beagle sounio-workspace-habitat
   check_service_external_ip beagle sounio-workspace-tailnet-http
   check_service_external_ip beagle sounio-workspace-tailnet-ssh
   check_proxygroup_ready tailscale sounio-workspace-ingress
+  if bash "${ROOT}/hpc-sota/ops/sounio-workspace-contract-doctor.sh"; then
+    pass "Sounio workspace contract is current"
+  else
+    fail "Sounio workspace contract doctor reported attention"
+  fi
 
   echo
   echo "== Decision reminder =="

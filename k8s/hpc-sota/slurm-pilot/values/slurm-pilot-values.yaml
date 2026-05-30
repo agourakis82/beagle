@@ -243,8 +243,8 @@ nodesets:
     workloadDisruptionProtection: true
     slurmd:
       image:
-        repository: ghcr.io/slinkyproject/slurmd
-        tag: 25.11-ubuntu24.04
+        repository: 192.168.3.207:5003/slurmd-sounio-toolchain
+        tag: 25.11-ubuntu24.04-gcc-20260523T090133Z
       imagePullPolicy: Always
       resources:
         requests:

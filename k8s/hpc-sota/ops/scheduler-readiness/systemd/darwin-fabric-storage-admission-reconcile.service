@@ -1,0 +1,11 @@
+[Unit]
+Description=Reconcile Kueue fabric/storage AdmissionCheck from Darwin ops host
+Documentation=file:/home/devsounio/beagle/k8s/hpc-sota/ops/scheduler-readiness/FABRIC_STORAGE_ADMISSION.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/env bash /home/devsounio/beagle/k8s/hpc-sota/ops/scheduler-readiness/fabric-storage-admission-reconcile.sh

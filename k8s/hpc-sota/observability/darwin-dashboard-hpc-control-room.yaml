@@ -221,9 +221,9 @@ data:
             "textMode": "auto"
           },
           "targets": [
-            { "expr": "max(kube_statefulset_status_replicas_ready{namespace=\"beagle\",statefulset=\"sounio-workspace-habitat\"})", "instant": true, "refId": "A" }
+            { "expr": "max(kube_statefulset_status_replicas_ready{namespace=\"beagle\",statefulset=\"sounio-workspace-control\"})", "instant": true, "refId": "A" }
           ],
-          "title": "Sounio Habitat Ready",
+          "title": "Sounio Control Workspace Ready",
           "type": "stat"
         },
         {
@@ -533,7 +533,7 @@ data:
             "tooltip": { "mode": "multi", "sort": "desc" }
           },
           "targets": [
-            { "expr": "max by (pod) (kube_pod_status_ready{namespace=\"beagle\",condition=\"true\",pod=~\"sounio-workspace-habitat-.*|sounio-workspace-local-.*|beagle-workspace-local-.*\"})", "legendFormat": "{{pod}}", "refId": "A" },
+            { "expr": "max by (pod) (kube_pod_status_ready{namespace=\"beagle\",condition=\"true\",pod=~\"sounio-workspace-control-0\"})", "legendFormat": "{{pod}}", "refId": "A" },
             { "expr": "max by (pod) (kube_pod_status_ready{namespace=\"tailscale\",condition=\"true\",pod=~\"sounio-workspace-ingress-.*\"})", "legendFormat": "{{pod}}", "refId": "B" }
           ],
           "title": "Sounio Workspace and Tailnet Readiness",
