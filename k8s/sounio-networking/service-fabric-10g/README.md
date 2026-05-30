@@ -159,10 +159,14 @@ The current service plane has been validated live against the cluster:
     `10.30.0.0/24`, and `192.168.3.0/24`
 - the live topology seed in NetBox now also includes:
   - devices `t560-proxmox`, `r770-proxmox`, `r740-proxmox`,
-    `5860-proxmox`, and `arista-7060`
-  - 9 physical cables between the Arista and the host uplinks
+    `5860-proxmox`, planned `dl380-proxmox`, and `arista-7060`
+  - 9 physical cables between the Arista and the current host uplinks
+  - 2 planned cables between the Arista and the future DL380 uplinks
   - host-side logical interfaces for management, underlay, storage,
     GPU fabric, and the 10Gb service plane
+  - planned DL380 fabric reservations:
+    `192.168.3.170`, `10.100.100.5`, `10.200.0.5`, `10.210.0.5`,
+    and `10.30.0.5`
 
 Run the mirror proof again with:
 

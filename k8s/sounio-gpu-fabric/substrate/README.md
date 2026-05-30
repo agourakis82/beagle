@@ -36,6 +36,7 @@ Example:
 ```bash
 ip link property add dev vmbr200 altname gpufabricbr0
 ip link show gpufabricbr0
+```
 
 To make that persistent in this lab, use:
 
@@ -43,7 +44,25 @@ To make that persistent in this lab, use:
 PROXMOX_ROOT_PASSWORD='...' \
   /home/devsounio/beagle/k8s/sounio-gpu-fabric/substrate/normalize-gpufabricbr0-altname.sh
 ```
+
+## Cilium compatibility
+
+Cilium must run with non-exclusive CNI mode in this lab:
+
+```bash
+kubectl -n kube-system get cm cilium-config -o jsonpath='{.data.cni-exclusive}{"\n"}'
 ```
+
+Expected output:
+
+```text
+false
+```
+
+If Cilium is upgraded with `cni.exclusive=true`, it renames the Multus CNI
+config to `*.cilium_bak`. New pods will still start, but Multus annotations will
+be ignored and the `net1` GPU fabric interface will be absent. The readiness
+gate checks for this before running JobSet smokes.
 
 ## Apply
 

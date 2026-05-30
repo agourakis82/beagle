@@ -1,5 +1,16 @@
 # Sounio Workspace Habitat (vNext)
 
+2026-05-22 update:
+
+- the live always-on workspace surface is now
+  [../sounio-workspace-control](../sounio-workspace-control)
+- it mounts the retained habitat PVC
+  `workspace-data-sounio-workspace-habitat-0`
+- stable services `sounio-workspace`, `sounio-workspace-tailnet-http`, and
+  `sounio-workspace-tailnet-ssh` all select `sounio-workspace-control`
+- this GPU-backed habitat remains scaled to `0` for rollback/history and must
+  not be re-enabled casually while the control workspace owns the RWOP PVC
+
 This directory is the node-agnostic workspace design intended to replace the
 current node-pinned `Deployment`.
 
@@ -82,11 +93,44 @@ Rollback rule:
   old workspace service first, then scale the habitat to zero and investigate
   before deleting any persisted data.
 
+## Zellij recovery mode
+
+Superseded by `sounio-workspace-control`; keep this only as emergency history.
+
+As of 2026-05-22, the GPU-backed habitat StatefulSet can stay scaled to zero
+while the historical `sounio-dev` Zellij session is recovered from the retained
+habitat PVC.
+
+Use:
+
+```bash
+kubectl apply -f zellij-recovery-pod.yaml
+kubectl -n beagle patch svc sounio-workspace-tailnet-ssh \
+  -p '{"spec":{"selector":{"app.kubernetes.io/name":"sounio-zellij-recovery"}}}'
+```
+
+Then resurrect the session:
+
+```bash
+ssh -p 2222 openvscode-server@sounio-workspace-ssh.tail21cbc4.ts.net
+zellij attach --create-background --force-run-commands sounio-dev
+```
+
+This recovery pod:
+
+- mounts `workspace-data-sounio-workspace-habitat-0`
+- does not request a GPU
+- keeps `sounio-workspace-tailnet-http` free to point at the lightweight local
+  workspace
+- exists to recover agent histories and WIP, not to become the long-term
+  workspace architecture
+
 Supporting files:
 - [CUTOVER.md](CUTOVER.md)
 - [seed-workspace-data-job.yaml](seed-workspace-data-job.yaml)
 - [preflight.sh](preflight.sh)
 - [cutover.sh](cutover.sh)
+- [zellij-recovery-pod.yaml](zellij-recovery-pod.yaml)
 
 Current hardening focus:
 - the shared bootstrap now treats an existing Git checkout on the PVC as the

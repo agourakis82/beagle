@@ -52,6 +52,7 @@ def main():
         "r770-proxmox",
         "r740-proxmox",
         "5860-proxmox",
+        "dl380-proxmox",
         "arista-7060",
     }
     have_prefixes = {item["prefix"] for item in prefixes.get("results", [])}

@@ -6,7 +6,8 @@ metadata:
 spec:
   # Legacy pre-habitat deployment kept scaled down so future applies do not
   # resurrect the stale workspace surface. The active front door is the
-  # StatefulSet-backed habitat behind the stable `sounio-workspace` service.
+  # StatefulSet-backed control workspace behind the stable `sounio-workspace`
+  # service.
   replicas: 0
   selector:
     matchLabels:
