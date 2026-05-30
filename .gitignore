@@ -1,6 +1,8 @@
 # Rust build artifacts
 target/
 **/target/
+target.pre-*/
+target.*-backup/
 Cargo.lock
 **/*.rs.bk
 *.pdb
@@ -34,8 +36,10 @@ secrets/
 !.env.example
 
 # IDEs
+.kube/
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 *~
@@ -78,6 +82,10 @@ docker-compose.override.yml
 /target/doc/
 /docs/_build/
 
+# Node / frontend local installs
+node_modules/
+**/node_modules/
+
 # Virtual environments
 venv_*/
 .venv_*/
@@ -85,10 +93,22 @@ __pycache__/
 
 # Temporary files
 tmp/
+.tmp-*/
 *.tmp
 *.bak
 .envrc
 .artifacts/darwin-hpc/
+.artifacts/repo-ingest/
+artifacts/
 
 # Gerado por scripts/generate_reality_report.sh (reexecutável)
 audit/reports/REALITY_SNAPSHOT_*.md
+
+# project-cockpit runtime data + QA screenshots + doc tarballs (kept on disk, not versioned)
+apps/project-cockpit/.data/
+apps/project-cockpit/*.png
+apps/project-cockpit/docs/*.tar.gz
+
+# Swift build artifacts (beagle-ios)
+beagle-ios/**/.build/
+beagle-ios/**/.artifacts/
