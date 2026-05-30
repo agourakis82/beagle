@@ -20,10 +20,23 @@ export default function Terminal(props) {
   const [error, setError] = createSignal(null);
 
   onMount(async () => {
+    const probe = document.createElement("canvas").getContext("2d");
+    if (!probe || typeof probe.createLinearGradient !== "function") {
+      setError("terminal runtime unavailable: canvas 2D is incomplete");
+      return;
+    }
+
     // Dynamic imports to avoid SSR issues and reduce initial bundle
-    const { Terminal: XTerm } = await import("xterm");
-    const { FitAddon } = await import("xterm-addon-fit");
-    await import("xterm/css/xterm.css");
+    let XTerm;
+    let FitAddon;
+    try {
+      ({ Terminal: XTerm } = await import("xterm"));
+      ({ FitAddon } = await import("xterm-addon-fit"));
+      await import("xterm/css/xterm.css");
+    } catch (e) {
+      setError(`terminal runtime unavailable: ${e.message}`);
+      return;
+    }
 
     term = new XTerm({
       fontFamily: "var(--font-data, 'JetBrains Mono'), monospace",
@@ -32,25 +45,25 @@ export default function Terminal(props) {
       cursorBlink: true,
       cursorStyle: "bar",
       theme: {
-        background: "#0a1628",      // --surface-1
-        foreground: "#eef5ff",       // --text-primary (approx)
-        cursor: "#51d6bd",           // --truth-observed
-        selectionBackground: "rgba(81, 214, 189, 0.2)",
-        black: "#0a1628",
-        red: "#ef4444",
-        green: "#51d6bd",
-        yellow: "#f4c15e",
-        blue: "#77b8ff",
-        magenta: "#c084fc",
-        cyan: "#51d6bd",
-        white: "#eef5ff",
-        brightBlack: "#162a4a",
-        brightRed: "#f87171",
-        brightGreen: "#6ee7b7",
-        brightYellow: "#fbbf24",
-        brightBlue: "#93c5fd",
-        brightMagenta: "#d8b4fe",
-        brightCyan: "#67e8f9",
+        background: "#000000",
+        foreground: "#f2f2f2",
+        cursor: "#ffffff",
+        selectionBackground: "rgba(255, 255, 255, 0.22)",
+        black: "#000000",
+        red: "#ff7b72",
+        green: "#7ee787",
+        yellow: "#d6b85a",
+        blue: "#79c0ff",
+        magenta: "#d2a8ff",
+        cyan: "#8bd3dd",
+        white: "#f2f2f2",
+        brightBlack: "#8b949e",
+        brightRed: "#ffa198",
+        brightGreen: "#9be9a8",
+        brightYellow: "#e3c76f",
+        brightBlue: "#a5d6ff",
+        brightMagenta: "#e2c5ff",
+        brightCyan: "#b7e7ee",
         brightWhite: "#ffffff",
       },
     });
@@ -151,7 +164,7 @@ export default function Terminal(props) {
     <div style={{
       position: "relative",
       width: "100%",
-      height: props.expanded ? "400px" : "200px",
+      height: props.height || (props.expanded ? "400px" : "200px"),
       "min-height": "120px",
       transition: "height var(--duration-slow) var(--ease-out)",
     }}>
@@ -163,11 +176,13 @@ export default function Terminal(props) {
         "z-index": 2,
         display: "flex",
         "align-items": "center",
-        gap: "var(--space-1)",
-        "font-family": "var(--font-data)",
-        "font-size": "var(--text-xs)",
-        color: connected() ? "var(--truth-observed)" : "var(--text-tertiary)",
-        opacity: 0.6,
+        gap: "6px",
+        padding: "2px 6px",
+        "border-radius": "6px",
+        "font-family": "'SF Mono', ui-monospace, monospace",
+        "font-size": "11px",
+        background: "#000000",
+        color: connected() ? "#7ee787" : "#d8d8d8",
       }}>
         <span>{connected() ? "●" : "○"}</span>
         <span>{connected() ? "live" : error() || "disconnected"}</span>
@@ -179,7 +194,6 @@ export default function Terminal(props) {
         style={{
           width: "100%",
           height: "100%",
-          "border-radius": "var(--radius-sm)",
           overflow: "hidden",
         }}
       />

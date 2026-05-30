@@ -5,6 +5,227 @@ lighter than VS Code and more honest about where persistence really lives.
 
 The first pilot is `Sounio`.
 
+## Workbench mirror
+
+The calm web mirror of the native Beagle Workbench is:
+
+- `/workbench`
+- `/workbench/:slug`
+
+It is intentionally a focus studio, not another cockpit. The route defaults to
+Code, keeps the lane rail collapsed, renders agents as presence dots, and
+exposes Conversation, Artifact, Context, Terminal, and HPC as tabs only when the
+user asks for them. The Code tab is the working room for the selected project:
+continuity packet, RAG++ readback, open handoffs, repository facts, and the
+project validation gate sit beside the composer so coding and pre-coding chat
+stay in one surface. Its quick actions are wired to the same memory mesh:
+Resume and Implement write turns into the workbench conversation, Review with
+Kimi sends a real handoff, and Checkpoint writes a Workbench Context record.
+Open handoffs can be compiled in place into an agent packet with retrieval
+highlights and graph context, then acknowledged, claimed, heartbeated,
+released, or completed from the same Code room.
+It reads the same live contracts as the native workbench:
+
+- `GET /api/projects/:slug/go-work-now?depth=deep`
+- `GET /api/cluster/ops/summary`
+- `GET /api/auth/beagle-discover`
+- `GET /api/workbench/:slug/context/connect`
+- `GET /api/workbench/:slug/context/status`
+- `GET /api/workbench/:slug/context/doctor`
+- `POST /api/workbench/:slug/context/doctor`
+- `GET /api/workbench/:slug/context/clients`
+- `GET /api/workbench/:slug/context/presence`
+- `GET /api/workbench/:slug/context/sessions`
+- `GET /api/workbench/:slug/context/audit`
+- `GET /api/workbench/:slug/context/audit/events`
+- `GET /api/workbench/:slug/context/recent`
+- `GET /api/workbench/:slug/context/continuity`
+- `GET /api/workbench/:slug/context/messages`
+- `GET /api/workbench/:slug/context/messages/board`
+- `GET /api/workbench/:slug/context/messages/inbox/:client_id`
+- `GET /api/workbench/:slug/context/export`
+- `GET /api/workbench/:slug/context/mcp/tools`
+- `POST /api/workbench/:slug/context/mcp`
+- `POST /api/workbench/:slug/mcp`
+- `POST /api/workbench/:slug/context/ingest`
+- `POST /api/workbench/:slug/context/import`
+- `POST /api/workbench/:slug/context/messages/send`
+- `POST /api/workbench/:slug/context/messages/:message_id/ack`
+- `GET /api/workbench/:slug/context/messages/:message_id/compile`
+- `POST /api/workbench/:slug/context/messages/:message_id/compile`
+- `POST /api/workbench/:slug/context/messages/:message_id/claim`
+- `POST /api/workbench/:slug/context/messages/:message_id/complete`
+- `POST /api/workbench/:slug/context/messages/:message_id/release`
+- `POST /api/workbench/:slug/context/messages/:message_id/cancel`
+- `POST /api/workbench/:slug/context/messages/:message_id/reopen`
+- `POST /api/workbench/:slug/context/messages/:message_id/heartbeat`
+- `POST /api/workbench/:slug/context/query`
+- `POST /api/workbench/:slug/context/graphrag/query`
+- `POST /api/workbench/:slug/context/compiler/compile`
+
+The Context tab is the reminder that the studio is not a private chat box:
+Claude Desktop, ChatGPT, Grok, and local zellij agents are expected to share
+Beagle MCP as the memory bus. RAG++ readback is shown beside the conversation
+before the work becomes an agent handoff.
+
+The Workbench context backend is implemented in this app while the currently
+published Beagle Core image does not expose the deeper GraphRAG/compiler routes
+yet. It stores a local append-only Workbench memory overlay, writes the same
+turns through to Beagle Core `/api/memory/ingest_chat`, and queries both the
+local overlay and Beagle Core `/api/memory/query`. This gives the studio real
+read-after-write behavior for Claude Desktop, ChatGPT, Grok, Codex, Kimi, and
+zellij-agent memory instead of waiting for the upstream memory spine to become
+immediately consistent.
+
+The GraphRAG route is intentionally bounded: it builds a small graph projection
+from retrieved memories, sources, sessions, tags, providers, and detected
+entities. The compiler route turns the same retrieval packet into a compact
+context packet for agent handoff. These routes are operational contracts now,
+not decorative UI fixtures, but the deeper long-term home is still Beagle Core.
+
+The agent MCP server exposes the same memory bus as tools:
+
+- `cockpit_workbench_context_status`
+- `cockpit_workbench_context_doctor`
+- `workbench_context_doctor` over HTTP MCP
+- `cockpit_workbench_context_audit`
+- `cockpit_workbench_context_presence`
+- `cockpit_workbench_context_continuity`
+- `cockpit_workbench_context_ingest`
+- `cockpit_workbench_context_query`
+- `cockpit_workbench_context_graphrag`
+- `cockpit_workbench_context_compile`
+- `cockpit_workbench_context_import`
+- `cockpit_workbench_context_export`
+- `cockpit_workbench_context_send`
+- `cockpit_workbench_context_inbox`
+- `cockpit_workbench_context_board`
+- `cockpit_workbench_context_ack`
+- `cockpit_workbench_context_handoff_compile`
+- `cockpit_workbench_context_claim`
+- `cockpit_workbench_context_complete`
+- `cockpit_workbench_context_release`
+- `cockpit_workbench_context_cancel`
+- `cockpit_workbench_context_reopen`
+- `cockpit_workbench_context_heartbeat`
+
+Ingest/import are idempotent by `X-Request-ID`, `idempotencyKey`, `event_id`,
+or stable turn hash, so external MCP clients can retry without duplicating the
+local overlay. The status/audit endpoints expose observed clients, sessions,
+sources, and tags so the UI can distinguish a declared integration from one
+that has actually written memory.
+The continuity packet is the anti-amnesia contract: agents should call it at
+the start of a new turn to recover status, presence, open handoffs, next
+actions, and recent memory before mutating work.
+Handoff messages use the same append-only store instead of a separate queue:
+send/inbox/ack/claim/release/complete/cancel/reopen/heartbeat records are
+searchable by RAG++ and visible in audit/export. Claim is conflict-aware by
+default, so two agents do not silently take the same handoff unless a caller
+uses `force=true`.
+`handoff_compile` turns one handoff `message_id` into an actionable packet with
+the message, thread, ACKs, RAG++ highlights, graph, and plain text context for
+an agent to begin work.
+`claim` and `complete` add append-only ownership and outcome events, so agents
+can see whether a handoff is merely acknowledged, actively owned, or finished.
+
+External clients that can talk HTTP MCP do not need the agent-pod stdio server.
+They can point at `/api/workbench/:slug/context/mcp` or the shorter
+`/api/workbench/:slug/mcp` and call JSON-RPC methods `initialize`,
+`tools/list`, `tools/call`, and `ping`. These tools use the same Beagle auth
+bridge and Beagle Core RAG read/write paths as the REST routes, with the local
+overlay kept as the read-after-write fallback while the Core image catches up.
+`/api/workbench/:slug/context/connect` returns a client connection pack for
+Claude Desktop, Claude Code, ChatGPT, Grok, Codex, Kimi CLI, and local zellij
+agents. It includes the HTTP MCP URLs, stdio-proxy config shape, auth header
+placeholder, tool list, and smoke-test JSON-RPC calls without exposing a token.
+On the cluster deployment, HTTP MCP is configured to require
+`Authorization: Bearer <token>`; local development leaves that switch off unless
+`WORKBENCH_CONTEXT_HTTP_MCP_REQUIRE_AUTH=true` is set.
+Cluster writes are also closed by default with
+`WORKBENCH_CONTEXT_WRITE_REQUIRE_AUTH=true`, covering REST ingest/import and
+mutating doctor probes. Read routes can be closed separately with
+`WORKBENCH_CONTEXT_READ_REQUIRE_AUTH=true`; the web mirror retries context
+query/ingest with the cockpit auth-bridge token when a cluster route returns
+401.
+
+`/api/workbench/:slug/context/doctor` is the operational proof route. By default
+it checks storage writability, Beagle auth, Beagle RAG query, and HTTP MCP
+contract without writing memory. With `write_probe=true`, it writes a sentinel
+through the same ingest path, queries it back, builds the graph, and compiles
+the handoff packet.
+
+The mirror does not execute agent, zellij, cluster, or habitat mutations in this
+phase. It prepares intent locally and leaves dangerous operations behind the
+existing Action Ledger and lease/approval guardrails.
+
+## Darwin control tower
+
+The multi-project operating route is:
+
+- `/projects/os`
+
+Its read-only API is:
+
+- `GET /api/project-os`
+- `GET /api/project-os/actions`
+
+That packet lists every cataloged project with posture, workspace state, branch
+risk, agents, jobs, and propose-only autopilot suggestions.
+
+The compact daily operator route is:
+
+- `/projects/:slug/control`
+
+It reads the existing Cockpit contracts instead of introducing a second source
+of truth:
+
+- `GET /api/projects/:slug/control-plane`
+- `GET /api/projects/:slug/go-work-now`
+- `GET /api/projects/:slug/agent/sessions`
+- `GET /api/projects/:slug/jobs`
+- `GET /api/projects/:slug/actions`
+
+Mutations on that route still go through the existing Cockpit action endpoints
+with explicit confirmation, idempotency keys, and readback refreshes.
+
+The Darwin cluster operator route is:
+
+- `/projects/cluster`
+
+It is the GUI control lane for real supercomputing operations, separate from
+project workspaces. Its read-only APIs are:
+
+- `GET /api/cluster/ops/summary`
+- `GET /api/cluster/ops/actions`
+
+Its execution API is:
+
+- `POST /api/cluster/ops/actions/:actionId/run`
+
+Cluster execution is allowlisted only. Each run requires an Action Ledger
+proposal, `confirm-intent`, `confirmed: true`, and `X-Request-ID`; then the
+server writes a receipt under `BEAGLE_DATA_DIR/cluster-ops/<run_id>/` with
+`run_packet.json`, `stdout.log`, `stderr.log`, and `readback.json`.
+
+The v0 route watches Kubernetes, Cilium, Slurm, OrangeFS, GPU placement, host
+freshness, and the 5860 OrangeFS thin-pool risk. Host mutations are worker-only
+for `r770-proxmox`, `5860-proxmox`, and `r740-proxmox`; `t560-proxmox` remains
+propose-only.
+
+Autopilot in this phase is propose-only. It can name the next move and prepare
+the route/action payload, but it does not execute cluster, agent, or job
+mutations without an explicit human confirmation.
+
+The Action Ledger is the receipt layer for those proposals:
+
+- `POST /api/projects/:slug/actions/propose`
+- `POST /api/projects/:slug/actions/:ledgerId/confirm-intent`
+- `POST /api/projects/:slug/actions/:ledgerId/reject`
+
+Action Ledger v0 records proposal, intent, and control-plane readback only. It
+does not execute jobs, agents, habitats, Slurm, Kubernetes, or workspace
+mutations.
+
 ## UI reset
 
 The current UI/UX has been explicitly called out as not good enough.
@@ -47,6 +268,18 @@ packet per project so the multi-project surface can say, at a glance:
 - what the research lane posture is
 - what the next safe move is for each layer
 - and how to recover the latest observed research artifact when one exists
+
+The sovereign index now also exposes a catalog audit lane:
+
+- `GET /api/catalog/audit`
+- duplicate project slugs are blocking failures
+- catalog path/posture mismatches are blocking failures
+- `ttl.sh/*:24h` image references are warnings
+- warm projects that are currently live are informational operator signals
+
+Habitat mutations from the cockpit consult this audit first. A project with a
+blocking catalog failure cannot be activated or put on standby until the
+catalog contract is fixed.
 
 The sovereign index now also emits a compact `Go work now` packet per project
 so the cockpit can act like an actual control surface instead of a read-only

@@ -240,13 +240,17 @@ async function completeChatRequest(req) {
     req.body?.requires_high_quality === true || req.body?.requiresHighQuality === true;
   const offlineRequired =
     req.body?.offline_required === true || req.body?.offlineRequired === true;
+  const modelProvider = cleanString(req.body?.model_provider || req.body?.modelProvider || req.body?.provider);
+  const requestedModel = cleanString(req.body?.model);
 
   const result = await proxyBeagleCompletion({
     prompt,
     system,
     requires_math: requiresMath,
     requires_high_quality: requiresHighQuality,
-    offline_required: offlineRequired
+    offline_required: offlineRequired,
+    model_provider: modelProvider,
+    model: requestedModel
   });
 
   if (result.status < 200 || result.status >= 300) {
@@ -290,7 +294,9 @@ async function completeChatRequest(req) {
     agentKind: cleanString(result.payload?.agentKind || result.payload?.agent_kind || ""),
     sessionId: cleanString(result.payload?.sessionId || result.payload?.session_id || ""),
     podName: cleanString(result.payload?.podName || result.payload?.pod_name || ""),
-    beagleUrl: cleanString(result.payload?.beagle_url || result.beagleUrl || "")
+    beagleUrl: cleanString(result.payload?.beagle_url || result.beagleUrl || ""),
+    modelRoute: result.payload?.model_route || null,
+    policy: result.payload?.policy || null
   };
 }
 

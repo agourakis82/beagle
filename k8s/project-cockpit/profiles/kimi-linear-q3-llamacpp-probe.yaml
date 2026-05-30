@@ -1,0 +1,158 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kimi-linear-q3-llamacpp-probe
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: kimi-linear-q3-llamacpp-probe
+    app.kubernetes.io/part-of: beagle
+    sounio.dev/lane: kimi-gguf-probe
+    sounio.dev/probe-runtime: llamacpp
+spec:
+  selector:
+    app.kubernetes.io/name: kimi-linear-q3-llamacpp-probe
+  ports:
+    - name: http
+      port: 8007
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kimi-linear-q3-llamacpp-probe
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: kimi-linear-q3-llamacpp-probe
+    app.kubernetes.io/part-of: beagle
+    sounio.dev/lane: kimi-gguf-probe
+    sounio.dev/probe-runtime: llamacpp
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kimi-linear-q3-llamacpp-probe
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kimi-linear-q3-llamacpp-probe
+        app.kubernetes.io/part-of: beagle
+        sounio.dev/lane: kimi-gguf-probe
+        sounio.dev/probe-runtime: llamacpp
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: r770-proxmox
+        sounio.dev/accelerator-class: gpu
+        sounio.dev/accelerator: nvidia-l4
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      initContainers:
+        - name: fetch-gguf
+          image: curlimages/curl:8.17.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              file="/models/kimi-linear-q3-k-s.gguf"
+              if [ -s "${file}" ]; then
+                echo "GGUF already present: ${file}"
+                exit 0
+              fi
+              curl -L --fail --retry 8 --retry-delay 10 --connect-timeout 30 \
+                -o "${file}.part" \
+                "https://huggingface.co/bartowski/moonshotai_Kimi-Linear-48B-A3B-Instruct-GGUF/resolve/main/moonshotai_Kimi-Linear-48B-A3B-Instruct-Q3_K_S.gguf"
+              mv "${file}.part" "${file}"
+              ls -lh "${file}"
+          resources:
+            requests:
+              cpu: "1"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      containers:
+        - name: llama-server
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -lc
+          args:
+            - |
+              set -eu
+              export LD_LIBRARY_PATH=/app:${LD_LIBRARY_PATH:-}
+              exec /app/llama-server \
+                --model /models/kimi-linear-q3-k-s.gguf \
+                --host 0.0.0.0 \
+                --port 8000 \
+                --ctx-size 4096 \
+                --n-gpu-layers 999 \
+                --threads 8 \
+                --parallel 1 \
+                --cont-batching \
+                --jinja
+          env:
+            - name: CUDA_VISIBLE_DEVICES
+              value: "0"
+          ports:
+            - name: http
+              containerPort: 8000
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 240
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 8
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "4"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "10"
+              memory: 48Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: model-cache
+          emptyDir:
+            sizeLimit: 30Gi
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi

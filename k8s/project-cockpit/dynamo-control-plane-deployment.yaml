@@ -23,6 +23,7 @@ spec:
       serviceAccountName: project-cockpit
       nodeSelector:
         kubernetes.io/hostname: r740-proxmox
+        sounio.dev/inference-fabric: "true"
       tolerations:
         - key: sounio.dev/compute
           operator: Equal
@@ -34,7 +35,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: dynamo
-          image: ttl.sh/sounio-sglang-dynamo-runtime-20260409-211149-4fb6e7:24h
+          image: 192.168.3.207:5003/sounio-sglang-dynamo-runtime:dynamo-1.0.1-sglang-lite-20260522T152939Z
           imagePullPolicy: IfNotPresent
           env:
             - name: DYNAMO_ROLE

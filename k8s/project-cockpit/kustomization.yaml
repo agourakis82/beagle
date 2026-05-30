@@ -8,6 +8,7 @@ resources:
   - role.yaml
   - rolebinding.yaml
   - remembered-state-configmap.yaml
+  - data-pvc.yaml
   - deployment.yaml
   - service.yaml
   - cloudflared-beagle-mobile.yaml
@@ -16,3 +17,5 @@ resources:
   - sglang-serving-service.yaml
   - dynamo-control-plane-deployment.yaml
   - dynamo-control-plane-service.yaml
+  - ssm-probe-serving-deployment.yaml
+  - ssm-probe-serving-service.yaml

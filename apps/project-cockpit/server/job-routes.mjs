@@ -20,14 +20,22 @@ import { idempotent } from "./contract.mjs";
 import { applyPreset, listPresets } from "./job-presets.mjs";
 
 const NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
-const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
+const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "kubectl";
 const DEFAULT_IMAGE = process.env.PROJECT_COCKPIT_JOB_DEFAULT_IMAGE || "ttl.sh/beagle-sounio:latest";
 
 // Known data mount profiles — maps short name → k8s volume + mountPath
 const MOUNT_PROFILES = {
+  // OrangeFS is host-mounted on GPU/orangefs worker nodes (same path as cockpit
+  // and cuda-pilot). There is no shared RWX PVC named orangefs-training.
   "orangefs-training": {
-    volume: { name: "orangefs", persistentVolumeClaim: { claimName: "orangefs-training" } },
-    mount:  { name: "orangefs", mountPath: "/orangefs" }
+    volume: {
+      name: "orangefs",
+      hostPath: {
+        path: "/var/lib/orangefs-lab/client-runtime/mnt/training-orangefs",
+        type: "Directory"
+      }
+    },
+    mount: { name: "orangefs", mountPath: "/orangefs" }
   },
   "hf-cache": {
     volume: { name: "hf-cache", emptyDir: { sizeLimit: "20Gi" } },
@@ -70,9 +78,18 @@ function shortId() {
   return randomBytes(4).toString("hex");
 }
 
+function requireConfirmed(body, actionLabel) {
+  if (body?.confirmed === true) {
+    return;
+  }
+  const err = new Error(`${actionLabel} requires confirmed: true`);
+  err.statusCode = 400;
+  throw err;
+}
+
 // ─── K8s Job manifest rendering ───────────────────────────────────────
 
-function renderK8sJob({ slug, campaign, image, command, resources, dataMounts, timeoutSec, jobId, extraLabels }) {
+function renderK8sJob({ slug, campaign, image, command, resources, dataMounts, timeoutSec, jobId, extraLabels, privileged, containerEnv }) {
   const cpuReq = resources?.cpu || "2";
   const memReq = resources?.memory || "8Gi";
   // Default limit = request (avoids NaN when cpuReq is a millicore string like "100m").
@@ -92,6 +109,9 @@ function renderK8sJob({ slug, campaign, image, command, resources, dataMounts, t
 
   // GPU-specific additions
   const nodeSelector = {};
+  if ((dataMounts || []).includes("orangefs-training")) {
+    nodeSelector["sounio.dev/orangefs-client"] = "true";
+  }
   const tolerations = [
     { key: "node-role.kubernetes.io/control-plane", effect: "NoSchedule", operator: "Exists" }
   ];
@@ -136,7 +156,9 @@ function renderK8sJob({ slug, campaign, image, command, resources, dataMounts, t
           labels: {
             "app.kubernetes.io/managed-by": "cockpit",
             project: slug,
-            campaign: campaign || "adhoc"
+            campaign: campaign || "adhoc",
+            "cockpit.sounio.dev/job-id": jobId,
+            ...(extraLabels || {})
           }
         },
         spec: {
@@ -153,7 +175,9 @@ function renderK8sJob({ slug, campaign, image, command, resources, dataMounts, t
             image: image || DEFAULT_IMAGE,
             command: Array.isArray(command) ? command : ["/bin/sh", "-c", String(command)],
             resources: containerResources,
-            volumeMounts
+            volumeMounts,
+            ...(Array.isArray(containerEnv) && containerEnv.length && { env: containerEnv }),
+            ...(privileged && { securityContext: { privileged: true } })
           }],
           volumes
         }
@@ -189,7 +213,9 @@ export async function submitJob(slug, rawOpts) {
     dataMounts: opts.data_mounts || opts.dataMounts,
     timeoutSec: opts.timeout_seconds || opts.timeoutSec,
     jobId,
-    extraLabels: opts.labels
+    extraLabels: opts.labels,
+    privileged: opts.privileged === true,
+    containerEnv: opts.container_env || opts.containerEnv
   });
 
   await runKubectl(
@@ -342,6 +368,7 @@ export async function cancelJob(slug, jobId) {
 export function registerJobRoutes(app) {
   app.post("/api/projects/:slug/jobs/submit", idempotent(), async (req, res) => {
     try {
+      requireConfirmed(req.body, "job submission");
       const result = await submitJob(req.params.slug, req.body || {});
       res.json({ ...result, requestId: req.requestId });
     } catch (e) {
@@ -378,6 +405,7 @@ export function registerJobRoutes(app) {
 
   app.post("/api/projects/:slug/jobs/:jobId/cancel", idempotent(), async (req, res) => {
     try {
+      requireConfirmed(req.body, "job cancellation");
       const result = await cancelJob(req.params.slug, req.params.jobId);
       res.json({ ...result, requestId: req.requestId });
     } catch (e) {

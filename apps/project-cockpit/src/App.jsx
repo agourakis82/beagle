@@ -10,7 +10,7 @@
  * Glass panels float over it with glassmorphism.
  */
 import { onMount, onCleanup, lazy, Suspense } from "solid-js";
-import { Router, Route } from "@solidjs/router";
+import { Router, Route, useLocation } from "@solidjs/router";
 import { initScene, resizeScene, destroyScene } from "./engine/scene";
 import CommandPalette from "./components/CommandPalette";
 import KeyboardOverlay from "./components/KeyboardOverlay";
@@ -18,10 +18,15 @@ import AudioControl from "./components/AudioControl";
 import ErrorBoundary from "./components/ErrorBoundary";
 
 const CommandBridge = lazy(() => import("./pages/CommandBridge"));
+const ProjectOS = lazy(() => import("./pages/ProjectOS"));
+const ClusterOps = lazy(() => import("./pages/ClusterOps"));
 const ControlRoom = lazy(() => import("./pages/ControlRoom"));
+const ControlTower = lazy(() => import("./pages/ControlTower"));
 const ScientificViewport = lazy(() => import("./pages/ScientificViewport"));
 const PublicPortal = lazy(() => import("./pages/PublicPortal"));
 const Cognitive = lazy(() => import("./pages/Cognitive"));
+const WorkbenchMirror = lazy(() => import("./pages/WorkbenchMirror"));
+const ScratchStudio = lazy(() => import("./pages/ScratchStudio"));
 
 // Vision surfaces — 9 routes, shared VisionSurface template (all in one chunk)
 const VisionControlRoom     = lazy(() => import("./pages/vision").then(m => ({ default: m.ControlRoom })));
@@ -76,18 +81,30 @@ function Loading() {
   );
 }
 
+function RoutedShell(props) {
+  const location = useLocation();
+  const isWorkbenchMirror = () => location.pathname.startsWith("/workbench") || location.pathname.startsWith("/workbench-old");
+
+  return (
+    <>
+      {!isWorkbenchMirror() && <CommandPalette />}
+      {!isWorkbenchMirror() && <KeyboardOverlay />}
+      {props.children}
+      {!isWorkbenchMirror() && <AudioControl />}
+    </>
+  );
+}
+
 export default function App() {
   let canvasRef;
 
-  onMount(async () => {
+  onMount(() => {
     if (canvasRef) {
       canvasRef.width = window.innerWidth;
       canvasRef.height = window.innerHeight;
-      try {
-        await initScene(canvasRef);
-      } catch (e) {
+      initScene(canvasRef).catch((e) => {
         console.warn("[app] GPU scene init failed:", e.message);
-      }
+      });
     }
 
     const handleResize = () => {
@@ -125,23 +142,25 @@ export default function App() {
       {/* Layer 1: SolidJS DOM — glass panels over GPU canvas */}
       <main
         role="main"
-        aria-label="Sovereign supercomputing cockpit"
+        aria-label="Project Cockpit"
         style={{
           position: "relative",
           "z-index": 1,
           width: "100%",
           height: "100%",
         }}>
-        {/* Command Palette — ⌘K global */}
-        <CommandPalette />
-        {/* Keyboard Overlay — ? global */}
-        <KeyboardOverlay />
-
         <ErrorBoundary>
           <Suspense fallback={<Loading />}>
-            <Router>
+            <Router root={RoutedShell}>
             <Route path="/" component={CommandBridge} />
             <Route path="/projects" component={CommandBridge} />
+            <Route path="/projects/os" component={ProjectOS} />
+            <Route path="/projects/cluster" component={ClusterOps} />
+            <Route path="/workbench" component={ScratchStudio} />
+            <Route path="/workbench/:slug" component={ScratchStudio} />
+            <Route path="/workbench-old" component={WorkbenchMirror} />
+            <Route path="/workbench-old/:slug" component={WorkbenchMirror} />
+            <Route path="/projects/:slug/control" component={ControlTower} />
             <Route path="/projects/:slug" component={ControlRoom} />
             <Route path="/projects/:slug/viewer" component={ScientificViewport} />
 
@@ -172,9 +191,6 @@ export default function App() {
           </Suspense>
         </ErrorBoundary>
       </main>
-
-      {/* Layer 3: Audio control — fixed position */}
-      <AudioControl />
     </div>
   );
 }

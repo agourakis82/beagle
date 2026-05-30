@@ -10,11 +10,23 @@ rules:
     resources: ["namespaces"]
     verbs: ["get", "list"]
   - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: [""]
     resources:
       - pods
       - services
       - endpoints
     verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
   - apiGroups: ["discovery.k8s.io"]
     resources:
       - endpointslices
@@ -24,6 +36,9 @@ rules:
     verbs: ["get", "list"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
     verbs: ["get", "list"]
   - apiGroups: ["nvidia.com"]
     resources: ["dynamoworkermetadatas"]

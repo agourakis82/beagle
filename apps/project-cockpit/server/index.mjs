@@ -8,14 +8,25 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import pty from "node-pty";
-import { registerAgentRoutes, attachAgentWebSocket } from "./agent-routes.mjs";
+import { registerAgentRoutes, attachAgentWebSocket, listAgentSessions } from "./agent-routes.mjs";
+import { registerWorkspaceZellijRoutes } from "./workspace-zellij-routes.mjs";
 import { registerManifestRoutes, idempotent, ErrorCode } from "./contract.mjs";
-import { registerJobRoutes } from "./job-routes.mjs";
+import { registerJobRoutes, listJobs } from "./job-routes.mjs";
 import { registerMobileRoutes } from "./mobile-routes.mjs";
 import { registerQueueRoutes } from "./queue-routes.mjs";
 import { registerAuthBridgeRoutes } from "./auth-bridge.mjs";
 import { startJobReconciler } from "./job-reconciler.mjs";
 import { registerScratchpadRoutes } from "./scratchpad-routes.mjs";
+import { listActionLedgerEntries, registerActionLedgerRoutes } from "./action-ledger-routes.mjs";
+import { registerClusterOpsRoutes } from "./cluster-ops-routes.mjs";
+import { registerWorkbenchContextRoutes } from "./workbench-context-routes.mjs";
+import {
+  registerMultimodelChatRoutes,
+  attachMultimodelChatWebSocket,
+  notifyMultimodelContextMessage,
+  notifyMultimodelClientPresence
+} from "./multimodel-chat-routes.mjs";
+import { buildModelRegistry } from "./model-registry.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,7 +35,10 @@ const publicCatalogPath = path.join(rootDir, "public", "project-catalog.json");
 const distDir = path.join(rootDir, "dist");
 const port = Number(process.env.PROJECT_COCKPIT_PORT || 4370);
 const host = process.env.PROJECT_COCKPIT_HOST || "0.0.0.0";
-const kubectlBin = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
+const foundryArtifactRoot =
+  process.env.PROJECT_COCKPIT_SOUNIO_FOUNDRY_ARTIFACT_ROOT ||
+  "/orangefs/training/sounio-foundry/runs";
+const kubectlBin = process.env.PROJECT_COCKPIT_KUBECTL || "kubectl";
 const sessionStatePath =
   process.env.PROJECT_COCKPIT_SESSION_STATE || "/tmp/project-cockpit/session-state.json";
 const sessionTtlMs = Number(process.env.PROJECT_COCKPIT_SESSION_TTL_MS || 15 * 60 * 1000);
@@ -274,6 +288,85 @@ async function getProjectOrThrow(slug) {
     throw error;
   }
   return project;
+}
+
+function validateFoundryRunId(runId) {
+  const clean = String(runId || "").trim();
+  if (!/^[A-Za-z0-9._:-]+$/.test(clean) || clean.includes("..") || clean.includes("/")) {
+    const error = new Error(`invalid Foundry run id: ${runId}`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return clean;
+}
+
+async function readFoundryRunSummary(project, runId) {
+  const cleanRunId = validateFoundryRunId(runId);
+  const runDir = path.join(foundryArtifactRoot, cleanRunId);
+  const summaryPath = path.join(runDir, "summary.json");
+  const gpuSummaryPath = path.join(runDir, "summary-gpu.json");
+  const runPacketPath = path.join(runDir, "run_packet.json");
+  const [summaryRaw, gpuSummaryRaw, runPacketRaw] = await Promise.all([
+    fs.readFile(summaryPath, "utf8"),
+    fs.readFile(gpuSummaryPath, "utf8").catch(() => ""),
+    fs.readFile(runPacketPath, "utf8").catch(() => "")
+  ]);
+  const summary = JSON.parse(summaryRaw);
+  const gpuSummary = gpuSummaryRaw ? JSON.parse(gpuSummaryRaw) : null;
+  const runPacket = runPacketRaw ? JSON.parse(runPacketRaw) : null;
+  return {
+    projectSlug: project.projectSlug,
+    runId: cleanRunId,
+    truthMode: "observed",
+    artifactRoot: foundryArtifactRoot,
+    hostArtifactRoot: project.foundryArtifactRoot || "",
+    artifactPath: runDir,
+    summary,
+    gpuSummary,
+    runPacket,
+    files: {
+      summary: `${runDir}/summary.json`,
+      gpuSummary: gpuSummary ? `${runDir}/summary-gpu.json` : "",
+      runPacket: runPacket ? `${runDir}/run_packet.json` : "",
+      junit: `${runDir}/junit.xml`,
+      results: `${runDir}/results.tsv`,
+      logs: `${runDir}/logs/`
+    }
+  };
+}
+
+async function listFoundryRuns(project, limit = 12) {
+  const entries = await fs.readdir(foundryArtifactRoot, { withFileTypes: true });
+  const runs = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory() && /^sounio-/.test(entry.name))
+      .map(async (entry) => {
+        const runDir = path.join(foundryArtifactRoot, entry.name);
+        const stat = await fs.stat(runDir).catch(() => null);
+        let status = "unknown";
+        try {
+          const raw = await fs.readFile(path.join(runDir, "summary.json"), "utf8");
+          status = JSON.parse(raw)?.status || status;
+        } catch {
+          // Best-effort listing; detailed reads report parse/file errors.
+        }
+        return {
+          runId: entry.name,
+          status,
+          mtime: stat?.mtime?.toISOString?.() || "",
+          artifactPath: runDir
+        };
+      })
+  );
+  return {
+    projectSlug: project.projectSlug,
+    truthMode: "observed",
+    artifactRoot: foundryArtifactRoot,
+    hostArtifactRoot: project.foundryArtifactRoot || "",
+    runs: runs
+      .sort((left, right) => cleanValue(right.mtime).localeCompare(cleanValue(left.mtime)))
+      .slice(0, Math.max(1, Math.min(100, Number(limit) || 12)))
+  };
 }
 
 function runCommand(command, args, options = {}) {
@@ -971,13 +1064,36 @@ function buildSovereignHabitatSummary(project, clusterState = null, ide = null) 
   const workspacePod = clusterState?.workspacePod || null;
   const workspaceWorkload = clusterState?.workspaceWorkload || null;
   const browserUrl = cleanValue(project?.workspacePublicUrl || project?.workspaceBrowserUrl || "");
+  const workspaceKind =
+    cleanValue(project?.workspaceRole || "") === "control-workspace-submit-only"
+      ? "control workspace"
+      : "workspace";
+  const workspaceMissing =
+    workspacePod?.phase === "NotFound" ||
+    /NotFound/i.test(String(workspacePod?.error || "")) ||
+    /NotFound/i.test(String(workspaceWorkload?.error || ""));
   if (workspacePod?.name) {
+    if (cleanValue(project?.mode || "") === "warm" && workspaceMissing) {
+      return {
+        status: "standby",
+        summary: `${workspaceKind} is cataloged for this warm project but has not been promoted to a live StatefulSet yet`,
+        workspaceId: cleanValue(project?.workspaceId || ""),
+        workloadName: cleanValue(workspaceWorkload?.name || inferWorkspaceStatefulSetName(project)),
+        podName: "",
+        nodeName: "",
+        browserUrl,
+        sshHost: cleanValue(project?.sshHost || ""),
+        workspaceRoot: cleanValue(project?.workspaceRoot || ""),
+        ideStatus: cleanValue(ide?.status || ""),
+        ready: false
+      };
+    }
     const live = workspacePod.phase === "Running" && workspacePod.ready;
     return {
       status: live ? "live" : "recovering",
       summary: live
-        ? `workspace habitat live on ${workspacePod.nodeName || "unknown node"}`
-        : `workspace habitat observed as ${workspacePod.phase || "Unknown"}`,
+        ? `${workspaceKind} live on ${workspacePod.nodeName || "unknown node"}`
+        : `${workspaceKind} observed as ${workspacePod.phase || "Unknown"}`,
       workspaceId: cleanValue(project?.workspaceId || ""),
       workloadName: cleanValue(workspaceWorkload?.name || inferWorkspaceStatefulSetName(project)),
       podName: cleanValue(workspacePod.name || ""),
@@ -992,7 +1108,7 @@ function buildSovereignHabitatSummary(project, clusterState = null, ide = null) 
   if (cleanValue(project?.mode || "") === "warm") {
     return {
       status: "standby",
-      summary: "workspace habitat is cataloged with retained continuity and can be activated intentionally",
+      summary: `${workspaceKind} is cataloged with retained continuity and can be activated intentionally`,
       workspaceId: cleanValue(project?.workspaceId || ""),
       workloadName: inferWorkspaceStatefulSetName(project),
       podName: "",
@@ -1006,7 +1122,7 @@ function buildSovereignHabitatSummary(project, clusterState = null, ide = null) 
   }
   return {
     status: "declared",
-    summary: "workspace habitat is declared from catalog/policy, not currently observed as a live pod",
+    summary: `${workspaceKind} is declared from catalog/policy, not currently observed as a live pod`,
     workspaceId: cleanValue(project?.workspaceId || ""),
     workloadName: inferWorkspaceStatefulSetName(project),
     podName: "",
@@ -1050,7 +1166,7 @@ function buildProjectSovereignSurface(project, { clusterState = null, ide = null
       preferredBaseUrl: buildGitHubBranchUrl(repoUrl, preferredBase)
     },
     boundaries: [
-      "workspace habitat != research job",
+      "workspace control surface != research job",
       "cluster truth stays infrastructure-shaped",
       "research operations remain run-shaped and ephemeral"
     ],
@@ -1144,6 +1260,10 @@ function buildGoWorkNowPacket(project, operatingPosture = null, clusterState = n
   const workspacePublicUrl = cleanValue(project?.workspacePublicUrl || "");
   const workspaceInternalUrl = cleanValue(project?.workspaceBrowserUrl || "");
   const cockpitRoute = `/projects/${project?.projectSlug || "unknown"}`;
+  const primaryEntry =
+    cleanValue(project?.projectSlug || "") === "sounio"
+      ? "sounio dev"
+      : `dev ${cleanValue(project?.projectSlug || "project")}`;
   const publicShowcaseRoute = `/public/projects/${project?.projectSlug || "unknown"}`;
   const viewerRoute = `/projects/${project?.projectSlug || "unknown"}/viewer`;
   const missionControlRoute =
@@ -1188,13 +1308,13 @@ kubectl -n ${namespace} rollout status statefulset/${workspaceController} --time
     `workspace public: ${workspacePublicUrl || "not published"}`,
     `workspace internal: ${workspaceInternalUrl || "not declared"}`,
     "",
-    "activate habitat:",
+    "activate workspace:",
     activateHabitat,
     "",
     "attach shell/tmux:",
     attachTmux,
     "",
-    "return to standby:",
+    "return workspace to standby:",
     standbyHabitat
   ];
   if (latestOperation?.artifactRecoveryCommand) {
@@ -1210,6 +1330,8 @@ kubectl -n ${namespace} rollout status statefulset/${workspaceController} --time
     generatedAt: new Date().toISOString(),
     lane: "project-go-work-now",
     summary: `go work now packet for ${cleanValue(project?.projectSlug || "unknown")}`,
+    primaryEntry,
+    entrypoint: primaryEntry,
     project: {
       slug: cleanValue(project?.projectSlug || "unknown"),
       posture,
@@ -2450,31 +2572,6 @@ async function probeDatasetMetadata(dataset) {
   if (!baseUrl || !String(dataset?.sourceKind || "").match(/^(real|manifest)$/)) {
     return null;
   }
-  const cacheKey = baseUrl;
-  const cached = getCachedDatasetMetadata(cacheKey, { allowStale: true });
-  if (cached?.value) {
-    if (cached.isStale && !cached.promise) {
-      const refresh = (async () => {
-        const value = await probeDatasetMetadata({ ...dataset, omeZarrUrl: baseUrl, _noCache: true });
-        setCachedDatasetMetadata(cacheKey, value, null);
-        return value;
-      })().catch(() => {
-        const current = getCachedDatasetMetadata(cacheKey, { allowStale: true });
-        if (current?.value) {
-          setCachedDatasetMetadata(cacheKey, current.value, null);
-          return current.value;
-        }
-        invalidateCachedDatasetMetadata(cacheKey);
-        return null;
-      });
-      setCachedDatasetMetadata(cacheKey, cached.value, refresh);
-    }
-      return {
-        ...cached.value,
-        source: cached.value?.ok ? (cached.isStale ? "cached" : "live") : "policy-fallback",
-        truthMode: cached.value?.ok ? (cached.isStale ? "remembered" : "observed") : "declared"
-      };
-  }
 
   if (dataset?._noCache) {
     const candidates = [`${baseUrl}/zarr.json`, `${baseUrl}/.zattrs`];
@@ -2499,6 +2596,32 @@ async function probeDatasetMetadata(dataset) {
       observedAt: new Date().toISOString(),
       error: lastError || "metadata probe failed"
     };
+  }
+
+  const cacheKey = baseUrl;
+  const cached = getCachedDatasetMetadata(cacheKey, { allowStale: true });
+  if (cached?.value) {
+    if (cached.isStale && !cached.promise) {
+      const refresh = (async () => {
+        const value = await probeDatasetMetadata({ ...dataset, omeZarrUrl: baseUrl, _noCache: true });
+        setCachedDatasetMetadata(cacheKey, value, null);
+        return value;
+      })().catch(() => {
+        const current = getCachedDatasetMetadata(cacheKey, { allowStale: true });
+        if (current?.value) {
+          setCachedDatasetMetadata(cacheKey, current.value, null);
+          return current.value;
+        }
+        invalidateCachedDatasetMetadata(cacheKey);
+        return null;
+      });
+      setCachedDatasetMetadata(cacheKey, cached.value, refresh);
+    }
+      return {
+        ...cached.value,
+        source: cached.value?.ok ? (cached.isStale ? "cached" : "live") : "policy-fallback",
+        truthMode: cached.value?.ok ? (cached.isStale ? "remembered" : "observed") : "declared"
+      };
   }
 
   const pending = probeDatasetMetadata({ ...dataset, omeZarrUrl: baseUrl, _noCache: true })
@@ -2687,8 +2810,17 @@ function normalizeProjectCatalogProject(project) {
     ...buildDefaultViewerDefaults({ ...project, datasetCatalog }),
     ...(project?.viewerDefaults || {})
   };
+  const workspaceId = cleanValue(project?.workspaceId || `${project?.projectSlug || "project"}-workspace`);
+  const declaredWorkspacePod = cleanValue(project?.workspacePod || "");
+  const workspacePod =
+    project?.projectSlug === "sounio" && declaredWorkspacePod
+      ? declaredWorkspacePod
+      : declaredWorkspacePod && declaredWorkspacePod !== `${workspaceId}-habitat-0`
+        ? declaredWorkspacePod
+        : `${workspaceId}-0`;
   return {
     ...project,
+    workspacePod,
     branch: sourceBranch,
     workspaceBootstrapBranch,
     preferredPrBase:
@@ -3359,7 +3491,7 @@ function humanizeMergeReadinessLabel(value) {
     closed: "PR closed",
     "review-required": "review required",
     "changes-requested": "changes requested",
-    "dirty-habitat": "dirty habitat",
+    "dirty-workspace": "dirty workspace",
     "merge-ready-ish": "merge-ready-ish",
     "pushed-awaiting-pr": "pushed, awaiting PR"
   };
@@ -4783,6 +4915,15 @@ async function buildCatalogExecutiveEntry(
   return {
     projectSlug: project.projectSlug,
     mode: project?.mode || "undeclared",
+    namespace: project?.namespace || "beagle",
+    branch: project?.branch || "",
+    workspaceBootstrapBranch: project?.workspaceBootstrapBranch || "",
+    preferredPrBase: project?.preferredPrBase || project?.branch || "",
+    workspaceRoot: project?.workspaceRoot || "",
+    workspaceBrowserUrl: project?.workspaceBrowserUrl || "",
+    workspacePublicUrl: project?.workspacePublicUrl || "",
+    tmuxSession: project?.tmuxSession || "",
+    workstreamId: project?.workstreamId || "",
     memoryStatus,
     workspace: memory?.workspace || null,
     publication: memory?.publication || null,
@@ -5023,14 +5164,384 @@ async function buildGoWorkNowResponse(project, depth = "fast") {
   };
 }
 
+function buildControlPlaneAction({
+  id,
+  label,
+  kind,
+  method = "GET",
+  route,
+  body = null,
+  enabled = true,
+  destructive = false,
+  requiresConfirmation = false,
+  reason = ""
+}) {
+  return {
+    id,
+    label,
+    kind,
+    method,
+    route,
+    body,
+    enabled: Boolean(enabled),
+    destructive: Boolean(destructive),
+    requiresConfirmation: Boolean(requiresConfirmation),
+    reason: cleanValue(reason)
+  };
+}
+
+function buildAutopilotProposal({
+  id,
+  label,
+  kind = "proposal",
+  summary,
+  risk = "low",
+  actionId = "",
+  route = "",
+  command = "",
+  enabled = true,
+  reason = ""
+}) {
+  return {
+    id,
+    label,
+    kind,
+    summary,
+    risk,
+    actionId,
+    route,
+    command,
+    enabled: Boolean(enabled),
+    requiresConfirmation: true,
+    executed: false,
+    mode: "propose-only",
+    reason: cleanValue(reason)
+  };
+}
+
+function buildAutopilotPacket(project, {
+  state,
+  nextSafeMove,
+  blockers = [],
+  notices = [],
+  actions = []
+} = {}) {
+  const actionMap = new Map(actions.map((action) => [action.id, action]));
+  const proposals = [];
+  const posture = cleanValue(state?.posture || project?.mode || "");
+  const workspaceStatus = cleanValue(state?.workspaceStatus || "");
+  const isLive = workspaceStatus === "live" || workspaceStatus === "ready";
+  const dirtyCount = Number(state?.publishableDirtyCount ?? state?.dirtyCount ?? 0);
+
+  proposals.push(buildAutopilotProposal({
+    id: "run-healthcheck",
+    label: "run healthcheck",
+    kind: "readback",
+    summary: `Read current project health before acting on ${project.projectSlug}.`,
+    command: `dev darwin-ide health ${project.projectSlug}`
+  }));
+
+  if (state?.branchDrift) {
+    proposals.push(buildAutopilotProposal({
+      id: "review-branch-drift",
+      label: "review branch drift",
+      kind: "review",
+      summary: `Observed branch ${state.observedBranch || "unknown"} differs from preferred ${state.preferredBranch || "unknown"}.`,
+      risk: "medium",
+      command: `dev darwin-ide whereami ${project.projectSlug}`
+    }));
+  }
+
+  if (dirtyCount > 0) {
+    proposals.push(buildAutopilotProposal({
+      id: "review-dirty-workspace",
+      label: "review dirty workspace",
+      kind: "review",
+      summary: `${dirtyCount} dirty/publishable item(s) are visible before writer work.`,
+      risk: "medium",
+      command: `dev status ${project.projectSlug}`
+    }));
+  }
+
+  for (const blocker of blockers) {
+    proposals.push(buildAutopilotProposal({
+      id: `fix-${cleanValue(blocker.code || "blocker").toLowerCase()}`,
+      label: "fix blocking contract",
+      kind: "blocker",
+      summary: blocker.summary || blocker.reason || "Catalog contract blocks mutation.",
+      risk: "high",
+      enabled: false,
+      reason: "manual catalog repair required"
+    }));
+  }
+
+  const warmLiveNotices = [
+    ...notices.filter((item) => item.code === "WARM_PROJECT_ACTIVE"),
+    ...(posture === "warm" && isLive
+      ? [{
+          summary: "Warm project is currently live; decide whether this is intentional."
+        }]
+      : [])
+  ];
+  for (const notice of warmLiveNotices.slice(0, 1)) {
+    proposals.push(buildAutopilotProposal({
+      id: "review-warm-live",
+      label: "review warm live session",
+      kind: "review",
+      summary: notice.summary || "Warm project is currently live; decide whether this is intentional.",
+      risk: "medium",
+      route: `/projects/${project.projectSlug}/control`
+    }));
+  }
+
+  const activate = actionMap.get("activate-habitat");
+  if (!isLive && activate?.enabled !== false) {
+    proposals.push(buildAutopilotProposal({
+      id: "prepare-activate-workspace",
+      label: "prepare activate workspace",
+      kind: "mutation-proposal",
+      summary: `Prepare workspace activation for ${project.projectSlug}.`,
+      actionId: "activate-habitat",
+      route: activate?.route || "",
+      risk: posture === "cold" ? "medium" : "low"
+    }));
+  }
+
+  const startAgent = actionMap.get("start-agent");
+  if (startAgent?.enabled !== false) {
+    proposals.push(buildAutopilotProposal({
+      id: "prepare-start-agent",
+      label: "prepare start agent",
+      kind: "mutation-proposal",
+      summary: "Prepare a Codex agent session with Project Cockpit MCP context.",
+      actionId: "start-agent",
+      route: startAgent?.route || "",
+      risk: "low"
+    }));
+  }
+
+  const smoke = actionMap.get("submit-smoke");
+  if (smoke?.enabled !== false) {
+    proposals.push(buildAutopilotProposal({
+      id: "prepare-smoke-job",
+      label: "prepare smoke job",
+      kind: "mutation-proposal",
+      summary: "Prepare the smallest compute smoke through the Cockpit job contract.",
+      actionId: "submit-smoke",
+      route: smoke?.route || "",
+      risk: "low"
+    }));
+  }
+
+  return {
+    mode: "propose-only",
+    generatedAt: new Date().toISOString(),
+    summary: nextSafeMove || "Observe project state, then propose the next safe move.",
+    policy: {
+      mayExecute: false,
+      mutationRule: "autopilot prepares proposals only; all mutations require explicit confirmation and readback",
+      allowedWithoutConfirmation: ["readback", "healthcheck", "route-open"]
+    },
+    proposals
+  };
+}
+
+async function buildProjectControlPlaneResponse(project) {
+  const catalog = await loadCatalog().catch(() => ({ projects: [project] }));
+  const catalogAudit = buildProjectCatalogAudit(catalog?.projects || [project]);
+  const findings = catalogAudit.findings.filter(
+    (finding) => finding.projectSlug === project.projectSlug
+  );
+  const blockers = findings.filter((finding) => finding.severity === "fail");
+  const notices = findings.filter((finding) => finding.severity !== "fail");
+  const [fastCluster, operationalTruth] = await Promise.all([
+    withTimeout(
+      readCachedFastClusterState(project, { preferStale: true }),
+      `control plane cluster ${project.projectSlug}`,
+      1500
+    ).catch(() => null),
+    withTimeout(
+      resolveOperationalTruth(project),
+      `control plane operational truth ${project.projectSlug}`,
+      1500
+    ).catch(() => null)
+  ]);
+  const clusterState = fastCluster?.value || null;
+  const clusterLaneTruth = operationalTruth?.clusterLaneTruth || buildDefaultClusterLaneTruth();
+  const researchOperations =
+    operationalTruth?.researchOperations || buildDefaultResearchOperations(project);
+  const operatingPosture = buildProjectOperatingPosture(
+    project,
+    clusterLaneTruth,
+    researchOperations
+  );
+  const goWorkPacket = buildGoWorkNowPacket(project, operatingPosture, clusterState);
+  const workspaceState = goWorkPacket.workspaceState || {};
+  const workspaceStatus =
+    cleanValue(workspaceState.status || workspaceState.phase) ||
+    (project.mode === "always-on" ? "expected-live" : "standby");
+  const primaryEntry =
+    cleanValue(goWorkPacket.primaryEntry || goWorkPacket.entrypoint) ||
+    (project.projectSlug === "sounio" ? "sounio dev" : `dev ${project.projectSlug}`);
+  const preferredBranch =
+    cleanValue(project.preferredPrBase || project.branch || "");
+  const git = await withTimeout(
+    readGitStatus(project),
+    `control plane git ${project.projectSlug}`,
+    Math.min(fastGitStatusTimeoutMs, 2000)
+  )
+    .then((status) => ({
+      status: "observed",
+      branch: status.branch || "",
+      dirtyCount: status.dirtyCount,
+      publishableDirtyCount: status.publishableDirtyCount
+    }))
+    .catch((error) => ({
+      status: "unavailable",
+      branch: "",
+      dirtyCount: null,
+      publishableDirtyCount: null,
+      error: error.message
+    }));
+  const branchDrift = Boolean(git.branch && preferredBranch && git.branch !== preferredBranch);
+  const catalogStatus =
+    blockers.length > 0 ? "blocked" : notices.some((item) => item.severity === "warn") ? "attention" : "clean";
+  const canMutateCatalog = blockers.length === 0;
+  const isAlwaysOn = cleanValue(project.mode) === "always-on";
+  const isLive = workspaceStatus === "live" || workspaceStatus === "ready";
+  const nextSafeMove =
+    blockers.length > 0
+      ? "Fix the catalog contract before mutating this project."
+      : branchDrift
+        ? `Reconcile branch ${git.branch} against ${preferredBranch} before writer agents publish.`
+        : project.projectSlug === "sounio"
+          ? "Use sounio dev for the language lane; use this cockpit for agents, jobs, and project truth."
+          : isLive
+            ? `Use ${primaryEntry}; attach agents or submit compute from this cockpit.`
+            : `Activate the workspace from this cockpit, then enter with ${primaryEntry}.`;
+
+  const actions = [
+    buildControlPlaneAction({
+      id: "open-cockpit",
+      label: "open cockpit",
+      kind: "route",
+      route: `/projects/${project.projectSlug}`
+    }),
+    buildControlPlaneAction({
+      id: "open-viewer",
+      label: "viewer",
+      kind: "route",
+      route: `/projects/${project.projectSlug}/viewer`
+    }),
+    buildControlPlaneAction({
+      id: "activate-habitat",
+      label: isAlwaysOn ? "verify workspace" : "activate workspace",
+      kind: "mutation",
+      method: "POST",
+      route: `/api/projects/${project.projectSlug}/go-work-now/actions/activate-habitat`,
+      body: { confirmed: true },
+      enabled: canMutateCatalog,
+      requiresConfirmation: true,
+      reason: canMutateCatalog ? "" : "catalog contract has blocking findings"
+    }),
+    buildControlPlaneAction({
+      id: "standby-habitat",
+      label: "standby workspace",
+      kind: "mutation",
+      method: "POST",
+      route: `/api/projects/${project.projectSlug}/go-work-now/actions/standby-habitat`,
+      body: { confirmed: true },
+      enabled: canMutateCatalog && !isAlwaysOn && isLive,
+      destructive: true,
+      requiresConfirmation: true,
+      reason: isAlwaysOn
+        ? "always-on projects stay live"
+        : isLive
+          ? ""
+          : "workspace is not currently live"
+    }),
+    buildControlPlaneAction({
+      id: "start-agent",
+      label: "start codex",
+      kind: "mutation",
+      method: "POST",
+      route: `/api/projects/${project.projectSlug}/agent/session/start`,
+      body: { confirmed: true, kind: "codex" },
+      enabled: canMutateCatalog,
+      requiresConfirmation: true
+    }),
+    buildControlPlaneAction({
+      id: "submit-smoke",
+      label: "submit smoke",
+      kind: "mutation",
+      method: "POST",
+      route: `/api/projects/${project.projectSlug}/jobs/submit`,
+      body:
+        project.projectSlug === "sounio"
+          ? { confirmed: true, preset: "sounio-compile-example" }
+          : {
+              confirmed: true,
+              command: ["bash", "-lc", "echo project-cockpit-contract-smoke"],
+              resources: { cpu: "1", memory: "1Gi", gpu: 0 },
+              data_mounts: ["work-tmp"],
+              timeout_seconds: 120
+            },
+      enabled: canMutateCatalog,
+      requiresConfirmation: true
+    })
+  ];
+  const state = {
+    posture: cleanValue(project.mode || "undeclared"),
+    namespace: cleanValue(project.namespace || "beagle"),
+    workspaceStatus,
+    workspacePod: cleanValue(project.workspacePod || ""),
+    workspaceRoot: cleanValue(project.workspaceRoot || ""),
+    entrypoint: primaryEntry,
+    preferredBranch,
+    observedBranch: git.branch,
+    branchDrift,
+    catalogStatus,
+    dirtyCount: git.dirtyCount,
+    publishableDirtyCount: git.publishableDirtyCount,
+    gitStatus: git.status
+  };
+
+  return {
+    projectSlug: project.projectSlug,
+    generatedAt: new Date().toISOString(),
+    title: `${project.projectSlug} control plane`,
+    state,
+    nextSafeMove,
+    blockers,
+    notices,
+    actions,
+    autopilot: buildAutopilotPacket(project, { state, nextSafeMove, blockers, notices, actions }),
+    routes: {
+      goWorkNow: `/api/projects/${project.projectSlug}/go-work-now`,
+      missionControl: `/api/projects/${project.projectSlug}/mission-control`,
+      gitStatus: `/api/projects/${project.projectSlug}/git/status`,
+      agentSessions: `/api/projects/${project.projectSlug}/agent/sessions`,
+      jobs: `/api/projects/${project.projectSlug}/jobs`,
+      catalogAudit: "/api/catalog/audit"
+    },
+    goWorkNow: goWorkPacket,
+    catalogAudit: {
+      status: catalogStatus,
+      counts: catalogAudit.counts
+    },
+    git
+  };
+}
+
 async function runGoWorkNowAction(project, actionId) {
+  await assertProjectCatalogMutationAllowed(project);
   const workspaceStatefulSetName = inferWorkspaceStatefulSetName(project);
   const namespace = cleanValue(project.namespace || "beagle");
   let label = "";
   let output = "";
 
   if (actionId === "activate-habitat") {
-    label = `activate-habitat:${workspaceStatefulSetName}`;
+    label = `activate-workspace:${workspaceStatefulSetName}`;
     if (cleanValue(project.mode) === "always-on") {
       const { stdout } = await runKubectlPty([
         "-n",
@@ -5042,8 +5553,18 @@ async function runGoWorkNowAction(project, actionId) {
       ]);
       output = stdout;
     } else {
+      try {
+        await runKubectlJson(["-n", namespace, "get", "statefulset", workspaceStatefulSetName]);
+      } catch (error) {
+        const activationError = new Error(
+          `workspace ${workspaceStatefulSetName} is cataloged but not promoted in Kubernetes yet; use the local project surface until a workspace StatefulSet is created`
+        );
+        activationError.statusCode = 409;
+        activationError.cause = error;
+        throw activationError;
+      }
       const result = await runPtyCommand(
-        "/bin/sh",
+        "/bin/bash",
         [
           "-lc",
           `${shellQuote(kubectlBin)} -n ${shellQuote(namespace)} scale statefulset/${shellQuote(
@@ -5062,11 +5583,11 @@ async function runGoWorkNowAction(project, actionId) {
 
   if (actionId === "standby-habitat") {
     if (cleanValue(project.mode) === "always-on") {
-      const error = new Error("always-on habitats should not be scaled down from go-work-now");
+      const error = new Error("always-on workspaces should not be scaled down from go-work-now");
       error.statusCode = 400;
       throw error;
     }
-    label = `standby-habitat:${workspaceStatefulSetName}`;
+    label = `standby-workspace:${workspaceStatefulSetName}`;
     const { stdout } = await runKubectlPty([
       "-n",
       namespace,
@@ -7668,6 +8189,10 @@ async function buildPublicPortalResponse() {
 
 async function buildInferenceRuntimeResponse(project) {
   const runtime = await readResolvedInferenceRuntime(project, { preferStale: true });
+  const modelRegistry = await buildModelRegistry({
+    projectSlug: project.projectSlug,
+    runtime
+  });
   const platform = runtime.controlPlane?.platform || null;
   return {
     projectSlug: project.projectSlug,
@@ -7758,13 +8283,18 @@ async function buildInferenceRuntimeResponse(project) {
               lastError: platform.lastError || ""
             }
           : null
-      }
+      },
+      modelRegistry
     }
   };
 }
 
 async function buildInferenceModelsResponse(project) {
   const runtime = await readResolvedInferenceRuntime(project, { preferStale: true });
+  const modelRegistry = await buildModelRegistry({
+    projectSlug: project.projectSlug,
+    runtime
+  });
   return {
     projectSlug: project.projectSlug,
     generatedAt: new Date().toISOString(),
@@ -7773,7 +8303,20 @@ async function buildInferenceModelsResponse(project) {
     status: runtime.status,
     sourceEndpoint: runtime.endpoint,
     modelCount: Array.isArray(runtime.models) ? runtime.models.length : 0,
-    models: runtime.models || []
+    models: runtime.models || [],
+    modelRegistry
+  };
+}
+
+async function buildInferenceModelRegistryResponse(project) {
+  const runtime = await readResolvedInferenceRuntime(project, { preferStale: true });
+  return {
+    projectSlug: project.projectSlug,
+    generatedAt: new Date().toISOString(),
+    modelRegistry: await buildModelRegistry({
+      projectSlug: project.projectSlug,
+      runtime
+    })
   };
 }
 
@@ -7839,7 +8382,7 @@ function buildProjectPosturePolicyResponse(projects = []) {
     coreRule:
       "one large project = one sovereign surface, but not every sovereign surface = always-on",
     separationRules: [
-      "workspace habitat != research job",
+      "workspace control surface != research job",
       "research operations stay run-shaped and ephemeral",
       "cluster truth stays infrastructure-shaped"
     ],
@@ -7870,6 +8413,133 @@ function buildProjectPosturePolicyResponse(projects = []) {
     },
     assignments
   };
+}
+
+function buildProjectCatalogAudit(projects = []) {
+  const entries = Array.isArray(projects) ? projects : [];
+  const bySlug = new Map();
+  const findings = [];
+
+  for (const project of entries) {
+    const slug = cleanValue(project?.projectSlug || "unknown");
+    const mode = cleanValue(project?.mode || "undeclared");
+    const envFile = cleanValue(project?.envFile || "");
+    const workspaceState = project?.goWorkNow?.workspaceState || project?.workspaceState || {};
+    const workspaceStatus = cleanValue(workspaceState?.status || workspaceState?.phase || "");
+
+    if (!bySlug.has(slug)) {
+      bySlug.set(slug, []);
+    }
+    bySlug.get(slug).push(project);
+
+    if (!["always-on", "warm", "cold"].includes(mode)) {
+      findings.push({
+        severity: "fail",
+        projectSlug: slug,
+        code: "POSTURE_UNDECLARED",
+        summary: "project posture must be always-on, warm, or cold"
+      });
+    }
+
+    if (envFile.includes("/warm/") && mode !== "warm") {
+      findings.push({
+        severity: "fail",
+        projectSlug: slug,
+        code: "CATALOG_MODE_MISMATCH",
+        summary: `catalog path is warm but project mode is ${mode}`
+      });
+    }
+
+    if (envFile.includes("/always-on/") && mode !== "always-on") {
+      findings.push({
+        severity: "fail",
+        projectSlug: slug,
+        code: "CATALOG_MODE_MISMATCH",
+        summary: `catalog path is always-on but project mode is ${mode}`
+      });
+    }
+
+    if (envFile.includes("/cold/") && mode !== "cold") {
+      findings.push({
+        severity: "fail",
+        projectSlug: slug,
+        code: "CATALOG_MODE_MISMATCH",
+        summary: `catalog path is cold but project mode is ${mode}`
+      });
+    }
+
+    const imageRefs = [
+      cleanValue(project?.ideImage || ""),
+      cleanValue(project?.sshImage || ""),
+      JSON.stringify(project || {})
+    ].join(" ");
+    if (imageRefs.includes("ttl.sh/") && imageRefs.includes(":24h")) {
+      findings.push({
+        severity: "warn",
+        projectSlug: slug,
+        code: "EPHEMERAL_IMAGE_REF",
+        summary: "catalog references ttl.sh/*:24h; publish to the stable lab registry before relying on this surface"
+      });
+    }
+
+    if (mode === "warm" && workspaceStatus === "live") {
+      findings.push({
+        severity: "info",
+        projectSlug: slug,
+        code: "WARM_PROJECT_ACTIVE",
+        summary: "warm project is currently live; this is allowed, but should be an intentional work session"
+      });
+    }
+  }
+
+  for (const [slug, matches] of bySlug.entries()) {
+    if (matches.length > 1) {
+      findings.push({
+        severity: "fail",
+        projectSlug: slug,
+        code: "DUPLICATE_PROJECT_SLUG",
+        summary: `${slug} appears ${matches.length} times in the project catalog`
+      });
+    }
+  }
+
+  const failCount = findings.filter((finding) => finding.severity === "fail").length;
+  const warnCount = findings.filter((finding) => finding.severity === "warn").length;
+  const infoCount = findings.filter((finding) => finding.severity === "info").length;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    lane: "project-catalog-audit",
+    status: failCount > 0 ? "fail" : warnCount > 0 ? "warn" : "ok",
+    counts: {
+      projects: entries.length,
+      findings: findings.length,
+      fail: failCount,
+      warn: warnCount,
+      info: infoCount
+    },
+    findings
+  };
+}
+
+async function assertProjectCatalogMutationAllowed(project) {
+  const catalog = await loadCatalog();
+  const audit = buildProjectCatalogAudit(catalog?.projects || []);
+  const blocking = audit.findings.filter(
+    (finding) =>
+      finding.projectSlug === project.projectSlug &&
+      finding.severity === "fail"
+  );
+  if (blocking.length > 0) {
+    const error = new Error(
+      `catalog contract blocks mutation for ${project.projectSlug}: ${blocking
+        .map((finding) => finding.code)
+        .join(", ")}`
+    );
+    error.statusCode = 409;
+    error.catalogAudit = blocking;
+    throw error;
+  }
 }
 
 async function readCatalogExecutiveState() {
@@ -7962,6 +8632,200 @@ async function readCachedCatalogExecutiveState({ preferStale = false } = {}) {
   return pending;
 }
 
+async function buildProjectOsEntry(project) {
+  const slug = cleanValue(project?.projectSlug || "unknown");
+  const [controlPlane, agents, jobs, actionLedger] = await Promise.all([
+    withTimeout(
+      buildProjectControlPlaneResponse(project),
+      `project os control-plane ${slug}`,
+      3000
+    ).catch((error) => ({
+      projectSlug: slug,
+      generatedAt: new Date().toISOString(),
+      state: {
+        posture: cleanValue(project?.mode || "undeclared"),
+        namespace: cleanValue(project?.namespace || "beagle"),
+        workspaceStatus: "unknown",
+        workspacePod: cleanValue(project?.workspacePod || ""),
+        workspaceRoot: cleanValue(project?.workspaceRoot || ""),
+        entrypoint: slug === "sounio" ? "sounio dev" : `dev ${slug}`,
+        preferredBranch: cleanValue(project?.preferredPrBase || project?.branch || ""),
+        observedBranch: "",
+        branchDrift: false,
+        catalogStatus: "unknown",
+        dirtyCount: null,
+        publishableDirtyCount: null,
+        gitStatus: "unavailable"
+      },
+      nextSafeMove: error?.message || "control-plane unavailable",
+      blockers: [],
+      notices: [],
+      actions: [],
+      autopilot: {
+        mode: "propose-only",
+        generatedAt: new Date().toISOString(),
+        summary: "control-plane unavailable",
+        policy: {
+          mayExecute: false,
+          mutationRule: "autopilot prepares proposals only; all mutations require explicit confirmation and readback"
+        },
+        proposals: []
+      },
+      error: error?.message || "control-plane unavailable"
+    })),
+    withTimeout(listAgentSessions(slug), `project os agents ${slug}`, 1500)
+      .catch((error) => ({ error: error?.message || "agents unavailable", sessions: [] })),
+    withTimeout(listJobs(slug), `project os jobs ${slug}`, 1500)
+      .catch((error) => ({ error: error?.message || "jobs unavailable", jobs: [] })),
+    Promise.resolve()
+      .then(() => listActionLedgerEntries(slug, { limit: 6 }))
+      .catch((error) => ({ error: error?.message || "action ledger unavailable", actions: [] }))
+  ]);
+
+  const sessions = Array.isArray(agents) ? agents : agents.sessions || [];
+  const jobRows = Array.isArray(jobs) ? jobs : jobs.jobs || [];
+  const ledgerActions = Array.isArray(actionLedger) ? actionLedger : actionLedger.actions || [];
+  const state = controlPlane.state || {};
+  const isWarmLive =
+    (state.posture || project?.mode) === "warm" &&
+    ["live", "ready"].includes(state.workspaceStatus || "");
+  const risks = [
+    ...(state.branchDrift ? [{ level: "warn", code: "branch_drift" }] : []),
+    ...(Number(state.publishableDirtyCount ?? state.dirtyCount ?? 0) > 0
+      ? [{ level: "warn", code: "dirty_workspace" }]
+      : []),
+    ...(isWarmLive ? [{ level: "info", code: "warm_project_active" }] : []),
+    ...(controlPlane.blockers || []).map((item) => ({ level: "block", code: item.code || "blocker" })),
+    ...(controlPlane.notices || []).map((item) => ({ level: item.severity || "info", code: item.code || "notice" }))
+  ];
+
+  return {
+    projectSlug: slug,
+    posture: state.posture || cleanValue(project?.mode || "undeclared"),
+    workspace: {
+      status: state.workspaceStatus || "unknown",
+      pod: state.workspacePod || cleanValue(project?.workspacePod || ""),
+      root: state.workspaceRoot || cleanValue(project?.workspaceRoot || ""),
+      namespace: state.namespace || cleanValue(project?.namespace || "beagle")
+    },
+    entrypoint: state.entrypoint || (slug === "sounio" ? "sounio dev" : `dev ${slug}`),
+    git: {
+      observedBranch: state.observedBranch || "",
+      preferredBranch: state.preferredBranch || cleanValue(project?.preferredPrBase || project?.branch || ""),
+      branchDrift: !!state.branchDrift,
+      dirtyCount: state.dirtyCount ?? null,
+      publishableDirtyCount: state.publishableDirtyCount ?? null,
+      status: state.gitStatus || "unknown"
+    },
+    catalogStatus: state.catalogStatus || "unknown",
+    nextSafeMove: controlPlane.nextSafeMove || "",
+    riskCount: risks.length,
+    risks,
+    agents: {
+      status: agents.error ? "stale" : "observed",
+      error: agents.error || "",
+      count: sessions.length,
+      running: sessions.filter((session) => session.status === "running").length
+    },
+    jobs: {
+      status: jobs.error ? "stale" : "observed",
+      error: jobs.error || "",
+      count: jobRows.length,
+      active: jobRows.reduce((sum, job) => sum + Number(job.active || 0), 0),
+      failed: jobRows.reduce((sum, job) => sum + Number(job.failed || 0), 0)
+    },
+    autopilot: {
+      mode: controlPlane.autopilot?.mode || "propose-only",
+      proposalCount: controlPlane.autopilot?.proposals?.length || 0,
+      proposals: (controlPlane.autopilot?.proposals || []).slice(0, 4)
+    },
+    actionLedger: {
+      status: actionLedger.error ? "stale" : "observed",
+      error: actionLedger.error || "",
+      count: ledgerActions.length,
+      recent: ledgerActions.slice(0, 4)
+    },
+    routes: {
+      control: `/projects/${slug}/control`,
+      cockpit: `/projects/${slug}`,
+      apiControlPlane: `/api/projects/${slug}/control-plane`,
+      agents: `/api/projects/${slug}/agent/sessions`,
+      jobs: `/api/projects/${slug}/jobs`,
+      actionLedger: `/api/projects/${slug}/actions`
+    },
+    truthMode: controlPlane.error ? "stale" : "observed"
+  };
+}
+
+async function buildProjectOsResponse() {
+  const catalog = await loadCatalog();
+  const projects = Array.isArray(catalog.projects) ? catalog.projects : [];
+  const baseAudit = buildProjectCatalogAudit(projects);
+  const posturePolicy = buildProjectPosturePolicyResponse(projects);
+  const entries = await Promise.all(projects.map((project) => buildProjectOsEntry(project)));
+  const warmLiveFindings = entries
+    .filter((entry) => entry.posture === "warm" && ["live", "ready"].includes(entry.workspace.status))
+    .map((entry) => ({
+      severity: "info",
+      projectSlug: entry.projectSlug,
+      code: "WARM_PROJECT_ACTIVE",
+      summary: "warm project is currently live; this is allowed, but should be an intentional work session"
+    }));
+  const auditFindings = [...(baseAudit.findings || []), ...warmLiveFindings];
+  const audit = {
+    ...baseAudit,
+    generatedAt: new Date().toISOString(),
+    findings: auditFindings,
+    counts: {
+      projects: entries.length,
+      findings: auditFindings.length,
+      fail: auditFindings.filter((finding) => finding.severity === "fail").length,
+      warn: auditFindings.filter((finding) => finding.severity === "warn").length,
+      info: auditFindings.filter((finding) => finding.severity === "info").length
+    }
+  };
+  audit.status = audit.counts.fail > 0 ? "fail" : audit.counts.warn > 0 ? "warn" : "ok";
+  const counts = {
+    total: entries.length,
+    alwaysOn: entries.filter((entry) => entry.posture === "always-on").length,
+    warm: entries.filter((entry) => entry.posture === "warm").length,
+    cold: entries.filter((entry) => entry.posture === "cold").length,
+    live: entries.filter((entry) => ["live", "ready"].includes(entry.workspace.status)).length,
+    risks: entries.reduce((sum, entry) => sum + entry.riskCount, 0),
+    agents: entries.reduce((sum, entry) => sum + entry.agents.count, 0),
+    jobs: entries.reduce((sum, entry) => sum + entry.jobs.count, 0),
+    proposals: entries.reduce((sum, entry) => sum + entry.autopilot.proposalCount, 0),
+    actions: entries.reduce((sum, entry) => sum + (entry.actionLedger?.count || 0), 0)
+  };
+
+  return {
+    schema: "darwin.project-os.v0",
+    generatedAt: new Date().toISOString(),
+    title: "Darwin Project OS",
+    policy: {
+      sourceOfTruth: "Project Cockpit",
+      autopilotMode: "propose-only",
+      mutationRule: "observe -> propose -> confirm -> readback",
+      authorityRule: "project posture, workspace control surface, research operations, and cluster truth remain separate"
+    },
+    counts,
+    actionLedger: {
+      schema: "darwin.action-ledger.v0",
+      route: "/api/project-os/actions",
+      status: "observed",
+      recent: entries
+        .flatMap((entry) => entry.actionLedger?.recent || [])
+        .sort((left, right) =>
+          cleanValue(right.updatedAt || right.createdAt).localeCompare(cleanValue(left.updatedAt || left.createdAt))
+        )
+        .slice(0, 8)
+    },
+    audit,
+    posturePolicy,
+    projects: entries
+  };
+}
+
 function jsonResponse(fn) {
   return async (req, res) => {
     try {
@@ -7980,7 +8844,7 @@ function jsonResponse(fn) {
 }
 
 function ensureConfirmed(req, actionLabel) {
-  if (req.body?.confirm === true) {
+  if (req.body?.confirmed === true || req.body?.confirm === true) {
     return;
   }
   const error = new Error(`${actionLabel} requires explicit confirmation`);
@@ -8247,7 +9111,7 @@ function computeMergeReadiness(preview, guardrails) {
     return `merge-${String(existingPr.mergeStateStatus).toLowerCase()}`;
   }
   if (guardrails?.publishableDirtyCount > 0) {
-    return "dirty-habitat";
+    return "dirty-workspace";
   }
   return "merge-ready-ish";
 }
@@ -8998,7 +9862,7 @@ async function computeFastWorkspaceMemory(project) {
 
   const nextSafeMove =
     Number(git.publishableDirtyCount ?? 0) > 0
-      ? `review dirty habitat state on ${git.branch || "current branch"} before publishing`
+      ? `review dirty workspace state on ${git.branch || "current branch"} before publishing`
       : Number(git.memoryLocalDirtyCount ?? 0) > 0
         ? `memory-local context is present; branch off or publish without staging .beagle/`
         : branchMatchesBase
@@ -9008,7 +9872,7 @@ async function computeFastWorkspaceMemory(project) {
     Number(git.publishableDirtyCount ?? 0) > 0
       ? "working tree still has unpublished changes"
       : Number(git.memoryLocalDirtyCount ?? 0) > 0
-        ? "only memory-local habitat artifacts are dirty; publication can stay clean"
+        ? "only memory-local workspace artifacts are dirty; publication can stay clean"
         : branchMatchesBase
           ? "publication from the base branch is intentionally blocked"
           : "branch is publication-ready if previews stay clean";
@@ -9710,7 +10574,7 @@ async function computeWorkspaceMemory(project) {
     "";
   const nextSafeMove =
     git.publishableDirtyCount > 0
-      ? `review dirty habitat state on ${git.branch || "current branch"} before publishing`
+      ? `review dirty workspace state on ${git.branch || "current branch"} before publishing`
       : git.memoryLocalDirtyCount > 0
         ? `memory-local context is present; branch off or publish without staging .beagle/`
       : branchMatchesBase
@@ -9720,7 +10584,7 @@ async function computeWorkspaceMemory(project) {
     git.publishableDirtyCount > 0
       ? "working tree still has unpublished changes"
       : git.memoryLocalDirtyCount > 0
-        ? "only memory-local habitat artifacts are dirty; publication can stay clean"
+        ? "only memory-local workspace artifacts are dirty; publication can stay clean"
       : branchMatchesBase
         ? "publication from the base branch is intentionally blocked"
         : "branch is publication-ready if previews stay clean";
@@ -10120,10 +10984,10 @@ async function readClusterActionPreview(project) {
   return [
     {
       actionId: "restart-workspace",
-      title: "Restart workspace habitat",
+      title: "Restart workspace",
       target: workspaceWorkload,
       summary:
-        "Rollout restart the canonical workspace StatefulSet so the habitat comes back cleanly without changing the tmux contract.",
+        "Rollout restart the canonical workspace StatefulSet so the control surface comes back cleanly without changing the session contract.",
       command: `kubectl -n ${project.namespace} rollout restart statefulset/${workspaceStatefulSetName}`
     },
     {
@@ -10131,7 +10995,7 @@ async function readClusterActionPreview(project) {
       title: "Restart cockpit deployment",
       target: cockpitWorkload,
       summary:
-        "Rollout restart the cockpit deployment itself when the web surface gets stale but the project habitat is healthy.",
+        "Rollout restart the cockpit deployment itself when the web surface gets stale but the project workspace is healthy.",
       command: `kubectl -n ${project.namespace} rollout restart deployment/project-cockpit`
     },
     {
@@ -10147,7 +11011,7 @@ async function readClusterActionPreview(project) {
         ssh: workspaceSsh
       },
       summary:
-        "Recreate only the workspace tailnet HTTP/SSH Services when the workspace VIPs are stale after ingress churn but the habitat itself is healthy.",
+        "Recreate only the workspace tailnet HTTP/SSH Services when the workspace VIPs are stale after ingress churn but the workspace itself is healthy.",
       command:
         `kubectl -n ${project.namespace} delete svc ${project.workspaceId}-tailnet-http ${project.workspaceId}-tailnet-ssh --wait=true\n` +
         `kubectl apply -f /home/devsounio/beagle/k8s/tailscale-operator/${project.workspaceId}-tailnet-http.yaml \\\n` +
@@ -10214,7 +11078,7 @@ app.use((req, res, next) => {
   if (origin && allowedCorsOrigins.has(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type,X-Request-ID,X-Darwin-Actor");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   }
   if (req.method === "OPTIONS") {
@@ -10263,6 +11127,51 @@ app.get(
   "/api/catalog/executive",
   jsonResponse(async () => readCachedCatalogExecutiveState({ preferStale: true }))
 );
+
+app.get(
+  "/api/catalog/audit",
+  jsonResponse(async () => {
+    const executive = await readCachedCatalogExecutiveState({ preferStale: true });
+    return buildProjectCatalogAudit(executive?.projects || []);
+  })
+);
+
+app.get(
+  "/api/project-os",
+  jsonResponse(async () => buildProjectOsResponse())
+);
+
+registerActionLedgerRoutes(app, {
+  getProjectOrThrow,
+  listProjectSlugs: async () => {
+    const catalog = await loadCatalog();
+    return (catalog?.projects || []).map((project) => project.projectSlug);
+  },
+  buildReadback: async (slug) => {
+    const project = await getProjectOrThrow(slug);
+    const controlPlane = await buildProjectControlPlaneResponse(project);
+    return {
+      schema: "darwin.action-ledger-readback.v0",
+      generatedAt: new Date().toISOString(),
+      projectSlug: slug,
+      controlPlane: {
+        generatedAt: controlPlane.generatedAt,
+        state: controlPlane.state,
+        nextSafeMove: controlPlane.nextSafeMove,
+        catalogAudit: controlPlane.catalogAudit,
+        routes: controlPlane.routes
+      },
+      truthMode: "observed"
+    };
+  }
+});
+
+registerClusterOpsRoutes(app);
+registerWorkbenchContextRoutes(app, {
+  onMessageReply: notifyMultimodelContextMessage,
+  onMessageLifecycle: notifyMultimodelContextMessage,
+  onClientHeartbeat: notifyMultimodelClientPresence
+});
 
 app.get(
   "/api/research/supercomputing",
@@ -10636,6 +11545,22 @@ app.get(
 );
 
 app.get(
+  "/api/projects/:slug/foundry/runs",
+  jsonResponse(async (req) => {
+    const project = await getProjectOrThrow(req.params.slug);
+    return listFoundryRuns(project, req.query.limit);
+  })
+);
+
+app.get(
+  "/api/projects/:slug/foundry/runs/:runId/summary",
+  jsonResponse(async (req) => {
+    const project = await getProjectOrThrow(req.params.slug);
+    return readFoundryRunSummary(project, req.params.runId);
+  })
+);
+
+app.get(
   "/api/projects/:slug/go-work-now",
   jsonResponse(async (req) => {
     const project = await getProjectOrThrow(req.params.slug);
@@ -10644,6 +11569,18 @@ app.get(
       project,
       viewer: deriveViewer(req),
       ...(await buildGoWorkNowResponse(project, depth))
+    };
+  })
+);
+
+app.get(
+  "/api/projects/:slug/control-plane",
+  jsonResponse(async (req) => {
+    const project = await getProjectOrThrow(req.params.slug);
+    return {
+      project,
+      viewer: deriveViewer(req),
+      controlPlane: await buildProjectControlPlaneResponse(project)
     };
   })
 );
@@ -10809,6 +11746,18 @@ app.get(
       project,
       viewer: deriveViewer(req),
       ...(await buildInferenceModelsResponse(project))
+    };
+  })
+);
+
+app.get(
+  "/api/projects/:slug/inference/model-registry",
+  jsonResponse(async (req) => {
+    const project = await getProjectOrThrow(req.params.slug);
+    return {
+      project,
+      viewer: deriveViewer(req),
+      ...(await buildInferenceModelRegistryResponse(project))
     };
   })
 );
@@ -11057,7 +12006,7 @@ app.post(
           type: "LoadBalancer",
           loadBalancerClass: "tailscale",
           selector: {
-            "app.kubernetes.io/name": "sounio-workspace-habitat"
+            "app.kubernetes.io/name": "sounio-workspace-control"
           },
           ports: [{ name: "http", port: 8080, targetPort: "http", protocol: "TCP" }]
         }
@@ -11078,7 +12027,7 @@ app.post(
           type: "LoadBalancer",
           loadBalancerClass: "tailscale",
           selector: {
-            "app.kubernetes.io/name": "sounio-workspace-habitat"
+            "app.kubernetes.io/name": "sounio-workspace-control"
           },
           ports: [{ name: "ssh", port: 2222, targetPort: "ssh", protocol: "TCP" }]
         }
@@ -11494,6 +12443,11 @@ registerMobileRoutes(app, {
   runGoWorkNowAction
 });
 
+registerWorkspaceZellijRoutes(app, {
+  getProjectOrThrow,
+  runWorkspaceShell
+});
+
 // ─── Agent routes (persistent agent pods — Claude Code, Codex, etc.) ────
 // Registered just before server creation so they take precedence over any
 // catch-all static handler.
@@ -11510,6 +12464,7 @@ registerQueueRoutes(app);
 
 // ─── Auth bridge to beagle-server (iOS gets token via cockpit) ───────────
 registerAuthBridgeRoutes(app);
+registerMultimodelChatRoutes(app);
 
 const server = http.createServer(app);
 
@@ -11530,6 +12485,7 @@ if (Number.isFinite(keepAliveTimeoutMs) && keepAliveTimeoutMs > 0) {
 // for other paths before reaching the second handler.
 const wss = new WebSocketServer({ noServer: true });
 const agentWss = attachAgentWebSocket(server);  // returns its own WSS
+const multimodelWss = attachMultimodelChatWebSocket(server);
 
 server.on("upgrade", (req, socket, head) => {
   const urlPath = (req.url || "").split("?")[0];
@@ -11537,6 +12493,7 @@ server.on("upgrade", (req, socket, head) => {
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   }
   // /ws/projects/:slug/agent/:kind handled by attachAgentWebSocket internally.
+  // /ws/projects/:slug/multimodel-chat handled by attachMultimodelChatWebSocket.
   // Other paths fall through (node http server will close socket).
 });
 

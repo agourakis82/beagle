@@ -42,7 +42,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: app
-          image: ttl.sh/project-cockpit-keepalivefix-20260418-2155:24h
+          image: 192.168.3.207:5003/project-cockpit:gpu-lease-api-20260525T101842Z
           imagePullPolicy: Always
           securityContext:
             runAsUser: 0
@@ -55,6 +55,8 @@ spec:
           env:
             - name: PROJECT_COCKPIT_PORT
               value: "4370"
+            - name: PROJECT_COCKPIT_ROOT
+              value: "/app"
             - name: PROJECT_COCKPIT_KEEP_ALIVE_TIMEOUT_MS
               value: "610000"
             - name: PROJECT_COCKPIT_FAST_MEMORY_CACHE_TTL_MS
@@ -67,18 +69,39 @@ spec:
               value: "project-cockpit-remembered"
             - name: PROJECT_COCKPIT_REMEMBERED_STATE_DIR
               value: "/var/run/project-cockpit-remembered"
+            - name: BEAGLE_DATA_DIR
+              value: "/var/lib/cockpit"
+            - name: WORKBENCH_CONTEXT_DATA_DIR
+              value: "/var/lib/cockpit"
+            - name: WORKBENCH_CONTEXT_HTTP_MCP_REQUIRE_AUTH
+              value: "true"
+            - name: WORKBENCH_CONTEXT_WRITE_REQUIRE_AUTH
+              value: "true"
             - name: PROJECT_COCKPIT_SGLANG_ENDPOINT
               value: "http://sglang-serving.beagle.svc.cluster.local:30000"
             - name: PROJECT_COCKPIT_DYNAMO_ENDPOINT
               value: "http://dynamo-control-plane.beagle.svc.cluster.local:8000"
             - name: PROJECT_COCKPIT_PROMETHEUS_URL
               value: "http://darwin-observability-prometheus.darwin-platform.svc.cluster.local:9090"
+            - name: PROJECT_COCKPIT_SOUNIO_FOUNDRY_ARTIFACT_ROOT
+              value: "/orangefs/training/sounio-foundry/runs"
+            - name: PROJECT_COCKPIT_AGENT_IMAGE
+              value: "192.168.3.207:5003/beagle-agent:claude-codex-model-registry-20260523T2301Z"
+            - name: PROJECT_COCKPIT_KUBECTL
+              value: "/usr/local/bin/kubectl"
+            - name: GPU_LEASE_HOST_PROCESS_CHECK
+              value: "0"
           ports:
             - name: http
               containerPort: 4370
           volumeMounts:
             - name: remembered-state
               mountPath: /var/run/project-cockpit-remembered
+              readOnly: true
+            - name: cockpit-data
+              mountPath: /var/lib/cockpit
+            - name: orangefs-training
+              mountPath: /orangefs/training
               readOnly: true
           readinessProbe:
             exec:
@@ -109,3 +132,10 @@ spec:
         - name: remembered-state
           configMap:
             name: project-cockpit-remembered
+        - name: cockpit-data
+          persistentVolumeClaim:
+            claimName: project-cockpit-data
+        - name: orangefs-training
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs
+            type: Directory
