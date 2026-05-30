@@ -1,0 +1,15 @@
+{
+  "originHash" : "c9fe54536ffa3c476648b30d1932dca65f95caa3f2c022d227fc585f396cafd3",
+  "pins" : [
+    {
+      "identity" : "grape",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftgraphs/Grape",
+      "state" : {
+        "revision" : "48eb7d8ab4ce549c6cdde106b5f7fa317421364c",
+        "version" : "1.1.0"
+      }
+    }
+  ],
+  "version" : 3
+}

@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 // BeagleSuite — Sovereign supercomputing cockpit native Apple clients
 //
 // Multi-target Swift package for iOS 26, macOS 26, visionOS 26, watchOS 26.
@@ -19,7 +19,14 @@ let package = Package(
         .library(
             name: "BeagleCore",
             targets: ["BeagleCore"]
+        ),
+        .executable(
+            name: "BeagleWorkbench",
+            targets: ["BeagleWorkbench"]
         )
+    ],
+    dependencies: [
+        .package(url: "https://github.com/swiftgraphs/Grape", from: "1.1.0")
     ],
     targets: [
         // Shared core: API client, truth system, models, Tailnet resolver,
@@ -27,6 +34,18 @@ let package = Package(
         .target(
             name: "BeagleCore",
             path: "Sources/BeagleCore",
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .executableTarget(
+            name: "BeagleWorkbench",
+            dependencies: [
+                "BeagleCore",
+                .product(name: "Grape", package: "Grape")
+            ],
+            path: "Sources/BeagleWorkbench",
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
                 .swiftLanguageMode(.v6)

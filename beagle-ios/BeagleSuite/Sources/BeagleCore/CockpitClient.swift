@@ -47,7 +47,7 @@ public actor CockpitClient {
     // MARK: - Core fetch
 
     /// Fetches a direct cockpit payload without the mobile envelope.
-    private func fetchLegacy<T: Decodable & Sendable>(
+    func fetchLegacy<T: Decodable & Sendable>(
         _ type: T.Type,
         path: String,
         timeout: TimeInterval = 8
@@ -223,6 +223,42 @@ public actor CockpitClient {
 
     func mobileOverview(slug: String) async -> Truthful<MobileOverviewData> {
         await fetchMobile(MobileOverviewData.self, path: "/api/mobile/v1/projects/\(slug)/overview")
+    }
+
+    func postJSON<T: Decodable & Sendable, B: Encodable & Sendable>(
+        _ type: T.Type,
+        path: String,
+        body: B,
+        timeout: TimeInterval
+    ) async -> Truthful<T> {
+        var lastError = "no base URL reachable"
+
+        for base in baseURLs {
+            guard let url = URL(string: path, relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.timeoutInterval = timeout
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try JSONEncoder().encode(body)
+
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    lastError = "invalid response"
+                    continue
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    lastError = "HTTP \(http.statusCode)"
+                    continue
+                }
+                let decoded = try decoder.decode(T.self, from: data)
+                return .observed(decoded, source: url.host)
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+        return .staleError(lastError)
     }
 }
 
