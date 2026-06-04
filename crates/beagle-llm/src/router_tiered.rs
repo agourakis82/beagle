@@ -202,6 +202,9 @@ pub struct TieredRouter {
     pub grok4_heavy: Option<Arc<dyn LlmClient>>,
     pub math: Option<Arc<dyn LlmClient>>,
     pub local: Option<Arc<dyn LlmClient>>,
+    /// In-cluster local LLM fleet (LiteLLM/vLLM, OpenAI-compatible). When present this is the
+    /// default workhorse tier instead of Grok — see `LocalFleetClient::from_env`.
+    pub fleet: Option<Arc<dyn LlmClient>>,
     pub cfg: LlmRoutingConfig,
 }
 
@@ -218,6 +221,7 @@ impl TieredRouter {
             grok4_heavy: Some(MockLlmClient::new()),
             math: None,
             local: Some(MockLlmClient::new()),
+            fleet: None,
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -322,6 +326,17 @@ impl TieredRouter {
             None
         };
 
+        // Local LLM fleet (LiteLLM/vLLM, OpenAI-compatible) — first-class default workhorse
+        // when configured, so the router is not hard-wired to Grok.
+        let fleet: Option<Arc<dyn LlmClient>> =
+            match crate::clients::local_fleet::LocalFleetClient::from_env() {
+                Some(client) => {
+                    info!("LocalFleet habilitado (default workhorse: LiteLLM/vLLM fleet)");
+                    Some(Arc::new(client))
+                }
+                None => None,
+            };
+
         Ok(Self {
             claude_cli,
             copilot,
@@ -331,6 +346,7 @@ impl TieredRouter {
             grok4_heavy,
             math,
             local,
+            fleet,
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -498,7 +514,13 @@ impl TieredRouter {
             }
         }
 
-        // 5) Default absoluto: Grok 3 (unlimited, fast)
+        // 5) Default workhorse: the in-cluster local fleet (LiteLLM/vLLM) when configured —
+        //    keeps the router from being hard-wired to Grok. Falls back to Grok 3 otherwise.
+        if let Some(ref fleet) = self.fleet {
+            info!("Router → LocalFleet (default workhorse: LiteLLM/vLLM)");
+            return (fleet.clone(), ProviderTier::LocalFallback);
+        }
+
         info!("Router → Grok3 (default)");
         (self.grok3.clone(), ProviderTier::Grok3)
     }
