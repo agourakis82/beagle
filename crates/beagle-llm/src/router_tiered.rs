@@ -296,9 +296,16 @@ impl TieredRouter {
 
         let grok3: Arc<dyn LlmClient> = Arc::new(crate::clients::grok::GrokClient::new());
 
-        // Grok 4 Heavy usa o mesmo client, mas com modelo diferente
-        // Por enquanto, usamos o mesmo client (GrokClient escolhe modelo dinamicamente)
-        let grok4_heavy: Option<Arc<dyn LlmClient>> = Some(grok3.clone());
+        // Escalation / "Heavy" tier — a genuinely STRONGER model, not Grok-cloned.
+        // Previously `grok3.clone()`, which made the anti-bias escalation a no-op (same model).
+        // Prefer Claude (strong non-Grok) when available; fall back to the real grok-4-heavy
+        // model (the GrokClient forces it via complete_chosen) only when no stronger model exists.
+        let grok4_heavy: Option<Arc<dyn LlmClient>> = if let Some(ref c) = claude {
+            info!("Heavy/escalation tier → Claude (strong non-Grok model)");
+            Some(c.clone())
+        } else {
+            Some(grok3.clone())
+        };
 
         // DeepSeek Math client (se API key disponível)
         let math: Option<Arc<dyn LlmClient>> = if std::env::var("DEEPSEEK_API_KEY").is_ok() {
@@ -544,9 +551,10 @@ impl TieredRouter {
         tier: ProviderTier,
         prompt: &str,
     ) -> anyhow::Result<String> {
-        // Se Heavy foi escolhido, passa flag para o client
-        if tier == ProviderTier::Grok4Heavy {
-            // GrokClient detecta automaticamente via choose_model
+        // Only the actual Grok client needs the explicit "grok-4-heavy" model nudge. When the
+        // escalation tier is a non-Grok strong model (Claude, or the local fleet), use its normal
+        // completion path — otherwise we'd send a Grok model id to a non-Grok backend.
+        if tier == ProviderTier::Grok4Heavy && client.name() == "grok" {
             use crate::{ChatMessage, LlmRequest};
             let req = LlmRequest {
                 model: "grok-4-heavy".to_string(),

@@ -516,9 +516,14 @@ pub async fn query_robust(prompt: &str, context_tokens: usize) -> String {
                 .to_string();
         }
 
-        // Backoff exponencial
-        let backoff_secs = 2u64.pow(attempt.min(10));
-        let backoff = Duration::from_secs(backoff_secs);
+        // Bounded exponential backoff with jitter. Was `2^min(attempt,10)` seconds — up to
+        // ~17 minutes and with no jitter (thundering-herd + effectively-hung retries). Cap at 30s.
+        let base_ms = (250u64.saturating_mul(1u64 << attempt.min(6))).min(30_000);
+        let jitter_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| (d.subsec_nanos() as u64) % (base_ms / 2 + 1))
+            .unwrap_or(0);
+        let backoff = Duration::from_millis((base_ms + jitter_ms).min(30_000));
         warn!(
             "⏳ Tentando novamente em {:.1}s... (tentativa {}/{})",
             backoff.as_secs_f32(),
