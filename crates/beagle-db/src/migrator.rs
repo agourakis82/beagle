@@ -412,13 +412,10 @@ fn split_sections(raw: &str, file_name: &str) -> Result<(String, String), Migrat
         return Err(MigrationError::MissingSection("UP", file_name.to_string()));
     }
 
-    if down_lines.is_empty() {
-        return Err(MigrationError::MissingSection(
-            "DOWN",
-            file_name.to_string(),
-        ));
-    }
-
+    // P0 #3: forward-only migrations are valid — a missing `-- migrate:down` no longer
+    // blocks `migrate up`. (001_initial_schema.sql has no markers, so all its lines parse
+    // as the UP block via the None-section fallback; previously the empty DOWN errored and
+    // the DB could not bootstrap at all.) An absent DOWN yields an empty rollback block.
     Ok((up_lines.join("\n"), down_lines.join("\n")))
 }
 
