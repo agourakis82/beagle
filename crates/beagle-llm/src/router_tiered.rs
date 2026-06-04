@@ -503,15 +503,28 @@ impl TieredRouter {
         (self.grok3.clone(), ProviderTier::Grok3)
     }
 
-    /// Completa prompt usando router inteligente
+    /// Completa prompt usando router inteligente.
+    /// NOTE: this convenience path uses the non-limit-aware `choose()`. On the hot HTTP
+    /// path use `choose_with_limits()` then `complete_chosen()` so per-run budgets are enforced.
     pub async fn complete(&self, prompt: &str) -> anyhow::Result<String> {
         let meta = RequestMeta::from_prompt(prompt);
         let (client, tier) = self.choose(&meta);
+        self.complete_chosen(&client, tier, prompt).await
+    }
 
+    /// Complete using an ALREADY-CHOSEN (limit-aware) client+tier — does NOT re-route,
+    /// so the per-run Heavy/token budgets from `choose_with_limits` are actually enforced.
+    /// (P0 #2: the HTTP handler previously chose a limit-aware client then discarded it by
+    /// calling `complete()`, which re-ran `choose()` uncapped and re-derived meta from text.)
+    pub async fn complete_chosen(
+        &self,
+        client: &Arc<dyn LlmClient>,
+        tier: ProviderTier,
+        prompt: &str,
+    ) -> anyhow::Result<String> {
         // Se Heavy foi escolhido, passa flag para o client
         if tier == ProviderTier::Grok4Heavy {
             // GrokClient detecta automaticamente via choose_model
-            // Por enquanto, passamos via LlmRequest
             use crate::{ChatMessage, LlmRequest};
             let req = LlmRequest {
                 model: "grok-4-heavy".to_string(),
