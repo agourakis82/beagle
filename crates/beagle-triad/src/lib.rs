@@ -246,10 +246,9 @@ async fn call_llm_with_stats_triad(
 /// - Filosofia da mente, geometria não-comutativa, consciência celular
 /// ATHENA: Research accuracy specialist with high-quality requirements
 ///
-/// # Performance Metrics
-/// - Latency: p50=1.2s, p95=2.5s, p99=4.0s
-/// - Token usage: ~2000-3000 per call
-/// - Accuracy: 92% alignment with expert review (N=100)
+/// Routed at requires_high_quality + requires_phd_level_reasoning. No published
+/// latency/accuracy numbers are claimed here — measure them via the eval harness
+/// (see docs/MODERNIZATION_PLAN_2026.md) rather than asserting unbacked figures.
 #[tracing::instrument(skip(draft, context_summary, ctx), fields(run_id = %run_id, agent = "ATHENA"))]
 pub async fn run_athena(
     draft: &str,
