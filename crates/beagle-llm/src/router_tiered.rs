@@ -205,6 +205,9 @@ pub struct TieredRouter {
     /// In-cluster local LLM fleet (LiteLLM/vLLM, OpenAI-compatible). When present this is the
     /// default workhorse tier instead of Grok — see `LocalFleetClient::from_env`.
     pub fleet: Option<Arc<dyn LlmClient>>,
+    /// Per-tier circuit breaker (#13): a tier that fails repeatedly is skipped for a cooldown so a
+    /// dead provider isn't retried on every request.
+    pub breaker: Arc<crate::resilience::CircuitBreaker>,
     pub cfg: LlmRoutingConfig,
 }
 
@@ -222,6 +225,10 @@ impl TieredRouter {
             math: None,
             local: Some(MockLlmClient::new()),
             fleet: None,
+            breaker: Arc::new(crate::resilience::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(30),
+            )),
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -354,6 +361,10 @@ impl TieredRouter {
             math,
             local,
             fleet,
+            breaker: Arc::new(crate::resilience::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(30),
+            )),
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -603,6 +614,12 @@ impl TieredRouter {
 
         let mut last_err = String::new();
         for (i, (client, tier)) in chain.iter().enumerate() {
+            // #13 circuit breaker: skip a tier that recently failed repeatedly (cooldown).
+            let bkey = tier.as_str();
+            if !self.breaker.allow(bkey) {
+                warn!("Router robust: tier {:?} skipped (circuit open)", tier);
+                continue;
+            }
             if i > 0 {
                 if Arc::ptr_eq(client, &chain[0].0) {
                     continue; // same instance as the primary we already tried
@@ -636,14 +653,34 @@ impl TieredRouter {
             };
 
             match res {
-                Ok(t) => return t,
+                Ok(t) => {
+                    self.breaker.record_success(bkey);
+                    return t;
+                }
                 Err(e) => {
+                    self.breaker.record_failure(bkey);
                     warn!("Router robust: tier {:?} failed: {}", tier, e);
                     last_err = e.to_string();
                 }
             }
         }
         format!("ERRO: todos os backends LLM falharam. Último erro: {}", last_err)
+    }
+
+    /// Per-request model override (#13): route to the default workhorse client but force an explicit
+    /// model id (e.g. a caller picking a specific fleet/provider model), bypassing tier model logic.
+    pub async fn complete_with_model(&self, prompt: &str, model: &str) -> anyhow::Result<String> {
+        use crate::{ChatMessage, LlmRequest};
+        let meta = RequestMeta::from_prompt(prompt);
+        let (client, _tier) = self.choose(&meta);
+        client
+            .chat(LlmRequest {
+                model: model.to_string(),
+                messages: vec![ChatMessage::user(prompt)],
+                temperature: Some(0.7),
+                max_tokens: Some(2048),
+            })
+            .await
     }
 }
 
