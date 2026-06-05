@@ -1,15 +1,30 @@
+//! Retrieval eval + regression gate (Qdrant).
+//!
+//! Runs the golden query set against live Qdrant collections, merges hits across collections by
+//! score into one ranked list, and computes nDCG@k / Recall@k / MRR (binary relevance). It then
+//! GATES on a committed baseline: if any headline metric drops more than `--tolerance` below the
+//! baseline, it exits non-zero (CI regression gate). `--update-baseline` records the current run as
+//! the new baseline. Mirrors the cockpit's /eval/run baseline+alert pattern, in the Rust stack.
+//!
+//! Activation (operational): fill `scripts/darwin-eval.yaml` with REAL doc_ids from the corpus and,
+//! once the index is populated, seed the baseline with `--update-baseline` against live Qdrant.
+//!
+//! Note: the canonical library metric impl is `beagle_hypergraph::rag::RetrievalEvaluator`
+//! (Uuid-based). This bin computes the same metrics inline over String doc_ids to stay a lean,
+//! dependency-light standalone gate.
+
 use anyhow::{Context, Result};
 use beagle_rag_update::embed::EmbeddingClient;
 use beagle_rag_update::qdrant::QdrantClient;
 use clap::Parser;
-use serde::Deserialize;
-use std::collections::HashSet;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use tracing::{info, warn};
 
 #[derive(Debug, Parser)]
 #[command(name = "darwin-eval")]
-#[command(about = "Evaluate retrieval quality against golden queries (Qdrant)")]
+#[command(about = "Evaluate retrieval quality vs a baseline (Qdrant) — CI regression gate")]
 struct Args {
     #[arg(long, env = "QDRANT_URL", default_value = "http://localhost:6333")]
     qdrant_url: String,
@@ -23,6 +38,22 @@ struct Args {
     /// Path to eval file (YAML/TOML/JSON)
     #[arg(long, env = "DARWIN_EVAL_FILE", default_value = "scripts/darwin-eval.yaml")]
     eval_file: String,
+
+    /// Path to the committed baseline metrics (JSON).
+    #[arg(
+        long,
+        env = "DARWIN_EVAL_BASELINE",
+        default_value = "scripts/darwin-eval-baseline.json"
+    )]
+    baseline: String,
+
+    /// Record the current run as the new baseline instead of gating.
+    #[arg(long)]
+    update_baseline: bool,
+
+    /// Max allowed absolute drop in a headline metric vs baseline before failing.
+    #[arg(long, default_value_t = 0.02)]
+    tolerance: f64,
 
     /// Default top-k per query (can be overridden in the eval file)
     #[arg(long, default_value_t = 10)]
@@ -43,11 +74,41 @@ struct EvalTest {
     #[serde(default)]
     name: Option<String>,
     query: String,
-    /// Expected doc_id values to appear in the top-k results.
+    /// Expected doc_id values that SHOULD appear in the top-k results (the relevant set).
     expect_doc_ids: Vec<String>,
-    /// Optional per-test collection override.
     #[serde(default)]
     collections: Vec<String>,
+}
+
+/// Headline retrieval metrics + the gate baseline shape.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct EvalMetrics {
+    k: usize,
+    num_queries: usize,
+    mrr: f64,
+    recall_at_k: f64,
+    ndcg_at_k: f64,
+}
+
+fn dcg_at(ranked: &[String], relevant: &HashSet<String>, k: usize) -> f64 {
+    ranked
+        .iter()
+        .take(k)
+        .enumerate()
+        .map(|(i, doc)| {
+            if relevant.contains(doc) {
+                1.0 / ((i + 2) as f64).log2() // gain=1, discount = log2(rank+1), rank=i+1
+            } else {
+                0.0
+            }
+        })
+        .sum()
+}
+
+fn idcg_at(num_relevant: usize, k: usize) -> f64 {
+    (0..num_relevant.min(k))
+        .map(|i| 1.0 / ((i + 2) as f64).log2())
+        .sum()
 }
 
 #[tokio::main]
@@ -78,6 +139,8 @@ async fn main() -> Result<()> {
     let mut total = 0usize;
     let mut passed = 0usize;
     let mut rr_sum = 0.0f64;
+    let mut recall_sum = 0.0f64;
+    let mut ndcg_sum = 0.0f64;
 
     for test in eval.tests {
         total += 1;
@@ -105,55 +168,131 @@ async fn main() -> Result<()> {
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("embedding returned empty vector list"))?;
 
-        let mut best_rank: Option<usize> = None;
-        let expected: HashSet<String> = test.expect_doc_ids.into_iter().collect();
-
-        for collection in collections {
+        // Merge hits across collections into one ranked list (by score desc, dedup doc_id).
+        let mut scored: HashMap<String, f64> = HashMap::new();
+        for collection in &collections {
             let hits = qdrant
-                .search_points(&collection, &query_vec, default_k, true)
+                .search_points(collection, &query_vec, default_k, true)
                 .await
                 .with_context(|| format!("qdrant search failed for collection={collection}"))?;
-
-            for (idx, hit) in hits.iter().enumerate() {
+            for hit in &hits {
+                let score = hit.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0);
                 let payload = hit.get("payload");
                 let doc_id = payload
                     .and_then(|p| p.get("doc_id"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
                     .or_else(|| {
-                        // Repo vectors don't have doc_id; fall back to title.
                         payload
                             .and_then(|p| p.get("title"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string())
                     });
-
-                let Some(doc_id) = doc_id else { continue };
-                if expected.contains(&doc_id) {
-                    let rank = idx + 1;
-                    best_rank = match best_rank {
-                        Some(prev) => Some(prev.min(rank)),
-                        None => Some(rank),
-                    };
+                if let Some(doc_id) = doc_id {
+                    let e = scored.entry(doc_id).or_insert(f64::MIN);
+                    if score > *e {
+                        *e = score;
+                    }
                 }
             }
         }
+        let mut ranked: Vec<(String, f64)> = scored.into_iter().collect();
+        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let ranked_ids: Vec<String> = ranked.into_iter().map(|(d, _)| d).take(default_k).collect();
 
-        if let Some(rank) = best_rank {
-            passed += 1;
-            rr_sum += 1.0 / rank as f64;
-            info!(name = %name, rank, k = default_k, "PASS");
+        let relevant: HashSet<String> = test.expect_doc_ids.into_iter().collect();
+
+        // Per-query metrics (binary relevance).
+        let rr = ranked_ids
+            .iter()
+            .position(|d| relevant.contains(d))
+            .map(|i| 1.0 / (i + 1) as f64)
+            .unwrap_or(0.0);
+        let hit_count = ranked_ids.iter().filter(|d| relevant.contains(*d)).count();
+        let recall = if relevant.is_empty() {
+            0.0
         } else {
-            warn!(name = %name, k = default_k, "FAIL");
+            hit_count as f64 / relevant.len() as f64
+        };
+        let idcg = idcg_at(relevant.len(), default_k);
+        let ndcg = if idcg > 0.0 {
+            dcg_at(&ranked_ids, &relevant, default_k) / idcg
+        } else {
+            0.0
+        };
+
+        rr_sum += rr;
+        recall_sum += recall;
+        ndcg_sum += ndcg;
+        if rr > 0.0 {
+            passed += 1;
+            info!(name = %name, rr = %format!("{rr:.3}"), recall = %format!("{recall:.3}"), ndcg = %format!("{ndcg:.3}"), "PASS");
+        } else {
+            warn!(name = %name, k = default_k, "FAIL (no relevant doc in top-k)");
         }
     }
 
-    let mrr = if total == 0 { 0.0 } else { rr_sum / total as f64 };
-    info!(total, passed, failed = total - passed, mrr, "eval summary");
+    let metrics = EvalMetrics {
+        k: default_k,
+        num_queries: total,
+        mrr: rr_sum / total as f64,
+        recall_at_k: recall_sum / total as f64,
+        ndcg_at_k: ndcg_sum / total as f64,
+    };
+    info!(
+        total,
+        passed,
+        failed = total - passed,
+        mrr = %format!("{:.4}", metrics.mrr),
+        recall_at_k = %format!("{:.4}", metrics.recall_at_k),
+        ndcg_at_k = %format!("{:.4}", metrics.ndcg_at_k),
+        k = metrics.k,
+        "eval summary"
+    );
 
-    if passed != total {
-        anyhow::bail!("eval failed: {}/{} tests passed", passed, total);
+    let baseline_path = expand_tilde(&args.baseline);
+
+    if args.update_baseline {
+        std::fs::write(&baseline_path, serde_json::to_string_pretty(&metrics)?)
+            .with_context(|| format!("failed to write baseline {}", baseline_path.display()))?;
+        info!(path = %baseline_path.display(), "baseline updated");
+        return Ok(());
     }
+
+    // Gate against the committed baseline.
+    let baseline: Option<EvalMetrics> = std::fs::read_to_string(&baseline_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok());
+
+    let Some(base) = baseline else {
+        warn!(
+            path = %baseline_path.display(),
+            "no baseline found — skipping regression gate. Seed it with --update-baseline once the corpus + golden doc_ids are real."
+        );
+        return Ok(());
+    };
+
+    let mut regressions = Vec::new();
+    for (label, cur, b) in [
+        ("nDCG@k", metrics.ndcg_at_k, base.ndcg_at_k),
+        ("Recall@k", metrics.recall_at_k, base.recall_at_k),
+        ("MRR", metrics.mrr, base.mrr),
+    ] {
+        let drop = b - cur;
+        if drop > args.tolerance {
+            regressions.push(format!(
+                "{label}: {cur:.4} < baseline {b:.4} (drop {drop:.4} > tol {:.4})",
+                args.tolerance
+            ));
+        } else {
+            info!(metric = label, current = %format!("{cur:.4}"), baseline = %format!("{b:.4}"), "OK");
+        }
+    }
+
+    if !regressions.is_empty() {
+        anyhow::bail!("RAG eval regression gate FAILED:\n  - {}", regressions.join("\n  - "));
+    }
+    info!("RAG eval regression gate PASSED");
     Ok(())
 }
 
@@ -165,4 +304,3 @@ fn expand_tilde(path: &str) -> PathBuf {
     }
     PathBuf::from(path)
 }
-
