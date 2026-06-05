@@ -567,6 +567,84 @@ impl TieredRouter {
             client.complete(prompt).await.map(|o| o.text)
         }
     }
+
+    /// Single-brain robust completion: pick the best tier for `meta`, try it, and on failure
+    /// fall back across the remaining tiers (local fleet → Grok 3 → offline local) with bounded
+    /// jittered backoff between attempts. Returns the text, or an error string if everything
+    /// fails. This is the unified replacement for beagle-smart-router's parallel cascade —
+    /// one routing algorithm, fleet-first.
+    pub async fn complete_robust(&self, prompt: &str, meta: &RequestMeta) -> String {
+        self.complete_robust_params(prompt, meta, None, None).await
+    }
+
+    /// Like [`complete_robust`] but honors per-call sampling. NOTE: the `LlmClient` trait does not
+    /// carry `top_p`, so only `temperature`/`max_tokens` are propagated (callers passing top_p have
+    /// it dropped — was previously only honored by the now-removed direct grok-api/vLLM clients).
+    pub async fn complete_robust_params(
+        &self,
+        prompt: &str,
+        meta: &RequestMeta,
+        temperature: Option<f32>,
+        max_tokens: Option<i32>,
+    ) -> String {
+        use crate::{ChatMessage, LlmRequest};
+
+        // Ordered attempt chain: the meta-chosen primary, then the standard fallbacks. Dedup so
+        // we never retry the identical client instance back-to-back.
+        let (pc, pt) = self.choose(meta);
+        let mut chain: Vec<(Arc<dyn LlmClient>, ProviderTier)> = vec![(pc, pt)];
+        if let Some(ref f) = self.fleet {
+            chain.push((f.clone(), ProviderTier::LocalFallback));
+        }
+        chain.push((self.grok3.clone(), ProviderTier::Grok3));
+        if let Some(ref l) = self.local {
+            chain.push((l.clone(), ProviderTier::LocalFallback));
+        }
+
+        let mut last_err = String::new();
+        for (i, (client, tier)) in chain.iter().enumerate() {
+            if i > 0 {
+                if Arc::ptr_eq(client, &chain[0].0) {
+                    continue; // same instance as the primary we already tried
+                }
+                // bounded exponential backoff with jitter (cap 30s)
+                let base = (250u64.saturating_mul(1u64 << (i as u32).min(6))).min(30_000);
+                let jitter = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| (d.subsec_nanos() as u64) % (base / 2 + 1))
+                    .unwrap_or(0);
+                tokio::time::sleep(std::time::Duration::from_millis((base + jitter).min(30_000)))
+                    .await;
+            }
+
+            let res = if temperature.is_some() || max_tokens.is_some() {
+                let model = if *tier == ProviderTier::Grok4Heavy && client.name() == "grok" {
+                    "grok-4-heavy".to_string()
+                } else {
+                    "default".to_string()
+                };
+                client
+                    .chat(LlmRequest {
+                        model,
+                        messages: vec![ChatMessage::user(prompt)],
+                        temperature,
+                        max_tokens,
+                    })
+                    .await
+            } else {
+                self.complete_chosen(client, *tier, prompt).await
+            };
+
+            match res {
+                Ok(t) => return t,
+                Err(e) => {
+                    warn!("Router robust: tier {:?} failed: {}", tier, e);
+                    last_err = e.to_string();
+                }
+            }
+        }
+        format!("ERRO: todos os backends LLM falharam. Último erro: {}", last_err)
+    }
 }
 
 impl Default for TieredRouter {
