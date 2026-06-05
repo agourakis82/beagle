@@ -247,6 +247,11 @@ struct RootView: View {
                     WorkView(bootError: $bootError)
                 }
             }
+            Tab("Recall", systemImage: "sparkle.magnifyingglass", value: 4) {
+                NavigationStack {
+                    CognitiveRecallView()
+                }
+            }
         }
         .tint(BeagleTheme.truthObserved)
     }
@@ -258,6 +263,7 @@ struct RootView: View {
         case capture  = "Capture"
         case deep     = "Go Deep"
         case work     = "Work"
+        case recall   = "Recall"
         case settings = "Settings"
 
         var id: String { rawValue }
@@ -268,6 +274,7 @@ struct RootView: View {
             case .capture:  return "mic.fill"
             case .deep:     return "sparkles"
             case .work:     return "apple.terminal"
+            case .recall:   return "sparkle.magnifyingglass"
             case .settings: return "gearshape"
             }
         }
@@ -298,6 +305,8 @@ struct RootView: View {
                             }
                     case .work:
                         WorkView(bootError: $bootError)
+                    case .recall:
+                        CognitiveRecallView()
                     case .settings:
                         ModelSettingsView()
                     case nil:
