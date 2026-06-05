@@ -74,6 +74,13 @@ class ColbertEncoder:
         self._tokenizer = None
         self._model = None
         self._torch = None
+        # External embedding service (cluster TEI) — real semantic embeddings without torch/GPU
+        # in this pod. Returns one dense vector per text, used as a 1-element multivector
+        # (MaxSim degrades to cosine). Takes precedence over the in-pod torch model.
+        self.tei_url = (os.getenv("BEAGLE_TEI_EMBED_URL", "") or "").strip() or None
+        if self.tei_url:
+            self.backend = f"tei:{self.tei_url}"
+            return
         if os.getenv("BEAGLE_COLBERT_ENABLE_MODEL", "false").lower() not in {
             "1",
             "true",
@@ -96,6 +103,26 @@ class ColbertEncoder:
             self._torch = None
 
     def encode(self, text: str, is_query: bool = False) -> list[list[float]]:
+        if getattr(self, "tei_url", None):
+            try:
+                import json as _json
+                import urllib.request as _u
+
+                req = _u.Request(
+                    self.tei_url,
+                    data=_json.dumps({"inputs": text}).encode("utf-8"),
+                    headers={"content-type": "application/json"},
+                )
+                with _u.urlopen(req, timeout=30) as resp:
+                    out = _json.loads(resp.read().decode("utf-8"))
+                # TEI returns [[...]] (batch) or [...]; normalize to a flat dense vector.
+                vec = out[0] if (isinstance(out, list) and out and isinstance(out[0], list)) else out
+                if isinstance(vec, list) and vec and isinstance(vec[0], (int, float)):
+                    return [normalize([float(x) for x in vec])]
+            except Exception:
+                pass
+            # On any TEI failure, degrade gracefully rather than crash the rebuild.
+            return deterministic_multivector(text)
         if self._tokenizer is None or self._model is None or self._torch is None:
             return deterministic_multivector(text)
         with self._torch.no_grad():  # pragma: no cover - cluster capability dependent
@@ -224,10 +251,13 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
         Path(args.lancedb_path).mkdir(parents=True, exist_ok=True)
         with fallback_path.open("w", encoding="utf-8") as handle:
             for row in rows:
-                compact = {key: value for key, value in row.items() if key != "mv"}
-                compact["vector_count"] = len(row["mv"])
-                compact["vector_dim"] = DIM
-                json.dump(compact, handle, ensure_ascii=False, sort_keys=True)
+                # Persist the FULL row INCLUDING "mv" (the embeddings) so the pure-Python query
+                # fallback can score without native LanceDB. (Previously mv was dropped, leaving the
+                # JSONL unsearchable.)
+                record = dict(row)
+                record["vector_count"] = len(row.get("mv") or [])
+                record["vector_dim"] = DIM
+                json.dump(record, handle, ensure_ascii=False, sort_keys=True)
                 handle.write("\n")
         worker_status = "jsonl-fallback"
 
@@ -253,6 +283,50 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
     }
     write_json(args.output, payload)
     return payload
+
+
+def maxsim(query_mv: list[list[float]], doc_mv: list[list[float]]) -> float:
+    """ColBERT-style MaxSim over normalized multivectors (dot == cosine). For single-vector
+    (TEI dense) embeddings this reduces to plain cosine similarity."""
+    if not query_mv or not doc_mv:
+        return 0.0
+    total = 0.0
+    for q in query_mv:
+        best = 0.0
+        for d in doc_mv:
+            n = min(len(q), len(d))
+            s = 0.0
+            for i in range(n):
+                s += q[i] * d[i]
+            if s > best:
+                best = s
+        total += best
+    return total / len(query_mv)
+
+
+def lexical_score(query: str, text: str) -> float:
+    """Length-normalized query-term frequency (BM25-lite). Used to produce a lexical ranking that
+    RRF then fuses with the dense ranking (#8 hybrid). Absolute scale is irrelevant."""
+    q_terms = set(tokenize(query))
+    if not q_terms:
+        return 0.0
+    t_terms = tokenize(text)
+    if not t_terms:
+        return 0.0
+    tf: dict[str, int] = {}
+    for t in t_terms:
+        tf[t] = tf.get(t, 0) + 1
+    matches = sum(tf.get(q, 0) for q in q_terms)
+    return matches / math.sqrt(len(t_terms))
+
+
+def rrf_fuse(rankings: list[list[int]], k: float = 60.0) -> list[int]:
+    """Reciprocal Rank Fusion over ranked lists of record indices (score = Σ 1/(k+rank+1))."""
+    scores: dict[int, float] = {}
+    for ranking in rankings:
+        for rank, idx in enumerate(ranking):
+            scores[idx] = scores.get(idx, 0.0) + 1.0 / (k + rank + 1.0)
+    return [i for i, _ in sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))]
 
 
 def query(args: argparse.Namespace) -> dict[str, Any]:
@@ -283,10 +357,55 @@ def query(args: argparse.Namespace) -> dict[str, Any]:
             )
     except Exception as exc:
         error = f"query_degraded:{type(exc).__name__}:{exc}"
+        # Pure-Python JSONL fallback: when native LanceDB is unavailable, score the stored
+        # embeddings (real TEI vectors) with MaxSim/cosine. Makes the index queryable with no
+        # lancedb/torch/GPU in the image.
+        try:
+            fallback_path = Path(args.lancedb_path) / "semantic_records.jsonl"
+            if fallback_path.exists():
+                query_mv = encoder.encode(args.query, is_query=True)
+                recs: list[dict[str, Any]] = []
+                sem: list[float] = []
+                lex: list[float] = []
+                with fallback_path.open("r", encoding="utf-8") as handle:
+                    for line in handle:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        rec = json.loads(line)
+                        recs.append(rec)
+                        sem.append(maxsim(query_mv, rec.get("mv") or []))
+                        lex.append(lexical_score(args.query, str(rec.get("text") or "")))
+                # #8 HYBRID: fuse the dense (MaxSim) ranking with a lexical ranking via RRF. If there
+                # is no lexical signal, this reduces to the dense order.
+                dense_rank = sorted(range(len(recs)), key=lambda i: sem[i], reverse=True)
+                if any(s > 0.0 for s in lex):
+                    lex_rank = sorted(range(len(recs)), key=lambda i: lex[i], reverse=True)
+                    order = rrf_fuse([dense_rank, lex_rank])
+                else:
+                    order = dense_rank
+                scored = [(sem[i], recs[i]) for i in order]
+                for score, rec in scored[: args.limit]:
+                    rows.append(
+                        {
+                            "canonical_id": rec.get("canonical_id"),
+                            "kind": rec.get("kind"),
+                            "content_hash": rec.get("content_hash"),
+                            "score": round(float(score), 6),
+                            "occurred_at": rec.get("occurred_at"),
+                            "provenance": rec.get("provenance"),
+                            "source_refs": rec.get("source_refs"),
+                            "text_preview": str(rec.get("text") or "")[:500],
+                        }
+                    )
+                error = None  # served from the JSONL fallback
+        except Exception as exc2:  # pragma: no cover
+            error = f"{error}; jsonl_fallback_failed:{type(exc2).__name__}:{exc2}"
 
     payload = {
-        "status": "ok" if native_lancedb else "degraded",
+        "status": "ok" if (native_lancedb or rows) else "degraded",
         "native_lancedb": native_lancedb,
+        "served_from": "native-lancedb" if native_lancedb else ("jsonl-fallback" if rows else "none"),
         "table_name": args.table,
         "query": args.query,
         "results": rows,
