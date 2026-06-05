@@ -13,6 +13,7 @@ members = [
     "crates/beagle-hypergraph",
     "crates/beagle-llm",
     "crates/beagle-memory",
+    "crates/beagle-rag-update",
     "crates/beagle-personality",
     "crates/beagle-server",
     "crates/beagle-sync",
