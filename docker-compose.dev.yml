@@ -1,4 +1,5 @@
-version: '3.8'
+# Compose Spec (the top-level `version:` key is obsolete in Compose v2 and only emits a warning).
+# Local dev backends for Beagle: Postgres+pgvector, Redis, Qdrant.
 
 services:
   postgres:
@@ -14,7 +15,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U beagle"]
+      # Must match POSTGRES_USER/POSTGRES_DB above — `-U beagle` probed a role that does not
+      # exist, so the check could report ready against the wrong identity (false green).
+      test: ["CMD-SHELL", "pg_isready -U beagle_user -d beagle_dev"]
       interval: 5s
       timeout: 5s
       retries: 5

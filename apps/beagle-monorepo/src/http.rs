@@ -232,8 +232,10 @@ async fn llm_complete_handler(
     // Escolhe client com limites
     let (client, tier) = ctx.router.choose_with_limits(&meta, &current_stats);
 
-    // Chama LLM via router.complete() que retorna String
-    let result = ctx.router.complete(&req.prompt).await;
+    // P0 #2: dispatch on the ALREADY-CHOSEN limit-aware client/tier — do NOT call
+    // ctx.router.complete(), which would re-route via the non-limit-aware choose() and
+    // discard both the chosen client and the request's RequestMeta flags (budgets bypassed).
+    let result = ctx.router.complete_chosen(&client, tier, &req.prompt).await;
 
     // Calculate duration for metrics
     let duration = start.elapsed();
