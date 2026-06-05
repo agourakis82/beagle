@@ -15,9 +15,14 @@ Agents run in the cluster — not on your laptop — so sessions survive:
 Every agent follows the same contract:
 1. **StatefulSet** with `replicas: 1`, one pod per (project, kind)
 2. **PVC** mounted at `/workspace` — preserves session history, agent state, MCP config
-3. **Tmux wrapper** so the agent process can be re-attached
-4. **Agent binary** (claude, codex, etc.) runs inside tmux
-5. **Cockpit exposes** WebSocket PTY to tmux — any client (web, iOS, Vision Pro) can attach
+3. **Isolated agent PVC** mounted at `/workspace`
+4. **Agent binary** (claude, codex, etc.) starts on attach via `kubectl exec`
+5. **Cockpit exposes** a WebSocket PTY to the exec stream
+
+Important: this PVC is not the live Sounio WIP checkout. For Sounio code work,
+attach to `sounio-workspace-control-0` and the `sounio-dev` Zellij session.
+Agent pods are for MCP, orchestration, notes, and submitted jobs unless a repo
+is explicitly cloned or mounted into their isolated workspace.
 
 ## Supported agent kinds
 
@@ -41,11 +46,12 @@ Every agent follows the same contract:
 1. User clicks "Start Agent Session" in BeagleCockpit
 2. Cockpit server POST `/api/projects/:slug/agent/session/start` with `{ kind }`
 3. Server applies StatefulSet with rendered manifest
-4. Pod starts, entrypoint launches tmux + agent
-5. WebSocket gateway (in cockpit server) attaches to tmux via `kubectl exec`
+4. Pod starts and writes `/workspace/AGENT_CONTEXT.md` plus `/workspace/whereami`
+5. WebSocket gateway attaches via `kubectl exec`
 6. Client (iOS, Mac, Vision Pro, web) receives stream via `/ws/projects/:slug/agent/:sessionId`
 7. Client disconnects → pod keeps running, state preserved in PVC
-8. Any client reconnects → same session resumes (tmux attach)
+8. Any client reconnects → same pod/PVC resumes; the agent process itself is
+   launched on attach
 
 ## Pause / Stop semantics
 

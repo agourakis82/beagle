@@ -13,6 +13,8 @@ This package turns the current lab into the next-tier HPC/AI platform:
   - [STACK_SEMAPHORE.md](/home/devsounio/beagle/k8s/hpc-sota/STACK_SEMAPHORE.md)
   - [PROJECT_ONBOARDING_BLUEPRINT.md](/home/devsounio/beagle/k8s/hpc-sota/PROJECT_ONBOARDING_BLUEPRINT.md)
   - [TAILNET_DIRECT_CLUSTER_ACCESS.md](/home/devsounio/beagle/k8s/hpc-sota/TAILNET_DIRECT_CLUSTER_ACCESS.md)
+  - [SOTA_CLUSTER_ARCHITECTURE_2026.md](/home/devsounio/beagle/k8s/hpc-sota/SOTA_CLUSTER_ARCHITECTURE_2026.md)
+  - [SOTA_REALITY_GAP_2026.md](/home/devsounio/beagle/k8s/hpc-sota/SOTA_REALITY_GAP_2026.md)
 
 ## Session front door
 
@@ -52,6 +54,17 @@ The semaphore is the shortest honest answer to:
   - conservative example values/manifests for GPU Operator and Network Operator
 - `SUPERCOMPUTING_LAB_ARCHITECTURE_2026.md`
   - target hybrid blueprint for `K8s + Slurm + OrangeFS + Ceph + NVMe`
+- `SOTA_CLUSTER_ARCHITECTURE_2026.md`
+  - current 2026 SOTA comparison for Slurm/Kueue/GPU leases, and the target
+    contract for moving GPUs between serving, batch, maintenance, and
+    quarantine
+- `SOTA_REALITY_GAP_2026.md`
+  - honest operator backlog for the pieces that are live-but-not-SOTA yet:
+    DRA, topology-aware Kueue, Slurm topology, RDMA proof, storage growth,
+    node lifecycle, and scheduler-native observability
+- `GPU_RESOURCE_DOMAINS.yaml`
+  - declarative map of the current GPU topology/resource domains; keep this
+    aligned with Kueue ResourceFlavors and `gpu-lease` state
 - `slurm-pilot/`
   - no-BS pilot for `cert-manager + slurm-operator + Slurm cluster` on top of
     the current lab, with OrangeFS mounted into Slurm login/compute pods,
@@ -60,6 +73,14 @@ The semaphore is the shortest honest answer to:
 - `ops/`
   - operator-facing shell helpers for remote control-plane access through `t560`
   - includes [ops/hpc-bootstrap.sh](/home/devsounio/beagle/k8s/hpc-sota/ops/hpc-bootstrap.sh) for a read-only agent bootstrap snapshot
+  - includes [ops/darwin-control-plane-status.sh](/home/devsounio/beagle/k8s/hpc-sota/ops/darwin-control-plane-status.sh) for the fast live inventory that agents should run before making cluster/project-control decisions
+  - includes [ops/gpu-lease](/home/devsounio/beagle/k8s/hpc-sota/ops/gpu-lease) for the official serving/Slurm GPU ownership contract; use `ops/gpu-lease status` before claiming GPU capacity and `ops/gpu-lease refresh` to update `/home/devsounio/projects/sounio/GPU_LEASES.json`
+  - Project Cockpit exposes the same contract at `GET /api/cluster/ops/gpu-leases`
+    and gates transitions through `POST /api/cluster/ops/gpu-leases/<node>/preview`
+    followed by Action Ledger-confirmed `POST /api/cluster/ops/gpu-leases/<node>/apply`
+  - `darwin-control-plane-status.sh` intentionally queries Slurm through the
+    `slurm-pilot` login pod; the old host-local Slurm services on `t560` are
+    stopped and masked so they cannot be mistaken for the live scheduler
 - `workloads/`
   - domain tracks for `pbpk`, `omics`, and `pl-runtime`
 - `PROJECT_ONBOARDING_BLUEPRINT.md`

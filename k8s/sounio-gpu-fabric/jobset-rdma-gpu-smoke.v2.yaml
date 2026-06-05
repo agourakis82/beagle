@@ -307,7 +307,7 @@ data:
         "init_method": f"tcp://{master_ip}:{port}",
         "rank": rank,
         "world_size": world,
-        "timeout": timedelta(seconds=90),
+        "timeout": timedelta(seconds=300),
     }
     if backend == "nccl":
         init_kwargs["device_id"] = torch.device("cuda", 0)
@@ -399,8 +399,8 @@ spec:
                       topologyKey: kubernetes.io/hostname
               containers:
                 - name: trainer
-                  image: sounio/pytorch-rdma:2.7.1-cuda12.8-rdma
-                  imagePullPolicy: Never
+                  image: 192.168.3.207:5003/sounio/pytorch-rdma:2.7.1-cuda12.8-rdma
+                  imagePullPolicy: IfNotPresent
                   securityContext:
                     privileged: true
                   env:

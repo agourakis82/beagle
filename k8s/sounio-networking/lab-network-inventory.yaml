@@ -36,18 +36,20 @@ fabrics:
         - 10.200.0.2
         - 10.200.0.3
         - 10.200.0.4
+        - 10.200.0.5
         - 10.200.0.254
       notes: storage-and-migration-host-fabric
   gpu-rdma:
     cidr: 10.210.0.0/24
     role: rocev2-gpudirect-nccl-multi-node-training
     gateway:
+      current: 10.210.0.254
       preferred: 10.210.0.254
     mtu: 9000
     vlan:
       id: 210
-      status: planned
-    status: live
+      status: live-host-trunks
+    status: live-host-to-host-and-gateway-proven
     ipam:
       host_range: 10.210.0.1-10.210.0.63
       pod_pool: 10.210.0.128/25
@@ -56,6 +58,7 @@ fabrics:
         - 10.210.0.2
         - 10.210.0.3
         - 10.210.0.4
+        - 10.210.0.5
         - 10.210.0.254
       notes: dedicate-to-rdma-secondary-network
   service-egress-10g:
@@ -74,6 +77,7 @@ fabrics:
       dhcp_range: 10.30.0.100-10.30.0.199
       reserved:
         - 10.30.0.1
+        - 10.30.0.5
         - 10.30.0.254
       notes: 5860-service-fabric-edge
 
@@ -94,6 +98,18 @@ dns:
     - name: pve-5860.lab.sounio
       ip: 10.100.100.3
       role: gpu-node
+    - name: dl380.lab.sounio
+      ip: 10.100.100.5
+      role: planned-hpc-expansion-node
+    - name: dl380-storage.lab.sounio
+      ip: 10.200.0.5
+      role: planned-orangefs-client
+    - name: dl380-gpu.lab.sounio
+      ip: 10.210.0.5
+      role: planned-gpu-rdma-node
+    - name: dl380-service.lab.sounio
+      ip: 10.30.0.5
+      role: planned-service-fabric-node
     - name: gw-k8s.lab.sounio
       ip: 10.100.100.254
       role: planned-gateway
@@ -102,7 +118,7 @@ dns:
       role: planned-gateway
     - name: gw-gpu.lab.sounio
       ip: 10.210.0.254
-      role: planned-gateway
+      role: arista-gpu-rdma-svi
     - name: svc10g-gw.lab.sounio
       ip: 10.30.0.1
       role: service-egress-dns-gateway

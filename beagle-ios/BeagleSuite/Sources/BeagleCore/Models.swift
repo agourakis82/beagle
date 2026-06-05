@@ -82,6 +82,16 @@ public struct ExecutiveCatalog: Codable, Sendable {
     public let generatedAt: String?
     public let projects: [Project]?
     public let projectPosturePolicy: PosturePolicy?
+
+    public init(
+        generatedAt: String? = nil,
+        projects: [Project]? = nil,
+        projectPosturePolicy: PosturePolicy? = nil
+    ) {
+        self.generatedAt = generatedAt
+        self.projects = projects
+        self.projectPosturePolicy = projectPosturePolicy
+    }
 }
 
 // MARK: - Mission Control

@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ssm-zamba2-transformers-probe
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: ssm-zamba2-transformers-probe
+    app.kubernetes.io/part-of: beagle
+    sounio.dev/lane: ssm-probe
+    sounio.dev/probe-runtime: transformers
+spec:
+  selector:
+    app.kubernetes.io/name: ssm-zamba2-transformers-probe
+  ports:
+    - name: http
+      port: 8005
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ssm-zamba2-transformers-probe
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: ssm-zamba2-transformers-probe
+    app.kubernetes.io/part-of: beagle
+    sounio.dev/lane: ssm-probe
+    sounio.dev/probe-runtime: transformers
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ssm-zamba2-transformers-probe
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ssm-zamba2-transformers-probe
+        app.kubernetes.io/part-of: beagle
+        sounio.dev/lane: ssm-probe
+        sounio.dev/probe-runtime: transformers
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: 5860-proxmox
+        sounio.dev/accelerator-class: gpu
+        sounio.dev/gpu-owner: ssm-probe
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      containers:
+        - name: ssm-probe
+          image: 192.168.3.207:5003/sounio-ssm-probe:hybrid-probe-cc-20260522T180123Z
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            seccompProfile:
+              type: Unconfined
+          env:
+            - name: MODEL_ID
+              value: Zyphra/Zamba2-2.7B-Instruct-v2
+            - name: SERVED_MODEL_NAME
+              value: zamba2-2.7b-instruct-v2
+            - name: MAX_MODEL_TOKENS
+              value: "4096"
+            - name: MODEL_DTYPE
+              value: bfloat16
+            - name: LOAD_IN_4BIT
+              value: "false"
+            - name: TRUST_REMOTE_CODE
+              value: "false"
+            - name: HF_HOME
+              value: /var/cache/huggingface
+            - name: IGNORE_MISMATCHED_SIZES
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 8000
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 180
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 180
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "4"
+              memory: 12Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 24Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /var/cache/huggingface
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: hf-cache
+          emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi

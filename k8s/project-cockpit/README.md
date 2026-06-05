@@ -41,9 +41,111 @@ The native beagle contract is mediated by the cockpit auth bridge:
   - `Save Idea` -> persisted idea with sync state
   - `Delegate` -> agent-backed handoff with session provenance
 - private beagle-core: not exposed directly on this hostname
+- mobile model-lane research:
+  - [MOBILE_MODEL_RESEARCH.md](MOBILE_MODEL_RESEARCH.md)
+- cluster model probe plan:
+  - [CLUSTER_MODEL_PROBE_PLAN.md](CLUSTER_MODEL_PROBE_PLAN.md)
 
-The completion routes stay cockpit-owned and proxy to the private Dynamo
-control plane after merging any optional `system` prompt into the user prompt.
+The Workbench Context backend is now part of the cluster deployment, not only
+the local bridge. It persists under the `project-cockpit-data` PVC mounted at
+`/var/lib/cockpit` and publishes both REST and HTTP JSON-RPC MCP surfaces:
+
+- `GET /api/workbench/:slug/context/status`
+- `GET /api/workbench/:slug/context/doctor`
+- `POST /api/workbench/:slug/context/doctor`
+- `GET /api/workbench/:slug/context/clients`
+- `GET /api/workbench/:slug/context/sessions`
+- `GET /api/workbench/:slug/context/audit`
+- `GET /api/workbench/:slug/context/audit/events`
+- `GET /api/workbench/:slug/context/recent`
+- `GET /api/workbench/:slug/context/export`
+- `GET /api/workbench/:slug/context/mcp/tools`
+- `POST /api/workbench/:slug/context/ingest`
+- `POST /api/workbench/:slug/context/import`
+- `POST /api/workbench/:slug/context/query`
+- `POST /api/workbench/:slug/context/graphrag/query`
+- `POST /api/workbench/:slug/context/compiler/compile`
+- `POST /api/workbench/:slug/context/mcp`
+- `POST /api/workbench/:slug/mcp`
+
+The HTTP MCP routes support JSON-RPC `initialize`, `tools/list`, `tools/call`,
+and `ping`. They reuse the cockpit Beagle auth bridge and Beagle Core memory
+paths for upstream write-through/query, while the PVC-backed local overlay
+guarantees read-after-write and survives cockpit rollouts.
+On the cluster deployment, HTTP MCP requires `Authorization: Bearer <token>`;
+clients can use the existing `/api/auth/beagle-token` bridge to obtain the
+operator token. The browser-facing REST Workbench routes remain same-origin
+Cockpit routes.
+Use `/api/workbench/:slug/context/doctor` as the deployment proof route:
+`write_probe=true` validates PVC write, Beagle auth/write-through, RAG++
+readback, bounded GraphRAG, and compiler in one packet.
+
+Current rollout image for this Workbench Context + HTTP MCP contract:
+
+- `192.168.3.207:5003/project-cockpit:workbench-context-http-mcp-20260523T233057Z`
+
+Current rollout image for the GPU lease API / Action Ledger control contract:
+
+- `192.168.3.207:5003/project-cockpit:gpu-lease-api-20260525T101842Z`
+
+This image includes:
+
+- `/opt/hpc-sota/ops/gpu-lease`
+- `/opt/hpc-sota/GPU_RESOURCE_DOMAINS.yaml`
+- `bash`, `python3`, `kubectl`, `ssh`, and `flock`
+- `PROJECT_COCKPIT_ROOT=/app` so spawned cockpit commands do not inherit the
+  host-only `/home/devsounio` cwd inside the container
+
+Live proof, 2026-05-25 10:21 UTC:
+
+- `GET /api/cluster/ops/gpu-leases` returns `darwin.gpu_lease_control.v1`
+- `POST /api/cluster/ops/gpu-leases/r740-proxmox/preview` returns a dry-run
+  proposal for Action Ledger
+- `POST /api/cluster/ops/gpu-leases/r740-proxmox/apply` rejects missing ledger
+  or missing idempotency with a non-2xx response
+- idempotent `admit-batch r740-proxmox` passed through Action Ledger and
+  returned HTTP `200` with receipt
+- `r740-proxmox` remained batch/admitted after the live E2E
+- `GET /api/cluster/ops/summary` observes Kubernetes from inside the cockpit:
+  `4/4` nodes Ready, Cilium observed, `3` GPUs allocatable
+- the summary separates active unhealthy pods from historical failed pods:
+  active `Pending=6`, historical `Failed=305` at the original proof time
+- residual yellow is real cluster state, not missing cockpit tools:
+  host freshness is blocked by lack of host SSH/sudo path from the container
+- live proof refreshed at 2026-05-25 11:34 UTC:
+  - active unhealthy pods are `0`
+  - historical `phase=Failed` pod tombstones were pruned
+  - Grafana tailnet responds and the service has endpoint `10.0.0.196`
+  - the remaining yellow on `/api/cluster/ops/summary` is host freshness only
+- the embedded cockpit deployment sets `GPU_LEASE_HOST_PROCESS_CHECK=0`
+  because host-level GPU process checks require operator SSH credentials; run
+  `/home/devsounio/beagle/k8s/hpc-sota/ops/gpu-lease status` from the machine
+  root for the full `HOST_GPU` column
+
+The completion routes stay cockpit-owned. They now pass through the internal
+model registry and operator policy wrapper before reaching a model endpoint:
+
+- default/mobile execution uses the live `LFM2.5-1.2B-Instruct` always-on lane
+  when available
+- helper/audit/research lanes are recorded with probe evidence and currently
+  fall back to the always-on lane unless deliberately stood up
+- raw operator mutation is blocked; no current candidate is approved to suggest
+  RBAC, node, package, scheduler, or Kubernetes write actions without a
+  human-reviewed Cockpit operator packet
+- operator-routed completions are constrained to JSON text with
+  `decision: readonly | blocked` in this first gate; command lists are emitted
+  empty, and future mutation paths must go through the action ledger/operator
+  packet contract
+
+Registry endpoint:
+
+- `/api/projects/sounio/inference/model-registry`
+
+Current cluster rollout image carrying this contract plus the agent MCP
+`cockpit_model_registry`, `cockpit_action_ledger`, and
+`cockpit_propose_action` tools:
+
+- `192.168.3.207:5003/project-cockpit:model-registry-actionledger-20260523T013135Z`
 
 Use the helper when you have the Cloudflare API token for the already-created
 named tunnel:

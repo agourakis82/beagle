@@ -41,6 +41,7 @@ helm upgrade cilium cilium/cilium \
   --set autoDirectNodeRoutes=true \
   --set ipv4NativeRoutingCIDR=10.0.0.0/8 \
   --set tunnelProtocol="" \
+  --set cni.exclusive=false \
   --wait
 
 kubectl -n kube-system rollout restart ds/cilium deploy/cilium-operator
@@ -52,7 +53,7 @@ echo "deployed-chart=${chart_version}"
 echo "target-chart=${target_chart_version}"
 echo "k8sServiceHost=${k8s_service_host}"
 echo "k8sServicePort=${k8s_service_port}"
-kubectl -n kube-system get cm cilium-config -o jsonpath='{.data.routing-mode}{"\n"}{.data.tunnel-protocol}{"\n"}{.data.auto-direct-node-routes}{"\n"}{.data.ipv4-native-routing-cidr}{"\n"}'
+kubectl -n kube-system get cm cilium-config -o jsonpath='{.data.routing-mode}{"\n"}{.data.tunnel-protocol}{"\n"}{.data.auto-direct-node-routes}{"\n"}{.data.ipv4-native-routing-cidr}{"\n"}{.data.cni-exclusive}{"\n"}'
 echo "=== cilium-live-routing ==="
 pod="$(kubectl -n kube-system get pods -l k8s-app=cilium -o jsonpath='{.items[0].metadata.name}')"
 kubectl -n kube-system exec "${pod}" -- cilium-dbg status | sed -n 's/^Routing:[[:space:]]*//p'

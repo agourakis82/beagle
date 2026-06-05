@@ -16,12 +16,26 @@ cd /home/devsounio
 ./bootstrap-dev-plane.sh
 
 cd /home/devsounio/beagle/k8s/hpc-sota
+./ops/darwin-control-plane-status.sh
 ./ops/hpc-bootstrap.sh
 ./ops/hpc-route-doctor.sh
 ./ops/hpc-surface-doctor.sh
 ./ops/slurmdbd-backend-doctor.sh
 ./ops/workspace-platform-doctor.sh
 ```
+
+Fast agent entrypoint:
+
+```bash
+darwin-status
+darwin-status --json
+darwin-status --deep
+```
+
+Slurm truth for Darwin supercomputing is the `slurm-pilot` login lane. The
+legacy host-local Slurm services on `t560-proxmox` are intentionally stopped
+and masked so bare host commands cannot masquerade as the live scheduler. Use
+`darwin-status` or the Slurm login pod when deciding GPU lane health.
 
 ## Green
 
@@ -31,15 +45,21 @@ These areas are currently operational and have recent proof:
 - `k8s-api.darwin.lan:6443` is the worker-safe API endpoint
 - `t560` Tailscale route doctor is healthy
 - Sounio remote-first workspace is healthy:
-  - `sounio-workspace-habitat`
-  - browser + SSH + tmux flow
+  - stable service `sounio-workspace`
+  - currently backed by `sounio-workspace-control` on `t560-proxmox`
+  - browser + SSH + Zellij flow
+  - no GPU request; GPUs stay in Slurm/Foundry lanes
 - Grafana and Prometheus observability stack pass the current verifier
 - Slurm core scheduling is operational
 - Slurm QoS proof (`burst > normal`) is operational
+- `5860-proxmox` is admitted into `gpu-orangefs` again:
+  - Slurm node: `gpuorangefs-5860-proxmox`
+  - latest admission smoke: job `1621` completed
 - Proven workload lanes are green:
   - `pbpk`
   - `omics`
   - `pl-runtime`
+  - `sounio-compiler-foundry` dry-run/snapshot path
 - OrangeFS training canary is green again after live reconciliation:
   - current known-good run id: `1775437389`
   - launcher mode: `torchrun`
@@ -52,7 +72,10 @@ These areas are currently operational and have recent proof:
 - `darwin-hpc-gateway` is healthy again:
   - currently pinned to `t560-proxmox`
   - recovered via control-plane toleration + nodeSelector
-  - `/healthz` returns `200` and reports `slurmctld=active`, `slurmrestd=active`
+  - `/healthz` returns `200` through the legacy catalog bridge
+  - `darwin-slurm-control-adapter` mode is `legacy-catalog-only`
+  - host `slurmctld`/`slurmrestd` are intentionally inactive/masked
+  - active scheduler lane is `slurm-pilot` in Kubernetes/Slinky
 
 ## Yellow
 

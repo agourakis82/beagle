@@ -65,7 +65,8 @@ helm upgrade cilium cilium/cilium \
   --set preflight.image.tag=v1.19.2 \
   --set preflight.image.useDigest=false \
   --set clustermesh.apiserver.image.tag=v1.19.2 \
-  --set clustermesh.apiserver.image.useDigest=false
+  --set clustermesh.apiserver.image.useDigest=false \
+  --set cni.exclusive=false
 ```
 
 Post-upgrade checks:
@@ -74,7 +75,14 @@ Post-upgrade checks:
 kubectl -n kube-system get pods -o wide | egrep '^cilium-|^cilium-envoy'
 kubectl -n kube-system logs ds/cilium --since=10m | tail -n 200
 kubectl get ciliumnodeconfig -A
+kubectl -n kube-system get cm cilium-config -o jsonpath='{.data.cni-exclusive}{"\n"}'
 ```
+
+For this lab, `cni.exclusive=false` is not optional. GPU fabric workloads use
+Multus secondary networks, and Cilium's default exclusive CNI mode renames
+`00-multus.conf` to `*.cilium_bak`, silently dropping `net1` from new pods.
+After any Cilium rollout, verify that `cni-exclusive=false` and that GPU nodes
+still have `/etc/cni/net.d/00-multus.conf`.
 
 `r740` validation gate that passed after the real image upgrade:
 

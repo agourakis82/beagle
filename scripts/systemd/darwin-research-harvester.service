@@ -1,0 +1,16 @@
+[Unit]
+Description=DARWIN Research Harvester (multi-backend → darwin-papers)
+After=network.target
+
+[Service]
+Type=oneshot
+User=demetrios
+Group=demetrios
+WorkingDirectory=/home/demetrios/beagle
+EnvironmentFile=-/etc/darwin-harvester.env
+ExecStart=/usr/bin/env bash -lc '/usr/local/bin/darwin-research-harvester ${DARWIN_HARVEST_ARGS}'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

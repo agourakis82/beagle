@@ -1,0 +1,63 @@
+FROM node:20-bookworm-slim AS build
+
+WORKDIR /repo/apps/project-cockpit
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY apps/project-cockpit/package.json apps/project-cockpit/package-lock.json ./
+RUN npm ci --no-fund --no-audit
+
+COPY apps/project-cockpit/index.html apps/project-cockpit/vite.config.js ./
+COPY apps/project-cockpit/public ./public
+COPY apps/project-cockpit/server ./server
+COPY apps/project-cockpit/src ./src
+COPY apps/project-cockpit/agent-manifests ./agent-manifests
+
+RUN npm run build
+
+FROM node:20-bookworm-slim
+
+ARG KUBECTL_VERSION=v1.35.2
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    curl \
+    openssh-client \
+    python3 \
+    util-linux \
+  && rm -rf /var/lib/apt/lists/* \
+  && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+  && chmod +x /usr/local/bin/kubectl
+
+WORKDIR /app
+
+COPY --from=build /repo/apps/project-cockpit/package.json ./package.json
+COPY --from=build /repo/apps/project-cockpit/package-lock.json ./package-lock.json
+COPY --from=build /repo/apps/project-cockpit/node_modules ./node_modules
+COPY --from=build /repo/apps/project-cockpit/dist ./dist
+COPY --from=build /repo/apps/project-cockpit/public ./public
+COPY --from=build /repo/apps/project-cockpit/server ./server
+COPY --from=build /repo/apps/project-cockpit/agent-manifests ./agent-manifests
+
+COPY k8s/hpc-sota /opt/hpc-sota
+
+RUN chmod +x /opt/hpc-sota/ops/gpu-lease \
+  && chmod +x /opt/hpc-sota/slurm-pilot/scripts/*.sh
+
+ENV NODE_ENV=production \
+    PROJECT_COCKPIT_ROOT=/app \
+    PROJECT_COCKPIT_AGENT_MANIFEST_DIR=/app/agent-manifests \
+    PROJECT_COCKPIT_HPC_ROOT=/opt/hpc-sota \
+    PROJECT_COCKPIT_KUBECTL=/usr/local/bin/kubectl \
+    PROJECT_COCKPIT_GPU_LEASE_BIN=/opt/hpc-sota/ops/gpu-lease \
+    PROJECT_COCKPIT_GPU_DOMAINS_FILE=/opt/hpc-sota/GPU_RESOURCE_DOMAINS.yaml \
+    GPU_LEASE_HOST_PROCESS_CHECK=0
+EXPOSE 4370
+
+USER node
+
+CMD ["npm", "start"]

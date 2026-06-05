@@ -13,6 +13,10 @@ Then read:
 5. the exact track README you are changing
 6. if the task touches a personal Tailnet control surface:
    - [TAILNET_DIRECT_CLUSTER_ACCESS.md](/home/devsounio/beagle/k8s/hpc-sota/TAILNET_DIRECT_CLUSTER_ACCESS.md)
+7. if the task touches GPU ownership, serving/batch transitions, or Slurm/Kueue
+   architecture:
+   - [SOTA_CLUSTER_ARCHITECTURE_2026.md](/home/devsounio/beagle/k8s/hpc-sota/SOTA_CLUSTER_ARCHITECTURE_2026.md)
+   - [SOTA_REALITY_GAP_2026.md](/home/devsounio/beagle/k8s/hpc-sota/SOTA_REALITY_GAP_2026.md)
 
 ## What is actually live
 
@@ -83,9 +87,16 @@ These are the truths agents should not casually fight:
   - `slurmdbd` currently points at that alias
 - current Sounio implementation source of truth: `/home/devsounio/sounio`
 - current Sounio dev branch: `integration/sounio-dev-ready-base`
-- current promoted Sounio workspace surface: `sounio-workspace-habitat` behind stable service `sounio-workspace`
+- current Sounio workspace surface: `sounio-workspace-control` behind stable service `sounio-workspace`
+- current GPU ownership rule: a GPU may be physically present, admitted to
+  Slurm, consumed by a Kubernetes pod, or leased for serving/batch; agents must
+  report all of those layers before claiming capacity
+- official GPU ownership entrypoint:
+  - `/home/devsounio/beagle/k8s/hpc-sota/ops/gpu-lease status`
+  - `/home/devsounio/beagle/k8s/hpc-sota/ops/gpu-lease refresh`
+  - state file: `/home/devsounio/projects/sounio/GPU_LEASES.json`
 - if workspace tailnet services ever show `IngressSvcNoBackendsConfigured`
-  while the habitat is healthy, verify the VIP dataplane before touching the
+  while the control workspace is healthy, verify the VIP dataplane before touching the
   workspace itself; a known operator churn mode can leave stale workspace
   tailnet `Service` status that is repaired by recreating only:
   - `beagle/sounio-workspace-tailnet-http`
@@ -100,6 +111,8 @@ From the lab root:
 ```bash
 cd /home/devsounio/beagle/k8s/hpc-sota
 ./ops/hpc-bootstrap.sh
+./ops/gpu-lease status
+./ops/supercomputer-readiness/sota-readiness-doctor.sh
 ./ops/hpc-route-doctor.sh
 ./ops/slurmdbd-backend-doctor.sh
 ./ops/workspace-platform-doctor.sh
@@ -136,6 +149,8 @@ If you only want one read-only command to orient yourself, start with:
 ```bash
 cd /home/devsounio/beagle/k8s/hpc-sota
 ./ops/hpc-bootstrap.sh
+./ops/gpu-lease status
+./ops/supercomputer-readiness/sota-readiness-doctor.sh
 ./ops/hpc-route-doctor.sh
 ./ops/slurmdbd-backend-doctor.sh
 ./ops/workspace-platform-doctor.sh

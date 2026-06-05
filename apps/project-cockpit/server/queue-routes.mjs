@@ -12,7 +12,7 @@
 import { spawn } from "node:child_process";
 
 const NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
-const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
+const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "kubectl";
 const SLURM_LOGIN_HOST = process.env.PROJECT_COCKPIT_SLURM_LOGIN || ""; // empty = Slurm not available
 
 function runKubectl(args, { timeoutMs = 10000 } = {}) {

@@ -69,7 +69,22 @@ impl EmbeddingClient {
     }
 
     pub fn default() -> Self {
-        Self::new(DEFAULT_EMBEDDING_URL)
+        // Prefer environment-provided base URL/model so the same binary can target
+        // the in-cluster LiteLLM router (bge-m3 on RTX 4000 Ada) or a local
+        // embedding box without recompiling. Falls back to the legacy t560
+        // default to keep existing setups working.
+        let base = std::env::var("BEAGLE_EMBEDDING_URL")
+            .or_else(|_| std::env::var("EMBEDDING_URL"))
+            .or_else(|_| std::env::var("OPENAI_API_BASE"))
+            .or_else(|_| std::env::var("OPENAI_BASE_URL"))
+            .unwrap_or_else(|_| DEFAULT_EMBEDDING_URL.to_string());
+        let model = std::env::var("BEAGLE_EMBEDDING_MODEL")
+            .or_else(|_| std::env::var("EMBEDDING_MODEL"))
+            .ok();
+        let api_key = std::env::var("BEAGLE_EMBEDDING_API_KEY")
+            .or_else(|_| std::env::var("OPENAI_API_KEY"))
+            .ok();
+        Self::new_with_options(base, model, api_key)
     }
 
     /// Gera embedding para um texto

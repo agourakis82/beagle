@@ -7,10 +7,10 @@ AI/HPC data plane instead of a small island that merely looks healthy again.
 
 ## Current repaired truth
 
-As of `2026-04-24`, the outage is fixed:
+As of the latest read-only check on `2026-05-25`, the outage is fixed:
 
 - GPU workers see the OrangeFS export at roughly `933G` total
-- worker-side free space is roughly `748G`
+- worker-side free space is roughly `412G`
 - text-integrity probes are green on both `r740` and `r770`
 - the live namespace is no longer stuck at `100%` full
 
@@ -35,6 +35,17 @@ That means the repaired namespace is honest, but still small:
 - server02 on `5860` is the limiting backend
 - the export therefore remains in the sub-terabyte class even though the lab
   has far more raw storage across other nodes
+
+Latest candidate local capacity observed outside the exported OrangeFS
+namespace:
+
+- `t560-proxmox`: `zfast` datasets around `2.5T` free
+- `r740-proxmox`: `/mnt/hpc-local-nvme` around `1.4T` free
+- `r770-proxmox`: `/mnt/darwin-fast` around `1.7T` free
+- `5860-proxmox`: current server02 backend around `492G` total / `206G` free
+
+These are candidates only. They do not count as shared OrangeFS capacity until
+they are deliberately admitted as OrangeFS server storage and validated.
 
 The cluster-wide `47TB` headline is not the same thing as OrangeFS capacity.
 Only storage that is actually exported through the active OrangeFS servers
@@ -139,3 +150,42 @@ cluster should describe it as:
 - a repaired shared AI/HPC data plane
 - suitable for current datasets, checkpoints, and canaries
 - not yet the final multi-terabyte supercomputing storage layer
+
+Repeatable read-only check:
+
+```bash
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/orangefs-capacity-doctor.sh
+```
+
+Growth gate:
+
+```bash
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/orangefs-growth-gate.sh status
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/orangefs-growth-gate.sh preflight
+```
+
+The growth gate is intentionally read-only. It exists to stop the cluster from
+claiming "multi-terabyte OrangeFS" by counting local disks that have not been
+admitted as exported OrangeFS server storage.
+
+Pre-maintenance snapshot:
+
+```bash
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/orangefs-maintenance-snapshot.sh
+```
+
+Run this immediately before any live OrangeFS growth window. It copies the live
+OrangeFS configs, systemd units, server status, capacity evidence, and checksums
+into an artifacts directory without stopping services or moving data.
+
+Change plan:
+
+```bash
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/orangefs-generate-multitb-plan.sh
+```
+
+The first proposed target keeps the current two-server shape and moves
+`server01` to `t560:/mnt/datasets/orangefs-lab/two-node` during a maintenance
+window. Review:
+
+- [/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/ORANGEFS_MULTITB_CHANGE_PLAN.md](/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/ORANGEFS_MULTITB_CHANGE_PLAN.md)

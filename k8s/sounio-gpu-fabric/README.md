@@ -47,6 +47,8 @@ So the right pattern is:
 
 The lightweight substrate path is now live in the cluster:
 - Multus thick plugin
+- Cilium configured with `cni-exclusive=false`
+- `00-multus.conf` active on the GPU nodes
 - Whereabouts IPAM
 - RDMA shared device plugin
 - `NetworkAttachmentDefinition` `beagle/gpu-fabric-10-200-pilot`
@@ -65,8 +67,10 @@ Validated live:
 Current honest limitation:
 - the substrate is live and `torch.cuda.is_available()` has already been recovered
   on the `5860` path via host NVIDIA user-space fallback
-- the most likely remaining blocker for the distributed RDMA smoke is therefore
-  no longer GPU discovery itself, but the exact job manifest you use
+- the dedicated `10.210` JobSet/NCCL socket smoke now passes on separate GPU
+  nodes with `net1` IPs assigned by Whereabouts
+- true verbs / GPUDirect RDMA is still the next separate proof, not something
+  to claim from the socket-mode smoke
 - keep the smoke manifests aligned with the working host-lib pattern:
   - mount `/lib/x86_64-linux-gnu/libcuda.so.1`
   - mount `/lib/x86_64-linux-gnu/libnvidia-ml.so.1`
@@ -136,6 +140,18 @@ forcing a risky live rename of the raw host NICs.
 
 ## Shortest live smoke path today
 
+Before any smoke that creates GPU pods, check ownership:
+
+```bash
+/home/devsounio/beagle/k8s/hpc-sota/ops/gpu-lease status
+```
+
+The supercomputer-readiness gate refuses to run JobSet smokes while the GPUs are
+owned by active Slurm jobs, Kubernetes GPU pods, or host GPU processes. That is
+intentional: the fabric proof should not fight the scheduler. The emergency
+override is `DARWIN_GPU_FABRIC_ALLOW_BUSY=1`, and should only be used when the
+operator has intentionally created an exclusive test window.
+
 For the fastest current smoke over `net1` / `10.200`, use:
 
 ```bash
@@ -165,13 +181,33 @@ separate hardening step instead of pretending it is already finished.
 Useful variants:
 
 ```bash
+# socket-over-net1 on the dedicated 10.210 fabric via the readiness gate
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/gpu-fabric-gate.sh \
+  phase3-smoke
+
+# verbs/RoCE attempt on the dedicated 10.210 fabric; run only in an idle GPU window
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/gpu-fabric-gate.sh \
+  phase3-smoke --transport ib
+
+# read-only readiness check for that verbs/RoCE window
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/gpu-fabric-gate.sh \
+  phase3-ib-ready
+
+# observe until the GPUs are idle; never creates smoke jobs
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/gpu-fabric-smoke-watch.sh \
+  --watch --interval 60
+
+# optional operator mode: run exactly one IB smoke after phase3-ib-ready passes
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/gpu-fabric-smoke-watch.sh \
+  --run-on-ready --interval 60 --transport ib
+
 # socket-over-net1 on the pilot fabric (default)
 /home/devsounio/beagle/k8s/sounio-gpu-fabric/run-jobset-rdma-smoke.sh
 
 # same smoke on a different NAD name
 /home/devsounio/beagle/k8s/sounio-gpu-fabric/run-jobset-rdma-smoke.sh \
   --network gpu-fabric-10-210 \
-  --jobset-name sounio-rdma-ddp-smoke-10-210
+  --jobset-name rdma210
 
 # opt in to a future verbs attempt explicitly
 /home/devsounio/beagle/k8s/sounio-gpu-fabric/run-jobset-rdma-smoke.sh \
@@ -201,11 +237,26 @@ For this cluster, the most practical near-term shape is:
 - `10.210.0.x` as the later dedicated VLAN when you want a clean GPU-only QoS domain
 
 The current manifests are therefore split intentionally:
-- `10.200` = what is live now
-- `10.210` = what we can promote next once the VLAN/SVI exists
+- `10.200` = the original live pilot path
+- `10.210` = host-to-host live on `vmbr210` / `gpufabric210`, with Arista SVI
+  `10.210.0.254` proven from the GPU hosts
 
 That keeps the current two 100Gb fabrics useful now, while still giving you a
 clean landing zone for a more serious RoCE fabric later.
+
+Current `10.210` evidence:
+- `r770-proxmox`, `r740-proxmox`, and `5860-proxmox` expose `vmbr210`
+  with altname `gpufabric210`
+- all three GPU hosts have MTU `9000` on `vmbr210`
+- jumbo host-to-host ping with `-M do -s 8972` passes across every GPU pair
+- gateway `10.210.0.254` is proven from the GPU hosts
+
+Canonical gate:
+
+```bash
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/gpu-fabric-gate.sh \
+  phase3-external-preflight
+```
 
 ## Phase-3 readiness check
 

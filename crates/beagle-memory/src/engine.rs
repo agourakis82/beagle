@@ -3570,9 +3570,20 @@ impl MemoryVectorIndex {
         let embedding = self.embedding_client.embed(query).await?;
         self.ensure_collection(embedding.len()).await?;
         let vector: Vec<f32> = embedding.iter().map(|value| *value as f32).collect();
+        // #8 hybrid retrieval: over-fetch the dense candidate pool so it can be re-fused with a
+        // lexical ranking (RRF) before truncating to `limit`. No sparse vectors required in the
+        // index — the fusion is client-side over the candidates' text. Toggle: BEAGLE_MEMORY_HYBRID.
+        let hybrid = std::env::var("BEAGLE_MEMORY_HYBRID")
+            .map(|v| !matches!(v.to_lowercase().as_str(), "0" | "false" | "off"))
+            .unwrap_or(true);
+        let fetch_limit = if hybrid {
+            limit.saturating_mul(4).clamp(limit, 64)
+        } else {
+            limit
+        };
         let mut body = json!({
             "vector": vector,
-            "limit": limit,
+            "limit": fetch_limit,
             "with_payload": true,
             "with_vector": false
         });
@@ -3625,6 +3636,19 @@ impl MemoryVectorIndex {
                 }
             }
         }
+        // #8 hybrid fusion: re-rank the dense candidate pool by RRF(dense, lexical) over the query
+        // text, then truncate to the requested limit. Degrades to dense order when hybrid is off or
+        // there is no lexical signal among the candidates.
+        if hybrid && records.len() > 1 {
+            let texts: Vec<&str> = records.iter().map(|r| r.text.as_str()).collect();
+            let order = crate::hybrid::fuse_dense_lexical(query, &texts, 60.0);
+            let mut reordered: Vec<MemoryRecord> = Vec::with_capacity(records.len());
+            for idx in order {
+                reordered.push(records[idx].clone());
+            }
+            records = reordered;
+        }
+        records.truncate(limit);
         debug!(count = records.len(), "Qdrant memory search completed");
         Ok(records)
     }

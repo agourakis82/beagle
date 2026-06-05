@@ -13,6 +13,10 @@ Today we already have:
 What we do **not** have yet is a dedicated GPU-only QoS domain for serious
 multi-node training. That is the purpose of phase 3.
 
+Current update: the dedicated `10.210` host-to-host path and Arista SVI
+`10.210.0.254/24` are now live and jumbo-clean from the GPU hosts. The
+remaining proof is a GPU-consuming NCCL/IB smoke when Slurm releases the GPUs.
+
 ## Goal
 
 Create a dedicated GPU RDMA fabric on:
@@ -64,7 +68,7 @@ in the same fault domain forever.
 Prefer VLAN/SVI ownership on the Arista rather than ad hoc host routing.
 
 Suggested gateway:
-- `10.210.0.254`
+- `10.210.0.254` on `arista-7060:Vlan210`
 
 Suggested DNS record:
 - `gw-gpu-rdma.lab.sounio`
@@ -102,7 +106,7 @@ Important:
 ## Operational order
 
 1. freeze the live pilot state on `10.200`
-2. create VLAN/gateway/DNS for `10.210`
+2. create VLAN/gateway/DNS for `10.210` - done for VLAN/SVI/gateway
 3. attach the new fabric on GPU hosts
 4. create `gpu-fabric-10-210` NAD
 5. rerun RDMA smoke
@@ -117,6 +121,22 @@ The repository-side promotion entrypoint is:
 
 That intentionally handles only the Kubernetes-side promotion and smoke. The
 Arista/VLAN/gateway work still needs to be real before you run it.
+
+For the current Slurm-first operating model, use the guarded readiness watcher
+instead of manually polling GPU leases:
+
+```bash
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/gpu-fabric-smoke-watch.sh \
+  --watch --interval 60
+```
+
+That mode never creates smoke jobs. During an explicit operator test window,
+the same watcher can run one IB smoke after the GPUs become idle:
+
+```bash
+/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/gpu-fabric-smoke-watch.sh \
+  --run-on-ready --interval 60 --transport ib
+```
 
 ## Exit criteria
 

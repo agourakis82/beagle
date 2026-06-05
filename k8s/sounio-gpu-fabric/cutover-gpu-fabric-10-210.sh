@@ -81,4 +81,4 @@ echo
 echo "== running RDMA smoke on 10.210 =="
 "${smoke}" \
   --network gpu-fabric-10-210 \
-  --jobset-name sounio-rdma-ddp-smoke-10-210
+  --jobset-name rdma210

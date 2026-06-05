@@ -11,8 +11,8 @@ spec:
   groups:
     - name: darwin.sounio-dev-loop
       rules:
-        - alert: DarwinSounioHabitatContainerRestarts
-          expr: sum(increase(kube_pod_container_status_restarts_total{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD"}[30m])) > 0
+        - alert: DarwinSounioControlWorkspaceContainerRestarts
+          expr: sum(increase(kube_pod_container_status_restarts_total{namespace="beagle",pod="sounio-workspace-control-0",container!="POD"}[30m])) > 0
           for: 5m
           labels:
             domain: workspace
@@ -20,13 +20,13 @@ spec:
             notification_tier: dev-noise
             severity: warning
           annotations:
-            summary: Sounio habitat restarted recently
-            description: One or more containers in the promoted Sounio habitat restarted during the last 30 minutes.
+            summary: Sounio control workspace restarted recently
+            description: One or more containers in the promoted Sounio control workspace restarted during the last 30 minutes.
             dashboard: Darwin Sounio Dev Loop
             runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
             verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
-        - alert: DarwinSounioHabitatHighCPU
-          expr: sum(rate(container_cpu_usage_seconds_total{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD",image!=""}[15m])) > 1.5
+        - alert: DarwinSounioControlWorkspaceHighCPU
+          expr: sum(rate(container_cpu_usage_seconds_total{namespace="beagle",pod="sounio-workspace-control-0",container!="POD",image!=""}[15m])) > 1.5
           for: 15m
           labels:
             domain: workspace
@@ -34,13 +34,13 @@ spec:
             notification_tier: dev-noise
             severity: warning
           annotations:
-            summary: Sounio habitat CPU usage is high
-            description: The promoted Sounio habitat has sustained CPU usage above 1.5 cores for 15 minutes.
+            summary: Sounio control workspace CPU usage is high
+            description: The promoted Sounio control workspace has sustained CPU usage above 1.5 cores for 15 minutes.
             dashboard: Darwin Sounio Dev Loop
             runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
             verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
-        - alert: DarwinSounioHabitatHighMemory
-          expr: sum(container_memory_working_set_bytes{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD",image!=""}) > 1610612736
+        - alert: DarwinSounioControlWorkspaceHighMemory
+          expr: sum(container_memory_working_set_bytes{namespace="beagle",pod="sounio-workspace-control-0",container!="POD",image!=""}) > 1610612736
           for: 15m
           labels:
             domain: workspace
@@ -48,15 +48,15 @@ spec:
             notification_tier: dev-noise
             severity: warning
           annotations:
-            summary: Sounio habitat memory usage is high
-            description: The promoted Sounio habitat has sustained memory working set above 1.5 GiB for 15 minutes.
+            summary: Sounio control workspace memory usage is high
+            description: The promoted Sounio control workspace has sustained memory working set above 1.5 GiB for 15 minutes.
             dashboard: Darwin Sounio Dev Loop
             runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
             verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
     - name: darwin.sounio-compiler-pipeline
       rules:
-        - alert: DarwinSounioCompilerHabitatUnavailable
-          expr: max(kube_statefulset_status_replicas_ready{namespace="beagle",statefulset="sounio-workspace-habitat"}) < 1
+        - alert: DarwinSounioCompilerControlWorkspaceUnavailable
+          expr: max(kube_statefulset_status_replicas_ready{namespace="beagle",statefulset="sounio-workspace-control"}) < 1
           for: 3m
           labels:
             severity: critical
@@ -64,11 +64,25 @@ spec:
             namespace: darwin-platform
             notification_tier: real-incident
           annotations:
-            summary: Sounio compiler habitat unavailable
-            description: The promoted Sounio workspace habitat has no ready replicas for more than 3 minutes.
+            summary: Sounio compiler control workspace unavailable
+            description: The promoted Sounio control workspace has no ready replicas for more than 3 minutes.
             dashboard: Darwin Sounio Compiler Pipeline
             runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
             verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinSounioLegacyWorkspacePodLive
+          expr: sum(kube_pod_status_phase{namespace="beagle",phase=~"Pending|Running",pod=~"sounio-workspace-local-.*|sounio-workspace-habitat-.*|sounio-workspace-ha-.*|sounio-zellij-recovery"}) > 0
+          for: 2m
+          labels:
+            severity: warning
+            domain: compiler
+            namespace: darwin-platform
+            notification_tier: real-incident
+          annotations:
+            summary: Legacy Sounio workspace pod is live
+            description: A retired Sounio workspace/recovery pod is Pending or Running. Compiler agents should use sounio-workspace-control only.
+            dashboard: Darwin Sounio Compiler Pipeline
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/ops/sounio-workspace-contract-doctor.sh
         - alert: DarwinSounioCompilerIngressUnavailable
           expr: sum(max by (pod) (kube_pod_status_ready{namespace="tailscale",condition="true",pod=~"sounio-workspace-ingress-.*"})) < 2
           for: 5m
@@ -98,7 +112,7 @@ spec:
             runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
             verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
         - alert: DarwinSounioCompilerRestartDriftHigh
-          expr: sum(increase(kube_pod_container_status_restarts_total{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD"}[30m])) > 1
+          expr: sum(increase(kube_pod_container_status_restarts_total{namespace="beagle",pod="sounio-workspace-control-0",container!="POD"}[30m])) > 1
           for: 10m
           labels:
             severity: warning
@@ -106,13 +120,13 @@ spec:
             namespace: darwin-platform
             notification_tier: dev-noise
           annotations:
-            summary: Sounio compiler habitat is restarting
+            summary: Sounio compiler control workspace is restarting
             description: The promoted Sounio workspace has restarted more than once in the last 30 minutes.
             dashboard: Darwin Sounio Compiler Pipeline
             runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
             verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
         - alert: DarwinSounioCompilerCPUThrottlingHigh
-          expr: (sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD",image!=""}[5m])) / clamp_min(sum by (pod) (rate(container_cpu_cfs_periods_total{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD",image!=""}[5m])), 1)) > 0.20
+          expr: (sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{namespace="beagle",pod="sounio-workspace-control-0",container!="POD",image!=""}[5m])) / clamp_min(sum by (pod) (rate(container_cpu_cfs_periods_total{namespace="beagle",pod="sounio-workspace-control-0",container!="POD",image!=""}[5m])), 1)) > 0.20
           for: 15m
           labels:
             severity: warning
@@ -126,7 +140,7 @@ spec:
             runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
             verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
         - alert: DarwinSounioCompilerMemoryPressureHigh
-          expr: sum by (pod) (container_memory_working_set_bytes{namespace="beagle",pod="sounio-workspace-habitat-0",container!="POD",image!=""}) > 2147483648
+          expr: sum by (pod) (container_memory_working_set_bytes{namespace="beagle",pod="sounio-workspace-control-0",container!="POD",image!=""}) > 2147483648
           for: 15m
           labels:
             severity: warning

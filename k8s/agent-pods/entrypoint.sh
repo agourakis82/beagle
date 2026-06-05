@@ -16,12 +16,16 @@ set -euo pipefail
 : "${AGENT_KIND:=claude-code}"
 : "${PROJECT_SLUG:=unknown}"
 : "${WORKSPACE_DIR:=/workspace}"
+: "${COCKPIT_API:=http://project-cockpit.beagle.svc.cluster.local}"
+: "${COCKPIT_PROJECT:=${PROJECT_SLUG}}"
+export COCKPIT_API COCKPIT_PROJECT
 
 echo "[entrypoint] ========================================"
 echo "[entrypoint] Beagle Agent Pod starting"
 echo "[entrypoint] AGENT_KIND=${AGENT_KIND}"
 echo "[entrypoint] PROJECT=${PROJECT_SLUG}"
 echo "[entrypoint] WORKSPACE=${WORKSPACE_DIR}"
+echo "[entrypoint] COCKPIT_API=${COCKPIT_API}"
 echo "[entrypoint] UID=$(id -u) GID=$(id -g)"
 echo "[entrypoint] ========================================"
 
@@ -63,6 +67,119 @@ else
   echo "[entrypoint] ⚠ workspace not writable: ${WORKSPACE_DIR}"
 fi
 
+cat > "${WORKSPACE_DIR}/AGENT_CONTEXT.md" <<'EOF'
+# Cockpit Agent Context
+
+This pod uses an isolated agent PVC mounted at `/workspace`.
+
+It is not the live Sounio WIP checkout unless `/workspace/sounio` exists.
+For live Sounio development, attach to the promoted workspace service and the
+`sounio-dev` Zellij session. Use this pod for MCP, orchestration, reports, and
+explicitly submitted jobs.
+
+First command:
+
+```bash
+/workspace/whereami
+```
+
+Inside Claude Code, call the `cockpit_whereami` MCP tool for cluster truth.
+Then call `cockpit_model_registry` before choosing or trusting any local model
+lane. The bootstrap guard also materializes a live registry snapshot at:
+
+```bash
+/workspace/MODEL_REGISTRY_LIVE.json
+/workspace/MODEL_REGISTRY_BOOTSTRAP.md
+```
+EOF
+
+cat > "${WORKSPACE_DIR}/bootstrap-model-registry" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+workspace="${WORKSPACE_DIR:-/workspace}"
+api="${COCKPIT_API:-http://project-cockpit.beagle.svc.cluster.local}"
+project="${COCKPIT_PROJECT:-${PROJECT_SLUG:-sounio}}"
+json_out="${workspace}/MODEL_REGISTRY_LIVE.json"
+summary_out="${workspace}/MODEL_REGISTRY_BOOTSTRAP.md"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "model-registry-bootstrap: node is unavailable; call MCP cockpit_model_registry manually" >&2
+  exit 0
+fi
+
+node - "${api}" "${project}" "${json_out}" "${summary_out}" <<'NODE'
+const fs = require("node:fs");
+
+const [api, project, jsonOut, summaryOut] = process.argv.slice(2);
+
+async function main() {
+  const url = `${api.replace(/\/$/, "")}/api/projects/${encodeURIComponent(project)}/inference/model-registry`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
+  const packet = await res.json();
+  fs.writeFileSync(jsonOut, `${JSON.stringify(packet, null, 2)}\n`);
+
+  const registry = packet.modelRegistry || packet;
+  const lanes = Array.isArray(registry.lanes) ? registry.lanes : [];
+  const lines = [
+    "# Live Model Registry Bootstrap",
+    "",
+    `generated_at: ${new Date().toISOString()}`,
+    `project: ${project}`,
+    `truth_mode: ${registry.truthMode || packet.truthMode || "unknown"}`,
+    `runtime_status: ${registry.runtimeStatus || "unknown"}`,
+    "",
+    "Required agent contract:",
+    "- Call MCP `cockpit_whereami` for cluster truth.",
+    "- Call MCP `cockpit_model_registry` before choosing or trusting local model lanes.",
+    "- No model is approved for raw cluster mutation; use `cockpit_action_ledger` and human review.",
+    "",
+    "Observed lanes:"
+  ];
+
+  for (const lane of lanes) {
+    const model = lane.model || lane.servedModel || lane.name || "unknown-model";
+    const endpoint = lane.endpoint || lane.url || lane.service || "unknown-endpoint";
+    const status = lane.status || lane.runtimeStatus || lane.truthMode || "unknown";
+    lines.push(`- ${lane.id || "lane"}: ${model} @ ${endpoint} (${status})`);
+  }
+
+  fs.writeFileSync(summaryOut, `${lines.join("\n")}\n`);
+  console.error(`model-registry-bootstrap: wrote ${jsonOut}`);
+}
+
+main().catch((err) => {
+  console.error(`model-registry-bootstrap: ${err.message}`);
+  process.exit(1);
+});
+NODE
+SCRIPT
+chmod +x "${WORKSPACE_DIR}/bootstrap-model-registry"
+
+cat > "${WORKSPACE_DIR}/whereami" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "surface: Cockpit isolated agent pod"
+echo "project: ${PROJECT_SLUG:-unknown}"
+echo "agent: ${AGENT_KIND:-unknown}"
+echo "workspace: ${WORKSPACE_DIR:-/workspace}"
+if [[ -d "${WORKSPACE_DIR:-/workspace}/sounio" ]]; then
+  echo "repo: ${WORKSPACE_DIR:-/workspace}/sounio"
+else
+  echo "repo: none mounted here"
+  echo "live Sounio WIP: /workspace/sounio inside sounio-workspace-control-0"
+fi
+if [[ -x "${WORKSPACE_DIR:-/workspace}/bootstrap-model-registry" ]]; then
+  "${WORKSPACE_DIR:-/workspace}/bootstrap-model-registry" || true
+fi
+echo "next: call MCP cockpit_whereami, then cockpit_model_registry, before model decisions"
+echo "wip: attach to sounio-dev for live WIP work"
+SCRIPT
+chmod +x "${WORKSPACE_DIR}/whereami"
+
+"${WORKSPACE_DIR}/bootstrap-model-registry" || true
+
 # Agent kind detection (just for logging — actual invocation happens on exec)
 case "${AGENT_KIND}" in
   claude-code)
@@ -84,6 +201,9 @@ cat > /home/agent/start-agent.sh <<'SCRIPT'
 #!/usr/bin/env bash
 # Invoked by kubectl exec to launch the agent interactively.
 cd "${WORKSPACE_DIR:-/workspace}"
+if [[ -x "${WORKSPACE_DIR:-/workspace}/bootstrap-model-registry" ]]; then
+  "${WORKSPACE_DIR:-/workspace}/bootstrap-model-registry" || true
+fi
 case "${AGENT_KIND:-claude-code}" in
   claude-code) exec claude "$@" ;;
   codex)       exec codex "$@" ;;

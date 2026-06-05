@@ -62,6 +62,11 @@ Installed and validated on `2026-04-05`.
   - restored after clearing `t560` kubelet `DiskPressure` and replacing
     Docker Hub helper images with Slinky-hosted images already used by the
     lane
+  - Sounio compiler bootstrap toolchain is now baked into the durable worker
+    image:
+    `192.168.3.207:5003/slurmd-sounio-toolchain:25.11-ubuntu24.04-gcc-20260523T090133Z`
+  - Slurm compile smoke job `1643` proved `/usr/bin/cc` after recycling the
+    worker onto that image
 - worker gate status:
   - `r770-proxmox`: admitted
   - `r740-proxmox`: admitted again after the real Cilium `1.19.2` image
@@ -262,6 +267,8 @@ Use it honestly:
 - [scripts/69-autoheal-gpuorangefs-worker.sh](/home/devsounio/beagle/k8s/hpc-sota/slurm-pilot/scripts/69-autoheal-gpuorangefs-worker.sh)
 - [scripts/70-autoheal-gpuorangefs-pool.sh](/home/devsounio/beagle/k8s/hpc-sota/slurm-pilot/scripts/70-autoheal-gpuorangefs-pool.sh)
 - [scripts/71-install-gpuorangefs-autoheal-timer.sh](/home/devsounio/beagle/k8s/hpc-sota/slurm-pilot/scripts/71-install-gpuorangefs-autoheal-timer.sh)
+- [images/slurmd-sounio-toolchain/Dockerfile](/home/devsounio/beagle/k8s/hpc-sota/slurm-pilot/images/slurmd-sounio-toolchain/Dockerfile)
+- [scripts/72-build-slurmd-sounio-toolchain-image.sh](/home/devsounio/beagle/k8s/hpc-sota/slurm-pilot/scripts/72-build-slurmd-sounio-toolchain-image.sh)
 - [patches/slurm-operator-v1.1.0-rc1-stepmgr-toggle.patch](/home/devsounio/beagle/k8s/hpc-sota/slurm-pilot/patches/slurm-operator-v1.1.0-rc1-stepmgr-toggle.patch)
 - [patches/slurm-operator-v1.1.0-rc1-strategic-merge-workloads.patch](/home/devsounio/beagle/k8s/hpc-sota/slurm-pilot/patches/slurm-operator-v1.1.0-rc1-strategic-merge-workloads.patch)
 - [patches/slurm-operator-v1.1.0-rc1-controller-default-initcontainers.patch](/home/devsounio/beagle/k8s/hpc-sota/slurm-pilot/patches/slurm-operator-v1.1.0-rc1-controller-default-initcontainers.patch)

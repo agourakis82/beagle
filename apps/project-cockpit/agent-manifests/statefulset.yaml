@@ -1,5 +1,5 @@
 # StatefulSet template — rendered per (projectSlug, agentKind).
-# Substitutions: ${PROJECT_SLUG}, ${AGENT_KIND}, ${AGENT_IMAGE}
+# Substitutions: ${PROJECT_SLUG}, ${AGENT_KIND}, ${AGENT_IMAGE}, ${PROJECT_REPO_URL}, ${PROJECT_BRANCH}, ${PROJECT_WORKSPACE_ROOT}
 #
 # Apply via:
 #   envsubst < statefulset.yaml | kubectl -n beagle apply -f -
@@ -28,9 +28,19 @@ spec:
         app: beagle-agent
         project: ${PROJECT_SLUG}
         agent-kind: ${AGENT_KIND}
+        workspace-mode: isolated-agent-pvc
     spec:
       nodeSelector:
         kubernetes.io/os: linux
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: sounio.dev/inference-fabric
+                    operator: NotIn
+                    values:
+                      - "true"
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000
@@ -49,6 +59,89 @@ spec:
           operator: Equal
           value: gpu-batch
           effect: NoSchedule
+      initContainers:
+        - name: workspace-bootstrap
+          image: ${AGENT_IMAGE}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              repo="${PROJECT_REPO_URL}"
+              branch="${PROJECT_BRANCH:-main}"
+              root="${PROJECT_WORKSPACE_ROOT:-/workspace/${PROJECT_SLUG}}"
+              mkdir -p "$(dirname "$root")"
+              if [ -n "$repo" ] && [ ! -d "$root/.git" ]; then
+                git clone --branch "$branch" --single-branch "$repo" "$root" || git clone "$repo" "$root"
+              elif [ -d "$root/.git" ]; then
+                git -C "$root" fetch --all --prune || true
+              else
+                mkdir -p "$root"
+              fi
+              chown -R 1000:1000 "$root"
+          env:
+            - name: PROJECT_SLUG
+              value: "${PROJECT_SLUG}"
+            - name: PROJECT_REPO_URL
+              value: "${PROJECT_REPO_URL}"
+            - name: PROJECT_BRANCH
+              value: "${PROJECT_BRANCH}"
+            - name: PROJECT_WORKSPACE_ROOT
+              value: "${PROJECT_WORKSPACE_ROOT}"
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: Unconfined
+            appArmorProfile:
+              type: Unconfined
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+        - name: codex-auth-bootstrap
+          image: ${AGENT_IMAGE}
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              mkdir -p /codex-home
+              if [ -f /codex-auth/auth.json ]; then
+                cp /codex-auth/auth.json /codex-home/auth.json
+                chmod 600 /codex-home/auth.json
+              fi
+              if [ -f /codex-auth/config.toml ]; then
+                cp /codex-auth/config.toml /codex-home/config.toml
+                chmod 600 /codex-home/config.toml
+              fi
+              if [ -n "${PROJECT_WORKSPACE_ROOT:-}" ]; then
+                {
+                  echo
+                  echo "[projects.\"${PROJECT_WORKSPACE_ROOT}\"]"
+                  echo 'trust_level = "trusted"'
+                } >> /codex-home/config.toml
+              fi
+              chown -R 1000:1000 /codex-home
+          env:
+            - name: PROJECT_WORKSPACE_ROOT
+              value: "${PROJECT_WORKSPACE_ROOT}"
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: Unconfined
+            appArmorProfile:
+              type: Unconfined
+          volumeMounts:
+            - name: codex-home
+              mountPath: /codex-home
+            - name: codex-auth
+              mountPath: /codex-auth
+              readOnly: true
       terminationGracePeriodSeconds: 30
       containers:
         - name: agent
@@ -63,7 +156,13 @@ spec:
             - name: TMUX_SESSION
               value: "agent-${AGENT_KIND}"
             - name: WORKSPACE_DIR
-              value: "/workspace"
+              value: "${PROJECT_WORKSPACE_ROOT}"
+            - name: SOUNIO_WORKSPACE_CONTRACT
+              value: "isolated-agent-pvc"
+            - name: COCKPIT_API
+              value: "http://project-cockpit.beagle.svc.cluster.local"
+            - name: COCKPIT_PROJECT
+              value: "${PROJECT_SLUG}"
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -98,6 +197,8 @@ spec:
               mountPath: /tmp
             - name: agent-home
               mountPath: /home/agent/.cache
+            - name: codex-home
+              mountPath: /home/agent/.codex
             # Claude Code OAuth auth — reused from Sounio workspace session.
             # Projected into ~/.claude/ at pod start via entrypoint.sh (symlink
             # from read-only mount → writable PVC location, so Claude CLI can
@@ -111,6 +212,10 @@ spec:
             runAsUser: 1000
             runAsGroup: 1000
             allowPrivilegeEscalation: false
+            seccompProfile:
+              type: Unconfined
+            appArmorProfile:
+              type: Unconfined
       volumes:
         - name: mcp-config
           configMap:
@@ -122,6 +227,19 @@ spec:
         - name: agent-home
           emptyDir:
             sizeLimit: 2Gi
+        - name: codex-home
+          emptyDir:
+            sizeLimit: 128Mi
+        - name: codex-auth
+          secret:
+            secretName: agent-codex-auth
+            optional: true
+            defaultMode: 0400
+            items:
+              - key: auth.json
+                path: auth.json
+              - key: config.toml
+                path: config.toml
         - name: claude-auth
           secret:
             secretName: agent-claude-auth

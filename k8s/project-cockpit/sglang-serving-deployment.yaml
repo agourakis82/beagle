@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/part-of: beagle
     sounio.dev/state: scaffold
 spec:
-  replicas: 1
+  replicas: 0
   revisionHistoryLimit: 3
   strategy:
     type: RollingUpdate
@@ -31,6 +31,7 @@ spec:
       runtimeClassName: nvidia
       nodeSelector:
         kubernetes.io/hostname: r740-proxmox
+        sounio.dev/inference-fabric: "true"
         sounio.dev/pool: gpu-batch
         sounio.dev/accelerator-class: gpu
       tolerations:
@@ -44,7 +45,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: sglang
-          image: ttl.sh/sounio-sglang-dynamo-runtime-20260409-211149-4fb6e7:24h
+          image: 192.168.3.207:5003/sounio-sglang-dynamo-runtime:dynamo-1.0.1-sglang-lite-20260522T152939Z
           imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true
@@ -65,6 +66,14 @@ spec:
               value: 0.0.0.0
             - name: SGLANG_PORT
               value: "30000"
+            - name: SGLANG_MEM_FRACTION_STATIC
+              value: "0.18"
+            - name: SGLANG_MAX_TOTAL_TOKENS
+              value: "8192"
+            - name: SGLANG_ATTENTION_BACKEND
+              value: "triton"
+            - name: SGLANG_DISABLE_CUDA_GRAPH
+              value: "1"
             - name: HF_HOME
               value: /var/cache/huggingface
             - name: HF_HUB_DISABLE_PROGRESS_BARS

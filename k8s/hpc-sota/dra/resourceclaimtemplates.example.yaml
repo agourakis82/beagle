@@ -1,0 +1,17 @@
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: sounio-gpu-canary
+  namespace: beagle
+  labels:
+    app.kubernetes.io/part-of: darwin-hpc-sota
+    sounio.dev/gpu-authority: dra-canary
+spec:
+  spec:
+    devices:
+      requests:
+        - name: gpu
+          exactly:
+            deviceClassName: sounio-gpu
+            allocationMode: ExactCount
+            count: 1

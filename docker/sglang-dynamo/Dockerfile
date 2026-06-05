@@ -1,14 +1,13 @@
-FROM ttl.sh/sounio-sglang-runtime-20260409-163137-9a6e6d:24h
+FROM nvcr.io/nvidia/ai-dynamo/sglang-runtime:1.0.1
 
-ENV DYNAMO_VENV=/opt/dynamo-venv
-ENV PATH="${DYNAMO_VENV}/bin:${PATH}"
 ENV PYTHONUNBUFFERED=1
 
-RUN python3 -m venv "${DYNAMO_VENV}" \
- && "${DYNAMO_VENV}/bin/pip" install --no-cache-dir "ai-dynamo[sglang]"
+USER root
 
-COPY entrypoint.sh /opt/dynamo/bin/entrypoint.sh
+RUN python3 -m pip install --no-cache-dir --no-deps "bitsandbytes>=0.46.1"
 
-RUN chmod +x /opt/dynamo/bin/entrypoint.sh
+COPY --chmod=0755 entrypoint.sh /opt/dynamo/bin/entrypoint.sh
+
+USER dynamo
 
 ENTRYPOINT ["/opt/dynamo/bin/entrypoint.sh"]

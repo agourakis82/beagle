@@ -157,7 +157,7 @@ safe_run "Slurm Pilot Pods" bootstrap_kctl -n slurm-pilot get pods -o wide
 safe_run "Kueue Queues" bootstrap_kueue_status
 safe_run "Slurm Status" bootstrap_slurm_status
 safe_run "OrangeFS Status" bootstrap_orangefs_status
-safe_run "Sounio Workspace Surfaces" bootstrap_kctl -n beagle get svc,statefulset,pod -l app.kubernetes.io/name=sounio-workspace-habitat -o wide
+safe_run "Sounio Workspace Surfaces" bootstrap_kctl -n beagle get svc,statefulset,pod -l app.kubernetes.io/name=sounio-workspace-control -o wide
 safe_run "Grafana Surface" bootstrap_kctl -n darwin-platform get svc,pod -l app.kubernetes.io/name=grafana -o wide
 
 section "Decision Reminder"

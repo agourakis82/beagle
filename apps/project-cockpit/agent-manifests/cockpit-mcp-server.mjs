@@ -20,8 +20,12 @@
 //   cockpit_cluster_truth       — cluster lane truth
 //   cockpit_research_latest     — latest research operation (ABIDE etc.)
 //   cockpit_inference_runtime   — SGLang + Dynamo state + models
+//   cockpit_model_registry      — approved model lanes, routing, and policy
 //   cockpit_viewer_runtime      — WebGPU viewer state
 //   cockpit_agent_sessions      — list active agent sessions in this project
+//   cockpit_action_ledger       — list proposed/confirmed/rejected actions
+//   cockpit_workbench_context_* — shared MCP/RAG++ memory for Claude, ChatGPT, Grok, Codex, Kimi
+//   cockpit_propose_action      — propose a human-reviewed action
 //   cockpit_activate_habitat    — mutate: wake a warm habitat
 //   cockpit_standby_habitat     — mutate: pause a warm habitat
 
@@ -35,11 +39,15 @@ const SERVER_VERSION = "0.1.0";
 
 // ─── HTTP helpers ──────────────────────────────────────────────────────
 
-async function apiGet(path, timeoutMs = 6000) {
+async function apiGet(path, timeoutMs = 6000, options = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(`${API}${path}`, { signal: ctrl.signal });
+    const headers = { ...(options.headers || {}) };
+    if (options.auth === true) {
+      headers.authorization = `Bearer ${await getBeagleToken()}`;
+    }
+    const res = await fetch(`${API}${path}`, { headers, signal: ctrl.signal });
     if (!res.ok) return { error: `HTTP ${res.status}`, truthMode: "stale" };
     return await res.json();
   } catch (e) {
@@ -49,13 +57,20 @@ async function apiGet(path, timeoutMs = 6000) {
   }
 }
 
-async function apiPost(path, body, timeoutMs = 10000) {
+async function apiPost(path, body, timeoutMs = 10000, options = {}) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
+    const headers = {
+      "content-type": "application/json",
+      ...(options.headers || {})
+    };
+    if (options.auth === true) {
+      headers.authorization = `Bearer ${await getBeagleToken()}`;
+    }
     const res = await fetch(`${API}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(body ?? {}),
       signal: ctrl.signal
     });
@@ -230,6 +245,16 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {} }
   },
   {
+    name: "cockpit_whereami",
+    description: "Return the agent's operating map: live workspace authority, isolated agent pod boundary, inference fabric status, GPU lease intent, and next safe commands.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project slug (default: current project)" }
+      }
+    }
+  },
+  {
     name: "cockpit_mission_control",
     description: "Get the full mission control packet for a project — workspace habitat, branch, namespace, execution packets, truth summary.",
     inputSchema: {
@@ -260,8 +285,41 @@ const TOOLS = [
     }
   },
   {
+    name: "cockpit_foundry_latest",
+    description: "List recent Sounio Compiler Foundry runs and their observed artifact status. Reads Cockpit's read-only OrangeFS mount, not the workspace.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 100, default: 12 }
+      }
+    }
+  },
+  {
+    name: "cockpit_foundry_summary",
+    description: "Read a Sounio Compiler Foundry run summary, including CPU/GPU summaries, run packet, and artifact paths. This is the canonical agent path for reporting Foundry artifacts.",
+    inputSchema: {
+      type: "object",
+      required: ["run_id"],
+      properties: {
+        project: { type: "string" },
+        run_id: { type: "string", description: "Foundry run id, for example sounio-20260523T154804Z-4f5a85" }
+      }
+    }
+  },
+  {
     name: "cockpit_inference_runtime",
     description: "Get inference fabric state — SGLang engine status, Dynamo control plane, available models, endpoints.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "cockpit_model_registry",
+    description: "Get the Project Cockpit model registry: always-on/helper/audit/research/domain/operator lanes, live reachability, GPU/VRAM evidence, last probe, routing rules, and operator policy. Agents should call this before choosing or trusting a model lane.",
     inputSchema: {
       type: "object",
       properties: {
@@ -286,6 +344,33 @@ const TOOLS = [
       type: "object",
       properties: {
         project: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "cockpit_action_ledger",
+    description: "List the Cockpit action ledger for a project. Agents should consult this before proposing or touching any cluster/workspace mutation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 100, default: 20 }
+      }
+    }
+  },
+  {
+    name: "cockpit_propose_action",
+    description: "Create a propose-only action ledger entry for human review. Use this instead of emitting raw mutation commands when cluster/workspace changes may be needed.",
+    inputSchema: {
+      type: "object",
+      required: ["summary"],
+      properties: {
+        project: { type: "string" },
+        summary: { type: "string" },
+        action_type: { type: "string", description: "Short action family, e.g. rbac-review, rollout, node-maintenance." },
+        risk: { type: "string", enum: ["low", "medium", "high"], default: "medium" },
+        reason: { type: "string" },
+        evidence: { type: "object", additionalProperties: true }
       }
     }
   },
@@ -381,6 +466,382 @@ const TOOLS = [
       properties: {
         project: { type: "string" },
         job_id: { type: "string" }
+      }
+    }
+  },
+
+  // ─── Workbench shared context (MCP + RAG++ + bounded GraphRAG) ───────
+
+  {
+    name: "cockpit_workbench_context_status",
+    description: "Get the Workbench shared context status: read-after-write memory overlay, Beagle Core write-through, observed clients, sessions, and endpoint contract.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_doctor",
+    description: "Run Workbench shared context diagnostics. Non-mutating by default; set write_probe=true to verify ingest, read-after-write RAG++, GraphRAG, and compiler.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        write_probe: { type: "boolean", default: false },
+        query: { type: "string" },
+        sentinel: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_audit",
+    description: "Audit shared memory for the current workbench: sources, providers, clients, sessions, tags, and risks. Use this before claiming Claude/ChatGPT/Grok/Codex/Kimi memory is wired.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_presence",
+    description: "Return operational presence for MCP clients and agents: active, waiting, stale, idle, declared, plus handoff load.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        stale_after_minutes: { type: "integer", minimum: 5, maximum: 1440, default: 90 },
+        limit: { type: "integer", minimum: 1, maximum: 500, default: 200 }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_client_heartbeat",
+    description: "Mark this MCP/subscription client as live without replying to a handoff. Use as a keepalive so the Workbench can route realtime multimodel chat to Claude Desktop, ChatGPT, Grok, Kimi, Codex, or local agents.",
+    inputSchema: {
+      type: "object",
+      required: ["client_id"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        client_id: { type: "string" },
+        provider: { type: "string" },
+        session_id: { type: "string" },
+        status: { type: "string", default: "online" },
+        note: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+        metadata: { type: "object", additionalProperties: true }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_continuity",
+    description: "Compile a continuity packet so a new agent can resume without losing context: status, presence, open handoffs, next actions, recent memories, and resume brief.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        limit: { type: "integer", minimum: 1, maximum: 120, default: 40 },
+        handoff_limit: { type: "integer", minimum: 1, maximum: 100, default: 24 },
+        recent_limit: { type: "integer", minimum: 1, maximum: 100, default: 12 },
+        stale_after_minutes: { type: "integer", minimum: 5, maximum: 1440, default: 90 }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_ingest",
+    description: "Write turns into the shared Workbench memory bus. This is the canonical MCP write path for Claude Desktop, ChatGPT, Grok, Codex, Kimi, and local zellij agents. It stores locally with read-after-write and writes through to Beagle Core memory.",
+    inputSchema: {
+      type: "object",
+      required: ["turns"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        source: { type: "string", description: "Client/source name, e.g. claude-desktop, chatgpt, grok, codex, kimi-cli" },
+        provider: { type: "string", description: "Provider family, e.g. anthropic, openai, xai, moonshot" },
+        client_id: { type: "string" },
+        session_id: { type: "string" },
+        conversation_id: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+        metadata: { type: "object", additionalProperties: true },
+        turns: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["content"],
+            properties: {
+              role: { type: "string", enum: ["user", "assistant", "system", "tool"], default: "user" },
+              content: { type: "string" },
+              external_id: { type: "string" },
+              model: { type: "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_query",
+    description: "Query shared Workbench memory with RAG++ readback. Searches the local read-after-write overlay first, then Beagle Core memory, and returns a bounded graph projection.",
+    inputSchema: {
+      type: "object",
+      required: ["query"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        query: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 30, default: 8 },
+        source: { type: "string" },
+        session_id: { type: "string" },
+        tags: { type: "array", items: { type: "string" } }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_graphrag",
+    description: "Run the bounded GraphRAG projection over shared Workbench memory and Beagle memory highlights. Returns graph nodes/edges plus supporting memories.",
+    inputSchema: {
+      type: "object",
+      required: ["query"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        query: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 30, default: 8 },
+        query_mode: { type: "string", default: "local" }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_compile",
+    description: "Compile shared Workbench context into a compact agent handoff packet: top memories, bounded graph, and plain text context.",
+    inputSchema: {
+      type: "object",
+      required: ["query"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        query: { type: "string" },
+        task_profile: { type: "string", default: "analysis" },
+        tool_id: { type: "string", default: "mcp-agent" },
+        max_items: { type: "integer", minimum: 1, maximum: 30, default: 8 }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_import",
+    description: "Bulk import conversation items into shared Workbench memory with duplicate suppression. Use for syncing external MCP clients or exported chat histories.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        source: { type: "string" },
+        provider: { type: "string" },
+        client_id: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
+        items: { type: "array", items: { type: "object", additionalProperties: true } },
+        conversations: { type: "array", items: { type: "object", additionalProperties: true } },
+        write_through: { type: "boolean", default: true }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_export",
+    description: "Export recent shared Workbench memory records for inspection, migration, or external MCP sync.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        limit: { type: "integer", minimum: 1, maximum: 100, default: 30 },
+        source: { type: "string" },
+        session_id: { type: "string" },
+        since: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_send",
+    description: "Send a handoff message from one agent/client to another through the shared Workbench context mesh.",
+    inputSchema: {
+      type: "object",
+      required: ["to_client", "content"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        from_client: { type: "string" },
+        to_client: { type: "string" },
+        subject: { type: "string" },
+        content: { type: "string" },
+        priority: { type: "string", enum: ["low", "normal", "high", "urgent"], default: "normal" },
+        thread_id: { type: "string" },
+        requires_response: { type: "boolean" },
+        tags: { type: "array", items: { type: "string" } }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_inbox",
+    description: "List handoff messages for a client, including acknowledgements, claims, and completions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        client_id: { type: "string" },
+        status: { type: "string", enum: ["sent", "acknowledged", "claimed", "completed", "canceled"] },
+        limit: { type: "integer", minimum: 1, maximum: 100, default: 30 }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_board",
+    description: "Return a coordination board for agent handoffs: waiting, active, done, stale, per-client counts, and next actions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        client_id: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: 500, default: 200 },
+        stale_after_minutes: { type: "integer", minimum: 5, maximum: 1440, default: 90 },
+        include_completed: { type: "boolean", default: true }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_ack",
+    description: "Acknowledge a handoff message from an agent/client.",
+    inputSchema: {
+      type: "object",
+      required: ["message_id"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        message_id: { type: "string" },
+        client_id: { type: "string" },
+        note: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_reply",
+    description: "Reply to a handoff message as a client: writes the response into the same thread and marks the handoff completed.",
+    inputSchema: {
+      type: "object",
+      required: ["message_id", "text"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        message_id: { type: "string" },
+        client_id: { type: "string" },
+        provider: { type: "string" },
+        text: { type: "string" },
+        model: { type: "string" },
+        force: { type: "boolean", default: false },
+        tags: { type: "array", items: { type: "string" } },
+        metadata: { type: "object", additionalProperties: true }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_handoff_compile",
+    description: "Compile a specific handoff message into an actionable agent context packet with thread, acknowledgements, RAG++ highlights, graph, and plain text context.",
+    inputSchema: {
+      type: "object",
+      required: ["message_id"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        message_id: { type: "string" },
+        query: { type: "string" },
+        task_profile: { type: "string", default: "handoff" },
+        max_items: { type: "integer", minimum: 1, maximum: 30, default: 8 },
+        query_mode: { type: "string", default: "handoff" }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_claim",
+    description: "Claim a handoff message before starting work. Fails on conflicting ownership unless force=true.",
+    inputSchema: {
+      type: "object",
+      required: ["message_id"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        message_id: { type: "string" },
+        client_id: { type: "string" },
+        note: { type: "string" },
+        force: { type: "boolean", default: false }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_release",
+    description: "Release a claimed handoff so another agent can take it.",
+    inputSchema: {
+      type: "object",
+      required: ["message_id"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        message_id: { type: "string" },
+        client_id: { type: "string" },
+        note: { type: "string" },
+        force: { type: "boolean", default: false }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_complete",
+    description: "Mark a claimed handoff message complete with a result summary and optional artifact refs.",
+    inputSchema: {
+      type: "object",
+      required: ["message_id"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        message_id: { type: "string" },
+        client_id: { type: "string" },
+        result: { type: "string" },
+        note: { type: "string" },
+        artifact_refs: { type: "array", items: { type: "string" } },
+        force: { type: "boolean", default: false }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_cancel",
+    description: "Cancel a handoff that should no longer be worked.",
+    inputSchema: {
+      type: "object",
+      required: ["message_id"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        message_id: { type: "string" },
+        client_id: { type: "string" },
+        reason: { type: "string" },
+        note: { type: "string" },
+        force: { type: "boolean", default: false }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_reopen",
+    description: "Reopen a completed or canceled handoff and return it to the waiting queue.",
+    inputSchema: {
+      type: "object",
+      required: ["message_id"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        message_id: { type: "string" },
+        client_id: { type: "string" },
+        note: { type: "string" },
+        force: { type: "boolean", default: false }
+      }
+    }
+  },
+  {
+    name: "cockpit_workbench_context_heartbeat",
+    description: "Record progress on a claimed handoff without completing it.",
+    inputSchema: {
+      type: "object",
+      required: ["message_id"],
+      properties: {
+        project: { type: "string", description: "Project slug (defaults to current)" },
+        message_id: { type: "string" },
+        client_id: { type: "string" },
+        progress: { type: "string" },
+        note: { type: "string" },
+        force: { type: "boolean", default: false }
       }
     }
   },
@@ -483,6 +944,89 @@ async function callTool(name, args = {}) {
     case "cockpit_catalog":
       return apiGet("/api/catalog/executive");
 
+    case "cockpit_whereami": {
+      const [mission, inference, registry, sessions, actions, cluster] = await Promise.all([
+        apiGet(`/api/projects/${slug}/mission-control`).catch((e) => ({ error: e.message })),
+        apiGet(`/api/projects/${slug}/inference/runtime`).catch((e) => ({ error: e.message })),
+        apiGet(`/api/projects/${slug}/inference/model-registry`).catch((e) => ({ error: e.message })),
+        apiGet(`/api/projects/${slug}/agent/sessions`).catch((e) => ({ error: e.message })),
+        apiGet(`/api/projects/${slug}/actions?limit=20`).catch((e) => ({ error: e.message })),
+        apiGet(`/api/projects/${slug}/cluster/lane-truth`).catch((e) => ({ error: e.message }))
+      ]);
+      return {
+        project: slug,
+        generatedAt: new Date().toISOString(),
+        truthMode: [mission, inference, registry, sessions, actions, cluster].some((x) => x?.error) ? "stale" : "observed",
+        bootstrapRequiredTools: [
+          "cockpit_whereami",
+          "cockpit_model_registry",
+          "cockpit_action_ledger"
+        ],
+        bootstrapContract: {
+          modelRegistryRequired: true,
+          registrySnapshotPath: "/workspace/MODEL_REGISTRY_LIVE.json",
+          registrySummaryPath: "/workspace/MODEL_REGISTRY_BOOTSTRAP.md",
+          rule: "Agents must call cockpit_model_registry before choosing, switching, or trusting local model lanes."
+        },
+        currentSurface: {
+          kind: "cockpit-agent-pod",
+          workspace: "/workspace",
+          authority: "isolated agent PVC; do not assume it contains live Sounio WIP",
+          liveSounioWip: "sounio-workspace-control-0:/workspace/sounio",
+          zellij: "sounio-dev"
+        },
+        workspaceContract: {
+          service: "sounio-workspace",
+          controller: "StatefulSet/sounio-workspace-control",
+          role: "workspace: submit only",
+          heavyValidation: "submit Sounio Foundry packets; jobs run in scratch"
+        },
+        foundryContract: {
+          command: "/home/devsounio/projects/sounio/sounio-forge submit full-compiler --source wip --gpu auto",
+          summarize: "/home/devsounio/projects/sounio/sounio-forge summarize <run_id>",
+          latestProvenFullRun: "sounio-20260523T154804Z-4f5a85",
+          artifactRoot: "/orangefs/training/sounio-foundry/runs",
+          latestArtifactPath: "/orangefs/training/sounio-foundry/runs/sounio-20260523T154804Z-4f5a85",
+          scratch: "/tmp/sounio-foundry/<run_id>",
+          lanes: {
+            cpu: "Slurm cpu-ops",
+            gpu: "Slurm gpu-orangefs"
+          },
+          rule: "workspace submits and reads reports; Slurm scratch executes; OrangeFS stores artifacts"
+        },
+        clusterRoleContract: {
+          r740: "preferred always-on light inference GPU lane; keep out of Slurm while inference lease is active",
+          r770: "preferred Slurm gpu-orangefs worker for batch/compiler GPU validation",
+          "5860": "secondary GPU/SSM probe and OrangeFS storage ceiling; use deliberately",
+          t560: "control workspace and cpu-ops lane"
+        },
+        inferenceContract: {
+          primary: "SGLang + Dynamo through the OpenAI-compatible model registry when reachable",
+          experimental: "SSM/Mamba-style probe lanes are optional experiments, not the compiler control path",
+          compatibility: "vLLM is compatibility/fallback, not the primary Darwin control fabric",
+          modelRegistry: "/api/projects/{project}/inference/model-registry",
+          operatorPolicy: "no raw cluster mutation advice; use Cockpit action ledger and human-reviewed operator packets",
+          status: inference?.status || inference?.runtime?.status || "unknown",
+          reachable: Boolean(inference?.reachable ?? inference?.runtime?.reachable)
+        },
+        nextCommands: [
+          "/workspace/whereami",
+          "call MCP cockpit_mission_control",
+          "call MCP cockpit_model_registry",
+          "call MCP cockpit_action_ledger",
+          "attach to sounio-dev for live WIP work",
+          "submit heavy validation via sounio-forge",
+          "read Foundry artifacts from /orangefs/training/sounio-foundry/runs/<run_id>"
+        ],
+        mission,
+        inference,
+        registry,
+        sessions,
+        actions,
+        cluster
+      };
+    }
+
     case "cockpit_mission_control":
       return apiGet(`/api/projects/${slug}/mission-control`);
 
@@ -492,14 +1036,39 @@ async function callTool(name, args = {}) {
     case "cockpit_research_latest":
       return apiGet(`/api/projects/${slug}/research/operations`);
 
+    case "cockpit_foundry_latest": {
+      const limit = Number.isFinite(Number(args.limit)) ? Number(args.limit) : 12;
+      return apiGet(`/api/projects/${slug}/foundry/runs?limit=${encodeURIComponent(String(limit))}`);
+    }
+
+    case "cockpit_foundry_summary":
+      return apiGet(`/api/projects/${slug}/foundry/runs/${encodeURIComponent(args.run_id)}/summary`);
+
     case "cockpit_inference_runtime":
       return apiGet(`/api/projects/${slug}/inference/runtime`);
+
+    case "cockpit_model_registry":
+      return apiGet(`/api/projects/${slug}/inference/model-registry`);
 
     case "cockpit_viewer_runtime":
       return apiGet(`/api/projects/${slug}/viewer/runtime`);
 
     case "cockpit_agent_sessions":
       return apiGet(`/api/projects/${slug}/agent/sessions`);
+
+    case "cockpit_action_ledger": {
+      const limit = Number.isFinite(Number(args.limit)) ? Number(args.limit) : 20;
+      return apiGet(`/api/projects/${slug}/actions?limit=${encodeURIComponent(String(limit))}`);
+    }
+
+    case "cockpit_propose_action":
+      return apiPost(`/api/projects/${slug}/actions/propose`, {
+        action_type: args.action_type,
+        summary: args.summary,
+        risk: args.risk,
+        reason: args.reason,
+        evidence: args.evidence
+      });
 
     case "cockpit_activate_habitat":
       return apiPost(`/api/projects/${slug}/go-work-now/actions/activate-habitat`, {});
@@ -509,6 +1078,7 @@ async function callTool(name, args = {}) {
 
     case "cockpit_submit_job":
       return apiPost(`/api/projects/${slug}/jobs/submit`, {
+        confirmed: true,
         preset: args.preset,
         campaign: args.campaign,
         image: args.image,
@@ -526,7 +1096,296 @@ async function callTool(name, args = {}) {
       return apiGet(`/api/projects/${slug}/jobs`);
 
     case "cockpit_job_cancel":
-      return apiPost(`/api/projects/${slug}/jobs/${encodeURIComponent(args.job_id)}/cancel`, {});
+      return apiPost(`/api/projects/${slug}/jobs/${encodeURIComponent(args.job_id)}/cancel`, { confirmed: true });
+
+    case "cockpit_workbench_context_status":
+      return apiGet(`/api/workbench/${slug}/context/status`, 30000, { auth: true });
+
+    case "cockpit_workbench_context_doctor":
+      return apiPost(
+        `/api/workbench/${slug}/context/doctor`,
+        {
+          write_probe: args.write_probe === true,
+          query: args.query,
+          sentinel: args.sentinel
+        },
+        args.write_probe === true ? 60000 : 30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_audit":
+      return apiGet(`/api/workbench/${slug}/context/audit`, 30000, { auth: true });
+
+    case "cockpit_workbench_context_presence": {
+      const q = new URLSearchParams();
+      if (args.stale_after_minutes) q.set("stale_after_minutes", String(args.stale_after_minutes));
+      if (args.limit) q.set("limit", String(args.limit));
+      const qs = q.toString();
+      return apiGet(`/api/workbench/${slug}/context/presence${qs ? `?${qs}` : ""}`, 30000, { auth: true });
+    }
+
+    case "cockpit_workbench_context_client_heartbeat":
+      return apiPost(
+        `/api/workbench/${slug}/context/clients/${encodeURIComponent(args.client_id || "cockpit-mcp")}/heartbeat`,
+        {
+          provider: args.provider,
+          session_id: args.session_id,
+          status: args.status,
+          note: args.note,
+          tags: args.tags,
+          metadata: args.metadata
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_continuity": {
+      const q = new URLSearchParams();
+      if (args.limit) q.set("limit", String(args.limit));
+      if (args.handoff_limit) q.set("handoff_limit", String(args.handoff_limit));
+      if (args.recent_limit) q.set("recent_limit", String(args.recent_limit));
+      if (args.stale_after_minutes) q.set("stale_after_minutes", String(args.stale_after_minutes));
+      const qs = q.toString();
+      return apiGet(`/api/workbench/${slug}/context/continuity${qs ? `?${qs}` : ""}`, 30000, { auth: true });
+    }
+
+    case "cockpit_workbench_context_ingest":
+      return apiPost(
+        `/api/workbench/${slug}/context/ingest`,
+        {
+          source: args.source || "cockpit-mcp",
+          provider: args.provider,
+          client_id: args.client_id || args.source || "cockpit-mcp",
+          session_id: args.session_id,
+          conversation_id: args.conversation_id,
+          turns: args.turns,
+          tags: args.tags,
+          metadata: {
+            ...(args.metadata || {}),
+            mcp_tool: "cockpit_workbench_context_ingest",
+            caller_project: PROJECT
+          }
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_query":
+      return apiPost(
+        `/api/workbench/${slug}/context/query`,
+        {
+          query: args.query,
+          limit: args.limit,
+          source: args.source,
+          session_id: args.session_id,
+          tags: args.tags
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_graphrag":
+      return apiPost(
+        `/api/workbench/${slug}/context/graphrag/query`,
+        {
+          query: args.query,
+          limit: args.limit,
+          query_mode: args.query_mode
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_compile":
+      return apiPost(
+        `/api/workbench/${slug}/context/compiler/compile`,
+        {
+          query: args.query,
+          task_profile: args.task_profile,
+          tool_id: args.tool_id || "cockpit-mcp",
+          max_items: args.max_items
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_import":
+      return apiPost(
+        `/api/workbench/${slug}/context/import`,
+        {
+          source: args.source || "cockpit-mcp-import",
+          provider: args.provider,
+          client_id: args.client_id || args.source || "cockpit-mcp-import",
+          tags: args.tags,
+          items: args.items,
+          conversations: args.conversations,
+          write_through: args.write_through
+        },
+        60000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_export": {
+      const q = new URLSearchParams();
+      if (args.limit) q.set("limit", String(args.limit));
+      if (args.source) q.set("source", String(args.source));
+      if (args.session_id) q.set("session_id", String(args.session_id));
+      if (args.since) q.set("since", String(args.since));
+      const qs = q.toString();
+      return apiGet(`/api/workbench/${slug}/context/export${qs ? `?${qs}` : ""}`, 30000, { auth: true });
+    }
+
+    case "cockpit_workbench_context_send":
+      return apiPost(
+        `/api/workbench/${slug}/context/messages/send`,
+        {
+          from_client: args.from_client || "cockpit-mcp",
+          to_client: args.to_client,
+          subject: args.subject,
+          content: args.content,
+          priority: args.priority,
+          thread_id: args.thread_id,
+          requires_response: args.requires_response,
+          tags: args.tags
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_inbox": {
+      const q = new URLSearchParams();
+      if (args.client_id) q.set("client_id", String(args.client_id));
+      if (args.status) q.set("status", String(args.status));
+      if (args.limit) q.set("limit", String(args.limit));
+      const qs = q.toString();
+      return apiGet(`/api/workbench/${slug}/context/messages${qs ? `?${qs}` : ""}`, 30000, { auth: true });
+    }
+
+    case "cockpit_workbench_context_board": {
+      const q = new URLSearchParams();
+      if (args.client_id) q.set("client_id", String(args.client_id));
+      if (args.limit) q.set("limit", String(args.limit));
+      if (args.stale_after_minutes) q.set("stale_after_minutes", String(args.stale_after_minutes));
+      if (args.include_completed === false) q.set("include_completed", "false");
+      const qs = q.toString();
+      return apiGet(`/api/workbench/${slug}/context/messages/board${qs ? `?${qs}` : ""}`, 30000, { auth: true });
+    }
+
+    case "cockpit_workbench_context_ack":
+      return apiPost(
+        `/api/workbench/${slug}/context/messages/${encodeURIComponent(args.message_id)}/ack`,
+        {
+          client_id: args.client_id || "cockpit-mcp",
+          note: args.note
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_reply":
+      return apiPost(
+        `/api/workbench/${slug}/context/messages/${encodeURIComponent(args.message_id)}/reply`,
+        {
+          client_id: args.client_id || "cockpit-mcp",
+          provider: args.provider || args.client_id || "cockpit-mcp",
+          text: args.text,
+          model: args.model,
+          force: args.force,
+          tags: args.tags,
+          metadata: args.metadata
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_handoff_compile":
+      return apiPost(
+        `/api/workbench/${slug}/context/messages/${encodeURIComponent(args.message_id)}/compile`,
+        {
+          query: args.query,
+          task_profile: args.task_profile,
+          max_items: args.max_items,
+          query_mode: args.query_mode
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_claim":
+      return apiPost(
+        `/api/workbench/${slug}/context/messages/${encodeURIComponent(args.message_id)}/claim`,
+        {
+          client_id: args.client_id || "cockpit-mcp",
+          note: args.note,
+          force: args.force
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_release":
+      return apiPost(
+        `/api/workbench/${slug}/context/messages/${encodeURIComponent(args.message_id)}/release`,
+        {
+          client_id: args.client_id || "cockpit-mcp",
+          note: args.note,
+          force: args.force
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_complete":
+      return apiPost(
+        `/api/workbench/${slug}/context/messages/${encodeURIComponent(args.message_id)}/complete`,
+        {
+          client_id: args.client_id || "cockpit-mcp",
+          result: args.result,
+          note: args.note,
+          artifact_refs: args.artifact_refs,
+          force: args.force
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_cancel":
+      return apiPost(
+        `/api/workbench/${slug}/context/messages/${encodeURIComponent(args.message_id)}/cancel`,
+        {
+          client_id: args.client_id || "cockpit-mcp",
+          reason: args.reason,
+          note: args.note,
+          force: args.force
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_reopen":
+      return apiPost(
+        `/api/workbench/${slug}/context/messages/${encodeURIComponent(args.message_id)}/reopen`,
+        {
+          client_id: args.client_id || "cockpit-mcp",
+          note: args.note,
+          force: args.force
+        },
+        30000,
+        { auth: true }
+      );
+
+    case "cockpit_workbench_context_heartbeat":
+      return apiPost(
+        `/api/workbench/${slug}/context/messages/${encodeURIComponent(args.message_id)}/heartbeat`,
+        {
+          client_id: args.client_id || "cockpit-mcp",
+          progress: args.progress,
+          note: args.note,
+          force: args.force
+        },
+        30000,
+        { auth: true }
+      );
 
     // ─── Cognitive substrate ──────────────────────────────────────────
 
@@ -980,7 +1839,11 @@ rl.on("line", async (line) => {
   }
 });
 
-rl.on("close", () => process.exit(0));
+// Do not force-exit on stdin close: one-shot MCP smoke tests and some CLI
+// clients close stdin immediately after sending tools/call, while the async
+// API request is still in flight. Node will exit naturally once pending work
+// and stdio flushes are done.
+rl.on("close", () => {});
 process.on("SIGTERM", () => process.exit(0));
 process.on("SIGINT", () => process.exit(0));
 

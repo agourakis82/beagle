@@ -42,6 +42,7 @@ members = [
     "crates/beagle-checkpoint",
     "crates/beagle-signatures",
     "crates/beagle-metrics",
+    "crates/beagle-rag-update",
 ]
 resolver = "2"
 

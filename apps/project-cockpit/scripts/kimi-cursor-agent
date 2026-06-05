@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO="${DARWIN_MFC_REPO:-/home/devsounio/darwin-MFC}"
+MODEL="${PROJECT_COCKPIT_KIMI_MODEL:-kimi-k2.5}"
+WORKSPACE="${PROJECT_COCKPIT_KIMI_WORKSPACE:-$REPO}"
+
+prompt="$(cat)"
+
+exec cursor-agent \
+  --workspace "$WORKSPACE" \
+  --approve-mcps \
+  --trust \
+  --print \
+  --output-format stream-json \
+  --model "$MODEL" \
+  "$prompt"

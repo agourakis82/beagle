@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sounio-workspace-control
+  labels:
+    app.kubernetes.io/name: sounio-workspace-control
+    app.kubernetes.io/part-of: beagle
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sounio-workspace-control
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: ssh
+      port: 2222
+      targetPort: ssh
+    - name: workbench
+      port: 4371
+      targetPort: workbench

@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ssm-probe-serving
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: ssm-probe-serving
+    app.kubernetes.io/part-of: beagle
+    sounio.dev/lane: ssm-probe
+spec:
+  replicas: 0
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ssm-probe-serving
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ssm-probe-serving
+        app.kubernetes.io/part-of: beagle
+        sounio.dev/lane: ssm-probe
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: 5860-proxmox
+        sounio.dev/accelerator-class: gpu
+        sounio.dev/gpu-owner: ssm-probe
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      containers:
+        - name: ssm-probe
+          image: 192.168.3.207:5003/sounio-ssm-probe:hybrid-probe-cc-20260522T180123Z
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            seccompProfile:
+              type: Unconfined
+          env:
+            - name: MODEL_ID
+              value: LiquidAI/LFM2.5-1.2B-Instruct
+            - name: SERVED_MODEL_NAME
+              value: lfm2.5-1.2b-instruct
+            - name: MAX_MODEL_TOKENS
+              value: "8192"
+            - name: MODEL_DTYPE
+              value: bfloat16
+            - name: LOAD_IN_4BIT
+              value: "false"
+            - name: TRUST_REMOTE_CODE
+              value: "false"
+            - name: HF_HOME
+              value: /var/cache/huggingface
+            - name: IGNORE_MISMATCHED_SIZES
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 8000
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 90
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 4
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "6"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /var/cache/huggingface
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: hf-cache
+          emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi

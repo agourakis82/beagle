@@ -16,12 +16,15 @@ Tracks:
 - [pbpk](/home/devsounio/beagle/k8s/hpc-sota/workloads/pbpk/README.md)
 - [omics](/home/devsounio/beagle/k8s/hpc-sota/workloads/omics/README.md)
 - [pl-runtime](/home/devsounio/beagle/k8s/hpc-sota/workloads/pl-runtime/README.md)
+- [sounio-compiler-foundry](/home/devsounio/beagle/k8s/hpc-sota/workloads/sounio-compiler-foundry/README.md)
 
 Current first-run status:
 
 - `pbpk`: green
 - `omics`: green
 - `pl-runtime`: green
+- `sounio-compiler-foundry`: dry-run and snapshot smoke green; live full
+  compiler submission is intentionally operator-triggered
 
 Current operational note:
 

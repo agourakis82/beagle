@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic Kueue fabric/storage AdmissionCheck reconciliation
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=15s
+Persistent=true
+Unit=darwin-fabric-storage-admission-reconcile.service
+
+[Install]
+WantedBy=timers.target

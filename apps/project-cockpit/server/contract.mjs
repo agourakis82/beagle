@@ -233,6 +233,143 @@ export const cockpitManifest = {
       description: "Posture definitions (always-on/warm/cold) and assignments."
     },
     {
+      name: "cockpit_catalog_audit",
+      method: "GET",
+      path: "/api/catalog/audit",
+      description: "Catalog/posture drift audit. Blocking failures prevent cockpit habitat mutations."
+    },
+    {
+      name: "cockpit_project_control_plane",
+      method: "GET",
+      path: "/api/projects/{slug}/control-plane",
+      description: "Compact per-project control packet: posture, workspace state, branch lease, blockers, safe actions, and agent/job routes.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "cockpit_project_os",
+      method: "GET",
+      path: "/api/project-os",
+      description: "Darwin Project OS packet: posture, workspace, risk, agents, jobs, autopilot proposals, and action ledger counts."
+    },
+    {
+      name: "cockpit_action_ledger_global",
+      method: "GET",
+      path: "/api/project-os/actions",
+      description: "Recent Darwin Action Ledger entries across all cataloged projects. Read-only."
+    },
+    {
+      name: "cockpit_cluster_ops_summary",
+      method: "GET",
+      path: "/api/cluster/ops/summary",
+      description: "Darwin cluster ops summary: Kubernetes, Slurm, OrangeFS, GPU capacity, host freshness, risks, and allowed actions."
+    },
+    {
+      name: "cockpit_cluster_ops_actions",
+      method: "GET",
+      path: "/api/cluster/ops/actions",
+      description: "Allowlisted Darwin cluster actions with risk level and confirmation requirements."
+    },
+    {
+      name: "cockpit_gpu_leases",
+      method: "GET",
+      path: "/api/cluster/ops/gpu-leases",
+      description: "Observed GPU lease/domain state across Kubernetes serving, Slurm gpu-orangefs, and Kueue ResourceFlavor mappings."
+    },
+    {
+      name: "cockpit_project_gpu_leases",
+      method: "GET",
+      path: "/api/projects/{slug}/gpu-leases",
+      description: "Project-scoped GPU lease/domain state. For Sounio this is the official exocortex compute ownership readback.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "cockpit_gpu_lease_preview",
+      method: "POST",
+      path: "/api/cluster/ops/gpu-leases/{node}/preview",
+      description: "Dry-run one GPU lease transition and return the exact Action Ledger proposal required before apply.",
+      params: [{ name: "node", in: "path", required: true }],
+      idempotency: { header: "X-Request-ID", ttl_ms: 60000 },
+      input_schema: {
+        type: "object",
+        required: ["transition"],
+        properties: {
+          transition: {
+            type: "string",
+            enum: ["serving-to-batch", "batch-to-serving", "admit-batch", "quarantine"]
+          },
+          deployment: { type: "string" }
+        }
+      }
+    },
+    {
+      name: "cockpit_gpu_lease_apply",
+      method: "POST",
+      path: "/api/cluster/ops/gpu-leases/{node}/apply",
+      description: "Apply one GPU lease transition after confirmed Action Ledger intent; returns command output, receipt, and live readback.",
+      params: [{ name: "node", in: "path", required: true }],
+      idempotency: { header: "X-Request-ID", ttl_ms: 60000 },
+      input_schema: {
+        type: "object",
+        required: ["transition", "confirmed", "ledgerId"],
+        properties: {
+          transition: {
+            type: "string",
+            enum: ["serving-to-batch", "batch-to-serving", "admit-batch", "quarantine"]
+          },
+          confirmed: { type: "boolean", const: true },
+          ledgerId: { type: "string" },
+          deployment: { type: "string" }
+        }
+      },
+      error_codes: ["BAD_REQUEST", "NOT_FOUND", "CONFLICT", "TIMEOUT", "INTERNAL"]
+    },
+    {
+      name: "cockpit_cluster_ops_action_run",
+      method: "POST",
+      path: "/api/cluster/ops/actions/{action_id}/run",
+      description: "Execute one allowlisted cluster action after Action Ledger intent confirmation and return receipt plus readback.",
+      params: [{ name: "action_id", in: "path", required: true }],
+      idempotency: { header: "X-Request-ID", ttl_ms: 60000 },
+      input_schema: {
+        type: "object",
+        required: ["confirmed", "ledgerId"],
+        properties: {
+          confirmed: { type: "boolean", const: true },
+          ledgerId: { type: "string" },
+          targetNode: { type: "string", enum: ["r770-proxmox", "5860-proxmox", "r740-proxmox"] }
+        }
+      },
+      error_codes: ["BAD_REQUEST", "NOT_FOUND", "CONFLICT", "TIMEOUT", "INTERNAL"]
+    },
+    {
+      name: "cockpit_action_ledger_project",
+      method: "GET",
+      path: "/api/projects/{slug}/actions",
+      description: "Recent Action Ledger entries for one project.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "cockpit_action_ledger_propose",
+      method: "POST",
+      path: "/api/projects/{slug}/actions/propose",
+      description: "Record an autopilot or agent proposal. This never executes the proposed action.",
+      idempotency: { header: "X-Request-ID", ttl_ms: 60000 }
+    },
+    {
+      name: "cockpit_action_ledger_confirm_intent",
+      method: "POST",
+      path: "/api/projects/{slug}/actions/{ledger_id}/confirm-intent",
+      description: "Record human/operator intent and return control-plane readback. This does not execute cluster, agent, habitat, or job mutations.",
+      idempotency: { header: "X-Request-ID", ttl_ms: 60000 }
+    },
+    {
+      name: "cockpit_action_ledger_reject",
+      method: "POST",
+      path: "/api/projects/{slug}/actions/{ledger_id}/reject",
+      description: "Record rejection of an Action Ledger proposal. This never executes the proposed action.",
+      idempotency: { header: "X-Request-ID", ttl_ms: 60000 }
+    },
+    {
       name: "cockpit_mission_control",
       method: "GET",
       path: "/api/projects/{slug}/mission-control",
@@ -252,6 +389,23 @@ export const cockpitManifest = {
       path: "/api/projects/{slug}/research/operations",
       description: "Latest research operations (ABIDE campaigns, runs).",
       params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "cockpit_foundry_runs",
+      method: "GET",
+      path: "/api/projects/{slug}/foundry/runs",
+      description: "Recent Sounio Compiler Foundry runs read from the Cockpit read-only OrangeFS mount.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "cockpit_foundry_run_summary",
+      method: "GET",
+      path: "/api/projects/{slug}/foundry/runs/{run_id}/summary",
+      description: "Structured summary, run packet, and artifact paths for one Sounio Compiler Foundry run.",
+      params: [
+        { name: "slug", in: "path", required: true },
+        { name: "run_id", in: "path", required: true }
+      ]
     },
     {
       name: "cockpit_inference_runtime",
@@ -312,6 +466,14 @@ export const cockpitManifest = {
       path: "/api/projects/{slug}/go-work-now/actions/activate-habitat",
       description: "Mutate: wake a warm project habitat (scale to 1).",
       idempotency: { header: "X-Request-ID", ttl_ms: 60000 },
+      input_schema: {
+        type: "object",
+        required: ["confirmed"],
+        properties: {
+          confirmed: { type: "boolean", const: true },
+          idempotencyKey: { type: "string" }
+        }
+      },
       error_codes: ["INVALID_SLUG", "HABITAT_BUSY", "CLUSTER_UNREACHABLE"]
     },
     {
@@ -319,7 +481,15 @@ export const cockpitManifest = {
       method: "POST",
       path: "/api/projects/{slug}/go-work-now/actions/standby-habitat",
       description: "Mutate: put a project habitat on standby (scale to 0).",
-      idempotency: { header: "X-Request-ID", ttl_ms: 60000 }
+      idempotency: { header: "X-Request-ID", ttl_ms: 60000 },
+      input_schema: {
+        type: "object",
+        required: ["confirmed"],
+        properties: {
+          confirmed: { type: "boolean", const: true },
+          idempotencyKey: { type: "string" }
+        }
+      }
     },
     {
       name: "cockpit_submit_job",
@@ -394,6 +564,305 @@ export const cockpitManifest = {
       method: "GET",
       path: "/api/auth/beagle-discover",
       description: "Full endpoint catalog of beagle-server (Rust). Use to wire up clients."
+    },
+    {
+      name: "workbench_context_connect",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/connect",
+      description: "Client connection pack for Claude Desktop, ChatGPT, Grok, Codex, Kimi, and local zellij agents.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_status",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/status",
+      description: "Workbench shared MCP/RAG++ status, feature flags, client registry, and local memory counts.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_doctor",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/doctor",
+      description: "Operational doctor for Workbench Context. With write_probe=true, verifies storage, Beagle auth/write-through, RAG++ readback, GraphRAG, and compiler.",
+      params: [{ name: "slug", in: "path", required: true }],
+      input_schema: {
+        type: "object",
+        properties: {
+          write_probe: { type: "boolean", default: false },
+          query: { type: "string" },
+          sentinel: { type: "string" }
+        }
+      }
+    },
+    {
+      name: "workbench_context_clients",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/clients",
+      description: "Known and observed context clients: Claude Desktop, ChatGPT, Grok, Codex, Kimi, and local zellij agents.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_sessions",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/sessions",
+      description: "Observed shared-memory sessions in the Workbench context overlay.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_audit",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/audit",
+      description: "Audit summary for Workbench shared memory: records, sources, clients, sessions, tags, and risks.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_audit_events",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/audit/events",
+      description: "Recent Workbench context ingest/import audit events.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_recent",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/recent",
+      description: "Recent Workbench context records with optional source/session/tag filters.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_messages",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/messages",
+      description: "List agent handoff messages persisted in the Workbench context mesh.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_message_board",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/messages/board",
+      description: "Coordination board for agent handoffs: waiting, active, done, stale, per-client counts, and next actions.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_presence",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/presence",
+      description: "Operational presence for MCP clients and agents: active, waiting, stale, idle, declared, plus handoff load.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_client_heartbeat",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/clients/{client_id}/heartbeat",
+      description: "Mark a subscription/MCP client as live without creating a handoff reply. Keeps ChatGPT, Claude Desktop, Grok, Kimi, Codex, or local agents realtime-ready.",
+      params: [
+        { name: "slug", in: "path", required: true },
+        { name: "client_id", in: "path", required: true }
+      ],
+      input_schema: {
+        type: "object",
+        properties: {
+          provider: { type: "string" },
+          session_id: { type: "string" },
+          status: { type: "string" },
+          note: { type: "string" },
+          tags: { type: "array", items: { type: "string" } },
+          metadata: { type: "object" }
+        }
+      }
+    },
+    {
+      name: "workbench_context_continuity",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/continuity",
+      description: "Continuity packet for resuming agent work without losing context: status, presence, open handoffs, next actions, recent memories, and resume brief.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_message_inbox",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/messages/inbox/{client_id}",
+      description: "List handoff messages for a specific client or agent.",
+      params: [
+        { name: "slug", in: "path", required: true },
+        { name: "client_id", in: "path", required: true }
+      ]
+    },
+    {
+      name: "workbench_context_message_send",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/messages/send",
+      description: "Send a handoff message from one agent/client to another through the shared context mesh.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_message_ack",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/messages/{message_id}/ack",
+      description: "Acknowledge a handoff message from an agent/client.",
+      params: [
+        { name: "slug", in: "path", required: true },
+        { name: "message_id", in: "path", required: true }
+      ]
+    },
+    {
+      name: "workbench_context_message_compile",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/messages/{message_id}/compile",
+      description: "Compile a handoff message into an actionable context packet with thread, ACKs, RAG++ highlights, graph, and plain text context.",
+      params: [
+        { name: "slug", in: "path", required: true },
+        { name: "message_id", in: "path", required: true }
+      ]
+    },
+    {
+      name: "workbench_context_message_claim",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/messages/{message_id}/claim",
+      description: "Claim a handoff message before starting work so other agents can see ownership.",
+      params: [
+        { name: "slug", in: "path", required: true },
+        { name: "message_id", in: "path", required: true }
+      ]
+    },
+    {
+      name: "workbench_context_message_complete",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/messages/{message_id}/complete",
+      description: "Mark a handoff message complete with a result summary and optional artifact refs.",
+      params: [
+        { name: "slug", in: "path", required: true },
+        { name: "message_id", in: "path", required: true }
+      ]
+    },
+    {
+      name: "workbench_context_message_release",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/messages/{message_id}/release",
+      description: "Release a claimed handoff so another agent can take it.",
+      params: [
+        { name: "slug", in: "path", required: true },
+        { name: "message_id", in: "path", required: true }
+      ]
+    },
+    {
+      name: "workbench_context_message_cancel",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/messages/{message_id}/cancel",
+      description: "Cancel a handoff that should no longer be worked.",
+      params: [
+        { name: "slug", in: "path", required: true },
+        { name: "message_id", in: "path", required: true }
+      ]
+    },
+    {
+      name: "workbench_context_message_reopen",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/messages/{message_id}/reopen",
+      description: "Reopen a completed or canceled handoff and return it to the waiting queue.",
+      params: [
+        { name: "slug", in: "path", required: true },
+        { name: "message_id", in: "path", required: true }
+      ]
+    },
+    {
+      name: "workbench_context_message_heartbeat",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/messages/{message_id}/heartbeat",
+      description: "Record progress on a claimed handoff without completing it.",
+      params: [
+        { name: "slug", in: "path", required: true },
+        { name: "message_id", in: "path", required: true }
+      ]
+    },
+    {
+      name: "workbench_context_mcp_tools",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/mcp/tools",
+      description: "Tool list for the Workbench Context HTTP MCP server.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_http_mcp",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/mcp",
+      description: "HTTP JSON-RPC MCP endpoint for Workbench Context tools. Supports initialize, tools/list, tools/call, ping.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_http_mcp",
+      method: "POST",
+      path: "/api/workbench/{slug}/mcp",
+      description: "Short alias for the Workbench Context HTTP JSON-RPC MCP endpoint.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_ingest",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/ingest",
+      description: "Ingest one MCP/chat turn batch into the Workbench shared memory overlay and write through to Beagle Core.",
+      params: [{ name: "slug", in: "path", required: true }],
+      idempotency: { header: "X-Request-ID", ttl_ms: 60000 },
+      input_schema: {
+        type: "object",
+        properties: {
+          source: { type: "string" },
+          provider: { type: "string" },
+          client_id: { type: "string" },
+          session_id: { type: "string" },
+          conversation_id: { type: "string" },
+          turns: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["content"],
+              properties: {
+                role: { type: "string", enum: ["user", "assistant", "system", "tool"] },
+                content: { type: "string" },
+                external_id: { type: "string" }
+              }
+            }
+          },
+          tags: { type: "array", items: { type: "string" } },
+          metadata: { type: "object", additionalProperties: true }
+        }
+      }
+    },
+    {
+      name: "workbench_context_import",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/import",
+      description: "Bulk import MCP/chat conversation items into the Workbench context overlay with duplicate suppression.",
+      params: [{ name: "slug", in: "path", required: true }],
+      idempotency: { header: "X-Request-ID", ttl_ms: 60000 }
+    },
+    {
+      name: "workbench_context_query",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/query",
+      description: "RAG++ readback over local read-after-write overlay plus Beagle Core memory.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_graphrag_query",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/graphrag/query",
+      description: "Bounded GraphRAG projection from retrieved Workbench/Beagle memory.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_compile",
+      method: "POST",
+      path: "/api/workbench/{slug}/context/compiler/compile",
+      description: "Compile the retrieved context and bounded graph into an agent handoff packet.",
+      params: [{ name: "slug", in: "path", required: true }]
+    },
+    {
+      name: "workbench_context_export",
+      method: "GET",
+      path: "/api/workbench/{slug}/context/export",
+      description: "Export recent Workbench context records for inspection or migration.",
+      params: [{ name: "slug", in: "path", required: true }]
     }
   ],
   retry_policy: {

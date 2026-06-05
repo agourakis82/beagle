@@ -39,4 +39,8 @@ copy_server_unit 10.100.100.2 orangefs-server01.service
 copy_server_unit 10.100.100.3 orangefs-server02.service
 copy_to_host 10.100.100.4
 copy_to_host 10.100.100.1
+# 5860 (.3) runs server02 AND now hosts a GPU + Slurm gpuorangefs worker,
+# so it also needs the client runtime. NOTE: client-runtime/{bin,lib} must be
+# staged on the node first (pvfs2-client binaries are not shipped by this script).
+copy_to_host 10.100.100.3
 

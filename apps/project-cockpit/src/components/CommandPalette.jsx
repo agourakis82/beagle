@@ -26,12 +26,17 @@ export default function CommandPalette() {
   onMount(() => {
     registerCommands([
       { id: "nav:projects", label: "Go to projects", description: "Open the command bridge", category: "navigation", shortcut: "g p", action: () => navigate("/projects") },
+      { id: "nav:project-os", label: "Project OS", description: "Open multi-project operating surface", category: "navigation", action: () => navigate("/projects/os") },
+      { id: "nav:cluster-ops", label: "Cluster Ops", description: "Open Darwin cluster control lane", category: "navigation", action: () => navigate("/projects/cluster") },
       { id: "nav:sounio", label: "Project sounio", description: "Open Sounio control room", category: "navigation", action: () => navigate("/projects/sounio") },
+      { id: "nav:sounio:control", label: "Sounio control", description: "Open Sounio control tower", category: "navigation", action: () => navigate("/projects/sounio/control") },
       { id: "nav:sounio:viewer", label: "Sounio viewer", description: "Open scientific viewport", category: "navigation", action: () => navigate("/projects/sounio/viewer") },
       { id: "nav:hsn", label: "Project HSN", description: "Open Hyperbolic Semantic Networks", category: "navigation", action: () => navigate("/projects/hyperbolic-semantic-networks") },
       { id: "nav:beagle", label: "Project beagle", description: "Open Beagle control room", category: "navigation", action: () => navigate("/projects/beagle") },
+      { id: "nav:darwin-mfc", label: "Project Darwin-MFC", description: "Open Darwin-MFC workbench target", category: "navigation", action: () => navigate("/projects/darwin-mfc") },
+      { id: "nav:darwin-mfc:workbench", label: "Darwin-MFC workbench", description: "Open the shared agent studio", category: "navigation", action: () => navigate("/workbench/darwin-mfc") },
       { id: "nav:darwin", label: "Project darwin-pbpk", description: "Open Darwin PBPK control room", category: "navigation", action: () => navigate("/projects/darwin-pbpk") },
-      { id: "info:cluster", label: "Cluster summary", description: "Show cluster truth and node health", category: "info", action: () => navigate("/projects/sounio") },
+      { id: "info:cluster", label: "Cluster summary", description: "Show cluster truth and node health", category: "info", action: () => navigate("/projects/cluster") },
       { id: "info:inference", label: "Inference runtime", description: "Show SGLang + Dynamo state", category: "info", action: () => navigate("/projects/sounio") },
       { id: "info:research", label: "Research latest", description: "Show latest ABIDE campaign", category: "info", action: () => navigate("/projects/sounio") },
       // Public vision surfaces

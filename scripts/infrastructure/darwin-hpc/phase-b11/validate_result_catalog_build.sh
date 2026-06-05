@@ -145,9 +145,14 @@ if manifest_lookup["manifest_object_key"] != job_lookup["artifact_manifest_key"]
 PY
 
   grep -q 'catalog_results=' "${RESULT_DIR}/catalog-build.txt"
-  grep -q 'slurmctld=active' "${RESULT_DIR}/final-cluster-health.txt"
-  grep -q 'slurmrestd=active' "${RESULT_DIR}/final-cluster-health.txt"
+  grep -Eq 'slurmctld=(inactive|unknown)' "${RESULT_DIR}/final-cluster-health.txt"
+  grep -Eq 'slurmrestd=(inactive|unknown)' "${RESULT_DIR}/final-cluster-health.txt"
   grep -q 'darwin-slurm-control-adapter=active' "${RESULT_DIR}/final-cluster-health.txt"
+  grep -q 'active-scheduler=slurm-pilot' "${RESULT_DIR}/final-cluster-health.txt"
+  grep -q 'legacy-adapter-mode=legacy-catalog-only' "${RESULT_DIR}/final-cluster-health.txt"
+  grep -q 'slurm-pilot-controller' "${RESULT_DIR}/final-cluster-health.txt"
+  grep -q 'slurm-pilot-restapi' "${RESULT_DIR}/final-cluster-health.txt"
+  grep -q 'slurm-pilot-login-slinky' "${RESULT_DIR}/final-cluster-health.txt"
   grep -q 't560-proxmox' "${RESULT_DIR}/final-cluster-health.txt"
   grep -q 'r770-proxmox' "${RESULT_DIR}/final-cluster-health.txt"
   grep -q '5860-proxmox' "${RESULT_DIR}/final-cluster-health.txt"

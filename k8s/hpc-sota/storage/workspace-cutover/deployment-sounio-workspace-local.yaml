@@ -6,7 +6,10 @@ metadata:
   labels:
     app.kubernetes.io/part-of: beagle
 spec:
-  replicas: 1
+  # Retired after the 2026-05-22 control-workspace migration. Keep the
+  # manifest/PVC for rollback history, but do not run this legacy surface by
+  # default because the stable services now point at sounio-workspace-control.
+  replicas: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: sounio-workspace-local

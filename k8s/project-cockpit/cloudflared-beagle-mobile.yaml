@@ -47,7 +47,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: cloudflared
-          image: ttl.sh/cloudflared-beagle-mobile-202604172055:24h
+          image: cloudflare/cloudflared:2026.3.0
           imagePullPolicy: Always
           args:
             - tunnel

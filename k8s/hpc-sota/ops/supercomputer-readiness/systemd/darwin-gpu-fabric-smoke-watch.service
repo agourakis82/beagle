@@ -1,0 +1,14 @@
+[Unit]
+Description=Darwin GPU fabric IB smoke watcher
+Documentation=file:/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/GPU_FABRIC_SMOKE_WATCH.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=INTERVAL_SECONDS=60
+Environment=MAX_ATTEMPTS=1
+Environment=TRANSPORT=ib
+ExecStart=/usr/bin/env bash /home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/gpu-fabric-smoke-watch.sh --watch --interval ${INTERVAL_SECONDS} --max-attempts ${MAX_ATTEMPTS} --transport ${TRANSPORT}

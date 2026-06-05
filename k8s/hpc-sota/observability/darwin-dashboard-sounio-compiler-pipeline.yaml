@@ -35,8 +35,8 @@ data:
           "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
           "id": 1,
           "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
-          "targets": [ { "expr": "max(kube_statefulset_status_replicas_ready{namespace=\"beagle\",statefulset=\"sounio-workspace-habitat\"})", "instant": true, "refId": "A" } ],
-          "title": "Compiler Habitat Ready",
+          "targets": [ { "expr": "max(kube_statefulset_status_replicas_ready{namespace=\"beagle\",statefulset=\"sounio-workspace-control\"})", "instant": true, "refId": "A" } ],
+          "title": "Control Workspace Ready",
           "type": "stat"
         },
         {
@@ -55,7 +55,7 @@ data:
           "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
           "id": 3,
           "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
-          "targets": [ { "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"beagle\",pod=\"sounio-workspace-habitat-0\",container!=\"POD\"}[6h]))", "instant": true, "refId": "A" } ],
+          "targets": [ { "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"beagle\",pod=\"sounio-workspace-control-0\",container!=\"POD\"}[6h]))", "instant": true, "refId": "A" } ],
           "title": "Restarts in 6h",
           "type": "stat"
         },
@@ -75,7 +75,7 @@ data:
           "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
           "id": 5,
           "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
-          "targets": [ { "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"beagle\",pod=~\"sounio-workspace-habitat-0|sounio-workspace-local-.*|beagle-workspace-local-.*\",container!=\"POD\",image!=\"\"}[5m]))", "legendFormat": "{{pod}}", "refId": "A" } ],
+          "targets": [ { "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"beagle\",pod=~\"sounio-workspace-control-0\",container!=\"POD\",image!=\"\"}[5m]))", "legendFormat": "{{pod}}", "refId": "A" } ],
           "title": "Compiler/Test CPU by Workspace Pod",
           "type": "timeseries"
         },
@@ -85,7 +85,7 @@ data:
           "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
           "id": 6,
           "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
-          "targets": [ { "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"beagle\",pod=~\"sounio-workspace-habitat-0|sounio-workspace-local-.*|beagle-workspace-local-.*\",container!=\"POD\",image!=\"\"})", "legendFormat": "{{pod}}", "refId": "A" } ],
+          "targets": [ { "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"beagle\",pod=~\"sounio-workspace-control-0\",container!=\"POD\",image!=\"\"})", "legendFormat": "{{pod}}", "refId": "A" } ],
           "title": "Compiler/Test Memory by Workspace Pod",
           "type": "timeseries"
         },
@@ -96,7 +96,7 @@ data:
           "id": 7,
           "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
           "targets": [
-            { "expr": "max by (pod) (kube_pod_status_ready{namespace=\"beagle\",condition=\"true\",pod=~\"sounio-workspace-habitat-0|sounio-workspace-local-.*|beagle-workspace-local-.*\"})", "legendFormat": "{{pod}}", "refId": "A" },
+            { "expr": "max by (pod) (kube_pod_status_ready{namespace=\"beagle\",condition=\"true\",pod=~\"sounio-workspace-control-0\"})", "legendFormat": "{{pod}}", "refId": "A" },
             { "expr": "max by (pod) (kube_pod_status_ready{namespace=\"tailscale\",condition=\"true\",pod=~\"sounio-workspace-ingress-.*\"})", "legendFormat": "{{pod}}", "refId": "B" }
           ],
           "title": "Workspace / Ingress Readiness",
@@ -108,7 +108,7 @@ data:
           "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
           "id": 8,
           "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
-          "targets": [ { "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"beagle\",pod=~\"sounio-workspace-habitat-0|sounio-workspace-local-.*|beagle-workspace-local-.*\",container!=\"POD\"}[6h]))", "legendFormat": "{{pod}}", "refId": "A" } ],
+          "targets": [ { "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"beagle\",pod=~\"sounio-workspace-control-0\",container!=\"POD\"}[6h]))", "legendFormat": "{{pod}}", "refId": "A" } ],
           "title": "Restart Drift by Workspace Pod (6h)",
           "type": "timeseries"
         }

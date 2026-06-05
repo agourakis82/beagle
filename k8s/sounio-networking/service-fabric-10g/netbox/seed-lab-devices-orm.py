@@ -46,14 +46,14 @@ def upsert_role(name, slug, color):
     return obj
 
 
-def upsert_device_type(manufacturer, model, slug):
+def upsert_device_type(manufacturer, model, slug, u_height=1):
     obj = DeviceType.objects.filter(manufacturer=manufacturer, slug=slug).first()
     if not obj:
         obj = DeviceType(
             manufacturer=manufacturer,
             model=model,
             slug=slug,
-            u_height=1,
+            u_height=u_height,
             is_full_depth=True,
         )
         obj.save()
@@ -63,6 +63,9 @@ def upsert_device_type(manufacturer, model, slug):
         if obj.model != model:
             obj.model = model
             changed = True
+        if obj.u_height != u_height:
+            obj.u_height = u_height
+            changed = True
         if changed:
             obj.save()
             print("updated device-type", slug)
@@ -71,7 +74,7 @@ def upsert_device_type(manufacturer, model, slug):
     return obj
 
 
-def upsert_device(name, role, device_type, description):
+def upsert_device(name, role, device_type, description, status="active", serial="lab-managed"):
     obj = Device.objects.filter(name=name).first()
     if not obj:
         obj = Device(
@@ -79,9 +82,9 @@ def upsert_device(name, role, device_type, description):
             site=site,
             role=role,
             device_type=device_type,
-            status="active",
+            status=status,
             description=description,
-            serial="lab-managed",
+            serial=serial,
         )
         obj.save()
         print("created device", name)
@@ -96,8 +99,11 @@ def upsert_device(name, role, device_type, description):
         if obj.device_type_id != device_type.id:
             obj.device_type = device_type
             changed = True
-        if str(obj.status) != "active":
-            obj.status = "active"
+        if str(obj.status) != status:
+            obj.status = status
+            changed = True
+        if obj.serial != serial:
+            obj.serial = serial
             changed = True
         if obj.description != description:
             obj.description = description
@@ -199,6 +205,7 @@ def upsert_cable(label, a_iface, b_iface):
 
 lab_mfr = upsert_manufacturer("Sounio Lab", "sounio-lab")
 arista_mfr = upsert_manufacturer("Arista Networks", "arista-networks")
+hp_mfr = upsert_manufacturer("Hewlett Packard Enterprise", "hpe")
 
 role_control = upsert_role("Control Plane", "control-plane", "1f77b4")
 role_gpu = upsert_role("GPU Node", "gpu-node", "ff7f0e")
@@ -206,6 +213,7 @@ role_service = upsert_role("Service Edge", "service-edge", "2ca02c")
 role_switch = upsert_role("Network Switch", "network-switch", "9467bd")
 
 server_type = upsert_device_type(lab_mfr, "Proxmox HPC Node", "proxmox-hpc-node")
+dl380_type = upsert_device_type(hp_mfr, "ProLiant DL380 Gen10", "proliant-dl380-gen10", u_height=2)
 switch_type = upsert_device_type(arista_mfr, "DCS-7060CX-32S", "dcs-7060cx-32s")
 
 devices = {
@@ -213,6 +221,14 @@ devices = {
     "r770-proxmox": upsert_device("r770-proxmox", role_gpu, server_type, "GPU node with NVIDIA L4"),
     "r740-proxmox": upsert_device("r740-proxmox", role_gpu, server_type, "GPU node with NVIDIA RTX A5000"),
     "5860-proxmox": upsert_device("5860-proxmox", role_service, server_type, "GPU/service-edge node with NVIDIA RTX 4000 Ada"),
+    "dl380-proxmox": upsert_device(
+        "dl380-proxmox",
+        role_gpu,
+        dl380_type,
+        "Planned HP DL380 G10 expansion node; not admitted to Kubernetes, OrangeFS, or Slurm yet",
+        status="planned",
+        serial="pending-inventory",
+    ),
     "arista-7060": upsert_device("arista-7060", role_switch, switch_type, "Arista 7060 lab fabric switch"),
 }
 
@@ -223,6 +239,7 @@ for name, mgmt_ip in {
     "r770-proxmox": "192.168.3.228/24",
     "r740-proxmox": "192.168.3.168/24",
     "5860-proxmox": "192.168.3.207/24",
+    "dl380-proxmox": "192.168.3.170/24",
 }.items():
     device = devices[name]
     interfaces[(name, "mgmt0")] = upsert_interface(device, "mgmt0", "virtual", "Management bridge/current vmbr0", mgmt_only=True)
@@ -242,6 +259,10 @@ bridge_defs = [
     ("5860-proxmox", "storage0", "bridge", "Current bridge vmbr200", 9000, "10.200.0.3/24", "pve-5860-storage.lab.sounio", False),
     ("5860-proxmox", "gpufabric0", "bridge", "Current bridge vmbr210", 9000, "10.210.0.3/24", "pve-5860-gpu.lab.sounio", False),
     ("5860-proxmox", "service0", "bridge", "Current bridge vmbr30", 9000, "10.30.0.1/24", "svc10g-gw.lab.sounio", False),
+    ("dl380-proxmox", "underlay0", "bridge", "Planned Kubernetes underlay bridge", 9000, "10.100.100.5/24", "dl380.lab.sounio", True),
+    ("dl380-proxmox", "storage0", "bridge", "Planned OrangeFS/storage bridge", 9000, "10.200.0.5/24", "dl380-storage.lab.sounio", False),
+    ("dl380-proxmox", "gpufabric0", "bridge", "Planned GPU/RDMA fabric bridge", 9000, "10.210.0.5/24", "dl380-gpu.lab.sounio", False),
+    ("dl380-proxmox", "service0", "bridge", "Optional planned service/egress bridge", 9000, "10.30.0.5/24", "dl380-service.lab.sounio", False),
 ]
 
 for device_name, iface_name, iface_type, desc, mtu, address, dns_name, primary in bridge_defs:
@@ -263,6 +284,8 @@ switch_interfaces = [
     ("Ethernet31/1", "100gbase-x-qsfp28", "r740-proxmox GPU-FABRIC secondary 100G", 9214, False),
     ("Ethernet32/1", "100gbase-x-qsfp28", "r770-proxmox GPU-FABRIC secondary 100G", 9214, False),
     ("Ethernet33", "10gbase-x-sfpp", "5860-proxmox SERVICE-FABRIC 10G", 9214, False),
+    ("Ethernet34", "100gbase-x-qsfp28", "planned DL380 primary 100G uplink", 9214, False),
+    ("Ethernet35", "100gbase-x-qsfp28", "planned DL380 GPU/storage 100G uplink", 9214, False),
 ]
 
 for iface_name, iface_type, desc, mtu, mgmt_only in switch_interfaces:
@@ -284,6 +307,8 @@ uplinks = [
     ("5860-proxmox", "uplink100g0", "100gbase-x-qsfp28", "Current host interface ens5f0np0 backing vmbr100g", 9214),
     ("5860-proxmox", "uplink100g1", "100gbase-x-qsfp28", "Current host interface ens5f1np1 backing vmbr210/vmbr200", 9214),
     ("5860-proxmox", "uplink10g0", "10gbase-t", "Current host interface nic0 backing vmbr30", 9214),
+    ("dl380-proxmox", "uplink100g0", "100gbase-x-qsfp28", "Planned primary 100G uplink for underlay/service", 9214),
+    ("dl380-proxmox", "uplink100g1", "100gbase-x-qsfp28", "Planned GPU/storage fabric 100G uplink", 9214),
 ]
 
 for device_name, iface_name, iface_type, desc, mtu in uplinks:
@@ -301,6 +326,8 @@ cables = [
     ("link-arista-eth31-1-to-r740-uplink100g1", ("arista-7060", "Ethernet31/1"), ("r740-proxmox", "uplink100g1")),
     ("link-arista-eth32-1-to-r770-uplink100g1", ("arista-7060", "Ethernet32/1"), ("r770-proxmox", "uplink100g1")),
     ("link-arista-eth33-to-5860-uplink10g0", ("arista-7060", "Ethernet33"), ("5860-proxmox", "uplink10g0")),
+    ("planned-link-arista-eth34-to-dl380-uplink100g0", ("arista-7060", "Ethernet34"), ("dl380-proxmox", "uplink100g0")),
+    ("planned-link-arista-eth35-to-dl380-uplink100g1", ("arista-7060", "Ethernet35"), ("dl380-proxmox", "uplink100g1")),
 ]
 
 for label, a_key, b_key in cables:

@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="/home/devsounio/beagle"
 context_dir="${repo_root}/docker/sglang-dynamo"
-tag="${1:-ttl.sh/sounio-sglang-dynamo-runtime-$(date +%Y%m%d-%H%M%S)-$(openssl rand -hex 3):24h}"
+tag="${1:-192.168.3.207:5003/sounio-sglang-dynamo-runtime:$(date +%Y%m%d-%H%M%S)-$(openssl rand -hex 3)}"
 podman_root="${PODMAN_ROOT:-/tmp/podman-sglang-root}"
 podman_runroot="${PODMAN_RUNROOT:-/tmp/podman-sglang-runroot}"
 tmpdir="${TMPDIR:-/tmp}"
@@ -26,6 +26,6 @@ podman \
   --root "${podman_root}" \
   --runroot "${podman_runroot}" \
   --cgroup-manager "${podman_cgroup_manager}" \
-  push "${tag}"
+  push --tls-verify=false "${tag}"
 
 printf '%s\n' "${tag}"
