@@ -1,4 +1,3 @@
-
 //! Checkpoint configuration
 
 use serde::{Deserialize, Serialize};
