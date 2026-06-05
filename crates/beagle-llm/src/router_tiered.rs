@@ -202,6 +202,12 @@ pub struct TieredRouter {
     pub grok4_heavy: Option<Arc<dyn LlmClient>>,
     pub math: Option<Arc<dyn LlmClient>>,
     pub local: Option<Arc<dyn LlmClient>>,
+    /// In-cluster local LLM fleet (LiteLLM/vLLM, OpenAI-compatible). When present this is the
+    /// default workhorse tier instead of Grok — see `LocalFleetClient::from_env`.
+    pub fleet: Option<Arc<dyn LlmClient>>,
+    /// Per-tier circuit breaker (#13): a tier that fails repeatedly is skipped for a cooldown so a
+    /// dead provider isn't retried on every request.
+    pub breaker: Arc<crate::resilience::CircuitBreaker>,
     pub cfg: LlmRoutingConfig,
 }
 
@@ -218,6 +224,11 @@ impl TieredRouter {
             grok4_heavy: Some(MockLlmClient::new()),
             math: None,
             local: Some(MockLlmClient::new()),
+            fleet: None,
+            breaker: Arc::new(crate::resilience::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(30),
+            )),
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -292,9 +303,16 @@ impl TieredRouter {
 
         let grok3: Arc<dyn LlmClient> = Arc::new(crate::clients::grok::GrokClient::new());
 
-        // Grok 4 Heavy usa o mesmo client, mas com modelo diferente
-        // Por enquanto, usamos o mesmo client (GrokClient escolhe modelo dinamicamente)
-        let grok4_heavy: Option<Arc<dyn LlmClient>> = Some(grok3.clone());
+        // Escalation / "Heavy" tier — a genuinely STRONGER model, not Grok-cloned.
+        // Previously `grok3.clone()`, which made the anti-bias escalation a no-op (same model).
+        // Prefer Claude (strong non-Grok) when available; fall back to the real grok-4-heavy
+        // model (the GrokClient forces it via complete_chosen) only when no stronger model exists.
+        let grok4_heavy: Option<Arc<dyn LlmClient>> = if let Some(ref c) = claude {
+            info!("Heavy/escalation tier → Claude (strong non-Grok model)");
+            Some(c.clone())
+        } else {
+            Some(grok3.clone())
+        };
 
         // DeepSeek Math client (se API key disponível)
         let math: Option<Arc<dyn LlmClient>> = if std::env::var("DEEPSEEK_API_KEY").is_ok() {
@@ -322,6 +340,17 @@ impl TieredRouter {
             None
         };
 
+        // Local LLM fleet (LiteLLM/vLLM, OpenAI-compatible) — first-class default workhorse
+        // when configured, so the router is not hard-wired to Grok.
+        let fleet: Option<Arc<dyn LlmClient>> =
+            match crate::clients::local_fleet::LocalFleetClient::from_env() {
+                Some(client) => {
+                    info!("LocalFleet habilitado (default workhorse: LiteLLM/vLLM fleet)");
+                    Some(Arc::new(client))
+                }
+                None => None,
+            };
+
         Ok(Self {
             claude_cli,
             copilot,
@@ -331,6 +360,11 @@ impl TieredRouter {
             grok4_heavy,
             math,
             local,
+            fleet,
+            breaker: Arc::new(crate::resilience::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(30),
+            )),
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -498,20 +532,40 @@ impl TieredRouter {
             }
         }
 
-        // 5) Default absoluto: Grok 3 (unlimited, fast)
+        // 5) Default workhorse: the in-cluster local fleet (LiteLLM/vLLM) when configured —
+        //    keeps the router from being hard-wired to Grok. Falls back to Grok 3 otherwise.
+        if let Some(ref fleet) = self.fleet {
+            info!("Router → LocalFleet (default workhorse: LiteLLM/vLLM)");
+            return (fleet.clone(), ProviderTier::LocalFallback);
+        }
+
         info!("Router → Grok3 (default)");
         (self.grok3.clone(), ProviderTier::Grok3)
     }
 
-    /// Completa prompt usando router inteligente
+    /// Completa prompt usando router inteligente.
+    /// NOTE: this convenience path uses the non-limit-aware `choose()`. On the hot HTTP
+    /// path use `choose_with_limits()` then `complete_chosen()` so per-run budgets are enforced.
     pub async fn complete(&self, prompt: &str) -> anyhow::Result<String> {
         let meta = RequestMeta::from_prompt(prompt);
         let (client, tier) = self.choose(&meta);
+        self.complete_chosen(&client, tier, prompt).await
+    }
 
-        // Se Heavy foi escolhido, passa flag para o client
-        if tier == ProviderTier::Grok4Heavy {
-            // GrokClient detecta automaticamente via choose_model
-            // Por enquanto, passamos via LlmRequest
+    /// Complete using an ALREADY-CHOSEN (limit-aware) client+tier — does NOT re-route,
+    /// so the per-run Heavy/token budgets from `choose_with_limits` are actually enforced.
+    /// (P0 #2: the HTTP handler previously chose a limit-aware client then discarded it by
+    /// calling `complete()`, which re-ran `choose()` uncapped and re-derived meta from text.)
+    pub async fn complete_chosen(
+        &self,
+        client: &Arc<dyn LlmClient>,
+        tier: ProviderTier,
+        prompt: &str,
+    ) -> anyhow::Result<String> {
+        // Only the actual Grok client needs the explicit "grok-4-heavy" model nudge. When the
+        // escalation tier is a non-Grok strong model (Claude, or the local fleet), use its normal
+        // completion path — otherwise we'd send a Grok model id to a non-Grok backend.
+        if tier == ProviderTier::Grok4Heavy && client.name() == "grok" {
             use crate::{ChatMessage, LlmRequest};
             let req = LlmRequest {
                 model: "grok-4-heavy".to_string(),
@@ -523,6 +577,110 @@ impl TieredRouter {
         } else {
             client.complete(prompt).await.map(|o| o.text)
         }
+    }
+
+    /// Single-brain robust completion: pick the best tier for `meta`, try it, and on failure
+    /// fall back across the remaining tiers (local fleet → Grok 3 → offline local) with bounded
+    /// jittered backoff between attempts. Returns the text, or an error string if everything
+    /// fails. This is the unified replacement for beagle-smart-router's parallel cascade —
+    /// one routing algorithm, fleet-first.
+    pub async fn complete_robust(&self, prompt: &str, meta: &RequestMeta) -> String {
+        self.complete_robust_params(prompt, meta, None, None).await
+    }
+
+    /// Like [`complete_robust`] but honors per-call sampling. NOTE: the `LlmClient` trait does not
+    /// carry `top_p`, so only `temperature`/`max_tokens` are propagated (callers passing top_p have
+    /// it dropped — was previously only honored by the now-removed direct grok-api/vLLM clients).
+    pub async fn complete_robust_params(
+        &self,
+        prompt: &str,
+        meta: &RequestMeta,
+        temperature: Option<f32>,
+        max_tokens: Option<i32>,
+    ) -> String {
+        use crate::{ChatMessage, LlmRequest};
+
+        // Ordered attempt chain: the meta-chosen primary, then the standard fallbacks. Dedup so
+        // we never retry the identical client instance back-to-back.
+        let (pc, pt) = self.choose(meta);
+        let mut chain: Vec<(Arc<dyn LlmClient>, ProviderTier)> = vec![(pc, pt)];
+        if let Some(ref f) = self.fleet {
+            chain.push((f.clone(), ProviderTier::LocalFallback));
+        }
+        chain.push((self.grok3.clone(), ProviderTier::Grok3));
+        if let Some(ref l) = self.local {
+            chain.push((l.clone(), ProviderTier::LocalFallback));
+        }
+
+        let mut last_err = String::new();
+        for (i, (client, tier)) in chain.iter().enumerate() {
+            // #13 circuit breaker: skip a tier that recently failed repeatedly (cooldown).
+            let bkey = tier.as_str();
+            if !self.breaker.allow(bkey) {
+                warn!("Router robust: tier {:?} skipped (circuit open)", tier);
+                continue;
+            }
+            if i > 0 {
+                if Arc::ptr_eq(client, &chain[0].0) {
+                    continue; // same instance as the primary we already tried
+                }
+                // bounded exponential backoff with jitter (cap 30s)
+                let base = (250u64.saturating_mul(1u64 << (i as u32).min(6))).min(30_000);
+                let jitter = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| (d.subsec_nanos() as u64) % (base / 2 + 1))
+                    .unwrap_or(0);
+                tokio::time::sleep(std::time::Duration::from_millis((base + jitter).min(30_000)))
+                    .await;
+            }
+
+            let res = if temperature.is_some() || max_tokens.is_some() {
+                let model = if *tier == ProviderTier::Grok4Heavy && client.name() == "grok" {
+                    "grok-4-heavy".to_string()
+                } else {
+                    "default".to_string()
+                };
+                client
+                    .chat(LlmRequest {
+                        model,
+                        messages: vec![ChatMessage::user(prompt)],
+                        temperature,
+                        max_tokens,
+                    })
+                    .await
+            } else {
+                self.complete_chosen(client, *tier, prompt).await
+            };
+
+            match res {
+                Ok(t) => {
+                    self.breaker.record_success(bkey);
+                    return t;
+                }
+                Err(e) => {
+                    self.breaker.record_failure(bkey);
+                    warn!("Router robust: tier {:?} failed: {}", tier, e);
+                    last_err = e.to_string();
+                }
+            }
+        }
+        format!("ERRO: todos os backends LLM falharam. Último erro: {}", last_err)
+    }
+
+    /// Per-request model override (#13): route to the default workhorse client but force an explicit
+    /// model id (e.g. a caller picking a specific fleet/provider model), bypassing tier model logic.
+    pub async fn complete_with_model(&self, prompt: &str, model: &str) -> anyhow::Result<String> {
+        use crate::{ChatMessage, LlmRequest};
+        let meta = RequestMeta::from_prompt(prompt);
+        let (client, _tier) = self.choose(&meta);
+        client
+            .chat(LlmRequest {
+                model: model.to_string(),
+                messages: vec![ChatMessage::user(prompt)],
+                temperature: Some(0.7),
+                max_tokens: Some(2048),
+            })
+            .await
     }
 }
 

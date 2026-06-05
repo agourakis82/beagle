@@ -12,6 +12,7 @@ pub mod clients;
 pub mod meta;
 pub mod orchestrator;
 pub mod output;
+pub mod resilience;
 pub mod router;
 pub mod router_tiered;
 pub mod routing_types;

@@ -114,7 +114,16 @@ impl LlmClient for GrokClient {
         let mut last_error = None;
         for attempt in 0..=self.max_retries {
             if attempt > 0 {
-                let backoff = self.initial_backoff_ms * 2_u64.pow(attempt - 1);
+                // Bounded exponential backoff with jitter (was uncapped initial*2^(attempt-1)). Cap 30s.
+                let base = self
+                    .initial_backoff_ms
+                    .saturating_mul(1u64 << (attempt - 1).min(6))
+                    .min(30_000);
+                let jitter = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| (d.subsec_nanos() as u64) % (base / 2 + 1))
+                    .unwrap_or(0);
+                let backoff = (base + jitter).min(30_000);
                 info!(
                     "GrokClient: retry {}/{}, aguardando {}ms",
                     attempt, self.max_retries, backoff

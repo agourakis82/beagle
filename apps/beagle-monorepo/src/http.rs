@@ -188,11 +188,17 @@ async fn llm_complete_handler(
     // Escolhe client com limites
     let (client, tier) = ctx.router.choose_with_limits(&meta, &current_stats);
 
-    // Chama LLM via router.complete() que retorna String
-    let text = ctx.router.complete(&req.prompt).await.map_err(|e| {
-        tracing::error!("LLM error: {}", e);
-        StatusCode::BAD_GATEWAY
-    })?;
+    // P0 #2: dispatch on the ALREADY-CHOSEN limit-aware client/tier — do NOT call
+    // ctx.router.complete(), which re-routes via the non-limit-aware choose() and discards the
+    // chosen client + the request's RequestMeta flags (budgets bypassed).
+    let text = ctx
+        .router
+        .complete_chosen(&client, tier, &req.prompt)
+        .await
+        .map_err(|e| {
+            tracing::error!("LLM error: {}", e);
+            StatusCode::BAD_GATEWAY
+        })?;
 
     // Estimativa de tokens (simplificada: ~4 chars por token)
     let tokens_in_est = req.prompt.len() / 4;
