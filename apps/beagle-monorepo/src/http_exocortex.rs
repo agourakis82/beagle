@@ -12,6 +12,7 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use beagle_config::beagle_data_dir;
+use beagle_llm::RequestMeta;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -3472,6 +3473,10 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(graphrag_query_handler),
         )
         .route(
+            "/api/exocortex/v1/recall/answer",
+            post(recall_answer_handler),
+        )
+        .route(
             "/api/exocortex/v1/projects/active",
             get(active_projects_handler),
         )
@@ -4323,6 +4328,97 @@ async fn graphrag_query_handler(
     repo.ensure().map_err(internal_error)?;
     let response = repo.graphrag_query(req).map_err(internal_error)?;
     Ok(Json(response))
+}
+
+#[derive(Serialize)]
+struct RecallSource {
+    n: usize,
+    text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    date: Option<String>,
+    source: String,
+    score: f64,
+}
+
+#[derive(Serialize)]
+struct RecallAnswerResponse {
+    answer: String,
+    sources: Vec<RecallSource>,
+    confidence: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scope: Option<String>,
+    schema_version: String,
+}
+
+/// COMPOSED RECALL (cognitive loop slice a), promoted to a first-class exocortex capability:
+/// retrieve project-scoped atoms (graphRAG / ColBERT) then SYNTHESIZE a composed natural-language
+/// answer via the TieredRouter (fleet-first). Any client (cockpit, native app, MCP) can use it —
+/// the synthesis no longer lives only in the cockpit's coord-mcp.
+async fn recall_answer_handler(
+    State(state): State<AppState>,
+    Json(req): Json<GraphRagQueryRequest>,
+) -> Result<Json<RecallAnswerResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let scope = req.scope.clone();
+    let query = req.query.clone();
+    let k = req.max_items.unwrap_or(8).min(12);
+    let gr = repo.graphrag_query(req).map_err(internal_error)?;
+    let sources: Vec<RecallSource> = gr
+        .atoms
+        .iter()
+        .take(k)
+        .enumerate()
+        .map(|(i, a)| RecallSource {
+            n: i + 1,
+            text: a.text.clone(),
+            date: a.occurred_at.clone().or_else(|| Some(a.created_at.clone())),
+            source: if a.atom_type.is_empty() {
+                "exocortex".to_string()
+            } else {
+                a.atom_type.clone()
+            },
+            score: a.confidence,
+        })
+        .filter(|s| !s.text.is_empty())
+        .collect();
+    if sources.is_empty() {
+        return Ok(Json(RecallAnswerResponse {
+            answer: "No memory found for this query.".to_string(),
+            sources: Vec::new(),
+            confidence: 0.0,
+            scope,
+            schema_version: "beagle-recall-answer-v1".to_string(),
+        }));
+    }
+    let ctx_str = sources
+        .iter()
+        .map(|s| format!("[{}] ({}) {}", s.n, s.date.as_deref().unwrap_or("?"), s.text))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let prompt = format!(
+        "You are the recall-synthesis layer of an exocortex. Compose a CLEAR, GLANCEABLE answer from ONLY the memory atoms below. Format EXACTLY like this:\n**<headline: one line, max 14 words, no citation>**\n- **<2-4 word lead-in>:** <one specific sentence with names, versions, numbers> [n]\n(3 to 6 bullets, ordered by importance, merge duplicate facts, cite the atom(s) each draws from as [n], and on conflict keep the most recent). No preamble, no closing.\n\nQuestion: {query}\n\nMemory atoms:\n{ctx_str}"
+    );
+    let answer = {
+        let mut bctx = state.ctx.lock().await;
+        let meta = RequestMeta::from_prompt(&prompt);
+        let stats = bctx.llm_stats.get_or_create("recall_answer");
+        let (client, tier) = bctx.router.choose_with_limits(&meta, &stats);
+        bctx.router
+            .complete_chosen(&client, tier, &prompt)
+            .await
+            .map_err(|e| {
+                error!("recall synthesis failed: {}", e);
+                StatusCode::BAD_GATEWAY
+            })?
+    };
+    Ok(Json(RecallAnswerResponse {
+        answer: answer.trim().to_string(),
+        sources,
+        confidence: gr.confidence,
+        scope,
+        schema_version: "beagle-recall-answer-v1".to_string(),
+    }))
 }
 
 async fn active_projects_handler(
