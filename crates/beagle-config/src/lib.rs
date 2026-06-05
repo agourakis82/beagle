@@ -471,10 +471,18 @@ impl PublishPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use tempfile::tempdir;
+
+    // Tests mutate the shared BEAGLE_DATA_DIR env var; cargo runs them in parallel in one process,
+    // so serialize the env-touching ones to avoid a flaky race (test_beagle_data_dir vs
+    // test_data_dir_env_override).
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_beagle_data_dir() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        env::remove_var("BEAGLE_DATA_DIR"); // test the default, robust to a polluted/CI env
         let dir = beagle_data_dir();
         assert!(dir.to_string_lossy().contains("beagle-data"));
     }
@@ -506,6 +514,7 @@ mod tests {
 
     #[test]
     fn test_data_dir_env_override() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = tempdir().unwrap();
         env::set_var("BEAGLE_DATA_DIR", tmp.path().to_str().unwrap());
         assert_eq!(beagle_data_dir(), tmp.path());
@@ -722,9 +731,15 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
                 .anthropic_api_key
                 .or(base.llm.anthropic_api_key),
             openai_api_key: override_cfg.llm.openai_api_key.or(base.llm.openai_api_key),
-            deepseek_api_key: override_cfg.llm.deepseek_api_key.or(base.llm.deepseek_api_key),
+            deepseek_api_key: override_cfg
+                .llm
+                .deepseek_api_key
+                .or(base.llm.deepseek_api_key),
             zai_api_key: override_cfg.llm.zai_api_key.or(base.llm.zai_api_key),
-            minimax_api_key: override_cfg.llm.minimax_api_key.or(base.llm.minimax_api_key),
+            minimax_api_key: override_cfg
+                .llm
+                .minimax_api_key
+                .or(base.llm.minimax_api_key),
             vllm_url: override_cfg.llm.vllm_url.or(base.llm.vllm_url),
             deepseek_base_url: override_cfg
                 .llm
@@ -792,7 +807,10 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
             } else {
                 base.workspace.canonical_track
             },
-            operator_name: override_cfg.workspace.operator_name.or(base.workspace.operator_name),
+            operator_name: override_cfg
+                .workspace
+                .operator_name
+                .or(base.workspace.operator_name),
             default_dev_plane: if override_cfg.workspace.default_dev_plane
                 != model::WorkspacePlaneConfig::default().default_dev_plane
             {
@@ -819,8 +837,14 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
         },
         consumers: model::ConsumerAccessConfig {
             policy_enabled: override_cfg.consumers.policy_enabled || base.consumers.policy_enabled,
-            operator_token: override_cfg.consumers.operator_token.or(base.consumers.operator_token),
-            research_token: override_cfg.consumers.research_token.or(base.consumers.research_token),
+            operator_token: override_cfg
+                .consumers
+                .operator_token
+                .or(base.consumers.operator_token),
+            research_token: override_cfg
+                .consumers
+                .research_token
+                .or(base.consumers.research_token),
         },
         advanced: AdvancedModulesConfig {
             serendipity_enabled: override_cfg.advanced.serendipity_enabled

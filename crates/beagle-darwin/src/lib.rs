@@ -15,8 +15,8 @@
 //! ```
 
 pub mod consumer_policy;
-pub mod repo_context;
 pub mod object_results;
+pub mod repo_context;
 pub mod result_catalog;
 pub mod tool_bridge;
 pub mod tool_bridge_ledger;
@@ -32,8 +32,10 @@ use tracing::{info, warn};
 pub use consumer_policy::{
     available_consumers, consumer_identity_for_id, ConsumerId, ConsumerIdentity,
 };
+pub use object_results::{
+    HpcTextArtifact, JobArtifactManifest, ObjectPublishedArtifact, ObjectResultManifest,
+};
 pub use repo_context::RepoContext;
-pub use object_results::{HpcTextArtifact, JobArtifactManifest, ObjectPublishedArtifact, ObjectResultManifest};
 pub use result_catalog::{
     DarwinHpcGatewayClient, DarwinHpcGatewayError, HpcJobStatus, HpcProfile, HpcProfileCatalog,
     HpcSubmitRequest, HpcSubmitResponse, ResultCatalogEntry, ResultCatalogQuery,
@@ -51,10 +53,10 @@ pub use workspace_plane::{
     bootstrap_workspace_session, load_workspace_session, read_workspace_session,
     record_workspace_fallback_return, record_workspace_fallback_start, run_workspace_pilot,
     workspace_fallback_ledger_path, workspace_plane_dir, workspace_session_path,
-    write_workspace_session, WorkspaceBootstrapResponse, WorkspacePilotRequest,
-    WorkspaceCatalogSnapshot, WorkspaceCurrentTask, WorkspaceDevPlanePolicy,
-    WorkspaceFallbackDrillRequest, WorkspaceFallbackDrillResponse, WorkspaceFallbackEvent,
-    WorkspaceLastSuccessfulTask, WorkspacePilotResponse, WorkspaceSessionState,
+    write_workspace_session, WorkspaceBootstrapResponse, WorkspaceCatalogSnapshot,
+    WorkspaceCurrentTask, WorkspaceDevPlanePolicy, WorkspaceFallbackDrillRequest,
+    WorkspaceFallbackDrillResponse, WorkspaceFallbackEvent, WorkspaceLastSuccessfulTask,
+    WorkspacePilotRequest, WorkspacePilotResponse, WorkspaceSessionState,
 };
 
 /// Contexto retornado pelo enhanced_cycle

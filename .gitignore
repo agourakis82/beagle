@@ -1,7 +1,9 @@
 # Rust build artifacts
 target/
 **/target/
-Cargo.lock
+# Cargo.lock IS committed: this is an application/binary workspace, so the lock must be tracked for
+# reproducible CI builds. (It was ignored, which let CI resolve a broken pgvector/sqlx 0.8 combo —
+# pgvector::Vector not implementing sqlx 0.8 traits — that the committed lock pins away from.)
 **/*.rs.bk
 *.pdb
 

@@ -1,7 +1,7 @@
 use crate::{
     BridgeHealth, BridgeProviderInfo, DarwinHpcGatewayClient, HpcJobStatus, HpcSubmitRequest,
-    HpcSubmitResponse, JobArtifactManifest, ObjectResultManifest, RepoContext,
-    ResultCatalogQuery, ToolBridge,
+    HpcSubmitResponse, JobArtifactManifest, ObjectResultManifest, RepoContext, ResultCatalogQuery,
+    ToolBridge,
 };
 use anyhow::{anyhow, bail, Context};
 use beagle_config::BeagleConfig;
@@ -397,10 +397,19 @@ fn append_workspace_fallback_event(
         .create(true)
         .append(true)
         .open(&path)
-        .with_context(|| format!("failed to open workspace fallback ledger {}", path.display()))?;
+        .with_context(|| {
+            format!(
+                "failed to open workspace fallback ledger {}",
+                path.display()
+            )
+        })?;
     let line = serde_json::to_string(entry)?;
-    writeln!(file, "{line}")
-        .with_context(|| format!("failed to append workspace fallback ledger {}", path.display()))
+    writeln!(file, "{line}").with_context(|| {
+        format!(
+            "failed to append workspace fallback ledger {}",
+            path.display()
+        )
+    })
 }
 
 fn workspace_fallback_response(state: &WorkspaceSessionState) -> WorkspaceFallbackDrillResponse {
@@ -497,14 +506,9 @@ pub fn record_workspace_fallback_start(
         bail!("fallback reason is required");
     }
 
-    let mut state = load_workspace_session(data_dir, cfg, workspace_id)?
-        .unwrap_or_else(|| {
-            WorkspaceSessionState::new(
-                cfg,
-                workspace_id.to_string(),
-                request.session_id.clone(),
-            )
-        });
+    let mut state = load_workspace_session(data_dir, cfg, workspace_id)?.unwrap_or_else(|| {
+        WorkspaceSessionState::new(cfg, workspace_id.to_string(), request.session_id.clone())
+    });
     normalize_workspace_session(cfg, &mut state);
 
     if state.fallback_active {
@@ -533,11 +537,7 @@ pub fn record_workspace_fallback_start(
     state.last_fallback_event = Some(event.clone());
     state.last_handoff = Some(format!(
         "workspace={} repo={} branch={} session={} entered vm fallback because {}",
-        state.workspace_id,
-        state.canonical_repo,
-        state.canonical_branch,
-        state.session_id,
-        reason
+        state.workspace_id, state.canonical_repo, state.canonical_branch, state.session_id, reason
     ));
 
     write_workspace_session(data_dir, &state)?;
@@ -583,16 +583,14 @@ pub fn record_workspace_fallback_return(
     }
 
     let recorded_at = Utc::now();
-    let duration_seconds = state
-        .last_fallback_started_at
-        .and_then(|started_at| {
-            let duration = (recorded_at - started_at).num_seconds();
-            if duration < 0 {
-                None
-            } else {
-                Some(duration as u64)
-            }
-        });
+    let duration_seconds = state.last_fallback_started_at.and_then(|started_at| {
+        let duration = (recorded_at - started_at).num_seconds();
+        if duration < 0 {
+            None
+        } else {
+            Some(duration as u64)
+        }
+    });
     let event = WorkspaceFallbackEvent {
         event_kind: "returned_to_canonical".to_string(),
         from_plane: state.active_dev_plane.clone(),
@@ -670,19 +668,19 @@ pub async fn run_workspace_pilot(
         "operator_real_workflow_pilot"
     };
 
-    let run_label = request.run_label.clone().unwrap_or_else(|| {
-        format!("b126-{}", Utc::now().format("%m%d%H%M%S"))
-    });
+    let run_label = request
+        .run_label
+        .clone()
+        .unwrap_or_else(|| format!("b126-{}", Utc::now().format("%m%d%H%M%S")));
 
     let repo_context = bootstrap.repo_context.clone();
-    let mut state = load_workspace_session(data_dir, cfg, workspace_id)?
-        .unwrap_or_else(|| {
-            WorkspaceSessionState::new(
-                cfg,
-                workspace_id.to_string(),
-                Some(bootstrap.session_id.clone()),
-            )
-        });
+    let mut state = load_workspace_session(data_dir, cfg, workspace_id)?.unwrap_or_else(|| {
+        WorkspaceSessionState::new(
+            cfg,
+            workspace_id.to_string(),
+            Some(bootstrap.session_id.clone()),
+        )
+    });
 
     normalize_workspace_session(cfg, &mut state);
     state.updated_at = Utc::now();
@@ -867,8 +865,7 @@ pub async fn run_workspace_pilot(
                 Some(published_result.artifact_manifest_key.clone());
             state.last_result_lookup_job_id = Some(resolved_result_lookup.job_id);
             state.last_result_lookup_run_label = Some(resolved_result_lookup.run_label.clone());
-            state.last_result_lookup_profile_id =
-                Some(resolved_result_lookup.profile_id.clone());
+            state.last_result_lookup_profile_id = Some(resolved_result_lookup.profile_id.clone());
             state.last_result_lookup_node_list = Some(resolved_result_lookup.node_list.clone());
             state.last_successful_task = Some(WorkspaceLastSuccessfulTask {
                 task_kind: task_kind.to_string(),

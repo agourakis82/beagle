@@ -168,7 +168,9 @@ impl ToolBridge {
                 configured: false,
                 cluster_callable: false,
                 default_model: None,
-                notes: vec!["represented in contract; never executed automatically by cluster".to_string()],
+                notes: vec![
+                    "represented in contract; never executed automatically by cluster".to_string(),
+                ],
             },
             BridgeProviderInfo {
                 provider: BridgeProvider::ClaudeHuman,
@@ -178,7 +180,9 @@ impl ToolBridge {
                 configured: false,
                 cluster_callable: false,
                 default_model: None,
-                notes: vec!["represented in contract; never executed automatically by cluster".to_string()],
+                notes: vec![
+                    "represented in contract; never executed automatically by cluster".to_string(),
+                ],
             },
             BridgeProviderInfo {
                 provider: BridgeProvider::McpGeneric,
@@ -213,8 +217,10 @@ impl ToolBridge {
             }
         };
 
-        if matches!(provider, BridgeProvider::CodexHuman | BridgeProvider::ClaudeHuman)
-            || request.bridge_mode == BridgeMode::HumanSession
+        if matches!(
+            provider,
+            BridgeProvider::CodexHuman | BridgeProvider::ClaudeHuman
+        ) || request.bridge_mode == BridgeMode::HumanSession
             || request.bridge_kind == BridgeKind::HumanPremium
         {
             return self.finalize_response(
@@ -269,36 +275,20 @@ impl ToolBridge {
         }
 
         match provider {
-            BridgeProvider::Deepseek => {
-                match self.execute_deepseek(&request, &model).await {
-                    Ok((output, usage, cost)) => self.finalize_response(
-                        request,
-                        Some(provider),
-                        Some(model),
-                        BridgeStatus::Success,
-                        started.elapsed().as_millis(),
-                        usage,
-                        cost,
-                        output,
-                        None,
-                        vec![],
-                    ),
-                    Err(error) => self.finalize_response(
-                        request,
-                        Some(provider),
-                        Some(model),
-                        BridgeStatus::Error,
-                        started.elapsed().as_millis(),
-                        None,
-                        None,
-                        json!({}),
-                        Some(error),
-                        vec![],
-                    ),
-                }
-            }
-            BridgeProvider::Glm5 | BridgeProvider::GrokFast | BridgeProvider::Minimax => {
-                self.finalize_response(
+            BridgeProvider::Deepseek => match self.execute_deepseek(&request, &model).await {
+                Ok((output, usage, cost)) => self.finalize_response(
+                    request,
+                    Some(provider),
+                    Some(model),
+                    BridgeStatus::Success,
+                    started.elapsed().as_millis(),
+                    usage,
+                    cost,
+                    output,
+                    None,
+                    vec![],
+                ),
+                Err(error) => self.finalize_response(
                     request,
                     Some(provider),
                     Some(model),
@@ -307,10 +297,27 @@ impl ToolBridge {
                     None,
                     None,
                     json!({}),
-                    Some("provider declared in contract but not wired in B12.2b runtime".to_string()),
-                    vec!["implement deepseek first; other cheap providers remain staged".to_string()],
-                )
-            }
+                    Some(error),
+                    vec![],
+                ),
+            },
+            BridgeProvider::Glm5 | BridgeProvider::GrokFast | BridgeProvider::Minimax => self
+                .finalize_response(
+                    request,
+                    Some(provider),
+                    Some(model),
+                    BridgeStatus::Error,
+                    started.elapsed().as_millis(),
+                    None,
+                    None,
+                    json!({}),
+                    Some(
+                        "provider declared in contract but not wired in B12.2b runtime".to_string(),
+                    ),
+                    vec![
+                        "implement deepseek first; other cheap providers remain staged".to_string(),
+                    ],
+                ),
             BridgeProvider::CodexHuman
             | BridgeProvider::ClaudeHuman
             | BridgeProvider::McpGeneric => unreachable!("handled above"),
@@ -324,7 +331,10 @@ impl ToolBridge {
         let provider = if let Some(provider) = request.provider {
             provider
         } else if matches!(request.bridge_kind, BridgeKind::CheapApi)
-            || matches!(request.bridge_mode, BridgeMode::CheapApi | BridgeMode::ApiOptional)
+            || matches!(
+                request.bridge_mode,
+                BridgeMode::CheapApi | BridgeMode::ApiOptional
+            )
         {
             if self.cfg.deepseek_api_key.is_some() {
                 BridgeProvider::Deepseek
@@ -456,7 +466,10 @@ impl ToolBridge {
             };
 
             if let Err(ledger_error) = append_ledger_entry(&self.data_dir, &entry) {
-                warn!("failed to append tool bridge ledger entry: {}", ledger_error);
+                warn!(
+                    "failed to append tool bridge ledger entry: {}",
+                    ledger_error
+                );
                 warnings.push(format!("ledger append failed: {}", ledger_error));
             }
         }

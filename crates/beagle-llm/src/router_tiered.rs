@@ -630,8 +630,10 @@ impl TieredRouter {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| (d.subsec_nanos() as u64) % (base / 2 + 1))
                     .unwrap_or(0);
-                tokio::time::sleep(std::time::Duration::from_millis((base + jitter).min(30_000)))
-                    .await;
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    (base + jitter).min(30_000),
+                ))
+                .await;
             }
 
             let res = if temperature.is_some() || max_tokens.is_some() {
@@ -664,7 +666,10 @@ impl TieredRouter {
                 }
             }
         }
-        format!("ERRO: todos os backends LLM falharam. Último erro: {}", last_err)
+        format!(
+            "ERRO: todos os backends LLM falharam. Último erro: {}",
+            last_err
+        )
     }
 
     /// Per-request model override (#13): route to the default workhorse client but force an explicit

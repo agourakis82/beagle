@@ -15,13 +15,21 @@ struct Args {
     repos_dir: String,
 
     /// State file storing last indexed commit per repo
-    #[arg(long, env = "DARWIN_INDEX_STATE_FILE", default_value = "~/.darwin_index_state.json")]
+    #[arg(
+        long,
+        env = "DARWIN_INDEX_STATE_FILE",
+        default_value = "~/.darwin_index_state.json"
+    )]
     state_file: String,
 
     #[arg(long, env = "QDRANT_URL", default_value = "http://localhost:6333")]
     qdrant_url: String,
 
-    #[arg(long, env = "EMBEDDING_URL", default_value = "http://localhost:8001/v1")]
+    #[arg(
+        long,
+        env = "EMBEDDING_URL",
+        default_value = "http://localhost:8001/v1"
+    )]
     embedding_url: String,
 
     #[arg(long, env = "EMBEDDING_MODEL", default_value = "NV-Embed-v2")]
@@ -41,7 +49,10 @@ struct Args {
     extensions: String,
 
     /// Comma-separated list of ignored directory names
-    #[arg(long, default_value = ".git,node_modules,target,__pycache__,.venv,venv")]
+    #[arg(
+        long,
+        default_value = ".git,node_modules,target,__pycache__,.venv,venv"
+    )]
     ignore_dirs: String,
 
     #[arg(long, default_value_t = 500_000)]
