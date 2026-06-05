@@ -59,6 +59,11 @@ data:
   BEAGLE_GROQ_BASE_URL: https://api.groq.com/openai/v1
   BEAGLE_XAI_BASE_URL: https://api.x.ai/v1
   BEAGLE_GROK_MODEL: grok-4-1-fast-reasoning
+  # Fleet-first routing: TieredRouter default workhorse is the in-cluster LiteLLM/vLLM fleet
+  # (Grok/Claude kept as complete_robust escalation/fallback). qwen2.5-14b ≈ chat-fast (~50 tok/s).
+  BEAGLE_LLM_FLEET_ENABLE: "1"
+  BEAGLE_LLM_FLEET_MODEL: qwen2.5-14b
+  BEAGLE_LLM_FLEET_URL: http://router.llm-router.svc.cluster.local:4000/v1
   BEAGLE_KIMI_MODEL: moonshotai/kimi-k2-instruct-0905
   BEAGLE_MINIMAX_BASE_URL: https://api.minimax.io/anthropic
   BEAGLE_DARWIN_HPC_GATEWAY_BASE_URL: http://darwin-hpc-gateway.darwin-platform.svc.cluster.local
