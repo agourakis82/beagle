@@ -71,6 +71,16 @@ function annotations(
 }
 
 const TOOL_POLICIES: Record<string, ToolPolicy> = {
+    beagle_recall_answer: {
+        annotations: annotations("Composed Recall (synthesized answer)", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    beagle_propose_next: {
+        annotations: annotations("Propose Next Steps (cognitive loop)", true, false, false),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "run",
+    },
     search: {
         annotations: annotations("Search Beagle Exocortex", true, false, true),
         requiredScopes: READ_EXOCORTEX,

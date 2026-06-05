@@ -2,6 +2,30 @@
   "$schema": "https://developers.openai.com/apps-sdk/schemas/tool-hint-justifications.v1.json",
   "schema_version": 1,
   "tools": {
+    "beagle_recall_answer": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Retrieves and synthesizes existing memory atoms into a composed answer; does not change cluster state.",
+        "open_world_justification": "Reads private Beagle exocortex state and synthesizes via the in-cluster fleet; does not modify external systems.",
+        "destructive_justification": "Does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
+    "beagle_propose_next": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Reads recent decisions and current state and proposes next steps; does not execute or change cluster state.",
+        "open_world_justification": "Reads private Beagle exocortex state and plans via the in-cluster fleet; does not modify external systems.",
+        "destructive_justification": "Proposes only — does not delete, overwrite, revoke access, or perform irreversible actions."
+      }
+    },
     "search": {
       "annotations": {
         "readOnlyHint": true,

@@ -9,9 +9,9 @@ import {
     validateToolDefinitions,
 } from "./tool-manifest.js";
 
-const TRUSTED_FULL_TOOL_COUNT = 79;
+const TRUSTED_FULL_TOOL_COUNT = 81;
 const TRUSTED_FULL_TOOL_MANIFEST_HASH =
-    "sha256:3397d62e813ebaf2853d9ba7eb6f90611e5500b1585e15322d63d701350ac7d2";
+    "sha256:b0cbedcb784c3e8eb07ebd8f844775ec769c1dc7437ae530cc1f58e61962dabb";
 
 test("all MCP tools expose annotations, scopes, and risk levels", () => {
     const tools = defineTools({} as BeagleClient);

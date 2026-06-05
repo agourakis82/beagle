@@ -1,5 +1,15 @@
 # Beagle MCP Tool Manifest Changelog
 
+## beagle-mcp-v3.6-cognitive-loop
+
+- Tool count: 81
+- Tool manifest hash: `sha256:b0cbedcb784c3e8eb07ebd8f844775ec769c1dc7437ae530cc1f58e61962dabb`
+- Security profile: `sott-non-destructive-oauth-audited`
+- Notes: no tool exposes `destructiveHint=true`; both new tools are read/plan only.
+- Added cognitive-loop tools (composed recall + next-step proposer):
+  - `beagle_recall_answer` — retrieve project-scoped memory and synthesize a cited answer via the in-cluster fleet (delegates to beagle-core `/api/exocortex/v1/recall/answer`).
+  - `beagle_propose_next` — the fleet proposes 2-3 cited next steps from recent decisions/state; propose, do not execute.
+
 ## beagle-mcp-v3.5-model-ecology-router
 
 - Tool count: 79

@@ -422,6 +422,10 @@ export class BeagleClient {
         return this.request("POST", "/api/exocortex/v1/graphrag/query", body, 60000);
     }
 
+    async recallAnswer(body: unknown): Promise<unknown> {
+        return this.request("POST", "/api/exocortex/v1/recall/answer", body, 60000);
+    }
+
     async contextCompile(body: unknown): Promise<unknown> {
         return this.request("POST", "/api/exocortex/v1/context/compile", body, 120000);
     }

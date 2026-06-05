@@ -894,8 +894,60 @@ function workMemoryCapturePayload(input: z.infer<typeof WorkMemoryCaptureSchema>
     };
 }
 
+const RecallAnswerSchema = z.object({
+    query: z.string(),
+    scope: z.string().optional(),
+    max_items: z.number().int().min(1).max(12).optional(),
+});
+const ProposeNextSchema = z.object({ scope: z.string().optional() });
+const COORD_URL = (process.env.COORD_URL || "http://coord-mcp.beagle.svc.cluster.local:8900").replace(/\/$/, "");
+
 export function exocortexTools(client: BeagleClient): McpTool[] {
     return [
+        {
+            name: "beagle_recall_answer",
+            description:
+                "Composed recall: retrieve project-scoped memory from the exocortex and return a SYNTHESIZED, cited answer (not raw hits). Ask 'what did we decide about X' and get a composed answer (headline + cited bullets) with sources. scope = all|beagle|sounio|darwin.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    query: { type: "string" },
+                    scope: { type: "string", description: "project scope: all|beagle|sounio|darwin" },
+                    max_items: { type: "number", minimum: 1, maximum: 12, default: 8 },
+                },
+                required: ["query"],
+            },
+            handler: async (args: unknown) => {
+                const p = RecallAnswerSchema.parse(args ?? {});
+                return sanitizeOutput(
+                    await client.recallAnswer({ query: p.query, scope: p.scope, max_items: p.max_items ?? 8 }),
+                );
+            },
+        },
+        {
+            name: "beagle_propose_next",
+            description:
+                "Ask the fleet to propose the 2-3 MOST VALUABLE next steps from recent decisions + current state in the exocortex (the cognitive loop's planner). Returns titled, cited proposals with effort (S/M/L). PROPOSE only — does not execute. scope = all|beagle|sounio|darwin.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    scope: { type: "string", description: "project scope: all|beagle|sounio|darwin" },
+                },
+            },
+            handler: async (args: unknown) => {
+                const p = ProposeNextSchema.parse(args ?? {});
+                const r = await fetch(`${COORD_URL}/propose`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ scope: p.scope }),
+                    signal: AbortSignal.timeout(60000),
+                });
+                if (!r.ok) {
+                    throw new Error(`coord propose ${r.status}`);
+                }
+                return sanitizeOutput(await r.json());
+            },
+        },
         {
             name: "beagle_exocortex_home",
             description:
