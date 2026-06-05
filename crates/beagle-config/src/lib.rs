@@ -471,10 +471,18 @@ impl PublishPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use tempfile::tempdir;
+
+    // Tests mutate the shared BEAGLE_DATA_DIR env var; cargo runs them in parallel in one process,
+    // so serialize the env-touching ones to avoid a flaky race (test_beagle_data_dir vs
+    // test_data_dir_env_override).
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_beagle_data_dir() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        env::remove_var("BEAGLE_DATA_DIR"); // test the default, robust to a polluted/CI env
         let dir = beagle_data_dir();
         assert!(dir.to_string_lossy().contains("beagle-data"));
     }
@@ -506,6 +514,7 @@ mod tests {
 
     #[test]
     fn test_data_dir_env_override() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = tempdir().unwrap();
         env::set_var("BEAGLE_DATA_DIR", tmp.path().to_str().unwrap());
         assert_eq!(beagle_data_dir(), tmp.path());
