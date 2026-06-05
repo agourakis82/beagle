@@ -1,31 +1,19 @@
 # syntax=docker/dockerfile:1
-# Multi-stage build with cargo-chef.
+# Single-stage builder for core_server.
 #
-# Dependencies compile in their OWN cached layer ("cook") that only re-runs when Cargo.toml/Cargo.lock
-# change, so editing workspace source rebuilds only the workspace crates, not the entire dependency
-# graph (typically 5-10x faster incremental image builds). Cargo.lock IS committed and copied, so the
-# image builds against the same pinned graph as CI. bookworm ships Python 3.11, so pyo3 builds fine here.
+# NOTE: the in-cluster kaniko build-job runs with `--cache=false` (no layer cache), so cargo-chef's
+# dependency-caching optimization brings ZERO benefit here — and it actively broke this image: the
+# cargo-chef `cook` step builds `fn main(){}` stubs to cache deps, and the stub `core_server` (a 324KB
+# binary that exits 0 immediately) leaked into target/release/ instead of the real server. We do a
+# plain `cargo build` so the real source always compiles. Cargo.lock IS committed and copied so the
+# image builds against the same pinned graph as CI. bookworm ships Python 3.11, so pyo3 builds fine.
 # protobuf-compiler (protoc) is required: pulsar's build.rs (prost-build) needs it.
 
-FROM rust:1.89-bookworm AS chef
+FROM rust:1.89-bookworm AS builder
 RUN apt-get update \
     && apt-get install -y --no-install-recommends pkg-config libssl-dev python3-dev protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
-RUN cargo install cargo-chef --locked
 WORKDIR /workspace
-
-# --- planner: derive the dependency recipe from the full source tree ---
-FROM chef AS planner
-COPY Cargo.toml Cargo.lock ./
-COPY apps ./apps
-COPY crates ./crates
-COPY beagle-bin ./beagle-bin
-RUN cargo chef prepare --recipe-path recipe.json
-
-# --- builder: cook deps (cached unless recipe.json changes), then build the binary ---
-FROM chef AS builder
-COPY --from=planner /workspace/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json
 COPY Cargo.toml Cargo.lock ./
 COPY apps ./apps
 COPY crates ./crates
