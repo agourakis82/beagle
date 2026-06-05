@@ -107,7 +107,7 @@ private func splitHeadline(_ answer: String) -> (headline: String?, body: [Strin
     if isHeadline {
         let head = t.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "#", with: "")
             .trimmingCharacters(in: .whitespaces)
-        let rest = lines.drop(while: { $0 != first }).dropFirst().map(String.init)
+        let rest = lines.firstIndex(of: first).map { Array(lines[($0 + 1)...]) } ?? []
         return (head, rest)
     }
     return (nil, lines)
