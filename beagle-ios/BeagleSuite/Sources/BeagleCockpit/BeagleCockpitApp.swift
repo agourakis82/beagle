@@ -183,8 +183,20 @@ struct RootView: View {
             }
         }
         .task {
+            initializeTabSelectionIfNeeded()
             await bootstrap()
         }
+        .onChange(of: selectedTab) { _, newValue in
+            persistedSelectedTab = newValue
+        }
+    }
+
+    // MARK: - Tab selection (launch override > persisted > default)
+
+    private func initializeTabSelectionIfNeeded() {
+        guard !hasInitializedTabSelection else { return }
+        hasInitializedTabSelection = true
+        selectedTab = launchOverrides.selectedTab ?? persistedSelectedTab
     }
 
     // MARK: - Bootstrap (runs inside model container scope)
