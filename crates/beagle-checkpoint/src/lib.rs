@@ -53,8 +53,8 @@ pub mod memory;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 
-#[cfg(feature = "redis")]
-pub mod redis_backend;
+// NOTE: redis_backend was declared (#[cfg(feature = "redis")]) but the module file never existed —
+// a dangling declaration that broke `cargo fmt`/parse. Removed until a real redis backend is added.
 
 #[cfg(feature = "encrypted")]
 pub mod encrypted;

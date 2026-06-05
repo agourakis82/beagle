@@ -38,7 +38,11 @@ impl QdrantClient {
     }
 
     pub async fn ensure_collection(&self, collection: &str, vector_size: usize) -> Result<()> {
-        if self.get_collection_points_count(collection).await?.is_some() {
+        if self
+            .get_collection_points_count(collection)
+            .await?
+            .is_some()
+        {
             return Ok(());
         }
         let url = format!("{}/collections/{}", self.base_url, collection);
@@ -104,10 +108,7 @@ impl QdrantClient {
         limit: usize,
         with_payload: bool,
     ) -> Result<Vec<serde_json::Value>> {
-        let url = format!(
-            "{}/collections/{}/points/search",
-            self.base_url, collection
-        );
+        let url = format!("{}/collections/{}/points/search", self.base_url, collection);
         let body = json!({
             "vector": vector,
             "limit": limit,

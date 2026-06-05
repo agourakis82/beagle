@@ -88,10 +88,7 @@ pub fn diff_name_status(repo_path: &Path, from: &str, to: &str) -> Result<Vec<Fi
         .output()
         .context("failed to run git diff --name-status")?;
     if !out.status.success() {
-        anyhow::bail!(
-            "git diff failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        anyhow::bail!("git diff failed: {}", String::from_utf8_lossy(&out.stderr));
     }
 
     let stdout = String::from_utf8_lossy(&out.stdout);

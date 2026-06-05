@@ -1,6 +1,6 @@
 use anyhow::Result;
-use beagle_rag_update::ledger::IngestionLedger;
 use beagle_rag_update::knowledge::{index_document, DocType, DocumentMeta, KnowledgeConfig};
+use beagle_rag_update::ledger::IngestionLedger;
 use beagle_rag_update::qdrant::QdrantClient;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -13,7 +13,11 @@ struct Args {
     #[arg(long, env = "QDRANT_URL", default_value = "http://localhost:6333")]
     qdrant_url: String,
 
-    #[arg(long, env = "EMBEDDING_URL", default_value = "http://localhost:8001/v1")]
+    #[arg(
+        long,
+        env = "EMBEDDING_URL",
+        default_value = "http://localhost:8001/v1"
+    )]
     embedding_url: String,
 
     #[arg(long, env = "EMBEDDING_MODEL", default_value = "NV-Embed-v2")]
@@ -150,8 +154,17 @@ async fn main() -> Result<()> {
             if papers.exists() {
                 for entry in std::fs::read_dir(&papers)? {
                     let path = entry?.path();
-                    if path.extension().and_then(|e| e.to_str()).unwrap_or("").eq_ignore_ascii_case("pdf") {
-                        let title = path.file_stem().and_then(|s| s.to_str()).unwrap_or("paper").to_string();
+                    if path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .eq_ignore_ascii_case("pdf")
+                    {
+                        let title = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("paper")
+                            .to_string();
                         let meta = DocumentMeta {
                             title,
                             path,
@@ -172,9 +185,17 @@ async fn main() -> Result<()> {
             if docs.exists() {
                 for entry in std::fs::read_dir(&docs)? {
                     let path = entry?.path();
-                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                    let ext = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
                     if matches!(ext.as_str(), "md" | "txt" | "rst") {
-                        let title = path.file_stem().and_then(|s| s.to_str()).unwrap_or("doc").to_string();
+                        let title = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("doc")
+                            .to_string();
                         let meta = DocumentMeta {
                             title,
                             path,
@@ -195,8 +216,17 @@ async fn main() -> Result<()> {
             if books.exists() {
                 for entry in std::fs::read_dir(&books)? {
                     let path = entry?.path();
-                    if path.extension().and_then(|e| e.to_str()).unwrap_or("").eq_ignore_ascii_case("pdf") {
-                        let title = path.file_stem().and_then(|s| s.to_str()).unwrap_or("book").to_string();
+                    if path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .eq_ignore_ascii_case("pdf")
+                    {
+                        let title = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("book")
+                            .to_string();
                         let meta = DocumentMeta {
                             title,
                             path,

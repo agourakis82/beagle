@@ -722,9 +722,15 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
                 .anthropic_api_key
                 .or(base.llm.anthropic_api_key),
             openai_api_key: override_cfg.llm.openai_api_key.or(base.llm.openai_api_key),
-            deepseek_api_key: override_cfg.llm.deepseek_api_key.or(base.llm.deepseek_api_key),
+            deepseek_api_key: override_cfg
+                .llm
+                .deepseek_api_key
+                .or(base.llm.deepseek_api_key),
             zai_api_key: override_cfg.llm.zai_api_key.or(base.llm.zai_api_key),
-            minimax_api_key: override_cfg.llm.minimax_api_key.or(base.llm.minimax_api_key),
+            minimax_api_key: override_cfg
+                .llm
+                .minimax_api_key
+                .or(base.llm.minimax_api_key),
             vllm_url: override_cfg.llm.vllm_url.or(base.llm.vllm_url),
             deepseek_base_url: override_cfg
                 .llm
@@ -792,7 +798,10 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
             } else {
                 base.workspace.canonical_track
             },
-            operator_name: override_cfg.workspace.operator_name.or(base.workspace.operator_name),
+            operator_name: override_cfg
+                .workspace
+                .operator_name
+                .or(base.workspace.operator_name),
             default_dev_plane: if override_cfg.workspace.default_dev_plane
                 != model::WorkspacePlaneConfig::default().default_dev_plane
             {
@@ -819,8 +828,14 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
         },
         consumers: model::ConsumerAccessConfig {
             policy_enabled: override_cfg.consumers.policy_enabled || base.consumers.policy_enabled,
-            operator_token: override_cfg.consumers.operator_token.or(base.consumers.operator_token),
-            research_token: override_cfg.consumers.research_token.or(base.consumers.research_token),
+            operator_token: override_cfg
+                .consumers
+                .operator_token
+                .or(base.consumers.operator_token),
+            research_token: override_cfg
+                .consumers
+                .research_token
+                .or(base.consumers.research_token),
         },
         advanced: AdvancedModulesConfig {
             serendipity_enabled: override_cfg.advanced.serendipity_enabled

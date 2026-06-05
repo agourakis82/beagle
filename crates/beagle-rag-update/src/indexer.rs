@@ -272,10 +272,7 @@ pub async fn run_incremental(
         let vectors = embed
             .embed_batch(&[String::from("darwin indexer init")])
             .await?;
-        let dim = vectors
-            .first()
-            .map(|v| v.len())
-            .unwrap_or_else(|| 0usize);
+        let dim = vectors.first().map(|v| v.len()).unwrap_or_else(|| 0usize);
         if dim == 0 {
             anyhow::bail!("failed to infer embedding dimension");
         }
@@ -304,10 +301,7 @@ pub async fn run_incremental(
         let head = git::head_commit(&repo.path)
             .with_context(|| format!("failed to resolve HEAD for {}", repo.path.display()))?;
 
-        let prev_head = state
-            .repos
-            .get(&repo.name)
-            .and_then(|rs| rs.head.clone());
+        let prev_head = state.repos.get(&repo.name).and_then(|rs| rs.head.clone());
 
         let changes = if force {
             None

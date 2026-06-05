@@ -126,8 +126,14 @@ mod tests {
         assert!(cb.allow_at("grok", t0), "still closed below threshold");
         cb.record_failure_at("grok", t0); // 3rd -> open
         assert!(!cb.allow_at("grok", t0), "open after threshold");
-        assert!(!cb.allow_at("grok", t0 + Duration::from_secs(5)), "still open within cooldown");
-        assert!(cb.allow_at("grok", t0 + Duration::from_secs(11)), "half-open after cooldown");
+        assert!(
+            !cb.allow_at("grok", t0 + Duration::from_secs(5)),
+            "still open within cooldown"
+        );
+        assert!(
+            cb.allow_at("grok", t0 + Duration::from_secs(11)),
+            "half-open after cooldown"
+        );
         // a success closes it
         cb.record_success("grok");
         assert!(cb.allow_at("grok", t0 + Duration::from_secs(11)));
@@ -149,7 +155,10 @@ mod tests {
         assert!(tb.try_acquire_at("u", t));
         assert!(tb.try_acquire_at("u", t));
         assert!(!tb.try_acquire_at("u", t), "bucket empty");
-        assert!(tb.try_acquire_at("u", t + Duration::from_secs(1)), "refilled 1 token after 1s");
+        assert!(
+            tb.try_acquire_at("u", t + Duration::from_secs(1)),
+            "refilled 1 token after 1s"
+        );
         assert!(tb.try_acquire_at("v", t), "other key has its own bucket");
     }
 }

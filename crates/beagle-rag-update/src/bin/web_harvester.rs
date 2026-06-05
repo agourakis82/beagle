@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
-use beagle_rag_update::ledger::IngestionLedger;
 use beagle_rag_update::knowledge::{index_document, DocType, DocumentMeta, KnowledgeConfig};
-use clap::Parser;
+use beagle_rag_update::ledger::IngestionLedger;
 use chrono::Datelike;
+use clap::Parser;
 use regex::Regex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -20,7 +20,11 @@ struct Args {
     qdrant_url: String,
 
     /// Embedding server base URL (OpenAI-compatible, should end with /v1)
-    #[arg(long, env = "EMBEDDING_URL", default_value = "http://localhost:8001/v1")]
+    #[arg(
+        long,
+        env = "EMBEDDING_URL",
+        default_value = "http://localhost:8001/v1"
+    )]
     embedding_url: String,
 
     /// Embedding model name
@@ -28,7 +32,11 @@ struct Args {
     embedding_model: String,
 
     /// Output directory for harvested markdown stubs (kept for traceability)
-    #[arg(long, env = "DARWIN_WEB_HARVEST_DIR", default_value = "~/knowledge/docs/harvested")]
+    #[arg(
+        long,
+        env = "DARWIN_WEB_HARVEST_DIR",
+        default_value = "~/knowledge/docs/harvested"
+    )]
     out_dir: String,
 
     /// Knowledge collection names
@@ -64,7 +72,11 @@ struct Args {
     ignore_robots: bool,
 
     /// User-agent used for robots.txt rules (defaults to the HTTP user-agent)
-    #[arg(long, env = "DARWIN_WEB_ROBOTS_UA", default_value = "BEAGLE darwin-web-harvester")]
+    #[arg(
+        long,
+        env = "DARWIN_WEB_ROBOTS_UA",
+        default_value = "BEAGLE darwin-web-harvester"
+    )]
     robots_user_agent: String,
 
     /// Allow crawling outside the seed host (default: false)
@@ -345,7 +357,11 @@ async fn fetch_text(client: &reqwest::Client, url: &str, max_bytes: usize) -> Re
 
     let bytes = resp.bytes().await?;
     if bytes.len() > max_bytes {
-        anyhow::bail!("downloaded {} bytes exceeds max-bytes {}", bytes.len(), max_bytes);
+        anyhow::bail!(
+            "downloaded {} bytes exceeds max-bytes {}",
+            bytes.len(),
+            max_bytes
+        );
     }
 
     Ok(String::from_utf8_lossy(&bytes).to_string())
@@ -398,7 +414,11 @@ async fn fetch_extract_index(
     let final_url = resp.url().clone();
     let bytes = resp.bytes().await?;
     if bytes.len() > max_bytes {
-        anyhow::bail!("downloaded {} bytes exceeds max-bytes {}", bytes.len(), max_bytes);
+        anyhow::bail!(
+            "downloaded {} bytes exceeds max-bytes {}",
+            bytes.len(),
+            max_bytes
+        );
     }
 
     let raw = String::from_utf8_lossy(&bytes).to_string();
@@ -676,14 +696,12 @@ fn parse_robots_txt(body: &str) -> RobotsRules {
             "user-agent" => {
                 in_global = value == "*";
             }
-            "allow" if in_global
-                && !value.is_empty() => {
-                    allow.push(value.to_string());
-                }
-            "disallow" if in_global
-                && !value.is_empty() => {
-                    disallow.push(value.to_string());
-                }
+            "allow" if in_global && !value.is_empty() => {
+                allow.push(value.to_string());
+            }
+            "disallow" if in_global && !value.is_empty() => {
+                disallow.push(value.to_string());
+            }
             _ => {}
         }
     }

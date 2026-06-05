@@ -29,14 +29,22 @@ struct Args {
     #[arg(long, env = "QDRANT_URL", default_value = "http://localhost:6333")]
     qdrant_url: String,
 
-    #[arg(long, env = "EMBEDDING_URL", default_value = "http://localhost:8001/v1")]
+    #[arg(
+        long,
+        env = "EMBEDDING_URL",
+        default_value = "http://localhost:8001/v1"
+    )]
     embedding_url: String,
 
     #[arg(long, env = "EMBEDDING_MODEL", default_value = "NV-Embed-v2")]
     embedding_model: String,
 
     /// Path to eval file (YAML/TOML/JSON)
-    #[arg(long, env = "DARWIN_EVAL_FILE", default_value = "scripts/darwin-eval.yaml")]
+    #[arg(
+        long,
+        env = "DARWIN_EVAL_FILE",
+        default_value = "scripts/darwin-eval.yaml"
+    )]
     eval_file: String,
 
     /// Path to the committed baseline metrics (JSON).
@@ -290,7 +298,10 @@ async fn main() -> Result<()> {
     }
 
     if !regressions.is_empty() {
-        anyhow::bail!("RAG eval regression gate FAILED:\n  - {}", regressions.join("\n  - "));
+        anyhow::bail!(
+            "RAG eval regression gate FAILED:\n  - {}",
+            regressions.join("\n  - ")
+        );
     }
     info!("RAG eval regression gate PASSED");
     Ok(())

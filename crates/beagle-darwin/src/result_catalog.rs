@@ -25,7 +25,11 @@ pub struct DarwinHpcGatewayError {
 impl std::fmt::Display for DarwinHpcGatewayError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(status_code) = self.status_code {
-            write!(f, "darwin hpc gateway error {}: {}", status_code, self.message)
+            write!(
+                f,
+                "darwin hpc gateway error {}: {}",
+                status_code, self.message
+            )
         } else {
             write!(f, "darwin hpc gateway error: {}", self.message)
         }
@@ -183,10 +187,8 @@ pub struct ResultCatalogEntry {
 
 impl DarwinHpcGatewayClient {
     pub fn from_env() -> Result<Self> {
-        let base_url =
-            std::env::var("BEAGLE_DARWIN_HPC_GATEWAY_BASE_URL").unwrap_or_else(|_| {
-                DEFAULT_DARWIN_HPC_GATEWAY_BASE_URL.to_string()
-            });
+        let base_url = std::env::var("BEAGLE_DARWIN_HPC_GATEWAY_BASE_URL")
+            .unwrap_or_else(|_| DEFAULT_DARWIN_HPC_GATEWAY_BASE_URL.to_string());
 
         let timeout_seconds = std::env::var("BEAGLE_DARWIN_HPC_GATEWAY_TIMEOUT_SECONDS")
             .ok()
@@ -194,9 +196,9 @@ impl DarwinHpcGatewayClient {
             .unwrap_or(DEFAULT_GATEWAY_TIMEOUT_SECONDS);
 
         let mut headers = HeaderMap::new();
-        if let Some((name, value)) = parse_optional_header(
-            std::env::var("BEAGLE_DARWIN_HPC_GATEWAY_AUTH_HEADER").ok(),
-        )? {
+        if let Some((name, value)) =
+            parse_optional_header(std::env::var("BEAGLE_DARWIN_HPC_GATEWAY_AUTH_HEADER").ok())?
+        {
             headers.insert(name, value);
         }
 
@@ -233,13 +235,8 @@ impl DarwinHpcGatewayClient {
         &self,
         job_id: u64,
     ) -> std::result::Result<HpcJobStatus, DarwinHpcGatewayError> {
-        self.request_json(
-            Method::GET,
-            &format!("/jobs/{job_id}"),
-            None::<&()>,
-            None,
-        )
-        .await
+        self.request_json(Method::GET, &format!("/jobs/{job_id}"), None::<&()>, None)
+            .await
     }
 
     pub async fn results(
@@ -282,10 +279,13 @@ impl DarwinHpcGatewayClient {
     {
         let response = self.request(method, path, body, query).await?;
         let status = response.status();
-        let bytes = response.bytes().await.map_err(|error| DarwinHpcGatewayError {
-            status_code: Some(status.as_u16()),
-            message: format!("failed to read gateway response body: {error}"),
-        })?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| DarwinHpcGatewayError {
+                status_code: Some(status.as_u16()),
+                message: format!("failed to read gateway response body: {error}"),
+            })?;
 
         if !status.is_success() {
             return Err(build_error_from_bytes(status, &bytes));
@@ -309,10 +309,13 @@ impl DarwinHpcGatewayClient {
     {
         let response = self.request(method, path, body, query).await?;
         let status = response.status();
-        let bytes = response.bytes().await.map_err(|error| DarwinHpcGatewayError {
-            status_code: Some(status.as_u16()),
-            message: format!("failed to read gateway response body: {error}"),
-        })?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| DarwinHpcGatewayError {
+                status_code: Some(status.as_u16()),
+                message: format!("failed to read gateway response body: {error}"),
+            })?;
 
         if !status.is_success() {
             return Err(build_error_from_bytes(status, &bytes));
@@ -352,9 +355,7 @@ impl DarwinHpcGatewayClient {
     }
 }
 
-fn parse_optional_header(
-    raw: Option<String>,
-) -> Result<Option<(HeaderName, HeaderValue)>> {
+fn parse_optional_header(raw: Option<String>) -> Result<Option<(HeaderName, HeaderValue)>> {
     let Some(raw) = raw.map(|value| value.trim().to_string()) else {
         return Ok(None);
     };

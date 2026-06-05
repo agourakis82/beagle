@@ -32,9 +32,9 @@ path = "src/bin/incremental_indexer.rs"
 name = "darwin-knowledge-manager"
 path = "src/bin/knowledge_manager.rs"
 
-# darwin-research-harvester excluded on main: depends on beagle_search::{CrossrefClient,
-# EuropePmcClient, OpenAlexClient} which are not present in main's beagle-search (API drift on the
-# stale feature branch). Re-enable once those clients are reconciled into beagle-search.
+[[bin]]
+name = "darwin-research-harvester"
+path = "src/bin/research_harvester.rs"
 
 [[bin]]
 name = "darwin-web-harvester"

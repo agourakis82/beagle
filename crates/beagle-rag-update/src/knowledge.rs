@@ -69,10 +69,7 @@ pub fn extract_text(path: &Path) -> Result<String> {
             .output()
             .context("failed to run pdftotext (install poppler-utils)")?;
         if !out.status.success() {
-            anyhow::bail!(
-                "pdftotext failed: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
+            anyhow::bail!("pdftotext failed: {}", String::from_utf8_lossy(&out.stderr));
         }
         Ok(String::from_utf8_lossy(&out.stdout).to_string())
     } else {
@@ -81,7 +78,11 @@ pub fn extract_text(path: &Path) -> Result<String> {
     }
 }
 
-pub async fn index_document(cfg: &KnowledgeConfig, doc_type: DocType, meta: DocumentMeta) -> Result<usize> {
+pub async fn index_document(
+    cfg: &KnowledgeConfig,
+    doc_type: DocType,
+    meta: DocumentMeta,
+) -> Result<usize> {
     let qdrant = QdrantClient::new(&cfg.qdrant_url);
     let embed = EmbeddingClient::new(&cfg.embedding_url, &cfg.embedding_model);
 
@@ -96,7 +97,15 @@ pub async fn index_document(cfg: &KnowledgeConfig, doc_type: DocType, meta: Docu
     };
 
     let file_meta = std::fs::metadata(&meta.path)?;
-    if file_meta.len() > cfg.max_file_size && meta.path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase() != "pdf" {
+    if file_meta.len() > cfg.max_file_size
+        && meta
+            .path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase()
+            != "pdf"
+    {
         anyhow::bail!("file too large: {}", meta.path.display());
     }
 
@@ -186,11 +195,7 @@ pub async fn index_document(cfg: &KnowledgeConfig, doc_type: DocType, meta: Docu
         let vectors = embed.embed_batch(&texts).await?;
         let mut points = Vec::with_capacity(batch.len());
         for (chunk, vector) in batch.iter().zip(vectors) {
-            let id = QdrantClient::stable_u64_id(&[
-                &collection,
-                &doc_id,
-                &chunk.index.to_string(),
-            ]);
+            let id = QdrantClient::stable_u64_id(&[&collection, &doc_id, &chunk.index.to_string()]);
             let mut payload = serde_json::json!({
                 "doc_id": doc_id.clone(),
                 "title": title.clone(),

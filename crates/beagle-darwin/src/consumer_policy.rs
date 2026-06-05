@@ -40,14 +40,19 @@ pub struct ConsumerIdentity {
 
 impl ConsumerIdentity {
     pub fn allows_profile(&self, profile_id: &str) -> bool {
-        self.allowed_profiles.iter().any(|allowed| allowed == profile_id)
+        self.allowed_profiles
+            .iter()
+            .any(|allowed| allowed == profile_id)
     }
 
     pub fn ensure_workspace_plane(&self) -> Result<(), String> {
         if self.allow_workspace_plane {
             Ok(())
         } else {
-            Err(format!("consumer {} is not allowed to use the workspace plane", self.id))
+            Err(format!(
+                "consumer {} is not allowed to use the workspace plane",
+                self.id
+            ))
         }
     }
 
@@ -55,13 +60,19 @@ impl ConsumerIdentity {
         if self.allow_hpc_control {
             Ok(())
         } else {
-            Err(format!("consumer {} is not allowed to use the HPC control surface", self.id))
+            Err(format!(
+                "consumer {} is not allowed to use the HPC control surface",
+                self.id
+            ))
         }
     }
 
     pub fn ensure_hpc_submit(&self, profile_id: &str) -> Result<(), String> {
         if !self.allow_hpc_submit {
-            return Err(format!("consumer {} is not allowed to submit HPC jobs", self.id));
+            return Err(format!(
+                "consumer {} is not allowed to submit HPC jobs",
+                self.id
+            ));
         }
         if !self.allows_profile(profile_id) {
             return Err(format!(
@@ -76,7 +87,10 @@ impl ConsumerIdentity {
         if self.allow_hpc_read {
             Ok(())
         } else {
-            Err(format!("consumer {} is not allowed to read HPC results", self.id))
+            Err(format!(
+                "consumer {} is not allowed to read HPC results",
+                self.id
+            ))
         }
     }
 
@@ -84,7 +98,10 @@ impl ConsumerIdentity {
         if self.allow_bridge_read {
             Ok(())
         } else {
-            Err(format!("consumer {} is not allowed to read bridge state", self.id))
+            Err(format!(
+                "consumer {} is not allowed to read bridge state",
+                self.id
+            ))
         }
     }
 
@@ -92,7 +109,10 @@ impl ConsumerIdentity {
         if self.allow_bridge_execute {
             Ok(())
         } else {
-            Err(format!("consumer {} is not allowed to execute bridge actions", self.id))
+            Err(format!(
+                "consumer {} is not allowed to execute bridge actions",
+                self.id
+            ))
         }
     }
 }
