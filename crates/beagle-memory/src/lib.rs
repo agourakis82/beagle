@@ -8,6 +8,7 @@ pub mod budgeting;
 pub mod compiler;
 pub mod engine;
 pub mod graphrag_modes;
+pub mod hybrid;
 pub mod models;
 pub mod promotion;
 pub mod retention;
