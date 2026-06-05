@@ -1,17 +1,35 @@
-FROM rust:1.89-bookworm AS builder
+# syntax=docker/dockerfile:1
+# Multi-stage build with cargo-chef.
+#
+# Dependencies compile in their OWN cached layer ("cook") that only re-runs when Cargo.toml changes,
+# so editing workspace source rebuilds only the workspace crates, not the entire dependency graph
+# (typically 5-10x faster incremental image builds). Cargo.lock is .gitignored, so it is not copied;
+# cargo resolves it during the chef steps. bookworm ships Python 3.11, so pyo3 builds fine here.
 
-WORKDIR /workspace
-
+FROM rust:1.89-bookworm AS chef
 RUN apt-get update \
     && apt-get install -y --no-install-recommends pkg-config libssl-dev python3-dev \
     && rm -rf /var/lib/apt/lists/*
+RUN cargo install cargo-chef --locked
+WORKDIR /workspace
 
+# --- planner: derive the dependency recipe from the full source tree ---
+FROM chef AS planner
+COPY Cargo.toml ./
+COPY apps ./apps
+COPY crates ./crates
+COPY beagle-bin ./beagle-bin
+RUN cargo chef prepare --recipe-path recipe.json
+
+# --- builder: cook deps (cached unless recipe.json changes), then build the binary ---
+FROM chef AS builder
+COPY --from=planner /workspace/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
 COPY Cargo.toml ./
 COPY apps ./apps
 COPY crates ./crates
 COPY beagle-bin ./beagle-bin
 COPY docs ./docs
-
 RUN cargo build --release -p beagle-monorepo --bin core_server --features memory
 
 FROM debian:bookworm-slim AS runtime
