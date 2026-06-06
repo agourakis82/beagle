@@ -33,6 +33,12 @@ RERANKER_DEFAULT = os.getenv(
 # Cap windows emitted per conversation turn so a pathological huge turn cannot
 # explode into thousands of ColBERT-embedded windows.
 MAX_WINDOWS_PER_TURN = int(os.getenv("BEAGLE_MEMORY_MAX_WINDOWS_PER_TURN", "64"))
+# Sidecar manifest mapping {canonical_id: content_hash}, written next to the LanceDB table.
+# It lets a rebuild diff the current export against the previously-indexed state and only
+# (re)embed/upsert changed rows + delete stale ones, instead of re-embedding everything.
+MANIFEST_NAME = "semantic_index_manifest.json"
+# Max ids per "canonical_id IN (...)" delete statement so a huge stale set is batched.
+DELETE_BATCH_SIZE = 500
 
 
 def load_json(path: str) -> dict[str, Any]:
@@ -192,8 +198,12 @@ def record_text(item: dict[str, Any], kind: str) -> str:
     return json.dumps(item, ensure_ascii=False, sort_keys=True)[:4000]
 
 
-def collect_records(export: dict[str, Any], encoder: ColbertEncoder) -> tuple[list[dict[str, Any]], int]:
-    records: list[dict[str, Any]] = []
+def collect_candidates(export: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+    """Build the canonical row dicts WITHOUT embedding them. Each candidate carries every
+    schema field except "mv" and "embedding_backend"; those are filled in by encode_row() only
+    for the rows that actually need to be (re)indexed. This is what makes incremental reindex
+    cheap — collection no longer hits the encoder/TEI for every row."""
+    candidates: list[dict[str, Any]] = []
     restricted_count = 0
     sources = [
         ("episodes", "MemoryEpisode"),
@@ -208,13 +218,13 @@ def collect_records(export: dict[str, Any], encoder: ColbertEncoder) -> tuple[li
                 restricted_count += 1
                 continue
             if kind == "ConversationPassage":
-                records.extend(collect_passage_records(item, privacy, encoder))
+                candidates.extend(collect_passage_records(item, privacy))
                 continue
             text = record_text(item, kind)
             if not text.strip():
                 continue
             canonical_id = str(item.get("id") or item.get("source_ref") or text_hash(text))
-            records.append(
+            candidates.append(
                 {
                     "canonical_id": canonical_id,
                     "kind": kind,
@@ -225,17 +235,22 @@ def collect_records(export: dict[str, Any], encoder: ColbertEncoder) -> tuple[li
                     "provenance": json.dumps(item.get("provenance") or {}, ensure_ascii=False, sort_keys=True),
                     "occurred_at": str(item.get("occurred_at") or item.get("created_at") or ""),
                     "text": text[:12000],
-                    "mv": encoder.encode(text, is_query=False),
-                    "embedding_backend": encoder.backend,
                 }
             )
-    return records, restricted_count
+    return candidates, restricted_count
+
+
+def encode_row(row: dict[str, Any], encoder: ColbertEncoder) -> dict[str, Any]:
+    """Fill in the embedding fields ("mv", "embedding_backend") on a candidate row in place and
+    return it. Only called for rows that are actually being (re)indexed."""
+    row["mv"] = encoder.encode(row["text"], is_query=False)
+    row["embedding_backend"] = encoder.backend
+    return row
 
 
 def collect_passage_records(
     record: dict[str, Any],
     privacy: str,
-    encoder: ColbertEncoder,
 ) -> list[dict[str, Any]]:
     """Expand one durable conversation-passage record into per-window semantic records: for each
     turn, chunk ``turn["content"]`` into ~800-char windows and emit one ConversationPassage record
@@ -278,8 +293,6 @@ def collect_passage_records(
                     "provenance": provenance,
                     "occurred_at": occurred_at,
                     "text": text[:12000],
-                    "mv": encoder.encode(text, is_query=False),
-                    "embedding_backend": encoder.backend,
                 }
             )
     return out
@@ -312,34 +325,145 @@ def arrow_schema():
     )
 
 
+def load_manifest(path: str) -> dict[str, str]:
+    """Load the sidecar manifest {canonical_id: content_hash}. Fail-soft: a missing or corrupt
+    manifest yields {} so a rebuild simply falls back to a full index."""
+    manifest_path = Path(path) / MANIFEST_NAME
+    try:
+        with manifest_path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            return {str(k): str(v) for k, v in data.items()}
+    except Exception:
+        pass
+    return {}
+
+
+def write_manifest(path: str, mapping: dict[str, str]) -> None:
+    """Atomically write the sidecar manifest (write to a temp file in the same dir + os.replace)."""
+    Path(path).mkdir(parents=True, exist_ok=True)
+    manifest_path = Path(path) / MANIFEST_NAME
+    tmp_path = Path(path) / f"{MANIFEST_NAME}.tmp"
+    with tmp_path.open("w", encoding="utf-8") as handle:
+        json.dump(mapping, handle, ensure_ascii=False, sort_keys=True)
+        handle.write("\n")
+    os.replace(str(tmp_path), str(manifest_path))
+
+
+def _sql_quote(value: str) -> str:
+    """SQL-quote a string literal for a LanceDB filter (single quotes, doubled to escape)."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 def rebuild(args: argparse.Namespace) -> dict[str, Any]:
     started = time.time()
     export = load_json(args.export)
     encoder = ColbertEncoder(args.model)
-    rows, restricted_excluded_count = collect_records(export, encoder)
+    candidates, restricted_excluded_count = collect_candidates(export)
+    cur = {c["canonical_id"]: c["content_hash"] for c in candidates}
     table_name = args.table
+
+    force_full = getattr(args, "full", False)
+    manifest_path = args.lancedb_path
+    prev = {} if force_full else load_manifest(manifest_path)
+
     native_lancedb = False
     index_ready = False
     worker_status = "empty"
     error: str | None = None
-    try:
-        db = open_lancedb(args.lancedb_path)
-        table = db.create_table(table_name, data=rows, schema=arrow_schema(), mode="overwrite")
-        native_lancedb = True
-        worker_status = "native-lancedb-table"
-        if rows:
-            try:
+    # Diff counters reported in the payload.
+    added = 0
+    deleted = 0
+    skipped = 0
+    rebuild_mode = "full"
+    row_count = len(candidates)
+
+    def create_index_guarded(table: Any) -> None:
+        """Build the ANN index after writes; small/old tables may skip it (kept from prior code)."""
+        nonlocal index_ready, error
+        try:
+            if table.count_rows() > 0:
                 table.create_index(metric="cosine", vector_column_name="mv")
                 index_ready = True
-            except Exception as exc:  # small tables or old LanceDB may skip ANN
-                error = f"index_degraded:{type(exc).__name__}:{exc}"
-                index_ready = False
+        except Exception as exc:  # small tables or old LanceDB may skip ANN
+            error = f"index_degraded:{type(exc).__name__}:{exc}"
+            index_ready = False
+
+    def full_overwrite(db: Any) -> Any:
+        """Encode every candidate and overwrite the whole table."""
+        nonlocal added, deleted, skipped
+        rows_all = [encode_row(c, encoder) for c in candidates]
+        table = db.create_table(table_name, data=rows_all, schema=arrow_schema(), mode="overwrite")
+        added = len(rows_all)
+        deleted = 0
+        skipped = 0
+        return table
+
+    try:
+        db = open_lancedb(args.lancedb_path)
+        table_exists = table_name in db.table_names()
+        incremental = bool(prev) and table_exists and not force_full
+
+        if incremental:
+            try:
+                table = db.open_table(table_name)
+                to_upsert = [c for c in candidates if prev.get(c["canonical_id"]) != c["content_hash"]]
+                stale = [cid for cid in prev if cid not in cur]
+                rows = [encode_row(c, encoder) for c in to_upsert]
+                if stale:
+                    for start in range(0, len(stale), DELETE_BATCH_SIZE):
+                        batch = stale[start : start + DELETE_BATCH_SIZE]
+                        in_list = ", ".join(_sql_quote(cid) for cid in batch)
+                        table.delete(f"canonical_id IN ({in_list})")
+                if rows:
+                    (
+                        table.merge_insert("canonical_id")
+                        .when_matched_update_all()
+                        .when_not_matched_insert_all()
+                        .execute(rows)
+                    )
+                added = len(rows)
+                deleted = len(stale)
+                skipped = len(candidates) - len(to_upsert)
+                rebuild_mode = "incremental"
+                worker_status = "native-incremental"
+                create_index_guarded(table)
+                row_count = table.count_rows()
+                native_lancedb = True
+            except Exception as exc:  # incremental path failed -> full overwrite fallback
+                sys.stderr.write(
+                    f"[semantic_backbone] incremental reindex failed, falling back to full overwrite: "
+                    f"{type(exc).__name__}:{exc}\n"
+                )
+                error = f"incremental_failed:{type(exc).__name__}:{exc}"
+                table = full_overwrite(db)
+                rebuild_mode = "full-fallback"
+                worker_status = "native-full-fallback"
+                create_index_guarded(table)
+                row_count = table.count_rows()
+                native_lancedb = True
+        else:
+            table = full_overwrite(db)
+            rebuild_mode = "full"
+            worker_status = "native-lancedb-table"
+            create_index_guarded(table)
+            row_count = table.count_rows()
+            native_lancedb = True
+
+        # Record the new indexed state so the next rebuild can diff against it.
+        write_manifest(manifest_path, cur)
     except Exception as exc:
-        error = f"native_lancedb_unavailable:{type(exc).__name__}:{exc}"
+        native_lancedb = False
+        if error:
+            error = f"{error}; native_lancedb_unavailable:{type(exc).__name__}:{exc}"
+        else:
+            error = f"native_lancedb_unavailable:{type(exc).__name__}:{exc}"
+        # JSONL fallback needs every embedding, so encode ALL candidates here.
+        fallback_rows = [encode_row(c, encoder) for c in candidates]
         fallback_path = Path(args.lancedb_path) / "semantic_records.jsonl"
         Path(args.lancedb_path).mkdir(parents=True, exist_ok=True)
         with fallback_path.open("w", encoding="utf-8") as handle:
-            for row in rows:
+            for row in fallback_rows:
                 # Persist the FULL row INCLUDING "mv" (the embeddings) so the pure-Python query
                 # fallback can score without native LanceDB. (Previously mv was dropped, leaving the
                 # JSONL unsearchable.)
@@ -349,14 +473,23 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
                 json.dump(record, handle, ensure_ascii=False, sort_keys=True)
                 handle.write("\n")
         worker_status = "jsonl-fallback"
+        rebuild_mode = "full"
+        added = len(fallback_rows)
+        deleted = 0
+        skipped = 0
+        row_count = len(fallback_rows)
 
     payload = {
         "status": "indexed-native-multivector" if native_lancedb else worker_status,
         "native_lancedb": native_lancedb,
         "table_name": table_name,
-        "row_count": len(rows),
+        "row_count": row_count,
+        "added": added,
+        "deleted": deleted,
+        "skipped": skipped,
+        "rebuild_mode": rebuild_mode,
         "index_ready": index_ready,
-        "maxsim_ready": native_lancedb and bool(rows),
+        "maxsim_ready": native_lancedb and row_count > 0,
         "embedding_backend": encoder.backend,
         "model": args.model,
         "fallback_model": args.fallback_model,
@@ -519,6 +652,11 @@ def main(argv: list[str]) -> int:
 
     rebuild_parser = sub.add_parser("rebuild", parents=[common])
     rebuild_parser.add_argument("--export", required=True)
+    rebuild_parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Force a full re-embed + overwrite, ignoring the sidecar manifest.",
+    )
 
     query_parser = sub.add_parser("query", parents=[common])
     query_parser.add_argument("--query", required=True)
