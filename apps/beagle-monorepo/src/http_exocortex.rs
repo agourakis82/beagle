@@ -4570,13 +4570,12 @@ async fn recall_answer_handler(
     if sources.is_empty() {
         let gr = repo.graphrag_query(req).map_err(internal_error)?;
         confidence = gr.confidence;
-        sources = gr
+        let atom_sources: Vec<RecallSource> = gr
             .atoms
             .iter()
             .take(k)
-            .enumerate()
-            .map(|(i, a)| RecallSource {
-                n: i + 1,
+            .map(|a| RecallSource {
+                n: 0,
                 text: a.text.clone(),
                 date: a.occurred_at.clone().or_else(|| Some(a.created_at.clone())),
                 source: if a.atom_type.is_empty() {
@@ -4588,6 +4587,52 @@ async fn recall_answer_handler(
             })
             .filter(|s| !s.text.is_empty())
             .collect();
+        // Enrich the degraded atom projection with rich conversation passages so that a
+        // memory-engine outage still surfaces real passages. Fail-soft: on error, use none.
+        let passage_sources = match repo.lexical_passage_search(&query, k) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("lexical_passage_search failed (fallback enrichment skipped): {e:#}");
+                Vec::new()
+            }
+        };
+        let passages_contributed = !passage_sources.is_empty();
+        // Merge: concatenate, sort by score desc, dedup near-duplicates, renumber, take k.
+        let mut candidates: Vec<RecallSource> =
+            atom_sources.into_iter().chain(passage_sources).collect();
+        candidates.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut kept: Vec<RecallSource> = Vec::new();
+        for cand in candidates {
+            let cand_text = cand.text.trim();
+            if cand_text.is_empty() {
+                continue;
+            }
+            let cand_prefix: String = cand_text.chars().take(80).collect();
+            let is_dup = kept.iter().any(|keep| {
+                let keep_text = keep.text.trim();
+                let keep_prefix: String = keep_text.chars().take(80).collect();
+                keep_text.contains(cand_prefix.as_str()) || cand_text.contains(keep_prefix.as_str())
+            });
+            if is_dup {
+                continue;
+            }
+            kept.push(cand);
+            if kept.len() >= k {
+                break;
+            }
+        }
+        for (i, s) in kept.iter_mut().enumerate() {
+            s.n = i + 1;
+        }
+        sources = kept;
+        // Modest confidence bump when rich passages contributed to the fallback result.
+        if passages_contributed {
+            confidence = (confidence + 0.1).min(0.8);
+        }
     }
     if sources.is_empty() {
         return Ok(Json(RecallAnswerResponse {
@@ -11373,6 +11418,57 @@ impl ExocortexRepository {
         values.reverse();
         values.truncate(limit);
         Ok(values)
+    }
+
+    /// Lexical (BM25-lite) search over durable conversation passages. Used only by the
+    /// recall_answer LEXICAL FALLBACK so that, during a memory-engine outage, recall still
+    /// returns real conversation passages instead of only degraded metadata atoms.
+    /// Bounded: reads at most 5000 recent records and scores at most 2000 candidate turns.
+    fn lexical_passage_search(&self, query: &str, k: usize) -> anyhow::Result<Vec<RecallSource>> {
+        let records =
+            self.read_recent_jsonl::<ConversationPassageRecord>(CONVERSATION_PASSAGES_LOG, 5000)?;
+        let q_tokens: std::collections::HashSet<String> = tokenize(query).into_iter().collect();
+        if q_tokens.is_empty() {
+            return Ok(Vec::new());
+        }
+        const MAX_CANDIDATES: usize = 2000;
+        let mut scored: Vec<(f64, RecallSource)> = Vec::new();
+        'records: for record in &records {
+            if record.privacy_class.to_lowercase() == "restricted" {
+                continue;
+            }
+            for turn in &record.turns {
+                if scored.len() >= MAX_CANDIDATES {
+                    break 'records;
+                }
+                let content = turn.content.trim();
+                if content.chars().count() < 40 {
+                    continue;
+                }
+                let t_tokens = tokenize(content);
+                if t_tokens.is_empty() {
+                    continue;
+                }
+                let matches = t_tokens.iter().filter(|t| q_tokens.contains(*t)).count();
+                if matches == 0 {
+                    continue;
+                }
+                let score = matches as f64 / (t_tokens.len() as f64).sqrt();
+                let text: String = content.chars().take(600).collect();
+                scored.push((
+                    score,
+                    RecallSource {
+                        n: 0,
+                        text,
+                        date: Some(record.occurred_at.clone()),
+                        source: "ConversationPassage".to_string(),
+                        score,
+                    },
+                ));
+            }
+        }
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(scored.into_iter().take(k).map(|(_, s)| s).collect())
     }
 
     fn write_snapshot<T: Serialize>(&self, file_name: &str, value: &T) -> anyhow::Result<()> {
