@@ -551,6 +551,40 @@ def rrf_fuse(rankings: list[list[int]], k: float = 60.0) -> list[int]:
     return [i for i, _ in sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))]
 
 
+# Over-fetch this many x the requested limit before de-duplicating overlapping windows, so that
+# collapsing near-duplicate passage windows still leaves enough distinct results to fill the limit.
+DEDUP_FETCH_FACTOR = 4
+DEDUP_FETCH_CAP = 64
+# Two results are treated as the same passage if their token sets overlap by at least this fraction
+# (containment = |A∩B| / min(|A|,|B|)). Adjacent ~800-char windows share ~700 chars -> ~0.85+.
+DEDUP_CONTAINMENT = 0.82
+
+
+def dedup_overlapping(rows: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    """Collapse near-duplicate / overlapping passage windows from a rank-ordered result list,
+    keeping the highest-scored representative (rows are already in rank order). Generic text-
+    containment dedup: also catches duplicate passages across records, not just adjacent windows."""
+    kept: list[dict[str, Any]] = []
+    kept_tokens: list[set[str]] = []
+    for row in rows:
+        toks = set(tokenize(str(row.get("text_preview") or "")))
+        is_dup = False
+        if toks:
+            for kt in kept_tokens:
+                if not kt:
+                    continue
+                inter = len(toks & kt)
+                if inter and inter / min(len(toks), len(kt)) >= DEDUP_CONTAINMENT:
+                    is_dup = True
+                    break
+        if not is_dup:
+            kept.append(row)
+            kept_tokens.append(toks)
+        if len(kept) >= limit:
+            break
+    return kept
+
+
 def query(args: argparse.Namespace) -> dict[str, Any]:
     started = time.time()
     encoder = ColbertEncoder(args.model)
@@ -561,7 +595,12 @@ def query(args: argparse.Namespace) -> dict[str, Any]:
         db = open_lancedb(args.lancedb_path)
         table = db.open_table(args.table)
         query_mv = encoder.encode(args.query, is_query=True)
-        result = table.search(query_mv).limit(args.limit).to_arrow().to_pylist()
+        result = (
+            table.search(query_mv)
+            .limit(min(args.limit * DEDUP_FETCH_FACTOR, DEDUP_FETCH_CAP))
+            .to_arrow()
+            .to_pylist()
+        )
         native_lancedb = True
         for row in result:
             distance = row.get("_distance")
@@ -607,7 +646,7 @@ def query(args: argparse.Namespace) -> dict[str, Any]:
                 else:
                     order = dense_rank
                 scored = [(sem[i], recs[i]) for i in order]
-                for score, rec in scored[: args.limit]:
+                for score, rec in scored[: min(args.limit * DEDUP_FETCH_FACTOR, DEDUP_FETCH_CAP)]:
                     rows.append(
                         {
                             "canonical_id": rec.get("canonical_id"),
@@ -623,6 +662,9 @@ def query(args: argparse.Namespace) -> dict[str, Any]:
                 error = None  # served from the JSONL fallback
         except Exception as exc2:  # pragma: no cover
             error = f"{error}; jsonl_fallback_failed:{type(exc2).__name__}:{exc2}"
+
+    # Collapse overlapping/near-duplicate passage windows, then trim to the requested limit.
+    rows = dedup_overlapping(rows, args.limit)
 
     payload = {
         "status": "ok" if (native_lancedb or rows) else "degraded",
