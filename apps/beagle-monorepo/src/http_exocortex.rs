@@ -6,12 +6,13 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use beagle_config::beagle_data_dir;
+use beagle_darwin::{consumer_identity_for_id, ConsumerId};
 use beagle_llm::RequestMeta;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -3543,10 +3544,125 @@ async fn memory_assisted_import_handler(
     Ok(Json(result))
 }
 
+/// Resolve the caller's effective scopes from the bearer token, mirroring `api_token_auth`.
+///
+/// Returns `(granted_scopes, principal)`. An empty scope list means the caller is
+/// unauthenticated/unknown — in that case the probe falls back to whatever scopes the
+/// client declared in the request body (backward compatible).
+async fn resolve_probe_scopes(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> (Vec<String>, Option<String>) {
+    fn scopes_for(id: ConsumerId) -> Vec<String> {
+        match id {
+            ConsumerId::BeagleOperator => vec![
+                "exocortex:read".to_string(),
+                "memory:write".to_string(),
+                "chronoself:write".to_string(),
+                "research:run".to_string(),
+                "agent:start".to_string(),
+            ],
+            ConsumerId::DarwinResearch => {
+                vec!["exocortex:read".to_string(), "research:run".to_string()]
+            }
+        }
+    }
+    fn principal_of(id: ConsumerId) -> Option<String> {
+        Some(consumer_identity_for_id(id).id)
+    }
+
+    let auth = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    let bearer = auth.strip_prefix("Bearer ").map(str::trim).unwrap_or("");
+
+    let ctx = state.ctx.lock().await;
+
+    // Consumer-policy-aware path (mirrors api_token_auth).
+    if ctx.cfg.consumers.policy_enabled {
+        let consumer_header = headers
+            .get("X-Beagle-Consumer")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("");
+        if let Some(consumer_id) = ConsumerId::from_header(consumer_header) {
+            let expected = match consumer_id {
+                ConsumerId::BeagleOperator => ctx
+                    .cfg
+                    .consumers
+                    .operator_token
+                    .as_deref()
+                    .or(ctx.cfg.api_token.as_deref()),
+                ConsumerId::DarwinResearch => ctx.cfg.consumers.research_token.as_deref(),
+            };
+            if let Some(tok) = expected {
+                if !bearer.is_empty() && bearer == tok {
+                    return (scopes_for(consumer_id), principal_of(consumer_id));
+                }
+            }
+        }
+        return (Vec::new(), None);
+    }
+
+    // Consumer policy disabled.
+    match ctx.cfg.api_token.as_deref() {
+        Some(expected) => {
+            if !bearer.is_empty() && bearer == expected {
+                (
+                    scopes_for(ConsumerId::BeagleOperator),
+                    principal_of(ConsumerId::BeagleOperator),
+                )
+            } else {
+                (Vec::new(), None)
+            }
+        }
+        // No token configured (dev/lab): the deployment is unauthenticated, so the probe
+        // reflects that an operator-equivalent caller can write — same posture as api_token_auth.
+        None => (
+            scopes_for(ConsumerId::BeagleOperator),
+            principal_of(ConsumerId::BeagleOperator),
+        ),
+    }
+}
+
 async fn write_probe_handler(
-    State(_state): State<AppState>,
-    Json(req): Json<WriteProbeRequest>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(mut req): Json<WriteProbeRequest>,
 ) -> Result<Json<WriteProbeResponse>, StatusCode> {
+    // Derive the caller's real scopes from the bearer token instead of trusting the
+    // self-declared `granted_scopes` in the body. Token-derived scopes are unioned with any
+    // client-declared ones so explicit callers still work.
+    let (token_scopes, principal) = resolve_probe_scopes(&state, &headers).await;
+    if !token_scopes.is_empty() {
+        let mut merged: BTreeSet<String> = req
+            .granted_scopes
+            .iter()
+            .map(|scope| scope.trim().to_string())
+            .filter(|scope| !scope.is_empty())
+            .collect();
+        merged.extend(token_scopes);
+        req.granted_scopes = merged.into_iter().collect();
+        if req
+            .principal
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
+            req.principal = principal;
+        }
+        if req
+            .source_surface
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        {
+            req.source_surface = Some("beagle-core-token".to_string());
+        }
+    }
+
     let repo = ExocortexRepository::default();
     repo.ensure().map_err(internal_error)?;
     let result = repo.write_probe(req).map_err(internal_error)?;
