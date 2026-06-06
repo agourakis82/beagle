@@ -72,6 +72,9 @@ pub async fn memory_ingest_chat_handler(
     // the ingest.
     persist_conversation_passages(&session);
 
+    // Auto-refresh the memory-engine semantic index after ingest (debounced/coalesced, fail-soft).
+    crate::http_exocortex::trigger_reindex_debounced();
+
     #[cfg(feature = "memory")]
     {
         let result = {

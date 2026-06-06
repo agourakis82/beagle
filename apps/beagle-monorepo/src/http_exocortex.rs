@@ -3549,6 +3549,51 @@ async fn chronoself_create_commit_handler(
     Ok(Json(commit))
 }
 
+// Coalescing, debounced auto-reindex trigger fired after an ingest. Each call bumps a generation
+// and schedules a fire after a quiet window; only the LAST scheduled fire actually rebuilds, so a
+// burst of imports collapses into one reindex. Single-flight via REINDEX_RUNNING. Fail-soft.
+static REINDEX_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static REINDEX_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn trigger_reindex_debounced() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let my_gen = REINDEX_GEN.fetch_add(1, SeqCst) + 1;
+    tokio::spawn(async move {
+        let debounce = env::var("BEAGLE_REINDEX_DEBOUNCE_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(30);
+        tokio::time::sleep(std::time::Duration::from_secs(debounce)).await;
+        // A newer ingest superseded this trigger — let the latest one fire instead (coalesce).
+        if REINDEX_GEN.load(SeqCst) != my_gen {
+            return;
+        }
+        if REINDEX_RUNNING.swap(true, SeqCst) {
+            return; // a reindex is already in flight
+        }
+        let base = env::var("BEAGLE_MEMORY_ENGINE_URL").unwrap_or_else(|_| {
+            "http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090".to_string()
+        });
+        let url = format!("{}/v1/index/semantic/rebuild", base.trim_end_matches('/'));
+        let result = async {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(300))
+                .build()?;
+            client
+                .post(&url)
+                .json(&serde_json::json!({ "limit": 20000 }))
+                .send()
+                .await
+        }
+        .await;
+        match result {
+            Ok(resp) => tracing::info!("auto-reindex after ingest: {}", resp.status()),
+            Err(err) => tracing::warn!("auto-reindex after ingest failed: {}", err),
+        }
+        REINDEX_RUNNING.store(false, SeqCst);
+    });
+}
+
 async fn omnimemory_import_handler(
     State(_state): State<AppState>,
     Json(req): Json<ImportConversationRequest>,
@@ -3556,6 +3601,7 @@ async fn omnimemory_import_handler(
     let repo = ExocortexRepository::default();
     repo.ensure().map_err(internal_error)?;
     let imported = repo.import_conversation(req).map_err(internal_error)?;
+    trigger_reindex_debounced();
     Ok(Json(imported))
 }
 
@@ -3566,6 +3612,7 @@ async fn memory_assisted_import_handler(
     let repo = ExocortexRepository::default();
     repo.ensure().map_err(internal_error)?;
     let result = repo.assisted_import_batch(req).map_err(internal_error)?;
+    trigger_reindex_debounced();
     Ok(Json(result))
 }
 
