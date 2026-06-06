@@ -4470,6 +4470,65 @@ struct RecallAnswerResponse {
 /// retrieve project-scoped atoms (graphRAG / ColBERT) then SYNTHESIZE a composed natural-language
 /// answer via the TieredRouter (fleet-first). Any client (cockpit, native app, MCP) can use it —
 /// the synthesis no longer lives only in the cockpit's coord-mcp.
+// --- Path C: prefer the memory-engine semantic index (jina-colbert-v2 multivector) which
+// reranks rich conversation passages to the top, over the degraded graphrag atom projection.
+#[derive(Debug, Deserialize)]
+struct MemoryEngineSemanticResult {
+    #[serde(default)]
+    text_preview: String,
+    #[serde(default)]
+    score: Option<f64>,
+    #[serde(default)]
+    occurred_at: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryEngineQueryResponse {
+    #[serde(default)]
+    semantic_results: Vec<MemoryEngineSemanticResult>,
+}
+
+/// Retrieve rich passages from the memory-engine `/v1/query`. Fail-soft: returns an empty
+/// vec on any error so the caller falls back to the local graphrag projection.
+async fn memory_engine_recall(query: &str, scope: &str, k: usize) -> Vec<RecallSource> {
+    let base = env::var("BEAGLE_MEMORY_ENGINE_URL").unwrap_or_else(|_| {
+        "http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090".to_string()
+    });
+    let url = format!("{}/v1/query", base.trim_end_matches('/'));
+    let body = serde_json::json!({ "query": query, "scope": scope, "max_items": k });
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let resp = match client.post(&url).json(&body).send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ => return Vec::new(),
+    };
+    let parsed: MemoryEngineQueryResponse = match resp.json().await {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    parsed
+        .semantic_results
+        .into_iter()
+        .filter(|r| r.text_preview.trim().chars().count() >= 40)
+        .take(k)
+        .enumerate()
+        .map(|(i, r)| RecallSource {
+            n: i + 1,
+            text: r.text_preview,
+            date: r.occurred_at,
+            source: r.kind.unwrap_or_else(|| "memory-engine".to_string()),
+            score: r.score.unwrap_or(0.0),
+        })
+        .collect()
+}
+
 async fn recall_answer_handler(
     State(state): State<AppState>,
     Json(req): Json<GraphRagQueryRequest>,
@@ -4479,25 +4538,32 @@ async fn recall_answer_handler(
     let scope = req.scope.clone();
     let query = req.query.clone();
     let k = req.max_items.unwrap_or(8).min(12);
-    let gr = repo.graphrag_query(req).map_err(internal_error)?;
-    let sources: Vec<RecallSource> = gr
-        .atoms
-        .iter()
-        .take(k)
-        .enumerate()
-        .map(|(i, a)| RecallSource {
-            n: i + 1,
-            text: a.text.clone(),
-            date: a.occurred_at.clone().or_else(|| Some(a.created_at.clone())),
-            source: if a.atom_type.is_empty() {
-                "exocortex".to_string()
-            } else {
-                a.atom_type.clone()
-            },
-            score: a.confidence,
-        })
-        .filter(|s| !s.text.is_empty())
-        .collect();
+    // Path C: try the memory-engine semantic index first (rich passages); fall back to the
+    // local graphrag atom projection if it yields nothing (or the engine is unreachable).
+    let mut sources = memory_engine_recall(&query, scope.as_deref().unwrap_or("all"), k).await;
+    let mut confidence = if sources.is_empty() { 0.0 } else { 0.85 };
+    if sources.is_empty() {
+        let gr = repo.graphrag_query(req).map_err(internal_error)?;
+        confidence = gr.confidence;
+        sources = gr
+            .atoms
+            .iter()
+            .take(k)
+            .enumerate()
+            .map(|(i, a)| RecallSource {
+                n: i + 1,
+                text: a.text.clone(),
+                date: a.occurred_at.clone().or_else(|| Some(a.created_at.clone())),
+                source: if a.atom_type.is_empty() {
+                    "exocortex".to_string()
+                } else {
+                    a.atom_type.clone()
+                },
+                score: a.confidence,
+            })
+            .filter(|s| !s.text.is_empty())
+            .collect();
+    }
     if sources.is_empty() {
         return Ok(Json(RecallAnswerResponse {
             answer: "No memory found for this query.".to_string(),
@@ -4531,7 +4597,7 @@ async fn recall_answer_handler(
     Ok(Json(RecallAnswerResponse {
         answer: answer.trim().to_string(),
         sources,
-        confidence: gr.confidence,
+        confidence,
         scope,
         schema_version: "beagle-recall-answer-v1".to_string(),
     }))
