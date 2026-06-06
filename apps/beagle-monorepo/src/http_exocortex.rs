@@ -37,6 +37,7 @@ const AUDIT_LOG: &str = "audit_events.jsonl";
 const MEMORY_EVENTS_LOG: &str = "memory_events.jsonl";
 const MEMORY_EPISODES_LOG: &str = "memory_episodes.jsonl";
 const MEMORY_ATOMS_LOG: &str = "memory_atoms.jsonl";
+const CONVERSATION_PASSAGES_LOG: &str = "conversation_passages.jsonl";
 const MEMORY_PROJECTION_RUNS_LOG: &str = "memory_projection_runs.jsonl";
 const MEMORY_GRAPH_BAKEOFF_RUNS_LOG: &str = "memory_graph_bakeoff_runs.jsonl";
 const MEMORY_GRAPH_INDEX_RUNS_LOG: &str = "memory_graph_index_runs.jsonl";
@@ -81,7 +82,7 @@ const PROJECT_STATES_LOG: &str = "project_states.jsonl";
 const CAUSAL_HYPOTHESES_LOG: &str = "causal_hypotheses.jsonl";
 const CURRENT_SELF_SNAPSHOT: &str = "current_self.json";
 const HOME_SNAPSHOT: &str = "home_snapshot.json";
-const MEMORY_PROJECTION_SCHEMA: &str = "beagle-memory-projection-v1.2";
+const MEMORY_PROJECTION_SCHEMA: &str = "beagle-memory-projection-v1.3";
 const MEMORY_GRAPH_SCHEMA: &str = "beagle-graphrag-runtime-v1.4";
 const MEMORY_MESH_SCHEMA: &str = "beagle-federated-memory-engine-v1.5";
 const MEMORY_GOVERNANCE_SCHEMA: &str = "beagle-self-governing-memory-v1.6";
@@ -243,6 +244,28 @@ pub struct OmniConversation {
     pub tags: Vec<String>,
     #[serde(default)]
     pub metadata: serde_json::Value,
+}
+
+/// A single turn inside a durable conversation passage record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationPassageTurn {
+    pub role: String,
+    pub content: String,
+}
+
+/// Append-only durable record of an ingested conversation, preserving the raw
+/// turn text so downstream workers can chunk it into semantic passages.
+/// Shared contract shape across the assisted-import and /api/memory paths and
+/// the Python projection worker.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationPassageRecord {
+    pub id: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    pub source_platform: String,
+    pub occurred_at: String,
+    pub privacy_class: String,
+    pub turns: Vec<ConversationPassageTurn>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1113,6 +1136,8 @@ pub struct MemoryExportResponse {
     pub candidates: Vec<MemoryCandidate>,
     #[serde(default)]
     pub synthetic_golden_queries: Vec<GoldenQuery>,
+    #[serde(default)]
+    pub passages: Vec<ConversationPassageRecord>,
     pub merkle_root: String,
     #[serde(default)]
     pub provenance: serde_json::Value,
@@ -4707,6 +4732,18 @@ impl ExocortexRepository {
         &self,
         req: ImportConversationRequest,
     ) -> anyhow::Result<OmniConversation> {
+        Ok(self.import_conversation_with_status(req)?.0)
+    }
+
+    /// Like [`Self::import_conversation`] but also reports whether the
+    /// conversation was newly created (`true`) or an existing record with the
+    /// same `raw_content_ref` + `source_platform` was returned (`false`).
+    /// Callers that emit per-import side effects (e.g. durable passages) must
+    /// gate those on the `true` case to avoid duplicating them on re-import.
+    fn import_conversation_with_status(
+        &self,
+        req: ImportConversationRequest,
+    ) -> anyhow::Result<(OmniConversation, bool)> {
         self.ensure()?;
         let extracted = req
             .extracted
@@ -4722,7 +4759,7 @@ impl ExocortexRepository {
                     && conversation.source_platform == source_platform
             })
         {
-            return Ok(existing);
+            return Ok((existing, false));
         }
         let imported_at = Utc::now().to_rfc3339();
         let mut linked_chronoself_commits = Vec::new();
@@ -4787,7 +4824,7 @@ impl ExocortexRepository {
             platform: Some(imported.source_platform.clone()),
         })?;
         self.write_snapshot(HOME_SNAPSHOT, &home)?;
-        Ok(imported)
+        Ok((imported, true))
     }
 
     fn start_capture_session(
@@ -5947,24 +5984,61 @@ impl ExocortexRepository {
             );
         }
 
-        let imported = self.import_conversation(ImportConversationRequest {
-            source_platform: source_platform.clone(),
-            session_id: Some(req.session_id.clone()),
-            original_date: req.original_date.or(first_timestamp),
-            raw_content,
-            title: req.title.or_else(|| {
-                Some(format!(
-                    "{} {} {} batch {}/{}",
-                    source_platform, import_scope, req.session_id, req.batch_index, req.batch_total
-                ))
-            }),
-            tags: tags.clone(),
-            extracted: req.extracted,
-            confidence_score: Some(req.confidence_score.unwrap_or(0.76).clamp(0.0, 1.0)),
-            create_chronoself_commit: req.create_chronoself_commit,
-            privacy_class: Some(privacy_class.clone()),
-            metadata: Some(serde_json::Value::Object(metadata.clone())),
-        })?;
+        let (imported, was_created) =
+            self.import_conversation_with_status(ImportConversationRequest {
+                source_platform: source_platform.clone(),
+                session_id: Some(req.session_id.clone()),
+                original_date: req.original_date.or(first_timestamp),
+                raw_content,
+                title: req.title.or_else(|| {
+                    Some(format!(
+                        "{} {} {} batch {}/{}",
+                        source_platform,
+                        import_scope,
+                        req.session_id,
+                        req.batch_index,
+                        req.batch_total
+                    ))
+                }),
+                tags: tags.clone(),
+                extracted: req.extracted,
+                confidence_score: Some(req.confidence_score.unwrap_or(0.76).clamp(0.0, 1.0)),
+                create_chronoself_commit: req.create_chronoself_commit,
+                privacy_class: Some(privacy_class.clone()),
+                metadata: Some(serde_json::Value::Object(metadata.clone())),
+            })?;
+        // Persist the raw turn text as a durable conversation passage record
+        // before it is dropped from the projection path, but ONLY for a newly
+        // created conversation: re-importing the same raw_content+platform
+        // returns the existing record and must not append duplicate passages.
+        // Fail-soft: a passage write error must not fail the assisted import.
+        if was_created {
+            let passage_turns = req
+                .turns
+                .iter()
+                .map(|turn| ConversationPassageTurn {
+                    role: turn.role.clone(),
+                    content: turn.content.clone(),
+                })
+                .collect::<Vec<_>>();
+            if let Err(err) = self.append_conversation_passages(
+                imported.id.clone(),
+                imported.session_id.clone(),
+                imported.source_platform.clone(),
+                imported
+                    .original_date
+                    .clone()
+                    .unwrap_or_else(|| imported.imported_at.clone()),
+                privacy_class.clone(),
+                passage_turns,
+            ) {
+                tracing::warn!(
+                    "failed to append conversation passages for {}: {}",
+                    imported.id,
+                    err
+                );
+            }
+        }
         let mut source_refs = vec![
             format!("omnimemory:{}", imported.id),
             imported.raw_content_ref.clone(),
@@ -6237,7 +6311,7 @@ impl ExocortexRepository {
             } else {
                 "unchanged".to_string()
             },
-            degraded_reason: "lexical+graph+temporal retrieval active; real embedding backend not configured in GraphRAG++ projection v1.2".to_string(),
+            degraded_reason: "atom projection lexical+graph; rich passages persisted to conversation_passages + indexed by memory-engine".to_string(),
         };
         if before_episodes.len() != after_episodes.len()
             || before_atoms.len() != after_atoms.len()
@@ -6258,20 +6332,37 @@ impl ExocortexRepository {
             return Ok(ProjectionOutcome::default());
         }
         let source_ref = format!("omnimemory:{}", import.id);
-        let existing_episode = self.find_episode_by_source_ref(&source_ref)?;
-        if existing_episode.is_some() {
+        if self.find_episode_by_source_ref(&source_ref)?.is_some() {
             return Ok(ProjectionOutcome {
                 duplicates: 1,
                 ..Default::default()
             });
         }
-        let episode = MemoryEpisode {
-            id: stable_id("episode", &[&source_ref, &import.raw_content_ref]),
+        let episode = self.build_import_episode(import, &source_ref);
+        self.append_jsonl(MEMORY_EPISODES_LOG, &episode)?;
+        let atoms = atoms_from_import(import, &episode);
+        let mut atoms_created = 0;
+        for atom in atoms {
+            if self.find_atom_by_id(&atom.id)?.is_none() {
+                self.append_jsonl(MEMORY_ATOMS_LOG, &atom)?;
+                atoms_created += 1;
+            }
+        }
+        Ok(ProjectionOutcome {
+            episodes_created: 1,
+            atoms_created,
+            duplicates: 0,
+        })
+    }
+
+    fn build_import_episode(&self, import: &OmniConversation, source_ref: &str) -> MemoryEpisode {
+        MemoryEpisode {
+            id: stable_id("episode", &[source_ref, &import.raw_content_ref]),
             created_at: Utc::now().to_rfc3339(),
             source: "omnimemory".to_string(),
             source_platform: Some(import.source_platform.clone()),
             session_id: import.session_id.clone(),
-            source_ref: source_ref.clone(),
+            source_ref: source_ref.to_string(),
             content_hash: import.raw_content_ref.clone(),
             privacy_class: import.privacy_class.clone(),
             provenance: serde_json::json!({
@@ -6288,21 +6379,7 @@ impl ExocortexRepository {
                 .original_date
                 .clone()
                 .or_else(|| Some(import.imported_at.clone())),
-        };
-        self.append_jsonl(MEMORY_EPISODES_LOG, &episode)?;
-        let atoms = atoms_from_import(import, &episode);
-        let mut atoms_created = 0;
-        for atom in atoms {
-            if self.find_atom_by_id(&atom.id)?.is_none() {
-                self.append_jsonl(MEMORY_ATOMS_LOG, &atom)?;
-                atoms_created += 1;
-            }
         }
-        Ok(ProjectionOutcome {
-            episodes_created: 1,
-            atoms_created,
-            duplicates: 0,
-        })
     }
 
     fn project_memory_event(&self, event: &MemoryEvent) -> anyhow::Result<ProjectionOutcome> {
@@ -6405,7 +6482,7 @@ impl ExocortexRepository {
             } else {
                 "hybrid lexical+graph+temporal".to_string()
             },
-            degraded_reason: "real embedding backend not configured in GraphRAG++ projection v1.2"
+            degraded_reason: "atom projection lexical+graph; rich passages persisted to conversation_passages + indexed by memory-engine"
                 .to_string(),
         })
     }
@@ -6634,6 +6711,11 @@ impl ExocortexRepository {
             }))
             .collect::<Vec<_>>();
         episodes.sort_by(|a, b| b.occurred_at.cmp(&a.occurred_at));
+        let passages = self
+            .read_recent_jsonl::<ConversationPassageRecord>(CONVERSATION_PASSAGES_LOG, limit)?
+            .into_iter()
+            .filter(|record| normalize_privacy_class(Some(&record.privacy_class)) != "restricted")
+            .collect::<Vec<_>>();
         Ok(MemoryExportResponse {
             id: Uuid::new_v4().to_string(),
             created_at: Utc::now().to_rfc3339(),
@@ -6645,6 +6727,7 @@ impl ExocortexRepository {
             worlds,
             candidates,
             synthetic_golden_queries: synthetic_golden_queries(),
+            passages,
             merkle_root: merkle_hash(&material),
             provenance: serde_json::json!({
                 "purpose": req.purpose.unwrap_or_else(|| "beagle-memory-lab-bakeoff".to_string()),
@@ -11228,6 +11311,36 @@ impl ExocortexRepository {
         Ok(snapshot)
     }
 
+    /// Append one durable conversation passage record to
+    /// `conversation_passages.jsonl`, preserving the raw turn text before it is
+    /// otherwise dropped. Restricted records are skipped (returns `Ok(false)`),
+    /// mirroring existing export/projection privacy guards. Shared by the
+    /// assisted-import and `/api/memory` ingest paths so both write to the same
+    /// exocortex store with one writer.
+    pub(crate) fn append_conversation_passages(
+        &self,
+        id: String,
+        session_id: Option<String>,
+        source_platform: String,
+        occurred_at: String,
+        privacy_class: String,
+        turns: Vec<ConversationPassageTurn>,
+    ) -> anyhow::Result<bool> {
+        if normalize_privacy_class(Some(&privacy_class)) == "restricted" {
+            return Ok(false);
+        }
+        let record = ConversationPassageRecord {
+            id,
+            session_id,
+            source_platform,
+            occurred_at,
+            privacy_class,
+            turns,
+        };
+        self.append_jsonl(CONVERSATION_PASSAGES_LOG, &record)?;
+        Ok(true)
+    }
+
     fn append_jsonl<T: Serialize>(&self, file_name: &str, value: &T) -> anyhow::Result<()> {
         self.ensure()?;
         let path = self.root.join(file_name);
@@ -11754,6 +11867,59 @@ pub(crate) fn query_projected_memory_for_memory_api(
         ranking_policy: None,
     })?;
     Ok(Some(graphrag_to_memory_result(response)))
+}
+
+/// Persist the raw turns of a `/api/memory` chat session as a durable
+/// conversation passage record in the exocortex store (the same
+/// `conversation_passages.jsonl` used by the assisted-import path). Returns
+/// `Ok(true)` when written, `Ok(false)` when skipped (restricted privacy class).
+/// Callers should treat this as fail-soft and not abort ingest on `Err`.
+pub(crate) fn append_conversation_passages(
+    session: &beagle_memory::ChatSession,
+) -> anyhow::Result<bool> {
+    let repo = ExocortexRepository::default();
+    repo.ensure()?;
+    let source_platform = normalize_source_platform(&session.source);
+    let privacy_class = normalize_privacy_class(
+        session
+            .metadata
+            .get("privacy_class")
+            .and_then(|value| value.as_str()),
+    );
+    let occurred_at = session
+        .turns
+        .iter()
+        .find_map(|turn| turn.timestamp.map(|ts| ts.to_rfc3339()))
+        .unwrap_or_else(|| Utc::now().to_rfc3339());
+    let turns = session
+        .turns
+        .iter()
+        .map(|turn| ConversationPassageTurn {
+            role: turn.role.clone(),
+            content: turn.content.clone(),
+        })
+        .collect::<Vec<_>>();
+    // Deterministic record id: a content hash over session_id + every turn's
+    // `role:content`. Re-ingesting the same session yields the same id => the
+    // same canonical_id downstream => the memory-engine index overwrites rather
+    // than duplicating the passages on rebuild.
+    let mut id_material = String::with_capacity(session.session_id.len() + 64);
+    id_material.push_str(&session.session_id);
+    for turn in &turns {
+        id_material.push('\n');
+        id_material.push_str(&turn.role);
+        id_material.push(':');
+        id_material.push_str(&turn.content);
+    }
+    let id = format!("sha256:{}", content_hash(id_material.as_bytes()));
+    repo.append_conversation_passages(
+        id,
+        Some(session.session_id.clone()),
+        source_platform,
+        occurred_at,
+        privacy_class,
+        turns,
+    )
 }
 
 fn graphrag_to_memory_result(response: GraphRagQueryResponse) -> beagle_memory::MemoryResult {

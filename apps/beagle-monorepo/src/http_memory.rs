@@ -1,7 +1,7 @@
 //! Memory endpoints for BEAGLE HTTP API
 
 use crate::http::AppState;
-use crate::http_exocortex::query_projected_memory_for_memory_api;
+use crate::http_exocortex::{append_conversation_passages, query_projected_memory_for_memory_api};
 use anyhow::Context;
 use axum::http::StatusCode;
 use axum::{extract::State, routing::post, Json, Router};
@@ -65,6 +65,12 @@ pub async fn memory_ingest_chat_handler(
         tags: req.tags,
         metadata: req.metadata,
     };
+
+    // Always persist the raw session turns as durable conversation passages in
+    // the exocortex store (not the fallback dir), regardless of which memory
+    // backend handles the ingest. Fail-soft: a passage write must never fail
+    // the ingest.
+    persist_conversation_passages(&session);
 
     #[cfg(feature = "memory")]
     {
@@ -178,6 +184,26 @@ pub fn memory_routes() -> Router<AppState> {
 
 fn is_memory_engine_unavailable(error: &anyhow::Error) -> bool {
     error.to_string().contains("MemoryEngine not initialized")
+}
+
+/// Fail-soft writer for durable conversation passages. A write error here must
+/// never fail the ingest, so the result is logged and otherwise ignored.
+fn persist_conversation_passages(session: &ChatSession) {
+    match append_conversation_passages(session) {
+        Ok(true) => {}
+        Ok(false) => {
+            warn!(
+                "skipped restricted conversation passages for session {}",
+                session.session_id
+            );
+        }
+        Err(err) => {
+            warn!(
+                "failed to persist conversation passages for session {}: {}",
+                session.session_id, err
+            );
+        }
+    }
 }
 
 fn fallback_memory_root() -> PathBuf {

@@ -30,6 +30,9 @@ RERANKER_DEFAULT = os.getenv(
     "BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL",
     "Alibaba-NLP/gte-reranker-modernbert-base",
 )
+# Cap windows emitted per conversation turn so a pathological huge turn cannot
+# explode into thousands of ColBERT-embedded windows.
+MAX_WINDOWS_PER_TURN = int(os.getenv("BEAGLE_MEMORY_MAX_WINDOWS_PER_TURN", "64"))
 
 
 def load_json(path: str) -> dict[str, Any]:
@@ -147,7 +150,36 @@ def text_hash(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def chunk_text(
+    text: str,
+    window: int = 800,
+    overlap: int = 100,
+    min_chars: int = 40,
+) -> list[str]:
+    """Yield ~``window``-character windows (counted by characters, never bytes) with ``overlap``
+    characters of carry-over between consecutive windows. Windows shorter than ``min_chars`` are
+    skipped. Used to break long conversation turns into durable, individually indexed passages."""
+    text = text or ""
+    if not text:
+        return []
+    step = max(1, window - overlap)
+    windows: list[str] = []
+    start = 0
+    length = len(text)
+    while start < length:
+        chunk = text[start : start + window]
+        if len(chunk) >= min_chars:
+            windows.append(chunk)
+        if start + window >= length:
+            break
+        start += step
+    return windows
+
+
 def record_text(item: dict[str, Any], kind: str) -> str:
+    if kind == "ConversationPassage":
+        # The window text is precomputed during chunking and stored on the synthetic item.
+        return str(item.get("text") or "")
     if kind == "MemoryAtom":
         return str(item.get("text") or item.get("normalized_text") or "")
     if kind == "MemoryEpisode":
@@ -167,12 +199,16 @@ def collect_records(export: dict[str, Any], encoder: ColbertEncoder) -> tuple[li
         ("episodes", "MemoryEpisode"),
         ("atoms", "MemoryAtom"),
         ("worlds", "MemoryWorld"),
+        ("passages", "ConversationPassage"),
     ]
     for field, kind in sources:
         for item in export.get(field, []) or []:
             privacy = str(item.get("privacy_class") or "sensitive").lower()
             if privacy == "restricted":
                 restricted_count += 1
+                continue
+            if kind == "ConversationPassage":
+                records.extend(collect_passage_records(item, privacy, encoder))
                 continue
             text = record_text(item, kind)
             if not text.strip():
@@ -194,6 +230,59 @@ def collect_records(export: dict[str, Any], encoder: ColbertEncoder) -> tuple[li
                 }
             )
     return records, restricted_count
+
+
+def collect_passage_records(
+    record: dict[str, Any],
+    privacy: str,
+    encoder: ColbertEncoder,
+) -> list[dict[str, Any]]:
+    """Expand one durable conversation-passage record into per-window semantic records: for each
+    turn, chunk ``turn["content"]`` into ~800-char windows and emit one ConversationPassage record
+    per window. occurred_at/provenance/source_refs are carried from the parent record."""
+    record_id = str(record.get("id") or text_hash(json.dumps(record, ensure_ascii=False, sort_keys=True)))
+    occurred_at = str(record.get("occurred_at") or "")
+    provenance = json.dumps(
+        record.get("provenance")
+        or {
+            "session_id": record.get("session_id"),
+            "source_platform": record.get("source_platform"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    source_refs = json.dumps(record.get("source_refs") or [], ensure_ascii=False)
+    out: list[dict[str, Any]] = []
+    for turn_idx, turn in enumerate(record.get("turns") or []):
+        content = str((turn or {}).get("content") or "")
+        windows = chunk_text(content)
+        if len(windows) > MAX_WINDOWS_PER_TURN:
+            sys.stderr.write(
+                f"[semantic_backbone] capping turn {turn_idx} of record {record_id}: "
+                f"{len(windows)} windows -> {MAX_WINDOWS_PER_TURN}\n"
+            )
+            windows = windows[:MAX_WINDOWS_PER_TURN]
+        for win_idx, window in enumerate(windows):
+            item = {"text": window}
+            text = record_text(item, "ConversationPassage")
+            if not text.strip():
+                continue
+            out.append(
+                {
+                    "canonical_id": f"passage:{record_id}:{turn_idx}:{win_idx}",
+                    "kind": "ConversationPassage",
+                    "content_hash": text_hash(window),
+                    "privacy_class": privacy,
+                    "source_refs": source_refs,
+                    "chronoself_commit": "",
+                    "provenance": provenance,
+                    "occurred_at": occurred_at,
+                    "text": text[:12000],
+                    "mv": encoder.encode(text, is_query=False),
+                    "embedding_backend": encoder.backend,
+                }
+            )
+    return out
 
 
 def open_lancedb(path: str):
