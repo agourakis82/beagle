@@ -3587,7 +3587,21 @@ pub(crate) fn trigger_reindex_debounced() {
         }
         .await;
         match result {
-            Ok(resp) => tracing::info!("auto-reindex after ingest: {}", resp.status()),
+            Ok(resp) => {
+                tracing::info!("auto-reindex after ingest: {}", resp.status());
+                // Event-driven: the rebuild POST blocks until the reindex is done, so the index is
+                // now fresh — tell the cockpit to push updated status to its SSE clients immediately.
+                let notify = env::var("BEAGLE_COCKPIT_NOTIFY_URL").unwrap_or_else(|_| {
+                    "http://cockpit-web.beagle.svc.cluster.local:8080/api/memory-status/notify"
+                        .to_string()
+                });
+                if let Ok(client) = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(10))
+                    .build()
+                {
+                    let _ = client.post(&notify).json(&serde_json::json!({})).send().await;
+                }
+            }
             Err(err) => tracing::warn!("auto-reindex after ingest failed: {}", err),
         }
         REINDEX_RUNNING.store(false, SeqCst);
