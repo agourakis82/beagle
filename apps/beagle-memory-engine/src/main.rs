@@ -361,6 +361,14 @@ struct SemanticIndexRun {
     lancedb_path: String,
     table_name: String,
     row_count: usize,
+    #[serde(default)]
+    added: usize,
+    #[serde(default)]
+    deleted: usize,
+    #[serde(default)]
+    skipped: usize,
+    #[serde(default)]
+    rebuild_mode: String,
     index_ready: bool,
     native_lancedb: bool,
     maxsim_ready: bool,
@@ -1217,6 +1225,10 @@ async fn semantic_index_rebuild(
         lancedb_path,
         table_name: value_string(&worker_payload, "table_name").unwrap_or(table_name),
         row_count,
+        added: value_usize(&worker_payload, "added"),
+        deleted: value_usize(&worker_payload, "deleted"),
+        skipped: value_usize(&worker_payload, "skipped"),
+        rebuild_mode: value_string(&worker_payload, "rebuild_mode").unwrap_or_default(),
         index_ready,
         native_lancedb,
         maxsim_ready,
