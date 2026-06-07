@@ -614,6 +614,7 @@ pub struct NodeInfo {
 }
 
 /// PageRank calculator for global importance
+#[derive(Debug, Clone)]
 pub struct PageRankCalculator {
     /// Damping factor (typically 0.85)
     pub damping: f32,
@@ -642,14 +643,68 @@ impl PageRankCalculator {
 
     /// Compute PageRank scores for all nodes
     pub fn compute(&self, graph: &GraphStructure) -> HashMap<Uuid, f32> {
+        // Uniform PageRank is just personalized PageRank with an empty
+        // personalization vector (teleport falls back to uniform 1/n).
+        self.compute_personalized(graph, &HashMap::new())
+    }
+
+    /// Compute **Personalized PageRank (PPR)** scores for all nodes.
+    ///
+    /// This is the restart-biased variant used by HippoRAG-style multi-hop
+    /// retrieval: instead of teleporting uniformly to every node with the
+    /// `(1 - damping)` probability mass, the random surfer teleports back to a
+    /// set of *seed* nodes according to a personalization vector. Mass therefore
+    /// concentrates around the seeds and the nodes reachable from them, which
+    /// surfaces multi-hop / sense-making evidence connected to the query seeds.
+    ///
+    /// `personalization` maps seed node id -> non-negative weight. The vector is
+    /// normalized internally; weights for ids not present in the graph are
+    /// ignored. When the (effective) personalization vector is empty this is the
+    /// standard uniform PageRank WITH proper dangling-mass redistribution — i.e.
+    /// the correct uniform PageRank. NOTE: it is therefore NOT bit-identical to
+    /// the previous `compute()` for graphs containing dangling nodes (the old
+    /// code leaked their rank); for graphs without dangling nodes the scores match.
+    pub fn compute_personalized(
+        &self,
+        graph: &GraphStructure,
+        personalization: &HashMap<Uuid, f32>,
+    ) -> HashMap<Uuid, f32> {
         let n = graph.nodes.len();
         if n == 0 {
             return HashMap::new();
         }
 
-        // Initialize scores uniformly
+        // Build the (restart) teleport distribution over graph nodes. Only
+        // positive weights for nodes that actually exist in the graph count.
+        let mut teleport: HashMap<Uuid, f32> = HashMap::new();
+        let mut teleport_total: f32 = 0.0;
+        for (id, &w) in personalization {
+            if w > 0.0 && graph.nodes.contains_key(id) {
+                *teleport.entry(*id).or_insert(0.0) += w;
+                teleport_total += w;
+            }
+        }
+        let personalized = teleport_total > 0.0;
+        if personalized {
+            for w in teleport.values_mut() {
+                *w /= teleport_total;
+            }
+        }
+
+        // Teleport probability for a given node: personalization vector when
+        // provided, otherwise uniform 1/n (classic PageRank behavior).
+        let teleport_prob = |id: &Uuid| -> f32 {
+            if personalized {
+                *teleport.get(id).unwrap_or(&0.0)
+            } else {
+                1.0 / n as f32
+            }
+        };
+
+        // Initialize scores from the teleport distribution so that PPR converges
+        // faster and starts biased toward the seeds.
         let mut scores: HashMap<Uuid, f32> =
-            graph.nodes.keys().map(|id| (*id, 1.0 / n as f32)).collect();
+            graph.nodes.keys().map(|id| (*id, teleport_prob(id))).collect();
 
         // Build adjacency structure
         let mut out_links: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
@@ -662,6 +717,15 @@ impl PageRankCalculator {
 
         // Power iteration
         for _ in 0..self.max_iterations {
+            // Dangling-node mass: nodes with no out-links would otherwise leak
+            // rank. Redistribute their score via the teleport distribution.
+            let dangling_mass: f32 = graph
+                .nodes
+                .keys()
+                .filter(|id| out_links.get(*id).map(|v| v.is_empty()).unwrap_or(true))
+                .filter_map(|id| scores.get(id))
+                .sum();
+
             let mut new_scores = HashMap::new();
             let mut max_delta: f32 = 0.0;
 
@@ -673,11 +737,16 @@ impl PageRankCalculator {
                     .filter_map(|&src| {
                         let src_score = scores.get(&src)?;
                         let src_out_degree = out_links.get(&src)?.len();
+                        if src_out_degree == 0 {
+                            return None;
+                        }
                         Some(src_score / src_out_degree as f32)
                     })
                     .sum();
 
-                let new_score = (1.0 - self.damping) / n as f32 + self.damping * rank_sum;
+                let restart = teleport_prob(node_id);
+                let new_score = (1.0 - self.damping) * restart
+                    + self.damping * (rank_sum + dangling_mass * restart);
                 let delta = (new_score - scores.get(node_id).unwrap_or(&0.0)).abs();
                 max_delta = max_delta.max(delta);
 

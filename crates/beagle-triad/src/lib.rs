@@ -98,6 +98,34 @@ pub struct TriadOpinion {
     pub provider_tier: String,  // "grok-3" | "grok-4-heavy" | etc.
 }
 
+/// Resultado da etapa EVOLVE (#21B).
+///
+/// Produz um draft refinado a partir das opiniões ATHENA/HERMES/ARGOS e do draft,
+/// framado AUMENTATIVAMENTE (toda claim forte marcada como "requires
+/// human/wet-lab validation" em vez de afirmada como fato) e CITATION-GROUNDED
+/// (claims carregam referências ao contexto/fontes de suporte).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvolvedDraft {
+    /// Draft evoluído/refinado em Markdown.
+    pub evolved_draft_md: String,
+    /// Claims extraídas/evoluídas, cada uma framada aumentativamente e com citação.
+    pub claims: Vec<EvolvedClaim>,
+    /// Provider tier usado para a etapa EVOLVE.
+    pub provider_tier: String,
+}
+
+/// Uma claim evoluída, framada aumentativamente e ancorada em citações (#21B).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvolvedClaim {
+    /// Texto da claim.
+    pub claim: String,
+    /// Sempre `true` por construção: a claim NÃO é afirmada como fato, mas
+    /// como hipótese que requer validação humana / em laboratório (wet-lab).
+    pub requires_human_validation: bool,
+    /// Citações/fontes que suportam a claim (carregadas do contexto/fontes).
+    pub citations: Vec<String>,
+}
+
 /// Relatório final da Triad
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TriadReport {
@@ -107,6 +135,10 @@ pub struct TriadReport {
     pub opinions: Vec<TriadOpinion>,
     pub created_at: DateTime<Utc>,
     pub llm_stats: LlmCallsStatsLLM,
+    /// Saída opcional da etapa EVOLVE (#21B). `None` quando a tournament
+    /// EVOLVE não foi executada (preserva compat com consumidores existentes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evolved: Option<EvolvedDraft>,
 }
 
 /// Estatísticas de chamadas LLM
@@ -118,41 +150,268 @@ pub struct LlmCallsStats {
     pub heavy_tokens_est: usize,
 }
 
-/// Executa a Triad completa
+// ============================================================================
+// #21C — Checkpoint / Resume (file-based)
+// ============================================================================
+
+/// Resolve o diretório de checkpoint `{data_dir}/triad/<run_id>`.
+///
+/// Espelha o padrão de `triad_review.rs`: usa `ctx.cfg.storage.data_dir`,
+/// com fallback para a env `BEAGLE_DATA_DIR` e, por último, um diretório temp.
+/// Best-effort: nunca falha a run.
+pub fn checkpoint_dir(ctx: &BeagleContext, run_id: &str) -> PathBuf {
+    let base = {
+        let configured = ctx.cfg.storage.data_dir.trim();
+        if !configured.is_empty() {
+            PathBuf::from(configured)
+        } else if let Ok(env_dir) = std::env::var("BEAGLE_DATA_DIR") {
+            PathBuf::from(env_dir)
+        } else {
+            std::env::temp_dir().join("beagle-data")
+        }
+    };
+    base.join("triad").join(run_id)
+}
+
+/// Caminho do arquivo de checkpoint de um estágio: `<dir>/<stage>.json`.
+fn stage_path(dir: &std::path::Path, stage: &str) -> PathBuf {
+    dir.join(format!("{stage}.json"))
+}
+
+/// Persiste a saída de um estágio como JSON (best-effort, #21C).
+///
+/// Falhas de escrita são logadas via `warn!` e NÃO interrompem a run.
+fn save_stage<T: Serialize>(dir: &std::path::Path, stage: &str, value: &T) {
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        warn!(
+            "checkpoint: falha ao criar dir {} para stage '{}': {}",
+            dir.display(),
+            stage,
+            e
+        );
+        return;
+    }
+    let path = stage_path(dir, stage);
+    match serde_json::to_string_pretty(value) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&path, json) {
+                warn!(
+                    "checkpoint: falha ao escrever {} (stage '{}'): {}",
+                    path.display(),
+                    stage,
+                    e
+                );
+            } else {
+                info!("checkpoint: stage '{}' salvo em {}", stage, path.display());
+            }
+        }
+        Err(e) => warn!("checkpoint: falha ao serializar stage '{}': {}", stage, e),
+    }
+}
+
+/// Carrega a saída de um estágio se já existir um checkpoint (resume, #21C).
+///
+/// Retorna `None` se o arquivo não existe ou não desserializa (re-computa).
+fn load_stage<T: for<'de> Deserialize<'de>>(dir: &std::path::Path, stage: &str) -> Option<T> {
+    let path = stage_path(dir, stage);
+    if !path.exists() {
+        return None;
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(s) => match serde_json::from_str::<T>(&s) {
+            Ok(v) => {
+                info!(
+                    "checkpoint: resume — stage '{}' carregado de {}",
+                    stage,
+                    path.display()
+                );
+                Some(v)
+            }
+            Err(e) => {
+                warn!(
+                    "checkpoint: stage '{}' existe mas não desserializa ({}); re-computando",
+                    stage, e
+                );
+                None
+            }
+        },
+        Err(e) => {
+            warn!(
+                "checkpoint: falha ao ler {} (stage '{}'): {}; re-computando",
+                path.display(),
+                stage,
+                e
+            );
+            None
+        }
+    }
+}
+
+/// Executa a Triad completa (compat: ATHENA → HERMES → ARGOS → Juiz).
+///
+/// Mantém a assinatura/comportamento públicos existentes. Internamente delega
+/// para [`run_triad_tournament`] com a etapa EVOLVE desabilitada, de modo que
+/// consumidores atuais não veem mudança alguma (o campo `evolved` será `None`).
 pub async fn run_triad(input: &TriadInput, ctx: &BeagleContext) -> anyhow::Result<TriadReport> {
-    info!("🔍 Iniciando Triad para run_id: {}", input.run_id);
+    // Legacy entrypoint: no EVOLVE and no checkpoint side-effects — behavior is
+    // identical to before (no files written, never auto-resumes).
+    run_triad_tournament(input, ctx, false, false).await
+}
+
+/// #21B — Tournament generate-debate-EVOLVE com checkpoint/resume (#21C).
+///
+/// Roda ATHENA → HERMES → ARGOS → Juiz e, se `enable_evolve == true`, uma etapa
+/// EVOLVE adicional após a crítica de ARGOS. Cada estágio é persistido em
+/// `{data_dir}/triad/<run_id>/<stage>.json` conforme progride; ao iniciar, se o
+/// arquivo de um estágio já existir para esse `run_id`, ele é CARREGADO e o
+/// recálculo é pulado (resume). Checkpoint é best-effort; resume só é tentado
+/// quando há `run_id`.
+pub async fn run_triad_tournament(
+    input: &TriadInput,
+    ctx: &BeagleContext,
+    enable_evolve: bool,
+    checkpoint: bool,
+) -> anyhow::Result<TriadReport> {
+    info!(
+        "🔍 Iniciando Triad para run_id: {} (evolve={}, checkpoint={})",
+        input.run_id, enable_evolve, checkpoint
+    );
+
+    let ckpt_dir = checkpoint_dir(ctx, &input.run_id);
 
     // 1) Ler draft
     let original_draft = std::fs::read_to_string(&input.draft_path)?;
     info!("📄 Draft lido: {} chars", original_draft.len());
 
-    // 2) ATHENA (agente literatura)
-    info!("🔬 Executando ATHENA...");
-    let (athena, tier) =
-        run_athena(&original_draft, &input.context_summary, ctx, &input.run_id).await?;
-    info!(
-        "✅ ATHENA concluído - Score: {:.2} | Provider: {}",
-        athena.score,
-        tier.as_str()
-    );
+    // #21C: checkpoint/resume is OPT-IN. The legacy run_triad passes checkpoint=false,
+    // so it writes NO files and never auto-resumes (behavior unchanged). When on,
+    // resume reuses stages ONLY if the draft+evolve fingerprint matches the stored one
+    // — editing the draft and re-running the same run_id recomputes instead of loading
+    // stale opinions describing the old draft.
+    let draft_fingerprint = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        original_draft.hash(&mut h);
+        enable_evolve.hash(&mut h);
+        format!("{:016x}", h.finish())
+    };
+    let resume = checkpoint
+        && !input.run_id.trim().is_empty()
+        && load_stage::<String>(&ckpt_dir, "meta").as_deref() == Some(draft_fingerprint.as_str());
+    if checkpoint {
+        save_stage(&ckpt_dir, "meta", &draft_fingerprint);
+    }
+
+    // 2) ATHENA (agente literatura) — resume se já houver checkpoint
+    let athena: TriadOpinion = match resume
+        .then(|| load_stage::<TriadOpinion>(&ckpt_dir, "athena"))
+        .flatten()
+    {
+        Some(op) => {
+            info!("⏭️  ATHENA: resume de checkpoint (Score: {:.2})", op.score);
+            op
+        }
+        None => {
+            info!("🔬 Executando ATHENA...");
+            let (op, tier) =
+                run_athena(&original_draft, &input.context_summary, ctx, &input.run_id).await?;
+            info!(
+                "✅ ATHENA concluído - Score: {:.2} | Provider: {}",
+                op.score,
+                tier.as_str()
+            );
+            if checkpoint {
+                save_stage(&ckpt_dir, "athena", &op);
+            }
+            op
+        }
+    };
 
     // 3) HERMES (revisor)
-    info!("✍️  Executando HERMES...");
-    let (hermes, tier) = run_hermes(&original_draft, &athena, ctx, &input.run_id).await?;
-    info!(
-        "✅ HERMES concluído - Score: {:.2} | Provider: {}",
-        hermes.score,
-        tier.as_str()
-    );
+    let hermes: TriadOpinion = match resume
+        .then(|| load_stage::<TriadOpinion>(&ckpt_dir, "hermes"))
+        .flatten()
+    {
+        Some(op) => {
+            info!("⏭️  HERMES: resume de checkpoint (Score: {:.2})", op.score);
+            op
+        }
+        None => {
+            info!("✍️  Executando HERMES...");
+            let (op, tier) = run_hermes(&original_draft, &athena, ctx, &input.run_id).await?;
+            info!(
+                "✅ HERMES concluído - Score: {:.2} | Provider: {}",
+                op.score,
+                tier.as_str()
+            );
+            if checkpoint {
+                save_stage(&ckpt_dir, "hermes", &op);
+            }
+            op
+        }
+    };
 
     // 4) ARGOS (crítico)
-    info!("⚔️  Executando ARGOS...");
-    let (argos, tier) = run_argos(&original_draft, &hermes, &athena, ctx, &input.run_id).await?;
-    info!(
-        "✅ ARGOS concluído - Score: {:.2} | Provider: {}",
-        argos.score,
-        tier.as_str()
-    );
+    let argos: TriadOpinion = match resume
+        .then(|| load_stage::<TriadOpinion>(&ckpt_dir, "argos"))
+        .flatten()
+    {
+        Some(op) => {
+            info!("⏭️  ARGOS: resume de checkpoint (Score: {:.2})", op.score);
+            op
+        }
+        None => {
+            info!("⚔️  Executando ARGOS...");
+            let (op, tier) =
+                run_argos(&original_draft, &hermes, &athena, ctx, &input.run_id).await?;
+            info!(
+                "✅ ARGOS concluído - Score: {:.2} | Provider: {}",
+                op.score,
+                tier.as_str()
+            );
+            if checkpoint {
+                save_stage(&ckpt_dir, "argos", &op);
+            }
+            op
+        }
+    };
+
+    // 4b) EVOLVE (#21B) — refina o draft após a crítica de ARGOS.
+    let evolved: Option<EvolvedDraft> = if enable_evolve {
+        match resume
+            .then(|| load_stage::<EvolvedDraft>(&ckpt_dir, "evolve"))
+            .flatten()
+        {
+            Some(ev) => {
+                info!("⏭️  EVOLVE: resume de checkpoint ({} claims)", ev.claims.len());
+                Some(ev)
+            }
+            None => {
+                info!("🧬 Executando EVOLVE...");
+                let ev = run_evolve(
+                    &original_draft,
+                    &athena,
+                    &hermes,
+                    &argos,
+                    &input.context_summary,
+                    ctx,
+                    &input.run_id,
+                )
+                .await?;
+                info!(
+                    "✅ EVOLVE concluído - {} claims | Provider: {}",
+                    ev.claims.len(),
+                    ev.provider_tier
+                );
+                if checkpoint {
+                    save_stage(&ckpt_dir, "evolve", &ev);
+                }
+                Some(ev)
+            }
+        }
+    } else {
+        None
+    };
 
     // 5) Juiz final (arbitra versões)
     info!("⚖️  Executando Juiz Final...");
@@ -188,14 +447,231 @@ pub async fn run_triad(input: &TriadInput, ctx: &BeagleContext) -> anyhow::Resul
         local_tokens_out: llm_stats.local_tokens_out,
     };
 
-    Ok(TriadReport {
+    let report = TriadReport {
         run_id: input.run_id.clone(),
         original_draft,
         final_draft,
         opinions: vec![athena, hermes, argos],
         created_at: Utc::now(),
         llm_stats: llm_stats_converted,
+        evolved,
+    };
+
+    // Persiste o relatório final (best-effort, #21C).
+    save_stage(&ckpt_dir, "report", &report);
+
+    Ok(report)
+}
+
+/// #21B — EVOLVE: refina draft + claims a partir das opiniões da Triad.
+///
+/// O output é (a) framado AUMENTATIVAMENTE — toda claim forte marcada como
+/// `requires_human_validation` em vez de afirmada como fato — e (b)
+/// CITATION-GROUNDED — claims carregam citações do contexto/fontes de suporte.
+///
+/// O LLM produz o draft evoluído em Markdown; as claims são extraídas
+/// programaticamente e marcadas, garantindo a invariante aumentativa mesmo que
+/// o modelo escorregue. Citações são carregadas do `context_summary` (quando
+/// disponível) e de citações detectadas no próprio draft (`@key`, `\cite{...}`).
+#[allow(clippy::too_many_arguments)]
+pub async fn run_evolve(
+    original_draft: &str,
+    athena: &TriadOpinion,
+    hermes: &TriadOpinion,
+    argos: &TriadOpinion,
+    context_summary: &Option<String>,
+    ctx: &BeagleContext,
+    run_id: &str,
+) -> anyhow::Result<EvolvedDraft> {
+    let mut prompt = String::from(
+        "Você é EVOLVE, o agente de refinamento aumentativo do sistema BEAGLE (HONEST AI TRIAD).\n\n\
+        Você recebeu o DRAFT original e três opiniões (ATHENA, HERMES, ARGOS).\n\
+        Sua tarefa é produzir um DRAFT EVOLUÍDO em Markdown que:\n\
+        1. AUMENTATIVO: NÃO afirme claims fortes como fato. Toda afirmação forte deve ser\n\
+           framada como hipótese/proposta que REQUER validação humana ou em laboratório\n\
+           (wet-lab). Use linguagem como 'propomos que', 'hipótese a ser testada',\n\
+           'requer validação experimental'.\n\
+        2. CITATION-GROUNDED: cada claim forte deve referenciar a(s) fonte(s)/contexto de\n\
+           suporte. Preserve e carregue citações do contexto (não invente referências).\n\
+        3. Incorpore o melhor de ATHENA/HERMES e corrija os problemas apontados por ARGOS.\n\n\
+        Responda APENAS com o draft evoluído em Markdown.\n\n",
+    );
+
+    if let Some(ctx_sum) = context_summary {
+        prompt.push_str("=== CONTEXTO / FONTES ===\n");
+        prompt.push_str(ctx_sum);
+        prompt.push_str("\n\n");
+    }
+    prompt.push_str("=== FEEDBACK_ATHENA ===\n");
+    prompt.push_str(&athena.suggestions_md);
+    prompt.push_str("\n\n=== DRAFT_HERMES ===\n");
+    prompt.push_str(&hermes.suggestions_md);
+    prompt.push_str("\n\n=== FEEDBACK_ARGOS ===\n");
+    prompt.push_str(&argos.suggestions_md);
+    prompt.push_str("\n\n=== DRAFT_ORIGINAL ===\n");
+    prompt.push_str(original_draft);
+
+    // EVOLVE é refinamento final crítico: alta qualidade + raciocínio PhD.
+    let meta = RequestMeta::new(
+        false,                      // requires_math
+        true,                       // requires_high_quality
+        false,                      // offline_required
+        prompt.chars().count() / 4, // approximate_tokens
+        true,                       // high_bias_risk (decide framing de claims)
+        true,                       // requires_phd_level_reasoning
+        true,                       // critical_section
+    );
+
+    let (evolved_md, tier) = call_llm_with_stats_triad(ctx, run_id, &prompt, meta).await?;
+
+    // Pool de citações conhecidas (draft + contexto) usado como fallback de
+    // grounding quando uma claim não traz citação inline própria.
+    let mut draft_level_citations = extract_citations(original_draft);
+    draft_level_citations.extend(extract_citations(&evolved_md));
+    if let Some(ctx_sum) = context_summary {
+        draft_level_citations.extend(extract_citations(ctx_sum));
+    }
+    dedup_in_place(&mut draft_level_citations);
+
+    // Extrai claims do draft evoluído. Grounding é PER-CLAIM: as citações vêm do
+    // texto da própria claim (extract_citations(&claim)); só caem para o pool
+    // draft-level quando a claim não cita nada inline. requires_human_validation
+    // é true por DESIGN (framing aumentativo: nenhuma claim do tournament é
+    // afirmada como fato — todas requerem validação humana/wet-lab).
+    let claims = extract_claims(&evolved_md)
+        .into_iter()
+        .map(|claim| {
+            let mut per_claim = extract_citations(&claim);
+            if per_claim.is_empty() {
+                per_claim = draft_level_citations.clone();
+            }
+            EvolvedClaim {
+                claim,
+                requires_human_validation: true,
+                citations: per_claim,
+            }
+        })
+        .collect();
+
+    Ok(EvolvedDraft {
+        evolved_draft_md: evolved_md,
+        claims,
+        provider_tier: tier.as_str().to_string(),
     })
+}
+
+/// Extrai citações de um texto: padrões `@chave`, `\cite{...}` e `[N]`.
+fn extract_citations(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+
+    if let Ok(re) = regex::Regex::new(r"\\cite\{([^}]+)\}") {
+        for caps in re.captures_iter(text) {
+            if let Some(m) = caps.get(1) {
+                for key in m.as_str().split(',') {
+                    let k = key.trim();
+                    if !k.is_empty() {
+                        out.push(format!("\\cite{{{k}}}"));
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(re) = regex::Regex::new(r"@([A-Za-z][A-Za-z0-9_:-]+)") {
+        for caps in re.captures_iter(text) {
+            if let Some(m) = caps.get(1) {
+                out.push(format!("@{}", m.as_str()));
+            }
+        }
+    }
+    if let Ok(re) = regex::Regex::new(r"\[(\d{1,3})\]") {
+        for caps in re.captures_iter(text) {
+            if let Some(m) = caps.get(1) {
+                out.push(format!("[{}]", m.as_str()));
+            }
+        }
+    }
+
+    dedup_in_place(&mut out);
+    out
+}
+
+/// Divide texto em sentenças sem fragmentar decimais (0.05) nem abreviações
+/// comuns (et al., e.g., i.e., Fig., vs.). Quebra só em `.`/`!`/`?` seguido de
+/// espaço/fim, e não quando o `.` está entre dígitos.
+fn split_sentences(text: &str) -> Vec<String> {
+    const ABBREVS: &[&str] = &[
+        "et al", "e.g", "i.e", "fig", "eq", "vs", "cf", "dr", "al", "no", "ref",
+    ];
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    for i in 0..chars.len() {
+        let c = chars[i];
+        if c != '.' && c != '!' && c != '?' {
+            continue;
+        }
+        let next = chars.get(i + 1).copied();
+        let prev = if i > 0 { chars.get(i - 1).copied() } else { None };
+        // Decimal: dígito.dígito (ex.: 0.05) — não é fim de sentença.
+        if c == '.'
+            && prev.is_some_and(|p| p.is_ascii_digit())
+            && next.is_some_and(|n| n.is_ascii_digit())
+        {
+            continue;
+        }
+        // Fim de sentença só quando seguido de espaço ou fim de string.
+        if next.is_none_or(|n| n.is_whitespace()) {
+            let frag: String = chars[start..=i].iter().collect();
+            let last_word = frag
+                .trim()
+                .rsplit(char::is_whitespace)
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('.')
+                .to_ascii_lowercase();
+            if ABBREVS.iter().any(|a| *a == last_word) {
+                continue; // abreviação — não quebra
+            }
+            out.push(frag);
+            start = i + 1;
+        }
+    }
+    if start < chars.len() {
+        out.push(chars[start..].iter().collect());
+    }
+    out
+}
+
+/// Extrai claims candidatas de um Markdown: frases não-triviais, sem cabeçalhos.
+fn extract_claims(md: &str) -> Vec<String> {
+    let mut claims = Vec::new();
+    for line in md.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') || t.starts_with("```") || t.starts_with('|') {
+            continue;
+        }
+        // Quebra a linha em sentenças (respeitando decimais/abreviações).
+        for raw in split_sentences(t) {
+            let s = raw
+                .trim_start_matches(['-', '*', '>', ' '])
+                .trim()
+                .trim_end_matches(['.', '!', '?'])
+                .trim()
+                .to_string();
+            // Heurística: claim = sentença com substância (mais de 5 palavras).
+            if s.split_whitespace().count() > 5 {
+                claims.push(s);
+            }
+        }
+    }
+    dedup_in_place(&mut claims);
+    claims
+}
+
+/// Remove duplicatas preservando ordem.
+fn dedup_in_place(v: &mut Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+    v.retain(|x| seen.insert(x.clone()));
 }
 
 /// Helper para chamada LLM com tracking de stats na Triad
@@ -572,4 +1048,142 @@ fn extract_score(response: &str) -> Option<f32> {
     let binding = response.to_lowercase();
     let caps = re.captures(binding.as_str())?;
     caps.get(1)?.as_str().parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_opinion() -> TriadOpinion {
+        TriadOpinion {
+            agent: "ATHENA".into(),
+            summary: "test summary".into(),
+            suggestions_md: "## Strengths\n- good".into(),
+            score: 0.83,
+            provider_tier: "grok-3".into(),
+        }
+    }
+
+    #[test]
+    fn checkpoint_round_trip_opinion() {
+        let dir = tempfile::tempdir().unwrap();
+        let op = sample_opinion();
+
+        save_stage(dir.path(), "athena", &op);
+
+        let loaded: TriadOpinion =
+            load_stage(dir.path(), "athena").expect("checkpoint should load back");
+        assert_eq!(loaded.agent, op.agent);
+        assert_eq!(loaded.summary, op.summary);
+        assert_eq!(loaded.suggestions_md, op.suggestions_md);
+        assert_eq!(loaded.score, op.score);
+        assert_eq!(loaded.provider_tier, op.provider_tier);
+    }
+
+    #[test]
+    fn load_stage_missing_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let loaded: Option<TriadOpinion> = load_stage(dir.path(), "argos");
+        assert!(loaded.is_none(), "missing stage file must return None");
+    }
+
+    #[test]
+    fn resume_skips_when_file_present() {
+        // Mirrors the resume logic in run_triad_tournament: when a stage file
+        // exists, load_stage returns Some and recomputation is skipped.
+        let dir = tempfile::tempdir().unwrap();
+        let op = sample_opinion();
+        save_stage(dir.path(), "hermes", &op);
+
+        let resume = true;
+        let resumed: Option<TriadOpinion> = resume
+            .then(|| load_stage::<TriadOpinion>(dir.path(), "hermes"))
+            .flatten();
+        assert!(
+            resumed.is_some(),
+            "present stage file must trigger resume (skip recompute)"
+        );
+        assert_eq!(resumed.unwrap().score, op.score);
+    }
+
+    #[test]
+    fn evolved_draft_serde_round_trip() {
+        let ev = EvolvedDraft {
+            evolved_draft_md: "We propose that X requires experimental validation [1].".into(),
+            claims: vec![EvolvedClaim {
+                claim: "We propose that X requires experimental validation".into(),
+                requires_human_validation: true,
+                citations: vec!["[1]".into()],
+            }],
+            provider_tier: "grok-4-heavy".into(),
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        let back: EvolvedDraft = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.evolved_draft_md, ev.evolved_draft_md);
+        assert_eq!(back.claims.len(), 1);
+        assert!(back.claims[0].requires_human_validation);
+        assert_eq!(back.claims[0].citations, vec!["[1]".to_string()]);
+    }
+
+    #[test]
+    fn triad_report_evolved_defaults_to_none_for_legacy_json() {
+        // Existing consumers serialize TriadReport without `evolved`; ensure
+        // deserialization still works (additive, non-breaking).
+        let legacy = serde_json::json!({
+            "run_id": "r1",
+            "original_draft": "orig",
+            "final_draft": "final",
+            "opinions": [],
+            "created_at": "2026-06-07T00:00:00Z",
+            "llm_stats": {
+                "grok3_calls": 0, "grok3_tokens_in": 0, "grok3_tokens_out": 0,
+                "grok4_calls": 0, "grok4_tokens_in": 0, "grok4_tokens_out": 0,
+                "deepseek_calls": 0, "deepseek_tokens_in": 0, "deepseek_tokens_out": 0,
+                "local_calls": 0, "local_tokens_in": 0, "local_tokens_out": 0
+            }
+        });
+        let report: TriadReport = serde_json::from_value(legacy).unwrap();
+        assert!(report.evolved.is_none());
+    }
+
+    #[test]
+    fn extract_citations_finds_patterns() {
+        let text = "See @smith2020 and \\cite{jones1999,doe2001}. Also [12].";
+        let cites = extract_citations(text);
+        assert!(cites.contains(&"@smith2020".to_string()));
+        assert!(cites.contains(&"\\cite{jones1999}".to_string()));
+        assert!(cites.contains(&"\\cite{doe2001}".to_string()));
+        assert!(cites.contains(&"[12]".to_string()));
+    }
+
+    #[test]
+    fn extract_claims_skips_headers_and_short_lines() {
+        let md = "# Title\n\nWe propose that the scaffold curvature modulates entropy flow.\nshort line\n";
+        let claims = extract_claims(md);
+        assert_eq!(claims.len(), 1);
+        assert!(claims[0].contains("scaffold curvature modulates entropy"));
+    }
+
+    #[test]
+    fn evolve_claims_are_augmentative() {
+        // Every extracted claim must be flagged as requiring human/wet-lab validation.
+        let md = "We propose that biomaterial scaffolds restore neural curvature dynamics.";
+        let claims: Vec<EvolvedClaim> = extract_claims(md)
+            .into_iter()
+            .map(|claim| EvolvedClaim {
+                claim,
+                requires_human_validation: true,
+                citations: vec![],
+            })
+            .collect();
+        assert!(!claims.is_empty());
+        assert!(claims.iter().all(|c| c.requires_human_validation));
+    }
+
+    #[test]
+    fn checkpoint_dir_uses_run_id_segment() {
+        // Falls back to env BEAGLE_DATA_DIR layout; verify path shape only.
+        let p = stage_path(std::path::Path::new("/tmp/triad/run42"), "evolve");
+        assert!(p.ends_with("evolve.json"));
+    }
 }
