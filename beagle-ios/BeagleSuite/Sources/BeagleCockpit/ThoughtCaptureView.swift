@@ -302,7 +302,7 @@ struct ThoughtCaptureView: View {
                 HStack(spacing: BeagleSpacing.xxs) {
                     Image(systemName: "waveform.badge.microphone")
                         .font(.system(size: 10))
-                    Text("Whisper on-device")
+                    Text("On-device speech")
                         .font(BeagleFont.caption2.font)
                 }
                 .foregroundStyle(BeagleTheme.truthObserved.opacity(0.7))

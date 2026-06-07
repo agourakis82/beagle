@@ -152,7 +152,10 @@ public final class CognitiveStore {
             if let importResult = result.value, importResult.status == "imported" {
                 let atoms = importResult.projection?.atomsCreated ?? 0
                 let episodes = importResult.projection?.episodesCreated ?? 0
-                let refined = "Captured into cluster GraphRAG++ memory (\(episodes) episode, \(atoms) atoms)."
+                // Real HERMES refinement of the thought (Wave 2); falls back to the
+                // import-accounting line if the refine endpoint/provider is unavailable.
+                let refined = await BeagleClient.shared.refineThought(text: text, projectSlug: projectSlug, source: source).value?.refinedText
+                    ?? "Captured into cluster GraphRAG++ memory (\(episodes) episode, \(atoms) atoms)."
                 let nodeId = importResult.omnimemory?.id
                     ?? importResult.memoryEvent?.id
                     ?? importResult.auditEvent?.id

@@ -1188,6 +1188,16 @@ public actor BeagleClient {
         await fetch(CognitiveState.self, path: "/api/v1/cognitive/state")
     }
 
+    /// Real HERMES-style LLM refinement of a captured thought (Wave 2 capture/refine).
+    public func refineThought(text: String, projectSlug: String?, source: String) async -> Truthful<ThoughtRefineResponse> {
+        await postEncoded(
+            ThoughtRefineResponse.self,
+            path: "/api/exocortex/v1/capture/refine",
+            body: ThoughtRefineRequest(rawText: text, projectSlug: projectSlug, sourceSurface: source),
+            timeout: 60
+        )
+    }
+
     /// Per-caller Φ rhythm (tool usage patterns).
     public func toolRhythmPhi() async -> Truthful<ChatResponse> {
         await fetch(ChatResponse.self, path: "/api/v1/cognitive/tool_rhythm_phi?caller=ios&split=true")
@@ -1507,5 +1517,29 @@ struct BeagleBackendErrorPayload: Decodable {
         }
 
         return parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Wave 2: capture/refine (real LLM thought refinement)
+
+public struct ThoughtRefineResponse: Codable, Sendable {
+    public let refinedText: String
+    public let model: String?
+    public let tier: String?
+    enum CodingKeys: String, CodingKey {
+        case refinedText = "refined_text"
+        case model
+        case tier
+    }
+}
+
+struct ThoughtRefineRequest: Encodable, Sendable {
+    let rawText: String
+    let projectSlug: String?
+    let sourceSurface: String?
+    enum CodingKeys: String, CodingKey {
+        case rawText = "raw_text"
+        case projectSlug = "project_slug"
+        case sourceSurface = "source_surface"
     }
 }
