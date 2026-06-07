@@ -31,8 +31,12 @@ spec:
           effect: NoSchedule
       containers:
         - name: project-cockpit
-          image: 192.168.3.207:5003/project-cockpit:sounio-workday-mvp-7724a49
-          imagePullPolicy: Always
+          image: 192.168.3.207:5003/project-cockpit:wave5c-3950b52
+          # IfNotPresent: the in-cluster registry (192.168.3.207:5003) is plain-HTTP.
+          # Only the t560 kubelet trusts it; r770/other nodes pre-pull via
+          # `ctr -n k8s.io images pull --plain-http`, so the kubelet must not
+          # re-pull over HTTPS. New rollouts use a fresh tag, which still forces a pull.
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 4370
@@ -45,6 +49,14 @@ spec:
               value: http://beagle-core.beagle.svc.cluster.local:8080
             - name: PROJECT_COCKPIT_WORKSPACE_AGENT_PORT
               value: "4371"
+            # Workspace-agent registry/proxy can take several seconds when the
+            # workspace pod is cold; 2.5s default truncated real roles. 12s headroom.
+            - name: PROJECT_COCKPIT_WORKSPACE_AGENT_TIMEOUT_MS
+              value: "12000"
+            # Keep long-lived PTY/SSE connections from being reaped by the Node
+            # HTTP server's default keep-alive timeout.
+            - name: PROJECT_COCKPIT_KEEP_ALIVE_TIMEOUT_MS
+              value: "610000"
             - name: PROJECT_COCKPIT_FAST_MEMORY_RESPONSE_TIMEOUT_MS
               value: "20000"
             - name: PROJECT_COCKPIT_MEMORY_CACHE_TTL_MS
@@ -83,3 +95,22 @@ spec:
             runAsNonRoot: true
             runAsUser: 1000
             runAsGroup: 1000
+          volumeMounts:
+            # Workbench session/pane state + enriched block logs (durable).
+            - name: cockpit-data
+              mountPath: /var/lib/cockpit
+            # Remembered cross-session hints (seeded empty; mutated at runtime).
+            - name: remembered-state
+              mountPath: /var/run/project-cockpit-remembered
+      # NOTE: the project-catalog.json ships baked into the image
+      # (apps/project-cockpit/public/project-catalog.json) and is the single
+      # source of truth. The previous catalog-override ConfigMap was a live
+      # hotfix and has been retired now that the fix is in the image.
+      volumes:
+        - name: cockpit-data
+          persistentVolumeClaim:
+            claimName: project-cockpit-data
+        - name: remembered-state
+          configMap:
+            name: project-cockpit-remembered
+            optional: true

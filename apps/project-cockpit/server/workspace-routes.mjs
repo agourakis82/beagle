@@ -773,7 +773,6 @@ export function registerWorkspaceRoutes(app, deps = {}) {
 
   app.get("/api/workspaces/:slug/agents/registry", jsonResponse(async (req, res) => {
     const project = await getProjectOrThrow(req.params.slug);
-    console.warn(`[wb-debug] registry slug=${req.params.slug} authority=${WORKBENCH_AUTHORITY} project.pod=${project?.workspacePod} project.svc=${project?.workspaceService} derivedUrl=${workspaceAgentBaseUrl(project, req.params.slug)}`);
     if (await proxyWorkspaceAgentJson(req, res, project, "/v1/agents/registry")) return undefined;
     return {
       projectSlug: req.params.slug,
