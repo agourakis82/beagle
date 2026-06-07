@@ -1226,12 +1226,13 @@ public actor BeagleClient {
     // MARK: - Hypergraph
 
     public func queryHyperedges(nodeId: String? = nil) async -> Truthful<[Hyperedge]> {
-        let detail = nodeId.map { " for node \($0)" } ?? ""
-        return .staleError("Hyperedge route retired on current beagle-core backend\(detail)")
+        let q = nodeId.map { "?node_id=\($0)" } ?? ""
+        return await fetch([Hyperedge].self, path: "/api/hyperedges\(q)")
     }
 
     public func createHyperedge(label: String, nodeIds: [String]) async -> Truthful<Hyperedge> {
-        .staleError("Hyperedge creation route retired on current beagle-core backend")
+        await post(Hyperedge.self, path: "/api/hyperedges",
+                   body: ["label": label, "node_ids": nodeIds, "directed": false])
     }
 
     // MARK: - Feedback
@@ -1380,7 +1381,13 @@ public actor BeagleClient {
         probabilistic: Bool = true,
         applyDecoherence: Bool = true
     ) async -> Truthful<QuantumReasoningResult> {
-        .staleError("Quantum reasoning route is retired on the current beagle-core backend")
+        await post(QuantumReasoningResult.self, path: "/dev/quantum-reasoning", body: [
+            "hypotheses": hypotheses,
+            "threshold": threshold,
+            "interference_strength": interferenceStrength,
+            "probabilistic": probabilistic,
+            "apply_decoherence": applyDecoherence
+        ] as [String: any Sendable], timeout: 90)
     }
 
     public func swarmConsensus(query: String) async -> Truthful<SwarmResult> {
@@ -1397,7 +1404,9 @@ public actor BeagleClient {
         graphId: String,
         intervention: String
     ) async -> Truthful<CausalIntervention> {
-        .staleError("Causal intervention route is retired on the current beagle-core backend")
+        await post(CausalIntervention.self, path: "/dev/causal/intervention", body: [
+            "graph_id": graphId, "intervention": intervention
+        ] as [String: any Sendable], timeout: 90)
     }
 
     public func temporalReasoning(query: String) async -> Truthful<TemporalResult> {
@@ -1411,7 +1420,8 @@ public actor BeagleClient {
     }
 
     public func adversarialCompete(query: String) async -> Truthful<AdversarialResult> {
-        .staleError("Adversarial compete route is retired on the current beagle-core backend")
+        await post(AdversarialResult.self, path: "/dev/adversarial-compete",
+                   body: ["query": query], timeout: 180)
     }
 
     public func research(query: String) async -> Truthful<ResearchResult> {
@@ -1444,7 +1454,8 @@ public actor BeagleClient {
     }
 
     public func worldModelCounterfactual(query: String) async -> Truthful<WorldModelCounterfactual> {
-        .staleError("World model counterfactual route is retired on the current beagle-core backend")
+        await post(WorldModelCounterfactual.self, path: "/api/worldmodel/counterfactual",
+                   body: ["query": query], timeout: 90)
     }
 
     // MARK: - Extended (Fractal, PCS, Serendipity)
@@ -1459,7 +1470,9 @@ public actor BeagleClient {
     }
 
     public func serendipityDiscover(query: String) async -> Truthful<SerendipityResult> {
-        .staleError("Serendipity route no longer accepts free-text query input on the current beagle-core backend")
+        // Real beagle-serendipity engine (Wave 1/3). Slow (LLM-backed) — generous timeout.
+        await post(SerendipityResult.self, path: "/api/serendipity/discover",
+                   body: ["focus_project": query], timeout: 120)
     }
 
     public func deepThink(prompt: String, depth: Int = 3) async -> Truthful<ChatResponse> {
