@@ -1436,6 +1436,7 @@ dependencies = [
  "beagle-workspace",
  "chrono",
  "clap",
+ "nalgebra 0.33.3",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

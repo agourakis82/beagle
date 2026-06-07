@@ -44,6 +44,7 @@ beagle-llm = { path = "../../crates/beagle-llm" }
 beagle-observer = { path = "../../crates/beagle-observer" }
 beagle-serendipity = { path = "../../crates/beagle-serendipity" }
 beagle-quantum = { path = "../../crates/beagle-quantum" }
+nalgebra = { version = "0.33", features = ["serde-serialize"] }
 beagle-memory = { path = "../../crates/beagle-memory" }
 beagle-search = { path = "../../crates/beagle-search" }
 beagle-latex = { path = "../../crates/beagle-latex" }

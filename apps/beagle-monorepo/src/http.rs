@@ -136,6 +136,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/search/arxiv", post(search_arxiv_handler))
         .route("/api/search/all", post(search_all_handler))
         .route("/api/v1/round-table", post(round_table_handler))
+        .route("/api/v1/cognitive/state", get(cognitive_state_handler))
         // Go Deeper modality routes (used by iOS GoDeepStore)
         .route("/dev/deep-research", post(go_deep_generic_handler))
         .route("/dev/swarm", post(go_deep_generic_handler))
@@ -1046,22 +1047,142 @@ struct PCSReasonRequest {
 struct PCSReasonResponse {
     diagnosis: serde_json::Value,
     confidence: f64,
+    tier: String,
+    model: String,
 }
 
 async fn pcs_reason_handler(
-    axum::extract::State(_state): axum::extract::State<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<PCSReasonRequest>,
 ) -> Result<Json<PCSReasonResponse>, StatusCode> {
     info!("PCS symbolic reasoning request");
 
-    // Placeholder - implementar chamada real ao Julia
+    let symptoms_json = serde_json::to_string_pretty(&req.symptoms).map_err(|e| {
+        error!("Falha ao serializar symptoms: {}", e);
+        StatusCode::BAD_REQUEST
+    })?;
+
+    // PCS = Probabilistic Causal/Symbolic clinical reasoning. This is a critical,
+    // high-stakes clinical reasoning task — escalate to the highest quality tier and
+    // ask for a strictly-typed JSON answer so we can parse a real diagnosis + confidence.
+    let prompt = format!(
+        "You are a rigorous clinical reasoning engine (PCS: Probabilistic Causal-Symbolic reasoning).\n\
+         Given the following structured patient symptoms/observations (JSON), perform careful \
+         differential diagnosis reasoning. Weigh competing hypotheses, consider base rates, and be \
+         explicit about uncertainty. Do NOT fabricate findings not supported by the input.\n\n\
+         SYMPTOMS (JSON):\n{symptoms}\n\n\
+         Respond with ONLY a single JSON object (no markdown, no prose outside the JSON) with this \
+         exact schema:\n\
+         {{\n  \
+           \"primary_diagnosis\": string,\n  \
+           \"differential\": [ {{ \"condition\": string, \"probability\": number, \"rationale\": string }} ],\n  \
+           \"red_flags\": [string],\n  \
+           \"recommended_workup\": [string],\n  \
+           \"reasoning\": string,\n  \
+           \"confidence\": number  // overall confidence in primary_diagnosis, 0.0..1.0\n\
+         }}",
+        symptoms = symptoms_json
+    );
+
+    let mut ctx = state.ctx.lock().await;
+
+    // Critical clinical reasoning -> request the premium reasoning tier explicitly.
+    let mut meta = RequestMeta::from_prompt(&prompt);
+    meta.requires_high_quality = true;
+    meta.requires_phd_level_reasoning = true;
+    meta.critical_section = true;
+
+    let run_id = "http_pcs_reason";
+    let current_stats = ctx.llm_stats.get_or_create(run_id);
+
+    let (client, tier) = ctx.router.choose_with_limits(&meta, &current_stats);
+    let model = client.name().to_string();
+
+    let text = ctx
+        .router
+        .complete_chosen(&client, tier, &prompt)
+        .await
+        .map_err(|e| {
+            error!("PCS LLM error: {}", e);
+            StatusCode::BAD_GATEWAY
+        })?;
+
+    // Budget accounting (~4 chars/token estimate), same pattern as llm_complete_handler.
+    let tokens_in_est = (prompt.len() / 4) as u32;
+    let tokens_out_est = (text.len() / 4) as u32;
+    ctx.llm_stats.update(run_id, |stats| match tier {
+        ProviderTier::Grok4Heavy => {
+            stats.grok4_calls += 1;
+            stats.grok4_tokens_in += tokens_in_est;
+            stats.grok4_tokens_out += tokens_out_est;
+        }
+        _ => {
+            stats.grok3_calls += 1;
+            stats.grok3_tokens_in += tokens_in_est;
+            stats.grok3_tokens_out += tokens_out_est;
+        }
+    });
+    drop(ctx);
+
+    // Parse the model's JSON answer. Tolerate fenced code blocks / surrounding prose by
+    // extracting the first JSON object.
+    let diagnosis = parse_first_json_object(&text).unwrap_or_else(|| {
+        serde_json::json!({ "raw": text, "parse_error": "model did not return strict JSON" })
+    });
+
+    let confidence = diagnosis
+        .get("confidence")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+
+    info!(tier = ?tier, model = %model, "PCS reasoning completed");
+
     Ok(Json(PCSReasonResponse {
-        diagnosis: serde_json::json!({
-            "status": "placeholder",
-            "note": "PCS reasoning será implementado via Julia"
-        }),
-        confidence: 0.0,
+        diagnosis,
+        confidence,
+        tier: format!("{:?}", tier),
+        model,
     }))
+}
+
+/// Extract and parse the first balanced top-level JSON object from arbitrary LLM text.
+/// Handles plain JSON, JSON wrapped in ```json fences, or JSON embedded in prose.
+fn parse_first_json_object(text: &str) -> Option<serde_json::Value> {
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(text.trim()) {
+        return Some(v);
+    }
+    let bytes = text.as_bytes();
+    let start = text.find('{')?;
+    let mut depth = 0usize;
+    let mut in_str = false;
+    let mut escaped = false;
+    for i in start..bytes.len() {
+        let c = bytes[i] as char;
+        if in_str {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => in_str = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    let candidate = &text[start..=i];
+                    return serde_json::from_str::<serde_json::Value>(candidate).ok();
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 #[derive(Deserialize)]
@@ -1295,7 +1416,7 @@ struct SerendipityConnection {
 }
 
 async fn serendipity_discover_handler(
-    axum::extract::State(_state): axum::extract::State<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<SerendipityDiscoverRequest>,
 ) -> Result<Json<SerendipityDiscoverResponse>, StatusCode> {
     info!(
@@ -1303,12 +1424,240 @@ async fn serendipity_discover_handler(
         req.focus_project
     );
 
-    // Por enquanto, placeholder - integração com beagle-serendipity será feita depois
-    // TODO: Usar SerendipityInjector do crate beagle-serendipity
-    Ok(Json(SerendipityDiscoverResponse {
-        connections: vec![],
-        count: 0,
-    }))
+    let max_connections = req.max_connections.unwrap_or(5).clamp(1, 20);
+
+    // 1) Embed the focus project / query so the SerendipityEngine explores around a real point
+    //    in semantic space. Uses the same EmbeddingClient path as the vector store.
+    let embedding_url = std::env::var("EMBEDDING_URL")
+        .ok()
+        .or_else(|| std::env::var("BEAGLE_EMBEDDING_URL").ok());
+    let embed_client = match embedding_url {
+        Some(url) => beagle_llm::embedding::EmbeddingClient::new(url),
+        None => beagle_llm::embedding::EmbeddingClient::default(),
+    };
+    let embedding_vec = embed_client
+        .embed(&req.focus_project)
+        .await
+        .map_err(|e| {
+            error!("Serendipity embedding failed: {}", e);
+            StatusCode::BAD_GATEWAY
+        })?;
+
+    // 2) Build a BeagleContext for the engine. The engine owns an Arc<BeagleContext> and uses it
+    //    for the LLM router during exploration/impact assessment. The HTTP state holds the context
+    //    behind a Mutex (not shareable as Arc<BeagleContext>), so we construct a fresh context from
+    //    the same live config — same router/providers, real LLM calls.
+    let cfg = {
+        let ctx = state.ctx.lock().await;
+        ctx.cfg.clone()
+    };
+
+    // 3) Run the real serendipity exploration. The engine internally holds a `ThreadRng` (!Send)
+    //    across .await points, so its future is !Send and cannot live in an axum (Send) handler
+    //    future directly. Run it on a dedicated current-thread runtime inside spawn_blocking; the
+    //    returned SerendipityResult IS Send, so it crosses back cleanly.
+    let focus = req.focus_project.clone();
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<beagle_serendipity::SerendipityResult> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        rt.block_on(async move {
+            let engine_ctx = beagle_core::BeagleContext::new(cfg).await?;
+            let engine = beagle_serendipity::SerendipityEngine::new(
+                beagle_serendipity::SerendipityConfig::default(),
+                Arc::new(engine_ctx),
+            );
+            let context_embedding = nalgebra::DVector::from_vec(embedding_vec);
+            engine.inject_serendipity(&focus, context_embedding).await
+        })
+    })
+    .await
+    .map_err(|e| {
+        error!("Serendipity join error: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?
+    .map_err(|e| {
+        error!("Serendipity engine error: {}", e);
+        StatusCode::BAD_GATEWAY
+    })?;
+
+    // 4) Map real Discovery items into the API's connection shape. Each discovery is a
+    //    serendipitous link FROM the focus project TO a discovered concept; novelty/impact come
+    //    straight from the engine.
+    let connections: Vec<SerendipityConnection> = result
+        .discoveries
+        .iter()
+        .take(max_connections)
+        .map(|d| {
+            let target_concept = d
+                .context
+                .get("target")
+                .or_else(|| d.context.get("domain"))
+                .cloned()
+                .unwrap_or_else(|| {
+                    d.content.chars().take(80).collect::<String>()
+                });
+            let target_project = d
+                .context
+                .get("target_project")
+                .or_else(|| d.context.get("domain"))
+                .cloned()
+                .unwrap_or_else(|| "cross-domain".to_string());
+            SerendipityConnection {
+                id: d.id.to_string(),
+                source_project: req.focus_project.clone(),
+                target_project,
+                source_concept: req.focus_project.clone(),
+                target_concept,
+                similarity_score: result.novelty_score as f32,
+                novelty_score: d.novelty_score as f32,
+                connection_type: format!("{:?}", d.discovery_type),
+                explanation: d.content.clone(),
+                potential_impact: format!("impact_score={:.2}", d.impact_score),
+            }
+        })
+        .collect();
+
+    let count = connections.len();
+    info!(
+        "Serendipity: {} connections from {} discoveries (novelty={:.2})",
+        count,
+        result.discoveries.len(),
+        result.novelty_score
+    );
+
+    Ok(Json(SerendipityDiscoverResponse { connections, count }))
+}
+
+// ============================================================================
+// COGNITIVE STATE ENDPOINT (iOS Mind tab dashboard)
+// ============================================================================
+
+/// One pod row inside an agent session (matches iOS `AgentPod`: name/phase/ready).
+#[derive(Serialize)]
+struct CognitiveAgentPod {
+    name: String,
+    phase: String,
+    ready: bool,
+}
+
+/// An agent/job session row. Field names are camelCase to match the iOS `AgentSession`
+/// model, which has NO explicit CodingKeys and the BeagleClient decoder uses NO
+/// key-conversion strategy — so Swift decodes by verbatim property name
+/// (kind, name, replicas, readyReplicas, createdAt, pods, status, truthMode, action).
+#[derive(Serialize)]
+struct CognitiveAgentSession {
+    kind: String,
+    name: String,
+    replicas: i32,
+    #[serde(rename = "readyReplicas")]
+    ready_replicas: i32,
+    #[serde(rename = "createdAt")]
+    created_at: String,
+    pods: Vec<CognitiveAgentPod>,
+    status: String,
+    #[serde(rename = "truthMode")]
+    truth_mode: String,
+    action: Option<String>,
+}
+
+/// Aggregated cognitive dashboard state. Keys match the iOS `CognitiveState` CodingKeys
+/// (snake_case for the top level). Sub-dashboards core_server does not aggregate are
+/// returned as null (all iOS fields are optional). `agent_sessions` + `running_agent_count`
+/// carry the real running-work data core_server knows about.
+#[derive(Serialize)]
+struct CognitiveStateResponse {
+    hrv: Option<serde_json::Value>,
+    recent_drafts: Option<serde_json::Value>,
+    triad_latest: Option<serde_json::Value>,
+    agent_sessions: Vec<CognitiveAgentSession>,
+    recent_void_journeys: Option<serde_json::Value>,
+    recent_fractal_trees: Option<serde_json::Value>,
+    recent_phi_measurements: Option<serde_json::Value>,
+    // Non-iOS-decoded extras (ignored by Swift's decoder, useful for other consumers):
+    #[serde(rename = "runningAgentCount")]
+    running_agent_count: usize,
+    generated_at: String,
+    source: String,
+}
+
+async fn cognitive_state_handler(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Json<CognitiveStateResponse> {
+    info!("Cognitive state request");
+
+    let mut sessions: Vec<CognitiveAgentSession> = Vec::new();
+
+    // Pipeline runs (JobRegistry) are real in-process agent work core_server tracks.
+    for run in state.jobs.list_recent(50).await {
+        let (status_str, running) = match &run.status {
+            RunStatus::Created => ("created".to_string(), false),
+            RunStatus::Running => ("running".to_string(), true),
+            RunStatus::Done => ("done".to_string(), false),
+            RunStatus::TriadRunning => ("triad_running".to_string(), true),
+            RunStatus::TriadDone => ("triad_done".to_string(), false),
+            RunStatus::Error(e) => (format!("error: {}", e), false),
+        };
+        let ready = if running { 1 } else { 0 };
+        sessions.push(CognitiveAgentSession {
+            kind: "pipeline".to_string(),
+            name: run.question.chars().take(80).collect::<String>(),
+            replicas: 1,
+            ready_replicas: ready,
+            created_at: run.created_at.to_rfc3339(),
+            pods: vec![CognitiveAgentPod {
+                name: run.run_id.clone(),
+                phase: status_str.clone(),
+                ready: running,
+            }],
+            status: status_str,
+            truth_mode: "measured".to_string(),
+            action: None,
+        });
+    }
+
+    // Science jobs (PBPK / scaffold / helio / PCS / KEC) are also real tracked work.
+    for job in state.science_jobs.get_recent_jobs(50).await {
+        let status_str = job.status.to_string();
+        let running = matches!(job.status, ScienceJobStatus::Running);
+        let ready = if running { 1 } else { 0 };
+        let kind = serde_json::to_value(&job.kind)
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "science".to_string());
+        sessions.push(CognitiveAgentSession {
+            kind: format!("science:{}", kind),
+            name: format!("{} job {}", kind, &job.job_id[..job.job_id.len().min(8)]),
+            replicas: 1,
+            ready_replicas: ready,
+            created_at: job.created_at.to_rfc3339(),
+            pods: vec![CognitiveAgentPod {
+                name: job.job_id.clone(),
+                phase: status_str.clone(),
+                ready: running,
+            }],
+            status: status_str,
+            truth_mode: "measured".to_string(),
+            action: None,
+        });
+    }
+
+    let running_agent_count = sessions.iter().filter(|s| s.ready_replicas > 0).count();
+
+    Json(CognitiveStateResponse {
+        hrv: None,
+        recent_drafts: None,
+        triad_latest: None,
+        agent_sessions: sessions,
+        recent_void_journeys: None,
+        recent_fractal_trees: None,
+        recent_phi_measurements: None,
+        running_agent_count,
+        generated_at: Utc::now().to_rfc3339(),
+        // Honest provenance: core_server only sees its own in-process job registries.
+        // Kubernetes/cockpit-managed agent pods are NOT visible here.
+        source: "core_server:job_registries".to_string(),
+    })
 }
 
 // ============================================================================
