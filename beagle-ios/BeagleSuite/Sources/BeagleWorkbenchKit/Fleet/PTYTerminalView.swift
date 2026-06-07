@@ -2,8 +2,8 @@
 import SwiftUI
 import SwiftTerm
 import BeagleCore
-
 #if os(iOS)
+import UIKit
 public typealias _PlatformViewRepresentable = UIViewRepresentable
 #else
 public typealias _PlatformViewRepresentable = NSViewRepresentable
@@ -36,6 +36,12 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
             let tv = TerminalView(frame: .zero)
             tv.terminalDelegate = self
             terminal = tv
+            #if os(iOS)
+            // Cockpit identity: plum canvas, light text (keyboard accessory toolbar is
+            // auto-installed by SwiftTerm on iPhone).
+            tv.nativeBackgroundColor = UIColor(red: 0.106, green: 0.078, blue: 0.149, alpha: 1)
+            tv.nativeForegroundColor = UIColor(white: 0.92, alpha: 1)
+            #endif
             // PTY output -> terminal (main actor; PTYClient is @MainActor)
             client.onBytes = { [weak tv] bytes in
                 tv?.feed(byteArray: bytes[...])

@@ -5,18 +5,21 @@ import BeagleCore
 
 /// Owns one PTYClient per *opened* agent so switching agents never reconnects.
 /// Lazy: a client is created only when an agent is first opened (bounds memory).
+/// Persists the last active agent across launches.
 @MainActor
 @Observable
 public final class FleetTerminalStore {
     public private(set) var clients: [String: PTYClient] = [:]
-    public var activeAgent: String
+    public var activeAgent: String { didSet { persistActive() } }
     public private(set) var opened: [String] = []
     private let endpoint: FleetEndpoint
+    private static let lastAgentKey = "fleetLastAgent"
 
-    public init(endpoint: FleetEndpoint = FleetEndpoint(),
-                initial: String = FleetEndpoint.agents.first ?? "claude-1") {
+    public init(endpoint: FleetEndpoint = FleetEndpoint()) {
         self.endpoint = endpoint
-        self.activeAgent = initial
+        let saved = UserDefaults.standard.string(forKey: Self.lastAgentKey)
+        self.activeAgent = (saved.flatMap { FleetEndpoint.isKnownAgent($0) ? $0 : nil })
+            ?? (FleetEndpoint.agents.first ?? "claude-1")
     }
 
     public var agents: [String] { FleetEndpoint.agents }
@@ -36,11 +39,20 @@ public final class FleetTerminalStore {
         activeAgent = agent
     }
 
+    /// Connection state for an agent WITHOUT creating/opening it (idle if never opened).
+    public func state(for agent: String) -> PTYClient.State {
+        clients[agent]?.state ?? .idle
+    }
+
     /// Reconnect any dropped sessions (call on foreground).
     public func reconnectStale() {
         for c in clients.values where c.state != .connected && c.state != .connecting {
             c.connect()
         }
+    }
+
+    private func persistActive() {
+        UserDefaults.standard.set(activeAgent, forKey: Self.lastAgentKey)
     }
 }
 #endif
