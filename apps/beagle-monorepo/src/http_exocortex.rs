@@ -3246,11 +3246,11 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(capture_session_start_handler),
         )
         .route(
-            "/api/exocortex/v1/capture/sessions/:session_id",
+            "/api/exocortex/v1/capture/sessions/{session_id}",
             get(capture_session_status_handler),
         )
         .route(
-            "/api/exocortex/v1/capture/sessions/:session_id/events",
+            "/api/exocortex/v1/capture/sessions/{session_id}/events",
             post(capture_session_event_handler),
         )
         .route(
@@ -3270,7 +3270,7 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(context_compile_handler),
         )
         .route(
-            "/api/exocortex/v1/context/packs/:pack_id",
+            "/api/exocortex/v1/context/packs/{pack_id}",
             get(context_pack_get_handler),
         )
         .route(
@@ -3306,7 +3306,7 @@ pub fn exocortex_routes() -> Router<AppState> {
             get(sounio_moments_recent_handler),
         )
         .route(
-            "/api/exocortex/v1/sounio/moments/:moment_id/review",
+            "/api/exocortex/v1/sounio/moments/{moment_id}/review",
             post(sounio_moment_review_handler),
         )
         .route(
@@ -3318,31 +3318,31 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(sounio_paperrun_start_handler),
         )
         .route(
-            "/api/exocortex/v1/sounio/paperruns/:paper_run_id",
+            "/api/exocortex/v1/sounio/paperruns/{paper_run_id}",
             get(sounio_paperrun_get_handler),
         )
         .route(
-            "/api/exocortex/v1/sounio/paperruns/:paper_run_id/approve-step",
+            "/api/exocortex/v1/sounio/paperruns/{paper_run_id}/approve-step",
             post(sounio_paperrun_approve_step_handler),
         )
         .route(
-            "/api/exocortex/v1/sounio/paperruns/:paper_run_id/artifacts",
+            "/api/exocortex/v1/sounio/paperruns/{paper_run_id}/artifacts",
             get(sounio_paperrun_artifacts_handler),
         )
         .route(
-            "/api/exocortex/v1/sounio/paperruns/:paper_run_id/claims",
+            "/api/exocortex/v1/sounio/paperruns/{paper_run_id}/claims",
             post(sounio_paperrun_add_claim_handler),
         )
         .route(
-            "/api/exocortex/v1/sounio/paperruns/:paper_run_id/claims/:claim_id/review",
+            "/api/exocortex/v1/sounio/paperruns/{paper_run_id}/claims/{claim_id}/review",
             post(sounio_claim_review_handler),
         )
         .route(
-            "/api/exocortex/v1/sounio/paperruns/:paper_run_id/theatre",
+            "/api/exocortex/v1/sounio/paperruns/{paper_run_id}/theatre",
             get(sounio_paperrun_theatre_handler),
         )
         .route(
-            "/api/exocortex/v1/sounio/paperruns/:paper_run_id/public-digest",
+            "/api/exocortex/v1/sounio/paperruns/{paper_run_id}/public-digest",
             get(sounio_paperrun_public_digest_handler),
         )
         .route(
@@ -3358,15 +3358,15 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(memory_truthset_create_handler),
         )
         .route(
-            "/api/exocortex/v1/memory/truthsets/:truthset_id",
+            "/api/exocortex/v1/memory/truthsets/{truthset_id}",
             get(memory_truthset_get_handler),
         )
         .route(
-            "/api/exocortex/v1/memory/truthsets/:truthset_id/cases",
+            "/api/exocortex/v1/memory/truthsets/{truthset_id}/cases",
             post(memory_truthset_case_create_handler),
         )
         .route(
-            "/api/exocortex/v1/memory/truthsets/:truthset_id/review",
+            "/api/exocortex/v1/memory/truthsets/{truthset_id}/review",
             post(memory_truthset_review_handler),
         )
         .route(
@@ -3374,11 +3374,11 @@ pub fn exocortex_routes() -> Router<AppState> {
             get(memory_candidates_handler).post(memory_candidate_create_handler),
         )
         .route(
-            "/api/exocortex/v1/memory/candidates/:candidate_id/quorum",
+            "/api/exocortex/v1/memory/candidates/{candidate_id}/quorum",
             post(memory_candidate_quorum_handler),
         )
         .route(
-            "/api/exocortex/v1/memory/candidates/:candidate_id/promote",
+            "/api/exocortex/v1/memory/candidates/{candidate_id}/promote",
             post(memory_candidate_promote_handler),
         )
         .route(
@@ -3446,19 +3446,19 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(spatial_world_marble_handler),
         )
         .route(
-            "/api/exocortex/v1/spatial/worlds/:world_id",
+            "/api/exocortex/v1/spatial/worlds/{world_id}",
             get(spatial_world_get_handler),
         )
         .route(
-            "/api/exocortex/v1/spatial/worlds/:world_id/assets",
+            "/api/exocortex/v1/spatial/worlds/{world_id}/assets",
             get(spatial_world_assets_handler),
         )
         .route(
-            "/api/exocortex/v1/spatial/projects/:slug/control-room",
+            "/api/exocortex/v1/spatial/projects/{slug}/control-room",
             get(spatial_control_room_handler),
         )
         .route(
-            "/api/exocortex/v1/spatial/worlds/:world_id/sounio/evidence",
+            "/api/exocortex/v1/spatial/worlds/{world_id}/sounio/evidence",
             post(spatial_sounio_evidence_handler),
         )
         .route("/api/exocortex/v1/mind-palace", get(mind_palace_handler))
@@ -3483,7 +3483,7 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(conversation_portal_create_handler),
         )
         .route(
-            "/api/exocortex/v1/conversation-portals/:portal_id/promote",
+            "/api/exocortex/v1/conversation-portals/{portal_id}/promote",
             post(conversation_portal_promote_handler),
         )
         .route(

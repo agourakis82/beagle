@@ -183,7 +183,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # API docs
 utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "8.1", features = ["axum"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
 # Error handling
 anyhow = "1.0"

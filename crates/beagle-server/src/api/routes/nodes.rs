@@ -114,7 +114,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/nodes", post(create_node).get(list_nodes))
         .route(
-            "/api/v1/nodes/:id",
+            "/api/v1/nodes/{id}",
             get(get_node).put(update_node).delete(delete_node),
         )
 }
