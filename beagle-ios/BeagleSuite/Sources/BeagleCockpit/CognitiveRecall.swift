@@ -51,8 +51,35 @@ private struct AcceptResult: Codable, Sendable { let ok: Bool? }
 
 // MARK: - API client (tailnet, no auth — cockpit handles backend auth)
 
+/// Typed backend error so the UI can show the real HTTP status + body (not a generic URLError).
+struct CognitiveError: LocalizedError {
+    let status: Int
+    let body: String
+    var errorDescription: String? {
+        let b = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return b.isEmpty ? "HTTP \(status)" : "\(status): \(b.prefix(180))"
+    }
+}
+
 struct CognitiveAPI: Sendable {
-    var baseURL: String
+    /// Preferred URL first, then the standard cockpit fallback chain (public gateway → tailnet
+    /// → IP → in-cluster). Mirrors CockpitClient's resolution so Recall works off-tailnet too.
+    var baseURLs: [String]
+
+    static let fallbackChain = [
+        "https://beagle.chiuratto.ai",
+        "http://sounio-cockpit.tail21cbc4.ts.net",
+        "http://100.107.208.198",
+        "http://project-cockpit.beagle.svc.cluster.local",
+    ]
+
+    init(preferred: String) {
+        var urls: [String] = []
+        let p = preferred.trimmingCharacters(in: .whitespaces)
+        if !p.isEmpty { urls.append(p) }
+        for u in Self.fallbackChain where !urls.contains(u) { urls.append(u) }
+        baseURLs = urls
+    }
 
     func recall(query: String, scope: String) async throws -> RecallAnswer {
         try await post("/api/recall/answer", ["query": query, "scope": scope])
@@ -68,19 +95,35 @@ struct CognitiveAPI: Sendable {
     }
 
     private func post<T: Decodable & Sendable>(_ path: String, _ body: [String: String]) async throws -> T {
-        guard let url = URL(string: baseURL.trimmingCharacters(in: .whitespaces) + path) else {
-            throw URLError(.badURL)
+        var lastError: Error = URLError(.badServerResponse)
+        for base in baseURLs {
+            guard let url = URL(string: base + path) else { continue }
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+            // Synthesis can take up to ~75s; dead hosts fail fast at the connection layer.
+            req.timeoutInterval = 75
+            do {
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                guard let http = resp as? HTTPURLResponse else { lastError = URLError(.badServerResponse); continue }
+                if (200..<300).contains(http.statusCode) {
+                    return try JSONDecoder().decode(T.self, from: data)
+                }
+                let text = String(data: data, encoding: .utf8) ?? ""
+                let err = CognitiveError(status: http.statusCode, body: text)
+                // 4xx is deterministic (e.g. 400 "query required") — don't retry other hosts.
+                if (400..<500).contains(http.statusCode) { throw err }
+                lastError = err // 5xx/502/503 → try the next URL
+            } catch let e as CognitiveError {
+                throw e
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error // network/timeout → try the next URL
+            }
         }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        req.timeoutInterval = 75
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
-        return try JSONDecoder().decode(T.self, from: data)
+        throw lastError
     }
 }
 
@@ -393,7 +436,7 @@ private struct SkeletonLines: View {
 // MARK: - Recall pane
 
 struct RecallPane: View {
-    @AppStorage("cognitiveBaseURL") private var baseURL = "http://cockpit-1.tail21cbc4.ts.net"
+    @AppStorage("cognitiveBaseURL") private var baseURL = "https://beagle.chiuratto.ai"
     @AppStorage("cognitiveScope") private var scope = "all"
     @AppStorage("cognitiveRecents") private var recentsJSON = "[]"
     /// Deep-link: launch arg `-cognitiveAutoQuery "…"` (NSUserDefaults argument domain) runs a recall on appear.
@@ -405,8 +448,9 @@ struct RecallPane: View {
     @State private var flash: Int?
     @State private var didAutoRun = false
     @FocusState private var focused: Bool
+    @State private var recallTask: Task<Void, Never>?
 
-    private var api: CognitiveAPI { CognitiveAPI(baseURL: baseURL) }
+    private var api: CognitiveAPI { CognitiveAPI(preferred: baseURL) }
 
     private let suggestions = [
         "What did we decide about fleet routing?",
@@ -425,7 +469,13 @@ struct RecallPane: View {
                 VStack(alignment: .leading, spacing: 16) {
                     askBar
                     ScopePills(scope: $scope) { if !query.isEmpty { run() } }
-                    if loading { ThinkingCard() }
+                    if loading {
+                        ThinkingCard()
+                        Button { recallTask?.cancel(); loading = false; error = "cancelled" } label: {
+                            Label("Cancel", systemImage: "xmark.circle").font(.caption)
+                        }
+                        .buttonStyle(.borderless).tint(CK.accent).padding(.top, 4)
+                    }
                     else if let error { errorCard(error) }
                     else if let result {
                         answerCard(result)
@@ -619,9 +669,10 @@ struct RecallPane: View {
         guard !q.isEmpty else { return }
         focused = false; loading = true; error = nil
         pushRecent(q)
-        Task {
+        recallTask = Task {
             do { result = try await api.recall(query: q, scope: scope) }
-            catch { self.error = "request failed: \(error.localizedDescription)" }
+            catch is CancellationError { /* user cancelled; state already reset */ }
+            catch { self.error = error.localizedDescription }
             loading = false
         }
     }
@@ -751,14 +802,14 @@ private struct FlowLayout: Layout {
 // MARK: - Next pane (propositor)
 
 struct NextPane: View {
-    @AppStorage("cognitiveBaseURL") private var baseURL = "http://cockpit-1.tail21cbc4.ts.net"
+    @AppStorage("cognitiveBaseURL") private var baseURL = "https://beagle.chiuratto.ai"
     @AppStorage("cognitiveScope") private var scope = "all"
     @State private var result: ProposeResult?
     @State private var loading = false
     @State private var error: String?
     @State private var accepted: Set<String> = []
 
-    private var api: CognitiveAPI { CognitiveAPI(baseURL: baseURL) }
+    private var api: CognitiveAPI { CognitiveAPI(preferred: baseURL) }
 
     var body: some View {
         ScrollView {
