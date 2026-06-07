@@ -722,9 +722,19 @@ pub fn load() -> BeagleConfig {
 ///   1. `override_cfg` (file/base layer — fallback values)
 ///   2. `base` with null/None fields stripped (env layer — wins when set)
 ///
-/// Provenance: fields present in `base` (i.e., set from env) override
-/// those in `override_cfg` (i.e., from file). Fields absent in `base`
+/// Provenance: Option fields present in `base` (i.e., set from env) override
+/// those in `override_cfg` (i.e., from file). Option fields absent in `base`
 /// (env var not set → serialised as JSON null) fall through to `override_cfg`.
+///
+/// KNOWN LIMITATION (review #17B): non-Option scalar fields — notably `bool`
+/// flags like `safe_mode`/`serendipity_enabled` — are never JSON-null, so the
+/// env layer always wins for them, INCLUDING when the env var was unset and the
+/// field carries its `Default` value. Net effect: a `beagle.toml` cannot enable
+/// a bool flag that the env layer leaves at its default. This deployment is
+/// env-driven (no beagle.toml on the live path), so the file-merge path is
+/// effectively unused; env-wins is the intended semantic. A precise fix
+/// (Option<bool> or per-field env-presence detection so unset-env falls through
+/// to file) is a follow-up — see docs/MODERNIZATION_PLAN_2026.md §17.
 fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig {
     use figment::{providers::Serialized, Figment};
 
@@ -740,7 +750,11 @@ fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig 
         // they do not shadow file values)
         .merge(Serialized::globals(base_non_null));
 
-    result.extract::<BeagleConfig>().unwrap_or(base)
+    // Do not silently swallow extraction errors (review P1): log + fall back.
+    result.extract::<BeagleConfig>().unwrap_or_else(|e| {
+        tracing::warn!("config merge extract failed ({e}); using env-loaded config");
+        base
+    })
 }
 
 /// Recursively removes JSON null values and empty-null Option fields from a
