@@ -52,7 +52,7 @@ beagle-checkpoint = { path = "../../crates/beagle-checkpoint" }
 # beagle-void e beagle-ontic comentados temporariamente (requerem dependências adicionais)
 # beagle-void = { path = "../../crates/beagle-void" }
 # beagle-ontic = { path = "../../crates/beagle-ontic" }
-axum = { version = "0.7", features = ["macros", "query"] }
+axum = { version = "0.8", features = ["macros", "query"] }
 tower-http.workspace = true
 tempfile = "3.8"
 base64 = { workspace = true }
