@@ -242,6 +242,11 @@ struct RootView: View {
             Tab("Mind", systemImage: "brain.head.profile", value: 0) {
                 BeagleSurface(bootError: $bootError)
             }
+            Tab("Fleet", systemImage: "terminal", value: 5) {
+                NavigationStack {
+                    FleetTerminalsView()
+                }
+            }
             Tab("Capture", systemImage: "mic.fill", value: 1) {
                 NavigationStack {
                     ThoughtCaptureView()
@@ -265,11 +270,6 @@ struct RootView: View {
                     CognitiveRecallView()
                 }
             }
-            Tab("Fleet", systemImage: "terminal", value: 5) {
-                NavigationStack {
-                    FleetTerminalsView()
-                }
-            }
         }
         .tint(BeagleTheme.truthObserved)
     }
@@ -278,11 +278,11 @@ struct RootView: View {
 
     enum SidebarItem: String, CaseIterable, Identifiable {
         case mind     = "Mind"
+        case fleet    = "Fleet"
         case capture  = "Capture"
         case deep     = "Go Deep"
         case work     = "Work"
         case recall   = "Recall"
-        case fleet    = "Fleet"
         case settings = "Settings"
 
         var id: String { rawValue }

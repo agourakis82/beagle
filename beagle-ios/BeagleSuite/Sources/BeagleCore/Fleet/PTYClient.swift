@@ -11,6 +11,8 @@ public final class PTYClient {
     }
 
     public private(set) var state: State = .idle
+    /// Monotonic counter bumped on every output chunk — drives unread/activity badges.
+    public private(set) var activity: Int = 0
     /// Set by the view: receives raw PTY output bytes (already on the main actor).
     public var onBytes: (([UInt8]) -> Void)?
 
@@ -53,8 +55,8 @@ public final class PTYClient {
                         self.retries = 0
                     }
                     switch msg {
-                    case .data(let d): self.onBytes?([UInt8](d))
-                    case .string(let s): self.onBytes?([UInt8](Data(s.utf8)))
+                    case .data(let d): self.activity &+= 1; self.onBytes?([UInt8](d))
+                    case .string(let s): self.activity &+= 1; self.onBytes?([UInt8](Data(s.utf8)))
                     @unknown default: break
                     }
                 } catch {
