@@ -140,15 +140,19 @@ pub async fn run_beagle_pipeline(
     if ctx.cfg.serendipity_enabled() {
         info!("🔮 Fase 1.5: Serendipity (descoberta de conexões)");
 
-        // Cria HypothesisSet a partir do contexto atual
-        // Nota: HypothesisSet::add() usa thread_rng() que não é Send
-        // Por enquanto, criamos um set mínimo sem usar add() diretamente
+        // Cria HypothesisSet a partir do contexto atual.
+        // HypothesisSet representa um conjunto de hipóteses candidatas com pesos (re, im)
+        // usados como escores de probabilidade normalizados — não há física quântica envolvida;
+        // é um amostrador estocástico documentado com pesos reais e imaginários como par de f64.
+        // Os pesos são fixos aqui (0.7, 0.1) para evitar rand::thread_rng() não-Send
+        // em contexto async; se geração aleatória for necessária, usar StdRng::from_entropy()
+        // com escopo local antes do ponto de await.
         let mut hyp_set = HypothesisSet::new();
         // Extrai hipóteses implícitas do contexto (simplificado)
         let context_chunks: Vec<&str> = context.split("\n\n").collect();
         for (i, chunk) in context_chunks.iter().take(5).enumerate() {
             if chunk.len() > 50 {
-                // Usa amplitude fixa para evitar thread_rng() não-Send
+                // Peso fixo (re=0.7, im=0.1) — escores iniciais arbitrários, normalizados a seguir
                 hyp_set.add(
                     format!(
                         "Hipótese {}: {}",

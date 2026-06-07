@@ -24,6 +24,7 @@ pub mod tier;
 pub use cache::ResponseCache;
 pub use clients::claude::{ClaudeClient, ClaudeModel};
 pub use clients::claude_cli::ClaudeCliClient;
+pub use clients::codex_cli::CodexCliClient;
 pub use clients::copilot::{CopilotClient, CopilotModel};
 pub use clients::cursor::{CursorClient, CursorModel};
 pub use clients::deepseek::DeepSeekClient;

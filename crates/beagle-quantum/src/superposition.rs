@@ -176,7 +176,7 @@ Formato exato (JSON array, nada mais):
             ];
         }
 
-        // Cria HypothesisSet com amplitudes iniciais aleatórias (fase quântica simulada)
+        // Cria HypothesisSet com pesos iniciais amostrados aleatoriamente (escores não normalizados)
         let mut set = HypothesisSet::new();
 
         for text in hypotheses_texts.into_iter().take(N_HYPOTHESES) {

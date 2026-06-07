@@ -41,6 +41,14 @@ use beagle_llm::{AnthropicClient, GeminiClient, LLMOrchestrator, VertexAIClient}
 use beagle_memory::ContextBridge;
 use tracing::{info, warn};
 
+/// Returns true when Pulsar integration is enabled.
+/// Controlled by `BEAGLE_PULSAR_ENABLED` env-var (default: true for backward compat).
+fn pulsar_enabled() -> bool {
+    std::env::var("BEAGLE_PULSAR_ENABLED")
+        .map(|v| !matches!(v.to_lowercase().as_str(), "false" | "0" | "no" | "off"))
+        .unwrap_or(true)
+}
+
 use crate::config::Config;
 
 /// Estado imutável compartilhado entre os handlers.
@@ -73,9 +81,9 @@ pub struct AppState {
     measurement_operator: Arc<MeasurementOperator>,
     interference_engine: Arc<InterferenceEngine>,
     competition_arena: Option<Arc<CompetitionArena>>,
-    // Events
-    pub pulsar: Arc<BeaglePulsar>,
-    pub event_publisher: Arc<Mutex<EventPublisher>>,
+    // Events — both are None when Pulsar is disabled or unreachable.
+    pub pulsar: Option<Arc<BeaglePulsar>>,
+    pub event_publisher: Option<Arc<Mutex<EventPublisher>>>,
 }
 
 impl AppState {
@@ -265,18 +273,42 @@ impl AppState {
             Arc::new(arena)
         });
 
-        // Initialize Pulsar (events)
-        let pulsar = BeaglePulsar::new(
-            std::env::var("PULSAR_BROKER_URL")
-                .unwrap_or_else(|_| "pulsar://localhost:6650".to_string()),
-            None,
-        )
-        .await
-        .with_context(|| "Falha ao conectar ao Apache Pulsar")?;
-        let pulsar = Arc::new(pulsar);
-        let event_publisher = Arc::new(Mutex::new(
-            EventPublisher::new(&pulsar, "beagle.events").await?,
-        ));
+        // Initialize Pulsar (events) — optional.
+        // Disabled by BEAGLE_PULSAR_ENABLED=false (or 0/no/off).
+        // When enabled but Pulsar is unreachable the server still boots; events are silently dropped.
+        let (pulsar, event_publisher) = if pulsar_enabled() {
+            let broker_url = std::env::var("PULSAR_BROKER_URL")
+                .unwrap_or_else(|_| "pulsar://localhost:6650".to_string());
+            match BeaglePulsar::new(&broker_url, None).await {
+                Ok(bp) => {
+                    let bp = Arc::new(bp);
+                    match EventPublisher::new(&bp, "beagle.events").await {
+                        Ok(publisher) => {
+                            info!("Apache Pulsar connected at {}", broker_url);
+                            (Some(bp), Some(Arc::new(Mutex::new(publisher))))
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Pulsar reachable but EventPublisher failed ({}); events disabled",
+                                e
+                            );
+                            (None, None)
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Cannot connect to Pulsar at {} ({}); events disabled. \
+                         Set BEAGLE_PULSAR_ENABLED=false to silence this warning.",
+                        broker_url, e
+                    );
+                    (None, None)
+                }
+            }
+        } else {
+            info!("Pulsar disabled (BEAGLE_PULSAR_ENABLED=false); events are no-op");
+            (None, None)
+        };
 
         Ok(Self {
             storage,
