@@ -1,7 +1,13 @@
-//! Brain Connector - Consciousness Integration Layer
+//! Salience & escalation heuristic (formerly "Brain Connector / IIT 4.0").
 //!
-//! Bridges the consciousness substrate (IIT 4.0, Global Workspace Theory)
-//! with decision-making and response generation.
+//! HONESTY NOTE (2026 modernization, rank #11): this module is a lightweight
+//! heuristic that produces a 0..1 `salience` score and an `AwarenessLevel` band
+//! used to decide when to escalate to deeper reasoning. It is NOT an Integrated
+//! Information Theory (IIT) computation — the score comes from a small
+//! awareness-level lookup, not from a real Φ. The actual (research-grade, and
+//! currently not on the live path) IIT calculator lives in the `beagle-transcend`
+//! crate (`IIT4Calculator`). The thresholding behavior here is genuinely useful
+//! for escalation budgeting; only the "consciousness / Φ" branding was removed.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -13,18 +19,20 @@ use tokio::sync::RwLock;
 // Configuration
 // ============================================================================
 
-/// Configuration for the brain connector
+/// Configuration for the salience/escalation heuristic.
 #[derive(Debug, Clone)]
 pub struct BrainConnectorConfig {
-    /// Enable IIT 4.0 consciousness calculation
+    /// Enable the salience score (kept name `enable_iit` for config compatibility;
+    /// this does NOT run an IIT computation — see the module note).
     pub enable_iit: bool,
-    /// Enable Global Workspace Theory attention
+    /// Enable attention-spotlight tracking (kept name `enable_gwt` for config
+    /// compatibility; a simple bounded recency list, not Global Workspace Theory).
     pub enable_gwt: bool,
-    /// Enable metacognitive monitoring
+    /// Enable metacognitive (confidence) monitoring.
     pub enable_metacognition: bool,
-    /// Phi threshold for escalation
-    pub phi_threshold: f32,
-    /// Maximum attention capacity
+    /// Salience threshold for escalation to deeper reasoning.
+    pub salience_threshold: f32,
+    /// Maximum attention capacity.
     pub attention_capacity: usize,
 }
 
@@ -34,21 +42,22 @@ impl Default for BrainConnectorConfig {
             enable_iit: true,
             enable_gwt: true,
             enable_metacognition: true,
-            phi_threshold: 0.5,
+            salience_threshold: 0.5,
             attention_capacity: 7,
         }
     }
 }
 
 // ============================================================================
-// Consciousness State
+// Awareness / salience state
 // ============================================================================
 
-/// Consciousness state snapshot
+/// Salience + awareness snapshot used for escalation decisions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsciousnessState {
-    /// Integrated Information (Φ) - IIT 4.0
-    pub phi: f32,
+    /// Salience heuristic in [0, 1]. NOT a real IIT Φ — see the module note;
+    /// the real IIT calculator is `beagle-transcend::IIT4Calculator`.
+    pub salience: f32,
     /// Awareness level classification
     pub awareness_level: AwarenessLevel,
     /// Current attention spotlight contents
@@ -62,7 +71,7 @@ pub struct ConsciousnessState {
 impl Default for ConsciousnessState {
     fn default() -> Self {
         Self {
-            phi: 0.5,
+            salience: 0.5,
             awareness_level: AwarenessLevel::Normal,
             attention_spotlight: Vec::new(),
             metacognitive_confidence: 0.5,
@@ -87,9 +96,9 @@ pub enum AwarenessLevel {
 }
 
 impl AwarenessLevel {
-    /// Create from phi value
-    pub fn from_phi(phi: f32) -> Self {
-        match phi {
+    /// Create from a salience value in [0, 1].
+    pub fn from_salience(salience: f32) -> Self {
+        match salience {
             p if p < 0.2 => AwarenessLevel::Automatic,
             p if p < 0.5 => AwarenessLevel::Normal,
             p if p < 0.7 => AwarenessLevel::Focused,
@@ -103,11 +112,11 @@ impl AwarenessLevel {
 // Brain Connector
 // ============================================================================
 
-/// Brain connector - bridges consciousness with cognition
+/// Salience/escalation heuristic engine (name kept for API stability).
 pub struct BrainConnector {
     /// Configuration
     config: BrainConnectorConfig,
-    /// Current consciousness state
+    /// Current salience/awareness state
     state: ConsciousnessState,
     /// Domain-specific confidence calibration
     calibration: HashMap<String, f32>,
@@ -123,7 +132,7 @@ impl BrainConnector {
         }
     }
 
-    /// Get current consciousness state
+    /// Get current salience/awareness state
     pub fn get_state(&self) -> ConsciousnessState {
         self.state.clone()
     }
@@ -133,8 +142,8 @@ impl BrainConnector {
         self.state.awareness_level = level;
         self.state.timestamp = Utc::now();
 
-        // Update phi based on awareness level
-        self.state.phi = match level {
+        // Update salience based on awareness level
+        self.state.salience = match level {
             AwarenessLevel::Automatic => 0.1,
             AwarenessLevel::Normal => 0.4,
             AwarenessLevel::Focused => 0.6,
@@ -143,10 +152,10 @@ impl BrainConnector {
         };
     }
 
-    /// Update phi value
-    pub fn update_phi(&mut self, phi: f32) {
-        self.state.phi = phi;
-        self.state.awareness_level = AwarenessLevel::from_phi(phi);
+    /// Update salience value
+    pub fn update_salience(&mut self, salience: f32) {
+        self.state.salience = salience;
+        self.state.awareness_level = AwarenessLevel::from_salience(salience);
         self.state.timestamp = Utc::now();
     }
 
@@ -196,7 +205,7 @@ impl BrainConnector {
 
     /// Should escalate to deeper reasoning?
     pub fn should_escalate(&self) -> bool {
-        self.state.phi >= self.config.phi_threshold
+        self.state.salience >= self.config.salience_threshold
             || matches!(
                 self.state.awareness_level,
                 AwarenessLevel::Deliberative | AwarenessLevel::Focused
@@ -219,10 +228,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_awareness_from_phi() {
-        assert_eq!(AwarenessLevel::from_phi(0.1), AwarenessLevel::Automatic);
-        assert_eq!(AwarenessLevel::from_phi(0.4), AwarenessLevel::Normal);
-        assert_eq!(AwarenessLevel::from_phi(0.6), AwarenessLevel::Focused);
+    fn test_awareness_from_salience() {
+        assert_eq!(AwarenessLevel::from_salience(0.1), AwarenessLevel::Automatic);
+        assert_eq!(AwarenessLevel::from_salience(0.4), AwarenessLevel::Normal);
+        assert_eq!(AwarenessLevel::from_salience(0.6), AwarenessLevel::Focused);
     }
 
     #[test]

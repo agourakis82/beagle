@@ -342,17 +342,17 @@ pub async fn run_beagle_pipeline(
                         info!(
                             confidence = output.confidence,
                             agents = ?output.agents_used,
-                            phi = output.consciousness_state.phi,
+                            salience = output.consciousness_state.salience,
                             processing_ms = output.metadata.processing_time_ms,
                             "Exocortex processing complete"
                         );
 
                         // Add exocortex insights to context for HERMES
                         context = format!(
-                            "{}\n\n=== Exocortex Insights ===\n{}\n\nConsciousness Φ: {:.3}\nConfidence: {:.2}\nAgents: {}\n",
+                            "{}\n\n=== Exocortex Insights ===\n{}\n\nSalience: {:.3}\nConfidence: {:.2}\nAgents: {}\n",
                             context,
                             output.response,
-                            output.consciousness_state.phi,
+                            output.consciousness_state.salience,
                             output.confidence,
                             output.agents_used.join(", ")
                         );
