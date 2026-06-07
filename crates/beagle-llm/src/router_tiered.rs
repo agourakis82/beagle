@@ -45,8 +45,8 @@ impl ProviderTier {
             ProviderTier::ClaudeDirect => "claude-direct",
             ProviderTier::Grok3 => "grok-3",
             ProviderTier::Grok4Heavy => "grok-4-heavy",
-            ProviderTier::DeepSeekMath => "deepseek-math",
-            ProviderTier::CloudMath => "deepseek-math", // legacy alias
+            ProviderTier::DeepSeekMath => "deepseek-v4-pro",
+            ProviderTier::CloudMath => "deepseek-v4-pro", // legacy alias
             ProviderTier::LocalFallback => "local-fallback",
         }
     }

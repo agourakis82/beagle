@@ -86,7 +86,6 @@ COMMENT ON INDEX idx_nodes_device_type_active IS
 
 -- Index 8: Edge type filtering
 
-'Index for hyperedge type filtering';
 
 -- Index 9: Device-based edge queries
 CREATE INDEX IF NOT EXISTS idx_hyperedges_device
