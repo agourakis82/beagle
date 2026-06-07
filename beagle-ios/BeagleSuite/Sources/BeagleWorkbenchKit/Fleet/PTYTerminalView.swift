@@ -26,7 +26,7 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
     #endif
 
     @MainActor
-    public final class Coordinator: NSObject, TerminalViewDelegate {
+    public final class Coordinator: NSObject, @preconcurrency TerminalViewDelegate {
         let client: PTYClient
         weak var terminal: TerminalView?
 
