@@ -303,15 +303,20 @@ impl TieredRouter {
 
         let grok3: Arc<dyn LlmClient> = Arc::new(crate::clients::grok::GrokClient::new());
 
-        // Escalation / "Heavy" tier — a genuinely STRONGER model, not Grok-cloned.
-        // Previously `grok3.clone()`, which made the anti-bias escalation a no-op (same model).
-        // Prefer Claude (strong non-Grok) when available; fall back to the real grok-4-heavy
-        // model (the GrokClient forces it via complete_chosen) only when no stronger model exists.
+        // Escalation / "Heavy" tier — a genuinely STRONGER model, not a Grok-3 clone.
+        // Priority:
+        //   1. Claude (strong non-Grok) when available — best cross-model anti-bias guarantee.
+        //   2. A dedicated GrokClient whose `choose_model` will always select "grok-4-heavy"
+        //      (because `complete_chosen` passes model="grok-4-heavy" for Grok4Heavy tier).
+        //      This is distinct from the grok3 workhorse client; do NOT clone it.
         let grok4_heavy: Option<Arc<dyn LlmClient>> = if let Some(ref c) = claude {
             info!("Heavy/escalation tier → Claude (strong non-Grok model)");
             Some(c.clone())
         } else {
-            Some(grok3.clone())
+            // Construct a fresh GrokClient so it is a distinct instance from grok3.
+            // complete_chosen() will pass model="grok-4-heavy" which choose_model() honours.
+            info!("Heavy/escalation tier → GrokClient (grok-4-heavy model via complete_chosen)");
+            Some(Arc::new(crate::clients::grok::GrokClient::new()))
         };
 
         // DeepSeek Math client (se API key disponível)

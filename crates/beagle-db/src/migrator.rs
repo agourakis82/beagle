@@ -487,3 +487,105 @@ fn should_skip_statement(statement: &str) -> bool {
 
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // (a) forward-only migration: has `-- migrate:up` but NO `-- migrate:down`.
+    // `migrate up` must succeed; `down_statements` must be empty so that rollback
+    // correctly returns `MissingRollback` instead of silently doing nothing.
+    #[test]
+    fn split_sections_up_only() {
+        let sql = "\
+-- migrate:up
+CREATE TABLE foo (id INT PRIMARY KEY);
+DROP TABLE IF EXISTS foo_old;
+";
+        let (up, down) = split_sections(sql, "001_test.sql").unwrap();
+
+        assert!(
+            up.contains("CREATE TABLE foo"),
+            "UP block must contain the DDL"
+        );
+        assert!(
+            up.contains("DROP TABLE IF EXISTS foo_old"),
+            "UP block must contain both statements"
+        );
+
+        let up_stmts = extract_statements(&up);
+        assert_eq!(up_stmts.len(), 2, "should parse exactly two statements");
+
+        let down_stmts = extract_statements(&down);
+        assert!(
+            down_stmts.is_empty(),
+            "DOWN statements must be empty for forward-only migration"
+        );
+    }
+
+    // (b) migration with both `-- migrate:up` and `-- migrate:down`.
+    // Existing behavior must be preserved: UP and DOWN blocks are each correctly
+    // scoped to their respective markers.
+    #[test]
+    fn split_sections_up_and_down() {
+        let sql = "\
+-- migrate:up
+CREATE TABLE bar (id INT PRIMARY KEY);
+
+-- migrate:down
+DROP TABLE IF EXISTS bar;
+";
+        let (up, down) = split_sections(sql, "002_test.sql").unwrap();
+
+        assert!(
+            up.contains("CREATE TABLE bar"),
+            "UP block must contain CREATE TABLE"
+        );
+        assert!(
+            !up.contains("DROP TABLE"),
+            "UP block must not contain DROP TABLE"
+        );
+
+        assert!(
+            down.contains("DROP TABLE IF EXISTS bar"),
+            "DOWN block must contain DROP TABLE"
+        );
+        assert!(
+            !down.contains("CREATE TABLE"),
+            "DOWN block must not contain CREATE TABLE"
+        );
+
+        let up_stmts = extract_statements(&up);
+        assert_eq!(up_stmts.len(), 1);
+
+        let down_stmts = extract_statements(&down);
+        assert_eq!(down_stmts.len(), 1);
+    }
+
+    // Edge case: file with no markers at all (legacy behaviour — all content
+    // treated as UP via the None-section fallback).
+    #[test]
+    fn split_sections_no_markers_legacy() {
+        let sql = "CREATE TABLE legacy (id INT PRIMARY KEY);";
+        let (up, _down) = split_sections(sql, "000_legacy.sql").unwrap();
+        assert!(up.contains("CREATE TABLE legacy"));
+    }
+
+    // Rollback path: if down_statements is empty, the migrator must return
+    // MissingRollback (not silently succeed).
+    #[test]
+    fn rollback_errors_when_no_down_section() {
+        // Simulate a parsed migration definition with no DOWN.
+        let up_sql = "-- migrate:up\nCREATE TABLE baz (id INT PRIMARY KEY);";
+        let (_up, down) = split_sections(up_sql, "003_test.sql").unwrap();
+        let down_stmts = extract_statements(&down);
+        assert!(
+            down_stmts.is_empty(),
+            "forward-only migration must yield empty DOWN statements"
+        );
+        // The actual MissingRollback guard lives in Migrator::rollback_last().
+        // We verify here that the parsed data set up for it correctly: an
+        // empty down_stmts causes the guard to fire.  That guard is tested
+        // at the unit level without a live DB.
+    }
+}

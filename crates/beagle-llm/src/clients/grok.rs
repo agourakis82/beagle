@@ -41,10 +41,24 @@ struct ApiResponse {
 
 impl GrokClient {
     pub fn new() -> Self {
-        let api_key = env::var("XAI_API_KEY").unwrap_or_else(|_| {
-            warn!("XAI_API_KEY não configurada, usando valor vazio (falhará em runtime)");
-            String::new()
-        });
+        Self::new_with_key(String::new())
+    }
+
+    /// Construct a GrokClient with an explicit API key.
+    ///
+    /// If `api_key` is empty the constructor falls back to the `XAI_API_KEY`
+    /// environment variable (so the old zero-argument `new()` still works).
+    /// Callers that hold an explicit key should prefer this constructor so the
+    /// client actually uses it instead of silently re-reading the environment.
+    pub fn new_with_key(api_key: String) -> Self {
+        let api_key = if api_key.is_empty() {
+            env::var("XAI_API_KEY").unwrap_or_else(|_| {
+                warn!("XAI_API_KEY não configurada, usando valor vazio (falhará em runtime)");
+                String::new()
+            })
+        } else {
+            api_key
+        };
 
         let max_retries = env::var("BEAGLE_LLM_MAX_RETRIES")
             .ok()
