@@ -2588,17 +2588,28 @@ async fn quantum_reasoning_handler(
 }
 
 // ── POST /dev/adversarial-compete ────────────────────────────────
-// Real adversarial self-play tournament from beagle_agents::adversarial
-// (CompetitionArena / ResearchPlayer / Strategy). Ported from 9af0bab.
-// Requires an AnthropicClient (from ANTHROPIC_API_KEY) — the arena drives
-// real Claude matches between research strategies.
+// Real adversarial self-play tournament. We keep beagle_agents::adversarial's
+// Strategy/ResearchPlayer for diverse strategy generation + ELO bookkeeping,
+// but drive the actual LLM competition through the project's TieredRouter
+// (Grok / local fleet) — exactly like pcs_reason_handler / llm_complete_handler.
+// No Anthropic key required: matches route through whatever the router selects.
+//
+// Each of `rounds` rounds: every player produces a competing answer to `query`
+// (prompted with its distinct strategy/angle, routed via the router), then a
+// judge prompt scores every answer (0..1) and picks a winner. Per-round ELO is
+// updated pairwise for each player against the round's mean opponent ELO based
+// on whether the player beat the round median judge-score. Final ranking +
+// winner come from the accumulated ELO.
 
 #[derive(Deserialize)]
 struct AdversarialCompeteRequest {
     query: String,
     #[serde(default = "default_player_count")]
     player_count: usize,
+    // Accepted for request-shape compatibility with the iOS client; the
+    // router-driven tournament does not branch on a bracket format.
     #[serde(default)]
+    #[allow(dead_code)]
     format: String,
     #[serde(default = "default_adversarial_rounds")]
     rounds: usize,
@@ -2647,12 +2658,35 @@ fn create_diverse_strategies(count: usize) -> Vec<beagle_agents::Strategy> {
     out
 }
 
+/// Distinct angle/instruction for each research approach so the competing
+/// players actually argue from different stances (not just temperature noise).
+fn strategy_angle(approach: &beagle_agents::ResearchApproach) -> &'static str {
+    use beagle_agents::ResearchApproach;
+    match approach {
+        ResearchApproach::Aggressive => {
+            "Take a bold, contrarian stance. Propose the most novel, high-risk/high-reward \
+             answer and defend it forcefully."
+        }
+        ResearchApproach::Conservative => {
+            "Take a careful, well-grounded stance. Prefer the safest, most defensible answer \
+             with strong evidentiary support and minimal speculation."
+        }
+        ResearchApproach::Exploratory => {
+            "Take a divergent, exploratory stance. Surface non-obvious angles, surprising \
+             connections, and creative possibilities others would miss."
+        }
+        ResearchApproach::Exploitative => {
+            "Take a focused, optimizing stance. Refine the single strongest known line of \
+             reasoning to its sharpest, most actionable form."
+        }
+    }
+}
+
 async fn adversarial_compete_handler(
-    axum::extract::State(_state): axum::extract::State<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<AdversarialCompeteRequest>,
 ) -> Result<Json<AdversarialCompeteResponse>, (StatusCode, String)> {
-    use beagle_agents::{CompetitionArena, ResearchPlayer, TournamentFormat};
-    use beagle_llm::AnthropicClient;
+    use beagle_agents::ResearchPlayer;
 
     if req.player_count < 2 {
         return Err((StatusCode::BAD_REQUEST, "need at least 2 players".into()));
@@ -2660,47 +2694,164 @@ async fn adversarial_compete_handler(
     if req.player_count > 32 {
         return Err((StatusCode::BAD_REQUEST, "too many players (max 32)".into()));
     }
+    let rounds = req.rounds.clamp(1, 10);
 
     info!(
-        "🥊 Adversarial competition: {} players on '{}'",
+        "🥊 Adversarial competition (router-driven): {} players, {} rounds on '{}'",
         req.player_count,
+        rounds,
         truncate_chars(&req.query, 80)
     );
 
-    // The arena requires a real Anthropic client to run matches.
-    let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "ANTHROPIC_API_KEY not configured — adversarial arena needs Claude".to_string(),
-        )
-    })?;
-    let llm = Arc::new(AnthropicClient::new(api_key).map_err(|e| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!("failed to init Anthropic client: {e}"),
-        )
-    })?);
-
-    let format = match req.format.to_lowercase().as_str() {
-        "round-robin" | "rr" => TournamentFormat::RoundRobin,
-        "single-elim" | "bracket" => TournamentFormat::SingleElim,
-        _ => TournamentFormat::Swiss,
-    };
-
-    let arena = CompetitionArena::with_format(Arc::clone(&llm), format);
     let mut players: Vec<ResearchPlayer> = create_diverse_strategies(req.player_count)
         .into_iter()
         .enumerate()
         .map(|(i, s)| ResearchPlayer::new(format!("Player_{i}"), s))
         .collect();
 
-    let tournament = arena
-        .run_tournament(&mut players, &req.query, req.rounds)
-        .await
-        .map_err(|e| {
-            warn!("Tournament failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-        })?;
+    let mut ctx = state.ctx.lock().await;
+    let run_id = "http_adversarial_compete";
+
+    // Real multi-agent competition driven by the TieredRouter (Grok / local
+    // fleet), not a hardcoded Claude client. Each round every player produces a
+    // competing answer (prompted from its distinct strategy), then a judge
+    // scores them 0..1; per-round ELO is updated vs the round median.
+    for round in 0..rounds {
+        info!("Round {}/{}", round + 1, rounds);
+
+        // 1) Each player generates a competing answer via the router.
+        let mut answers: Vec<String> = Vec::with_capacity(players.len());
+        for player in players.iter() {
+            let angle = strategy_angle(&player.strategy.approach);
+            let boldness = player
+                .strategy
+                .parameters
+                .get("boldness")
+                .copied()
+                .unwrap_or(0.5);
+            let prompt = format!(
+                "You are {name}, a research agent competing in an adversarial tournament.\n\
+                 QUERY: {query}\n\n\
+                 YOUR STRATEGY ({approach:?}, boldness {boldness:.2}): {angle}\n\n\
+                 Produce your single best competing answer to the QUERY (max ~180 words). \
+                 Be concrete and persuasive; you are being scored against rival agents on \
+                 novelty, plausibility, and usefulness.",
+                name = player.name,
+                query = req.query,
+                approach = player.strategy.approach,
+                angle = angle,
+                boldness = boldness,
+            );
+
+            let meta = RequestMeta::from_prompt(&prompt);
+            let current_stats = ctx.llm_stats.get_or_create(run_id);
+            let (client, tier) = ctx.router.choose_with_limits(&meta, &current_stats);
+            let text = ctx
+                .router
+                .complete_chosen(&client, tier, &prompt)
+                .await
+                .map_err(|e| {
+                    warn!("Adversarial player completion failed: {e}");
+                    (StatusCode::BAD_GATEWAY, format!("router error: {e}"))
+                })?;
+            let tokens_in_est = (prompt.len() / 4) as u32;
+            let tokens_out_est = (text.len() / 4) as u32;
+            ctx.llm_stats.update(run_id, |stats| match tier {
+                ProviderTier::Grok4Heavy => {
+                    stats.grok4_calls += 1;
+                    stats.grok4_tokens_in += tokens_in_est;
+                    stats.grok4_tokens_out += tokens_out_est;
+                }
+                _ => {
+                    stats.grok3_calls += 1;
+                    stats.grok3_tokens_in += tokens_in_est;
+                    stats.grok3_tokens_out += tokens_out_est;
+                }
+            });
+            answers.push(text);
+        }
+
+        // 2) Judge scores every answer 0..1 via the router (high-quality tier).
+        let mut judge_prompt = format!(
+            "You are an impartial scientific judge in an adversarial research tournament.\n\
+             QUERY: {query}\n\n\
+             Score each competing ANSWER from 0.0 to 1.0 on novelty, plausibility, and \
+             usefulness combined. Be discriminating — do not give everyone the same score.\n\n",
+            query = req.query
+        );
+        for (i, ans) in answers.iter().enumerate() {
+            judge_prompt.push_str(&format!(
+                "ANSWER {i} ({name}):\n{body}\n\n",
+                i = i,
+                name = players[i].name,
+                body = truncate_chars(ans, 1200)
+            ));
+        }
+        judge_prompt.push_str(&format!(
+            "Respond with ONLY a JSON object of the exact shape \
+             {{ \"scores\": [<{n} numbers in 0.0..1.0, one per ANSWER in order>] }}. \
+             No prose, no markdown.",
+            n = players.len()
+        ));
+
+        let mut judge_meta = RequestMeta::from_prompt(&judge_prompt);
+        judge_meta.requires_high_quality = true;
+        judge_meta.critical_section = true;
+        let current_stats = ctx.llm_stats.get_or_create(run_id);
+        let (jclient, jtier) = ctx.router.choose_with_limits(&judge_meta, &current_stats);
+        let judge_text = ctx
+            .router
+            .complete_chosen(&jclient, jtier, &judge_prompt)
+            .await
+            .map_err(|e| {
+                warn!("Adversarial judge completion failed: {e}");
+                (StatusCode::BAD_GATEWAY, format!("judge router error: {e}"))
+            })?;
+        let j_in = (judge_prompt.len() / 4) as u32;
+        let j_out = (judge_text.len() / 4) as u32;
+        ctx.llm_stats.update(run_id, |stats| match jtier {
+            ProviderTier::Grok4Heavy => {
+                stats.grok4_calls += 1;
+                stats.grok4_tokens_in += j_in;
+                stats.grok4_tokens_out += j_out;
+            }
+            _ => {
+                stats.grok3_calls += 1;
+                stats.grok3_tokens_in += j_in;
+                stats.grok3_tokens_out += j_out;
+            }
+        });
+
+        // 3) Parse judge scores (tolerant); fill any gaps with a neutral 0.5.
+        let mut scores: Vec<f64> = parse_first_json_object(&judge_text)
+            .and_then(|v| {
+                v.get("scores").and_then(|s| s.as_array()).map(|arr| {
+                    arr.iter()
+                        .map(|x| x.as_f64().unwrap_or(0.5).clamp(0.0, 1.0))
+                        .collect::<Vec<f64>>()
+                })
+            })
+            .unwrap_or_default();
+        scores.resize(players.len(), 0.5);
+
+        // 4) Turn this round's judge scores into pairwise ELO updates: each
+        // player is graded vs the round median (>= median → win, else loss)
+        // against the mean opponent ELO. Genuinely competitive, judge-driven.
+        let mut sorted = scores.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let median = sorted[sorted.len() / 2];
+        let mean_elo: f64 =
+            players.iter().map(|p| p.elo_rating).sum::<f64>() / players.len() as f64;
+        for (i, player) in players.iter_mut().enumerate() {
+            if scores[i] >= median {
+                player.record_win(mean_elo);
+            } else {
+                player.record_loss(mean_elo);
+            }
+        }
+    }
+
+    drop(ctx);
 
     let champion = players
         .iter()
@@ -2722,25 +2873,22 @@ async fn adversarial_compete_handler(
         .collect();
 
     info!(
-        "✅ Competition complete: champion {} (ELO {:.1}), {} matches",
-        champion.name,
-        champion.elo_rating,
-        tournament.matches.len()
+        "✅ Competition complete: champion {} (ELO {:.1})",
+        champion.name, champion.elo_rating,
     );
 
     Ok(Json(AdversarialCompeteResponse {
         winner: champion.name.clone(),
         agents,
-        rounds: req.rounds,
+        rounds,
         summary: format!(
-            "Champion {} ({:?}) won with ELO {:.1} over {} players in {} {} rounds ({} matches).",
+            "Champion {} ({:?}) won with ELO {:.1} over {} players across {} judged rounds \
+             (routed via the tiered router, not a hardcoded Claude client).",
             champion.name,
             champion.strategy.approach,
             champion.elo_rating,
             players.len(),
-            req.rounds,
-            tournament.format,
-            tournament.matches.len()
+            rounds,
         ),
     }))
 }
@@ -2996,14 +3144,22 @@ async fn hyperedge_storage() -> Result<beagle_hypergraph::PostgresStorage, (Stat
                 "DATABASE_URL not configured — hyperedge store unavailable".to_string(),
             )
         })?;
-    beagle_hypergraph::PostgresStorage::new(&db_url)
+    let storage = beagle_hypergraph::PostgresStorage::new(&db_url)
         .await
         .map_err(|e| {
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 format!("failed to connect hyperedge store: {e}"),
             )
-        })
+        })?;
+    // Ensure the hypergraph schema exists (idempotent; creates tables/extensions on first use).
+    storage.migrate().await.map_err(|e| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("hyperedge schema migrate failed: {e}"),
+        )
+    })?;
+    Ok(storage)
 }
 
 #[derive(Serialize)]
