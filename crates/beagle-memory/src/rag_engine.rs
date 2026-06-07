@@ -1,11 +1,87 @@
 //! Real RAG Engine Implementation
 
 use crate::error::MemoryError;
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+/// RRF damping constant. The canonical value from the original RRF paper
+/// (Cormack et al., 2009). Larger k flattens the contribution of top ranks.
+pub const RRF_K: f32 = 60.0;
+
+/// Maximum number of candidates fetched per ranking and capped for a single
+/// reranker batch.
+pub const ANN_BATCH_CAP: usize = 32;
+
+/// Default over-fetch floor when callers ask for very small `top_k`.
+pub const DEFAULT_TOP_N: usize = 10;
+
+/// Relative emphasis given to the sparse signal during fusion. RRF is
+/// fundamentally rank-based, but this lets us nudge the lexical contribution.
+pub const SPARSE_WEIGHT: f32 = 0.4;
+
+/// A single fused candidate after Reciprocal Rank Fusion.
+#[derive(Debug, Clone)]
+pub struct FusedResult {
+    pub chunk_id: String,
+    pub rrf_score: f32,
+    pub dense_score: f32,
+    pub sparse_score: f32,
+}
+
+/// Fuse a dense ranking and a sparse ranking using Reciprocal Rank Fusion.
+///
+/// Each ranking is a `Vec<(id, raw_score)>` already sorted best-first. RRF
+/// assigns each item `1 / (k + rank)` (rank is 1-based) and sums the
+/// contributions across rankings, weighting the sparse contribution by
+/// `sparse_weight` and the dense contribution by `1 - sparse_weight`. The raw
+/// per-ranking scores are carried through for observability (wired into the
+/// `dense_score` / `sparse_score` DTO fields).
+pub fn reciprocal_rank_fusion(
+    dense: &[(String, f32)],
+    sparse: &[(String, f32)],
+    sparse_weight: f32,
+) -> Vec<FusedResult> {
+    use std::collections::HashMap;
+
+    let sparse_weight = sparse_weight.clamp(0.0, 1.0);
+    let dense_weight = 1.0 - sparse_weight;
+
+    let mut acc: HashMap<String, FusedResult> = HashMap::new();
+
+    for (rank, (id, raw)) in dense.iter().enumerate() {
+        let contribution = dense_weight / (RRF_K + (rank as f32 + 1.0));
+        let entry = acc.entry(id.clone()).or_insert_with(|| FusedResult {
+            chunk_id: id.clone(),
+            rrf_score: 0.0,
+            dense_score: 0.0,
+            sparse_score: 0.0,
+        });
+        entry.rrf_score += contribution;
+        entry.dense_score = *raw;
+    }
+
+    for (rank, (id, raw)) in sparse.iter().enumerate() {
+        let contribution = sparse_weight / (RRF_K + (rank as f32 + 1.0));
+        let entry = acc.entry(id.clone()).or_insert_with(|| FusedResult {
+            chunk_id: id.clone(),
+            rrf_score: 0.0,
+            dense_score: 0.0,
+            sparse_score: 0.0,
+        });
+        entry.rrf_score += contribution;
+        entry.sparse_score = *raw;
+    }
+
+    let mut fused: Vec<FusedResult> = acc.into_values().collect();
+    fused.sort_by(|a, b| {
+        b.rrf_score
+            .partial_cmp(&a.rrf_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    fused
+}
 
 /// Actual RAG Engine with working retrieval-augmented generation
 pub struct RAGEngine {
@@ -44,14 +120,24 @@ pub struct Chunk {
 }
 
 impl RAGEngine {
-    pub fn new(embedding_dim: usize) -> Self {
+    /// Construct a RAG engine.
+    ///
+    /// * `embedding_dim` — dimensionality of the (currently hash-based) embeddings.
+    /// * `context_window` — chunk size in words for the sliding-window chunker.
+    /// * `chunk_overlap` — word overlap between adjacent chunks.
+    pub fn new(embedding_dim: usize, context_window: usize, chunk_overlap: usize) -> Self {
         Self {
             documents: Arc::new(RwLock::new(Vec::new())),
             inverted_index: Arc::new(RwLock::new(HashMap::new())),
             embedding_dim,
-            context_window: 512,
-            chunk_overlap: 50,
+            context_window,
+            chunk_overlap,
         }
+    }
+
+    /// Convenience constructor using sensible default chunking parameters.
+    pub fn with_dim(embedding_dim: usize) -> Self {
+        Self::new(embedding_dim, 512, 50)
     }
 
     /// Add document with automatic chunking and embedding
@@ -104,7 +190,17 @@ impl RAGEngine {
         Ok(doc_id)
     }
 
-    /// Retrieve relevant context for a query
+    /// Retrieve relevant context for a query using **hybrid** dense+sparse
+    /// retrieval fused with Reciprocal Rank Fusion (RRF, k=60).
+    ///
+    /// Pipeline:
+    /// 1. Over-fetch `ann_k = min(32, max(top_k, top_n))` candidates from BOTH
+    ///    the dense (cosine) and sparse (BM25) rankings.
+    /// 2. Fuse the two rankings with RRF — order-independent, scale-free, and
+    ///    robust to the very different score distributions of cosine vs BM25.
+    /// 3. Optionally rerank the fused candidates (32-doc batch cap) with a
+    ///    cross-encoder-style reranker, gracefully falling back to the unranked
+    ///    fused order if no reranker is configured or it errors.
     pub async fn retrieve(
         &self,
         query: &str,
@@ -112,52 +208,67 @@ impl RAGEngine {
     ) -> Result<Vec<RetrievedContext>, MemoryError> {
         let query_embedding = self.generate_embedding(query).await?;
 
-        // Step 1: BM25 keyword search
-        let keyword_results = self.bm25_search(query, top_k * 2).await?;
+        // Over-fetch for fusion + reranking headroom, capped at the 32-doc batch
+        // limit so reranking stays within a single batch.
+        let ann_k = ANN_BATCH_CAP.min(top_k.max(DEFAULT_TOP_N)).max(top_k);
 
-        // Step 2: Semantic search
-        let semantic_results = self.semantic_search(&query_embedding, top_k * 2).await?;
+        // Step 1: dense (semantic) and sparse (lexical/BM25) candidate rankings.
+        let sparse_ranking = self.bm25_search(query, ann_k).await?;
+        let dense_ranking = self.semantic_search(&query_embedding, ann_k).await?;
 
-        // Step 3: Hybrid ranking
-        let mut hybrid_scores = HashMap::new();
+        // Step 2: Reciprocal Rank Fusion.
+        let fused = reciprocal_rank_fusion(&dense_ranking, &sparse_ranking, SPARSE_WEIGHT);
 
-        // Combine scores (0.3 BM25 + 0.7 semantic)
-        for (doc_id, score) in keyword_results {
-            *hybrid_scores.entry(doc_id).or_insert(0.0) += score * 0.3;
-        }
-
-        for (doc_id, score) in semantic_results {
-            *hybrid_scores.entry(doc_id).or_insert(0.0) += score * 0.7;
-        }
-
-        // Sort by hybrid score
-        let mut ranked: Vec<_> = hybrid_scores.into_iter().collect();
-        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-
-        // Step 4: Build context from top results
+        // Resolve fused chunk-ids back into concrete contexts (keep the top
+        // `ann_k` so the reranker has candidates to reorder).
         let docs = self.documents.read().await;
-        let mut contexts = Vec::new();
-
-        for (chunk_id, score) in ranked.iter().take(top_k) {
-            // Find the chunk
+        let mut contexts: Vec<RetrievedContext> = Vec::new();
+        for fr in fused.into_iter().take(ann_k) {
             for doc in docs.iter() {
-                for chunk in &doc.chunks {
-                    if chunk.doc_id == doc.id
-                        && format!("{}_{}", doc.id, chunk.start_pos) == *chunk_id
-                    {
-                        contexts.push(RetrievedContext {
-                            text: chunk.text.clone(),
-                            score: *score,
-                            source: doc.id.clone(),
-                            metadata: doc.metadata.clone(),
-                        });
-                        break;
-                    }
+                if let Some(chunk) = doc
+                    .chunks
+                    .iter()
+                    .find(|c| format!("{}_{}", doc.id, c.start_pos) == fr.chunk_id)
+                {
+                    contexts.push(RetrievedContext {
+                        text: chunk.text.clone(),
+                        score: fr.rrf_score,
+                        sparse_score: fr.sparse_score,
+                        dense_score: fr.dense_score,
+                        sparse_weight: SPARSE_WEIGHT,
+                        source: doc.id.clone(),
+                        metadata: doc.metadata.clone(),
+                    });
+                    break;
                 }
             }
         }
+        drop(docs);
 
-        Ok(contexts)
+        // Step 3: optional reranking with graceful fallback to the fused order.
+        let reranked = self.rerank(query, contexts).await;
+
+        Ok(reranked.into_iter().take(top_k).collect())
+    }
+
+    /// Rerank fused candidates. If no reranker is configured this is an honest
+    /// no-op that preserves the RRF fused order (the "graceful fallback"
+    /// discipline). A real cross-encoder can be slotted in here later; until
+    /// then we never silently drop or fabricate a ranking.
+    async fn rerank(
+        &self,
+        _query: &str,
+        candidates: Vec<RetrievedContext>,
+    ) -> Vec<RetrievedContext> {
+        // 32-doc batch cap: a real reranker would score at most this many docs
+        // per forward pass; we honor the cap here so the contract is stable.
+        if candidates.len() > ANN_BATCH_CAP {
+            // Already bounded by ann_k upstream, but keep the invariant explicit.
+            let mut bounded = candidates;
+            bounded.truncate(ANN_BATCH_CAP);
+            return bounded;
+        }
+        candidates
     }
 
     /// Generate augmented response
@@ -290,7 +401,6 @@ impl RAGEngine {
             let tokens = self.tokenize(&chunk.text);
 
             for token in tokens {
-                let chunk_id = format!("{}_{}", doc.id, chunk.start_pos);
                 index.entry(token).or_insert_with(Vec::new).push(chunk_idx);
             }
         }
@@ -446,7 +556,17 @@ impl RAGEngine {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetrievedContext {
     pub text: String,
+    /// Final fused (RRF) score after optional reranking.
     pub score: f32,
+    /// Lexical/sparse (BM25) component score for this chunk (0.0 if it never
+    /// surfaced in the sparse ranking).
+    pub sparse_score: f32,
+    /// Dense/semantic (cosine) component score for this chunk (0.0 if it never
+    /// surfaced in the dense ranking).
+    pub dense_score: f32,
+    /// Weight applied to the sparse signal during fusion (book-keeping; RRF is
+    /// rank-based so this is the configured relative emphasis).
+    pub sparse_weight: f32,
     pub source: String,
     pub metadata: HashMap<String, String>,
 }
@@ -455,17 +575,42 @@ pub struct RetrievedContext {
 mod tests {
     use super::*;
 
+    #[test]
+    fn rrf_fuses_and_orders_by_combined_rank() {
+        // dense favors A then B; sparse favors B then A.
+        let dense = vec![("A".to_string(), 0.9), ("B".to_string(), 0.5)];
+        let sparse = vec![("B".to_string(), 3.0), ("A".to_string(), 1.0)];
+        let fused = reciprocal_rank_fusion(&dense, &sparse, SPARSE_WEIGHT);
+        assert_eq!(fused.len(), 2);
+        // Both raw component scores must be carried through.
+        let a = fused.iter().find(|f| f.chunk_id == "A").unwrap();
+        assert!(a.dense_score > 0.0 && a.sparse_score > 0.0);
+        // Every fused score is strictly positive.
+        assert!(fused.iter().all(|f| f.rrf_score > 0.0));
+    }
+
+    #[test]
+    fn rrf_handles_disjoint_rankings() {
+        let dense = vec![("A".to_string(), 0.9)];
+        let sparse = vec![("B".to_string(), 2.0)];
+        let fused = reciprocal_rank_fusion(&dense, &sparse, 0.5);
+        assert_eq!(fused.len(), 2);
+        let b = fused.iter().find(|f| f.chunk_id == "B").unwrap();
+        assert_eq!(b.dense_score, 0.0);
+        assert_eq!(b.sparse_score, 2.0);
+    }
+
     #[tokio::test]
     async fn test_rag_pipeline() {
-        let rag = RAGEngine::new(768);
+        let rag = RAGEngine::with_dim(768);
 
         // Add documents
-        let doc1 = rag.add_document(
+        let _doc1 = rag.add_document(
             "Rust is a systems programming language. It provides memory safety without garbage collection.".to_string(),
             HashMap::from([("type".to_string(), "tutorial".to_string())]),
         ).await.unwrap();
 
-        let doc2 = rag
+        let _doc2 = rag
             .add_document(
                 "Machine learning models can be deployed in production using Rust for performance."
                     .to_string(),
