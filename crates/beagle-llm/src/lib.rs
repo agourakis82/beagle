@@ -32,7 +32,7 @@ pub use meta::RequestMeta;
 pub use orchestrator::{
     EnsembleResult, LLMOrchestrator, Provider, ProviderResponse, ProviderStrategy,
 };
-pub use output::LlmOutput;
+pub use output::{LlmOutput, TokenUsage};
 pub use router::BeagleRouter;
 pub use router_tiered::{LlmRoutingConfig, ProviderTier, TieredRouter};
 pub use self_update::SelfUpdateContext;

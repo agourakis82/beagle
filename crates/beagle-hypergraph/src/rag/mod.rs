@@ -20,6 +20,7 @@
 
 pub mod ab_testing;
 pub mod eval;
+pub mod eval_gate;
 pub mod tcr_qf;
 
 use std::collections::{HashMap, HashSet};

@@ -1,5 +1,6 @@
 //! LlmCallsStats - Estatísticas de chamadas LLM
 
+use crate::output::TokenUsage;
 use serde::{Deserialize, Serialize};
 
 /// Estatísticas de chamadas LLM
@@ -94,6 +95,12 @@ impl LlmCallsStats {
                 self.grok3_tokens_out += tokens_out;
             }
         }
+    }
+
+    /// Record a call using a `TokenUsage` (real or estimated).
+    /// This is the preferred entry-point from the HTTP handler when using the metered path.
+    pub fn record_call_usage(&mut self, tier: &str, usage: &TokenUsage) {
+        self.record_call(tier, usage.prompt, usage.completion);
     }
 
     /// Get cost estimate in USD

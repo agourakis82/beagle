@@ -584,6 +584,39 @@ impl TieredRouter {
         }
     }
 
+    /// Like `complete_chosen` but returns `(String, TokenUsage)` so callers can record MEASURED
+    /// token counts rather than estimating via chars/4.
+    ///
+    /// For the Grok client (normal tier) the real usage is captured via its `complete()` override.
+    /// For the Grok4Heavy path we call `chat()` (which cannot easily surface usage from the trait)
+    /// and fall back to a chars/4 estimate with `measured=false`.
+    /// For all other clients we call `complete()` which returns the `LlmOutput` with usage.
+    pub async fn complete_chosen_metered(
+        &self,
+        client: &Arc<dyn LlmClient>,
+        tier: ProviderTier,
+        prompt: &str,
+    ) -> anyhow::Result<(String, crate::output::TokenUsage)> {
+        if tier == ProviderTier::Grok4Heavy && client.name() == "grok" {
+            // Grok heavy path: the trait `chat()` returns String only. Estimate usage.
+            use crate::{ChatMessage, LlmRequest};
+            let req = LlmRequest {
+                model: "grok-4-heavy".to_string(),
+                messages: vec![ChatMessage::user(prompt)],
+                temperature: Some(0.7),
+                max_tokens: Some(8192),
+            };
+            let text = client.chat(req).await?;
+            let usage = crate::output::TokenUsage::estimated(prompt.len(), text.len());
+            Ok((text, usage))
+        } else {
+            // All other clients: `complete()` returns `LlmOutput` which carries usage.
+            // GrokClient overrides `complete()` to capture real measured usage from the API.
+            let output = client.complete(prompt).await?;
+            Ok((output.text, output.usage))
+        }
+    }
+
     /// Single-brain robust completion: pick the best tier for `meta`, try it, and on failure
     /// fall back across the remaining tiers (local fleet → Grok 3 → offline local) with bounded
     /// jittered backoff between attempts. Returns the text, or an error string if everything
