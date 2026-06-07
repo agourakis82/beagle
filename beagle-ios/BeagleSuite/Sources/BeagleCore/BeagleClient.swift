@@ -499,6 +499,85 @@ public actor BeagleClient {
         ], timeout: 120)
     }
 
+    /// Streaming debate: consumes the SSE endpoint and yields incremental events
+    /// (text deltas as agents speak, then a final consolidated TriadResult).
+    /// Falls back through the same multi-URL chain as the non-streaming path.
+    nonisolated public func streamTriad(prompt: String) -> AsyncStream<TriadStreamEvent> {
+        AsyncStream { continuation in
+            let task = Task { [weak self] in
+                guard let self else { continuation.finish(); return }
+
+                let authReady = await self.ensureAuth()
+                guard authReady else {
+                    continuation.yield(.error(await self.authBootstrapError ?? "Auth bootstrap failed"))
+                    continuation.finish()
+                    return
+                }
+
+                // Snapshot actor-isolated state up front so the streaming loop runs
+                // off-actor with Sendable values only. The actor's decoder is a plain
+                // JSONDecoder(); a local one is equivalent and avoids crossing a
+                // non-Sendable JSONDecoder across the actor boundary per frame.
+                let bases = await self.baseURLs
+                let session = await self.session
+                let decoder = JSONDecoder()
+
+                for base in bases {
+                    if Task.isCancelled { break }
+                    // applyAuth mutates an inout request, so build it on the actor.
+                    guard let request = await self.makeDebateStreamRequest(base: base, prompt: prompt) else { continue }
+
+                    do {
+                        let (bytes, response) = try await session.bytes(for: request)
+                        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                            continue // try the next base URL
+                        }
+                        for try await line in bytes.lines {
+                            if Task.isCancelled { break }
+                            // SSE frames look like "data: <payload>"; ignore comments/blanks.
+                            guard line.hasPrefix("data:") else { continue }
+                            let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                            if payload.isEmpty || payload == "[DONE]" { continue }
+                            guard let data = payload.data(using: .utf8) else { continue }
+                            // A full TriadResult frame ends the stream; otherwise it's a delta.
+                            if let final = try? decoder.decode(TriadResult.self, from: data),
+                               final.consensus != nil || final.scores != nil {
+                                continuation.yield(.final(final))
+                            } else if let delta = try? decoder.decode(TriadStreamDelta.self, from: data) {
+                                continuation.yield(.delta(agent: delta.agent, text: delta.text ?? delta.content ?? ""))
+                            } else {
+                                continuation.yield(.delta(agent: nil, text: payload))
+                            }
+                        }
+                        continuation.finish()
+                        return
+                    } catch {
+                        continue // network/parse error → next base URL
+                    }
+                }
+                if !Task.isCancelled {
+                    continuation.yield(.error("Debate stream unreachable on all endpoints."))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Actor-isolated builder so `applyAuth` (which mutates an inout request) runs
+    /// on the actor; returns a Sendable URLRequest for the off-actor stream loop.
+    private func makeDebateStreamRequest(base: URL, prompt: String) -> URLRequest? {
+        guard let url = URL(string: "/dev/debate", relativeTo: base) else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 180
+        applyAuth(&request)
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["topic": prompt, "stream": true])
+        return request
+    }
+
     // MARK: - Round Table (exotic model debate)
 
     /// Orchestrate exotic reasoning crates to debate a topic.
@@ -1189,11 +1268,24 @@ public actor BeagleClient {
     }
 
     /// Real HERMES-style LLM refinement of a captured thought (Wave 2 capture/refine).
-    public func refineThought(text: String, projectSlug: String?, source: String) async -> Truthful<ThoughtRefineResponse> {
+    /// `languageHint` (BCP-47, e.g. "pt-BR") instructs the refiner to keep the
+    /// thought in the user's language instead of translating it to English.
+    public func refineThought(
+        text: String,
+        projectSlug: String?,
+        source: String,
+        languageHint: String? = Locale.current.identifier(.bcp47)
+    ) async -> Truthful<ThoughtRefineResponse> {
         await postEncoded(
             ThoughtRefineResponse.self,
             path: "/api/exocortex/v1/capture/refine",
-            body: ThoughtRefineRequest(rawText: text, projectSlug: projectSlug, sourceSurface: source),
+            body: ThoughtRefineRequest(
+                rawText: text,
+                projectSlug: projectSlug,
+                sourceSurface: source,
+                languageHint: languageHint,
+                preserveLanguage: true
+            ),
             timeout: 60
         )
     }
@@ -1469,10 +1561,20 @@ public actor BeagleClient {
         await post(PCSReasonResult.self, path: "/api/pcs/reason", body: ["symptoms": [query]], timeout: 60)
     }
 
-    public func serendipityDiscover(query: String) async -> Truthful<SerendipityResult> {
+    public func serendipityDiscover(
+        query: String,
+        recallContext: String? = nil
+    ) async -> Truthful<SerendipityResult> {
         // Real beagle-serendipity engine (Wave 1/3). Slow (LLM-backed) — generous timeout.
-        await post(SerendipityResult.self, path: "/api/serendipity/discover",
-                   body: ["focus_project": query], timeout: 120)
+        // When `recallContext` is supplied the engine reuses the caller's already-loaded
+        // recall context instead of re-running its own retrieval pass.
+        var body: [String: any Sendable] = ["focus_project": query]
+        if let recallContext, !recallContext.isEmpty {
+            body["recall_context"] = recallContext
+            body["reuse_context"] = true
+        }
+        return await post(SerendipityResult.self, path: "/api/serendipity/discover",
+                          body: body, timeout: 120)
     }
 
     public func deepThink(prompt: String, depth: Int = 3) async -> Truthful<ChatResponse> {
@@ -1533,6 +1635,25 @@ struct BeagleBackendErrorPayload: Decodable {
     }
 }
 
+// MARK: - Triad streaming (SSE)
+
+/// One event from the streaming debate endpoint.
+public enum TriadStreamEvent: Sendable {
+    /// Incremental text from an agent (agent name when the frame identifies one).
+    case delta(agent: String?, text: String)
+    /// Final consolidated review; the stream ends after this.
+    case final(TriadResult)
+    /// Stream-level failure (auth/network/unreachable).
+    case error(String)
+}
+
+/// A single SSE delta frame from `/dev/debate?stream=true`.
+struct TriadStreamDelta: Decodable, Sendable {
+    let agent: String?
+    let text: String?
+    let content: String?
+}
+
 // MARK: - Wave 2: capture/refine (real LLM thought refinement)
 
 public struct ThoughtRefineResponse: Codable, Sendable {
@@ -1550,9 +1671,15 @@ struct ThoughtRefineRequest: Encodable, Sendable {
     let rawText: String
     let projectSlug: String?
     let sourceSurface: String?
+    /// BCP-47 hint (e.g. "pt-BR") so refinement keeps the user's language.
+    let languageHint: String?
+    /// Explicit flag instructing the backend never to translate the refined text.
+    let preserveLanguage: Bool
     enum CodingKeys: String, CodingKey {
         case rawText = "raw_text"
         case projectSlug = "project_slug"
         case sourceSurface = "source_surface"
+        case languageHint = "language_hint"
+        case preserveLanguage = "preserve_language"
     }
 }

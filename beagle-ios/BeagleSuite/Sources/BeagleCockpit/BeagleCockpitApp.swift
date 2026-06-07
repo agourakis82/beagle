@@ -16,7 +16,12 @@ import BeagleCore
 import BeagleWorkbenchKit
 #if os(iOS)
 import UIKit
+import BackgroundTasks
 #endif
+
+/// Identifier for the overnight dream-consolidation background task.
+/// Must match the `BGTaskSchedulerPermittedIdentifiers` Info.plist entry.
+let beagleDreamTaskIdentifier = "dev.sounio.cockpit.dream"
 
 @main
 struct BeagleCockpitApp: App {
@@ -70,6 +75,12 @@ struct BeagleCockpitApp: App {
                     .preferredColorScheme(.dark)
             }
         }
+        #if os(iOS)
+        .backgroundTask(.appRefresh(beagleDreamTaskIdentifier)) {
+            await runDreamConsolidation()
+            await scheduleDreamConsolidation()
+        }
+        #endif
         #if os(macOS)
         .windowStyle(.automatic)
         .commands {
@@ -90,6 +101,36 @@ struct BeagleCockpitApp: App {
         .menuBarExtraStyle(.window)
         #endif
     }
+
+    // MARK: - Dream consolidation (BGTask)
+
+    #if os(iOS)
+    /// Run an overnight dream-synthesis pass from the background task.
+    /// Reads the latest thoughts/posture from the app stores (MainActor) and
+    /// recombines them via the DreamSynthesisEngine.
+    @MainActor
+    private func runDreamConsolidation() async {
+        guard DreamSynthesisEngine.shared.shouldDreamAgain else { return }
+        await cognitive.refresh()
+        await physio.refresh()
+        await DreamSynthesisEngine.shared.synthesize(
+            thoughts: cognitive.recentThoughts,
+            cognitivePosture: physio.cognitivePosture
+        )
+    }
+
+    /// Submit the next dream-consolidation background refresh request.
+    /// Earliest fire ~8h out so it lands during an overnight/idle window.
+    private func scheduleDreamConsolidation() async {
+        let request = BGAppRefreshTaskRequest(identifier: beagleDreamTaskIdentifier)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 8 * 3600)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            print("[BeagleCockpit] dream BGTask submit failed: \(error)")
+        }
+    }
+    #endif
 
     // MARK: - Deep link handling
 
@@ -174,6 +215,7 @@ struct RootView: View {
     @State private var showCognitiveState = false
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -189,6 +231,27 @@ struct RootView: View {
         }
         .onChange(of: selectedTab) { _, newValue in
             persistedSelectedTab = newValue
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .active:
+                // Returning to foreground (connectivity likely restored):
+                // re-fetch credentials and auto-drain any queued captures/messages.
+                Task {
+                    _ = await BeagleClient.shared.ensureAuth()
+                    await cognitive.drainSharedThoughtQueue()
+                    await cognitive.drainAssistedImportOutbox()
+                }
+            case .background:
+                // Queue the overnight dream-consolidation background task.
+                #if os(iOS)
+                let request = BGAppRefreshTaskRequest(identifier: beagleDreamTaskIdentifier)
+                request.earliestBeginDate = Date(timeIntervalSinceNow: 8 * 3600)
+                try? BGTaskScheduler.shared.submit(request)
+                #endif
+            default:
+                break
+            }
         }
     }
 
@@ -218,8 +281,9 @@ struct RootView: View {
         async let cognitiveTask: () = cognitive.refresh()
         async let physioTask: () = physio.refresh()
         async let sharedQueueTask: () = cognitive.drainSharedThoughtQueue()
+        async let outboxDrainTask: Int = cognitive.drainAssistedImportOutbox()
         async let warmTask: () = FoundationModelsAgent.shared.prewarm()
-        _ = await (catalogTask, cognitiveTask, physioTask, sharedQueueTask, warmTask)
+        _ = await (catalogTask, cognitiveTask, physioTask, sharedQueueTask, outboxDrainTask, warmTask)
         cognitive.activeProjectSlug =
             launchOverrides.projectSlug
             ?? cognitive.activeProjectSlug

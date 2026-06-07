@@ -15,6 +15,7 @@ struct SpatialDeskMissionControlView: View {
     @State private var selectedRoomId: String?
     @State private var commandAnswer: String?
     @State private var commandRunning = false
+    @State private var runningActionId: String?
 
     private var snapshot: MindPalaceSnapshot? { exocortex.mindPalace?.value }
     private var selectedRoom: MindPalaceRoom? {
@@ -72,6 +73,60 @@ struct SpatialDeskMissionControlView: View {
             commandAnswer = result.value?.response ?? result.error ?? "No response from the exocortex."
             commandRunning = false
             commandText = ""
+        }
+    }
+
+    /// Execute an Action Menu item against the real cluster, reusing existing
+    /// store/client methods. Each kind maps to a concrete cognitive action and
+    /// surfaces its result through the shared answer sheet.
+    private func runAction(_ action: SpatialAction) {
+        guard action.enabled, runningActionId == nil else { return }
+        let projectSlug = selectedRoom?.projectSlug ?? "sounio"
+        let intent = "\(action.title). \(action.reason)"
+        runningActionId = action.id
+        Task {
+            switch action.kind {
+            case "open_memory_lens", "review_claim":
+                // Cited recall over the GraphRAG++ hypergraph.
+                let result = await exocortex.queryGraphMemory(
+                    intent,
+                    scope: projectSlug,
+                    maxItems: 6,
+                    mode: "hypermemory_multivector"
+                )
+                commandAnswer = result.value?.summary
+                    ?? result.error
+                    ?? "No memory matched this action."
+            case "focus_intervention":
+                // Log a real focus-coach event, then refresh the palace.
+                let result = await exocortex.recordFocusCoachEvent(
+                    FocusCoachEventRequest(
+                        eventKind: "accept",
+                        interventionId: action.targetRef,
+                        projectSlug: projectSlug,
+                        notes: "Accepted from Spatial Desk Action Menu.",
+                        snoozedMinutes: nil
+                    )
+                )
+                commandAnswer = result.value != nil
+                    ? "Focus intervention recorded · mode \(result.value?.mode ?? "focus")."
+                    : (result.error ?? "Could not record the focus intervention.")
+                await refresh()
+            case "spatial_generation_draft":
+                // Deep-think a spatial generation draft on the cluster.
+                let result = await BeagleClient.shared.deepThink(prompt: intent, depth: 3)
+                commandAnswer = result.value?.response
+                    ?? result.error
+                    ?? "No draft returned."
+            default:
+                // open_workbench / promote_conversation_clip / unknown →
+                // run the action as an exocortex conversation turn.
+                let result = await BeagleClient.shared.chat(prompt: intent, projectSlug: projectSlug)
+                commandAnswer = result.value?.response
+                    ?? result.error
+                    ?? "No response from the exocortex."
+            }
+            runningActionId = nil
         }
     }
 
@@ -271,25 +326,40 @@ struct SpatialDeskMissionControlView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionLabel("Action Menu")
             ForEach(snapshot.actionMenu.actions) { action in
-                HStack(alignment: .top, spacing: 9) {
-                    Image(systemName: actionIcon(action.kind))
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(action.enabled ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
-                        .frame(width: 20)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(action.title)
-                            .font(BeagleFont.caption.font)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(BeagleTheme.textPrimary)
-                        Text(action.reason)
-                            .font(BeagleFont.caption2.font)
-                            .foregroundStyle(BeagleTheme.textSecondary)
-                            .lineLimit(2)
+                Button {
+                    runAction(action)
+                } label: {
+                    HStack(alignment: .top, spacing: 9) {
+                        if runningActionId == action.id {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 20)
+                        } else {
+                            Image(systemName: actionIcon(action.kind))
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(action.enabled ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
+                                .frame(width: 20)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(action.title)
+                                .font(BeagleFont.caption.font)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                            Text(action.reason)
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.textSecondary)
+                                .lineLimit(2)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(BeagleTheme.textTertiary)
                     }
-                    Spacer(minLength: 0)
+                    .padding(9)
+                    .background(BeagleTheme.surface1.opacity(action.enabled ? 0.56 : 0.32), in: RoundedRectangle(cornerRadius: 8))
                 }
-                .padding(9)
-                .background(BeagleTheme.surface1.opacity(action.enabled ? 0.56 : 0.32), in: RoundedRectangle(cornerRadius: 8))
+                .buttonStyle(.plain)
+                .disabled(!action.enabled || runningActionId != nil)
             }
 
             sectionLabel("Focus Coach")
