@@ -159,11 +159,18 @@ impl AppState {
             Arc::new(agent)
         });
 
-        // Initialize Coordinator Agent (parallel multi-agent) if Anthropic available
+        // Initialize Coordinator Agent (parallel multi-agent) if Anthropic available.
+        // #10: CoordinatorAgent routes through the TieredRouter (not a bare client) so
+        // its LLM calls respect tier limits/budgets like Triad does.
+        // beagle-server uses its own crate::config::Config (not beagle_config::BeagleConfig),
+        // so build the router from env auto-detection (claude CLI, API keys) with a safe fallback.
+        let tiered_router = Arc::new(
+            beagle_llm::TieredRouter::new().unwrap_or_else(|_| beagle_llm::TieredRouter::default()),
+        );
         let coordinator_agent = anthropic_client.as_ref().map(|anthropic| {
             let personality = Arc::new(beagle_personality::PersonalityEngine::new());
             let coordinator = CoordinatorAgent::new(
-                anthropic.clone(),
+                tiered_router.clone(),
                 personality.clone(),
                 context_bridge.clone(),
             )
