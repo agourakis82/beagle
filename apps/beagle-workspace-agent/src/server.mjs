@@ -135,8 +135,16 @@ function commandExists(command) {
   const clean = cleanString(command).split(/\s+/)[0];
   if (!clean) return false;
   const quoted = `'${clean.replace(/'/g, "'\\''")}'`;
-  const result = spawnSync("sh", ["-lc", `command -v ${quoted}`], {
+  // Use a non-login shell (sh -c): a login shell sources /etc/profile, which
+  // unconditionally resets PATH and would hide the workspace user-local bin
+  // where the agent CLIs live (codex, kimi, cursor-agent, claude). Inject that
+  // dir explicitly; override with WORKSPACE_AGENT_PROBE_PATH if it moves.
+  const extraPath =
+    process.env.WORKSPACE_AGENT_PROBE_PATH ||
+    "/workspace/.home/openvscode-server/.local/bin";
+  const result = spawnSync("sh", ["-c", `command -v ${quoted}`], {
     stdio: "ignore",
+    env: { ...process.env, PATH: `${extraPath}:${process.env.PATH || ""}` },
   });
   return result.status === 0;
 }

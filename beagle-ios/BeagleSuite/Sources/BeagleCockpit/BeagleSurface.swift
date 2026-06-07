@@ -831,7 +831,11 @@ struct BeagleSurface: View {
         wireConversation()
         exocortex.modelContext = modelContext
         exocortex.loadCachedHome()
+        // Cold-start: refresh the project catalog so slugs/projects survive a fresh launch
+        // (previously catalog only refreshed from the error-banner retry).
+        async let catalogTask: () = catalog.refresh()
         await refreshLivingHome()
+        _ = await catalogTask
     }
 
     private func performNextMove(_ move: HomeNextMove) {

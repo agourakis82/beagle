@@ -2295,12 +2295,17 @@ public struct ScienceJob: Codable, Sendable, Identifiable {
 // MARK: - Triad (ATHENA / HERMES / ARGOS / Judge)
 
 public struct TriadResult: Codable, Sendable {
+    public let runId: String?
     public let athena: TriadAgentOpinion?
     public let hermes: TriadAgentOpinion?
     public let argos: TriadAgentOpinion?
     public let judge: TriadAgentOpinion?
     public let consensus: String?
     public let scores: TriadScores?
+    enum CodingKeys: String, CodingKey {
+        case runId = "run_id"
+        case athena, hermes, argos, judge, consensus, scores
+    }
 }
 
 public struct TriadAgentOpinion: Codable, Sendable {

@@ -35,6 +35,9 @@ public final class CognitiveStore {
     public var isCapturing = false
     public var isReviewingTriad = false
 
+    /// Live, incrementally-streamed debate transcript (SSE). Cleared on each new review.
+    public var triadStreamText = ""
+
     /// Whether beagle-server is reachable.
     public var serverReachable = false
 
@@ -152,7 +155,18 @@ public final class CognitiveStore {
             if let importResult = result.value, importResult.status == "imported" {
                 let atoms = importResult.projection?.atomsCreated ?? 0
                 let episodes = importResult.projection?.episodesCreated ?? 0
-                let refined = "Captured into cluster GraphRAG++ memory (\(episodes) episode, \(atoms) atoms)."
+                // Real HERMES refinement of the thought (Wave 2); falls back to the
+                // import-accounting line if the refine endpoint/provider is unavailable.
+                // Detect the source language up-front and pass it as a preserve-language
+                // hint so Portuguese thoughts stay in Portuguese after refinement.
+                let sourceLanguageHint = TranslationEngine.shared.detectLanguage(text)
+                let refined = await BeagleClient.shared.refineThought(
+                    text: text,
+                    projectSlug: projectSlug,
+                    source: source,
+                    languageHint: sourceLanguageHint
+                ).value?.refinedText
+                    ?? "Captured into cluster GraphRAG++ memory (\(episodes) episode, \(atoms) atoms)."
                 let nodeId = importResult.omnimemory?.id
                     ?? importResult.memoryEvent?.id
                     ?? importResult.auditEvent?.id
@@ -220,6 +234,45 @@ public final class CognitiveStore {
         return thought
     }
 
+    /// Drain queued assisted-import requests back to the cluster when connectivity
+    /// returns. Restricted-privacy items are held until explicit review. Successful
+    /// imports are removed; failures stay queued with an incremented attempt count.
+    /// Returns the number of queued items successfully imported.
+    @discardableResult
+    public func drainAssistedImportOutbox() async -> Int {
+        guard let modelContext else { return 0 }
+        let descriptor = FetchDescriptor<PersistedAssistedImportOutbox>(
+            predicate: #Predicate<PersistedAssistedImportOutbox> { item in
+                item.privacyClass != "restricted"
+            },
+            sortBy: [SortDescriptor(\.createdAt, order: .forward)]
+        )
+        guard let pending = try? modelContext.fetch(descriptor), !pending.isEmpty else { return 0 }
+
+        let decoder = JSONDecoder()
+        var drained = 0
+        for item in pending {
+            guard
+                let data = item.payload.data(using: .utf8),
+                let request = try? decoder.decode(AssistedImportBatchRequest.self, from: data)
+            else {
+                // Undecodable payload — drop it so it can't wedge the queue forever.
+                modelContext.delete(item)
+                continue
+            }
+            let result = await BeagleClient.shared.assistedImportBatch(request)
+            if result.value?.status == "imported" {
+                modelContext.delete(item)
+                drained += 1
+            } else {
+                item.attemptCount += 1
+                item.lastAttemptAt = .now
+            }
+        }
+        try? modelContext.save()
+        return drained
+    }
+
     private func enqueueAssistedImportOutbox(_ request: AssistedImportBatchRequest, reason: String) {
         guard
             let modelContext,
@@ -267,6 +320,46 @@ public final class CognitiveStore {
         isReviewingTriad = true
         defer { isReviewingTriad = false }
 
+        let result = await BeagleClient.shared.runTriad(prompt: draft)
+        lastTriad = result
+        if let triadResult = result.value {
+            lastConsciousnessScore = ConsciousnessMetrics.shared.computePCI(from: triadResult)
+        }
+        return result.value
+    }
+
+    /// Streaming adversarial review: renders the debate transcript incrementally
+    /// via SSE, then returns the final consolidated TriadResult when it arrives.
+    public func streamTriadReview(draft: String) async -> TriadResult? {
+        isReviewingTriad = true
+        triadStreamText = ""
+        defer { isReviewingTriad = false }
+
+        var finalResult: TriadResult?
+        for await event in BeagleClient.shared.streamTriad(prompt: draft) {
+            switch event {
+            case .delta(let agent, let text):
+                if let agent, !agent.isEmpty {
+                    triadStreamText += "\n[\(agent)] \(text)"
+                } else {
+                    triadStreamText += text
+                }
+            case .final(let result):
+                finalResult = result
+            case .error(let message):
+                if triadStreamText.isEmpty {
+                    triadStreamText = message
+                }
+            }
+        }
+
+        if let finalResult {
+            lastTriad = .observed(finalResult, source: "dev-debate-stream")
+            lastConsciousnessScore = ConsciousnessMetrics.shared.computePCI(from: finalResult)
+            return finalResult
+        }
+        // Stream produced text but no structured final frame — fall back to the
+        // non-streaming endpoint so the scores/opinions UI still resolves.
         let result = await BeagleClient.shared.runTriad(prompt: draft)
         lastTriad = result
         if let triadResult = result.value {

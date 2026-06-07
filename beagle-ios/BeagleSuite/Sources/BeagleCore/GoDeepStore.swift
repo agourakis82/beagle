@@ -126,7 +126,39 @@ public final class GoDeepStore {
     public var onResearchUpdate: ((Int, Int, Int) -> Void)?           // (step, total, eta)
     public var onResearchEnd: ((String) -> Void)?                     // (finalStatus)
 
+    /// Fired when a session finishes so the view layer can persist the full
+    /// result (synthesis + per-modality summaries) into PersistedDeepSession.
+    public var onSessionComplete: ((GoDeepPersistencePayload) -> Void)?
+
     public init() {}
+
+    /// Snapshot of a completed Go Deeper session, ready for SwiftData persistence.
+    public struct GoDeepPersistencePayload: Sendable {
+        public let prompt: String
+        public let synthesis: String?
+        /// JSON-encoded `[displayName: summary]` modality results.
+        public let modalityResultsJSON: String?
+        public let modalityCount: Int
+        public let completedAt: Date
+    }
+
+    /// Build the persistence payload from current state (synthesis + resolved modalities).
+    private func makePersistencePayload(prompt: String) -> GoDeepPersistencePayload {
+        var summaries: [String: String] = [:]
+        for state in modalityStates {
+            if let result = state.result {
+                summaries[state.modality.displayName] = result.summary
+            }
+        }
+        let json = (try? JSONEncoder().encode(summaries)).flatMap { String(data: $0, encoding: .utf8) }
+        return GoDeepPersistencePayload(
+            prompt: prompt,
+            synthesis: synthesis,
+            modalityResultsJSON: json,
+            modalityCount: summaries.count,
+            completedAt: .now
+        )
+    }
 
     // MARK: - Thinking Status Messages
 
@@ -145,6 +177,9 @@ public final class GoDeepStore {
 
     public func goDeeper(prompt: String) {
         runTask?.cancel()
+        // Capture any already-loaded recall context (prior session synthesis)
+        // before clearState wipes it, so serendipity can reuse it instead of re-fetching.
+        let cachedContext = synthesis
         clearState()
 
         // Dispatch to quantum path when enabled
@@ -178,7 +213,12 @@ public final class GoDeepStore {
             await withTaskGroup(of: (GoDeepModality, GoDeepResult)?.self) { group in
                 for modality in modalities {
                     group.addTask { [client] in
-                        let result = await Self.executeModality(modality, prompt: prompt, client: client)
+                        let result = await Self.executeModality(
+                            modality,
+                            prompt: prompt,
+                            client: client,
+                            cachedContext: cachedContext
+                        )
                         return (modality, result)
                     }
                 }
@@ -212,6 +252,8 @@ public final class GoDeepStore {
                 self.activeSession = session
                 self.recentSessions.insert(session, at: 0)
                 if self.recentSessions.count > 10 { self.recentSessions.removeLast() }
+                // Persist the full result so it survives app restarts.
+                self.onSessionComplete?(self.makePersistencePayload(prompt: session.prompt))
             }
         }
     }
@@ -221,7 +263,8 @@ public final class GoDeepStore {
     private static func executeModality(
         _ modality: GoDeepModality,
         prompt: String,
-        client: BeagleClient
+        client: BeagleClient,
+        cachedContext: String? = nil
     ) async -> GoDeepResult {
         switch modality {
         case .deepResearch:
@@ -242,7 +285,9 @@ public final class GoDeepStore {
         case .adversarial:
             return .adversarial(await client.adversarialCompete(query: prompt))
         case .serendipity:
-            return .serendipity(await client.serendipityDiscover(query: prompt))
+            // Reuse the already-loaded recall context (prior session synthesis)
+            // so the engine skips a redundant retrieval pass.
+            return .serendipity(await client.serendipityDiscover(query: prompt, recallContext: cachedContext))
         }
     }
 
@@ -473,6 +518,8 @@ public final class GoDeepStore {
                 self.activeSession = session
                 self.recentSessions.insert(session, at: 0)
                 if self.recentSessions.count > 10 { self.recentSessions.removeLast() }
+                // Persist the full result so it survives app restarts.
+                self.onSessionComplete?(self.makePersistencePayload(prompt: session.prompt))
             }
         }
     }
