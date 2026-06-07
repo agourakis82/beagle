@@ -716,145 +716,54 @@ pub fn load() -> BeagleConfig {
 
 // default_data_dir removido - agora usa beagle_data_dir() diretamente
 
-///// Merge de configurações: `base` é mantido, `override_cfg` sobrepõe apenas campos Some
+/// Merge de configurações via Figment com semântica env-wins.
+///
+/// Layering order (lowest → highest priority):
+///   1. `override_cfg` (file/base layer — fallback values)
+///   2. `base` with null/None fields stripped (env layer — wins when set)
+///
+/// Provenance: fields present in `base` (i.e., set from env) override
+/// those in `override_cfg` (i.e., from file). Fields absent in `base`
+/// (env var not set → serialised as JSON null) fall through to `override_cfg`.
 fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig {
-    use model::AdvancedModulesConfig;
+    use figment::{providers::Serialized, Figment};
 
-    BeagleConfig {
-        profile: override_cfg.profile.clone(),
-        safe_mode: override_cfg.safe_mode,
-        api_token: override_cfg.api_token.or(base.api_token),
-        llm: LlmConfig {
-            xai_api_key: override_cfg.llm.xai_api_key.or(base.llm.xai_api_key),
-            anthropic_api_key: override_cfg
-                .llm
-                .anthropic_api_key
-                .or(base.llm.anthropic_api_key),
-            openai_api_key: override_cfg.llm.openai_api_key.or(base.llm.openai_api_key),
-            deepseek_api_key: override_cfg
-                .llm
-                .deepseek_api_key
-                .or(base.llm.deepseek_api_key),
-            zai_api_key: override_cfg.llm.zai_api_key.or(base.llm.zai_api_key),
-            minimax_api_key: override_cfg
-                .llm
-                .minimax_api_key
-                .or(base.llm.minimax_api_key),
-            vllm_url: override_cfg.llm.vllm_url.or(base.llm.vllm_url),
-            deepseek_base_url: override_cfg
-                .llm
-                .deepseek_base_url
-                .or(base.llm.deepseek_base_url),
-            zai_base_url: override_cfg.llm.zai_base_url.or(base.llm.zai_base_url),
-            xai_base_url: override_cfg.llm.xai_base_url.or(base.llm.xai_base_url),
-            minimax_base_url: override_cfg
-                .llm
-                .minimax_base_url
-                .or(base.llm.minimax_base_url),
-            grok_model: if override_cfg.llm.grok_model != default_grok_model() {
-                override_cfg.llm.grok_model
-            } else {
-                base.llm.grok_model
-            },
-            routing: override_cfg.llm.routing.clone(),
-        },
-        storage: StorageConfig {
-            data_dir: override_cfg.storage.data_dir.clone(),
-        },
-        graph: GraphConfig {
-            neo4j_uri: override_cfg.graph.neo4j_uri.or(base.graph.neo4j_uri),
-            neo4j_user: override_cfg.graph.neo4j_user.or(base.graph.neo4j_user),
-            neo4j_password: override_cfg
-                .graph
-                .neo4j_password
-                .or(base.graph.neo4j_password),
-            qdrant_url: override_cfg.graph.qdrant_url.or(base.graph.qdrant_url),
-        },
-        hermes: HermesConfig {
-            database_url: override_cfg
-                .hermes
-                .database_url
-                .or(base.hermes.database_url),
-            redis_url: override_cfg.hermes.redis_url.or(base.hermes.redis_url),
-        },
-        tool_bridge: override_cfg.tool_bridge.clone(),
-        workspace: model::WorkspacePlaneConfig {
-            canonical_workspace_id: if override_cfg.workspace.canonical_workspace_id
-                != model::WorkspacePlaneConfig::default().canonical_workspace_id
-            {
-                override_cfg.workspace.canonical_workspace_id
-            } else {
-                base.workspace.canonical_workspace_id
-            },
-            canonical_repo: if override_cfg.workspace.canonical_repo
-                != model::WorkspacePlaneConfig::default().canonical_repo
-            {
-                override_cfg.workspace.canonical_repo
-            } else {
-                base.workspace.canonical_repo
-            },
-            canonical_branch: if override_cfg.workspace.canonical_branch
-                != model::WorkspacePlaneConfig::default().canonical_branch
-            {
-                override_cfg.workspace.canonical_branch
-            } else {
-                base.workspace.canonical_branch
-            },
-            canonical_track: if override_cfg.workspace.canonical_track
-                != model::WorkspacePlaneConfig::default().canonical_track
-            {
-                override_cfg.workspace.canonical_track
-            } else {
-                base.workspace.canonical_track
-            },
-            operator_name: override_cfg
-                .workspace
-                .operator_name
-                .or(base.workspace.operator_name),
-            default_dev_plane: if override_cfg.workspace.default_dev_plane
-                != model::WorkspacePlaneConfig::default().default_dev_plane
-            {
-                override_cfg.workspace.default_dev_plane
-            } else {
-                base.workspace.default_dev_plane
-            },
-            vm_fallback_role: if override_cfg.workspace.vm_fallback_role
-                != model::WorkspacePlaneConfig::default().vm_fallback_role
-            {
-                override_cfg.workspace.vm_fallback_role
-            } else {
-                base.workspace.vm_fallback_role
-            },
-            promotion_scope: if override_cfg.workspace.promotion_scope
-                != model::WorkspacePlaneConfig::default().promotion_scope
-            {
-                override_cfg.workspace.promotion_scope
-            } else {
-                base.workspace.promotion_scope
-            },
-            bootstrap_enabled: override_cfg.workspace.bootstrap_enabled
-                || base.workspace.bootstrap_enabled,
-        },
-        consumers: model::ConsumerAccessConfig {
-            policy_enabled: override_cfg.consumers.policy_enabled || base.consumers.policy_enabled,
-            operator_token: override_cfg
-                .consumers
-                .operator_token
-                .or(base.consumers.operator_token),
-            research_token: override_cfg
-                .consumers
-                .research_token
-                .or(base.consumers.research_token),
-        },
-        advanced: AdvancedModulesConfig {
-            serendipity_enabled: override_cfg.advanced.serendipity_enabled
-                || base.advanced.serendipity_enabled,
-            serendipity_in_triad: override_cfg.advanced.serendipity_in_triad
-                || base.advanced.serendipity_in_triad,
-            void_enabled: override_cfg.advanced.void_enabled || base.advanced.void_enabled,
-            memory_retrieval_enabled: override_cfg.advanced.memory_retrieval_enabled
-                || base.advanced.memory_retrieval_enabled,
-        },
-        observer: override_cfg.observer.clone(),
+    // Serialize the env-loaded config to a JSON Value so we can strip nulls.
+    // Null/missing values must NOT mask values provided by the file layer.
+    let base_val = serde_json::to_value(&base).unwrap_or(serde_json::Value::Null);
+    let base_non_null = strip_json_nulls(base_val);
+
+    let result = Figment::new()
+        // Layer 1 (lowest): file-provided values as defaults
+        .merge(Serialized::defaults(&override_cfg))
+        // Layer 2 (highest): env-provided values (nulls already removed so
+        // they do not shadow file values)
+        .merge(Serialized::globals(base_non_null));
+
+    result.extract::<BeagleConfig>().unwrap_or(base)
+}
+
+/// Recursively removes JSON null values and empty-null Option fields from a
+/// `serde_json::Value` so that absent env vars do not override file-provided
+/// values in the Figment merge.
+fn strip_json_nulls(val: serde_json::Value) -> serde_json::Value {
+    match val {
+        serde_json::Value::Object(map) => {
+            let filtered = map
+                .into_iter()
+                .filter_map(|(k, v)| {
+                    if v.is_null() {
+                        None
+                    } else {
+                        Some((k, strip_json_nulls(v)))
+                    }
+                })
+                .collect();
+            serde_json::Value::Object(filtered)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(strip_json_nulls).collect())
+        }
+        other => other,
     }
 }

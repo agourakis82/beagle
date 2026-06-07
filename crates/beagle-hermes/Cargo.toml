@@ -71,7 +71,7 @@ beagle-memory.workspace = true
 beagle-hypergraph = { path = "../beagle-hypergraph", default-features = false }
 beagle-db = { path = "../beagle-db", optional = true }
 beagle-core = { path = "../beagle-core" }
-beagle-config = { path = "../beagle-config" }
+beagle-config = { workspace = true }
 beagle-quantum = { path = "../beagle-quantum" }
 beagle-metacog = { path = "../beagle-metacog" }
 beagle-serendipity = { path = "../beagle-serendipity" }

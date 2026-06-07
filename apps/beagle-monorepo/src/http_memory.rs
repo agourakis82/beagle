@@ -79,7 +79,7 @@ pub async fn memory_ingest_chat_handler(
     {
         let result = {
             let ctx = state.ctx.lock().await;
-            ctx.memory_ingest_session(session.clone()).await
+            ctx.memory().ingest_session(session.clone()).await
         };
 
         match result {
@@ -143,7 +143,7 @@ pub async fn memory_query_handler(
     {
         let result = {
             let ctx = state.ctx.lock().await;
-            ctx.memory_query(query.clone()).await
+            ctx.memory().query(query.clone()).await
         };
 
         match result {

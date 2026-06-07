@@ -24,7 +24,7 @@ rand = "0.8"
 async-trait = "0.1"
 thiserror = "2.0"
 
-beagle-config = { path = "../beagle-config" }
+beagle-config = { workspace = true }
 beagle-llm = { path = "../beagle-llm" }
 beagle-core = { path = "../beagle-core" }
 
