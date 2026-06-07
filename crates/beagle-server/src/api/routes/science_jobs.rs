@@ -111,11 +111,11 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/jobs/science/start", post(start_science_job))
         .route(
-            "/api/jobs/science/status/:job_id",
+            "/api/jobs/science/status/{job_id}",
             get(get_science_job_status),
         )
         .route(
-            "/api/jobs/science/:job_id/artifacts",
+            "/api/jobs/science/{job_id}/artifacts",
             get(get_science_job_artifacts),
         )
 }

@@ -49,7 +49,7 @@ reqwest = { version = "0.11", features = ["json"] }
 tonic = "0.10"
 
 # Web framework integration
-axum = { version = "0.7", optional = true }
+axum = { version = "0.8", optional = true }
 tower = { version = "0.4", optional = true }
 
 # Database integration

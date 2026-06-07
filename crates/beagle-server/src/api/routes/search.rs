@@ -67,7 +67,7 @@ pub struct NeighborhoodResponse {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/search/semantic", post(semantic_search))
-        .route("/api/v1/search/neighbors/:id", get(neighborhood))
+        .route("/api/v1/search/neighbors/{id}", get(neighborhood))
 }
 
 /// Busca semântica por embedding.

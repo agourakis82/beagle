@@ -49,26 +49,26 @@ pub fn darwin_hpc_routes() -> Router<AppState> {
         .route("/api/darwin/hpc/control", get(hpc_control_handler))
         .route("/api/darwin/hpc/profiles", get(hpc_profiles_handler))
         .route("/api/darwin/hpc/jobs/submit", post(hpc_job_submit_handler))
-        .route("/api/darwin/hpc/jobs/:job_id", get(hpc_job_status_handler))
+        .route("/api/darwin/hpc/jobs/{job_id}", get(hpc_job_status_handler))
         .route(
-            "/api/darwin/hpc/jobs/:job_id/artifact-manifest",
+            "/api/darwin/hpc/jobs/{job_id}/artifact-manifest",
             get(hpc_job_manifest_handler),
         )
         .route(
-            "/api/darwin/hpc/jobs/:job_id/stdout",
+            "/api/darwin/hpc/jobs/{job_id}/stdout",
             get(hpc_job_stdout_handler),
         )
         .route(
-            "/api/darwin/hpc/jobs/:job_id/stderr",
+            "/api/darwin/hpc/jobs/{job_id}/stderr",
             get(hpc_job_stderr_handler),
         )
         .route("/api/darwin/hpc/results", get(hpc_results_handler))
         .route(
-            "/api/darwin/hpc/results/:job_id",
+            "/api/darwin/hpc/results/{job_id}",
             get(hpc_result_lookup_handler),
         )
         .route(
-            "/api/darwin/hpc/results/:job_id/manifest",
+            "/api/darwin/hpc/results/{job_id}/manifest",
             get(hpc_result_manifest_handler),
         )
         .route("/api/darwin/bridge/execute", post(bridge_execute_handler))

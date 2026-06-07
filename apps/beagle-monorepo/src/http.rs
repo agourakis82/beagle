@@ -96,8 +96,8 @@ pub fn build_router(state: AppState) -> Router {
     let protected_routes = Router::new()
         .route("/api/llm/complete", post(llm_complete_handler))
         .route("/api/pipeline/start", post(pipeline_start_handler))
-        .route("/api/pipeline/status/:run_id", get(pipeline_status_handler))
-        .route("/api/run/:run_id/artifacts", get(run_artifacts_handler))
+        .route("/api/pipeline/status/{run_id}", get(pipeline_status_handler))
+        .route("/api/run/{run_id}/artifacts", get(run_artifacts_handler))
         .route("/api/runs/recent", get(runs_recent_handler))
         .route("/api/observer/physio", post(observer_physio_handler))
         .route("/api/observer/env", post(observer_env_handler))
@@ -110,16 +110,16 @@ pub fn build_router(state: AppState) -> Router {
             get(observer_context_current_handler),
         )
         .route(
-            "/api/observer/context/:run_id",
+            "/api/observer/context/{run_id}",
             get(observer_context_handler),
         )
         .route("/api/jobs/science/start", post(science_job_start_handler))
         .route(
-            "/api/jobs/science/status/:job_id",
+            "/api/jobs/science/status/{job_id}",
             get(science_job_status_handler),
         )
         .route(
-            "/api/jobs/science/:job_id/artifacts",
+            "/api/jobs/science/{job_id}/artifacts",
             get(science_job_artifacts_handler),
         )
         .merge(crate::http_darwin_hpc::darwin_hpc_routes())
