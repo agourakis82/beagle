@@ -85,10 +85,7 @@ COMMENT ON INDEX idx_nodes_device_type_active IS
 -- ───────────────────────────────────────────────────────────────────────
 
 -- Index 8: Edge type filtering
-CREATE INDEX IF NOT EXISTS idx_hyperedges_edge_type
-ON hyperedges (edge_type);
 
-COMMENT ON INDEX idx_hyperedges_edge_type IS
 'Index for hyperedge type filtering';
 
 -- Index 9: Device-based edge queries
@@ -100,7 +97,7 @@ ON hyperedges (device_id);
 -- ───────────────────────────────────────────────────────────────────────
 
 -- Index 10: Node -> Edges lookup (critical for traversal)
--- Query pattern: SELECT edge_id FROM edge_nodes WHERE node_id = ?
+-- Query pattern: SELECT hyperedge_id FROM edge_nodes WHERE node_id = ?
 CREATE INDEX IF NOT EXISTS idx_edge_nodes_node_id
 ON edge_nodes (node_id);
 
@@ -109,14 +106,14 @@ COMMENT ON INDEX idx_edge_nodes_node_id IS
 
 -- Index 11: Edge -> Nodes lookup (reverse direction)
 CREATE INDEX IF NOT EXISTS idx_edge_nodes_edge_id
-ON edge_nodes (edge_id);
+ON edge_nodes (hyperedge_id);
 
 COMMENT ON INDEX idx_edge_nodes_edge_id IS
 'Find all nodes in a hyperedge';
 
 -- Index 12: Composite index for bidirectional traversal
 CREATE INDEX IF NOT EXISTS idx_edge_nodes_composite
-ON edge_nodes (node_id, edge_id);
+ON edge_nodes (node_id, hyperedge_id);
 
 COMMENT ON INDEX idx_edge_nodes_composite IS
 'Composite index for efficient bidirectional queries';
@@ -147,7 +144,6 @@ DROP INDEX IF EXISTS idx_nodes_updated_at;
 DROP INDEX IF EXISTS idx_nodes_content_fts;
 DROP INDEX IF EXISTS idx_nodes_embedding_ivfflat;
 DROP INDEX IF EXISTS idx_nodes_device_type_active;
-DROP INDEX IF EXISTS idx_hyperedges_edge_type;
 DROP INDEX IF EXISTS idx_hyperedges_device;
 DROP INDEX IF EXISTS idx_edge_nodes_edge_id;
 DROP INDEX IF EXISTS idx_edge_nodes_composite;
