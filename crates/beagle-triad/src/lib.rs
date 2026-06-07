@@ -253,7 +253,9 @@ fn load_stage<T: for<'de> Deserialize<'de>>(dir: &std::path::Path, stage: &str) 
 /// para [`run_triad_tournament`] com a etapa EVOLVE desabilitada, de modo que
 /// consumidores atuais não veem mudança alguma (o campo `evolved` será `None`).
 pub async fn run_triad(input: &TriadInput, ctx: &BeagleContext) -> anyhow::Result<TriadReport> {
-    run_triad_tournament(input, ctx, false).await
+    // Legacy entrypoint: no EVOLVE and no checkpoint side-effects — behavior is
+    // identical to before (no files written, never auto-resumes).
+    run_triad_tournament(input, ctx, false, false).await
 }
 
 /// #21B — Tournament generate-debate-EVOLVE com checkpoint/resume (#21C).
@@ -268,18 +270,37 @@ pub async fn run_triad_tournament(
     input: &TriadInput,
     ctx: &BeagleContext,
     enable_evolve: bool,
+    checkpoint: bool,
 ) -> anyhow::Result<TriadReport> {
     info!(
-        "🔍 Iniciando Triad para run_id: {} (evolve={})",
-        input.run_id, enable_evolve
+        "🔍 Iniciando Triad para run_id: {} (evolve={}, checkpoint={})",
+        input.run_id, enable_evolve, checkpoint
     );
 
     let ckpt_dir = checkpoint_dir(ctx, &input.run_id);
-    let resume = !input.run_id.trim().is_empty();
 
     // 1) Ler draft
     let original_draft = std::fs::read_to_string(&input.draft_path)?;
     info!("📄 Draft lido: {} chars", original_draft.len());
+
+    // #21C: checkpoint/resume is OPT-IN. The legacy run_triad passes checkpoint=false,
+    // so it writes NO files and never auto-resumes (behavior unchanged). When on,
+    // resume reuses stages ONLY if the draft+evolve fingerprint matches the stored one
+    // — editing the draft and re-running the same run_id recomputes instead of loading
+    // stale opinions describing the old draft.
+    let draft_fingerprint = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        original_draft.hash(&mut h);
+        enable_evolve.hash(&mut h);
+        format!("{:016x}", h.finish())
+    };
+    let resume = checkpoint
+        && !input.run_id.trim().is_empty()
+        && load_stage::<String>(&ckpt_dir, "meta").as_deref() == Some(draft_fingerprint.as_str());
+    if checkpoint {
+        save_stage(&ckpt_dir, "meta", &draft_fingerprint);
+    }
 
     // 2) ATHENA (agente literatura) — resume se já houver checkpoint
     let athena: TriadOpinion = match resume
@@ -299,7 +320,9 @@ pub async fn run_triad_tournament(
                 op.score,
                 tier.as_str()
             );
-            save_stage(&ckpt_dir, "athena", &op);
+            if checkpoint {
+                save_stage(&ckpt_dir, "athena", &op);
+            }
             op
         }
     };
@@ -321,7 +344,9 @@ pub async fn run_triad_tournament(
                 op.score,
                 tier.as_str()
             );
-            save_stage(&ckpt_dir, "hermes", &op);
+            if checkpoint {
+                save_stage(&ckpt_dir, "hermes", &op);
+            }
             op
         }
     };
@@ -344,7 +369,9 @@ pub async fn run_triad_tournament(
                 op.score,
                 tier.as_str()
             );
-            save_stage(&ckpt_dir, "argos", &op);
+            if checkpoint {
+                save_stage(&ckpt_dir, "argos", &op);
+            }
             op
         }
     };
@@ -376,7 +403,9 @@ pub async fn run_triad_tournament(
                     ev.claims.len(),
                     ev.provider_tier
                 );
-                save_stage(&ckpt_dir, "evolve", &ev);
+                if checkpoint {
+                    save_stage(&ckpt_dir, "evolve", &ev);
+                }
                 Some(ev)
             }
         }
@@ -495,21 +524,32 @@ pub async fn run_evolve(
 
     let (evolved_md, tier) = call_llm_with_stats_triad(ctx, run_id, &prompt, meta).await?;
 
-    // Carrega citações do contexto/fontes (carry-through) + as detectadas no draft.
-    let mut citations = extract_citations(original_draft);
-    citations.extend(extract_citations(&evolved_md));
+    // Pool de citações conhecidas (draft + contexto) usado como fallback de
+    // grounding quando uma claim não traz citação inline própria.
+    let mut draft_level_citations = extract_citations(original_draft);
+    draft_level_citations.extend(extract_citations(&evolved_md));
     if let Some(ctx_sum) = context_summary {
-        citations.extend(extract_citations(ctx_sum));
+        draft_level_citations.extend(extract_citations(ctx_sum));
     }
-    dedup_in_place(&mut citations);
+    dedup_in_place(&mut draft_level_citations);
 
-    // Extrai claims do draft evoluído e marca-as aumentativamente.
+    // Extrai claims do draft evoluído. Grounding é PER-CLAIM: as citações vêm do
+    // texto da própria claim (extract_citations(&claim)); só caem para o pool
+    // draft-level quando a claim não cita nada inline. requires_human_validation
+    // é true por DESIGN (framing aumentativo: nenhuma claim do tournament é
+    // afirmada como fato — todas requerem validação humana/wet-lab).
     let claims = extract_claims(&evolved_md)
         .into_iter()
-        .map(|claim| EvolvedClaim {
-            claim,
-            requires_human_validation: true, // invariante aumentativa
-            citations: citations.clone(),
+        .map(|claim| {
+            let mut per_claim = extract_citations(&claim);
+            if per_claim.is_empty() {
+                per_claim = draft_level_citations.clone();
+            }
+            EvolvedClaim {
+                claim,
+                requires_human_validation: true,
+                citations: per_claim,
+            }
         })
         .collect();
 
@@ -555,6 +595,53 @@ fn extract_citations(text: &str) -> Vec<String> {
     out
 }
 
+/// Divide texto em sentenças sem fragmentar decimais (0.05) nem abreviações
+/// comuns (et al., e.g., i.e., Fig., vs.). Quebra só em `.`/`!`/`?` seguido de
+/// espaço/fim, e não quando o `.` está entre dígitos.
+fn split_sentences(text: &str) -> Vec<String> {
+    const ABBREVS: &[&str] = &[
+        "et al", "e.g", "i.e", "fig", "eq", "vs", "cf", "dr", "al", "no", "ref",
+    ];
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    for i in 0..chars.len() {
+        let c = chars[i];
+        if c != '.' && c != '!' && c != '?' {
+            continue;
+        }
+        let next = chars.get(i + 1).copied();
+        let prev = if i > 0 { chars.get(i - 1).copied() } else { None };
+        // Decimal: dígito.dígito (ex.: 0.05) — não é fim de sentença.
+        if c == '.'
+            && prev.is_some_and(|p| p.is_ascii_digit())
+            && next.is_some_and(|n| n.is_ascii_digit())
+        {
+            continue;
+        }
+        // Fim de sentença só quando seguido de espaço ou fim de string.
+        if next.is_none_or(|n| n.is_whitespace()) {
+            let frag: String = chars[start..=i].iter().collect();
+            let last_word = frag
+                .trim()
+                .rsplit(char::is_whitespace)
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('.')
+                .to_ascii_lowercase();
+            if ABBREVS.iter().any(|a| *a == last_word) {
+                continue; // abreviação — não quebra
+            }
+            out.push(frag);
+            start = i + 1;
+        }
+    }
+    if start < chars.len() {
+        out.push(chars[start..].iter().collect());
+    }
+    out
+}
+
 /// Extrai claims candidatas de um Markdown: frases não-triviais, sem cabeçalhos.
 fn extract_claims(md: &str) -> Vec<String> {
     let mut claims = Vec::new();
@@ -563,10 +650,12 @@ fn extract_claims(md: &str) -> Vec<String> {
         if t.is_empty() || t.starts_with('#') || t.starts_with("```") || t.starts_with('|') {
             continue;
         }
-        // Quebra a linha em sentenças simples por '.' / '!' / '?'.
-        for raw in t.split(['.', '!', '?']) {
+        // Quebra a linha em sentenças (respeitando decimais/abreviações).
+        for raw in split_sentences(t) {
             let s = raw
                 .trim_start_matches(['-', '*', '>', ' '])
+                .trim()
+                .trim_end_matches(['.', '!', '?'])
                 .trim()
                 .to_string();
             // Heurística: claim = sentença com substância (mais de 5 palavras).

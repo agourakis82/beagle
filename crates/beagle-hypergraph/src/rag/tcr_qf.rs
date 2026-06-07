@@ -659,8 +659,11 @@ impl PageRankCalculator {
     ///
     /// `personalization` maps seed node id -> non-negative weight. The vector is
     /// normalized internally; weights for ids not present in the graph are
-    /// ignored. When the (effective) personalization vector is empty this is
-    /// mathematically identical to uniform [`PageRankCalculator::compute`].
+    /// ignored. When the (effective) personalization vector is empty this is the
+    /// standard uniform PageRank WITH proper dangling-mass redistribution — i.e.
+    /// the correct uniform PageRank. NOTE: it is therefore NOT bit-identical to
+    /// the previous `compute()` for graphs containing dangling nodes (the old
+    /// code leaked their rank); for graphs without dangling nodes the scores match.
     pub fn compute_personalized(
         &self,
         graph: &GraphStructure,
