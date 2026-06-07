@@ -11,7 +11,7 @@ use crate::{LlmClient, RequestMeta};
 use beagle_config::BeagleConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Tier de provider LLM
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -208,6 +208,9 @@ pub struct TieredRouter {
     /// Per-tier circuit breaker (#13): a tier that fails repeatedly is skipped for a cooldown so a
     /// dead provider isn't retried on every request.
     pub breaker: Arc<crate::resilience::CircuitBreaker>,
+    /// Gateway exact-match response cache (#14): opt-in bounded LRU+TTL cache checked before
+    /// calling any provider. Disabled when capacity=0 (default unless BEAGLE_CACHE_SIZE is set).
+    pub cache: Arc<crate::cache::ResponseCache>,
     pub cfg: LlmRoutingConfig,
 }
 
@@ -229,6 +232,7 @@ impl TieredRouter {
                 5,
                 std::time::Duration::from_secs(30),
             )),
+            cache: Arc::new(crate::cache::ResponseCache::new(0, std::time::Duration::from_secs(300))),
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -370,6 +374,7 @@ impl TieredRouter {
                 5,
                 std::time::Duration::from_secs(30),
             )),
+            cache: Arc::new(crate::cache::ResponseCache::from_env()),
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -638,9 +643,18 @@ impl TieredRouter {
     ) -> String {
         use crate::{ChatMessage, LlmRequest};
 
+        // ── #14 Cache check ─────────────────────────────────────────────────────────
+        // Primary tier drives the key so different tier choices for the same prompt are
+        // cached independently (they may return different outputs).
+        let (pc, pt) = self.choose(meta);
+        let cache_key = crate::cache::ResponseCache::make_key(pt.as_str(), prompt, temperature, max_tokens);
+        if let Some(cached) = self.cache.get(cache_key) {
+            debug!("Router: cache hit for tier={} prompt_len={}", pt.as_str(), prompt.len());
+            return cached;
+        }
+
         // Ordered attempt chain: the meta-chosen primary, then the standard fallbacks. Dedup so
         // we never retry the identical client instance back-to-back.
-        let (pc, pt) = self.choose(meta);
         let mut chain: Vec<(Arc<dyn LlmClient>, ProviderTier)> = vec![(pc, pt)];
         if let Some(ref f) = self.fleet {
             chain.push((f.clone(), ProviderTier::LocalFallback));
@@ -662,16 +676,9 @@ impl TieredRouter {
                 if Arc::ptr_eq(client, &chain[0].0) {
                     continue; // same instance as the primary we already tried
                 }
-                // bounded exponential backoff with jitter (cap 30s)
-                let base = (250u64.saturating_mul(1u64 << (i as u32).min(6))).min(30_000);
-                let jitter = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| (d.subsec_nanos() as u64) % (base / 2 + 1))
-                    .unwrap_or(0);
-                tokio::time::sleep(std::time::Duration::from_millis(
-                    (base + jitter).min(30_000),
-                ))
-                .await;
+                // #13 bounded jittered exponential backoff via resilience helper (base 250ms, cap 30s)
+                let delay = crate::resilience::backoff_duration(i as u32, 250, 30_000);
+                tokio::time::sleep(delay).await;
             }
 
             let res = if temperature.is_some() || max_tokens.is_some() {
@@ -695,6 +702,8 @@ impl TieredRouter {
             match res {
                 Ok(t) => {
                     self.breaker.record_success(bkey);
+                    // #14 Populate cache on success.
+                    self.cache.insert(cache_key, t.clone());
                     return t;
                 }
                 Err(e) => {

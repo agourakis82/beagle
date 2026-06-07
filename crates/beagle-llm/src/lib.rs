@@ -8,6 +8,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+pub mod cache;
 pub mod clients;
 pub mod meta;
 pub mod orchestrator;
@@ -20,6 +21,7 @@ pub mod self_update;
 pub mod stats;
 pub mod tier;
 
+pub use cache::ResponseCache;
 pub use clients::claude::{ClaudeClient, ClaudeModel};
 pub use clients::claude_cli::ClaudeCliClient;
 pub use clients::copilot::{CopilotClient, CopilotModel};
