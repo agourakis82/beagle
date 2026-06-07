@@ -50,6 +50,9 @@ beagle-search = { path = "../../crates/beagle-search" }
 beagle-latex = { path = "../../crates/beagle-latex" }
 beagle-exocortex = { path = "../../crates/beagle-exocortex" }
 beagle-checkpoint = { path = "../../crates/beagle-checkpoint" }
+beagle-agents = { path = "../../crates/beagle-agents" }
+beagle-worldmodel = { path = "../../crates/beagle-worldmodel" }
+beagle-hypergraph = { path = "../../crates/beagle-hypergraph" }
 # beagle-void e beagle-ontic comentados temporariamente (requerem dependências adicionais)
 # beagle-void = { path = "../../crates/beagle-void" }
 # beagle-ontic = { path = "../../crates/beagle-ontic" }

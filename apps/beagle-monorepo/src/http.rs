@@ -144,6 +144,19 @@ pub fn build_router(state: AppState) -> Router {
         .route("/dev/neurosymbolic", post(go_deep_generic_handler))
         .route("/dev/causal", post(go_deep_generic_handler))
         .route("/dev/debate", post(go_deep_debate_handler))
+        // Wave 3 — restored reasoning engines
+        .route("/dev/quantum-reasoning", post(quantum_reasoning_handler))
+        .route("/dev/adversarial-compete", post(adversarial_compete_handler))
+        .route("/dev/causal/intervention", post(causal_intervention_handler))
+        .route(
+            "/api/worldmodel/counterfactual",
+            post(worldmodel_counterfactual_handler),
+        )
+        .route(
+            "/api/hyperedges",
+            get(hyperedges_list_handler).post(hyperedges_create_handler),
+        )
+        .route("/api/v1/feedback", post(feedback_handler))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             api_token_auth,
@@ -2280,39 +2293,868 @@ async fn go_deep_generic_handler(
 }
 
 async fn go_deep_debate_handler(
-    axum::extract::State(_state): axum::extract::State<AppState>,
+    axum::extract::State(state): axum::extract::State<AppState>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    use beagle_llm::{GrokClient, LlmClient};
+    // Real Triad debate via beagle_triad::run_triad (ATHENA/HERMES/ARGOS/Judge,
+    // each routed through the TieredRouter inside the crate). We mint a real
+    // run_id so iOS feedback can correlate via POST /api/v1/feedback.
 
     let topic = body
         .get("topic")
+        .or_else(|| body.get("prompt"))
         .and_then(|v| v.as_str())
-        .unwrap_or("no topic");
-    tracing::info!("🥊 /dev/debate — topic: {}", truncate_chars(topic, 80));
-
-    let client = GrokClient::new();
-    let prompt = format!(
-        "You are running a Triad adversarial debate with three agents (ATHENA research specialist, HERMES communication expert, ARGOS critical reviewer) and a JUDGE.\n\nTopic: {}\n\nProvide a JSON response with: athena ({{opinion, confidence}}), hermes ({{opinion, confidence}}), argos ({{opinion, confidence}}), judge ({{opinion, confidence}}), consensus (string), scores ({{athena, hermes, argos, judge}} as floats 0-1).",
-        topic
+        .unwrap_or("no topic")
+        .to_string();
+    let run_id = format!("debate_{}", Uuid::new_v4());
+    info!(
+        "🥊 /dev/debate (run_id={}) — topic: {}",
+        run_id,
+        truncate_chars(&topic, 80)
     );
 
-    match client.complete(&prompt).await {
-        Ok(output) => {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&output.text) {
-                Ok(Json(parsed))
+    // run_triad reads a draft from disk; seed one with the topic as the draft
+    // under BEAGLE_DATA_DIR so the Triad has material to critique.
+    let data_dir = beagle_data_dir();
+    let debate_dir = data_dir.join("debate").join(&run_id);
+    if let Err(e) = std::fs::create_dir_all(&debate_dir) {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    }
+    let draft_path = debate_dir.join("draft.md");
+    let seed_draft = format!(
+        "# Debate Topic\n\n{}\n\nProvide a rigorous, well-structured analysis of this topic.\n",
+        topic
+    );
+    if let Err(e) = std::fs::write(&draft_path, &seed_draft) {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    }
+
+    let triad_input = TriadInput {
+        run_id: run_id.clone(),
+        draft_path,
+        context_summary: Some(format!("Debate topic: {}", topic)),
+    };
+
+    let ctx = state.ctx.lock().await;
+    let report = match run_triad(&triad_input, &ctx).await {
+        Ok(r) => r,
+        Err(e) => {
+            error!("Triad debate failed (run_id={}): {}", run_id, e);
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+        }
+    };
+    drop(ctx);
+
+    // Map the three opinions to named agents for the iOS TriadResult shape.
+    let find = |agent: &str| report.opinions.iter().find(|o| o.agent.eq_ignore_ascii_case(agent));
+    let athena = find("ATHENA");
+    let hermes = find("HERMES");
+    let argos = find("ARGOS");
+    let opinion_json = |o: Option<&beagle_triad::TriadOpinion>| match o {
+        Some(o) => serde_json::json!({
+            "agent": o.agent,
+            "opinion": o.summary,
+            "confidence": o.score,
+        }),
+        None => serde_json::json!(null),
+    };
+
+    let athena_score = athena.map(|o| o.score).unwrap_or(0.0);
+    let hermes_score = hermes.map(|o| o.score).unwrap_or(0.0);
+    let argos_score = argos.map(|o| o.score).unwrap_or(0.0);
+    let judge_score = ((athena_score + hermes_score + argos_score) / 3.0).clamp(0.0, 1.0);
+
+    Ok(Json(serde_json::json!({
+        "run_id": run_id,
+        "athena": opinion_json(athena),
+        "hermes": opinion_json(hermes),
+        "argos": opinion_json(argos),
+        "judge": {
+            "agent": "JUDGE",
+            "opinion": report.final_draft,
+            "confidence": judge_score,
+        },
+        "consensus": report.final_draft,
+        "scores": {
+            "athena": athena_score,
+            "hermes": hermes_score,
+            "argos": argos_score,
+            "judge": judge_score,
+        },
+    })))
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Wave 3 — RESTORED reasoning engines (quantum, adversarial, causal,
+// worldmodel counterfactual, hyperedges, debate-via-triad, feedback).
+// Ported from the retired beagle-server endpoints onto their real engine
+// crates and wired into the authenticated route group.
+// ════════════════════════════════════════════════════════════════════════
+
+// ── POST /dev/quantum-reasoning ──────────────────────────────────
+// Real quantum-inspired reasoning: superposition + interference + measurement
+// from beagle_agents::quantum. Ported from a0c4d8e quantum_endpoint.rs.
+
+#[derive(Deserialize)]
+struct QuantumHypothesisInput {
+    content: String,
+    #[serde(default = "default_initial_probability")]
+    initial_probability: f64,
+    #[serde(default)]
+    confidence: f64,
+    #[serde(default)]
+    source: String,
+}
+
+fn default_initial_probability() -> f64 {
+    0.5
+}
+
+#[derive(Deserialize)]
+struct QuantumReasoningRequest {
+    hypotheses: Vec<QuantumHypothesisInput>,
+    #[serde(default)]
+    correlation_matrix: Option<Vec<Vec<f64>>>,
+    #[serde(default = "default_quantum_threshold")]
+    threshold: f64,
+    #[serde(default = "default_interference_strength")]
+    interference_strength: f64,
+    #[serde(default)]
+    probabilistic: bool,
+    #[serde(default)]
+    apply_decoherence: bool,
+}
+
+fn default_quantum_threshold() -> f64 {
+    0.15
+}
+
+fn default_interference_strength() -> f64 {
+    1.0
+}
+
+#[derive(Serialize)]
+struct QuantumRankedHypothesis {
+    content: String,
+    probability: f64,
+    confidence: f64,
+}
+
+#[derive(Serialize)]
+struct QuantumMetadata {
+    total_hypotheses: usize,
+    interference_applied: bool,
+    decoherence_applied: bool,
+    processing_time_ms: u64,
+}
+
+#[derive(Serialize)]
+struct QuantumReasoningResponse {
+    selected_hypothesis: String,
+    probability: f64,
+    ranked_hypotheses: Vec<QuantumRankedHypothesis>,
+    alternatives: Vec<QuantumRankedHypothesis>,
+    metadata: QuantumMetadata,
+}
+
+async fn quantum_reasoning_handler(
+    axum::extract::State(_state): axum::extract::State<AppState>,
+    Json(req): Json<QuantumReasoningRequest>,
+) -> Result<Json<QuantumReasoningResponse>, (StatusCode, String)> {
+    use beagle_agents::{
+        HypothesisMetadata, InterferenceEngine, MeasurementOperator, SuperpositionState,
+    };
+
+    let start = std::time::Instant::now();
+    info!(
+        "🌀 Quantum reasoning request with {} hypotheses",
+        req.hypotheses.len()
+    );
+
+    if req.hypotheses.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "empty hypotheses".into()));
+    }
+    if req.hypotheses.len() > 100 {
+        return Err((StatusCode::BAD_REQUEST, "too many hypotheses (max 100)".into()));
+    }
+
+    // Build superposition state with all hypotheses.
+    let mut superposition = SuperpositionState::new();
+    for (i, hyp) in req.hypotheses.iter().enumerate() {
+        let metadata = HypothesisMetadata {
+            source: if hyp.source.is_empty() {
+                "user".to_string()
             } else {
-                Ok(Json(serde_json::json!({
-                    "athena": {"opinion": output.text, "confidence": 0.7},
-                    "hermes": {"opinion": "See ATHENA analysis", "confidence": 0.6},
-                    "argos": {"opinion": "Pending review", "confidence": 0.5},
-                    "consensus": output.text,
-                    "scores": {"athena": 0.7, "hermes": 0.6, "argos": 0.5, "judge": 0.6}
-                })))
+                hyp.source.clone()
+            },
+            confidence: hyp.confidence,
+            evidence_count: 0,
+            created_at: i as f64,
+        };
+        superposition.add_hypothesis(
+            hyp.content.clone(),
+            hyp.initial_probability.clamp(0.001, 0.999),
+            metadata,
+        );
+    }
+    superposition.normalize();
+
+    // Apply interference (custom matrix, or auto-generated for small sets).
+    let mut interference_applied = false;
+    if req.hypotheses.len() > 1 {
+        let mut engine = InterferenceEngine::with_strength(req.interference_strength);
+        if let Some(matrix) = &req.correlation_matrix {
+            if matrix.len() == req.hypotheses.len()
+                && matrix.iter().all(|row| row.len() == req.hypotheses.len())
+            {
+                engine.apply_global_interference(&mut superposition, matrix);
+                interference_applied = true;
+            } else {
+                warn!("Invalid correlation matrix dimensions, skipping interference");
+            }
+        } else if req.hypotheses.len() <= 10 {
+            let n = req.hypotheses.len();
+            let mut auto_matrix = vec![vec![0.0; n]; n];
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    let correlation = if j == i + 1 { 0.3 } else { 0.0 };
+                    auto_matrix[i][j] = correlation;
+                    auto_matrix[j][i] = correlation;
+                }
+            }
+            engine.apply_global_interference(&mut superposition, &auto_matrix);
+            interference_applied = true;
+        }
+    }
+
+    // Optional decoherence before measurement.
+    let mut decoherence_applied = false;
+    if req.apply_decoherence {
+        let op = MeasurementOperator::with_decoherence(req.threshold, 0.1);
+        op.apply_decoherence(&mut superposition, 5.0);
+        decoherence_applied = true;
+    }
+
+    // Measurement / wavefunction collapse.
+    let op = MeasurementOperator::new(req.threshold);
+    let measurement = if req.probabilistic {
+        op.probabilistic_collapse(&mut superposition)
+    } else {
+        op.collapse(&mut superposition)
+    };
+    let result = measurement.ok_or((
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "no viable hypothesis above threshold".to_string(),
+    ))?;
+
+    let ranked_hypotheses: Vec<QuantumRankedHypothesis> = superposition
+        .get_ranked_hypotheses()
+        .iter()
+        .map(|(content, prob, _)| QuantumRankedHypothesis {
+            content: content.clone(),
+            probability: *prob,
+            confidence: *prob,
+        })
+        .collect();
+
+    let alternatives: Vec<QuantumRankedHypothesis> = result
+        .collapsed_alternatives
+        .iter()
+        .map(|(content, prob)| QuantumRankedHypothesis {
+            content: content.clone(),
+            probability: *prob,
+            confidence: *prob,
+        })
+        .collect();
+
+    let elapsed = start.elapsed().as_millis() as u64;
+    info!(
+        "✅ Quantum reasoning in {}ms: '{}' (p={:.3})",
+        elapsed, result.selected_hypothesis, result.probability
+    );
+
+    Ok(Json(QuantumReasoningResponse {
+        selected_hypothesis: result.selected_hypothesis,
+        probability: result.probability,
+        ranked_hypotheses,
+        alternatives,
+        metadata: QuantumMetadata {
+            total_hypotheses: req.hypotheses.len(),
+            interference_applied,
+            decoherence_applied,
+            processing_time_ms: elapsed,
+        },
+    }))
+}
+
+// ── POST /dev/adversarial-compete ────────────────────────────────
+// Real adversarial self-play tournament from beagle_agents::adversarial
+// (CompetitionArena / ResearchPlayer / Strategy). Ported from 9af0bab.
+// Requires an AnthropicClient (from ANTHROPIC_API_KEY) — the arena drives
+// real Claude matches between research strategies.
+
+#[derive(Deserialize)]
+struct AdversarialCompeteRequest {
+    query: String,
+    #[serde(default = "default_player_count")]
+    player_count: usize,
+    #[serde(default)]
+    format: String,
+    #[serde(default = "default_adversarial_rounds")]
+    rounds: usize,
+}
+
+fn default_player_count() -> usize {
+    4
+}
+
+fn default_adversarial_rounds() -> usize {
+    3
+}
+
+#[derive(Serialize)]
+struct AdversarialAgentInfo {
+    name: String,
+    score: f64,
+    strategy: String,
+}
+
+#[derive(Serialize)]
+struct AdversarialCompeteResponse {
+    winner: String,
+    agents: Vec<AdversarialAgentInfo>,
+    rounds: usize,
+    summary: String,
+}
+
+fn create_diverse_strategies(count: usize) -> Vec<beagle_agents::Strategy> {
+    use beagle_agents::Strategy;
+    let base = vec![
+        Strategy::new_aggressive(),
+        Strategy::new_conservative(),
+        Strategy::new_exploratory(),
+        Strategy::new_exploitative(),
+    ];
+    let mut out = Vec::new();
+    for i in 0..count {
+        let b = &base[i % base.len()];
+        if i < base.len() {
+            out.push(b.clone());
+        } else {
+            out.push(b.mutate());
+        }
+    }
+    out
+}
+
+async fn adversarial_compete_handler(
+    axum::extract::State(_state): axum::extract::State<AppState>,
+    Json(req): Json<AdversarialCompeteRequest>,
+) -> Result<Json<AdversarialCompeteResponse>, (StatusCode, String)> {
+    use beagle_agents::{CompetitionArena, ResearchPlayer, TournamentFormat};
+    use beagle_llm::AnthropicClient;
+
+    if req.player_count < 2 {
+        return Err((StatusCode::BAD_REQUEST, "need at least 2 players".into()));
+    }
+    if req.player_count > 32 {
+        return Err((StatusCode::BAD_REQUEST, "too many players (max 32)".into()));
+    }
+
+    info!(
+        "🥊 Adversarial competition: {} players on '{}'",
+        req.player_count,
+        truncate_chars(&req.query, 80)
+    );
+
+    // The arena requires a real Anthropic client to run matches.
+    let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ANTHROPIC_API_KEY not configured — adversarial arena needs Claude".to_string(),
+        )
+    })?;
+    let llm = Arc::new(AnthropicClient::new(api_key).map_err(|e| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("failed to init Anthropic client: {e}"),
+        )
+    })?);
+
+    let format = match req.format.to_lowercase().as_str() {
+        "round-robin" | "rr" => TournamentFormat::RoundRobin,
+        "single-elim" | "bracket" => TournamentFormat::SingleElim,
+        _ => TournamentFormat::Swiss,
+    };
+
+    let arena = CompetitionArena::with_format(Arc::clone(&llm), format);
+    let mut players: Vec<ResearchPlayer> = create_diverse_strategies(req.player_count)
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| ResearchPlayer::new(format!("Player_{i}"), s))
+        .collect();
+
+    let tournament = arena
+        .run_tournament(&mut players, &req.query, req.rounds)
+        .await
+        .map_err(|e| {
+            warn!("Tournament failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
+
+    let champion = players
+        .iter()
+        .max_by(|a, b| {
+            a.elo_rating
+                .partial_cmp(&b.elo_rating)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .cloned()
+        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "no players".to_string()))?;
+
+    let agents: Vec<AdversarialAgentInfo> = players
+        .iter()
+        .map(|p| AdversarialAgentInfo {
+            name: p.name.clone(),
+            score: p.elo_rating,
+            strategy: format!("{:?}", p.strategy.approach),
+        })
+        .collect();
+
+    info!(
+        "✅ Competition complete: champion {} (ELO {:.1}), {} matches",
+        champion.name,
+        champion.elo_rating,
+        tournament.matches.len()
+    );
+
+    Ok(Json(AdversarialCompeteResponse {
+        winner: champion.name.clone(),
+        agents,
+        rounds: req.rounds,
+        summary: format!(
+            "Champion {} ({:?}) won with ELO {:.1} over {} players in {} {} rounds ({} matches).",
+            champion.name,
+            champion.strategy.approach,
+            champion.elo_rating,
+            players.len(),
+            req.rounds,
+            tournament.format,
+            tournament.matches.len()
+        ),
+    }))
+}
+
+// ── POST /dev/causal/intervention & /api/worldmodel/counterfactual ─
+// Both back onto beagle_worldmodel::CounterfactualReasoner. The iOS app
+// sends free text; we parse a structured Intervention out of it, run the
+// abduction-action-prediction loop, and summarize the resulting WorldState.
+
+/// Parse free-text like "increase temperature to 25, reduce pressure by 3"
+/// into a structured beagle_worldmodel::Intervention with numeric targets,
+/// plus a seeded WorldState carrying those variables so the reasoner has
+/// something to intervene on.
+fn parse_intervention_freetext(
+    text: &str,
+) -> (
+    beagle_worldmodel::Intervention,
+    beagle_worldmodel::WorldState,
+) {
+    use beagle_worldmodel::counterfactual::InterventionTarget;
+    use beagle_worldmodel::state::{BeliefState, Entity, EntityType, Properties};
+    use beagle_worldmodel::{Intervention, WorldState};
+
+    let mut intervention = Intervention::default();
+    let mut props = Properties::new();
+
+    // Heuristic numeric extraction: look for "<verb> <var> ... <number>".
+    // We scan tokens and pair the nearest preceding alphabetic word with each
+    // number, choosing SetValue/Shift/Scale from nearby verbs.
+    let lower = text.to_lowercase();
+    let tokens: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric() && c != '.' && c != '-').filter(|t| !t.is_empty()).collect();
+
+    let mut last_word: Option<String> = None;
+    let mut verb_scale = false;
+    let mut verb_shift = false;
+    for tok in &tokens {
+        match *tok {
+            "scale" | "multiply" | "double" | "triple" => verb_scale = true,
+            "increase" | "raise" | "add" | "boost" => {
+                verb_shift = true;
+            }
+            "decrease" | "reduce" | "lower" | "drop" | "cut" => {
+                verb_shift = true;
+            }
+            _ => {}
+        }
+        if let Ok(num) = tok.parse::<f64>() {
+            if let Some(var) = last_word.clone() {
+                let target = if verb_scale {
+                    InterventionTarget::Scale(num)
+                } else if verb_shift {
+                    InterventionTarget::Shift(num)
+                } else {
+                    InterventionTarget::SetValue(num)
+                };
+                // Seed the world with a baseline value so Shift/Scale have an effect.
+                props.set_number(var.clone(), 1.0);
+                intervention.targets.insert(var, target);
+                verb_scale = false;
+                verb_shift = false;
+            }
+        } else if tok.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false) {
+            // Track candidate variable names (skip common verbs/stopwords).
+            if !matches!(
+                *tok,
+                "to" | "by" | "the" | "a" | "of" | "and" | "with" | "for" | "what" | "if"
+                    | "scale" | "multiply" | "increase" | "raise" | "add" | "decrease"
+                    | "reduce" | "lower" | "drop" | "cut" | "double" | "triple" | "boost"
+            ) {
+                last_word = Some((*tok).to_string());
             }
         }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
+
+    // Fallback: if no targets parsed, set a generic "outcome" variable so the
+    // reasoner still produces a non-trivial counterfactual world.
+    if intervention.targets.is_empty() {
+        props.set_number("outcome".to_string(), 1.0);
+        intervention
+            .targets
+            .insert("outcome".to_string(), InterventionTarget::SetValue(0.0));
+    }
+
+    let mut state = WorldState::new();
+    let entity = Entity {
+        id: uuid::Uuid::new_v4(),
+        entity_type: EntityType::Object("scenario".to_string()),
+        properties: props,
+        spatial: None,
+        temporal: None,
+        beliefs: BeliefState::new_uniform(10),
+        active: true,
+    };
+    state.add_entity(entity);
+
+    (intervention, state)
+}
+
+/// Summarize a WorldState into a human-readable string of its numeric vars.
+fn summarize_world_state(state: &beagle_worldmodel::WorldState) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for entity in state.entities.values() {
+        for (k, v) in &entity.properties.numbers {
+            parts.push(format!("{k}={v:.3}"));
+        }
+    }
+    for (k, v) in &state.globals.numbers {
+        parts.push(format!("{k}={v:.3}"));
+    }
+    if parts.is_empty() {
+        format!("world state has {} entities, uncertainty {:.3}", state.entities.len(), state.uncertainty)
+    } else {
+        parts.sort();
+        format!(
+            "{} (uncertainty {:.3})",
+            parts.join(", "),
+            state.uncertainty
+        )
+    }
+}
+
+async fn run_counterfactual(
+    text: &str,
+) -> Result<(beagle_worldmodel::WorldState, beagle_worldmodel::WorldState), String> {
+    use beagle_worldmodel::CounterfactualReasoner;
+
+    let (intervention, factual) = parse_intervention_freetext(text);
+    let reasoner = CounterfactualReasoner::new();
+    let counterfactual = reasoner
+        .reason(&factual, intervention)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok((factual, counterfactual))
+}
+
+#[derive(Deserialize)]
+struct CausalInterventionRequest {
+    #[serde(default)]
+    graph_id: String,
+    #[serde(default)]
+    intervention: String,
+    #[serde(default)]
+    query: String,
+}
+
+#[derive(Serialize)]
+struct CausalInterventionResponse {
+    outcome: String,
+    effect: String,
+    confidence: f64,
+}
+
+async fn causal_intervention_handler(
+    axum::extract::State(_state): axum::extract::State<AppState>,
+    Json(req): Json<CausalInterventionRequest>,
+) -> Result<Json<CausalInterventionResponse>, (StatusCode, String)> {
+    let text = if !req.intervention.is_empty() {
+        req.intervention.clone()
+    } else if !req.query.is_empty() {
+        req.query.clone()
+    } else {
+        return Err((StatusCode::BAD_REQUEST, "empty intervention".into()));
+    };
+
+    info!(
+        "🔗 Causal intervention (graph={}): {}",
+        req.graph_id,
+        truncate_chars(&text, 80)
+    );
+
+    let (factual, counterfactual) = run_counterfactual(&text)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    // Confidence: shrink with the relative uncertainty growth of the cf world.
+    let confidence = (1.0 / (1.0 + (counterfactual.uncertainty - factual.uncertainty).abs()))
+        .clamp(0.0, 1.0);
+
+    Ok(Json(CausalInterventionResponse {
+        outcome: summarize_world_state(&counterfactual),
+        effect: format!(
+            "Intervention shifted the world from [{}] to [{}].",
+            summarize_world_state(&factual),
+            summarize_world_state(&counterfactual)
+        ),
+        confidence,
+    }))
+}
+
+#[derive(Deserialize)]
+struct WorldModelCounterfactualRequest {
+    #[serde(default)]
+    query: String,
+    #[serde(default)]
+    context: String,
+}
+
+#[derive(Serialize)]
+struct WorldModelCounterfactualResponse {
+    result: serde_json::Value,
+    summary: String,
+}
+
+async fn worldmodel_counterfactual_handler(
+    axum::extract::State(_state): axum::extract::State<AppState>,
+    Json(req): Json<WorldModelCounterfactualRequest>,
+) -> Result<Json<WorldModelCounterfactualResponse>, (StatusCode, String)> {
+    let text = if !req.query.is_empty() {
+        req.query.clone()
+    } else if !req.context.is_empty() {
+        req.context.clone()
+    } else {
+        return Err((StatusCode::BAD_REQUEST, "empty query".into()));
+    };
+
+    info!(
+        "🌍 World model counterfactual: {}",
+        truncate_chars(&text, 80)
+    );
+
+    let (factual, counterfactual) = run_counterfactual(&text)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    let result = serde_json::json!({
+        "factual": summarize_world_state(&factual),
+        "counterfactual": summarize_world_state(&counterfactual),
+        "factual_uncertainty": factual.uncertainty,
+        "counterfactual_uncertainty": counterfactual.uncertainty,
+        "entities": counterfactual.entities.len(),
+    });
+
+    Ok(Json(WorldModelCounterfactualResponse {
+        summary: format!(
+            "Counterfactual world: {}",
+            summarize_world_state(&counterfactual)
+        ),
+        result,
+    }))
+}
+
+// ── GET + POST /api/hyperedges ───────────────────────────────────
+// Backed by beagle_hypergraph::PostgresStorage (StorageRepository).
+// GET ?node_id= lists edges for a node (or all); POST {label,node_ids}
+// creates a hyperedge. Needs DATABASE_URL — returns 503 if not configured.
+
+async fn hyperedge_storage() -> Result<beagle_hypergraph::PostgresStorage, (StatusCode, String)> {
+    let db_url = std::env::var("DATABASE_URL")
+        .or_else(|_| std::env::var("HERMES_DATABASE_URL"))
+        .map_err(|_| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "DATABASE_URL not configured — hyperedge store unavailable".to_string(),
+            )
+        })?;
+    beagle_hypergraph::PostgresStorage::new(&db_url)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("failed to connect hyperedge store: {e}"),
+            )
+        })
+}
+
+#[derive(Serialize)]
+struct HyperedgeJson {
+    id: String,
+    label: String,
+    node_ids: Vec<String>,
+    directed: bool,
+    created_at: String,
+}
+
+fn hyperedge_to_json(edge: &beagle_hypergraph::Hyperedge) -> HyperedgeJson {
+    HyperedgeJson {
+        id: edge.id.to_string(),
+        label: edge.edge_type.clone(),
+        node_ids: edge.node_ids.iter().map(|n| n.to_string()).collect(),
+        directed: edge.directed,
+        created_at: edge.created_at.to_rfc3339(),
+    }
+}
+
+#[derive(Deserialize)]
+struct HyperedgesQuery {
+    node_id: Option<String>,
+}
+
+async fn hyperedges_list_handler(
+    axum::extract::State(_state): axum::extract::State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<HyperedgesQuery>,
+) -> Result<Json<Vec<HyperedgeJson>>, (StatusCode, String)> {
+    use beagle_hypergraph::storage::StorageRepository;
+
+    let storage = hyperedge_storage().await?;
+    let node_filter = match &q.node_id {
+        Some(s) => Some(uuid::Uuid::parse_str(s).map_err(|_| {
+            (StatusCode::BAD_REQUEST, format!("invalid node_id uuid: {s}"))
+        })?),
+        None => None,
+    };
+
+    let edges = storage
+        .list_hyperedges(node_filter)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    info!("📐 Listed {} hyperedges (node={:?})", edges.len(), q.node_id);
+    Ok(Json(edges.iter().map(hyperedge_to_json).collect()))
+}
+
+#[derive(Deserialize)]
+struct CreateHyperedgeRequest {
+    label: String,
+    node_ids: Vec<String>,
+    #[serde(default)]
+    directed: bool,
+}
+
+async fn hyperedges_create_handler(
+    axum::extract::State(_state): axum::extract::State<AppState>,
+    Json(req): Json<CreateHyperedgeRequest>,
+) -> Result<Json<HyperedgeJson>, (StatusCode, String)> {
+    use beagle_hypergraph::storage::StorageRepository;
+    use beagle_hypergraph::Hyperedge;
+
+    let node_ids: Vec<uuid::Uuid> = req
+        .node_ids
+        .iter()
+        .map(|s| {
+            uuid::Uuid::parse_str(s)
+                .map_err(|_| (StatusCode::BAD_REQUEST, format!("invalid node_id uuid: {s}")))
+        })
+        .collect::<Result<_, _>>()?;
+
+    let edge = Hyperedge::new(req.label.clone(), node_ids, req.directed, "beagle-core".to_string())
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    let storage = hyperedge_storage().await?;
+    let created = storage
+        .create_hyperedge(edge)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    info!("📐 Created hyperedge {} '{}'", created.id, created.edge_type);
+    Ok(Json(hyperedge_to_json(&created)))
+}
+
+// ── POST /api/v1/feedback ────────────────────────────────────────
+// Persists human feedback for a run via beagle_feedback (JSONL under
+// BEAGLE_DATA_DIR). Lets the iOS feedback loop correlate by run_id.
+
+#[derive(Deserialize)]
+struct FeedbackRequest {
+    run_id: String,
+    #[serde(default)]
+    event_type: String,
+    #[serde(default)]
+    rating_0_10: Option<u8>,
+    #[serde(default)]
+    notes: Option<String>,
+}
+
+#[derive(Serialize)]
+struct FeedbackAckResponse {
+    ok: bool,
+    event_id: String,
+    status: String,
+}
+
+async fn feedback_handler(
+    axum::extract::State(_state): axum::extract::State<AppState>,
+    Json(req): Json<FeedbackRequest>,
+) -> Result<Json<FeedbackAckResponse>, (StatusCode, String)> {
+    use beagle_feedback::create_human_feedback_event;
+
+    if req.run_id.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "run_id required".into()));
+    }
+
+    // accepted heuristic: rating >= 6 (out of 10) counts as accepted.
+    let accepted = req.rating_0_10.map(|r| r >= 6).unwrap_or(true);
+
+    let mut event = create_human_feedback_event(
+        req.run_id.clone(),
+        accepted,
+        req.rating_0_10,
+        req.notes.clone(),
+    );
+    // Stamp the event_type label into notes if a non-default kind was supplied.
+    if !req.event_type.is_empty() && req.event_type != "human_feedback" {
+        let tag = format!("[event_type={}]", req.event_type);
+        event.notes = Some(match event.notes.take() {
+            Some(n) => format!("{tag} {n}"),
+            None => tag,
+        });
+    }
+
+    let data_dir = beagle_data_dir();
+    beagle_feedback::append_event(&data_dir, &event)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let event_id = Uuid::new_v4().to_string();
+    info!(
+        "📝 Feedback recorded for run {} (rating={:?})",
+        req.run_id, req.rating_0_10
+    );
+
+    Ok(Json(FeedbackAckResponse {
+        ok: true,
+        event_id,
+        status: "recorded".to_string(),
+    }))
 }
 
 /// Convert beagle_search::Paper to PaperInfo
