@@ -13,6 +13,8 @@ struct SpatialDeskMissionControlView: View {
     @State private var exocortex = ExocortexStore()
     @State private var commandText = ""
     @State private var selectedRoomId: String?
+    @State private var commandAnswer: String?
+    @State private var commandRunning = false
 
     private var snapshot: MindPalaceSnapshot? { exocortex.mindPalace?.value }
     private var selectedRoom: MindPalaceRoom? {
@@ -55,6 +57,45 @@ struct SpatialDeskMissionControlView: View {
         #endif
         .task { await refresh() }
         .refreshable { await refresh() }
+        .sheet(isPresented: Binding(get: { commandAnswer != nil }, set: { if !$0 { commandAnswer = nil } })) {
+            commandAnswerSheet
+        }
+    }
+
+    /// Send the command bar text as a real exocortex query and present the cited answer.
+    private func runCommand() {
+        let q = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty, !commandRunning else { return }
+        commandRunning = true
+        Task {
+            let result = await BeagleClient.shared.chat(prompt: q, projectSlug: "sounio")
+            commandAnswer = result.value?.response ?? result.error ?? "No response from the exocortex."
+            commandRunning = false
+            commandText = ""
+        }
+    }
+
+    private var commandAnswerSheet: some View {
+        NavigationStack {
+            ScrollView {
+                Text(commandAnswer ?? "")
+                    .font(BeagleFont.body.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding()
+            }
+            .background(Color(red: 0.02, green: 0.03, blue: 0.06))
+            .navigationTitle("Exocortex")
+            #if !os(macOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { commandAnswer = nil }
+                }
+            }
+        }
     }
 
     private var header: some View {
@@ -94,14 +135,18 @@ struct SpatialDeskMissionControlView: View {
                 .font(BeagleFont.body.font)
                 .foregroundStyle(BeagleTheme.textPrimary)
             Button {
-                commandText = ""
+                runCommand()
             } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 22, weight: .semibold))
+                if commandRunning {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                }
             }
             .buttonStyle(.plain)
             .foregroundStyle(BeagleTheme.truthObserved)
-            .disabled(commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(commandRunning || commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(14)
         .background(BeagleTheme.surface1.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
