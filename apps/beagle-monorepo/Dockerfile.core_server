@@ -9,7 +9,7 @@
 # image builds against the same pinned graph as CI. bookworm ships Python 3.11, so pyo3 builds fine.
 # protobuf-compiler (protoc) is required: pulsar's build.rs (prost-build) needs it.
 
-FROM rust:1.89-bookworm AS builder
+FROM rust:1.95-bookworm AS builder
 RUN apt-get update \
     && apt-get install -y --no-install-recommends pkg-config libssl-dev python3-dev protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
