@@ -13,7 +13,7 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use beagle_config::beagle_data_dir;
 use beagle_darwin::{consumer_identity_for_id, ConsumerId};
-use beagle_llm::RequestMeta;
+use beagle_llm::{ProviderTier, RequestMeta};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -3506,6 +3506,135 @@ pub fn exocortex_routes() -> Router<AppState> {
             "/api/exocortex/v1/projects/active",
             get(active_projects_handler),
         )
+        .route(
+            "/api/exocortex/v1/capture/refine",
+            post(capture_refine_handler),
+        )
+}
+
+// ---------------------------------------------------------------------------
+// Capture REAL: LLM-backed thought refinement (Wave 2)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct CaptureRefineRequest {
+    raw_text: String,
+    #[serde(default)]
+    project_slug: Option<String>,
+    #[serde(default)]
+    source_surface: Option<String>,
+    #[serde(default)]
+    context_snippets: Option<Vec<String>>,
+}
+
+#[derive(Serialize)]
+struct CaptureRefineResponse {
+    refined_text: String,
+    model: String,
+    tier: String,
+}
+
+/// POST /api/exocortex/v1/capture/refine
+///
+/// Takes a raw captured thought from an Apple capture surface and returns a
+/// HERMES-style clarified version: tighter wording, the implicit question or
+/// next-step surfaced, the user's voice preserved — WITHOUT inventing facts.
+/// Routed through the project's TieredRouter at a normal/fast quality tier.
+async fn capture_refine_handler(
+    State(state): State<AppState>,
+    Json(req): Json<CaptureRefineRequest>,
+) -> Result<Json<CaptureRefineResponse>, StatusCode> {
+    let raw = req.raw_text.trim();
+    if raw.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    // Build a concise refine prompt. We deliberately constrain the model to
+    // clarification only — no new facts, no answering, just a crisper version
+    // of what the user already said, in their own voice.
+    let mut prompt = String::new();
+    prompt.push_str(
+        "You are HERMES, a thought-clarification assistant. Refine the user's raw captured \
+         thought into a single crisp, well-structured idea.\n\
+         RULES:\n\
+         - Do NOT invent facts, sources, or details not present in the raw thought.\n\
+         - Tighten the wording and fix obvious grammar, but keep the user's voice and intent.\n\
+         - If there is an implicit question or next-step, surface it in one short closing line.\n\
+         - Keep it concise. Return ONLY the refined thought as plain text (no preamble, no \
+         markdown headers, no quotes).\n",
+    );
+
+    if let Some(slug) = req.project_slug.as_deref().filter(|s| !s.is_empty()) {
+        prompt.push_str(&format!("\nPROJECT CONTEXT: {slug}\n"));
+    }
+    if let Some(surface) = req.source_surface.as_deref().filter(|s| !s.is_empty()) {
+        prompt.push_str(&format!("CAPTURE SURFACE: {surface}\n"));
+    }
+    if let Some(snippets) = req
+        .context_snippets
+        .as_ref()
+        .filter(|s| !s.is_empty())
+    {
+        prompt.push_str("\nRELATED CONTEXT (for grounding only, do not copy verbatim):\n");
+        for snip in snippets.iter().filter(|s| !s.trim().is_empty()) {
+            prompt.push_str(&format!("- {}\n", snip.trim()));
+        }
+    }
+
+    prompt.push_str(&format!("\nRAW THOUGHT:\n{raw}\n\nREFINED THOUGHT:"));
+
+    let mut ctx = state.ctx.lock().await;
+
+    // Refinement wants good quality but is not a critical/PhD-level task —
+    // a normal/fast tier is fine, so we only set requires_high_quality.
+    let mut meta = RequestMeta::from_prompt(&prompt);
+    meta.requires_high_quality = true;
+
+    let run_id = "http_capture_refine";
+    let current_stats = ctx.llm_stats.get_or_create(run_id);
+
+    let (client, tier) = ctx.router.choose_with_limits(&meta, &current_stats);
+    let model = client.name().to_string();
+
+    let text = ctx
+        .router
+        .complete_chosen(&client, tier, &prompt)
+        .await
+        .map_err(|e| {
+            error!("Capture refine LLM error: {}", e);
+            StatusCode::BAD_GATEWAY
+        })?;
+
+    // Budget accounting (~4 chars/token estimate), same pattern as the other handlers.
+    let tokens_in_est = (prompt.len() / 4) as u32;
+    let tokens_out_est = (text.len() / 4) as u32;
+    ctx.llm_stats.update(run_id, |stats| match tier {
+        ProviderTier::Grok4Heavy => {
+            stats.grok4_calls += 1;
+            stats.grok4_tokens_in += tokens_in_est;
+            stats.grok4_tokens_out += tokens_out_est;
+        }
+        _ => {
+            stats.grok3_calls += 1;
+            stats.grok3_tokens_in += tokens_in_est;
+            stats.grok3_tokens_out += tokens_out_est;
+        }
+    });
+    drop(ctx);
+
+    let refined_text = text.trim().to_string();
+    if refined_text.is_empty() {
+        error!("Capture refine: model returned empty text");
+        return Err(StatusCode::BAD_GATEWAY);
+    }
+
+    tracing::info!(tier = ?tier, model = %model, "Capture refine completed");
+
+    Ok(Json(CaptureRefineResponse {
+        refined_text,
+        model,
+        tier: format!("{tier:?}"),
+    }))
 }
 
 async fn exocortex_home_handler(
