@@ -1,116 +1,167 @@
+# project-cockpit Deployment — reconciled from the live cluster state
+# (kubectl get deploy project-cockpit -n beagle), pinned to the durable image.
+# This is the authoritative IaC source: live == repo.
+# Notes:
+#  - imagePullPolicy IfNotPresent: in-cluster registry (192.168.3.207:5003) is
+#    plain-HTTP. Nodes honor it via /etc/containerd/certs.d once config_path is
+#    set under the containerd v2 key io.containerd.cri.v1.images.registry.
+#  - project-catalog.json ships baked into the image (single source of truth);
+#    the old catalog-override ConfigMap was retired.
+#  - project-cockpit-remembered ConfigMap holds runtime state (not in git;
+#    volume is optional).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: project-cockpit
-  namespace: beagle
   labels:
     app.kubernetes.io/name: project-cockpit
     app.kubernetes.io/part-of: beagle
+  name: project-cockpit
+  namespace: beagle
 spec:
   replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: project-cockpit
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
   template:
     metadata:
       labels:
         app.kubernetes.io/name: project-cockpit
         app.kubernetes.io/part-of: beagle
     spec:
-      serviceAccountName: project-cockpit
-      nodeSelector:
-        sounio.dev/runtime-role: cluster-core
-      tolerations:
-        - key: sounio.dev/compute
-          operator: Equal
-          value: heavy
-          effect: NoSchedule
-        - key: sounio.dev/pool
-          operator: Equal
-          value: gpu-batch
-          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - preference:
+              matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                - r770-proxmox
+            weight: 100
       containers:
-        - name: project-cockpit
-          image: 192.168.3.207:5003/project-cockpit:wave5c-3950b52
-          # IfNotPresent: the in-cluster registry (192.168.3.207:5003) is plain-HTTP.
-          # Only the t560 kubelet trusts it; r770/other nodes pre-pull via
-          # `ctr -n k8s.io images pull --plain-http`, so the kubelet must not
-          # re-pull over HTTPS. New rollouts use a fresh tag, which still forces a pull.
-          imagePullPolicy: IfNotPresent
-          ports:
-            - name: http
-              containerPort: 4370
-          env:
-            - name: PROJECT_COCKPIT_PORT
-              value: "4370"
-            - name: PROJECT_COCKPIT_WORKBENCH_AUTHORITY
-              value: workspace-agent
-            - name: PROJECT_COCKPIT_BEAGLE_INTERNAL_URL
-              value: http://beagle-core.beagle.svc.cluster.local:8080
-            - name: PROJECT_COCKPIT_WORKSPACE_AGENT_PORT
-              value: "4371"
-            # Workspace-agent registry/proxy can take several seconds when the
-            # workspace pod is cold; 2.5s default truncated real roles. 12s headroom.
-            - name: PROJECT_COCKPIT_WORKSPACE_AGENT_TIMEOUT_MS
-              value: "12000"
-            # Keep long-lived PTY/SSE connections from being reaped by the Node
-            # HTTP server's default keep-alive timeout.
-            - name: PROJECT_COCKPIT_KEEP_ALIVE_TIMEOUT_MS
-              value: "610000"
-            - name: PROJECT_COCKPIT_FAST_MEMORY_RESPONSE_TIMEOUT_MS
-              value: "20000"
-            - name: PROJECT_COCKPIT_MEMORY_CACHE_TTL_MS
-              value: "5000"
-            - name: PROJECT_COCKPIT_RENDERER_PROBE_DIR
-              value: /tmp/project-cockpit/renderer-probes
-          envFrom:
-            - secretRef:
-                name: beagle-core-secrets
-                optional: true
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 6
-          livenessProbe:
-            httpGet:
-              path: /livez
-              port: http
-            initialDelaySeconds: 20
-            periodSeconds: 20
-            timeoutSeconds: 5
-            failureThreshold: 3
-          resources:
-            requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: "1"
-              memory: 1Gi
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 1000
-            runAsGroup: 1000
-          volumeMounts:
-            # Workbench session/pane state + enriched block logs (durable).
-            - name: cockpit-data
-              mountPath: /var/lib/cockpit
-            # Remembered cross-session hints (seeded empty; mutated at runtime).
-            - name: remembered-state
-              mountPath: /var/run/project-cockpit-remembered
-      # NOTE: the project-catalog.json ships baked into the image
-      # (apps/project-cockpit/public/project-catalog.json) and is the single
-      # source of truth. The previous catalog-override ConfigMap was a live
-      # hotfix and has been retired now that the fix is in the image.
+      - env:
+        - name: PROJECT_COCKPIT_PORT
+          value: '4370'
+        - name: PROJECT_COCKPIT_ROOT
+          value: /app
+        - name: PROJECT_COCKPIT_KEEP_ALIVE_TIMEOUT_MS
+          value: '610000'
+        - name: PROJECT_COCKPIT_FAST_MEMORY_CACHE_TTL_MS
+          value: '15000'
+        - name: PROJECT_COCKPIT_MEMORY_WARM_INTERVAL_MS
+          value: '15000'
+        - name: PROJECT_COCKPIT_DISABLE_MEMORY_WARMERS
+          value: 'true'
+        - name: PROJECT_COCKPIT_REMEMBERED_STATE_CONFIGMAP
+          value: project-cockpit-remembered
+        - name: PROJECT_COCKPIT_REMEMBERED_STATE_DIR
+          value: /var/run/project-cockpit-remembered
+        - name: BEAGLE_DATA_DIR
+          value: /var/lib/cockpit
+        - name: WORKBENCH_CONTEXT_DATA_DIR
+          value: /var/lib/cockpit
+        - name: WORKBENCH_CONTEXT_HTTP_MCP_REQUIRE_AUTH
+          value: 'true'
+        - name: WORKBENCH_CONTEXT_WRITE_REQUIRE_AUTH
+          value: 'true'
+        - name: PROJECT_COCKPIT_SGLANG_ENDPOINT
+          value: http://sglang-serving.beagle.svc.cluster.local:30000
+        - name: PROJECT_COCKPIT_DYNAMO_ENDPOINT
+          value: http://dynamo-control-plane.beagle.svc.cluster.local:8000
+        - name: PROJECT_COCKPIT_PROMETHEUS_URL
+          value: http://darwin-observability-prometheus.darwin-platform.svc.cluster.local:9090
+        - name: PROJECT_COCKPIT_SOUNIO_FOUNDRY_ARTIFACT_ROOT
+          value: /orangefs/training/sounio-foundry/runs
+        - name: PROJECT_COCKPIT_AGENT_IMAGE
+          value: 192.168.3.207:5003/beagle-agent:claude-codex-model-registry-20260523T2301Z
+        - name: PROJECT_COCKPIT_KUBECTL
+          value: /usr/local/bin/kubectl
+        - name: GPU_LEASE_HOST_PROCESS_CHECK
+          value: '0'
+        - name: PROJECT_COCKPIT_WORKBENCH_AUTHORITY
+          value: workspace-agent
+        - name: PROJECT_COCKPIT_WORKSPACE_AGENT_TIMEOUT_MS
+          value: '12000'
+        image: 192.168.3.207:5003/project-cockpit:durable-6c44977
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -lc
+            - curl -fsS http://127.0.0.1:4370/livez >/dev/null
+          failureThreshold: 3
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: app
+        ports:
+        - containerPort: 4370
+          name: http
+          protocol: TCP
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -lc
+            - curl -fsS http://127.0.0.1:4370/healthz >/dev/null
+          failureThreshold: 3
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: '1'
+            memory: 4Gi
+          requests:
+            cpu: 150m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          appArmorProfile:
+            type: Unconfined
+          runAsGroup: 0
+          runAsUser: 0
+          seccompProfile:
+            type: Unconfined
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/run/project-cockpit-remembered
+          name: remembered-state
+          readOnly: true
+        - mountPath: /var/lib/cockpit
+          name: cockpit-data
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        kubernetes.io/hostname: r770-proxmox
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: project-cockpit
+      serviceAccountName: project-cockpit
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: sounio.dev/compute
+        operator: Equal
+        value: heavy
+      - effect: NoSchedule
+        key: sounio.dev/pool
+        operator: Equal
+        value: gpu-batch
       volumes:
-        - name: cockpit-data
-          persistentVolumeClaim:
-            claimName: project-cockpit-data
-        - name: remembered-state
-          configMap:
-            name: project-cockpit-remembered
-            optional: true
+      - configMap:
+          defaultMode: 420
+          name: project-cockpit-remembered
+        name: remembered-state
+      - name: cockpit-data
+        persistentVolumeClaim:
+          claimName: project-cockpit-data
