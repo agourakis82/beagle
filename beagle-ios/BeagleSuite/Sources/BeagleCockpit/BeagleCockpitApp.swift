@@ -13,6 +13,7 @@
 import SwiftUI
 import SwiftData
 import BeagleCore
+import BeagleWorkbenchKit
 #if os(iOS)
 import UIKit
 #endif
@@ -264,6 +265,11 @@ struct RootView: View {
                     CognitiveRecallView()
                 }
             }
+            Tab("Fleet", systemImage: "terminal", value: 5) {
+                NavigationStack {
+                    FleetTerminalsView()
+                }
+            }
         }
         .tint(BeagleTheme.truthObserved)
     }
@@ -276,6 +282,7 @@ struct RootView: View {
         case deep     = "Go Deep"
         case work     = "Work"
         case recall   = "Recall"
+        case fleet    = "Fleet"
         case settings = "Settings"
 
         var id: String { rawValue }
@@ -287,6 +294,7 @@ struct RootView: View {
             case .deep:     return "sparkles"
             case .work:     return "apple.terminal"
             case .recall:   return "sparkle.magnifyingglass"
+            case .fleet:    return "terminal"
             case .settings: return "gearshape"
             }
         }
@@ -319,6 +327,8 @@ struct RootView: View {
                         WorkView(bootError: $bootError)
                     case .recall:
                         CognitiveRecallView()
+                    case .fleet:
+                        FleetTerminalsView()
                     case .settings:
                         ModelSettingsView()
                     case nil:

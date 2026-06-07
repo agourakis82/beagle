@@ -32,6 +32,8 @@ let package = Package(
         .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "1.1.0")),
         // On-device Whisper speech-to-text
         .package(url: "https://github.com/argmaxinc/WhisperKit", from: "0.18.0"),
+        // VT100/xterm terminal emulator for the native fleet terminal (iOS/macOS only)
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.0.0"),
     ],
     targets: [
         // Shared core: API client, truth system, models, Tailnet resolver,
@@ -54,7 +56,10 @@ let package = Package(
         ),
         .target(
             name: "BeagleWorkbenchKit",
-            dependencies: ["BeagleCore"],
+            dependencies: [
+                "BeagleCore",
+                .product(name: "SwiftTerm", package: "SwiftTerm", condition: .when(platforms: [.iOS, .macOS])),
+            ],
             path: "Sources/BeagleWorkbenchKit",
             exclude: ["LICENSE-AGPL-NOTICE.md"],
             swiftSettings: [
