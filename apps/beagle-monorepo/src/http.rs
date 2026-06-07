@@ -191,39 +191,20 @@ async fn llm_complete_handler(
     // P0 #2: dispatch on the ALREADY-CHOSEN limit-aware client/tier — do NOT call
     // ctx.router.complete(), which re-routes via the non-limit-aware choose() and discards the
     // chosen client + the request's RequestMeta flags (budgets bypassed).
-    let text = ctx
+    // #6: use the metered path so we record REAL token counts (from provider usage object)
+    // instead of the chars/4 estimate.
+    let (text, token_usage) = ctx
         .router
-        .complete_chosen(&client, tier, &req.prompt)
+        .complete_chosen_metered(&client, tier, &req.prompt)
         .await
         .map_err(|e| {
             tracing::error!("LLM error: {}", e);
             StatusCode::BAD_GATEWAY
         })?;
 
-    // Estimativa de tokens (simplificada: ~4 chars por token)
-    let tokens_in_est = req.prompt.len() / 4;
-    let tokens_out_est = text.len() / 4;
-
-    // Atualiza stats
+    // Record stats using measured (or estimated-fallback) token counts.
     ctx.llm_stats.update(run_id, |stats| {
-        match tier {
-            ProviderTier::Grok3 => {
-                stats.grok3_calls += 1;
-                stats.grok3_tokens_in += tokens_in_est as u32;
-                stats.grok3_tokens_out += tokens_out_est as u32;
-            }
-            ProviderTier::Grok4Heavy => {
-                stats.grok4_calls += 1;
-                stats.grok4_tokens_in += tokens_in_est as u32;
-                stats.grok4_tokens_out += tokens_out_est as u32;
-            }
-            _ => {
-                // Outros tiers contam como Grok3 por enquanto
-                stats.grok3_calls += 1;
-                stats.grok3_tokens_in += tokens_in_est as u32;
-                stats.grok3_tokens_out += tokens_out_est as u32;
-            }
-        }
+        stats.record_call_usage(tier.as_str(), &token_usage);
     });
 
     let provider_name = tier.as_str();
@@ -231,8 +212,9 @@ async fn llm_complete_handler(
     info!(
         tier = ?tier,
         provider = provider_name,
-        tokens_in = tokens_in_est,
-        tokens_out = tokens_out_est,
+        tokens_in = token_usage.prompt,
+        tokens_out = token_usage.completion,
+        measured = token_usage.measured,
         "LLM request completed"
     );
 

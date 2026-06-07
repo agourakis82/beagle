@@ -66,6 +66,42 @@ impl CircuitBreaker {
     }
 }
 
+// ============================================================================
+// Bounded jittered exponential backoff helper (#13)
+// ============================================================================
+
+/// Compute the bounded jittered backoff sleep duration for retry attempt `attempt` (0-indexed,
+/// where 0 = first fallback — no sleep before the primary attempt).
+///
+/// Formula: `clamp(base_ms * 2^attempt, 0, max_ms) + uniform_jitter(0..jitter_ms)`.
+///
+/// The jitter source is the low bits of an `Instant::now()` read — fine for non-crypto use.
+pub fn backoff_duration(attempt: u32, base_ms: u64, max_ms: u64) -> std::time::Duration {
+    let shift = attempt.min(10); // cap shift to avoid u64 overflow (2^10 = 1024)
+    let exp = base_ms.saturating_mul(1u64 << shift).min(max_ms);
+    let jitter_range = (exp / 4).max(1); // +-25% jitter
+    // Low bits of Instant are a cheap entropy source for non-security jitter.
+    let raw = {
+        // Use duration_since a fixed epoch approximation via elapsed nanos mod jitter_range.
+        // `Instant::now()` subsec ns is enough entropy for backoff jitter.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos() as u64)
+            .unwrap_or_else(|_| {
+                // Fallback: use Instant elapsed nanos (always positive, no epoch dependency).
+                static START: std::sync::OnceLock<std::time::Instant> =
+                    std::sync::OnceLock::new();
+                START
+                    .get_or_init(std::time::Instant::now)
+                    .elapsed()
+                    .subsec_nanos() as u64
+            });
+        nanos % jitter_range
+    };
+    let total = (exp + raw).min(max_ms);
+    std::time::Duration::from_millis(total)
+}
+
 /// Per-key token bucket. `capacity` tokens, refilled at `refill_per_sec`. `try_acquire` consumes one
 /// token if available. Lazily refills based on elapsed wall-clock time.
 pub struct TokenBucket {

@@ -39,6 +39,27 @@ services:
     networks:
       - beagle-network
 
+  pulsar:
+    image: apachepulsar/pulsar:3.3.0
+    container_name: beagle-pulsar
+    command: bin/pulsar standalone
+    ports:
+      - "6650:6650"   # Pulsar binary protocol
+      - "8080:8080"   # Pulsar HTTP admin
+    volumes:
+      - ${BEAGLE_DATA_DIR:-${HOME}/beagle-data}/pulsar/data:/pulsar/data
+      - ${BEAGLE_DATA_DIR:-${HOME}/beagle-data}/pulsar/conf:/pulsar/conf
+    environment:
+      PULSAR_MEM: "-Xms512m -Xmx512m -XX:MaxDirectMemorySize=512m"
+    healthcheck:
+      test: ["CMD", "bin/pulsar-admin", "brokers", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - beagle-network
+
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: beagle-pgadmin
@@ -65,4 +86,4 @@ networks:
 #   postgres-data:
 #   redis-data:
 #   pgadmin-data:
-
+#   pulsar-data:

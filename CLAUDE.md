@@ -124,7 +124,7 @@ cargo run --bin migrate
 ### Working Directory (beagle-remote v0.10.0)
 This is the primary development version with all recent features:
 - 60+ specialized Rust crates in `crates/`
-- Main binaries in `apps/beagle-monorepo/`
+- Main binaries in `crates/beagle-monorepo/` (also mirrored under `apps/beagle-monorepo/` for workspace tooling)
 - TypeScript MCP server in `beagle-mcp-server/`
 - Julia integration in `beagle-julia/`
 - Comprehensive documentation in `docs/`
@@ -183,15 +183,17 @@ Scientific Pipelines (Julia: PBPK, Heliobiology, symbolic reasoning)
    - Local LLM or cached responses
    - When internet unavailable or API limits hit
 
-**Routing Decision Logic**:
+**Routing Decision Logic** (`crates/beagle-llm/src/meta.rs`):
 ```rust
 RequestMeta {
-    requires_math: bool,
-    requires_high_quality: bool,
-    requires_phd_level_reasoning: bool,
-    high_bias_risk: bool,
-    critical_section: bool,
     offline_required: bool,
+    requires_math: bool,
+    requires_vision: bool,
+    approximate_tokens: usize,
+    requires_high_quality: bool,
+    high_bias_risk: bool,
+    requires_phd_level_reasoning: bool,
+    critical_section: bool,
 }
 ```
 
@@ -277,11 +279,13 @@ Central container holding all major services. Pass this to functions instead of 
 
 ```rust
 pub struct BeagleContext {
-    config: BeagleConfig,
-    router: Arc<TieredRouter>,
-    storage: Arc<dyn HypergraphStorage>,
-    agents: HashMap<String, Arc<dyn Agent>>,
-    // ... more services
+    pub cfg: BeagleConfig,
+    pub router: TieredRouter,
+    pub llm: Arc<dyn LlmClient>,
+    pub vector: Arc<dyn VectorStore>,
+    pub graph: Arc<dyn GraphStore>,
+    pub llm_stats: Arc<LlmStatsRegistry>,
+    // Optional: memory (feature "memory"), worldmodel (feature "worldmodel")
 }
 ```
 

@@ -28,51 +28,6 @@ impl Tier {
     }
 }
 
-/// Metadados da requisição para roteamento inteligente
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RequestMeta {
-    /// Requer processamento offline
-    pub offline_required: bool,
-    /// Requer matemática rigorosa
-    pub requires_math: bool,
-    /// Requer visão (multimodal)
-    pub requires_vision: bool,
-    /// Estimativa de tokens
-    pub approximate_tokens: usize,
-    /// Requer qualidade máxima (usa Grok 4 Heavy se disponível)
-    pub requires_high_quality: bool,
-}
-
-impl RequestMeta {
-    /// Analisa prompt e extrai metadados
-    pub fn from_prompt(prompt: &str) -> Self {
-        let lower = prompt.to_lowercase();
-
-        let requires_math = lower.contains("proof")
-            || lower.contains("derive")
-            || lower.contains("theorem")
-            || lower.contains("mathematical")
-            || lower.contains("equation")
-            || lower.contains("calculate")
-            || lower.contains("solve");
-
-        let requires_vision =
-            lower.contains("image") || lower.contains("picture") || lower.contains("visual");
-
-        let approximate_tokens = prompt.len() / 4;
-
-        // Alta qualidade para prompts longos ou complexos
-        let requires_high_quality = approximate_tokens > 4000
-            || lower.contains("review")
-            || lower.contains("analyze")
-            || lower.contains("synthesize");
-
-        Self {
-            offline_required: false, // Futuro: detecção de necessidade offline
-            requires_math,
-            requires_vision,
-            approximate_tokens,
-            requires_high_quality,
-        }
-    }
-}
+// NOTE: RequestMeta was previously defined here but has been consolidated into
+// crates/beagle-llm/src/meta.rs (canonical definition used by all routers).
+// Use `beagle_llm::RequestMeta` or `crate::meta::RequestMeta` instead.

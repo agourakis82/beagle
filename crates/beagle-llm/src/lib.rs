@@ -8,6 +8,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+pub mod cache;
 pub mod clients;
 pub mod meta;
 pub mod orchestrator;
@@ -20,8 +21,10 @@ pub mod self_update;
 pub mod stats;
 pub mod tier;
 
+pub use cache::ResponseCache;
 pub use clients::claude::{ClaudeClient, ClaudeModel};
 pub use clients::claude_cli::ClaudeCliClient;
+pub use clients::codex_cli::CodexCliClient;
 pub use clients::copilot::{CopilotClient, CopilotModel};
 pub use clients::cursor::{CursorClient, CursorModel};
 pub use clients::deepseek::DeepSeekClient;
@@ -32,7 +35,7 @@ pub use meta::RequestMeta;
 pub use orchestrator::{
     EnsembleResult, LLMOrchestrator, Provider, ProviderResponse, ProviderStrategy,
 };
-pub use output::LlmOutput;
+pub use output::{LlmOutput, TokenUsage};
 pub use router::BeagleRouter;
 pub use router_tiered::{LlmRoutingConfig, ProviderTier, TieredRouter};
 pub use self_update::SelfUpdateContext;

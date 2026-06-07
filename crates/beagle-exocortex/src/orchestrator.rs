@@ -176,7 +176,7 @@ impl PersonalExocortex {
             enable_iit: config.brain.enable_iit,
             enable_gwt: config.brain.enable_gwt,
             enable_metacognition: config.brain.calibrate_confidence,
-            phi_threshold: config.brain.phi_threshold as f32,
+            salience_threshold: config.brain.phi_threshold as f32,
             attention_capacity: config.brain.max_attention_span,
         });
 
@@ -782,7 +782,7 @@ impl PersonalExocortex {
             semantic_memories: memory_stats.semantic_count,
             working_memory_usage: memory_stats.working_memory_count as f32
                 / memory_stats.working_memory_capacity as f32,
-            current_phi: consciousness.phi,
+            current_salience: consciousness.salience,
             current_awareness: consciousness.awareness_level,
         }
     }
@@ -796,7 +796,7 @@ pub struct SessionStats {
     pub episodic_memories: usize,
     pub semantic_memories: usize,
     pub working_memory_usage: f32,
-    pub current_phi: f32,
+    pub current_salience: f32,
     pub current_awareness: AwarenessLevel,
 }
 

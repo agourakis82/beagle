@@ -11,7 +11,7 @@ use crate::{LlmClient, RequestMeta};
 use beagle_config::BeagleConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Tier de provider LLM
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -208,6 +208,9 @@ pub struct TieredRouter {
     /// Per-tier circuit breaker (#13): a tier that fails repeatedly is skipped for a cooldown so a
     /// dead provider isn't retried on every request.
     pub breaker: Arc<crate::resilience::CircuitBreaker>,
+    /// Gateway exact-match response cache (#14): opt-in bounded LRU+TTL cache checked before
+    /// calling any provider. Disabled when capacity=0 (default unless BEAGLE_CACHE_SIZE is set).
+    pub cache: Arc<crate::cache::ResponseCache>,
     pub cfg: LlmRoutingConfig,
 }
 
@@ -229,6 +232,7 @@ impl TieredRouter {
                 5,
                 std::time::Duration::from_secs(30),
             )),
+            cache: Arc::new(crate::cache::ResponseCache::new(0, std::time::Duration::from_secs(300))),
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -303,15 +307,20 @@ impl TieredRouter {
 
         let grok3: Arc<dyn LlmClient> = Arc::new(crate::clients::grok::GrokClient::new());
 
-        // Escalation / "Heavy" tier — a genuinely STRONGER model, not Grok-cloned.
-        // Previously `grok3.clone()`, which made the anti-bias escalation a no-op (same model).
-        // Prefer Claude (strong non-Grok) when available; fall back to the real grok-4-heavy
-        // model (the GrokClient forces it via complete_chosen) only when no stronger model exists.
+        // Escalation / "Heavy" tier — a genuinely STRONGER model, not a Grok-3 clone.
+        // Priority:
+        //   1. Claude (strong non-Grok) when available — best cross-model anti-bias guarantee.
+        //   2. A dedicated GrokClient whose `choose_model` will always select "grok-4-heavy"
+        //      (because `complete_chosen` passes model="grok-4-heavy" for Grok4Heavy tier).
+        //      This is distinct from the grok3 workhorse client; do NOT clone it.
         let grok4_heavy: Option<Arc<dyn LlmClient>> = if let Some(ref c) = claude {
             info!("Heavy/escalation tier → Claude (strong non-Grok model)");
             Some(c.clone())
         } else {
-            Some(grok3.clone())
+            // Construct a fresh GrokClient so it is a distinct instance from grok3.
+            // complete_chosen() will pass model="grok-4-heavy" which choose_model() honours.
+            info!("Heavy/escalation tier → GrokClient (grok-4-heavy model via complete_chosen)");
+            Some(Arc::new(crate::clients::grok::GrokClient::new()))
         };
 
         // DeepSeek Math client (se API key disponível)
@@ -365,6 +374,7 @@ impl TieredRouter {
                 5,
                 std::time::Duration::from_secs(30),
             )),
+            cache: Arc::new(crate::cache::ResponseCache::from_env()),
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -579,6 +589,39 @@ impl TieredRouter {
         }
     }
 
+    /// Like `complete_chosen` but returns `(String, TokenUsage)` so callers can record MEASURED
+    /// token counts rather than estimating via chars/4.
+    ///
+    /// For the Grok client (normal tier) the real usage is captured via its `complete()` override.
+    /// For the Grok4Heavy path we call `chat()` (which cannot easily surface usage from the trait)
+    /// and fall back to a chars/4 estimate with `measured=false`.
+    /// For all other clients we call `complete()` which returns the `LlmOutput` with usage.
+    pub async fn complete_chosen_metered(
+        &self,
+        client: &Arc<dyn LlmClient>,
+        tier: ProviderTier,
+        prompt: &str,
+    ) -> anyhow::Result<(String, crate::output::TokenUsage)> {
+        if tier == ProviderTier::Grok4Heavy && client.name() == "grok" {
+            // Grok heavy path: the trait `chat()` returns String only. Estimate usage.
+            use crate::{ChatMessage, LlmRequest};
+            let req = LlmRequest {
+                model: "grok-4-heavy".to_string(),
+                messages: vec![ChatMessage::user(prompt)],
+                temperature: Some(0.7),
+                max_tokens: Some(8192),
+            };
+            let text = client.chat(req).await?;
+            let usage = crate::output::TokenUsage::estimated(prompt.len(), text.len());
+            Ok((text, usage))
+        } else {
+            // All other clients: `complete()` returns `LlmOutput` which carries usage.
+            // GrokClient overrides `complete()` to capture real measured usage from the API.
+            let output = client.complete(prompt).await?;
+            Ok((output.text, output.usage))
+        }
+    }
+
     /// Single-brain robust completion: pick the best tier for `meta`, try it, and on failure
     /// fall back across the remaining tiers (local fleet → Grok 3 → offline local) with bounded
     /// jittered backoff between attempts. Returns the text, or an error string if everything
@@ -600,9 +643,18 @@ impl TieredRouter {
     ) -> String {
         use crate::{ChatMessage, LlmRequest};
 
+        // ── #14 Cache check ─────────────────────────────────────────────────────────
+        // Primary tier drives the key so different tier choices for the same prompt are
+        // cached independently (they may return different outputs).
+        let (pc, pt) = self.choose(meta);
+        let cache_key = crate::cache::ResponseCache::make_key(pt.as_str(), prompt, temperature, max_tokens);
+        if let Some(cached) = self.cache.get(cache_key) {
+            debug!("Router: cache hit for tier={} prompt_len={}", pt.as_str(), prompt.len());
+            return cached;
+        }
+
         // Ordered attempt chain: the meta-chosen primary, then the standard fallbacks. Dedup so
         // we never retry the identical client instance back-to-back.
-        let (pc, pt) = self.choose(meta);
         let mut chain: Vec<(Arc<dyn LlmClient>, ProviderTier)> = vec![(pc, pt)];
         if let Some(ref f) = self.fleet {
             chain.push((f.clone(), ProviderTier::LocalFallback));
@@ -624,16 +676,9 @@ impl TieredRouter {
                 if Arc::ptr_eq(client, &chain[0].0) {
                     continue; // same instance as the primary we already tried
                 }
-                // bounded exponential backoff with jitter (cap 30s)
-                let base = (250u64.saturating_mul(1u64 << (i as u32).min(6))).min(30_000);
-                let jitter = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| (d.subsec_nanos() as u64) % (base / 2 + 1))
-                    .unwrap_or(0);
-                tokio::time::sleep(std::time::Duration::from_millis(
-                    (base + jitter).min(30_000),
-                ))
-                .await;
+                // #13 bounded jittered exponential backoff via resilience helper (base 250ms, cap 30s)
+                let delay = crate::resilience::backoff_duration(i as u32, 250, 30_000);
+                tokio::time::sleep(delay).await;
             }
 
             let res = if temperature.is_some() || max_tokens.is_some() {
@@ -657,6 +702,8 @@ impl TieredRouter {
             match res {
                 Ok(t) => {
                     self.breaker.record_success(bkey);
+                    // #14 Populate cache on success.
+                    self.cache.insert(cache_key, t.clone());
                     return t;
                 }
                 Err(e) => {

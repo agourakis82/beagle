@@ -9,7 +9,8 @@
 //! - Melhor tratamento de erros de rede
 //! - Logging detalhado com contexto
 
-use crate::{LlmClient, LlmRequest};
+use crate::output::TokenUsage;
+use crate::{LlmClient, LlmOutput, LlmRequest};
 use async_trait::async_trait;
 use reqwest::Client;
 use std::env;
@@ -34,17 +35,41 @@ struct Choice {
     message: ChoiceMessage,
 }
 
+/// Token usage object returned by the XAI / Grok API.
+#[derive(Debug, serde::Deserialize)]
+struct GrokUsage {
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    total_tokens: u32,
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct ApiResponse {
     choices: Vec<Choice>,
+    /// Present in all successful XAI API responses.
+    usage: Option<GrokUsage>,
 }
 
 impl GrokClient {
     pub fn new() -> Self {
-        let api_key = env::var("XAI_API_KEY").unwrap_or_else(|_| {
-            warn!("XAI_API_KEY não configurada, usando valor vazio (falhará em runtime)");
-            String::new()
-        });
+        Self::new_with_key(String::new())
+    }
+
+    /// Construct a GrokClient with an explicit API key.
+    ///
+    /// If `api_key` is empty the constructor falls back to the `XAI_API_KEY`
+    /// environment variable (so the old zero-argument `new()` still works).
+    /// Callers that hold an explicit key should prefer this constructor so the
+    /// client actually uses it instead of silently re-reading the environment.
+    pub fn new_with_key(api_key: String) -> Self {
+        let api_key = if api_key.is_empty() {
+            env::var("XAI_API_KEY").unwrap_or_else(|_| {
+                warn!("XAI_API_KEY não configurada, usando valor vazio (falhará em runtime)");
+                String::new()
+            })
+        } else {
+            api_key
+        };
 
         let max_retries = env::var("BEAGLE_LLM_MAX_RETRIES")
             .ok()
@@ -91,6 +116,17 @@ impl GrokClient {
 
 #[async_trait]
 impl LlmClient for GrokClient {
+    /// Override: captures real usage from the XAI API response instead of estimating chars/4.
+    async fn complete(&self, prompt: &str) -> anyhow::Result<LlmOutput> {
+        let req = LlmRequest {
+            model: "default".to_string(),
+            messages: vec![crate::ChatMessage::user(prompt)],
+            temperature: Some(0.7),
+            max_tokens: Some(2048),
+        };
+        self.chat_metered(req, prompt).await
+    }
+
     async fn chat(&self, mut req: LlmRequest) -> anyhow::Result<String> {
         // Detecta se deve forçar Heavy
         let force_heavy = req.model.contains("heavy") || req.model.contains("4-heavy");
@@ -132,7 +168,7 @@ impl LlmClient for GrokClient {
             }
 
             match self.try_request(&request_body, &req.model).await {
-                Ok(text) => {
+                Ok((text, _usage)) => {
                     if attempt > 0 {
                         info!("GrokClient: sucesso após {} tentativas", attempt);
                     }
@@ -177,12 +213,13 @@ impl LlmClient for GrokClient {
 }
 
 impl GrokClient {
-    /// Tenta fazer a requisição uma vez
+    /// Tenta fazer a requisição uma vez.
+    /// Returns (text, Option<measured TokenUsage>).
     async fn try_request(
         &self,
         request_body: &serde_json::Value,
         model: &str,
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<(String, Option<TokenUsage>)> {
         let response = self
             .client
             .post("https://api.x.ai/v1/chat/completions")
@@ -220,7 +257,62 @@ impl GrokClient {
             anyhow::bail!("Grok API retornou resposta vazia");
         }
 
-        Ok(resp.choices[0].message.content.clone())
+        let text = resp.choices[0].message.content.clone();
+        let usage = resp.usage.map(|u| {
+            TokenUsage::measured(u.prompt_tokens, u.completion_tokens, u.total_tokens)
+        });
+
+        Ok((text, usage))
+    }
+
+    /// Versão metered: retorna (text, LlmOutput com usage real se disponível).
+    pub async fn chat_metered(
+        &self,
+        mut req: LlmRequest,
+        prompt_for_fallback: &str,
+    ) -> anyhow::Result<LlmOutput> {
+        let force_heavy = req.model.contains("heavy") || req.model.contains("4-heavy");
+        req.model = self.choose_model(&req, force_heavy);
+
+        let request_body = serde_json::json!({
+            "model": req.model,
+            "messages": req.messages,
+            "temperature": req.temperature.unwrap_or(0.7),
+            "max_tokens": req.max_tokens.unwrap_or(8192),
+        });
+
+        let mut last_error = None;
+        for attempt in 0..=self.max_retries {
+            if attempt > 0 {
+                let base = self
+                    .initial_backoff_ms
+                    .saturating_mul(1u64 << (attempt - 1).min(6))
+                    .min(30_000);
+                let jitter = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| (d.subsec_nanos() as u64) % (base / 2 + 1))
+                    .unwrap_or(0);
+                tokio::time::sleep(Duration::from_millis((base + jitter).min(30_000))).await;
+            }
+            match self.try_request(&request_body, &req.model).await {
+                Ok((text, maybe_usage)) => {
+                    let output = match maybe_usage {
+                        Some(u) => LlmOutput::with_measured_usage(text, prompt_for_fallback, u),
+                        None => LlmOutput::from_text(text, prompt_for_fallback),
+                    };
+                    return Ok(output);
+                }
+                Err(e) => {
+                    if Self::is_retryable_error(&e) {
+                        last_error = Some(e);
+                        continue;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Grok API: max retries exceeded")))
     }
 
     /// Verifica se um erro é retryable (transient)

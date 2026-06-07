@@ -5,6 +5,12 @@ edition = "2021"
 description = "Consciousness Mirror – Espelho autorreflexivo para emergência fenomenológica no BEAGLE SINGULARITY"
 license = "MIT"
 
+[features]
+# Gate the speculative qualia-detection heuristics behind a non-default feature.
+# Without this feature the function compiles but returns an empty indicator list,
+# making clear that no genuine phenomenal-consciousness detection occurs by default.
+experimental-qualia = []
+
 [dependencies]
 tokio = { version = "1.40", features = ["full"] }
 tracing = "0.1"

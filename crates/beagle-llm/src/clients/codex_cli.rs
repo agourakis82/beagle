@@ -15,7 +15,10 @@
 //! 3. BEAGLE will automatically use it!
 
 use crate::models::{CompletionRequest, CompletionResponse, Message};
+use crate::tier::Tier;
+use crate::{LlmClient, LlmRequest};
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use serde_json::Value;
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -292,6 +295,41 @@ impl CodexCliClient {
 impl Default for CodexCliClient {
     fn default() -> Self {
         Self::new().expect("Failed to create CodexCliClient")
+    }
+}
+
+#[async_trait]
+impl LlmClient for CodexCliClient {
+    fn name(&self) -> &'static str {
+        "codex-cli"
+    }
+
+    fn tier(&self) -> Tier {
+        Tier::CloudGrokMain
+    }
+
+    async fn chat(&self, request: LlmRequest) -> anyhow::Result<String> {
+        use crate::models::ModelType;
+
+        let messages: Vec<Message> = request
+            .messages
+            .into_iter()
+            .map(|m| Message {
+                role: m.role,
+                content: m.content,
+            })
+            .collect();
+
+        let completion_req = CompletionRequest {
+            model: ModelType::default(),
+            messages,
+            max_tokens: request.max_tokens.unwrap_or(2048) as u32,
+            temperature: request.temperature.unwrap_or(0.7),
+            system: None,
+        };
+
+        let response = self.complete(completion_req).await?;
+        Ok(response.content)
     }
 }
 
