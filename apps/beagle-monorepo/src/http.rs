@@ -2796,7 +2796,7 @@ async fn adversarial_compete_handler(
 
         let mut judge_meta = RequestMeta::from_prompt(&judge_prompt);
         judge_meta.requires_high_quality = true;
-        judge_meta.critical_section = true;
+        // judge stays on the high-quality tier (not critical) to avoid the misconfigured deepseek-math math tier
         let current_stats = ctx.llm_stats.get_or_create(run_id);
         let (jclient, jtier) = ctx.router.choose_with_limits(&judge_meta, &current_stats);
         let judge_text = ctx
