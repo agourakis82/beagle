@@ -7,7 +7,7 @@ edition = "2021"
 # Core dependencies
 beagle-core = { path = "../beagle-core" }
 beagle-llm = { path = "../beagle-llm" }
-beagle-config = { path = "../beagle-config" }
+beagle-config = { workspace = true }
 beagle-metrics = { path = "../beagle-metrics" }
 
 # WebSocket framework

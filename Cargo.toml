@@ -163,6 +163,7 @@ tokio-test = "0.4"
 futures = "0.3"
 
 # Internal crates
+beagle-config = { path = "crates/beagle-config" }
 beagle-memory = { path = "crates/beagle-memory" }
 beagle-personality = { path = "crates/beagle-personality" }
 
@@ -192,6 +193,7 @@ thiserror = "2.0"
 # Config & environment
 dotenvy = "0.15"
 config = "0.14"
+figment = { version = "0.10", features = ["json", "env"] }
 
 # Cloud
 gcp_auth = "0.10"

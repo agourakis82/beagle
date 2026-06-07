@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 # Core dependencies
 beagle-core = { path = "../beagle-core" }
-beagle-config = { path = "../beagle-config" }
+beagle-config = { workspace = true }
 
 # OpenTelemetry
 opentelemetry = { version = "0.21", features = ["trace", "metrics"] }

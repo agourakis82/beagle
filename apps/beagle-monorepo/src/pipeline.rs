@@ -74,7 +74,8 @@ pub async fn run_beagle_pipeline(
         if ctx.cfg.memory_retrieval_enabled() {
             info!("🧠 Fase 0: Memory RAG injection");
             if let Ok(mem_result) = ctx
-                .memory_query(beagle_memory::MemoryQuery {
+                .memory()
+                .query(beagle_memory::MemoryQuery {
                     query: question.to_string(),
                     scope: Some("scientific".to_string()),
                     max_items: Some(3),
