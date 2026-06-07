@@ -485,6 +485,10 @@ async function proxyWorkspaceAgentJson(req, res, project, agentPath) {
     if (!res.headersSent) res.status(response.status).json(payload);
     return true;
   } catch (error) {
+    console.warn(
+      `[workbench] workspace-agent proxy ${agentPath} -> ${workspaceAgentBaseUrl(project, req.params.slug)} failed: ` +
+      `${error?.name || "?"}/${error?.code || "?"}: ${error?.message || error} (cause: ${error?.cause?.code || error?.cause?.message || "n/a"})`
+    );
     if (error?.name === "AbortError" || error?.code === "ECONNREFUSED" || error?.code === "ENOTFOUND") {
       return false;
     }
