@@ -1,0 +1,14 @@
+# .NET build artifacts
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+.vs/
+
+# NuGet
+*.nupkg
+packages/
+
+# Local tool / SDK installs (never commit)
+.dotnet/

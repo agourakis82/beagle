@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- BeagleCore.Net — platform-agnostic cluster-contract core for the Windows cockpit client.
+       No UI, no Windows API: pure System.Net.WebSockets. Builds + unit-tests on Linux/macOS/Windows
+       with the .NET 9 SDK, so the /pty protocol can be verified WITHOUT a Windows build host. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>13</LangVersion>
+    <AssemblyName>BeagleCore.Net</AssemblyName>
+    <RootNamespace>BeagleCore.Net</RootNamespace>
+  </PropertyGroup>
+
+</Project>
