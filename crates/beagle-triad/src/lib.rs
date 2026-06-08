@@ -744,6 +744,7 @@ pub async fn run_athena(
         offline_required: false,
         requires_vision: false,
         approximate_tokens: draft.len() / 4, // rough estimate
+        ..Default::default()
     };
 
     info!("ATHENA: Evaluating draft with high-quality reasoning (PhD-level)");
