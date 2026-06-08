@@ -4326,13 +4326,22 @@ async fn recall_answer_handler(
         let meta = RequestMeta::from_prompt(&prompt);
         let stats = bctx.llm_stats.get_or_create("recall_answer");
         let (client, tier) = bctx.router.choose_with_limits(&meta, &stats);
-        bctx.router
-            .complete_chosen(&client, tier, &prompt)
-            .await
-            .map_err(|e| {
-                error!("recall synthesis failed: {}", e);
-                StatusCode::BAD_GATEWAY
-            })?
+        match bctx.router.complete_chosen(&client, tier, &prompt).await {
+            Ok(a) => a.trim().to_string(),
+            Err(e) => {
+                // Fail-soft: a synthesis-model hiccup must NEVER fail recall (was 502). The
+                // retrieved, cited passages are the valuable part — return them with a note so
+                // the caller still gets real memory instead of an error.
+                error!("recall synthesis failed (returning retrieved passages): {}", e);
+                let mut lines =
+                    vec![format!("(composed synthesis unavailable — showing retrieved memory)")];
+                for s in sources.iter().take(6) {
+                    let snippet: String = s.text.chars().take(240).collect();
+                    lines.push(format!("- [{}] {}", s.n, snippet));
+                }
+                lines.join("\n")
+            }
+        }
     };
     Ok(Json(RecallAnswerResponse {
         answer: answer.trim().to_string(),
