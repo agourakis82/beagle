@@ -6301,13 +6301,21 @@ impl ExocortexRepository {
         let mut scored = atoms
             .iter()
             .filter(|atom| {
+                // Project-habitat isolation: a scoped recall must return ONLY atoms that belong to
+                // that project, identified by the canonical `project:<slug>` tag that work-memory
+                // capture writes. The previous substring match (`tag.contains(scope)` ||
+                // `atom_type.contains(scope)`) leaked the portfolio/omnimemory that merely *mentions*
+                // the project (e.g. papers tagged with a "sounio" topic) into `scope=sounio` recall,
+                // breaking the per-project cognitive loop. Strict tag match fixes the isolation; a
+                // bare `<scope>` tag is still accepted for non-project (topic) scopes.
                 scope
                     .as_ref()
                     .map(|scope| {
-                        atom.tags
-                            .iter()
-                            .any(|tag| tag.to_lowercase().contains(scope))
-                            || atom.atom_type.to_lowercase().contains(scope)
+                        let project_tag = format!("project:{scope}");
+                        atom.tags.iter().any(|tag| {
+                            let t = tag.to_lowercase();
+                            t == project_tag || t == *scope
+                        })
                     })
                     .unwrap_or(true)
             })

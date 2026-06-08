@@ -96,7 +96,17 @@ if [[ -z "${summary}" && ! -t 0 ]]; then
   summary="$(cat)"
 fi
 
-if git_root="$(git -C "${ROOT_DIR}" rev-parse --show-toplevel 2>/dev/null)"; then
+# Resolve the git root to capture from. Prefer an explicit --repo PATH (the daemon passes the
+# target repo as a path), then the current working directory (so a manual `capture` run from inside
+# a repo captures THAT repo), then the script's own repo. This prevents cross-repo leakage — e.g.
+# a sounio capture must NOT inherit the beagle working tree's changed files.
+git_root=""
+for _cand in "${repo:-}" "${PWD:-}" "${ROOT_DIR}"; do
+  [[ -n "${_cand}" && -d "${_cand}" ]] || continue
+  if _gr="$(git -C "${_cand}" rev-parse --show-toplevel 2>/dev/null)"; then git_root="${_gr}"; break; fi
+done
+
+if [[ -n "${git_root}" ]]; then
   : "${repo:=$(git -C "${git_root}" config --get remote.origin.url 2>/dev/null || basename "${git_root}")}"
   : "${branch:=$(git -C "${git_root}" branch --show-current 2>/dev/null || true)}"
   : "${commit:=$(git -C "${git_root}" rev-parse --short HEAD 2>/dev/null || true)}"
