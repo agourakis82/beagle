@@ -4323,7 +4323,13 @@ async fn recall_answer_handler(
     );
     let answer = {
         let mut bctx = state.ctx.lock().await;
-        let meta = RequestMeta::from_prompt(&prompt);
+        // Recall synthesis is SUMMARIZATION, never math/PhD reasoning. Deriving the meta from the
+        // prompt (from_prompt) made GPU/u64/"equation" passages trip requires_math → the slow
+        // DeepSeek/heavy tier (6-30s). Use a neutral meta so it routes to the fast local fleet.
+        let meta = RequestMeta {
+            approximate_tokens: prompt.len() / 4,
+            ..Default::default()
+        };
         let stats = bctx.llm_stats.get_or_create("recall_answer");
         let (client, tier) = bctx.router.choose_with_limits(&meta, &stats);
         match bctx.router.complete_chosen(&client, tier, &prompt).await {
