@@ -224,6 +224,14 @@ struct ChatBubbleView: View {
                     .font(BeagleFont.caption2.font)
                     .foregroundStyle(BeagleTheme.textTertiary)
             }
+
+            if message.role == .assistant && message.savedToMemory {
+                PresencePill(
+                    label: "Memory",
+                    systemImage: "checkmark.circle.fill",
+                    tint: BeagleTheme.truthObserved
+                )
+            }
         }
     }
 

@@ -246,12 +246,7 @@ struct HomeView: View {
             TypewriterText(
                 greeting,
                 font: BeagleFont.largeTitle.font,
-                foregroundStyle: AnyShapeStyle(
-                    LinearGradient(
-                        colors: circadianGradientColors,
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                ),
+                foregroundStyle: AnyShapeStyle(BeagleTheme.accent),
                 speed: 24
             )
             .opacity(hasAppeared ? 1 : 0)
@@ -260,7 +255,7 @@ struct HomeView: View {
 
             Text(contextLine)
                 .font(BeagleFont.body.font)
-                .foregroundStyle(BeagleTheme.textSecondary)
+                .foregroundStyle(Color.primary.opacity(0.72))
                 .lineSpacing(3)
                 .opacity(hasAppeared ? 1 : 0)
                 .offset(y: hasAppeared ? 0 : 8)
@@ -420,7 +415,7 @@ struct HomeView: View {
         if hour >= 0 && hour < 5 {
             return "Late night thinking? Start privately on device, then decide what deserves the larger mind."
         }
-        return "Beagle is here. Start with a thought, then let the command room deepen it."
+        return "Start with a thought."
     }
 
     private var shellPresenceState: BeaglePresenceState {
@@ -748,7 +743,7 @@ struct HomeView: View {
                             .foregroundStyle(BeagleTheme.truthObserved)
                             .textCase(.uppercase)
                             .tracking(0.8)
-                        Text(conversation.isEmpty ? "Bring one living idea into the room" : "Stay with the thread until it turns into something real")
+                        Text(conversation.isEmpty ? "What are you working on?" : "Continue the thread")
                             .font(BeagleFont.title3.font)
                             .fontWeight(.semibold)
                             .foregroundStyle(BeagleTheme.textPrimary)
@@ -765,8 +760,6 @@ struct HomeView: View {
                     .font(BeagleFont.footnote.font)
                     .foregroundStyle(BeagleTheme.textSecondary)
                     .lineSpacing(2)
-
-                companionSignalStrip
 
                 if let pinnedQuestion = pinnedQuestionForCurrentLane {
                     pinnedQuestionCard(pinnedQuestion)
@@ -823,7 +816,7 @@ struct HomeView: View {
                 )
             }
 
-            Text("Type below or start with one of these living prompts.")
+            Text("Or start with a prompt:")
                 .font(BeagleFont.footnote.font)
                 .foregroundStyle(BeagleTheme.textSecondary)
 
@@ -2628,20 +2621,20 @@ struct HomeView: View {
            !latestThought.isEmpty,
            conversation.isEmpty {
             let snippet = latestThought.count > 88 ? String(latestThought.prefix(88)) + "..." : latestThought
-            return "Start from the raw living thread in \(laneName). Beagle should help you think like a real companion, carry notes forward, and adapt the pressure of the conversation to your state. The latest thought still hanging in the air is: “\(snippet)”"
+            return "Last thread in \(laneName): “\(snippet)”"
         }
 
         if conversation.isEmpty {
-            return "This should feel like a real exocortex room for \(laneName), not a dead input bar. Beagle should act like a trusted companion here: carry the question, take notes seriously, and meet you at your current body-state instead of forcing one fixed style of intelligence."
+            return "A place to think in \(laneName). Type a thought — Beagle stays with it."
         }
 
-        return "Keep the thread alive here. Push on the idea, challenge it, or ask Beagle to make the next leap without losing the lane context, the note trail, or the body-state shaping today’s cognition."
+        return "Keep going — push the idea, challenge it, or ask for the next leap."
     }
 
     private var discussionStarters: [String] {
         let laneName = focusedLane.map { projectDisplayName($0.project.projectSlug) } ?? "this project"
         var starters: [String] = [
-            "Stay with me like a real companion in \(laneName). Help me think, take notes on the live idea, and keep only the most important thread alive.",
+            "What should I focus on in \(laneName) right now?",
             "Help me think through \(laneName) from first principles. What is the real problem underneath it?",
             "What is the next concrete move for \(laneName), and why is it the right move now?",
             "Challenge my current direction in \(laneName). What am I probably missing?"

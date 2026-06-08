@@ -34,6 +34,8 @@ public struct ChatMessage: Identifiable, Sendable {
     public var podName: String?
     /// Round Table: voice identity (e.g. "consciousness", "paradox", "quantum")
     public var voiceName: String?
+    /// True once this exchange has been auto-imported into the cluster exocortex memory.
+    public var savedToMemory: Bool = false
 
     public init(
         id: UUID = UUID(),
@@ -504,6 +506,10 @@ public final class ConversationStore {
         }
         let atoms = importResult.projection?.atomsCreated ?? 0
         let episodes = importResult.projection?.episodesCreated ?? 0
+        // Mark the assistant bubble so the UI can show "✓ Memory" — the idea is now recallable.
+        if let i = messages.firstIndex(where: { $0.id == assistant.id }) {
+            messages[i].savedToMemory = true
+        }
         autoImportState = ConversationAutoImportState(
             status: "imported",
             sessionId: importResult.sessionId,
