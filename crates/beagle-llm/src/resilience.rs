@@ -80,7 +80,7 @@ pub fn backoff_duration(attempt: u32, base_ms: u64, max_ms: u64) -> std::time::D
     let shift = attempt.min(10); // cap shift to avoid u64 overflow (2^10 = 1024)
     let exp = base_ms.saturating_mul(1u64 << shift).min(max_ms);
     let jitter_range = (exp / 4).max(1); // +-25% jitter
-    // Low bits of Instant are a cheap entropy source for non-security jitter.
+                                         // Low bits of Instant are a cheap entropy source for non-security jitter.
     let raw = {
         // Use duration_since a fixed epoch approximation via elapsed nanos mod jitter_range.
         // `Instant::now()` subsec ns is enough entropy for backoff jitter.
@@ -89,8 +89,7 @@ pub fn backoff_duration(attempt: u32, base_ms: u64, max_ms: u64) -> std::time::D
             .map(|d| d.subsec_nanos() as u64)
             .unwrap_or_else(|_| {
                 // Fallback: use Instant elapsed nanos (always positive, no epoch dependency).
-                static START: std::sync::OnceLock<std::time::Instant> =
-                    std::sync::OnceLock::new();
+                static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
                 START
                     .get_or_init(std::time::Instant::now)
                     .elapsed()
@@ -148,9 +147,85 @@ impl TokenBucket {
     }
 }
 
+/// Router-facing rate limiter (#13): a thin, env-configurable wrapper over [`TokenBucket`] that can
+/// be fully disabled. When disabled (`capacity ≤ 0`, the default), `allow` is a no-op that always
+/// returns true — so wiring it into the hot path never changes behavior unless an operator opts in
+/// via `BEAGLE_LLM_RATE_CAPACITY`.
+pub struct RateLimit {
+    bucket: Option<TokenBucket>,
+}
+
+impl RateLimit {
+    /// Build from env: `BEAGLE_LLM_RATE_CAPACITY` (max burst tokens per identity) and
+    /// `BEAGLE_LLM_RATE_REFILL_PER_SEC` (sustained tokens/sec). When refill is unset it defaults
+    /// to `capacity`, i.e. the bucket refills fully every second → `capacity` requests/sec
+    /// sustained, with bursts up to `capacity`. Set refill explicitly (e.g. `1`) for a tighter
+    /// sustained rate. Capacity ≤ 0 or unset → disabled.
+    pub fn from_env() -> Self {
+        let capacity = std::env::var("BEAGLE_LLM_RATE_CAPACITY")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        if capacity <= 0.0 {
+            return Self::disabled();
+        }
+        let refill = std::env::var("BEAGLE_LLM_RATE_REFILL_PER_SEC")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(capacity);
+        Self {
+            bucket: Some(TokenBucket::new(capacity, refill)),
+        }
+    }
+
+    /// An always-allow limiter (rate limiting off).
+    pub fn disabled() -> Self {
+        Self { bucket: None }
+    }
+
+    /// An enabled limiter with explicit parameters (used by tests / programmatic config).
+    pub fn enabled(capacity: f64, refill_per_sec: f64) -> Self {
+        Self {
+            bucket: Some(TokenBucket::new(capacity, refill_per_sec)),
+        }
+    }
+
+    /// True if this limiter actually enforces a limit (vs. always-allow).
+    pub fn is_enabled(&self) -> bool {
+        self.bucket.is_some()
+    }
+
+    /// Try to admit one request for `identity`. Always true when disabled.
+    pub fn allow(&self, identity: &str) -> bool {
+        match &self.bucket {
+            Some(b) => b.try_acquire(identity),
+            None => true,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ratelimit_disabled_always_allows() {
+        let rl = RateLimit::disabled();
+        assert!(!rl.is_enabled());
+        for _ in 0..1000 {
+            assert!(rl.allow("anon"));
+        }
+    }
+
+    #[test]
+    fn ratelimit_enabled_throttles_per_identity() {
+        let rl = RateLimit::enabled(2.0, 0.0); // 2 tokens, no refill
+        assert!(rl.is_enabled());
+        assert!(rl.allow("alice"));
+        assert!(rl.allow("alice"));
+        assert!(!rl.allow("alice"), "alice exhausted her 2 tokens");
+        assert!(rl.allow("bob"), "bob has his own independent bucket");
+    }
 
     #[test]
     fn breaker_opens_after_threshold_and_half_opens_after_cooldown() {

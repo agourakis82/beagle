@@ -817,6 +817,7 @@ async fn hermes_llm_synthesis(
         high_bias_risk: false,
         requires_phd_level_reasoning: true, // Síntese de paper requer raciocínio de alto nível
         critical_section: false,
+        ..Default::default()
     };
 
     call_llm_with_stats(ctx, run_id, &prompt, meta).await

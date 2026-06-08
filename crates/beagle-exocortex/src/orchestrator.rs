@@ -572,6 +572,7 @@ impl PersonalExocortex {
                 high_bias_risk: false,
                 requires_phd_level_reasoning: requires_phd,
                 critical_section: input.urgency > 0.9,
+                ..Default::default()
             };
 
             // Get current stats for routing
