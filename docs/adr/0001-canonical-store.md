@@ -9,6 +9,45 @@ authoritative version with grounding in code readings of 2026-06-07).
 
 ---
 
+## 0. Measured-reality update (2026-06-08) — supersedes contradicted claims below
+
+The original body (§1–§8) was written from **code reading** on 2026-06-07. A live cluster
+probe on 2026-06-08 (read-only `curl` against Qdrant + beagle-memory-engine) contradicts several
+of its premises. Per the "measure, don't assume" discipline, the measured facts win and the
+affected decisions are reconciled here. The rest of the ADR stands.
+
+**Measured live topology (2026-06-08):**
+
+| Store | MEASURED state | Original ADR claim | Verdict |
+|-------|----------------|--------------------|---------|
+| Qdrant `cockpit_rag` | 24 373 points, **1024-dim** (bge-m3), green, 22 016 indexed | "`beagle` collection, 1536-dim" | name+dim wrong |
+| Qdrant `beagle_exocortex` | 745 points, 1024-dim, **0 indexed** (below HNSW threshold) | not mentioned | underused |
+| Qdrant `beagle` | **does not exist** | "the sole canonical projection" | wrong |
+| LanceDB `semantic_memory_v1` (via beagle-memory-engine) | **LIVE**: 7 026 rows on OrangeFS, `lancedb-multivector`, model `jinaai/jina-colbert-v2`, reranker `gte-reranker-modernbert`; serves `/api/memory/query` (recall smoke-test passed, relevance 1.0 on in-corpus query) | "retired / empty / row_count:0 / no eval" | **wrong — it is the live recall path** |
+| pgvector `nodes.embedding` | schema is **`VECTOR(1536)`** | "seeds the 1536-dim Qdrant rebuild" | **dim mismatch**: live indexes are 1024-dim, so this column cannot seed them without re-embedding |
+
+**Reconciled decisions (override §2.2 where they conflict):**
+
+1. **The canonical exocortex *semantic* index is LanceDB `semantic_memory_v1`, served by the
+   separate `beagle-memory-engine` process** — not retired. It is the measured, populated,
+   discrimination-tested recall path and is strictly more capable than the Qdrant single-vector
+   path (multivector ColBERT late-interaction + a reranker). LanceDB is therefore reclassified
+   **External-Canonical** (canonical, but owned by a different service), not "retired".
+2. **Qdrant remains a rebuildable vector projection** for the in-process `VectorStore` trait
+   (`beagle_exocortex` collection); `cockpit_rag` belongs to the cockpit plane. The empty/0-indexed
+   `beagle_exocortex` is a consolidation candidate (backfill or fold into the memory-engine index).
+3. **The pgvector "rebuild seed" plan (§4.3) is currently broken**: the column is 1536-dim while
+   every live index is 1024-dim. Before pgvector can seed a rebuild, either the column is re-specced
+   to 1024 (bge-m3) or the rebuild path must re-embed. Until then, the rebuild source of truth for
+   the semantic index is the memory-engine's own JSONL/import corpus, not pgvector.
+4. **Postgres stays the relational/graph system-of-record.** Unchanged.
+
+The runtime honesty primitive for this (plan #12, Stage 0) is now implemented:
+`beagle-core/src/store_inventory.rs` (`BeagleStoreInventory`) resolves and logs each store's role
+at every `core_server` startup — see acceptance criterion §7 (first box).
+
+---
+
 ## 1. Context
 
 ### 1.1 The current store landscape (measured, not assumed)
@@ -396,8 +435,10 @@ improvement on a real held-out query set.
 
 This ADR is complete when:
 
-- [ ] `BeagleStoreInventory` startup log shows `system-of-record: postgres`, `projection: qdrant`,
-      `cache: redis`, `experimental: neo4j`, `retired: lancedb` at every core_server startup.
+- [x] `BeagleStoreInventory` startup log shows `system-of-record: postgres`, `projection: qdrant`,
+      `cache: redis`, `experimental: neo4j`, and `external-canonical: lancedb/memory-engine`
+      (revised from "retired" per §0) at every core_server startup. **DONE 2026-06-08** —
+      `beagle-core/src/store_inventory.rs`, wired into `BeagleContext::new`, unit-tested.
 - [ ] `ContextBridge::retrieve_similar_context` is implemented (no TODO stub at `bridge.rs:189`).
 - [ ] LanceDB env vars are rejected at startup.
 - [ ] The daily snapshot CronJobs (`beagle-db-snapshot`, `beagle-qdrant-snapshot`) are deployed

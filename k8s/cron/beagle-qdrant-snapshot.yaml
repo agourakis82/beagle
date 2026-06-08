@@ -1,0 +1,45 @@
+# Beagle Qdrant vector-projection daily snapshot — ADR 0001 §4.2.
+#
+# STATUS: NOT YET APPLIED. Version-controlled IaC for the Stage-3 rollout.
+#
+# Collection names are the MEASURED live ones (2026-06-08), corrected from the early ADR draft:
+#   - beagle_exocortex : in-process VectorStore projection (currently 745 pts, 1024-dim).
+#   - cockpit_rag      : cockpit plane index (24k pts, 1024-dim).
+# NOTE: the canonical EXOCORTEX *semantic* index is LanceDB `semantic_memory_v1`, served by the
+# separate beagle-memory-engine on OrangeFS (ADR 0001 §0). Its DR is filesystem-level
+# (OrangeFS snapshot of /orangefs/beagle-memory-lab/lancedb) + the rebuild endpoint
+# `/v1/index/semantic/rebuild` — NOT covered by this Qdrant snapshot.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: beagle-qdrant-snapshot
+  namespace: beagle
+spec:
+  schedule: "30 3 * * *" # 03:30 UTC daily (after the Postgres dump)
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          annotations:
+            container.apparmor.security.beta.kubernetes.io/qdrant-snapshot: unconfined
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+          containers:
+            - name: qdrant-snapshot
+              image: curlimages/curl:8.7.1
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  for col in beagle_exocortex cockpit_rag; do
+                    echo "snapshotting $col"
+                    curl -sf -XPOST \
+                      "http://qdrant.beagle.svc:6333/collections/$col/snapshots"
+                  done
