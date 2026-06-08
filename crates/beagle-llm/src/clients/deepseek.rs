@@ -57,7 +57,9 @@ impl DeepSeekClient {
     /// Cria cliente para Deep Seek Math
     pub fn new_math() -> Self {
         let mut client = Self::new();
-        client.model = "deepseek-math".to_string();
+        // DeepSeek retired "deepseek-math"; the API now accepts deepseek-v4-pro / deepseek-v4-flash.
+        // A stale model id makes the API 400 → recall synthesis failed → 502. Use the supported one.
+        client.model = "deepseek-v4-pro".to_string();
         client
     }
 }
