@@ -194,6 +194,9 @@ impl BeagleContext {
         // Darwin é inicializado no beagle-monorepo com with_context()
         // para evitar dependência circular
 
+        // #12 / ADR 0001 Stage 0: log the resolved store roles so advertising matches execution.
+        crate::store_inventory::BeagleStoreInventory::resolve(&cfg).log();
+
         Ok(Self {
             cfg,
             router,
