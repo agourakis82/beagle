@@ -69,8 +69,24 @@ struct BeagleSurface: View {
     }
 
     private var livingBackground: some View {
-        // Flat adaptive surface — no mesh, no glow, no time-of-day tint.
-        BeagleTheme.surface0.ignoresSafeArea()
+        // Restrained depth: a flat deep base + a quiet vertical lift + ONE static
+        // state-tinted glow. No animation, no circadian, no rainbow mesh — alive,
+        // not kitsch.
+        ZStack {
+            BeagleTheme.surface0
+            LinearGradient(
+                colors: [BeagleTheme.surface2.opacity(0.45), BeagleTheme.surface0, BeagleTheme.surface0],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            RadialGradient(
+                colors: [shellPresence.tint.opacity(0.10), .clear],
+                center: UnitPoint(x: 0.82, y: 0.04),
+                startRadius: 0,
+                endRadius: 460
+            )
+        }
+        .ignoresSafeArea()
     }
 
     private var surfaceForeground: some View {
