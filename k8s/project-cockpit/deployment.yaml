@@ -18,17 +18,28 @@ spec:
         app.kubernetes.io/part-of: beagle
     spec:
       serviceAccountName: project-cockpit
-      nodeSelector:
-        sounio.dev/runtime-role: cluster-core
+      # Cockpit is a lightweight web app (1cpu/1Gi). It was previously hard-pinned to
+      # sounio.dev/runtime-role=cluster-core (r770-only), which made it un-reschedulable
+      # whenever r770 hit DiskPressure (2026-06-09 incident). Per cockpit/SCHEDULING.md
+      # doctrine, give it the GPU tolerations + a *preferred* anti-affinity away from the
+      # control-plane so it spreads to any healthy worker instead of being trapped on the
+      # most disk-tight GPU node. Its data PVC is Ceph RBD (network-attached) so it can
+      # re-attach on any node.
       tolerations:
         - key: sounio.dev/compute
-          operator: Equal
-          value: heavy
+          operator: Exists
           effect: NoSchedule
         - key: sounio.dev/pool
-          operator: Equal
-          value: gpu-batch
+          operator: Exists
           effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
       containers:
         - name: project-cockpit
           image: 192.168.3.207:5003/project-cockpit:sounio-workday-mvp-7724a49
