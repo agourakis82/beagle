@@ -125,24 +125,15 @@ public final class ConversationStore {
     /// NORMAL → local MLX (balanced)
     /// STRESS → Foundation Models (fast, don't overwhelm)
     public func sendMessage(_ text: String) async {
-        switch flowState {
-        case "FLOW":
-            // Deep focus → use cloud for best reasoning
+        // Honor an explicitly loaded on-device model above all else: if the user
+        // loaded a local model, route to it. The HRV-derived `preferLocal` hint and
+        // `flowState` no longer silently send a loaded model's turns to the cloud —
+        // a loaded model is an explicit user choice. `flowState` still travels in the
+        // cloud request body for server-side routing when no local model is ready.
+        if llm.isReady {
+            await sendMessageLocal(text)
+        } else {
             await sendMessageCloud(text)
-        case "STRESS":
-            // Stressed → quick local response
-            if llm.isReady {
-                await sendMessageLocal(text)
-            } else {
-                await sendMessageCloud(text)
-            }
-        default:
-            // NORMAL or unknown → prefer local if available
-            if preferLocal && llm.isReady {
-                await sendMessageLocal(text)
-            } else {
-                await sendMessageCloud(text)
-            }
         }
     }
 
