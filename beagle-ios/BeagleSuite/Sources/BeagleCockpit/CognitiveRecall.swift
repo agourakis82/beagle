@@ -114,14 +114,8 @@ private enum CK {
     }
 
     @ViewBuilder static var canvas: some View {
-        ZStack {
-            bg
-            RadialGradient(colors: [accent2.opacity(0.10), .clear],
-                           center: UnitPoint(x: 0.85, y: -0.08), startRadius: 0, endRadius: 540)
-            RadialGradient(colors: [turq.opacity(0.07), .clear],
-                           center: UnitPoint(x: -0.05, y: 0.10), startRadius: 0, endRadius: 460)
-        }
-        .ignoresSafeArea()
+        // Flat adaptive surface — radial glow washes removed (redesign).
+        BeagleTheme.surface0.ignoresSafeArea()
     }
 }
 
