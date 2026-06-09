@@ -63,11 +63,11 @@ struct BeagleCockpitApp: App {
                         navigateToProject(slug)
                     }
                 }
-                // adaptive: follow system appearance
+                .preferredColorScheme(.dark)
                 .tint(BeagleTheme.truthObserved)
             } else {
                 OnboardingView(isComplete: $hasCompletedOnboarding)
-                    // adaptive: follow system appearance
+                    .preferredColorScheme(.dark)
             }
         }
         #if os(macOS)
