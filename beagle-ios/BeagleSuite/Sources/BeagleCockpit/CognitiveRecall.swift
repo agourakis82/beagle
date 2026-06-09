@@ -114,8 +114,8 @@ private enum CK {
     }
 
     @ViewBuilder static var canvas: some View {
-        // Flat adaptive surface — radial glow washes removed (redesign).
-        BeagleTheme.surface0.ignoresSafeArea()
+        // Flat base — radial glow washes removed (redesign).
+        bg.ignoresSafeArea()
     }
 }
 
