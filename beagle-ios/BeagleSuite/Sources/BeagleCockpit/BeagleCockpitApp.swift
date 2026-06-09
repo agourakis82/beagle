@@ -297,17 +297,70 @@ struct RootView: View {
     // MARK: - Mac Layout (sidebar + detail)
 
     enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-        case home   = "Home"
-        case agents = "Agents"
+        case home = "Home"
+        case work = "Work"
+        case terminals = "Terminals"
         case recall = "Recall"
+        case platform = "Platform"
+        case diagnostics = "Diagnostics"
 
         var id: Self { self }
 
         var icon: String {
             switch self {
-            case .home:   return "house"
-            case .agents: return "terminal"
-            case .recall: return "magnifyingglass"
+            case .home:        return "house"
+            case .work:        return "rectangle.3.group"
+            case .terminals:   return "terminal"
+            case .recall:      return "magnifyingglass"
+            case .platform:    return "server.rack"
+            case .diagnostics: return "stethoscope"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .home:
+                return "Briefing and thinking surface"
+            case .work:
+                return "Agent lanes and artifacts"
+            case .terminals:
+                return "Fleet runtime access"
+            case .recall:
+                return "Search memory"
+            case .platform:
+                return "Projects and cluster state"
+            case .diagnostics:
+                return "Health checks"
+            }
+        }
+
+        var legacyTabValue: Int {
+            switch self {
+            case .home:
+                return 0
+            case .work, .terminals, .platform, .diagnostics:
+                return 3
+            case .recall:
+                return 4
+            }
+        }
+    }
+
+    enum SidebarSection: String, CaseIterable, Identifiable {
+        case cockpit = "Cockpit"
+        case memory = "Memory"
+        case system = "System"
+
+        var id: Self { self }
+
+        var items: [SidebarItem] {
+            switch self {
+            case .cockpit:
+                return [.home, .work, .terminals]
+            case .memory:
+                return [.recall]
+            case .system:
+                return [.platform, .diagnostics]
             }
         }
     }
@@ -317,28 +370,36 @@ struct RootView: View {
 
     private var macLayout: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            List(SidebarItem.allCases, id: \.self, selection: $sidebarSelection) { item in
-                Label(item.rawValue, systemImage: item.icon)
+            List(selection: $sidebarSelection) {
+                ForEach(SidebarSection.allCases) { section in
+                    Section(section.rawValue) {
+                        ForEach(section.items) { item in
+                            macSidebarRow(item)
+                                .tag(item)
+                        }
+                    }
+                }
+
+                Section {
+                    macSidebarStatus
+                }
             }
             .navigationTitle("Beagle")
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 160, ideal: 200, max: 260)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         } detail: {
             NavigationStack(path: $path) {
-                Group {
-                    switch sidebarSelection {
-                    case .home:
-                        HomeView()
-                    case .agents:
-                        AgentsHubView(bootError: $bootError)
-                    case .recall:
-                        CognitiveRecallView()
+                macDetail
+                    .navigationDestination(for: Project.self) { project in
+                        ControlRoomView(slug: project.projectSlug)
                     }
-                }
-                .toolbar { composeToolbarItem; settingsToolbarItem }
+                    .toolbar { macToolbarContent }
             }
         }
         .tint(BeagleTheme.accent)
+        .onChange(of: sidebarSelection) { _, newValue in
+            selectedTab = newValue.legacyTabValue
+        }
         .sheet(isPresented: $showCognitiveState) {
             NavigationStack {
                 CognitiveStateView()
@@ -349,6 +410,162 @@ struct RootView: View {
                     }
             }
         }
+    }
+
+    private func macSidebarRow(_ item: SidebarItem) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.rawValue)
+                    .font(BeagleFont.subheadline.font)
+                Text(item.subtitle)
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .lineLimit(1)
+            }
+        } icon: {
+            Image(systemName: item.icon)
+                .foregroundStyle(sidebarSelection == item ? BeagleTheme.accent : BeagleTheme.textSecondary)
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var macSidebarStatus: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            HStack(spacing: BeagleSpacing.xs) {
+                Image(systemName: shellPresence.icon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(shellPresence.tint)
+                Text(macStatusTitle)
+                    .font(BeagleFont.caption.font)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                Spacer()
+            }
+
+            Text(macStatusDetail)
+                .font(BeagleFont.caption2.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .lineLimit(2)
+
+            HStack(spacing: BeagleSpacing.xs) {
+                PresencePill(label: currentLaneLabel, systemImage: "scope", tint: BeagleTheme.truthObserved)
+                if runningAgentCount > 0 {
+                    PresencePill(label: "\(runningAgentCount) live", systemImage: "sparkles", tint: BeagleTheme.truthRemembered)
+                }
+            }
+        }
+        .padding(.vertical, BeagleSpacing.xs)
+    }
+
+    private var macDetail: some View {
+        VStack(spacing: 0) {
+            macStatusStrip
+            Divider().overlay(BeagleTheme.hairline)
+            macSelectedContent
+        }
+        .background(ShellPresenceBackground(presence: shellPresence))
+    }
+
+    private var macStatusStrip: some View {
+        VStack(spacing: BeagleSpacing.xs) {
+            ShellPresenceBanner(
+                presence: shellPresence,
+                selectedTabTitle: sidebarSelection.rawValue,
+                runningAgentCount: runningAgentCount,
+                runningJobCount: cognitive.runningJobCount,
+                laneLabel: currentLaneLabel,
+                mindLabel: currentMindLabel,
+                objectiveLabel: currentObjectiveLabel,
+                compact: true
+            )
+            .padding(.horizontal, BeagleSpacing.lg)
+            .padding(.top, BeagleSpacing.md)
+            .padding(.bottom, bootError == nil ? BeagleSpacing.md : 0)
+
+            if let bootError {
+                authErrorBanner(bootError)
+                    .padding(.horizontal, BeagleSpacing.lg)
+                    .padding(.bottom, BeagleSpacing.md)
+            }
+        }
+        .background(.background.secondary)
+    }
+
+    @ViewBuilder
+    private var macSelectedContent: some View {
+        switch sidebarSelection {
+        case .home:
+            HomeView()
+        case .work:
+            WorkView(bootError: $bootError)
+        case .terminals:
+            FleetTerminalsView()
+                .navigationTitle("Terminals")
+        case .recall:
+            CognitiveRecallView()
+        case .platform:
+            PlatformView()
+        case .diagnostics:
+            DiagnosticsView()
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var macToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Button {
+                withAnimation(BeagleMotion.snappy) {
+                    columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+                }
+            } label: {
+                Label("Toggle Sidebar", systemImage: "sidebar.left")
+            }
+        }
+
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button { showCompose = true } label: {
+                Label("New chat", systemImage: "bubble.left.and.text.bubble.right")
+            }
+            .tint(BeagleTheme.accent)
+
+            Button { showCognitiveState = true } label: {
+                Label("State", systemImage: "waveform.path.ecg")
+            }
+
+            Button { showSettings = true } label: {
+                Label("Settings", systemImage: "gearshape")
+            }
+        }
+    }
+
+    private var macStatusTitle: String {
+        switch shellPresence {
+        case .active:
+            return "Live work"
+        case .attentive:
+            return "Ready"
+        case .dormant:
+            return "Quiet"
+        case .strained:
+            return "Needs attention"
+        }
+    }
+
+    private var macStatusDetail: String {
+        if let bootError {
+            return bootError
+        }
+        var parts: [String] = []
+        if runningAgentCount > 0 {
+            parts.append("\(runningAgentCount) agent\(runningAgentCount == 1 ? "" : "s")")
+        }
+        if cognitive.runningJobCount > 0 {
+            parts.append("\(cognitive.runningJobCount) job\(cognitive.runningJobCount == 1 ? "" : "s")")
+        }
+        if parts.isEmpty {
+            return "Lane \(currentLaneLabel) is available."
+        }
+        return parts.joined(separator: " · ")
     }
 
 #endif

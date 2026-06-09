@@ -69,24 +69,11 @@ struct BeagleSurface: View {
     }
 
     private var livingBackground: some View {
-        // Restrained depth: a flat deep base + a quiet vertical lift + ONE static
-        // state-tinted glow. No animation, no circadian, no rainbow mesh — alive,
-        // not kitsch.
-        ZStack {
-            BeagleTheme.surface0
-            LinearGradient(
-                colors: [BeagleTheme.surface2.opacity(0.45), BeagleTheme.surface0, BeagleTheme.surface0],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            RadialGradient(
-                colors: [shellPresence.tint.opacity(0.10), .clear],
-                center: UnitPoint(x: 0.82, y: 0.04),
-                startRadius: 0,
-                endRadius: 460
-            )
-        }
-        .ignoresSafeArea()
+        // Living mesh restored (dark-only — the light-mode legibility reason is gone).
+        ShellPresenceGradient(
+            presence: shellPresence,
+            cognitivePosture: physio.cognitivePosture
+        )
     }
 
     private var surfaceForeground: some View {
@@ -3717,6 +3704,52 @@ private struct ProofSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Living shell background
+
+private struct ShellPresenceGradient: View {
+    let presence: BeaglePresenceState
+    let cognitivePosture: CognitivePosture
+    @State private var phase: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        MeshGradient(
+            width: 3, height: 3,
+            points: animatedPoints,
+            colors: gradientColors
+        )
+        .ignoresSafeArea()
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 9).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
+        }
+    }
+
+    private var animatedPoints: [SIMD2<Float>] {
+        let d: Float = reduceMotion ? 0 : Float(phase) * 0.07
+        return [
+            SIMD2(0,     0),       SIMD2(0.5,     0),        SIMD2(1,     0),
+            SIMD2(0+d,   0.5-d),   SIMD2(0.5+d,   0.5+d),    SIMD2(1-d,   0.5+d),
+            SIMD2(0,     1),       SIMD2(0.5,     1),        SIMD2(1,     1)
+        ]
+    }
+
+    // Dark-only living shell: deep void base with a state-tinted glow at the top.
+    // No black overlay (the old one muted it to death); `.glow` is now `.clear`
+    // post-redesign, so the presence color comes from `.tint`.
+    private var gradientColors: [Color] {
+        let tint = presence.tint
+        let deep = Color(red: 0.02, green: 0.03, blue: 0.07)
+        return [
+            tint.opacity(0.28), tint.opacity(0.10), Color(white: 0.045),
+            tint.opacity(0.12), Color(white: 0.035), tint.opacity(0.14),
+            deep,               deep,                Color(white: 0.03)
+        ]
     }
 }
 

@@ -1472,7 +1472,13 @@ private struct VisualAgentLaneBoard: View {
             }
         }
         .padding(BeagleSpacing.lg)
-        .background(BeagleTheme.surface0)
+        .background(
+            LinearGradient(
+                colors: [BeagleTheme.surface0.opacity(0.90), BeagleTheme.surface1.opacity(0.66)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
     }
 }
 
@@ -1619,7 +1625,13 @@ private struct VisualWorkCanvas: View {
             .padding(BeagleSpacing.lg)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(BeagleTheme.surface0)
+        .background(
+            LinearGradient(
+                colors: [BeagleTheme.surface0.opacity(0.86), BeagleTheme.surface1.opacity(0.56)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
     }
 
     private var hero: some View {

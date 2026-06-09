@@ -92,7 +92,7 @@ struct HomeView: View {
 
             exocortexInput
         }
-        .background { BeagleTheme.surface0.ignoresSafeArea() }
+        .background { HomeGradient(thoughtCount: cognitive.recentThoughts.count, hasJobs: !cognitive.activeJobs.isEmpty) }
         .navigationTitle("Beagle")
         .navigationBarTitleDisplayModeIfAvailable(.large)
         .overlay {
@@ -3134,6 +3134,88 @@ struct Provocation: Identifiable {
     let prompt: String
 }
 
+// MARK: - Home Gradient (circadian, warm, alive)
+
+/// The home screen breathes with a circadian rhythm.
+/// Morning: warm amber glow. Afternoon: focused teal. Evening: soft violet.
+/// Night: deep indigo with a gentle heartbeat. The more thoughts you have,
+/// the more alive the mesh becomes — your intellectual presence warms the space.
+private struct HomeGradient: View {
+    let thoughtCount: Int
+    let hasJobs: Bool
+    @State private var phase: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        MeshGradient(
+            width: 3, height: 3,
+            points: animatedPoints,
+            colors: gradientColors
+        )
+        .ignoresSafeArea()
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 10).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
+        }
+    }
+
+    private var animatedPoints: [SIMD2<Float>] {
+        // Slower breathing than other views — this is home, not a cockpit
+        let d: Float = reduceMotion ? 0 : Float(phase) * 0.05
+        return [
+            SIMD2(0,       0),     SIMD2(0.5,     0),       SIMD2(1,       0),
+            SIMD2(0+d,     0.5-d), SIMD2(0.5+d,   0.5+d),   SIMD2(1-d,     0.5+d),
+            SIMD2(0,       1),     SIMD2(0.5,     1),       SIMD2(1,       1)
+        ]
+    }
+
+    private var gradientColors: [Color] {
+        let base = Color(red: 0.02, green: 0.03, blue: 0.06)
+        let hour = Calendar.current.component(.hour, from: Date())
+
+        // Intellectual presence: more thoughts = warmer mesh
+        let presenceWarmth = min(Double(thoughtCount) * 0.015, 0.20)
+
+        // Circadian accent
+        let accent: Color
+        let accentIntensity: Double
+
+        switch hour {
+        case 5..<10:
+            // Morning: amber warmth, gentle
+            accent = Color(hue: 35/360, saturation: 0.7, brightness: 0.9)
+            accentIntensity = 0.12 + presenceWarmth
+        case 10..<17:
+            // Day: teal focus, productive
+            accent = BeagleTheme.truthObserved
+            accentIntensity = 0.10 + presenceWarmth
+        case 17..<21:
+            // Evening: violet-blue, reflective
+            accent = Color(hue: 250/360, saturation: 0.4, brightness: 0.7)
+            accentIntensity = 0.10 + presenceWarmth
+        default:
+            // Night: deep indigo, quiet, safe
+            accent = Color(hue: 240/360, saturation: 0.3, brightness: 0.5)
+            accentIntensity = 0.06 + presenceWarmth
+        }
+
+        let jobGlow = hasJobs ? BeagleTheme.postureWarm.opacity(0.08) : Color(white: 0.03)
+
+        return [
+            accent.opacity(accentIntensity),
+            accent.opacity(accentIntensity * 0.3),
+            Color(white: 0.03),
+
+            jobGlow,
+            base,
+            Color(white: 0.03),
+
+            base, base, Color(white: 0.02)
+        ]
+    }
+}
 
 struct LaneResultCard: View {
     let lane: ProjectLaneState

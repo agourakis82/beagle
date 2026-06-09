@@ -262,8 +262,45 @@ struct DeepExplorationView: View {
 private struct DeepExplorationGradient: View {
     let hasHistory: Bool
     let isRunning: Bool
-    // Living mesh background removed — flat adaptive surface (redesign).
+    @State private var phase: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        BeagleTheme.surface0.ignoresSafeArea()
+        MeshGradient(
+            width: 3, height: 3,
+            points: animatedPoints,
+            colors: gradientColors
+        )
+        .ignoresSafeArea()
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 9).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
+        }
+    }
+
+    private var animatedPoints: [SIMD2<Float>] {
+        let d: Float = reduceMotion ? 0 : Float(phase) * 0.06
+        return [
+            SIMD2(0,     0),     SIMD2(0.5,   0),       SIMD2(1,     0),
+            SIMD2(0+d,   0.5-d), SIMD2(0.5+d, 0.5+d),   SIMD2(1-d,   0.5+d),
+            SIMD2(0,     1),     SIMD2(0.5,   1),       SIMD2(1,     1)
+        ]
+    }
+
+    private var gradientColors: [Color] {
+        let base = Color(red: 0.02, green: 0.03, blue: 0.06)
+        return [
+            BeagleTheme.truthRemembered.opacity(isRunning ? 0.15 : (hasHistory ? 0.06 : 0.0)),
+            Color(white: 0.04),
+            Color(white: 0.03),
+
+            BeagleTheme.truthObserved.opacity(isRunning ? 0.08 : 0.0),
+            base,
+            Color(white: 0.03),
+
+            base, base, Color(white: 0.02)
+        ]
     }
 }
