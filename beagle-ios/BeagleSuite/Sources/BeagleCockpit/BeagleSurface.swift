@@ -69,10 +69,8 @@ struct BeagleSurface: View {
     }
 
     private var livingBackground: some View {
-        ShellPresenceGradient(
-            presence: shellPresence,
-            cognitivePosture: physio.cognitivePosture
-        )
+        // Flat adaptive surface — no mesh, no glow, no time-of-day tint.
+        BeagleTheme.surface0.ignoresSafeArea()
     }
 
     private var surfaceForeground: some View {
@@ -3706,38 +3704,3 @@ private struct ProofSheet: View {
     }
 }
 
-// MARK: - Simplified background
-
-private struct ShellPresenceGradient: View {
-    let presence: BeaglePresenceState
-    let cognitivePosture: CognitivePosture
-
-    var body: some View {
-        MeshGradient(
-            width: 3,
-            height: 3,
-            points: [
-                SIMD2(0, 0), SIMD2(0.5, 0), SIMD2(1, 0),
-                SIMD2(0, 0.5), SIMD2(0.5, 0.5), SIMD2(1, 0.5),
-                SIMD2(0, 1), SIMD2(0.5, 1), SIMD2(1, 1)
-            ],
-            colors: gradientColors
-        )
-        .ignoresSafeArea()
-        .overlay {
-            Color.black.opacity(0.75)
-                .ignoresSafeArea()
-        }
-    }
-
-    private var gradientColors: [Color] {
-        let glow = presence.glow
-        let tint = presence.tint
-        let base = Color(red: 0.02, green: 0.03, blue: 0.06)
-        return [
-            glow.opacity(0.15), tint.opacity(0.06), base,
-            tint.opacity(0.08), base, glow.opacity(0.08),
-            base, base, base
-        ]
-    }
-}
