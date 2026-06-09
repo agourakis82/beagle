@@ -243,46 +243,8 @@ private struct AgentMessageCard: View {
 
 private struct AgentActivityGradient: View {
     let hasActivity: Bool
-    @State private var phase: CGFloat = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
+    // Living mesh background removed — flat adaptive surface (redesign).
     var body: some View {
-        MeshGradient(
-            width: 3, height: 3,
-            points: animatedPoints,
-            colors: gradientColors
-        )
-        .ignoresSafeArea()
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 8).repeatForever(autoreverses: true)) {
-                phase = 1
-            }
-        }
-    }
-
-    private var animatedPoints: [SIMD2<Float>] {
-        let d: Float = reduceMotion ? 0 : Float(phase) * 0.06
-        return [
-            SIMD2(0,     0),     SIMD2(0.5,   0),       SIMD2(1,     0),
-            SIMD2(0+d,   0.5-d), SIMD2(0.5+d, 0.5+d),   SIMD2(1-d,   0.5+d),
-            SIMD2(0,     1),     SIMD2(0.5,   1),       SIMD2(1,     1)
-        ]
-    }
-
-    private var gradientColors: [Color] {
-        let base = Color(red: 0.02, green: 0.03, blue: 0.07)
-        // Multiple colors = multiple agent surfaces active
-        return [
-            BeagleTheme.truthObserved.opacity(hasActivity ? 0.10 : 0.0),  // remote agent
-            BeagleTheme.truthRemembered.opacity(hasActivity ? 0.06 : 0.0), // iOS
-            Color(white: 0.03),
-
-            BeagleTheme.postureWarm.opacity(hasActivity ? 0.05 : 0.0),    // ChatGPT
-            base,
-            Color(white: 0.03),
-
-            base, base, Color(white: 0.02)
-        ]
+        BeagleTheme.surface0.ignoresSafeArea()
     }
 }

@@ -269,47 +269,8 @@ struct DiagnosticsView: View {
 
 private struct DiagnosticsGradient: View {
     let result: DiagResult
-    @State private var phase: CGFloat = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
+    // Living mesh background removed — flat adaptive surface (redesign).
     var body: some View {
-        MeshGradient(
-            width: 3, height: 3,
-            points: points,
-            colors: colors
-        )
-        .ignoresSafeArea()
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 6).repeatForever(autoreverses: true)) {
-                phase = 1
-            }
-        }
-    }
-
-    private var points: [SIMD2<Float>] {
-        let d: Float = reduceMotion ? 0 : Float(phase) * 0.04
-        return [
-            SIMD2(0, 0), SIMD2(0.5, 0), SIMD2(1, 0),
-            SIMD2(0+d, 0.5-d), SIMD2(0.5, 0.5+d), SIMD2(1-d, 0.5),
-            SIMD2(0, 1), SIMD2(0.5, 1), SIMD2(1, 1)
-        ]
-    }
-
-    private var colors: [Color] {
-        let base = Color(red: 0.02, green: 0.03, blue: 0.06)
-        let accent: Color
-        switch result {
-        case .passed:  accent = BeagleTheme.truthObserved
-        case .failed:  accent = BeagleTheme.stateError
-        case .running: accent = BeagleTheme.postureWarm
-        default:       accent = BeagleTheme.truthRemembered
-        }
-        let intensity = result == .pending ? 0.0 : 0.12
-        return [
-            accent.opacity(intensity), Color(white: 0.04), Color(white: 0.03),
-            Color(white: 0.03), base, Color(white: 0.03),
-            base, base, Color(white: 0.02)
-        ]
+        BeagleTheme.surface0.ignoresSafeArea()
     }
 }

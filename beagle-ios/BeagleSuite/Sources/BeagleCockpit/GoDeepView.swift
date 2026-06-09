@@ -446,67 +446,9 @@ struct GoDeepView: View {
 private struct DepthMeshGradient: View {
     let progress: Double
     let completedCount: Int
-    @State private var phase: CGFloat = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
+    // Living mesh background removed — flat adaptive surface (redesign).
     var body: some View {
-        ZStack {
-            MeshGradient(
-                width: 3, height: 3,
-                points: animatedPoints,
-                colors: gradientColors
-            )
-
-            // Radial pulse when results arriving
-            if progress > 0 && progress < 1 {
-                RadialGradient(
-                    colors: [
-                        BeagleTheme.truthObserved.opacity(phase > 0.5 ? 0.08 : 0.02),
-                        .clear
-                    ],
-                    center: .center,
-                    startRadius: 60,
-                    endRadius: 600
-                )
-            }
-        }
-        .ignoresSafeArea()
-        .animation(.easeInOut(duration: 1.5), value: completedCount)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 7).repeatForever(autoreverses: true)) {
-                phase = 1
-            }
-        }
-    }
-
-    private var animatedPoints: [SIMD2<Float>] {
-        let d: Float = reduceMotion ? 0 : Float(phase) * 0.07
-        return [
-            SIMD2(0,     0),     SIMD2(0.5,   0),       SIMD2(1,     0),
-            SIMD2(0+d,   0.5-d), SIMD2(0.5+d, 0.5+d),   SIMD2(1-d,   0.5+d),
-            SIMD2(0,     1),     SIMD2(0.5,   1),       SIMD2(1,     1)
-        ]
-    }
-
-    private var gradientColors: [Color] {
-        let p = progress
-        // Shift from indigo void → teal glow as results arrive
-        let tealIntensity = p * 0.30
-        let warmIntensity = max(0, (p - 0.5) * 0.15)
-        let base = Color(red: 0.02, green: 0.03, blue: 0.07)
-
-        return [
-            BeagleTheme.truthObserved.opacity(tealIntensity),
-            BeagleTheme.truthRemembered.opacity(tealIntensity * 0.3),
-            Color(white: 0.04),
-
-            Color(white: 0.03),
-            BeagleTheme.postureWarm.opacity(warmIntensity),
-            Color(white: 0.03),
-
-            base, base, Color(white: 0.02)
-        ]
+        BeagleTheme.surface0.ignoresSafeArea()
     }
 }
 

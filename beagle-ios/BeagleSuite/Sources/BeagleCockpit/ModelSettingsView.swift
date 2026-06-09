@@ -572,65 +572,8 @@ struct ModelSettingsView: View {
 /// - Idle: deep void
 private struct ModelGradient: View {
     let loadState: LocalLLMEngine.LoadState
-    @State private var phase: CGFloat = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
+    // Living mesh background removed — flat adaptive surface (redesign).
     var body: some View {
-        MeshGradient(
-            width: 3, height: 3,
-            points: animatedPoints,
-            colors: gradientColors
-        )
-        .ignoresSafeArea()
-        .animation(.easeInOut(duration: 1.5), value: loadState == .ready)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 8).repeatForever(autoreverses: true)) {
-                phase = 1
-            }
-        }
-    }
-
-    private var animatedPoints: [SIMD2<Float>] {
-        let d: Float = reduceMotion ? 0 : Float(phase) * 0.06
-        return [
-            SIMD2(0,     0),     SIMD2(0.5,   0),       SIMD2(1,     0),
-            SIMD2(0+d,   0.5-d), SIMD2(0.5+d, 0.5+d),   SIMD2(1-d,   0.5+d),
-            SIMD2(0,     1),     SIMD2(0.5,   1),       SIMD2(1,     1)
-        ]
-    }
-
-    private var gradientColors: [Color] {
-        let base = Color(red: 0.02, green: 0.03, blue: 0.07)
-
-        let tealIntensity: Double
-        let goldIntensity: Double
-
-        switch loadState {
-        case .ready:
-            tealIntensity = 0.25
-            goldIntensity = 0.0
-        case .loading, .downloading:
-            tealIntensity = 0.0
-            goldIntensity = 0.20
-        case .error:
-            tealIntensity = 0.0
-            goldIntensity = 0.0
-        case .idle:
-            tealIntensity = 0.0
-            goldIntensity = 0.0
-        }
-
-        return [
-            BeagleTheme.truthObserved.opacity(tealIntensity),
-            Color(white: 0.04),
-            Color(white: 0.03),
-
-            BeagleTheme.postureWarm.opacity(goldIntensity),
-            base,
-            Color(white: 0.03),
-
-            base, base, Color(white: 0.02)
-        ]
+        BeagleTheme.surface0.ignoresSafeArea()
     }
 }
