@@ -803,6 +803,50 @@ export function registerWorkspaceRoutes(app, deps = {}) {
     throw error;
   }));
 
+  // POST /api/workspaces/:slug/agents/:roleOrKind/provider-config
+  // Receives {slot?, base_url, api_key, model?} from the iOS set-up form and proxies
+  // the write to the workspace-agent, which is the only pod that owns the PVC.
+  // api_key is NEVER logged or echoed back; the proxy forwards it in the request body
+  // to the agent over the cluster-internal HTTP path only.
+  // On proxy success the agent returns a MASKED view (apiKeyConfigured:true, no raw key).
+  // On proxy-false (agent unreachable or cockpit-local mode) we return 503 — never a
+  // stale 200 that the iOS client would silently misinterpret as success.
+  app.post("/api/workspaces/:slug/agents/:roleOrKind/provider-config", jsonResponse(async (req, res) => {
+    const slug = safeId(req.params.slug, "default");
+    const roleOrKind = cleanString(req.params.roleOrKind);
+
+    // Validate required fields; keep api_key out of any error messages.
+    const baseUrl = cleanString(req.body?.base_url || req.body?.baseUrl);
+    const apiKey = cleanString(req.body?.api_key || req.body?.apiKey);
+    if (!baseUrl || !apiKey) {
+      const missing = !baseUrl ? "base_url" : "api_key";
+      const error = new Error(`provider-config missing required field: ${missing}`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Proxy the write to the workspace-agent — it owns the PVC and the in-process
+    // override map. The proxy helper adds x-beagle-workbench-gateway: project-cockpit
+    // and forwards method + body verbatim.
+    const project = await getProjectOrThrow(slug);
+    const proxied = await proxyWorkspaceAgentJson(
+      req,
+      res,
+      project,
+      `/v1/agents/${encodeURIComponent(roleOrKind)}/provider-config`
+    );
+    if (proxied) return undefined; // agent responded; proxy already sent the reply.
+
+    // Proxy returned false: WORKBENCH_AUTHORITY !== "workspace-agent" or agent
+    // is unreachable.  Never return a fake 200 — the iOS form must not appear to
+    // succeed when nothing was persisted.
+    const error = new Error(
+      "workspace-agent provider-config unavailable; cannot persist credentials without a live workspace-agent"
+    );
+    error.statusCode = 503;
+    throw error;
+  }));
+
   app.get("/api/workspaces/:slug/sessions/:sessionId", jsonResponse(async (req, res) => {
     const project = await getProjectOrThrow(req.params.slug);
     if (await proxyWorkspaceAgentJson(req, res, project, `/v1/sessions/${encodeURIComponent(req.params.sessionId)}`)) return undefined;
