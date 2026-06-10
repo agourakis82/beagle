@@ -156,6 +156,22 @@ public final class ConversationStore {
             .joined(separator: "\n") + "\n" + text
     }
 
+    /// Strip chain-of-thought blocks emitted by reasoning models (hunyuan, phi4-reasoning,
+    /// r1, olmo3-think, …) so the chat bubble shows only the answer, not the raw reasoning.
+    /// Removes `<think>…</think>` pairs; if a block is left open (truncated), drops from the
+    /// last `<think>` onward.
+    private func stripReasoning(_ text: String) -> String {
+        var s = text
+        if let regex = try? NSRegularExpression(pattern: "<think>[\\s\\S]*?</think>", options: [.caseInsensitive]) {
+            s = regex.stringByReplacingMatches(in: s, options: [], range: NSRange(s.startIndex..., in: s), withTemplate: "")
+        }
+        // Handle an unclosed <think> (model still reasoning / output truncated).
+        if let open = s.range(of: "<think>", options: .caseInsensitive), !s.localizedCaseInsensitiveContains("</think>") {
+            s = String(s[..<open.lowerBound])
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - Send via on-device LLM
 
     /// Send using the on-device MLX model (streaming).
@@ -196,6 +212,7 @@ public final class ConversationStore {
         }
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+            messages[idx].content = stripReasoning(messages[idx].content)
             messages[idx].isStreaming = false
             persist(message: messages[idx])
             await autoImportExchange(
@@ -240,7 +257,7 @@ public final class ConversationStore {
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
             if let response = result.value {
-                let fullText = response.response ?? ""
+                let fullText = stripReasoning(response.response ?? "")
                 messages[idx].model = response.model
                 messages[idx].tokensUsed = response.tokensUsed
                 messages[idx].source = response.source
