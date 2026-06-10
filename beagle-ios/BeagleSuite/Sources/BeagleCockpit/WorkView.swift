@@ -626,7 +626,15 @@ struct WorkView: View {
     /// CLI/PATH-based or shell lanes), so the affordance never dead-ends.
     private func presentProviderSetup(for laneId: String) {
         guard let role = agentRole(for: laneId) else {
-            Task { await openLane(laneId, startProcess: laneId != "shell", showTerminal: false) }
+            Task { await openLane(laneId, startProcess: laneId != "shell", showTerminal: true) }
+            return
+        }
+        // Subscription / CLI lanes (Codex = ChatGPT Pro, Claude Code = Claude Max,
+        // Kimi) authenticate via the CLI's own login inside the workspace terminal —
+        // there is no API key to enter. Open a terminal so the user can install the
+        // CLI (if missing) and run its subscription login; we never capture that session.
+        if laneIsSubscriptionCLI(role.kind) {
+            Task { await openLane(laneId, startProcess: false, showTerminal: true) }
             return
         }
         let target = ProviderSetupTarget(
@@ -638,7 +646,7 @@ struct WorkView: View {
             setupReason: role.readiness?.reason
         )
         guard !target.configurableSlots.isEmpty else {
-            Task { await openLane(laneId, startProcess: laneId != "shell", showTerminal: false) }
+            Task { await openLane(laneId, startProcess: false, showTerminal: true) }
             return
         }
         providerSetupTarget = target
@@ -1244,7 +1252,26 @@ private func humanLaneDetail(_ detail: String) -> String {
 }
 
 /// State-driven label for the lane action button.
-private func laneActionLabel(status: String, hasPane: Bool) -> String {
+/// Auth model of a lane, inferred from its kind. CLI / subscription lanes
+/// (codex, claude-code, kimi) authenticate via the CLI's own subscription login
+/// inside the workspace terminal — there is no API key to enter. API lanes
+/// (minimax, qwen-coder, glm-air) use the provider Set-up form. The shell lane
+/// is just a terminal.
+private func laneIsSubscriptionCLI(_ kind: String) -> Bool {
+    switch kind {
+    case "codex", "claude-code", "kimi": return true
+    default: return false
+    }
+}
+
+private func laneActionLabel(status: String, hasPane: Bool, kind: String) -> String {
+    if laneIsSubscriptionCLI(kind) {
+        switch status {
+        case "needs_setup": return "Install"          // CLI not on the workspace PATH
+        case "live", "running": return "Open"
+        default: return hasPane ? "Open" : "Log in"    // opens the CLI → subscription login
+        }
+    }
     switch status {
     case "needs_setup": return "Set up"
     case "live", "running": return "Open"
@@ -1253,7 +1280,14 @@ private func laneActionLabel(status: String, hasPane: Bool) -> String {
 }
 
 /// State-driven SF Symbol for the lane action button.
-private func laneActionIcon(status: String, hasPane: Bool) -> String {
+private func laneActionIcon(status: String, hasPane: Bool, kind: String) -> String {
+    if laneIsSubscriptionCLI(kind) {
+        switch status {
+        case "needs_setup": return "arrow.down.circle"          // install
+        case "live", "running": return "arrow.up.forward.app"
+        default: return hasPane ? "arrow.up.forward.app" : "person.badge.key"  // log in
+        }
+    }
     switch status {
     case "needs_setup": return "slider.horizontal.3"
     case "live", "running": return "arrow.up.forward.app"
@@ -1326,8 +1360,8 @@ private struct AgentLaneCard: View {
                     }
                     Button(action: actionHandler) {
                         Label(
-                            laneActionLabel(status: lane.status, hasPane: lane.paneId != nil),
-                            systemImage: laneActionIcon(status: lane.status, hasPane: lane.paneId != nil)
+                            laneActionLabel(status: lane.status, hasPane: lane.paneId != nil, kind: lane.kind),
+                            systemImage: laneActionIcon(status: lane.status, hasPane: lane.paneId != nil, kind: lane.kind)
                         )
                         .labelStyle(.iconOnly)
                     }
@@ -1677,7 +1711,7 @@ private struct VisualAgentLaneCard: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(needsSetup ? BeagleTheme.postureWarm : BeagleTheme.truthObserved)
-                .accessibilityLabel(Text(laneActionLabel(status: needsSetup ? "needs_setup" : lane.status, hasPane: lane.runtimeAvailable)))
+                .accessibilityLabel(Text(laneActionLabel(status: needsSetup ? "needs_setup" : lane.status, hasPane: lane.runtimeAvailable, kind: lane.kind)))
                 Button(action: onRuntime) {
                     Image(systemName: "terminal")
                         .font(.system(size: 13, weight: .semibold))
@@ -1702,6 +1736,11 @@ private struct VisualAgentLaneCard: View {
     }
 
     private var actionIcon: String {
+        if laneIsSubscriptionCLI(lane.kind) {
+            if needsSetup { return "arrow.down.circle.fill" }                 // install
+            if lane.status == "live" || lane.status == "running" { return "arrow.up.forward.app.fill" }
+            return lane.runtimeAvailable ? "arrow.up.forward.app.fill" : "person.badge.key.fill"  // log in
+        }
         if needsSetup { return "slider.horizontal.3" }
         if lane.status == "live" || lane.status == "running" { return "arrow.up.forward.app.fill" }
         return lane.runtimeAvailable ? "play.circle.fill" : "plus.circle.fill"
