@@ -629,15 +629,16 @@ public final class LocalLLMEngine {
     private init() {
         #if canImport(MLXLLM) && !targetEnvironment(simulator)
         // The GPU buffer cache. A 20 MB cap is right for a memory-constrained
-        // iPhone, but on a Mac (iOS-app-on-Mac / "Designed for iPad") it throttles
-        // generation to a crawl — each token thrashes the cache, so a full 2048-token
-        // turn can take many minutes and read as an "eternal spinner". The Mac has
-        // RAM to spare; give the GPU a real cache there.
-        if ProcessInfo.processInfo.isiOSAppOnMac {
-            Memory.cacheLimit = 512 * 1024 * 1024
-        } else {
-            Memory.cacheLimit = 20 * 1024 * 1024
-        }
+        // iPhone, but on a Mac it throttles generation to a crawl — each token
+        // thrashes the cache, so a full 2048-token turn can take many minutes and
+        // read as an "eternal spinner". This bites BOTH Mac flavors: iOS-app-on-Mac
+        // ("Designed for iPad") AND the native macOS build (where `isiOSAppOnMac` is
+        // false). The Mac has RAM to spare; give the GPU a real cache there.
+        #if os(macOS)
+        Memory.cacheLimit = 512 * 1024 * 1024
+        #else
+        Memory.cacheLimit = ProcessInfo.processInfo.isiOSAppOnMac ? 512 * 1024 * 1024 : 20 * 1024 * 1024
+        #endif
         #endif
     }
     

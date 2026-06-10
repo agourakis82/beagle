@@ -34,6 +34,7 @@ struct HomeView: View {
     @State private var workLanes: [ProjectLaneState] = []
     @State private var inputFocusRequest = 0
     @State private var metacognitive = MetacognitiveDialogue.shared
+    @State private var showModelManager = false
     #if os(iOS)
     @State private var speechRecognizer = SpeechRecognizer()
     #endif
@@ -114,6 +115,11 @@ struct HomeView: View {
         }
         .task {
             await bootstrap()
+        }
+        .sheet(isPresented: $showModelManager) {
+            NavigationStack {
+                ModelSettingsView()
+            }
         }
         .refreshable {
             async let c: () = catalog.refresh()
@@ -856,20 +862,44 @@ struct HomeView: View {
         }
     }
 
+    /// The single "who answers" control. The leading pill reflects the *active engine*
+    /// — an explicitly loaded on-device model takes precedence over the cloud route
+    /// (matching `ConversationStore.sendMessage`). The menu unifies both: pick an
+    /// on-device model (loads it → routes local) or a cloud/cluster route (unloads
+    /// local → routes cloud).
     private var discussionProfileStrip: some View {
         HStack(spacing: BeagleSpacing.sm) {
             PresencePill(
-                label: "\(conversation.discussionProfile.label) route",
-                systemImage: conversation.discussionProfile.iconName,
-                tint: BeagleTheme.truthRemembered
+                label: activeRoutePill.label,
+                systemImage: activeRoutePill.icon,
+                tint: activeRoutePill.tint
             )
 
             Menu {
-                ForEach(DiscussionProfile.allCases) { profile in
-                    Button {
-                        conversation.discussionProfile = profile
-                    } label: {
-                        Label("\(profile.label) · \(profile.subtitle)", systemImage: profile.iconName)
+                if LocalLLMEngine.shared.isAvailable {
+                    Section("On device") {
+                        ForEach(homeLocalModels) { model in
+                            Button {
+                                Task { await LocalLLMEngine.shared.load(model) }
+                            } label: {
+                                Label(homeLocalModelLabel(model), systemImage: localModelIsActive(model) ? "checkmark" : "brain")
+                            }
+                        }
+                        Button {
+                            showModelManager = true
+                        } label: {
+                            Label("Manage models…", systemImage: "slider.horizontal.3")
+                        }
+                    }
+                }
+
+                Section("Cloud / cluster") {
+                    ForEach(DiscussionProfile.allCases) { profile in
+                        Button {
+                            selectCloudRoute(profile)
+                        } label: {
+                            Label("\(profile.label) · \(profile.subtitle)", systemImage: profile.iconName)
+                        }
                     }
                 }
             } label: {
@@ -886,6 +916,53 @@ struct HomeView: View {
             }
             Spacer()
         }
+    }
+
+    /// What the leading route pill should say, based on the live engine state.
+    private var activeRoutePill: (label: String, icon: String, tint: Color) {
+        let llm = LocalLLMEngine.shared
+        switch llm.loadState {
+        case .ready:
+            return ("On-device · \(llm.currentModel?.displayName ?? "local")", "brain", BeagleTheme.truthObserved)
+        case .downloading(let progress):
+            return ("Downloading · \(Int(progress * 100))%", "arrow.down.circle", BeagleTheme.postureWarm)
+        case .loading:
+            return ("Waking device mind…", "hourglass", BeagleTheme.postureWarm)
+        case .error, .idle:
+            return ("\(conversation.discussionProfile.label) route", conversation.discussionProfile.iconName, BeagleTheme.truthRemembered)
+        }
+    }
+
+    /// A short, curated set of on-device models for the Home menu: whatever is loaded,
+    /// the recommended default, and the last one the user picked — deduped, fits-only,
+    /// capped. The full catalog (download/manage) lives behind "Manage models…".
+    private var homeLocalModels: [OnDeviceModel] {
+        let llm = LocalLLMEngine.shared
+        var picks: [OnDeviceModel] = []
+        if let current = llm.currentModel { picks.append(current) }
+        let recommended = OnDeviceModel.recommended
+        if !picks.contains(recommended) { picks.append(recommended) }
+        if let last = llm.lastSelectedModel, !picks.contains(last) { picks.append(last) }
+        return Array(picks.filter { $0.fitsOnThisDevice }.prefix(3))
+    }
+
+    private func homeLocalModelLabel(_ model: OnDeviceModel) -> String {
+        if localModelIsActive(model) { return "\(model.displayName) · loaded" }
+        return "\(model.displayName) · \(model.sizeDescription)"
+    }
+
+    private func localModelIsActive(_ model: OnDeviceModel) -> Bool {
+        LocalLLMEngine.shared.currentModel == model && LocalLLMEngine.shared.isReady
+    }
+
+    /// Selecting a cloud/cluster route is an explicit choice to leave the device mind:
+    /// unload any local model so `sendMessage` routes to the cloud, then set the route.
+    private func selectCloudRoute(_ profile: DiscussionProfile) {
+        let llm = LocalLLMEngine.shared
+        if llm.isReady || llm.loadState == .loading {
+            llm.unload()
+        }
+        conversation.discussionProfile = profile
     }
 
     private var companionSignalStrip: some View {
