@@ -46,43 +46,17 @@ struct HomeView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
-
-                    // ── Zone 1: Presence ─────────────────────────────
-                    // One warm line. Not a card. Just presence.
+                    // Clarity pass: Home IS the thinking/chat surface. A slim greeting,
+                    // then the conversation (or a clean invitation). The dashboard cruft
+                    // (provocations/Explore, novelty, agent cards, recent thoughts) was
+                    // removed from this surface — those live in their own tabs.
                     greetingSection
 
-                    // Dream insights float above everything — they're magic, not data
-                    if DreamSynthesisEngine.shared.hasUnreadInsights {
-                        overnightInsightsCard
+                    if conversation.isEmpty {
+                        homeInvitation
+                    } else {
+                        conversationSection
                     }
-
-                    // ── Zone 2: Thinking ─────────────────────────────
-                    // The invitation to think. Always visible.
-                    discussionFieldCard
-
-                    // One provocation — the best one, not all of them
-                    if let chaos = chaosProvocation, currentIntensity != .minimal {
-                        chaosSerendipityCard(chaos)
-                    } else if showProvocations, !provocations.isEmpty {
-                        provocationsSection
-                    }
-
-                    // ── Zone 3: Context (collapsible) ────────────────
-                    // Only what's operationally relevant right now
-                    if showWarmthCard {
-                        warmthCard
-                    }
-
-                    if homeLeadsWithReturnedWork {
-                        myWorkCard
-                    }
-
-                    if runningAgentsExist {
-                        activeAgentsStrip
-                    }
-
-                    // Recent thoughts — the memory stream
-                    recentThoughtsSection
                 }
                 .padding(.horizontal, BeagleSpacing.lg)
                 .padding(.top, BeagleSpacing.xl)
@@ -90,7 +64,15 @@ struct HomeView: View {
                 .scrollTargetLayout()
             }
 
-            exocortexInput
+            // Single prominent input anchored at the bottom, route picker just above it.
+            VStack(spacing: BeagleSpacing.xs) {
+                discussionProfileStrip
+                exocortexInput
+            }
+            .padding(.horizontal, BeagleSpacing.lg)
+            .padding(.top, BeagleSpacing.sm)
+            .padding(.bottom, BeagleSpacing.sm)
+            .background(.background.secondary.opacity(0.6))
         }
         .background { HomeGradient(thoughtCount: cognitive.recentThoughts.count, hasJobs: !cognitive.activeJobs.isEmpty) }
         .navigationTitle("Beagle")
@@ -731,6 +713,22 @@ struct HomeView: View {
     }
 
     // MARK: - Conversation (inline, not separate tab)
+
+    /// Clean empty-state invitation — replaces the old prompt-card scaffolding.
+    /// The input bar below is where you actually type; this is just the prompt.
+    private var homeInvitation: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            Text("What are you working on?")
+                .font(BeagleFont.title2.font)
+                .fontWeight(.semibold)
+                .foregroundStyle(BeagleTheme.textPrimary)
+            Text("Type a thought below — Beagle stays with it.")
+                .font(BeagleFont.subheadline.font)
+                .foregroundStyle(BeagleTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, BeagleSpacing.md)
+    }
 
     private var discussionFieldCard: some View {
         GlassPanel(elevation: .floating, truth: discussionTruth) {
