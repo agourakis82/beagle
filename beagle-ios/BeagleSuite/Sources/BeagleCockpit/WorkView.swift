@@ -35,6 +35,7 @@ struct WorkView: View {
     @State private var rendererJudgments: [RendererHumanJudgment] = []
     @State private var agentRoles: [AgentRole] = []
     @State private var latestRouteDecision: AgentRouteDecision?
+    @State private var providerSetupTarget: ProviderSetupTarget?
 
     var body: some View {
         GeometryReader { proxy in
@@ -57,6 +58,9 @@ struct WorkView: View {
                         },
                         onStartLane: { lane in
                             Task { await openLane(lane.id, startProcess: lane.kind != "human", showTerminal: false) }
+                        },
+                        onSetUpLane: { lane in
+                            presentProviderSetup(for: lane.id)
                         },
                         onRuntimeLane: { lane in
                             Task { await openLane(lane.id, startProcess: false, showTerminal: true) }
@@ -87,6 +91,9 @@ struct WorkView: View {
                             onStartLane: { lane in
                                 Task { await openLane(lane, startProcess: lane != "shell", showTerminal: false) }
                             },
+                            onSetUpLane: { lane in
+                                presentProviderSetup(for: lane)
+                            },
                             onShowTerminal: {
                                 presentRuntimeLog()
                             }
@@ -102,6 +109,9 @@ struct WorkView: View {
                                 },
                                 onStartLane: { lane in
                                     Task { await openLane(lane, startProcess: true, showTerminal: false) }
+                                },
+                                onSetUpLane: { lane in
+                                    presentProviderSetup(for: lane)
                                 }
                             )
                             .padding(.horizontal, BeagleSpacing.md)
@@ -220,6 +230,11 @@ struct WorkView: View {
         .sheet(isPresented: $showPaperWorkbench) {
             NavigationStack {
                 SounioPaperWorkbenchView()
+            }
+        }
+        .sheet(item: $providerSetupTarget) { target in
+            ProviderSetupView(target: target) {
+                Task { await refreshAgentRegistry() }
             }
         }
         .sheet(item: $runtimeLogPresentation) { runtime in
@@ -606,6 +621,29 @@ struct WorkView: View {
         }
     }
 
+    /// Builds and presents the provider Set-up sheet for a lane. Falls back to
+    /// launching the lane when no configurable provider slot exists (e.g. the
+    /// CLI/PATH-based or shell lanes), so the affordance never dead-ends.
+    private func presentProviderSetup(for laneId: String) {
+        guard let role = agentRole(for: laneId) else {
+            Task { await openLane(laneId, startProcess: laneId != "shell", showTerminal: false) }
+            return
+        }
+        let target = ProviderSetupTarget(
+            slug: activeSlug,
+            role: role.role,
+            title: role.title,
+            subtitle: role.subtitle,
+            slots: role.providerSlots,
+            setupReason: role.readiness?.reason
+        )
+        guard !target.configurableSlots.isEmpty else {
+            Task { await openLane(laneId, startProcess: laneId != "shell", showTerminal: false) }
+            return
+        }
+        providerSetupTarget = target
+    }
+
     private func refreshWorkbenchBlocks() async {
         guard let session = workspaceSession else { return }
         isRefreshingWorkbench = true
@@ -847,7 +885,7 @@ struct WorkView: View {
             isActive: pane?.id == activePane?.id,
             role: role.role,
             subtitle: role.subtitle,
-            providerLabel: provider.map { "\($0.title) · \($0.runtime)" },
+            providerLabel: provider.map { "\($0.title) · \(humanRuntimeLabel($0.runtime))" },
             arousalMode: role.arousalRole,
             isScout: role.visible == false,
             readinessReason: role.readiness?.reason
@@ -887,6 +925,19 @@ struct WorkView: View {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else { return nil }
         return trimmed
+    }
+
+    /// Human-readable label for a provider runtime token. Keeps the raw runtime
+    /// in logic; only the displayed half of "Title · runtime" is translated.
+    private func humanRuntimeLabel(_ runtime: String) -> String {
+        switch runtime {
+        case "cli": return "CLI"
+        case "openai_compatible": return "API"
+        case "openai_compatible_or_local": return "API or local"
+        case "cli_or_openai_compatible": return "CLI or API"
+        case "pty": return "terminal"
+        default: return runtime
+        }
     }
 
     private var memoryStatusIcon: String {
@@ -937,6 +988,7 @@ private struct ScoutLaneDrawer: View {
     let lanes: [AgentLaneState]
     let onOpenLane: (String) -> Void
     let onStartLane: (String) -> Void
+    var onSetUpLane: (String) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
@@ -972,7 +1024,8 @@ private struct ScoutLaneDrawer: View {
                         AgentLaneCard(
                             lane: lane,
                             onOpen: { onOpenLane(lane.id) },
-                            onStart: { onStartLane(lane.id) }
+                            onStart: { onStartLane(lane.id) },
+                            onSetUp: { onSetUpLane(lane.id) }
                         )
                     }
                 }
@@ -1011,8 +1064,7 @@ private struct WorkbenchHeader: View {
             }
             Spacer(minLength: BeagleSpacing.sm)
             HStack(spacing: 6) {
-                headerPill(connectionLabel, icon: connectionIcon, tint: connectionTint)
-                headerPill(authorityLabel, icon: "externaldrive.badge.checkmark", tint: authorityTint)
+                headerPill(workspaceStateLabel, icon: connectionIcon, tint: connectionTint)
                 if blockCount > 0 {
                     headerPill("\(blockCount) artifacts", icon: "text.badge.checkmark", tint: BeagleTheme.truthRemembered)
                 }
@@ -1039,33 +1091,33 @@ private struct WorkbenchHeader: View {
         return "\(slug) · choose a lane to begin a focused workday"
     }
 
-    private var authorityLabel: String {
+    /// Single honest workspace-state label driven by the live connection.
+    /// When connected and authority is known, append a small "· workspace"/
+    /// "· local" hint. The vague "warming" authority pill is never shown on its
+    /// own (it disappears entirely when disconnected).
+    private var workspaceStateLabel: String {
+        switch connectionState {
+        case .disconnected:
+            return "Workspace offline"
+        case .connecting, .reconnecting:
+            return "Waking workspace…"
+        case .failed:
+            return "Workspace needs attention"
+        case .connected:
+            if let hint = knownAuthorityHint {
+                return "Workspace live · \(hint)"
+            }
+            return "Workspace live"
+        }
+    }
+
+    /// Returns "workspace" or "local" only when authority is actually known;
+    /// nil while authority is still warming/unknown so we never surface it.
+    private var knownAuthorityHint: String? {
         switch session?.authorityStatus?.authority {
         case "workspace-agent": return "workspace"
         case "cockpit-local": return "local"
-        case let value? where !value.isEmpty: return value
-        default: return "warming"
-        }
-    }
-
-    private var authorityTint: Color {
-        if session?.authorityStatus?.authority == "workspace-agent",
-           session?.authorityStatus?.supervisor?.status == "healthy" {
-            return BeagleTheme.truthObserved
-        }
-        if session?.authorityStatus?.authority == "workspace-agent" {
-            return BeagleTheme.truthRemembered
-        }
-        return BeagleTheme.textTertiary
-    }
-
-    private var connectionLabel: String {
-        switch connectionState {
-        case .connected: return "live"
-        case .connecting: return "waking"
-        case .reconnecting: return "rejoining"
-        case .failed: return "attention"
-        case .disconnected: return "offline"
+        default: return nil
         }
     }
 
@@ -1107,6 +1159,7 @@ private struct AgentConsoleView: View {
     let snapshot: AgentConsoleSnapshot
     let onOpenLane: (String) -> Void
     let onStartLane: (String) -> Void
+    var onSetUpLane: (String) -> Void = { _ in }
     let onShowTerminal: () -> Void
 
     var body: some View {
@@ -1137,7 +1190,8 @@ private struct AgentConsoleView: View {
                     AgentLaneCard(
                         lane: lane,
                         onOpen: { onOpenLane(lane.id) },
-                        onStart: { onStartLane(lane.id) }
+                        onStart: { onStartLane(lane.id) },
+                        onSetUp: { onSetUpLane(lane.id) }
                     )
                 }
             }
@@ -1153,10 +1207,69 @@ private struct AgentConsoleView: View {
     }
 }
 
+/// Maps a raw lane status token to human-readable English at render time.
+/// The raw token is preserved everywhere it is used in logic; only the displayed
+/// label is translated here.
+private func humanLaneStatus(_ status: String) -> String {
+    switch status {
+    case "needs_setup": return "Needs setup"
+    case "not_started": return "Not running"
+    case "unknown": return "Not checked"
+    case "ready": return "Ready"
+    case "live", "running": return "Running"
+    case "idle": return "Idle"
+    case "blocked": return "Held (privacy)"
+    case "failed": return "Failed"
+    case "pending": return "Pending"
+    default: return status
+    }
+}
+
+/// Cleans machine reason/detail strings into human sentences. Pattern-based;
+/// already-human sentences are returned unchanged.
+private func humanLaneDetail(_ detail: String) -> String {
+    let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.hasSuffix("is not on PATH") {
+        let cli = trimmed.split(separator: " ").first.map(String.init) ?? trimmed
+        return "\(cli) not installed on the workspace"
+    }
+    if trimmed.hasSuffix("PROVIDER_URL is not configured")
+        || (trimmed.contains("PROVIDER_URL") && trimmed.hasSuffix("is not configured")) {
+        return "Needs an API endpoint"
+    }
+    if trimmed == "provider slot not checked yet" {
+        return "Not checked yet"
+    }
+    return detail
+}
+
+/// State-driven label for the lane action button.
+private func laneActionLabel(status: String, hasPane: Bool) -> String {
+    switch status {
+    case "needs_setup": return "Set up"
+    case "live", "running": return "Open"
+    default: return hasPane ? "Open" : "Start"
+    }
+}
+
+/// State-driven SF Symbol for the lane action button.
+private func laneActionIcon(status: String, hasPane: Bool) -> String {
+    switch status {
+    case "needs_setup": return "slider.horizontal.3"
+    case "live", "running": return "arrow.up.forward.app"
+    default: return hasPane ? "play.circle" : "plus.circle"
+    }
+}
+
 private struct AgentLaneCard: View {
     let lane: AgentLaneState
     let onOpen: () -> Void
     let onStart: () -> Void
+    /// When lane.status == "needs_setup", presents the in-app provider Set-up
+    /// form (API key + base URL + model) wired to the server-side per-slug
+    /// provider-config path via ProviderSetupView. Falls back to onStart when
+    /// no setup handler is supplied.
+    var onSetUp: (() -> Void)? = nil
 
     var body: some View {
         Button(action: onOpen) {
@@ -1178,14 +1291,14 @@ private struct AgentLaneCard: View {
                                 .foregroundStyle(BeagleTheme.textTertiary)
                                 .lineLimit(1)
                         }
-                        Text(lane.detail)
+                        Text(humanLaneDetail(lane.detail))
                             .font(BeagleFont.caption2.font)
                             .foregroundStyle(BeagleTheme.textSecondary)
                             .lineLimit(2)
                     }
                     Spacer(minLength: 8)
                     VStack(alignment: .trailing, spacing: 4) {
-                        Text(lane.status)
+                        Text(humanLaneStatus(lane.status))
                             .font(BeagleFont.caption2.font)
                             .fontWeight(.semibold)
                             .foregroundStyle(tint)
@@ -1211,12 +1324,15 @@ private struct AgentLaneCard: View {
                     if lane.pendingApproval {
                         Label("approval", systemImage: "checkmark.circle")
                     }
-                    Button(action: onStart) {
-                        Label(lane.paneId == nil ? "Create" : "Resume", systemImage: lane.paneId == nil ? "plus.circle" : "play.circle")
-                            .labelStyle(.iconOnly)
+                    Button(action: actionHandler) {
+                        Label(
+                            laneActionLabel(status: lane.status, hasPane: lane.paneId != nil),
+                            systemImage: laneActionIcon(status: lane.status, hasPane: lane.paneId != nil)
+                        )
+                        .labelStyle(.iconOnly)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(BeagleTheme.truthObserved)
+                    .foregroundStyle(lane.status == "needs_setup" ? BeagleTheme.postureWarm : BeagleTheme.truthObserved)
                 }
                 .font(BeagleFont.caption2.font)
                 .foregroundStyle(BeagleTheme.textTertiary)
@@ -1229,6 +1345,13 @@ private struct AgentLaneCard: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    /// needs_setup should eventually present the provider Set-up form via
+    /// onSetUp; until that is wired we fall back to onStart (openLane).
+    private var actionHandler: () -> Void {
+        if lane.status == "needs_setup", let onSetUp { return onSetUp }
+        return onStart
     }
 
     private var icon: String {
@@ -1378,6 +1501,7 @@ private struct VisualWorkbenchStage: View {
     let state: VisualWorkCanvasState
     let onOpenLane: (VisualAgentLaneSnapshot) -> Void
     let onStartLane: (VisualAgentLaneSnapshot) -> Void
+    var onSetUpLane: (VisualAgentLaneSnapshot) -> Void = { _ in }
     let onRuntimeLane: (VisualAgentLaneSnapshot) -> Void
     let onSelectArtifact: (VisualWorkArtifact) -> Void
     let onRememberArtifact: (VisualWorkArtifact) -> Void
@@ -1390,6 +1514,7 @@ private struct VisualWorkbenchStage: View {
                 lanes: state.lanes,
                 onOpenLane: onOpenLane,
                 onStartLane: onStartLane,
+                onSetUpLane: onSetUpLane,
                 onRuntime: onRuntimeLane
             )
             .frame(maxHeight: 252)
@@ -1433,6 +1558,7 @@ private struct VisualAgentLaneBoard: View {
     let lanes: [VisualAgentLaneSnapshot]
     let onOpenLane: (VisualAgentLaneSnapshot) -> Void
     let onStartLane: (VisualAgentLaneSnapshot) -> Void
+    var onSetUpLane: (VisualAgentLaneSnapshot) -> Void = { _ in }
     let onRuntime: (VisualAgentLaneSnapshot) -> Void
 
     var body: some View {
@@ -1463,7 +1589,8 @@ private struct VisualAgentLaneBoard: View {
                             lane: lane,
                             onOpen: { onOpenLane(lane) },
                             onStart: { onStartLane(lane) },
-                            onRuntime: { onRuntime(lane) }
+                            onRuntime: { onRuntime(lane) },
+                            onSetUp: { onSetUpLane(lane) }
                         )
                         .frame(width: 260)
                     }
@@ -1487,6 +1614,16 @@ private struct VisualAgentLaneCard: View {
     let onOpen: () -> Void
     let onStart: () -> Void
     let onRuntime: () -> Void
+    /// When the lane needs setup, presents the in-app provider Set-up form
+    /// (API key + base URL + model) wired to the server-side per-slug
+    /// provider-config path via ProviderSetupView. Falls back to onStart when
+    /// no setup handler is supplied.
+    var onSetUp: (() -> Void)? = nil
+
+    /// True when the lane is unconfigured and should read as a Set-up affordance.
+    private var needsSetup: Bool {
+        lane.readiness == "needs_setup" || lane.status == "needs_setup"
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -1508,7 +1645,7 @@ private struct VisualAgentLaneCard: View {
                                 .foregroundStyle(BeagleTheme.textTertiary)
                                 .lineLimit(1)
                         }
-                        Text(lane.taskSummary)
+                        Text(humanLaneDetail(lane.taskSummary))
                             .font(BeagleFont.caption2.font)
                             .foregroundStyle(BeagleTheme.textSecondary)
                             .lineLimit(3)
@@ -1516,7 +1653,7 @@ private struct VisualAgentLaneCard: View {
                     }
                     Spacer(minLength: 4)
                     VStack(alignment: .trailing, spacing: 4) {
-                        Text(lane.status)
+                        Text(humanLaneStatus(lane.status))
                             .font(BeagleFont.caption2.font)
                             .fontWeight(.semibold)
                             .foregroundStyle(tint)
@@ -1534,12 +1671,13 @@ private struct VisualAgentLaneCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: 7) {
-                Button(action: onStart) {
-                    Image(systemName: lane.runtimeAvailable ? "play.circle.fill" : "plus.circle.fill")
+                Button(action: actionHandler) {
+                    Image(systemName: actionIcon)
                         .font(.system(size: 17, weight: .semibold))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(BeagleTheme.truthObserved)
+                .foregroundStyle(needsSetup ? BeagleTheme.postureWarm : BeagleTheme.truthObserved)
+                .accessibilityLabel(Text(laneActionLabel(status: needsSetup ? "needs_setup" : lane.status, hasPane: lane.runtimeAvailable)))
                 Button(action: onRuntime) {
                     Image(systemName: "terminal")
                         .font(.system(size: 13, weight: .semibold))
@@ -1554,6 +1692,19 @@ private struct VisualAgentLaneCard: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(lane.isActive ? BeagleTheme.truthObserved.opacity(0.55) : BeagleTheme.hairline, lineWidth: 1)
         )
+    }
+
+    /// needs_setup should eventually present the provider Set-up form via
+    /// onSetUp; until that is wired we fall back to onStart (openLane).
+    private var actionHandler: () -> Void {
+        if needsSetup, let onSetUp { return onSetUp }
+        return onStart
+    }
+
+    private var actionIcon: String {
+        if needsSetup { return "slider.horizontal.3" }
+        if lane.status == "live" || lane.status == "running" { return "arrow.up.forward.app.fill" }
+        return lane.runtimeAvailable ? "play.circle.fill" : "plus.circle.fill"
     }
 
     private var icon: String {

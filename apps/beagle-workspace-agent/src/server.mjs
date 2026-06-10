@@ -21,6 +21,9 @@ import {
   normalizePane,
   nowIso,
   readBlockEvents,
+  readProviderConfig,
+  writeProviderConfig,
+  maskProviderConfig,
   readSessions,
   routeAgentTask,
   safeId,
@@ -43,6 +46,54 @@ const beagleCoreUrl =
 const apiToken = process.env.BEAGLE_OPERATOR_API_TOKEN || process.env.BEAGLE_CORE_API_TOKEN || process.env.BEAGLE_API_TOKEN || "";
 const beagleConsumerHeaderName = process.env.BEAGLE_CORE_CONSUMER_HEADER_NAME || "X-Beagle-Consumer";
 const beagleConsumerHeaderValue = process.env.BEAGLE_CORE_CONSUMER_HEADER_VALUE || "beagle-operator";
+
+// In-process view of stored provider-config slots, keyed by slot id.
+// Holds only non-secret metadata so readinessForRole stays synchronous and
+// gives read-your-write consistency without a file watcher. Raw apiKey is
+// never kept here; the launch path reads it from the 0600 file at spawn time.
+// Shape: slotId -> { role, env, baseUrl, model, apiKeyConfigured, updatedAt }
+const providerConfigOverrides = new Map();
+
+function applyProviderConfigToOverrides(cfg) {
+  for (const [slotId, slot] of Object.entries(cfg?.slots || {})) {
+    if (!slotId || !slot || typeof slot !== "object") continue;
+    providerConfigOverrides.set(slotId, {
+      role: slot.role || null,
+      env: slot.env || null,
+      baseUrl: slot.baseUrl || null,
+      model: slot.model || null,
+      apiKeyConfigured: Boolean(slot.apiKey),
+      updatedAt: slot.updatedAt || null,
+    });
+  }
+}
+
+async function hydrateProviderConfigOverrides() {
+  try {
+    const cfg = await readProviderConfig(rootDir, slug);
+    applyProviderConfigToOverrides(cfg);
+  } catch (error) {
+    // Hydration is best-effort; a missing/corrupt file just means no overrides
+    // and lanes fall back to the process.env probe.
+    console.warn(`provider-config hydration skipped: ${error?.message || error}`);
+  }
+}
+
+// Resolve the override entry a probe.env belongs to. The stored slot records
+// the probe env it satisfies (slot.env), so we match on that first, then fall
+// back to a slot id equal to the env (defensive, should not normally happen).
+function overrideForProbeEnv(envName) {
+  if (!envName) return null;
+  // A slot satisfies its probe env when it has the value that env represents:
+  // an API key for *_API_KEY envs, or a base URL for *_PROVIDER_URL / *_BASE_URL
+  // envs (self-hosted / local providers need no secret).
+  const baseUrlOnly = /_PROVIDER_URL$/.test(envName) || /_BASE_URL$/.test(envName);
+  for (const entry of providerConfigOverrides.values()) {
+    if (entry.env !== envName) continue;
+    if (baseUrlOnly ? Boolean(entry.baseUrl) : entry.apiKeyConfigured) return entry;
+  }
+  return null;
+}
 
 app.use(express.json({ limit: "2mb" }));
 
@@ -153,14 +204,56 @@ function readinessForRole(entry) {
   }
   if (probe.type === "provider_slot") {
     const envName = cleanString(probe.env);
+    const override = overrideForProbeEnv(envName);
+    if (override) {
+      return {
+        status: "ready",
+        reason: `${envName} configured via workspace setup`,
+        env: envName,
+        source: "provider_config",
+      };
+    }
     return envName && process.env[envName]
-      ? { status: "ready", reason: `${envName} is configured`, env: envName }
+      ? { status: "ready", reason: `${envName} is configured`, env: envName, source: "env" }
       : { status: "needs_setup", reason: envName ? `${envName} is not configured` : "provider credentials not configured", env: envName };
   }
   if (probe.type === "local_model") {
     return { status: "needs_setup", reason: "local model runtime must be explicitly configured", model: probe.model };
   }
   return { status: "unknown", reason: "no readiness probe" };
+}
+
+// Build the env vars a configured slot injects into a spawned pane process.
+// Encodes the per-runtime mapping: the slot's own probe env (slot.env) carries
+// either the API key (e.g. MINIMAX_API_KEY) or the base URL (e.g.
+// QWEN_PROVIDER_URL / GLM_PROVIDER_URL), and openai-compatible tools also read
+// OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL. Secrets travel only in this
+// object (passed via the spawn env), never echoed into block-captured output.
+function buildProviderEnv(slot) {
+  if (!slot || typeof slot !== "object") return null;
+  const envName = cleanString(slot.env);
+  const baseUrl = cleanString(slot.baseUrl);
+  const apiKey = cleanString(slot.apiKey);
+  const model = cleanString(slot.model);
+  // A base-URL-only slot (self-hosted / local provider) still configures the
+  // lane even with no key; an API-key slot needs the key. Nothing to inject if
+  // neither is present.
+  if (!apiKey && !baseUrl) return null;
+  const env = {};
+  // The probe env is satisfied either by the key (API-key slots) or by the
+  // base URL (provider-URL slots). Decide by the env name suffix.
+  if (envName) {
+    if (/_PROVIDER_URL$/.test(envName) || /_BASE_URL$/.test(envName)) {
+      if (baseUrl) env[envName] = baseUrl;
+    } else if (apiKey) {
+      env[envName] = apiKey;
+    }
+  }
+  // OpenAI-compatible fallbacks so generic CLIs/SDKs authenticate.
+  if (apiKey) env.OPENAI_API_KEY = apiKey;
+  if (baseUrl) env.OPENAI_BASE_URL = baseUrl;
+  if (model) env.OPENAI_MODEL = model;
+  return Object.keys(env).length ? env : null;
 }
 
 function registryWithReadiness() {
@@ -387,6 +480,84 @@ app.post("/v1/agents/:roleOrKind/start", jsonRoute(async (req) => {
   };
 }));
 
+// Persist provider credentials for a lane's slot so the readiness probe flips
+// needs_setup -> ready and the launch path injects them. Writes the per-slug
+// 0600 file AND updates the in-process override map for read-your-write
+// consistency (no pod restart). Never echoes the raw api_key back.
+app.post("/v1/agents/:roleOrKind/provider-config", jsonRoute(async (req) => {
+  const role = findAgentRole(req.params.roleOrKind);
+  if (!role) {
+    const error = new Error(`unknown agent role: ${req.params.roleOrKind}`);
+    error.statusCode = 404;
+    throw error;
+  }
+  const probe = role.readinessProbe || {};
+  if (probe.type !== "provider_slot") {
+    const error = new Error(`${role.role} is not provider-configurable (probe: ${probe.type || "none"})`);
+    error.statusCode = 400;
+    throw error;
+  }
+  const probeEnv = cleanString(probe.env);
+  const baseUrlOnly = /_PROVIDER_URL$/.test(probeEnv) || /_BASE_URL$/.test(probeEnv);
+
+  const body = req.body || {};
+  const baseUrl = cleanString(body.base_url ?? body.baseUrl);
+  const apiKey = cleanString(body.api_key ?? body.apiKey);
+  const requestedSlot = cleanString(body.slot ?? body.providerSlot ?? body.provider_slot);
+  const selectedSlot = role.providerSlots?.find((slot) => slot.id === requestedSlot)
+    || role.providerSlots?.[0]
+    || {};
+  const slotId = selectedSlot.id || requestedSlot;
+  if (!slotId) {
+    const error = new Error("no provider slot to configure for this role");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!baseUrl) {
+    const error = new Error("base_url is required");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!apiKey && !baseUrlOnly) {
+    const error = new Error("api_key is required for this provider");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Enrich the stored slot with the registry-derived role + probe env so the
+  // readiness match (overrideForProbeEnv) and launch injection (buildProviderEnv)
+  // key off the right variable — the form only sends {slot, base_url, api_key, model}.
+  const slotEntry = {
+    role: role.role,
+    env: probeEnv,
+    apiKey, // raw secret; the file is 0600 and the value is never returned
+    baseUrl,
+    model: cleanString(body.model) || cleanString(selectedSlot.modelId),
+    updatedAt: nowIso(),
+  };
+
+  const cfg = await readProviderConfig(rootDir, slug);
+  cfg.slots = { ...(cfg.slots || {}), [slotId]: slotEntry };
+  const written = await writeProviderConfig(rootDir, slug, cfg);
+  applyProviderConfigToOverrides(written);
+
+  const masked = maskProviderConfig(written).slots?.[slotId] || {};
+  return {
+    projectSlug: slug,
+    role: role.role,
+    slot: slotId,
+    status: "configured",
+    providerConfig: {
+      slot: slotId,
+      baseUrl: slotEntry.baseUrl,
+      model: slotEntry.model,
+      apiKeyConfigured: Boolean(apiKey),
+      updatedAt: masked.updatedAt || slotEntry.updatedAt,
+    },
+    readiness: readinessForRole(role),
+  };
+}));
+
 app.get("/v1/sessions", jsonRoute(async () => {
   const state = await readSessions(rootDir, slug);
   return {
@@ -513,6 +684,18 @@ wss.on("connection", async (ws, req, context) => {
     ),
   })).catch(() => {});
   const pane = session.panes.find((entry) => entry.id === paneId) || normalizePane({ id: paneId });
+  let providerEnv = null;
+  const paneProviderSlot = cleanString(pane.providerSlot || pane.agent?.providerSlot);
+  if (paneProviderSlot) {
+    try {
+      const cfg = await readProviderConfig(rootDir, slug);
+      providerEnv = buildProviderEnv(cfg.slots?.[paneProviderSlot]);
+    } catch (error) {
+      // Missing/unreadable config is non-fatal: spawn the pane without
+      // injected creds (lane stays unauthenticated, never crashes the WS).
+      console.warn(`provider-config load for pane ${paneId} skipped: ${error?.message || error}`);
+    }
+  }
   try {
     await supervisorJson("/v1/spawn", {
       sessionId,
@@ -520,6 +703,7 @@ wss.on("connection", async (ws, req, context) => {
       cwd: cleanString(pane.cwd) || workspaceRoot,
       cols: Number(context.cols || 120),
       rows: Number(context.rows || 34),
+      ...(providerEnv ? { providerEnv } : {}),
     });
   } catch (error) {
     send(ws, {
@@ -791,4 +975,9 @@ server.on("upgrade", (req, socket, head) => {
 
 server.listen(port, host, () => {
   console.log(`[beagle-workspace-agent] ${slug} listening on http://${host}:${port}`);
+  void hydrateProviderConfigOverrides().then(() => {
+    if (providerConfigOverrides.size > 0) {
+      console.log(`[beagle-workspace-agent] provider-config hydrated ${providerConfigOverrides.size} slot(s)`);
+    }
+  });
 });
