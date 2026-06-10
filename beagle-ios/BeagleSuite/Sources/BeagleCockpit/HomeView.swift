@@ -44,24 +44,24 @@ struct HomeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
-                    // Clarity pass: Home IS the thinking/chat surface. A slim greeting,
-                    // then the conversation (or a clean invitation). The dashboard cruft
-                    // (provocations/Explore, novelty, agent cards, recent thoughts) was
-                    // removed from this surface — those live in their own tabs.
-                    greetingSection
-
-                    if conversation.isEmpty {
-                        homeInvitation
-                    } else {
-                        conversationSection
-                    }
+            // Clarity pass: Home IS the thinking/chat surface.
+            // Empty conversation = a clean launchpad — the invitation sits just above the
+            // input (no greeting hero, no void). Active conversation = the thread scrolls.
+            if conversation.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    Spacer(minLength: BeagleSpacing.xl)
+                    homeInvitation
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, BeagleSpacing.lg)
-                .padding(.top, BeagleSpacing.xl)
-                .padding(.bottom, BeagleSpacing.jumbo)
-                .scrollTargetLayout()
+            } else {
+                ScrollView {
+                    conversationSection
+                        .padding(.horizontal, BeagleSpacing.lg)
+                        .padding(.top, BeagleSpacing.xl)
+                        .padding(.bottom, BeagleSpacing.jumbo)
+                        .scrollTargetLayout()
+                }
             }
 
             // Single prominent input anchored at the bottom, route picker just above it.
