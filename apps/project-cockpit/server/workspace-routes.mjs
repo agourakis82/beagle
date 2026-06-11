@@ -815,12 +815,13 @@ export function registerWorkspaceRoutes(app, deps = {}) {
     const slug = safeId(req.params.slug, "default");
     const roleOrKind = cleanString(req.params.roleOrKind);
 
-    // Validate required fields; keep api_key out of any error messages.
+    // Require only base_url here; the workspace-agent decides whether api_key is
+    // mandatory (it is for *_API_KEY slots, optional for self-hosted *_PROVIDER_URL
+    // slots). Keeping that authority in the agent avoids blocking base-URL-only
+    // (qwen/glm local) lanes that need no secret. api_key is never logged.
     const baseUrl = cleanString(req.body?.base_url || req.body?.baseUrl);
-    const apiKey = cleanString(req.body?.api_key || req.body?.apiKey);
-    if (!baseUrl || !apiKey) {
-      const missing = !baseUrl ? "base_url" : "api_key";
-      const error = new Error(`provider-config missing required field: ${missing}`);
+    if (!baseUrl) {
+      const error = new Error("provider-config missing required field: base_url");
       error.statusCode = 400;
       throw error;
     }
