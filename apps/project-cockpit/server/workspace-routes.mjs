@@ -814,6 +814,13 @@ export function registerWorkspaceRoutes(app, deps = {}) {
   app.post("/api/workspaces/:slug/agents/:roleOrKind/provider-config", jsonResponse(async (req, res) => {
     const slug = safeId(req.params.slug, "default");
     const roleOrKind = cleanString(req.params.roleOrKind);
+    // Defense-in-depth: the role id is interpolated into the upstream agent path.
+    // Reject anything that isn't a plain identifier before proxying.
+    if (!/^[a-z0-9_-]{1,64}$/i.test(roleOrKind)) {
+      const error = new Error("invalid role identifier");
+      error.statusCode = 400;
+      throw error;
+    }
 
     // Require only base_url here; the workspace-agent decides whether api_key is
     // mandatory (it is for *_API_KEY slots, optional for self-hosted *_PROVIDER_URL
@@ -1235,7 +1242,14 @@ export function registerWorkspaceWebSocket(wss, deps = {}) {
           return;
         }
         if (message.type === "resize") {
-          proc.resize(Number(message.cols || 120), Number(message.rows || 34));
+          // Clamp to a sane range: node-pty passes these straight to the TIOCSWINSZ
+          // ioctl, where 0 / negative / absurdly large values can crash or wedge the
+          // pty. Fall back to defaults on NaN.
+          const clampDim = (value, fallback) => {
+            const n = Math.floor(Number(value));
+            return Number.isFinite(n) && n >= 1 && n <= 1000 ? n : fallback;
+          };
+          proc.resize(clampDim(message.cols, 120), clampDim(message.rows, 34));
           return;
         }
         if (message.type === "signal") {
@@ -1270,7 +1284,11 @@ export function registerWorkspaceWebSocket(wss, deps = {}) {
             sourceModel: "beagle",
             bridgeVersion: WORKBENCH_BRIDGE_VERSION,
           });
-          proc.write(String(message.data || "y\n"));
+          // Cap length: an approval answers a y/n-style prompt, not a vehicle for a
+          // huge payload. (This is not a security boundary — the `input` handler already
+          // streams arbitrary keystrokes to the PTY by design; the real boundary is the
+          // tailnet auth perimeter.)
+          proc.write(String(message.data || "y\n").slice(0, 256));
           return;
         }
         if (message.type === "start_process") {
