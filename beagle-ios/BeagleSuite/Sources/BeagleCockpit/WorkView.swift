@@ -1390,11 +1390,14 @@ private struct AgentLaneCard: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(lane.status == "needs_setup" ? BeagleTheme.postureWarm : BeagleTheme.truthObserved)
+                    .accessibilityIdentifier("work.lane.\(lane.id).action")
                 }
                 .font(BeagleFont.caption2.font)
                 .foregroundStyle(BeagleTheme.textTertiary)
             }
             .padding(12)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("work.lane.\(lane.id)")
             .background(background, in: RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
@@ -1726,6 +1729,7 @@ private struct VisualAgentLaneCard: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("work.lane.\(lane.id)")
 
             VStack(spacing: 7) {
                 Button(action: actionHandler) {
@@ -1735,12 +1739,15 @@ private struct VisualAgentLaneCard: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(needsSetup ? BeagleTheme.postureWarm : BeagleTheme.truthObserved)
                 .accessibilityLabel(Text(laneActionLabel(status: needsSetup ? "needs_setup" : lane.status, hasPane: lane.runtimeAvailable, kind: lane.kind)))
+                .accessibilityIdentifier("work.lane.\(lane.id).action")
                 Button(action: onRuntime) {
                     Image(systemName: "terminal")
                         .font(.system(size: 13, weight: .semibold))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(BeagleTheme.textTertiary)
+                .accessibilityLabel(Text("Open runtime log"))
+                .accessibilityIdentifier("work.lane.\(lane.id).runtime")
             }
         }
         .padding(11)
