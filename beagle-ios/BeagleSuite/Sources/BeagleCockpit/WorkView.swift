@@ -909,8 +909,17 @@ struct WorkView: View {
         memoryStatus: String?
     ) -> (label: String, detail: String) {
         guard let pane else {
-            if let readiness = role?.readiness, readiness.status == "needs_setup" {
-                return ("needs_setup", readiness.reason ?? "Provider slot or CLI is not configured yet.")
+            if let readiness = role?.readiness {
+                // No pane yet: surface the readiness verdict directly so a freshly
+                // configured/available lane reads as "Ready" (not the generic
+                // "not running"). Otherwise configuring a provider would never flip
+                // the card. A pane appears once the lane is actually started.
+                if readiness.status == "needs_setup" {
+                    return ("needs_setup", readiness.reason ?? "Provider slot or CLI is not configured yet.")
+                }
+                if readiness.status == "ready" {
+                    return ("ready", readiness.reason ?? "Configured — start to open a lane.")
+                }
             }
             return ("not_started", "Create a \(role?.title ?? laneTitle(lane)) lane in the workspace.")
         }
