@@ -1257,6 +1257,20 @@ private func humanLaneDetail(_ detail: String) -> String {
     if trimmed == "provider slot not checked yet" {
         return "Not checked yet"
     }
+    // Ready-state reasons (were leaking raw tokens like "codex is on PATH",
+    // "QWEN_PROVIDER_URL configured via workspace setup", "MINIMAX_API_KEY is configured").
+    if trimmed.hasSuffix("is on PATH") {
+        return "Installed on the workspace"
+    }
+    if trimmed.contains("configured via workspace setup") {
+        return "Configured here"
+    }
+    if trimmed.hasSuffix("is configured") && !trimmed.contains("not configured") {
+        return "Configured"
+    }
+    if trimmed.hasSuffix("is not configured") {
+        return "Needs an API key"
+    }
     return detail
 }
 
