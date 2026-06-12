@@ -223,7 +223,16 @@ final class DiagnosticsRunner {
             let hrv = cog.value?.hrv?.latestMs.map { String(format: "HRV %.1f ms", $0) } ?? "no HRV"
             setResult("cognitive_state", .passed(hrv))
         } else {
-            setResult("cognitive_state", .failed(cog.error ?? "endpoint unreachable"))
+            // The /api/v1/cognitive/* routes are retired on the current beagle-core
+            // backend (confirmed 404 directly against the core). A retired route is
+            // not an app failure — mark it skipped so it stops showing as a red error,
+            // while still surfacing that the backend dropped the route.
+            let err = cog.error ?? "endpoint unreachable"
+            if err.localizedCaseInsensitiveContains("404") || err.localizedCaseInsensitiveContains("not found") {
+                setResult("cognitive_state", .skipped("route retired on backend (404)"))
+            } else {
+                setResult("cognitive_state", .failed(err))
+            }
         }
     }
 
