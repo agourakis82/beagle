@@ -117,67 +117,42 @@ public struct GlassPanel<Content: View>: View {
             .padding(.vertical, BeagleSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                    .fill(.regularMaterial)
-                    .opacity(materialOpacity)
+                    .fill(.background.secondary)
             )
-            #if os(iOS)
-            .glassEffect(
-                .regular.tint(glassTint),
-                in: .rect(cornerRadius: BeagleRadius.lg)
-            )
-            #endif
             .overlay(
                 RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                    .strokeBorder(borderColor, style: borderStyle)
+                    .strokeBorder(borderColor, lineWidth: 0.5)
             )
-            .shadow(color: primaryShadow.0, radius: primaryShadow.1, y: primaryShadow.2)
-            .shadow(color: ambientGlow.0, radius: ambientGlow.1, y: 0)
-    }
-
-    private var materialOpacity: Double {
-        switch elevation {
-        case .flush:    return 0.65
-        case .raised:   return 0.78
-        case .floating: return 0.90
-        }
-    }
-
-    private var glassTint: Color {
-        guard let truth else { return .clear }
-        return BeagleTheme.color(for: truth).opacity(0.05)
+            .shadow(color: shadowColor, radius: shadowRadius, y: shadowY)
     }
 
     private var borderColor: Color {
-        if let truth {
-            return BeagleTheme.color(for: truth)
-        }
-        return Color.white.opacity(elevation == .flush ? 0.04 : 0.08)
+        // Always hairline — colour belongs to badges/icons, never the card frame.
+        BeagleTheme.hairline
     }
 
-    private var borderStyle: StrokeStyle {
-        guard let truth else {
-            return StrokeStyle(lineWidth: 1)
-        }
-        let dash: [CGFloat] = switch truth {
-        case .observed:   []
-        case .remembered: [4, 3]
-        case .declared:   [1, 3]
-        case .stale:      [1, 5]
-        }
-        return StrokeStyle(lineWidth: 1, dash: dash)
-    }
-
-    private var primaryShadow: (Color, CGFloat, CGFloat) {
+    private var shadowColor: Color {
         switch elevation {
-        case .flush:    return (.clear, 0, 0)
-        case .raised:   return (.black.opacity(0.2), 8, 4)
-        case .floating: return (.black.opacity(0.35), 16, 8)
+        case .flush:    return .clear
+        case .raised:   return .black.opacity(0.06)
+        case .floating: return .black.opacity(0.10)
         }
     }
 
-    private var ambientGlow: (Color, CGFloat) {
-        guard elevation == .floating, let truth else { return (.clear, 0) }
-        return (BeagleTheme.color(for: truth).opacity(0.1), 20)
+    private var shadowRadius: CGFloat {
+        switch elevation {
+        case .flush:    return 0
+        case .raised:   return 4
+        case .floating: return 10
+        }
+    }
+
+    private var shadowY: CGFloat {
+        switch elevation {
+        case .flush:    return 0
+        case .raised:   return 1
+        case .floating: return 4
+        }
     }
 }
 
@@ -231,10 +206,9 @@ public struct Lane<Content: View>: View {
             .sensoryFeedback(.selection, trigger: expanded)
 
             if expanded {
-                // Divider
                 Rectangle()
-                    .fill(Color.white.opacity(0.06))
-                    .frame(height: 1)
+                    .fill(BeagleTheme.hairline)
+                    .frame(height: 0.5)
                     .padding(.horizontal, BeagleSpacing.md)
 
                 content
@@ -245,13 +219,12 @@ public struct Lane<Content: View>: View {
         }
         .background(
             RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                .fill(.regularMaterial)
-                .opacity(0.55)
+                .fill(.background.secondary)
         )
-        #if os(iOS)
-        .glassEffect(.regular, in: .rect(cornerRadius: BeagleRadius.lg))
-        #endif
-        .truthBorder(truth ?? .declared)
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .strokeBorder(BeagleTheme.hairline, lineWidth: 0.5)
+        )
     }
 }
 

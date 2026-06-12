@@ -27,7 +27,9 @@ class ShareViewController: SLComposeServiceViewController {
 
     override func didSelectPost() {
         let text = contentText ?? ""
-        var urls: [String] = []
+        // Swift 6: the loadItem completions run concurrently, so accumulate URLs in a
+        // lock-protected reference box instead of mutating a captured `var`.
+        let urls = SharedURLBox()
 
         let group = DispatchGroup()
 
@@ -49,7 +51,7 @@ class ShareViewController: SLComposeServiceViewController {
         }
 
         group.notify(queue: .main) { [weak self] in
-            self?.saveSharedThought(text: text, urls: urls)
+            self?.saveSharedThought(text: text, urls: urls.values())
             self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
         }
     }
@@ -94,4 +96,13 @@ class ShareViewController: SLComposeServiceViewController {
         )
         CSSearchableIndex.default().indexSearchableItems([item])
     }
+}
+
+/// Lock-protected URL accumulator — safe to mutate from the concurrent
+/// `loadItem` completion handlers under Swift 6 strict concurrency.
+private final class SharedURLBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [String] = []
+    func append(_ value: String) { lock.lock(); storage.append(value); lock.unlock() }
+    func values() -> [String] { lock.lock(); defer { lock.unlock() }; return storage }
 }

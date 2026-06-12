@@ -76,7 +76,13 @@ struct GoDeepView: View {
                     #endif
                 }
 
-                store.goDeeper(prompt: prompt)
+                // Single launch. If this view was presented on a store that is
+                // already running or already has results (e.g. a history replay
+                // that called goDeeper before presenting the sheet), don't restart
+                // it — that double-start was the visible "loop"/flash.
+                if !store.isRunning && !store.hasAnyResult {
+                    store.goDeeper(prompt: prompt)
+                }
 
                 // Fire quick-take on-device (arrives in ~1s, before cloud)
                 Task {
