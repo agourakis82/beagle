@@ -213,17 +213,19 @@ struct RootView: View {
     @State private var selectedTab = 0
     @State private var hasInitializedTabSelection = false
     @State private var showCognitiveState = false
+    @State private var showCompose = false
+    @State private var showSettings = false
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
-            if sizeClass == .regular {
-                iPadLayout
-            } else {
-                iPhoneLayout
-            }
+            #if os(macOS)
+            macLayout
+            #else
+            phoneLayout
+            #endif
         }
         .task {
             initializeTabSelectionIfNeeded()
@@ -252,6 +254,36 @@ struct RootView: View {
             default:
                 break
             }
+        }
+        .sheet(isPresented: $showCompose) {
+            NavigationStack {
+                AgentSessionView(slug: cognitive.activeProjectSlug ?? "sounio")
+                    .navigationTitle("Chat")
+                    #if os(iOS)
+                    .navigationBarTitleDisplayMode(.inline)
+                    #endif
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close") { showCompose = false }
+                        }
+                    }
+            }
+            #if os(macOS)
+            .frame(minWidth: 640, minHeight: 720)
+            #endif
+        }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                ModelSettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showSettings = false }
+                        }
+                    }
+            }
+            #if os(macOS)
+            .frame(minWidth: 520, minHeight: 600)
+            #endif
         }
     }
 
@@ -299,109 +331,139 @@ struct RootView: View {
         }
     }
 
-    // MARK: - iPhone Layout (4 tabs)
+    // MARK: - Phone Layout (3 tabs + floating Compose)
 
-    private var iPhoneLayout: some View {
+    private var phoneLayout: some View {
         TabView(selection: $selectedTab) {
-            Tab("Mind", systemImage: "brain.head.profile", value: 0) {
-                BeagleSurface(bootError: $bootError)
-            }
-            Tab("Fleet", systemImage: "terminal", value: 5) {
+            Tab("Home", systemImage: "house", value: 0) {
                 NavigationStack {
-                    FleetTerminalsView()
+                    HomeView()
+                        .toolbar { composeToolbarItem; settingsToolbarItem }
                 }
             }
-            Tab("Capture", systemImage: "mic.fill", value: 1) {
+            Tab("Agents", systemImage: "terminal", value: 3) {
                 NavigationStack {
-                    ThoughtCaptureView()
+                    AgentsHubView(bootError: $bootError)
+                        .toolbar { composeToolbarItem; settingsToolbarItem }
                 }
             }
-            Tab("Deep", systemImage: "sparkles", value: 2) {
-                NavigationStack {
-                    DeepExplorationView()
-                        .navigationDestination(for: String.self) { _ in
-                            TriadReviewView()
-                        }
-                }
-            }
-            Tab("Work", systemImage: "apple.terminal", value: 3) {
-                NavigationStack {
-                    WorkView(bootError: $bootError)
-                }
-            }
-            Tab("Recall", systemImage: "sparkle.magnifyingglass", value: 4) {
+            Tab("Recall", systemImage: "magnifyingglass", value: 4, role: .search) {
                 NavigationStack {
                     CognitiveRecallView()
+                        .toolbar { composeToolbarItem; settingsToolbarItem }
                 }
             }
         }
-        .tint(BeagleTheme.truthObserved)
+        .tint(BeagleTheme.accent)
     }
 
-    // MARK: - iPad Layout (sidebar + detail)
+#if os(macOS)
+    // MARK: - Mac Layout (sidebar + detail)
 
-    enum SidebarItem: String, CaseIterable, Identifiable {
-        case mind     = "Mind"
-        case fleet    = "Fleet"
-        case capture  = "Capture"
-        case deep     = "Go Deep"
-        case work     = "Work"
-        case recall   = "Recall"
-        case settings = "Settings"
+    enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
+        case home = "Home"
+        case work = "Work"
+        case terminals = "Terminals"
+        case recall = "Recall"
+        case platform = "Platform"
+        case diagnostics = "Diagnostics"
 
-        var id: String { rawValue }
+        var id: Self { self }
 
         var icon: String {
             switch self {
-            case .mind:     return "brain.head.profile"
-            case .capture:  return "mic.fill"
-            case .deep:     return "sparkles"
-            case .work:     return "apple.terminal"
-            case .recall:   return "sparkle.magnifyingglass"
-            case .fleet:    return "terminal"
-            case .settings: return "gearshape"
+            case .home:        return "house"
+            case .work:        return "rectangle.3.group"
+            case .terminals:   return "terminal"
+            case .recall:      return "magnifyingglass"
+            case .platform:    return "server.rack"
+            case .diagnostics: return "stethoscope"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .home:
+                return "Briefing and thinking surface"
+            case .work:
+                return "Agent lanes and artifacts"
+            case .terminals:
+                return "Fleet runtime access"
+            case .recall:
+                return "Search memory"
+            case .platform:
+                return "Projects and cluster state"
+            case .diagnostics:
+                return "Health checks"
+            }
+        }
+
+        var legacyTabValue: Int {
+            switch self {
+            case .home:
+                return 0
+            case .work, .terminals, .platform, .diagnostics:
+                return 3
+            case .recall:
+                return 4
             }
         }
     }
 
-    @State private var sidebarSelection: SidebarItem? = .mind
+    enum SidebarSection: String, CaseIterable, Identifiable {
+        case cockpit = "Cockpit"
+        case memory = "Memory"
+        case system = "System"
 
-    private var iPadLayout: some View {
-        NavigationSplitView {
-            List(SidebarItem.allCases, selection: $sidebarSelection) { item in
-                Label(item.rawValue, systemImage: item.icon)
-                    .foregroundStyle(BeagleTheme.textPrimary)
+        var id: Self { self }
+
+        var items: [SidebarItem] {
+            switch self {
+            case .cockpit:
+                return [.home, .work, .terminals]
+            case .memory:
+                return [.recall]
+            case .system:
+                return [.platform, .diagnostics]
+            }
+        }
+    }
+
+    @State private var sidebarSelection: SidebarItem = .home
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+    private var macLayout: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            List(selection: $sidebarSelection) {
+                ForEach(SidebarSection.allCases) { section in
+                    Section(section.rawValue) {
+                        ForEach(section.items) { item in
+                            macSidebarRow(item)
+                                .tag(item)
+                        }
+                    }
+                }
+
+                Section {
+                    macSidebarStatus
+                }
             }
             .navigationTitle("Beagle")
             .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
         } detail: {
             NavigationStack(path: $path) {
-                Group {
-                    switch sidebarSelection {
-                    case .mind:
-                        SpatialDeskMissionControlView()
-                    case .capture:
-                        ThoughtCaptureView()
-                    case .deep:
-                        DeepExplorationView()
-                            .navigationDestination(for: String.self) { _ in
-                                TriadReviewView()
-                            }
-                    case .work:
-                        WorkView(bootError: $bootError)
-                    case .recall:
-                        CognitiveRecallView()
-                    case .fleet:
-                        FleetTerminalsView()
-                    case .settings:
-                        ModelSettingsView()
-                    case nil:
-                        SpatialDeskMissionControlView()
+                macDetail
+                    .navigationDestination(for: Project.self) { project in
+                        ControlRoomView(slug: project.projectSlug)
                     }
-                }
+                    .toolbar { macToolbarContent }
             }
         }
-        .tint(BeagleTheme.truthObserved)
+        .tint(BeagleTheme.accent)
+        .onChange(of: sidebarSelection) { _, newValue in
+            selectedTab = newValue.legacyTabValue
+        }
         .sheet(isPresented: $showCognitiveState) {
             NavigationStack {
                 CognitiveStateView()
@@ -410,6 +472,183 @@ struct RootView: View {
                             Button("Done") { showCognitiveState = false }
                         }
                     }
+            }
+        }
+    }
+
+    private func macSidebarRow(_ item: SidebarItem) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.rawValue)
+                    .font(BeagleFont.subheadline.font)
+                Text(item.subtitle)
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .lineLimit(1)
+            }
+        } icon: {
+            Image(systemName: item.icon)
+                .foregroundStyle(sidebarSelection == item ? BeagleTheme.accent : BeagleTheme.textSecondary)
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var macSidebarStatus: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            HStack(spacing: BeagleSpacing.xs) {
+                Image(systemName: shellPresence.icon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(shellPresence.tint)
+                Text(macStatusTitle)
+                    .font(BeagleFont.caption.font)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                Spacer()
+            }
+
+            Text(macStatusDetail)
+                .font(BeagleFont.caption2.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .lineLimit(2)
+
+            HStack(spacing: BeagleSpacing.xs) {
+                PresencePill(label: currentLaneLabel, systemImage: "scope", tint: BeagleTheme.truthObserved)
+                if runningAgentCount > 0 {
+                    PresencePill(label: "\(runningAgentCount) live", systemImage: "sparkles", tint: BeagleTheme.truthRemembered)
+                }
+            }
+        }
+        .padding(.vertical, BeagleSpacing.xs)
+    }
+
+    private var macDetail: some View {
+        VStack(spacing: 0) {
+            macStatusStrip
+            Divider().overlay(BeagleTheme.hairline)
+            macSelectedContent
+        }
+        .background(ShellPresenceBackground(presence: shellPresence))
+    }
+
+    private var macStatusStrip: some View {
+        VStack(spacing: BeagleSpacing.xs) {
+            ShellPresenceBanner(
+                presence: shellPresence,
+                selectedTabTitle: sidebarSelection.rawValue,
+                runningAgentCount: runningAgentCount,
+                runningJobCount: cognitive.runningJobCount,
+                laneLabel: currentLaneLabel,
+                mindLabel: currentMindLabel,
+                objectiveLabel: currentObjectiveLabel,
+                compact: true
+            )
+            .padding(.horizontal, BeagleSpacing.lg)
+            .padding(.top, BeagleSpacing.md)
+            .padding(.bottom, bootError == nil ? BeagleSpacing.md : 0)
+
+            if let bootError {
+                authErrorBanner(bootError)
+                    .padding(.horizontal, BeagleSpacing.lg)
+                    .padding(.bottom, BeagleSpacing.md)
+            }
+        }
+        .background(.background.secondary)
+    }
+
+    @ViewBuilder
+    private var macSelectedContent: some View {
+        switch sidebarSelection {
+        case .home:
+            HomeView()
+        case .work:
+            WorkView(bootError: $bootError)
+        case .terminals:
+            FleetTerminalsView()
+                .navigationTitle("Terminals")
+        case .recall:
+            CognitiveRecallView()
+        case .platform:
+            PlatformView()
+        case .diagnostics:
+            DiagnosticsView()
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var macToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Button {
+                withAnimation(BeagleMotion.snappy) {
+                    columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+                }
+            } label: {
+                Label("Toggle Sidebar", systemImage: "sidebar.left")
+            }
+        }
+
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button { showCompose = true } label: {
+                Label("New chat", systemImage: "bubble.left.and.text.bubble.right")
+            }
+            .tint(BeagleTheme.accent)
+
+            Button { showCognitiveState = true } label: {
+                Label("State", systemImage: "waveform.path.ecg")
+            }
+
+            Button { showSettings = true } label: {
+                Label("Settings", systemImage: "gearshape")
+            }
+        }
+    }
+
+    private var macStatusTitle: String {
+        switch shellPresence {
+        case .active:
+            return "Live work"
+        case .attentive:
+            return "Ready"
+        case .dormant:
+            return "Quiet"
+        case .strained:
+            return "Needs attention"
+        }
+    }
+
+    private var macStatusDetail: String {
+        if let bootError {
+            return bootError
+        }
+        var parts: [String] = []
+        if runningAgentCount > 0 {
+            parts.append("\(runningAgentCount) agent\(runningAgentCount == 1 ? "" : "s")")
+        }
+        if cognitive.runningJobCount > 0 {
+            parts.append("\(cognitive.runningJobCount) job\(cognitive.runningJobCount == 1 ? "" : "s")")
+        }
+        if parts.isEmpty {
+            return "Lane \(currentLaneLabel) is available."
+        }
+        return parts.joined(separator: " · ")
+    }
+
+#endif
+
+    @ToolbarContentBuilder
+    private var composeToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button { showCompose = true } label: {
+                Label("New chat", systemImage: "bubble.left.and.text.bubble.right")
+            }
+            .tint(BeagleTheme.accent)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var settingsToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .secondaryAction) {
+            Button { showSettings = true } label: {
+                Label("Settings", systemImage: "gearshape")
             }
         }
     }
@@ -622,150 +861,20 @@ enum TitleDisplayMode {
     case large, inline
 }
 
-private enum CircadianPhase: Sendable, Equatable {
-    case dawn, morning, peak, afternoon, evening, night
-
-    static var current: CircadianPhase {
-        let hour = Calendar.current.component(.hour, from: .now)
-        switch hour {
-        case 5..<8: return .dawn
-        case 8..<12: return .morning
-        case 12..<16: return .peak
-        case 16..<19: return .afternoon
-        case 19..<22: return .evening
-        default: return .night
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .dawn:      return Color(red: 0.95, green: 0.75, blue: 0.35) // warm amber
-        case .morning:   return Color(red: 0.85, green: 0.88, blue: 0.95) // cool clarity
-        case .peak:      return Color(red: 0.95, green: 0.92, blue: 0.85) // neutral warm
-        case .afternoon: return Color(red: 0.90, green: 0.78, blue: 0.55) // copper
-        case .evening:   return Color(red: 0.60, green: 0.50, blue: 0.75) // dusky violet
-        case .night:     return Color(red: 0.15, green: 0.12, blue: 0.30) // deep indigo
-        }
-    }
-
-    var tintIntensity: Double {
-        switch self {
-        case .dawn: return 0.12
-        case .morning: return 0.06
-        case .peak: return 0.05
-        case .afternoon: return 0.08
-        case .evening: return 0.14
-        case .night: return 0.18
-        }
-    }
-
-    var brightnessFactor: Double {
-        switch self {
-        case .dawn: return 0.70
-        case .morning: return 0.95
-        case .peak: return 1.05
-        case .afternoon: return 0.85
-        case .evening: return 0.60
-        case .night: return 0.40
-        }
-    }
-
-    var blueRetention: Double {
-        switch self {
-        case .dawn: return 0.65
-        case .morning: return 1.0
-        case .peak: return 0.95
-        case .afternoon: return 0.80
-        case .evening: return 0.55
-        case .night: return 0.35
-        }
-    }
-
-    var driftSpeed: Double {
-        switch self {
-        case .dawn: return 0.5
-        case .morning: return 0.9
-        case .peak: return 1.1
-        case .afternoon: return 0.8
-        case .evening: return 0.4
-        case .night: return 0.15
-        }
-    }
-}
+// CircadianPhase removed — no time-of-day tinting in the new visual direction.
 
 private struct ShellPresenceBackground: View {
     let presence: BeaglePresenceState
-    @State private var phase: CGFloat = 0
-    @State private var circadianPhase: CircadianPhase = .current
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ZStack {
-            MeshGradient(
-                width: 3,
-                height: 3,
-                points: animatedPoints,
-                colors: gradientColors
-            )
-            .ignoresSafeArea()
-
-            LinearGradient(
-                colors: [
-                    .black.opacity(0.06),
-                    .black.opacity(0.18),
-                    Color(red: 0.01, green: 0.02, blue: 0.05).opacity(0.94)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        }
-        .onAppear {
-            guard !reduceMotion else { return }
-            let animDuration = min(9.0 / circadianPhase.driftSpeed, 60.0)
-            withAnimation(.easeInOut(duration: animDuration).repeatForever(autoreverses: true)) {
-                phase = 1
-            }
-        }
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
-                let newPhase = CircadianPhase.current
-                if newPhase != circadianPhase {
-                    withAnimation(.easeInOut(duration: 3.0)) {
-                        circadianPhase = newPhase
-                    }
-                }
-            }
-        }
-    }
-
-    private var animatedPoints: [SIMD2<Float>] {
-        let drift: Float = reduceMotion ? 0 : Float(phase) * 0.05 * Float(circadianPhase.driftSpeed)
-        return [
-            SIMD2(0, 0), SIMD2(0.5, 0), SIMD2(1, 0),
-            SIMD2(0 + drift, 0.5 - drift), SIMD2(0.5, 0.5 + drift), SIMD2(1 - drift, 0.5 + drift),
-            SIMD2(0, 1), SIMD2(0.5, 1), SIMD2(1, 1)
-        ]
-    }
-
-    private var gradientColors: [Color] {
-        let glow = presence.glow
-        let tint = presence.tint
-        let bf = circadianPhase.brightnessFactor
-        let br = circadianPhase.blueRetention
-        let ct = circadianPhase.tint
-        let ci = circadianPhase.tintIntensity
-
-        func dimBlue(_ color: Color, _ r: Double, _ g: Double, _ b: Double) -> Color {
-            Color(red: r, green: g, blue: b * br)
-        }
-
-        return [
-            glow.opacity(0.22 * bf), tint.opacity(0.08 * bf), dimBlue(.clear, 0.02, 0.03, 0.08),
-            tint.opacity(0.10 * bf), ct.opacity(ci), glow.opacity(0.10 * bf),
-            dimBlue(.clear, 0.01, 0.02, 0.05), dimBlue(.clear, 0.02, 0.03, 0.07), dimBlue(.clear, 0.01, 0.01, 0.03)
-        ]
+        // Flat system background. No mesh, no circadian, no glow.
+        #if os(iOS)
+        Color(uiColor: .systemBackground).ignoresSafeArea()
+        #elseif os(macOS)
+        Color(nsColor: .windowBackgroundColor).ignoresSafeArea()
+        #else
+        Color.clear.ignoresSafeArea()
+        #endif
     }
 }
 
