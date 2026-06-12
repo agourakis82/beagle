@@ -493,6 +493,14 @@ app.post("/v1/agents/:roleOrKind/start", jsonRoute(async (req) => {
 // 0600 file AND updates the in-process override map for read-your-write
 // consistency (no pod restart). Never echoes the raw api_key back.
 app.post("/v1/agents/:roleOrKind/provider-config", jsonRoute(async (req) => {
+  // This endpoint writes provider API credentials to the PVC. When an operator
+  // token is configured, require it (the cockpit forwards it). Skipped only when
+  // no token is set at all (local/dev) — never a silent bypass in a configured cluster.
+  if (apiToken && String(req.headers.authorization || "") !== `Bearer ${apiToken}`) {
+    const error = new Error("provider-config requires operator authorization");
+    error.statusCode = 401;
+    throw error;
+  }
   const role = findAgentRole(req.params.roleOrKind);
   if (!role) {
     const error = new Error(`unknown agent role: ${req.params.roleOrKind}`);

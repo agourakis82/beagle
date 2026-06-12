@@ -454,7 +454,7 @@ function workspaceAgentBaseUrl(project = {}, slug = "sounio") {
   return `http://${service}.${namespace}.svc.cluster.local:${port}`;
 }
 
-async function proxyWorkspaceAgentJson(req, res, project, agentPath) {
+async function proxyWorkspaceAgentJson(req, res, project, agentPath, authToken = null) {
   if (WORKBENCH_AUTHORITY !== "workspace-agent") return false;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), WORKSPACE_AGENT_TIMEOUT_MS);
@@ -465,6 +465,9 @@ async function proxyWorkspaceAgentJson(req, res, project, agentPath) {
         "accept": "application/json",
         "content-type": "application/json",
         "x-beagle-workbench-gateway": "project-cockpit",
+        // Credential-bearing endpoints (e.g. provider-config) authenticate the
+        // cockpit→agent hop with the operator token; harmless on other routes.
+        ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
       },
       body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body || {}),
       signal: controller.signal,
@@ -837,11 +840,16 @@ export function registerWorkspaceRoutes(app, deps = {}) {
     // override map. The proxy helper adds x-beagle-workbench-gateway: project-cockpit
     // and forwards method + body verbatim.
     const project = await getProjectOrThrow(slug);
+    // This writes API credentials — authenticate the cockpit→agent hop with the
+    // operator token (best-effort: the agent enforces it when configured, so a
+    // missing token surfaces as a loud 401 from the agent rather than a silent bypass).
+    const tokenResult = await fetchOperatorToken().catch((error) => ({ error: error?.message }));
     const proxied = await proxyWorkspaceAgentJson(
       req,
       res,
       project,
-      `/v1/agents/${encodeURIComponent(roleOrKind)}/provider-config`
+      `/v1/agents/${encodeURIComponent(roleOrKind)}/provider-config`,
+      tokenResult?.token || null
     );
     if (proxied) return undefined; // agent responded; proxy already sent the reply.
 
