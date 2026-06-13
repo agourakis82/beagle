@@ -703,8 +703,11 @@ impl PageRankCalculator {
 
         // Initialize scores from the teleport distribution so that PPR converges
         // faster and starts biased toward the seeds.
-        let mut scores: HashMap<Uuid, f32> =
-            graph.nodes.keys().map(|id| (*id, teleport_prob(id))).collect();
+        let mut scores: HashMap<Uuid, f32> = graph
+            .nodes
+            .keys()
+            .map(|id| (*id, teleport_prob(id)))
+            .collect();
 
         // Build adjacency structure
         let mut out_links: HashMap<Uuid, Vec<Uuid>> = HashMap::new();

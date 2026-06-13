@@ -151,7 +151,11 @@ impl ResponseCache {
                 last_used: gen,
             },
         );
-        debug!("ResponseCache insert key={:#x} (size={})", key, store.map.len());
+        debug!(
+            "ResponseCache insert key={:#x} (size={})",
+            key,
+            store.map.len()
+        );
     }
 
     /// Compute the cache key from the routing tier label, prompt text, and optional params.
