@@ -166,6 +166,24 @@
                 "endpoint": "http://discussion-lab-zamba2-serving.beagle.svc.cluster.local:8000",
                 "node": "r740-proxmox",
                 "gpu": "A5000"
+              },
+              {
+                "id": "falcon-mamba",
+                "model": "falcon-mamba-7b",
+                "family": "pure-ssm-no-attention",
+                "status": "live",
+                "endpoint": "http://discussion-lab-falcon-mamba.beagle.svc.cluster.local:8000",
+                "node": "r770-proxmox",
+                "gpu": "L4"
+              },
+              {
+                "id": "internlm25",
+                "model": "internlm2.5-7b",
+                "family": "chinese-reasoning",
+                "status": "live",
+                "endpoint": "http://discussion-lab-internlm.beagle.svc.cluster.local:8000",
+                "node": "r740-proxmox",
+                "gpu": "RTX 8000"
               }
             ]
           }
