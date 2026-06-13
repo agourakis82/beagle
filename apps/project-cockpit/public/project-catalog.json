@@ -171,7 +171,7 @@
                 "id": "falcon-mamba",
                 "model": "falcon-mamba-7b",
                 "family": "pure-ssm-no-attention",
-                "status": "live",
+                "status": "available",
                 "endpoint": "http://discussion-lab-falcon-mamba.beagle.svc.cluster.local:8000",
                 "node": "r770-proxmox",
                 "gpu": "L4"
@@ -180,7 +180,7 @@
                 "id": "internlm25",
                 "model": "internlm2.5-7b",
                 "family": "chinese-reasoning",
-                "status": "live",
+                "status": "available",
                 "endpoint": "http://discussion-lab-internlm.beagle.svc.cluster.local:8000",
                 "node": "r740-proxmox",
                 "gpu": "RTX 8000"
