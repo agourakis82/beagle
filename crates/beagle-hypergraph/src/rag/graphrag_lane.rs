@@ -139,11 +139,16 @@ impl GraphRagLane {
         // Contract (review #21A P1): if NO seed resolves to a node in the graph,
         // return empty rather than silently degrading to a non-seeded uniform
         // PageRank (which would surface unrelated nodes as if they were PPR hits).
-        if !personalization.keys().any(|id| graph.nodes.contains_key(id)) {
+        if !personalization
+            .keys()
+            .any(|id| graph.nodes.contains_key(id))
+        {
             return Vec::new();
         }
 
-        let scores = self.calculator.compute_personalized(graph, &personalization);
+        let scores = self
+            .calculator
+            .compute_personalized(graph, &personalization);
         if scores.is_empty() {
             return Vec::new();
         }
@@ -189,8 +194,8 @@ pub fn personalized_pagerank_retrieve(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::tcr_qf::NodeInfo;
+    use super::*;
     use chrono::Utc;
 
     /// Build a graph from explicit nodes + directed edges for testing.

@@ -6,8 +6,8 @@
 //! - Plugin system (troca LLM em runtime: Grok 3 / local 70B / Heavy)
 //! - Multi-AI orchestration integrado
 //!
-//! **Uso direto:**
-//! ```rust
+//! **Uso direto:** (ilustrativo — não testado como doctest; precisa de runtime async)
+//! ```ignore
 //! use beagle_darwin::darwin_enhanced_cycle;
 //!
 //! let answer = darwin_enhanced_cycle("unificar entropia curva com consciência celular").await;
@@ -370,8 +370,8 @@ impl Default for DarwinCore {
 /// 3. Se necessário, busca adicional com nova query
 /// 4. Retorna resposta final
 ///
-/// # Example
-/// ```rust
+/// # Example (ilustrativo — não testado como doctest; precisa de runtime async)
+/// ```ignore
 /// use beagle_darwin::darwin_enhanced_cycle;
 ///
 /// let answer = darwin_enhanced_cycle("unificar entropia curva com consciência celular").await;

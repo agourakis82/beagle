@@ -258,9 +258,9 @@ impl GrokClient {
         }
 
         let text = resp.choices[0].message.content.clone();
-        let usage = resp.usage.map(|u| {
-            TokenUsage::measured(u.prompt_tokens, u.completion_tokens, u.total_tokens)
-        });
+        let usage = resp
+            .usage
+            .map(|u| TokenUsage::measured(u.prompt_tokens, u.completion_tokens, u.total_tokens));
 
         Ok((text, usage))
     }

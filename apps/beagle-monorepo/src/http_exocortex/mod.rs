@@ -4338,9 +4338,13 @@ async fn recall_answer_handler(
                 // Fail-soft: a synthesis-model hiccup must NEVER fail recall (was 502). The
                 // retrieved, cited passages are the valuable part — return them with a note so
                 // the caller still gets real memory instead of an error.
-                error!("recall synthesis failed (returning retrieved passages): {}", e);
-                let mut lines =
-                    vec![format!("(composed synthesis unavailable — showing retrieved memory)")];
+                error!(
+                    "recall synthesis failed (returning retrieved passages): {}",
+                    e
+                );
+                let mut lines = vec![format!(
+                    "(composed synthesis unavailable — showing retrieved memory)"
+                )];
                 for s in sources.iter().take(6) {
                     let snippet: String = s.text.chars().take(240).collect();
                     lines.push(format!("- [{}] {}", s.n, snippet));

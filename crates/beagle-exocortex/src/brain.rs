@@ -229,7 +229,10 @@ mod tests {
 
     #[test]
     fn test_awareness_from_salience() {
-        assert_eq!(AwarenessLevel::from_salience(0.1), AwarenessLevel::Automatic);
+        assert_eq!(
+            AwarenessLevel::from_salience(0.1),
+            AwarenessLevel::Automatic
+        );
         assert_eq!(AwarenessLevel::from_salience(0.4), AwarenessLevel::Normal);
         assert_eq!(AwarenessLevel::from_salience(0.6), AwarenessLevel::Focused);
     }

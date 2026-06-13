@@ -95,11 +95,7 @@ impl RouterAdapter {
     }
 
     async fn call_with_meta(&self, prompt: &str, meta: RequestMeta) -> Result<String> {
-        let current_stats = self
-            .stats
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or_default();
+        let current_stats = self.stats.lock().map(|g| g.clone()).unwrap_or_default();
         let (client, tier) = self.router.choose_with_limits(&meta, &current_stats);
         let text = self.router.complete_chosen(&client, tier, prompt).await?;
         // Record the call (approximate tokens: 4 chars ≈ 1 token)
@@ -113,10 +109,7 @@ impl RouterAdapter {
 
     /// Snapshot the accumulated stats for metric reporting.
     fn snapshot_stats(&self) -> LlmCallsStats {
-        self.stats
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or_default()
+        self.stats.lock().map(|g| g.clone()).unwrap_or_default()
     }
 }
 
@@ -247,10 +240,7 @@ impl CoordinatorAgent {
         // Main LLM call — routed through TieredRouter.
         // Standard quality request; bias/phd flags left at default (auto-detected from prompt).
         let llm_start = Instant::now();
-        let full_prompt = format!(
-            "System: {}\n\nUser: {}",
-            system_prompt, query
-        );
+        let full_prompt = format!("System: {}\n\nUser: {}", system_prompt, query);
         let meta = RequestMeta::from_prompt(&full_prompt);
         let answer = self
             .router
@@ -345,7 +335,10 @@ impl CoordinatorAgent {
             .run_judge(query, &answer, &context_chunks)
             .await
             .unwrap_or_else(|err| {
-                warn!("⚠️ Judge call failed ({}); defaulting to needs_human_spot_check=true", err);
+                warn!(
+                    "⚠️ Judge call failed ({}); defaulting to needs_human_spot_check=true",
+                    err
+                );
                 JudgeVerdict {
                     score: 0.5,
                     pass: false,
@@ -576,7 +569,10 @@ fn parse_judge_response(raw: &str, answer_char_len: usize) -> Result<JudgeVerdic
             })
         }
         Err(e) => {
-            warn!("⚠️ Judge response could not be parsed as JSON: {}. Raw: {:.200}", e, raw);
+            warn!(
+                "⚠️ Judge response could not be parsed as JSON: {}. Raw: {:.200}",
+                e, raw
+            );
             Ok(JudgeVerdict {
                 score: 0.5,
                 pass: false,

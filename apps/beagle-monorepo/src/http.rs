@@ -96,7 +96,10 @@ pub fn build_router(state: AppState) -> Router {
     let protected_routes = Router::new()
         .route("/api/llm/complete", post(llm_complete_handler))
         .route("/api/pipeline/start", post(pipeline_start_handler))
-        .route("/api/pipeline/status/{run_id}", get(pipeline_status_handler))
+        .route(
+            "/api/pipeline/status/{run_id}",
+            get(pipeline_status_handler),
+        )
         .route("/api/run/{run_id}/artifacts", get(run_artifacts_handler))
         .route("/api/runs/recent", get(runs_recent_handler))
         .route("/api/observer/physio", post(observer_physio_handler))
