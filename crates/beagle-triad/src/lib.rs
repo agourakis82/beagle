@@ -16,35 +16,18 @@ use tracing::{info, warn};
 /// O contexto simbólico (PCS) só é injetado nos prompts quando explicitamente habilitado
 /// (`BEAGLE_SYMBOLIC_CONTEXT_ENABLE=1`), e fica OFF por padrão.
 ///
-/// Quando habilitado, `generate_symbolic_summary` tenta o **solver real** (Julia
-/// `beagle-julia/pcs_symbolic_psychiatry.jl`, ODE ModelingToolkit/Tsit5). Se o Julia não
-/// estiver disponível (binário ausente, deps faltando, timeout, erro), faz fallback para um
-/// resumo HEURÍSTICO de palavra-chave. O bloco SEMPRE se auto-rotula com o status real
-/// (VERIFICADO POR SOLVER vs HEURÍSTICO). Disciplina truth_mode: o prompt crítico nunca
-/// recebe sinal heurístico disfarçado de simbólico verificado por solver.
+/// Quando habilitado, `generate_symbolic_summary` chama o **solver real em Sounio** — o
+/// verbo `pcs.reason` do Sounio Inference Service (ODE de sintomas integrada por RK4 em
+/// Sounio puro; portado do antigo `reason_symbolically` em Julia). Se o serviço estiver
+/// indisponível (inalcançável, timeout, erro), faz fallback para um resumo HEURÍSTICO de
+/// palavra-chave. O bloco SEMPRE se auto-rotula com o status real (VERIFICADO POR SOLVER vs
+/// HEURÍSTICO). Disciplina truth_mode: o prompt crítico nunca recebe sinal heurístico
+/// disfarçado de simbólico verificado por solver.
 fn symbolic_context_enabled() -> bool {
     std::env::var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE")
         .ok()
         .and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(false)
-}
-
-/// Resolve o diretório que contém `beagle-julia/` (cwd do subprocesso Julia).
-/// `BEAGLE_JULIA_DIR` força explicitamente; senão usa o cwd se o módulo PCS existir lá.
-/// Retorna `None` quando o projeto Julia não está presente (⇒ fallback heurístico).
-fn julia_root_dir() -> Option<PathBuf> {
-    const PCS: &str = "beagle-julia/pcs_symbolic_psychiatry.jl";
-    if let Ok(dir) = std::env::var("BEAGLE_JULIA_DIR") {
-        let p = PathBuf::from(dir);
-        if p.join(PCS).exists() {
-            return Some(p);
-        }
-    }
-    let cwd = std::env::current_dir().ok()?;
-    if cwd.join(PCS).exists() {
-        return Some(cwd);
-    }
-    None
 }
 
 /// Sinais sintomáticos em [0,1] extraídos do draft por proxy de palavra-chave.
@@ -100,70 +83,40 @@ fn extract_symptom_signals(text: &str) -> std::collections::BTreeMap<String, f64
     out
 }
 
-/// Chama o solver simbólico REAL em Julia (`reason_symbolically`, ODE ModelingToolkit/Tsit5).
-/// Subprocesso com timeout de 45s; qualquer falha vira `Err` (o chamador faz fallback heurístico).
-/// Os valores injetados no script Julia são f64 controlados por nós (não há input não-confiável).
-async fn pcs_reason_symbolically(
+/// Chama o verbo `pcs.reason` do Sounio Inference Service (ODE de sintomas, RK4 em Sounio puro).
+/// HTTP POST com timeout de 90s; qualquer falha vira `Err` (o chamador faz fallback heurístico).
+/// `SOUNIO_INFERENCE_URL` aponta o serviço (default: Service in-cluster). Resposta:
+/// `{ final_state: {depression,anxiety,stress,sleep}, severity_score }`.
+async fn pcs_reason_sounio(
     symptoms: &std::collections::BTreeMap<String, f64>,
-    root: &std::path::Path,
 ) -> anyhow::Result<serde_json::Value> {
-    use anyhow::Context;
-    use tokio::process::Command;
-
-    let dict_entries: Vec<String> = symptoms
-        .iter()
-        .map(|(k, v)| format!("\"{}\" => {:.4}", k, v))
-        .collect();
-    let script = format!(
-        r#"
-        using Pkg
-        Pkg.activate("beagle-julia"; io=devnull)
-        include("beagle-julia/pcs_symbolic_psychiatry.jl")
-        using .PCSSymbolicPsychiatry
-        using JSON3
-        symptoms = Dict{{String,Float64}}({})
-        model = SymbolicPsychiatryModel()
-        result = reason_symbolically(model, symptoms)
-        println(JSON3.write(result))
-        "#,
-        dict_entries.join(", ")
-    );
-
-    let fut = Command::new("julia")
-        .arg("--project=beagle-julia")
-        .arg("-e")
-        .arg(&script)
-        .current_dir(root)
-        .output();
-
-    let output = tokio::time::timeout(std::time::Duration::from_secs(45), fut)
-        .await
-        .map_err(|_| anyhow::anyhow!("solver Julia excedeu o timeout de 45s"))?
-        .context("falha ao executar `julia` (binário ausente?)")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!(
-            "solver Julia retornou {}: {}",
-            output.status,
-            stderr.lines().last().unwrap_or("(sem stderr)")
-        );
+    let base = std::env::var("SOUNIO_INFERENCE_URL")
+        .unwrap_or_else(|_| "http://sounio-inference.beagle.svc.cluster.local:80".to_string());
+    let url = format!("{}/v1/pcs/reason", base.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "symptoms": {
+            "depression": symptoms.get("depression").copied().unwrap_or(0.5),
+            "anxiety": symptoms.get("anxiety").copied().unwrap_or(0.5),
+            "stress": symptoms.get("stress").copied().unwrap_or(0.5),
+            "sleep": symptoms.get("sleep").copied().unwrap_or(0.7),
+        }
+    });
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(90))
+        .build()?;
+    let resp = client.post(&url).json(&body).send().await?;
+    if !resp.status().is_success() {
+        anyhow::bail!("pcs.reason HTTP {}", resp.status());
     }
-    // A última linha iniciada por `{` é o JSON do resultado (Julia loga @info no stderr).
-    let stdout = String::from_utf8(output.stdout)?;
-    let json_line = stdout
-        .lines()
-        .rev()
-        .find(|l| l.trim_start().starts_with('{'))
-        .context("nenhuma linha JSON no stdout do solver")?;
-    Ok(serde_json::from_str(json_line.trim())?)
+    Ok(resp.json::<serde_json::Value>().await?)
 }
 
 /// Gera resumo simbólico do draft via PCS (Symbolic Computational Psychiatry).
 ///
-/// Tenta o solver REAL (Julia `pcs_symbolic_psychiatry.jl`) quando o projeto está presente;
-/// caso contrário (ou em qualquer falha) faz fallback para heurística de palavra-chave. O bloco
-/// retornado se auto-rotula com o status real (VERIFICADO POR SOLVER vs HEURÍSTICO).
+/// Quando o gate está ligado, chama o verbo `pcs.reason` do Sounio Inference Service (ODE de
+/// sintomas, RK4 em Sounio puro); em qualquer falha (ou gate OFF) faz fallback para heurística
+/// de palavra-chave. O bloco retornado se auto-rotula com o status real (VERIFICADO POR SOLVER
+/// vs HEURÍSTICO).
 pub async fn generate_symbolic_summary(
     draft: &str,
     _ctx: &BeagleContext,
@@ -173,12 +126,13 @@ pub async fn generate_symbolic_summary(
     let concepts = extract_key_concepts(draft);
     let logical_structure = analyze_logical_structure(draft);
 
-    // Caminho REAL: solver simbólico em Julia, quando o projeto beagle-julia existe.
-    if let Some(root) = julia_root_dir() {
+    // Caminho REAL: solver simbólico em SOUNIO (verbo pcs.reason), via HTTP — gated.
+    if symbolic_context_enabled() {
         let symptoms = extract_symptom_signals(draft);
-        match pcs_reason_symbolically(&symptoms, &root).await {
+        match pcs_reason_sounio(&symptoms).await {
             Ok(res) => {
-                let g = |k: &str| res.get(k).and_then(|v| v.as_f64());
+                let fs = res.get("final_state");
+                let g = |k: &str| fs.and_then(|o| o.get(k)).and_then(|v| v.as_f64());
                 let fmt_state = |k: &str| {
                     g(k).map(|v| format!("{}={:.3}", k, v))
                         .unwrap_or_else(|| format!("{}=?", k))
@@ -187,15 +141,18 @@ pub async fn generate_symbolic_summary(
                     .iter()
                     .map(|(k, v)| format!("{}={:.2}", k, v))
                     .collect();
-                let severity = g("severity_score")
+                let severity = res
+                    .get("severity_score")
+                    .and_then(|v| v.as_f64())
                     .map(|s| format!("{:.3}", s))
                     .unwrap_or_else(|| "?".into());
-                info!(severity = %severity, "PCS solver Julia OK");
+                info!(severity = %severity, "PCS solver Sounio OK");
                 return Ok(format!(
-                    "## Resumo Simbólico — VERIFICADO POR SOLVER (PCS/Julia)\n\n\
-                    > Raciocínio resolvido via ODESystem ModelingToolkit (Tsit5) em \
-                    `pcs_symbolic_psychiatry.jl`. Os sinais de ENTRADA são proxy de palavra-chave \
-                    (aproximados); a EVOLUÇÃO temporal e a severidade abaixo são verificadas por solver.\n\n\
+                    "## Resumo Simbólico — VERIFICADO POR SOLVER (PCS/Sounio)\n\n\
+                    > Raciocínio resolvido pelo verbo `pcs.reason` do Sounio Inference Service \
+                    (ODE de sintomas integrada por RK4 em Sounio puro; portado do antigo Julia). \
+                    Os sinais de ENTRADA são proxy de palavra-chave (aproximados); a EVOLUÇÃO \
+                    temporal e a severidade abaixo são verificadas por solver.\n\n\
                     **Sinais de entrada (proxy)**: {}\n\n\
                     **Estado simbólico final (t=10)**: {}, {}, {}, {}\n\n\
                     **Severity score (solver)**: {}\n\n\
@@ -210,7 +167,7 @@ pub async fn generate_symbolic_summary(
                 ));
             }
             Err(e) => {
-                warn!(error = %e, "PCS solver Julia indisponível; fallback heurístico");
+                warn!(error = %e, "PCS solver Sounio indisponível; fallback heurístico");
             }
         }
     }
@@ -218,7 +175,7 @@ pub async fn generate_symbolic_summary(
     // Fallback HEURÍSTICO (auto-rotulado).
     let summary = format!(
         "## Resumo Simbólico — HEURÍSTICO (NÃO verificado por solver)\n\n\
-        > ⚠️ Gerado por heurísticas de palavra-chave, NÃO pelo PCS/Julia (indisponível neste ambiente). \
+        > ⚠️ Gerado por heurísticas de palavra-chave, NÃO pelo PCS/Sounio (indisponível neste ambiente). \
         Trate como dica fraca/aproximada — não como sinal simbólico verificado por solver.\n\n\
         **Conceitos-chave**: {}\n\n\
         **Estrutura lógica**: {}",
@@ -1289,16 +1246,37 @@ mod tests {
         }
     }
 
+    // E2E contra o serviço vivo: `SOUNIO_INFERENCE_URL=http://127.0.0.1:<pf> \
+    // cargo test -p beagle-triad symbolic_summary_live -- --ignored --nocapture`
     #[tokio::test]
-    async fn symbolic_summary_falls_back_honestly_without_julia() {
-        // Sem o projeto Julia acessível, o resumo DEVE se rotular como heurístico —
-        // nunca como verificado por solver (disciplina truth_mode).
-        std::env::set_var("BEAGLE_JULIA_DIR", "/nonexistent-julia-root-xyz");
+    #[ignore]
+    async fn symbolic_summary_live_is_solver_verified() {
+        std::env::set_var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE", "true");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let out = generate_symbolic_summary("paciente com depressão, ansiedade e insônia", &ctx)
+            .await
+            .expect("summary");
+        std::env::remove_var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE");
+        eprintln!("{out}");
+        assert!(
+            out.contains("VERIFICADO POR SOLVER (PCS/Sounio)"),
+            "got: {out}"
+        );
+        assert!(out.contains("Severity score (solver)"));
+    }
+
+    #[tokio::test]
+    async fn symbolic_summary_falls_back_honestly_without_solver() {
+        // Gate LIGADO mas o Sounio Inference Service inalcançável: o resumo DEVE se
+        // rotular como heurístico — nunca como verificado por solver (truth_mode).
+        std::env::set_var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE", "true");
+        std::env::set_var("SOUNIO_INFERENCE_URL", "http://127.0.0.1:1"); // porta morta
         let ctx = BeagleContext::new_with_mock().expect("mock ctx");
         let out = generate_symbolic_summary("texto sobre entropia e PBPK", &ctx)
             .await
             .expect("summary should always succeed (fallback)");
-        std::env::remove_var("BEAGLE_JULIA_DIR");
+        std::env::remove_var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE");
+        std::env::remove_var("SOUNIO_INFERENCE_URL");
         assert!(
             out.contains("HEURÍSTICO (NÃO verificado por solver)"),
             "fallback deve se auto-rotular heurístico, got: {out}"
