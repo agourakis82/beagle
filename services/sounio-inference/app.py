@@ -210,12 +210,134 @@ def causal_dsep(req: DsepReq):
     }
 
 
+# ───────────────────────── pcs.reason ─────────────────────────
+# PCS symptom dynamics, ported from Julia reason_symbolically into REAL Sounio:
+# a 4-state ODE (depression/anxiety/stress/sleep) integrated t=0..10 with an
+# RK4 loop in pure Sounio (no Julia, no external solver). The initial state is
+# supplied by the request; the trajectory + severity are solver-computed.
+PCS_SIO_TEMPLATE = r'''//@ run-pass
+fn og_min(a: f64, b: f64) -> f64 { if a < b { a } else { b } }
+struct EState { values: [f64; 64], variances: [f64; 64], n: i64 }
+fn estate_new(n: i64) -> EState { EState { values: [0.0; 64], variances: [0.0; 64], n: n } }
+fn estate_set(s: &!EState, idx: i64, val: f64, var_: f64) with Mut {
+    if idx >= 0 && idx < 64 { s.values[idx] = val; s.variances[idx] = var_ }
+}
+struct ODEParams { params: [f64; 64], param_variances: [f64; 64], n_params: i64 }
+fn ode_params_new() -> ODEParams { ODEParams { params: [0.0; 64], param_variances: [0.0; 64], n_params: 0 } }
+fn estate_axpy(dst: &!EState, a: &EState, scale: f64, b: &EState) with Mut {
+    var i = 0
+    while i < a.n { if i < 64 { dst.values[i] = a.values[i] + scale * b.values[i] }; i = i + 1 }
+    dst.n = a.n
+}
+fn rhs_psychiatry(t: f64, y: &EState, p: &ODEParams, out: &!EState) with Mut, Div, Panic {
+    let dep  = y.values[0]
+    let anx  = y.values[1]
+    let str_ = y.values[2]
+    let slp  = y.values[3]
+    out.values[0] = (0.0 - 0.1) * dep  + 0.05 * str_ + 0.02 * anx
+    out.values[1] = (0.0 - 0.15) * anx + 0.08 * str_ + 0.03 * dep
+    out.values[2] = (0.0 - 0.2) * str_ + 0.1 * (1.0 - slp)
+    out.values[3] = 0.3 * (1.0 - slp)  - 0.1 * str_
+    out.n = 4
+}
+fn rk4_step_generic(rhs: fn(f64, &EState, &ODEParams, &!EState) -> (), t: f64, state: &!EState, p: &ODEParams, dt: f64) with Mut, Div, Panic {
+    let n = state.n
+    var k1 = estate_new(n); var k2 = estate_new(n)
+    var k3 = estate_new(n); var k4 = estate_new(n)
+    var tmp = estate_new(n)
+    rhs(t, state, p, &!k1)
+    estate_axpy(&!tmp, state, 0.5 * dt, &k1)
+    rhs(t + 0.5 * dt, &tmp, p, &!k2)
+    estate_axpy(&!tmp, state, 0.5 * dt, &k2)
+    rhs(t + 0.5 * dt, &tmp, p, &!k3)
+    estate_axpy(&!tmp, state, dt, &k3)
+    rhs(t + dt, &tmp, p, &!k4)
+    var i = 0
+    while i < n {
+        if i < 64 {
+            let dy = (k1.values[i] + 2.0 * k2.values[i] + 2.0 * k3.values[i] + k4.values[i]) / 6.0
+            state.values[i] = state.values[i] + dt * dy
+        }
+        i = i + 1
+    }
+}
+fn solve_generic(rhs: fn(f64, &EState, &ODEParams, &!EState) -> (), n_dims: i64, y0: EState, p: ODEParams, t_start: f64, t_end: f64, dt: f64, max_steps: i64) -> EState with Mut, Div, Panic {
+    var state = y0
+    state.n = n_dims
+    var t = t_start
+    var step = 0
+    while t < t_end && step < max_steps {
+        let h = og_min(dt, t_end - t)
+        if h <= 1.0e-15 { t = t_end }
+        else { rk4_step_generic(rhs, t, &!state, &p, h); t = t + h; step = step + 1 }
+    }
+    state
+}
+fn main() -> i64 with IO, Mut, Div, Panic {
+    var y0 = estate_new(4)
+    estate_set(&!y0, 0, __DEP0__, 0.0)
+    estate_set(&!y0, 1, __ANX0__, 0.0)
+    estate_set(&!y0, 2, __STR0__, 0.0)
+    estate_set(&!y0, 3, __SLP0__, 0.0)
+    var p = ode_params_new()
+    let final_state = solve_generic(rhs_psychiatry, 4, y0, p, 0.0, 10.0, 0.01, 2000)
+    let dep_f = final_state.values[0]
+    let anx_f = final_state.values[1]
+    let str_f = final_state.values[2]
+    let slp_f = final_state.values[3]
+    let sev   = (dep_f + anx_f + str_f) / 3.0
+    println(dep_f); println(",")
+    println(anx_f); println(",")
+    println(str_f); println(",")
+    println(slp_f); println(",")
+    println(sev);   println(",")
+    0
+}
+'''
+
+
+class Symptoms(BaseModel):
+    depression: float = 0.5
+    anxiety: float = 0.5
+    stress: float = 0.5
+    sleep: float = 0.7
+
+
+class PcsReasonReq(BaseModel):
+    symptoms: Symptoms = Symptoms()
+
+
+@app.post("/v1/pcs/reason")
+def pcs_reason(req: PcsReasonReq):
+    s = req.symptoms
+    src = (
+        PCS_SIO_TEMPLATE
+        .replace("__DEP0__", repr(_num(s.depression)))
+        .replace("__ANX0__", repr(_num(s.anxiety)))
+        .replace("__STR0__", repr(_num(s.stress)))
+        .replace("__SLP0__", repr(_num(s.sleep)))
+    )
+    toks = [t for t in _compile_and_run(src).replace("\n", "").split(",") if t.strip()]
+    try:
+        dep, anx, stress, sleep, severity = (float(t) for t in toks[:5])
+    except ValueError:
+        raise HTTPException(502, f"could not parse PCS output: {toks[:5]}")
+    return {
+        "verb": "pcs.reason",
+        "inputs": {"depression": s.depression, "anxiety": s.anxiety, "stress": s.stress, "sleep": s.sleep},
+        "final_state": {"depression": dep, "anxiety": anx, "stress": stress, "sleep": sleep},
+        "severity_score": severity,
+        "engine": "sounio (RK4 ODE; ported from Julia reason_symbolically)",
+    }
+
+
 @app.get("/v1/catalog")
 def catalog():
     return {"verbs": [
         {"verb": "smt.check", "path": "/v1/smt/check", "nature": "logical decision (SAT/UNSAT)"},
         {"verb": "gum.propagate", "path": "/v1/gum/propagate", "nature": "numeric uncertainty propagation"},
         {"verb": "causal.dsep", "path": "/v1/causal/dsep", "nature": "structural graph reasoning"},
+        {"verb": "pcs.reason", "path": "/v1/pcs/reason", "nature": "symptom ODE dynamics (Sounio RK4)"},
     ]}
 
 
