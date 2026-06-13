@@ -244,7 +244,9 @@ impl Default for MemoryConfig {
 /// Feature flags for optional components
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureFlags {
-    /// Enable consciousness substrate (IIT/GWT)
+    /// Enable salience/awareness heuristic (field name kept for compat; formerly
+    /// branded "consciousness substrate (IIT/GWT)" — NOT a real IIT computation,
+    /// see `beagle-exocortex::brain` module note).
     pub enable_consciousness: bool,
 
     /// Enable personality system integration

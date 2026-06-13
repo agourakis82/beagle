@@ -3,7 +3,7 @@ use crate::{
     run_beagle_pipeline, ExperimentFlags, RunState, RunStatus, ScienceJobKind, ScienceJobRegistry,
     ScienceJobState, ScienceJobStatus,
 };
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::{
     extract::Path,
     middleware,
@@ -164,12 +164,23 @@ pub fn build_router(state: AppState) -> Router {
 
 async fn llm_complete_handler(
     axum::extract::State(state): axum::extract::State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<LlmRequest>,
 ) -> Result<Json<LlmResponse>, StatusCode> {
     let mut ctx = state.ctx.lock().await;
 
     // Cria RequestMeta com heurísticas simples
     let mut meta = RequestMeta::from_prompt(&req.prompt);
+
+    // Populate identity from X-Beagle-Consumer so the per-identity token-bucket rate limiter
+    // (gated by BEAGLE_LLM_RATE_CAPACITY) can key on the caller. When the header is absent
+    // identity stays None — the limiter collapses to a shared "anon" bucket or is disabled
+    // entirely (unchanged behavior when BEAGLE_LLM_RATE_CAPACITY is unset).
+    meta.identity = headers
+        .get("X-Beagle-Consumer")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
 
     // Override com flags explícitas se fornecidas
     if req.requires_math {
