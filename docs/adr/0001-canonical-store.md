@@ -46,16 +46,18 @@ The runtime honesty primitive for this (plan #12, Stage 0) is now implemented:
 `beagle-core/src/store_inventory.rs` (`BeagleStoreInventory`) resolves and logs each store's role
 at every `core_server` startup — see acceptance criterion §7 (first box).
 
-**Known broken item — pgvector dimension mismatch (added 2026-06-13):**
-`crates/beagle-db/migrations/001_initial_schema.sql` declares `nodes.embedding VECTOR(1536)` and
-the DR rebuild script (§4.3) creates the Qdrant collection with `"size":1536`. However, every live
-index is **1024-dim**: Qdrant `cockpit_rag` (24 373 points, bge-m3), `beagle_exocortex` (745
-points), and LanceDB `semantic_memory_v1` (7 026 rows, jina-colbert-v2). The mismatch means:
-(a) any embedding written to `nodes.embedding` by a 1024-dim model is stored with incorrect
-declared dimensionality, (b) the §4.3 rebuild script would create a 1536-dim Qdrant collection
-that is incompatible with the live 1024-dim corpus — making the "cold backup seed" claim theater.
-`BeagleStoreInventory::log()` now emits a startup WARN for this gap. The fix is eval-gated and
-listed in §DEFERRED below.
+**RESOLVED — pgvector dimension mismatch (found 2026-06-13, fixed same day):**
+`001_initial_schema.sql` declared `nodes.embedding VECTOR(1536)` while every live index is
+**1024-dim** (Qdrant `cockpit_rag`/`beagle_exocortex`, LanceDB `semantic_memory_v1` — bge-m3 /
+jina-colbert-v2). **Fixed by `003_embedding_dim_1024.sql`**: the column (measured EMPTY — 3 nodes,
+0 embeddings) was re-specced to `VECTOR(1024)` and applied to the live `beagle-pg` DB, **gated by
+the darwin-eval parity baseline** (`scripts/darwin-eval-baseline.json`): the gate passed identically
+before and after (Recall@10 unchanged), proving the live Qdrant retrieval path was not regressed —
+the pgvector column is an isolated cold backup. `BeagleStoreInventory::log()` now logs the
+reconciled state (INFO) instead of the mismatch WARN. The heavier #12 stages (re-embed, dual-read,
+old-store read-only) were **moot, not skipped** — pgvector held zero embeddings to migrate. The one
+remaining piece is the optional **backfill** (populate `nodes.embedding` + rebuild the ivfflat
+index) before a Postgres-seeded rebuild is real; tracked in §DEFERRED.
 
 ---
 
@@ -290,10 +292,12 @@ BATCH_SIZE=256
 echo "[rebuild] Dropping stale collection $COLLECTION"
 curl -sf -XDELETE "$QDRANT_URL/collections/$COLLECTION" || true
 
-echo "[rebuild] Creating collection (dim=1536, Cosine)"
+# dim=1024 (bge-m3) — reconciled with the live index dim; matches nodes.embedding VECTOR(1024)
+# after migration 003. (Live collections use Cosine via bge-m3; was wrongly 1536 pre-#12.)
+echo "[rebuild] Creating collection (dim=1024, Cosine)"
 curl -sf -XPUT "$QDRANT_URL/collections/$COLLECTION" \
   -H 'Content-Type: application/json' \
-  -d '{"vectors":{"size":1536,"distance":"Cosine"}}'
+  -d '{"vectors":{"size":1024,"distance":"Cosine"}}'
 
 echo "[rebuild] Streaming nodes from Postgres"
 # Uses psql COPY to JSON; in practice pipe through jq to batch upsert
@@ -460,26 +464,26 @@ This ADR is complete when:
 
 ---
 
-## DEFERRED — eval-gated steps NOT done in this ADR slice (2026-06-13)
+## #12 progress — gated against the darwin-eval parity baseline (2026-06-13)
 
-The following items are explicitly deferred. None were executed here. Each requires the P1 eval
-gate (nDCG@10 baseline in `data/eval/baseline.json`) to prove parity before proceeding.
+The parity gate is now real: `scripts/darwin-eval.yaml` (339-query domain golden over the harvested
+`darwin-papers` corpus) + `scripts/darwin-eval-baseline.json` (Recall@10=1.0). Migration steps are
+run only if the gate passes identically before/after.
 
-1. **pgvector column dim fix (1536 → 1024)**: Alter `nodes.embedding` from `VECTOR(1536)` to
-   `VECTOR(1024)` (a schema migration in `beagle-db/migrations/`). Deferred because altering a
-   vector column in a live table requires a full table rewrite; needs a maintenance window and
-   confirmed zero-downtime path, and the column is currently unqueried (the hot path uses Qdrant).
+1. ✅ **DONE — pgvector column dim fix (1536 → 1024)** (`003_embedding_dim_1024.sql`): applied to the
+   live `beagle-pg` DB. The column was measured EMPTY (3 nodes, 0 embeddings), so it was a pure
+   schema correction (DROP+ADD), not a table rewrite — no maintenance window needed. **Gated**: the
+   darwin-eval gate passed identically before and after (live Qdrant retrieval unaffected — pgvector
+   is an isolated cold backup).
 
-2. **Embedding backfill / re-embed for existing `nodes` rows**: Any row with a non-NULL embedding
-   in `nodes.embedding` may carry a 1536-dim vector from a pre-bge-m3 model. Before the column
-   becomes a usable rebuild seed, all existing embeddings must be regenerated via the current
-   1024-dim TEI model. Deferred because it requires a batch job against the live Postgres pod,
-   can be CPU/memory intensive, and must run only after the schema dim is corrected (item 1).
+2. ⊘ **MOOT — re-embed existing `nodes` rows**: there were **zero** embeddings in `nodes.embedding`
+   (measured), so there was nothing to re-embed. Not skipped — empty by measurement.
 
-3. **§4.3 DR rebuild script correction**: The rebuild script in §4.3 hard-codes `"size":1536`.
-   It must be updated to `"size":1024` (matching the live `bge-m3` model) and the
-   `pg_to_qdrant_upsert.py` helper must validate that every vector it reads is exactly 1024-dim
-   before upsert. Deferred until items 1 and 2 are complete (otherwise the script reads bad data).
+3. ✅ **DONE — §4.3 DR rebuild script correction**: updated `"size":1536` → `"size":1024` (above).
+   The `pg_to_qdrant_upsert.py` 1024-dim validation is folded into the backfill (item 4) since the
+   column is empty until then.
+
+### Still deferred (only relevant once the cold backup is actually used)
 
 4. **Dual-read window (Stage 1)**: Shadow-reading from `nodes.embedding` pgvector alongside Qdrant
    to compare recall. Deferred until the column contains valid 1024-dim embeddings (items 1–2).
