@@ -13,6 +13,17 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tracing::{info, warn};
 
+/// O contexto simbólico (PCS) só é injetado nos prompts quando explicitamente habilitado.
+/// O PCS/Julia real ainda NÃO está conectado — o resumo é heurístico (palavra-chave), então
+/// fica OFF por padrão (e, quando ligado, é sempre marcado como não-verificado-por-solver).
+/// Disciplina truth_mode: nunca alimentar a seção crítica como se fosse sinal simbólico real.
+fn symbolic_context_enabled() -> bool {
+    std::env::var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE")
+        .ok()
+        .and_then(|v| v.parse::<bool>().ok())
+        .unwrap_or(false)
+}
+
 /// Gera resumo simbólico do draft usando PCS (Symbolic Computational Psychiatry)
 /// Extrai conceitos-chave, relações lógicas e estrutura semântica
 pub async fn generate_symbolic_summary(draft: &str, ctx: &BeagleContext) -> anyhow::Result<String> {
@@ -24,11 +35,11 @@ pub async fn generate_symbolic_summary(draft: &str, ctx: &BeagleContext) -> anyh
     let logical_structure = analyze_logical_structure(draft);
 
     let summary = format!(
-        "## Resumo Simbólico (PCS)\n\n\
+        "## Resumo Simbólico — HEURÍSTICO (NÃO verificado por solver)\n\n\
+        > ⚠️ Gerado por heurísticas de palavra-chave, NÃO pelo PCS/Julia (ainda não conectado). \
+        Trate como dica fraca/aproximada — não como sinal simbólico verificado por solver.\n\n\
         **Conceitos-chave**: {}\n\n\
-        **Estrutura lógica**: {}\n\n\
-        **Nota**: Este resumo foi gerado usando heurísticas básicas. \
-        Integração completa com PCS Symbolic Psychiatry será implementada via Julia.",
+        **Estrutura lógica**: {}",
         concepts.join(", "),
         logical_structure
     );
@@ -383,7 +394,10 @@ pub async fn run_triad_tournament(
             .flatten()
         {
             Some(ev) => {
-                info!("⏭️  EVOLVE: resume de checkpoint ({} claims)", ev.claims.len());
+                info!(
+                    "⏭️  EVOLVE: resume de checkpoint ({} claims)",
+                    ev.claims.len()
+                );
                 Some(ev)
             }
             None => {
@@ -611,7 +625,11 @@ fn split_sentences(text: &str) -> Vec<String> {
             continue;
         }
         let next = chars.get(i + 1).copied();
-        let prev = if i > 0 { chars.get(i - 1).copied() } else { None };
+        let prev = if i > 0 {
+            chars.get(i - 1).copied()
+        } else {
+            None
+        };
         // Decimal: dígito.dígito (ex.: 0.05) — não é fim de sentença.
         if c == '.'
             && prev.is_some_and(|p| p.is_ascii_digit())
@@ -774,14 +792,10 @@ pub async fn run_athena(
         prompt.push_str("\n\n");
     }
 
-    // Adiciona contexto simbólico se habilitado (via env ou config)
-    if std::env::var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE")
-        .unwrap_or_else(|_| "false".to_string())
-        .parse::<bool>()
-        .unwrap_or(false)
-    {
+    // Contexto simbólico (PCS) — heurístico e GATED (OFF por padrão; ver symbolic_context_enabled).
+    if symbolic_context_enabled() {
         if let Ok(symbolic_summary) = generate_symbolic_summary(draft, ctx).await {
-            prompt.push_str("=== CONTEXTO SIMBÓLICO (PCS) ===\n");
+            prompt.push_str("=== CONTEXTO SIMBÓLICO (heurístico, NÃO verificado por solver) ===\n");
             prompt.push_str(&symbolic_summary);
             prompt.push_str("\n\n");
         }
@@ -987,19 +1001,29 @@ pub async fn arbitrate_final(
     ctx: &BeagleContext,
     run_id: &str,
 ) -> anyhow::Result<(String, ProviderTier)> {
-    // Gera resumo simbólico (PCS) do draft original
-    let symbolic_summary = generate_symbolic_summary(original_draft, ctx)
-        .await
-        .unwrap_or_else(|e| {
-            warn!("Falha ao gerar resumo simbólico: {}", e);
-            "Resumo simbólico não disponível".to_string()
-        });
+    // Contexto simbólico (PCS) — HEURÍSTICO e GATED. O PCS/Julia real não está conectado, então
+    // só injeta com BEAGLE_SYMBOLIC_CONTEXT_ENABLE=1 e sempre marcado como não-verificado-por-solver
+    // (antes era injetado SEMPRE como "Resumo Simbólico (PCS)" — sinal falso no prompt do Juiz).
+    let symbolic_block = if symbolic_context_enabled() {
+        match generate_symbolic_summary(original_draft, ctx).await {
+            Ok(s) => format!(
+                "**Resumo Simbólico (heurístico, NÃO verificado por solver)**:\n{}\n\n",
+                s
+            ),
+            Err(e) => {
+                warn!("Falha ao gerar resumo simbólico: {}", e);
+                String::new()
+            }
+        }
+    } else {
+        String::new()
+    };
 
     let mut prompt = String::from(
         "Você é o JUIZ FINAL do sistema BEAGLE (HONEST AI TRIAD).\n\n\
         IMPORTANTE: Mantenha a voz autoral interdisciplinar (engenharia química, medicina, psiquiatria, biomateriais, filosofia da mente).\n\
         Preserve alta densidade conceitual e elegância técnica.\n\n\
-        **Resumo Simbólico (PCS)**:\n{}\n\n\
+        [[SYMBOLIC_BLOCK]]\
         Você recebeu:\n\
         - DRAFT_ORIGINAL: rascunho original do artigo.\n\
         - DRAFT_HERMES: versão reescrita por HERMES.\n\
@@ -1012,7 +1036,7 @@ pub async fn arbitrate_final(
         4. Manter a voz autoral interdisciplinar e evitar inventar dados.\n\n\
         Responda **apenas** com o texto final em Markdown.\n\n",
     );
-    prompt = prompt.replace("{}", &symbolic_summary);
+    prompt = prompt.replace("[[SYMBOLIC_BLOCK]]", &symbolic_block);
 
     prompt.push_str("=== FEEDBACK_ATHENA ===\n");
     prompt.push_str(&athena.suggestions_md);
