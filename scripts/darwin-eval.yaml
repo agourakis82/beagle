@@ -1,21 +1,49 @@
+# Self-retrieval seed baseline (auto-gerado de atoms reais da beagle_exocortex).
+# Cada query = prefixo do texto do atom; expect_doc_id = o doc_id daquele atom.
+# Baseline de REGRESSÃO (pega quebra de retrieval na migração #12); refinar c/ queries de domínio depois.
 collections:
-  - darwin-papers
-  - darwin-docs
-  - darwin-books
+  - beagle_exocortex
 
-# Default top-k per query.
 k: 10
 
-# Golden queries: fill `expect_doc_ids` with real doc_ids from your corpus.
-# - papers: doc_id is `source:id` (e.g., `pubmed:12345678`, `arxiv:2401.01234`)
-# - web/docs: doc_id is the final URL
 tests:
-  - name: hrv-cognition
-    query: "HRV cognitive performance working memory"
+  - name: self-1
+    query: "warp fork real sounio block memory proof 2026-05-07\n'"
     expect_doc_ids:
-      - "pubmed:REPLACE_ME"
-
-  - name: qdrant-docs
-    query: "Qdrant payload filter must match value"
+      - "atom:e4d141c59ade061e686a5a77a9c4f42acf64dc2aa32dca0a753c2c40726009f7"
+  - name: self-2
+    query: "Inspecionar Workbench v13 no browser, localizar renderVisualWorkbenchV13Page e implementar melhoria visual concreta"
     expect_doc_ids:
-      - "https://qdrant.tech/documentation/concepts/filtering/"
+      - "atom:868e35827dfd91c572f145574bc30e9f335923a8d8f5e67330f5fb02249ea94f"
+  - name: self-3
+    query: "Stage, commit and push v2.3; next deploy should build context-compiler-v23-20260428 images and"
+    expect_doc_ids:
+      - "atom:4ed84e066660068cf33e99744fc90f9015c12a0c04505641052d24d5e10e8ebe"
+  - name: self-4
+    query: "Build and deploy versioned core/MCP images, smoke Sounio Workday through Claude iOS/Codex/iPhone/Watch,"
+    expect_doc_ids:
+      - "atom:e7879b31cec2c87b681cad509571dc0a5784e848af36a4129d4a7208800e88ef"
+  - name: self-5
+    query: "Polished the Apple Workbench entry after user feedback that the visual experience"
+    expect_doc_ids:
+      - "atom:87619562efe9a00bcd17256c7297703f57558265524948b8fdb00fc9ee8f9c19"
+  - name: self-6
+    query: "Worldbench v10 now restores selected visual work objects from deep links, keeps"
+    expect_doc_ids:
+      - "atom:9c5dc8a5ad3c48c1746610877f9c9c92c11b3604c2f27d550bbcee5dad2525dc"
+  - name: self-7
+    query: "Commit and push fixture UX improvement, then use the running local page"
+    expect_doc_ids:
+      - "atom:bf975537cf7d36edc4a6eb8a3c86462085e06e378f438a3974a15a471ff01fdc"
+  - name: self-8
+    query: "Implemented Project Cockpit Warp selected-block memory cycle: selected Workbench block is remembered"
+    expect_doc_ids:
+      - "atom:4bc823a8d09efa0541d175769934c51a03724c48f6a422c3a5cfd8dfb70eeed9"
+  - name: self-9
+    query: "Warp fork block:  warp fork real sounio block memory proof"
+    expect_doc_ids:
+      - "atom:603985f90990e33c6f12823c20ec0f00e000c3c58fed6b0efadf1bb9195052f8"
+  - name: self-10
+    query: "Run the Sounio Workday MVP as daily driver; remaining setup is provider/CLI"
+    expect_doc_ids:
+      - "atom:025b774b4771f0fa942c74bc4bc52b408e69994552666bc62cc75f6eafd056f0"
