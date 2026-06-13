@@ -79,7 +79,12 @@ pub async fn smt_check(base_url: &str, constraints: Vec<LiaConstraint>) -> Verdi
         }
     };
     let url = format!("{}/v1/smt/check", base_url.trim_end_matches('/'));
-    let resp = match client.post(&url).json(&SmtCheckRequest { constraints }).send().await {
+    let resp = match client
+        .post(&url)
+        .json(&SmtCheckRequest { constraints })
+        .send()
+        .await
+    {
         Ok(r) => r,
         Err(e) => {
             warn!(error = %e, %url, "smt_check: request failed; treating as Unknown");
@@ -122,7 +127,11 @@ mod tests {
         // Honest fallback: a dead endpoint must yield Unknown, never a fabricated verdict.
         let v = smt_check(
             "http://127.0.0.1:1", // unbound port → connection refused
-            vec![LiaConstraint { coeffs: vec![1], bound: 3, label: None }],
+            vec![LiaConstraint {
+                coeffs: vec![1],
+                bound: 3,
+                label: None,
+            }],
         )
         .await;
         assert_eq!(v, Verdict::Unknown);
@@ -130,6 +139,9 @@ mod tests {
 
     #[tokio::test]
     async fn empty_constraints_is_unknown() {
-        assert_eq!(smt_check("http://127.0.0.1:1", vec![]).await, Verdict::Unknown);
+        assert_eq!(
+            smt_check("http://127.0.0.1:1", vec![]).await,
+            Verdict::Unknown
+        );
     }
 }
