@@ -4217,6 +4217,7 @@ async fn memory_engine_recall(query: &str, scope: &str, k: usize) -> Vec<RecallS
 
 async fn recall_answer_handler(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<GraphRagQueryRequest>,
 ) -> Result<Json<RecallAnswerResponse>, StatusCode> {
     let repo = ExocortexRepository::default();
@@ -4326,8 +4327,16 @@ async fn recall_answer_handler(
         // Recall synthesis is SUMMARIZATION, never math/PhD reasoning. Deriving the meta from the
         // prompt (from_prompt) made GPU/u64/"equation" passages trip requires_math → the slow
         // DeepSeek/heavy tier (6-30s). Use a neutral meta so it routes to the fast local fleet.
+        // Populate identity from X-Beagle-Consumer so the per-identity rate limiter (gated by
+        // BEAGLE_LLM_RATE_CAPACITY) can key on the caller. Absent header → None → no change.
+        let consumer_identity = headers
+            .get("X-Beagle-Consumer")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
         let meta = RequestMeta {
             approximate_tokens: prompt.len() / 4,
+            identity: consumer_identity,
             ..Default::default()
         };
         let stats = bctx.llm_stats.get_or_create("recall_answer");

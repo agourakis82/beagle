@@ -141,6 +141,16 @@ impl BeagleStoreInventory {
 
     /// Emit one structured line per store at startup so advertising matches execution.
     /// An experimental store that is unexpectedly *configured* is logged at WARN.
+    ///
+    /// Also emits a WARN for the known pgvector dimension mismatch: the schema declares
+    /// `nodes.embedding VECTOR(1536)` (migration 001_initial_schema.sql) but every live
+    /// Qdrant index and the memory-engine's LanceDB corpus use **1024-dim** embeddings
+    /// (bge-m3 / jina-colbert-v2).  As a result the pgvector column cannot directly seed a
+    /// Qdrant rebuild without re-embedding — the DR runbook in ADR 0001 §4.3 is currently
+    /// broken/theater for that reason.  This warning makes the gap visible at every startup
+    /// so it is not silently ignored.  **No behavior is changed here** — fixing the
+    /// mismatch (schema alter + re-embed or backfill) is an eval-gated deferred step; see
+    /// ADR 0001 §DEFERRED.
     pub fn log(&self) {
         info!("BeagleStoreInventory (ADR 0001) — resolved store roles:");
         for s in &self.stores {
@@ -165,6 +175,19 @@ impl BeagleStoreInventory {
                 );
             }
         }
+        // DIM-MISMATCH HONESTY WARN — must fire every startup until the schema is fixed.
+        // Schema: nodes.embedding VECTOR(1536)  (migration 001_initial_schema.sql line 22)
+        // Live indexes: Qdrant cockpit_rag 1024-dim, beagle_exocortex 1024-dim,
+        //               LanceDB semantic_memory_v1 1024-dim (jina-colbert-v2).
+        // Consequence: pgvector column CANNOT seed a Qdrant rebuild as-is (ADR 0001 §4.3
+        // rebuild script hard-codes dim=1536, which mismatches the live collection dim).
+        // Fix is eval-gated and deferred — see ADR 0001 §DEFERRED.
+        warn!(
+            "pgvector dim mismatch: nodes.embedding is VECTOR(1536) \
+             but all live indexes are 1024-dim (bge-m3/jina-colbert-v2). \
+             The §4.3 rebuild-from-postgres procedure is BROKEN until this is resolved. \
+             See ADR 0001 §DEFERRED for the gated migration steps."
+        );
     }
 
     /// The single system-of-record store status (there must be exactly one).

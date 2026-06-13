@@ -46,6 +46,17 @@ The runtime honesty primitive for this (plan #12, Stage 0) is now implemented:
 `beagle-core/src/store_inventory.rs` (`BeagleStoreInventory`) resolves and logs each store's role
 at every `core_server` startup — see acceptance criterion §7 (first box).
 
+**Known broken item — pgvector dimension mismatch (added 2026-06-13):**
+`crates/beagle-db/migrations/001_initial_schema.sql` declares `nodes.embedding VECTOR(1536)` and
+the DR rebuild script (§4.3) creates the Qdrant collection with `"size":1536`. However, every live
+index is **1024-dim**: Qdrant `cockpit_rag` (24 373 points, bge-m3), `beagle_exocortex` (745
+points), and LanceDB `semantic_memory_v1` (7 026 rows, jina-colbert-v2). The mismatch means:
+(a) any embedding written to `nodes.embedding` by a 1024-dim model is stored with incorrect
+declared dimensionality, (b) the §4.3 rebuild script would create a 1536-dim Qdrant collection
+that is incompatible with the live 1024-dim corpus — making the "cold backup seed" claim theater.
+`BeagleStoreInventory::log()` now emits a startup WARN for this gap. The fix is eval-gated and
+listed in §DEFERRED below.
+
 ---
 
 ## 1. Context
@@ -446,6 +457,41 @@ This ADR is complete when:
 - [ ] `scripts/rebuild-qdrant-from-postgres.sh` runs clean on a test namespace.
 - [ ] The P1 eval gate baseline is recorded in `data/eval/baseline.json`.
 - [ ] Stage 3 rollout completes with eval gate nDCG@10 within ±5% of baseline.
+
+---
+
+## DEFERRED — eval-gated steps NOT done in this ADR slice (2026-06-13)
+
+The following items are explicitly deferred. None were executed here. Each requires the P1 eval
+gate (nDCG@10 baseline in `data/eval/baseline.json`) to prove parity before proceeding.
+
+1. **pgvector column dim fix (1536 → 1024)**: Alter `nodes.embedding` from `VECTOR(1536)` to
+   `VECTOR(1024)` (a schema migration in `beagle-db/migrations/`). Deferred because altering a
+   vector column in a live table requires a full table rewrite; needs a maintenance window and
+   confirmed zero-downtime path, and the column is currently unqueried (the hot path uses Qdrant).
+
+2. **Embedding backfill / re-embed for existing `nodes` rows**: Any row with a non-NULL embedding
+   in `nodes.embedding` may carry a 1536-dim vector from a pre-bge-m3 model. Before the column
+   becomes a usable rebuild seed, all existing embeddings must be regenerated via the current
+   1024-dim TEI model. Deferred because it requires a batch job against the live Postgres pod,
+   can be CPU/memory intensive, and must run only after the schema dim is corrected (item 1).
+
+3. **§4.3 DR rebuild script correction**: The rebuild script in §4.3 hard-codes `"size":1536`.
+   It must be updated to `"size":1024` (matching the live `bge-m3` model) and the
+   `pg_to_qdrant_upsert.py` helper must validate that every vector it reads is exactly 1024-dim
+   before upsert. Deferred until items 1 and 2 are complete (otherwise the script reads bad data).
+
+4. **Dual-read window (Stage 1)**: Shadow-reading from `nodes.embedding` pgvector alongside Qdrant
+   to compare recall. Deferred until the column contains valid 1024-dim embeddings (items 1–2).
+
+5. **`beagle_exocortex` backfill-or-fold decision**: The Qdrant `beagle_exocortex` collection
+   (745 points, 0 indexed, below HNSW threshold) must either be backfilled to a useful size or
+   folded into the `semantic_memory_v1` LanceDB corpus managed by `beagle-memory-engine`. Deferred
+   pending the eval gate baseline — cannot make a consolidation choice without measured parity.
+
+6. **Graph store bakeoff (Stage 4)**: Apache AGE vs. Kuzu vs. current Postgres BFS for multi-hop
+   traversal. Deferred until a real query pattern justifies the operational cost of an additional
+   graph engine. No pod, no measured need, no action taken.
 
 ---
 
