@@ -31,6 +31,9 @@ const BEAGLE_INTERNAL_URL =
 const OPENROUTER_BASE_URL =
   process.env.PROJECT_COCKPIT_OPENROUTER_BASE_URL ||
   "https://openrouter.ai/api/v1";
+const LLM_ROUTER_URL =
+  process.env.PROJECT_COCKPIT_LLM_ROUTER_URL ||
+  "http://router.llm-router.svc.cluster.local:4000/v1";
 const SUBSCRIPTION_BRIDGE_URL = cleanValue(
   process.env.PROJECT_COCKPIT_SUBSCRIPTION_BRIDGE_URL ||
   process.env.BEAGLE_SUBSCRIPTION_BRIDGE_URL
@@ -843,10 +846,10 @@ export async function proxyCheapProviderCompletion({
   }
 
   if (providerId === "kimi") {
-    return proxyOpenRouterCompletion({
+    return proxyRouterCompletion({
       prompt,
       system,
-      model: "moonshotai/kimi-k2.6",
+      model: "kimi-k2.7",
       appliedDiscussionProfile: "kimi"
     });
   }
@@ -1056,6 +1059,113 @@ export async function proxySubscriptionBridgeCompletion({
         truthMode: "stale",
         source: "subscription-bridge",
         bridge_url: SUBSCRIPTION_BRIDGE_URL
+      }
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Mobile cheap-bridge Kimi → LiteLLM router (kimi-k2.7 via coding-plan proxy).
+// Replaces the old OpenRouter path (billing-broken: 402 no credits). The router
+// is OpenAI-compatible + noauth and already falls back to deepseek if Kimi fails.
+export async function proxyRouterCompletion({
+  prompt,
+  system = "",
+  model = "kimi-k2.7",
+  appliedDiscussionProfile = "kimi"
+}) {
+  const promptText = cleanString(prompt);
+  const systemText = cleanString(system);
+  if (!promptText) {
+    return {
+      status: 400,
+      payload: {
+        error: "prompt is required",
+        truthMode: "declared",
+        source: "cluster"
+      }
+    };
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120000);
+  try {
+    const res = await fetch(`${LLM_ROUTER_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        max_tokens: 512,
+        messages: [
+          ...(systemText ? [{ role: "system", content: systemText }] : []),
+          { role: "user", content: promptText }
+        ]
+      }),
+      signal: ctrl.signal
+    });
+    const payload = parseJsonResponse(await res.text());
+    const responseText = extractOpenRouterText(payload);
+    const errorText =
+      cleanString(payload?.error?.message) ||
+      cleanString(payload?.error) ||
+      cleanString(payload?.message);
+    const usage = payload?.usage
+      ? {
+          input_tokens: Number(payload.usage.prompt_tokens) || 0,
+          output_tokens: Number(payload.usage.completion_tokens) || 0,
+          total_tokens: Number(payload.usage.total_tokens) || 0
+        }
+      : null;
+    if (res.ok && responseText) {
+      return {
+        status: 200,
+        payload: {
+          text: responseText,
+          response: responseText,
+          provider: cleanObjectString(payload?.model, model),
+          tier: "kimi",
+          source: "cluster",
+          usage,
+          truthMode: "observed",
+          beagle_url: `${LLM_ROUTER_URL}/chat/completions`,
+          error: "",
+          applied_discussion_profile: appliedDiscussionProfile
+        }
+      };
+    }
+    return {
+      status: res.status || 503,
+      payload: {
+        text: "",
+        response: "",
+        provider: cleanObjectString(payload?.model, model),
+        tier: "kimi",
+        source: "cluster",
+        usage,
+        truthMode: "stale",
+        beagle_url: `${LLM_ROUTER_URL}/chat/completions`,
+        error: errorText || `router returned ${res.status}`,
+        applied_discussion_profile: appliedDiscussionProfile
+      }
+    };
+  } catch (err) {
+    return {
+      status: 503,
+      payload: {
+        text: "",
+        response: "",
+        provider: model,
+        tier: "kimi",
+        source: "cluster",
+        usage: null,
+        truthMode: "stale",
+        beagle_url: `${LLM_ROUTER_URL}/chat/completions`,
+        error: cleanString(err?.message) || "router completion failed",
+        applied_discussion_profile: appliedDiscussionProfile
       }
     };
   } finally {
