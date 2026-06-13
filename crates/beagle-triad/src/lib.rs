@@ -13,10 +13,15 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tracing::{info, warn};
 
-/// O contexto simbólico (PCS) só é injetado nos prompts quando explicitamente habilitado.
-/// O PCS/Julia real ainda NÃO está conectado — o resumo é heurístico (palavra-chave), então
-/// fica OFF por padrão (e, quando ligado, é sempre marcado como não-verificado-por-solver).
-/// Disciplina truth_mode: nunca alimentar a seção crítica como se fosse sinal simbólico real.
+/// O contexto simbólico (PCS) só é injetado nos prompts quando explicitamente habilitado
+/// (`BEAGLE_SYMBOLIC_CONTEXT_ENABLE=1`), e fica OFF por padrão.
+///
+/// Quando habilitado, `generate_symbolic_summary` tenta o **solver real** (Julia
+/// `beagle-julia/pcs_symbolic_psychiatry.jl`, ODE ModelingToolkit/Tsit5). Se o Julia não
+/// estiver disponível (binário ausente, deps faltando, timeout, erro), faz fallback para um
+/// resumo HEURÍSTICO de palavra-chave. O bloco SEMPRE se auto-rotula com o status real
+/// (VERIFICADO POR SOLVER vs HEURÍSTICO). Disciplina truth_mode: o prompt crítico nunca
+/// recebe sinal heurístico disfarçado de simbólico verificado por solver.
 fn symbolic_context_enabled() -> bool {
     std::env::var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE")
         .ok()
@@ -24,19 +29,196 @@ fn symbolic_context_enabled() -> bool {
         .unwrap_or(false)
 }
 
-/// Gera resumo simbólico do draft usando PCS (Symbolic Computational Psychiatry)
-/// Extrai conceitos-chave, relações lógicas e estrutura semântica
-pub async fn generate_symbolic_summary(draft: &str, ctx: &BeagleContext) -> anyhow::Result<String> {
+/// Resolve o diretório que contém `beagle-julia/` (cwd do subprocesso Julia).
+/// `BEAGLE_JULIA_DIR` força explicitamente; senão usa o cwd se o módulo PCS existir lá.
+/// Retorna `None` quando o projeto Julia não está presente (⇒ fallback heurístico).
+fn julia_root_dir() -> Option<PathBuf> {
+    const PCS: &str = "beagle-julia/pcs_symbolic_psychiatry.jl";
+    if let Ok(dir) = std::env::var("BEAGLE_JULIA_DIR") {
+        let p = PathBuf::from(dir);
+        if p.join(PCS).exists() {
+            return Some(p);
+        }
+    }
+    let cwd = std::env::current_dir().ok()?;
+    if cwd.join(PCS).exists() {
+        return Some(cwd);
+    }
+    None
+}
+
+/// Sinais sintomáticos em [0,1] extraídos do draft por proxy de palavra-chave.
+/// São a ENTRADA (aproximada) do solver — quem é verificado por solver é o RACIOCÍNIO
+/// (a evolução temporal da ODE), não estes sinais de entrada.
+fn extract_symptom_signals(text: &str) -> std::collections::BTreeMap<String, f64> {
+    let t = text.to_lowercase();
+    let terms: [(&str, &[&str]); 4] = [
+        (
+            "depression",
+            &[
+                "depress",
+                "anhedon",
+                "humor deprimido",
+                "desânimo",
+                "melancol",
+            ],
+        ),
+        (
+            "anxiety",
+            &["ansied", "anxiety", "pânico", "panic", "preocupaç", "worry"],
+        ),
+        (
+            "stress",
+            &[
+                "estresse", "stress", "cortisol", "burnout", "alostá", "allosta",
+            ],
+        ),
+        (
+            "sleep",
+            &[
+                "insôn",
+                "insomn",
+                "privação de sono",
+                "sleep deprivation",
+                "vigília",
+            ],
+        ),
+    ];
+    let mut out = std::collections::BTreeMap::new();
+    for (sym, kws) in terms.iter() {
+        let hits = kws.iter().filter(|kw| t.contains(**kw)).count();
+        // `sleep` é qualidade do sono: default alto (0.7), e CAI quando insônia é citada.
+        let v = if *sym == "sleep" {
+            (0.7 - 0.15 * hits as f64).max(0.1)
+        } else if hits == 0 {
+            0.5 // neutro
+        } else {
+            (0.5 + 0.15 * hits as f64).min(1.0)
+        };
+        out.insert((*sym).to_string(), v);
+    }
+    out
+}
+
+/// Chama o solver simbólico REAL em Julia (`reason_symbolically`, ODE ModelingToolkit/Tsit5).
+/// Subprocesso com timeout de 45s; qualquer falha vira `Err` (o chamador faz fallback heurístico).
+/// Os valores injetados no script Julia são f64 controlados por nós (não há input não-confiável).
+async fn pcs_reason_symbolically(
+    symptoms: &std::collections::BTreeMap<String, f64>,
+    root: &std::path::Path,
+) -> anyhow::Result<serde_json::Value> {
+    use anyhow::Context;
+    use tokio::process::Command;
+
+    let dict_entries: Vec<String> = symptoms
+        .iter()
+        .map(|(k, v)| format!("\"{}\" => {:.4}", k, v))
+        .collect();
+    let script = format!(
+        r#"
+        using Pkg
+        Pkg.activate("beagle-julia"; io=devnull)
+        include("beagle-julia/pcs_symbolic_psychiatry.jl")
+        using .PCSSymbolicPsychiatry
+        using JSON3
+        symptoms = Dict{{String,Float64}}({})
+        model = SymbolicPsychiatryModel()
+        result = reason_symbolically(model, symptoms)
+        println(JSON3.write(result))
+        "#,
+        dict_entries.join(", ")
+    );
+
+    let fut = Command::new("julia")
+        .arg("--project=beagle-julia")
+        .arg("-e")
+        .arg(&script)
+        .current_dir(root)
+        .output();
+
+    let output = tokio::time::timeout(std::time::Duration::from_secs(45), fut)
+        .await
+        .map_err(|_| anyhow::anyhow!("solver Julia excedeu o timeout de 45s"))?
+        .context("falha ao executar `julia` (binário ausente?)")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "solver Julia retornou {}: {}",
+            output.status,
+            stderr.lines().last().unwrap_or("(sem stderr)")
+        );
+    }
+    // A última linha iniciada por `{` é o JSON do resultado (Julia loga @info no stderr).
+    let stdout = String::from_utf8(output.stdout)?;
+    let json_line = stdout
+        .lines()
+        .rev()
+        .find(|l| l.trim_start().starts_with('{'))
+        .context("nenhuma linha JSON no stdout do solver")?;
+    Ok(serde_json::from_str(json_line.trim())?)
+}
+
+/// Gera resumo simbólico do draft via PCS (Symbolic Computational Psychiatry).
+///
+/// Tenta o solver REAL (Julia `pcs_symbolic_psychiatry.jl`) quando o projeto está presente;
+/// caso contrário (ou em qualquer falha) faz fallback para heurística de palavra-chave. O bloco
+/// retornado se auto-rotula com o status real (VERIFICADO POR SOLVER vs HEURÍSTICO).
+pub async fn generate_symbolic_summary(
+    draft: &str,
+    _ctx: &BeagleContext,
+) -> anyhow::Result<String> {
     info!("Gerando resumo simbólico do draft");
 
-    // Por enquanto, usa heurísticas simples para extrair conceitos
-    // TODO: Integrar com PCS real via Julia quando disponível
     let concepts = extract_key_concepts(draft);
     let logical_structure = analyze_logical_structure(draft);
 
+    // Caminho REAL: solver simbólico em Julia, quando o projeto beagle-julia existe.
+    if let Some(root) = julia_root_dir() {
+        let symptoms = extract_symptom_signals(draft);
+        match pcs_reason_symbolically(&symptoms, &root).await {
+            Ok(res) => {
+                let g = |k: &str| res.get(k).and_then(|v| v.as_f64());
+                let fmt_state = |k: &str| {
+                    g(k).map(|v| format!("{}={:.3}", k, v))
+                        .unwrap_or_else(|| format!("{}=?", k))
+                };
+                let signals_in: Vec<String> = symptoms
+                    .iter()
+                    .map(|(k, v)| format!("{}={:.2}", k, v))
+                    .collect();
+                let severity = g("severity_score")
+                    .map(|s| format!("{:.3}", s))
+                    .unwrap_or_else(|| "?".into());
+                info!(severity = %severity, "PCS solver Julia OK");
+                return Ok(format!(
+                    "## Resumo Simbólico — VERIFICADO POR SOLVER (PCS/Julia)\n\n\
+                    > Raciocínio resolvido via ODESystem ModelingToolkit (Tsit5) em \
+                    `pcs_symbolic_psychiatry.jl`. Os sinais de ENTRADA são proxy de palavra-chave \
+                    (aproximados); a EVOLUÇÃO temporal e a severidade abaixo são verificadas por solver.\n\n\
+                    **Sinais de entrada (proxy)**: {}\n\n\
+                    **Estado simbólico final (t=10)**: {}, {}, {}, {}\n\n\
+                    **Severity score (solver)**: {}\n\n\
+                    **Conceitos-chave (heurístico)**: {}",
+                    signals_in.join(", "),
+                    fmt_state("depression"),
+                    fmt_state("anxiety"),
+                    fmt_state("stress"),
+                    fmt_state("sleep"),
+                    severity,
+                    concepts.join(", "),
+                ));
+            }
+            Err(e) => {
+                warn!(error = %e, "PCS solver Julia indisponível; fallback heurístico");
+            }
+        }
+    }
+
+    // Fallback HEURÍSTICO (auto-rotulado).
     let summary = format!(
         "## Resumo Simbólico — HEURÍSTICO (NÃO verificado por solver)\n\n\
-        > ⚠️ Gerado por heurísticas de palavra-chave, NÃO pelo PCS/Julia (ainda não conectado). \
+        > ⚠️ Gerado por heurísticas de palavra-chave, NÃO pelo PCS/Julia (indisponível neste ambiente). \
         Trate como dica fraca/aproximada — não como sinal simbólico verificado por solver.\n\n\
         **Conceitos-chave**: {}\n\n\
         **Estrutura lógica**: {}",
@@ -792,10 +974,11 @@ pub async fn run_athena(
         prompt.push_str("\n\n");
     }
 
-    // Contexto simbólico (PCS) — heurístico e GATED (OFF por padrão; ver symbolic_context_enabled).
+    // Contexto simbólico (PCS) — GATED (OFF por padrão; ver symbolic_context_enabled).
+    // O bloco se auto-rotula com o status real (VERIFICADO POR SOLVER vs HEURÍSTICO).
     if symbolic_context_enabled() {
         if let Ok(symbolic_summary) = generate_symbolic_summary(draft, ctx).await {
-            prompt.push_str("=== CONTEXTO SIMBÓLICO (heurístico, NÃO verificado por solver) ===\n");
+            prompt.push_str("=== CONTEXTO SIMBÓLICO (PCS) ===\n");
             prompt.push_str(&symbolic_summary);
             prompt.push_str("\n\n");
         }
@@ -1001,15 +1184,12 @@ pub async fn arbitrate_final(
     ctx: &BeagleContext,
     run_id: &str,
 ) -> anyhow::Result<(String, ProviderTier)> {
-    // Contexto simbólico (PCS) — HEURÍSTICO e GATED. O PCS/Julia real não está conectado, então
-    // só injeta com BEAGLE_SYMBOLIC_CONTEXT_ENABLE=1 e sempre marcado como não-verificado-por-solver
-    // (antes era injetado SEMPRE como "Resumo Simbólico (PCS)" — sinal falso no prompt do Juiz).
+    // Contexto simbólico (PCS) — GATED (OFF por padrão). Quando ligado, tenta o solver Julia real
+    // e cai para heurística se indisponível; o bloco se auto-rotula com o status real. Só injeta com
+    // BEAGLE_SYMBOLIC_CONTEXT_ENABLE=1 (antes era injetado SEMPRE como sinal simbólico — falso no Juiz).
     let symbolic_block = if symbolic_context_enabled() {
         match generate_symbolic_summary(original_draft, ctx).await {
-            Ok(s) => format!(
-                "**Resumo Simbólico (heurístico, NÃO verificado por solver)**:\n{}\n\n",
-                s
-            ),
+            Ok(s) => format!("**Contexto Simbólico (PCS)**:\n{}\n\n", s),
             Err(e) => {
                 warn!("Falha ao gerar resumo simbólico: {}", e);
                 String::new()
@@ -1087,6 +1267,43 @@ mod tests {
             score: 0.83,
             provider_tier: "grok-3".into(),
         }
+    }
+
+    #[test]
+    fn symptom_signals_are_bounded_and_responsive() {
+        // Texto neutro → tudo no baseline (sleep alto, demais 0.5).
+        let neutral = extract_symptom_signals("compilador e geometria da informação");
+        assert_eq!(neutral.get("depression").copied(), Some(0.5));
+        assert_eq!(neutral.get("sleep").copied(), Some(0.7));
+
+        // Termos clínicos elevam os sinais; insônia REBAIXA o sono.
+        let clinical =
+            extract_symptom_signals("paciente com depressão, ansiedade, estresse e insônia");
+        assert!(clinical["depression"] > 0.5);
+        assert!(clinical["anxiety"] > 0.5);
+        assert!(clinical["stress"] > 0.5);
+        assert!(clinical["sleep"] < 0.7);
+        // Sempre dentro de [0,1].
+        for v in clinical.values() {
+            assert!((0.0..=1.0).contains(v), "sinal fora de [0,1]: {v}");
+        }
+    }
+
+    #[tokio::test]
+    async fn symbolic_summary_falls_back_honestly_without_julia() {
+        // Sem o projeto Julia acessível, o resumo DEVE se rotular como heurístico —
+        // nunca como verificado por solver (disciplina truth_mode).
+        std::env::set_var("BEAGLE_JULIA_DIR", "/nonexistent-julia-root-xyz");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let out = generate_symbolic_summary("texto sobre entropia e PBPK", &ctx)
+            .await
+            .expect("summary should always succeed (fallback)");
+        std::env::remove_var("BEAGLE_JULIA_DIR");
+        assert!(
+            out.contains("HEURÍSTICO (NÃO verificado por solver)"),
+            "fallback deve se auto-rotular heurístico, got: {out}"
+        );
+        assert!(!out.contains("VERIFICADO POR SOLVER"));
     }
 
     #[test]
