@@ -16,10 +16,16 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 QDRANT_URL="${QDRANT_URL:-http://localhost:6333}"
-EMBEDDING_URL="${EMBEDDING_URL:-http://localhost:8001/v1}"
+# IMPORTANT: the embedder MUST be the SAME model that indexed the eval collection
+# (beagle_exocortex = BAAI/bge-m3, 1024-dim) or query vectors land in the wrong
+# semantic space and the baseline is meaningless. Default points at the LiteLLM
+# router (bge-m3, OpenAI-compat) — NOT embedding-service:8001 (that's bge-large-en).
+# In-cluster: kubectl -n llm-router port-forward svc/router 4000:4000.
+EMBEDDING_URL="${EMBEDDING_URL:-http://localhost:4000/v1}"
+EMBEDDING_MODEL="${EMBEDDING_MODEL:-bge-m3}"
 EVAL_FILE="${DARWIN_EVAL_FILE:-scripts/darwin-eval.yaml}"
 
-echo "[gate_rag_eval] qdrant=$QDRANT_URL embed=$EMBEDDING_URL eval=$EVAL_FILE"
+echo "[gate_rag_eval] qdrant=$QDRANT_URL embed=$EMBEDDING_URL model=$EMBEDDING_MODEL eval=$EVAL_FILE"
 
 # Reachability probe — skip gracefully if the retrieval stack isn't up (e.g. CI without infra).
 if ! curl -fsS --max-time 5 "$QDRANT_URL/readyz" >/dev/null 2>&1 \
@@ -32,5 +38,6 @@ fi
 exec cargo run --quiet -p beagle-rag-update --bin darwin-eval -- \
   --qdrant-url "$QDRANT_URL" \
   --embedding-url "$EMBEDDING_URL" \
+  --embedding-model "$EMBEDDING_MODEL" \
   --eval-file "$EVAL_FILE" \
   "$@"
