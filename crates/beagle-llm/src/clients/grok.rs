@@ -21,6 +21,14 @@ use tracing::{debug, error, info, warn};
 pub struct GrokClient {
     client: Client,
     api_key: String,
+    /// Chat-completions endpoint. Defaults to XAI; overridable via `XAI_BASE_URL` so the
+    /// same OpenAI-compatible client path can target an in-cluster LiteLLM/vLLM router.
+    base_url: String,
+    /// Model name for the default (non-heavy) tier; override via `BEAGLE_GROK_MODEL`
+    /// (e.g. `glm-5.1` when pointing at the fleet router).
+    model: String,
+    /// Model name for the heavy/escalation tier; override via `BEAGLE_GROK_HEAVY_MODEL`.
+    heavy_model: String,
     max_retries: u32,
     initial_backoff_ms: u64,
 }
@@ -81,30 +89,79 @@ impl GrokClient {
             .and_then(|v| v.parse().ok())
             .unwrap_or(1000);
 
+        let base_url = Self::validated_base_url();
+        let model =
+            env::var("BEAGLE_GROK_MODEL").unwrap_or_else(|_| "grok-4-1-fast-reasoning".to_string());
+        let heavy_model =
+            env::var("BEAGLE_GROK_HEAVY_MODEL").unwrap_or_else(|_| "grok-4-heavy".to_string());
+
         Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(300)) // 5 min timeout
                 .build()
                 .unwrap_or_else(|_| Client::new()),
             api_key,
+            base_url,
+            model,
+            heavy_model,
             max_retries,
             initial_backoff_ms,
         }
     }
 
+    /// Resolve the chat endpoint from `XAI_BASE_URL`, validated so an override can never
+    /// leak the `Authorization: Bearer <key>` to an arbitrary external host: `https` is always
+    /// allowed; plain `http` only when the host is loopback / RFC1918 / cluster-internal
+    /// (`*.svc`, `*.cluster.local`, `*.local`, `*.internal`). Anything else (or an unparseable
+    /// value) logs an error and falls back to the hardcoded XAI default.
+    fn validated_base_url() -> String {
+        const DEFAULT: &str = "https://api.x.ai/v1/chat/completions";
+        let Ok(raw) = env::var("XAI_BASE_URL") else {
+            return DEFAULT.to_string();
+        };
+        match reqwest::Url::parse(&raw) {
+            Ok(u) => {
+                let host = u.host_str().unwrap_or("");
+                let private_ip = host
+                    .parse::<std::net::Ipv4Addr>()
+                    .map(|ip| ip.is_private() || ip.is_loopback())
+                    .unwrap_or(false);
+                let private_name = host == "localhost"
+                    || host.ends_with(".svc")
+                    || host.ends_with(".cluster.local")
+                    || host.ends_with(".local")
+                    || host.ends_with(".internal");
+                let is_private = private_ip || private_name;
+                if u.scheme() == "https" || (u.scheme() == "http" && is_private) {
+                    raw
+                } else {
+                    error!(
+                        "XAI_BASE_URL rejeitado (scheme={} host={} expõe o Bearer a host externo/cleartext); usando default XAI",
+                        u.scheme(),
+                        host
+                    );
+                    DEFAULT.to_string()
+                }
+            }
+            Err(e) => {
+                error!("XAI_BASE_URL inválido ({e}); usando default XAI");
+                DEFAULT.to_string()
+            }
+        }
+    }
+
     /// Escolhe modelo baseado em request e flags
     fn choose_model(&self, req: &LlmRequest, force_heavy: bool) -> String {
-        // Se o modelo já contém "heavy" ou "4-heavy", usa Heavy
+        // Modelo já pede Heavy explicitamente.
         if req.model.contains("heavy") || req.model.contains("4-heavy") {
-            return "grok-4-heavy".to_string();
+            return self.heavy_model.clone();
         }
-
-        // Se force_heavy ou max_tokens muito alto, usa Heavy
+        // force_heavy ou max_tokens muito alto → Heavy; senão o modelo default.
+        // Ambos configuráveis por env (BEAGLE_GROK_HEAVY_MODEL / BEAGLE_GROK_MODEL).
         if force_heavy || req.max_tokens.unwrap_or(0) > 16000 {
-            "grok-4-heavy".to_string()
+            self.heavy_model.clone()
         } else {
-            // grok-4-1-fast-reasoning: reasoning-capable, ~3s latency, much better than grok-3
-            "grok-4-1-fast-reasoning".to_string()
+            self.model.clone()
         }
     }
 
@@ -222,7 +279,7 @@ impl GrokClient {
     ) -> anyhow::Result<(String, Option<TokenUsage>)> {
         let response = self
             .client
-            .post("https://api.x.ai/v1/chat/completions")
+            .post(&self.base_url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(request_body)
