@@ -18,10 +18,16 @@ use tracing::{info, warn};
 /// consistent. See the module docs for the truth-mode boundary.
 pub mod inference_client;
 
-/// O contexto simbólico (PCS) só é injetado nos prompts quando explicitamente habilitado.
-/// O PCS/Julia real ainda NÃO está conectado — o resumo é heurístico (palavra-chave), então
-/// fica OFF por padrão (e, quando ligado, é sempre marcado como não-verificado-por-solver).
-/// Disciplina truth_mode: nunca alimentar a seção crítica como se fosse sinal simbólico real.
+/// O contexto simbólico (PCS) só é injetado nos prompts quando explicitamente habilitado
+/// (`BEAGLE_SYMBOLIC_CONTEXT_ENABLE=1`), e fica OFF por padrão.
+///
+/// Quando habilitado, `generate_symbolic_summary` chama o **solver real em Sounio** — o
+/// verbo `pcs.reason` do Sounio Inference Service (ODE de sintomas integrada por RK4 em
+/// Sounio puro; portado do antigo `reason_symbolically` em Julia). Se o serviço estiver
+/// indisponível (inalcançável, timeout, erro), faz fallback para um resumo HEURÍSTICO de
+/// palavra-chave. O bloco SEMPRE se auto-rotula com o status real (VERIFICADO POR SOLVER vs
+/// HEURÍSTICO). Disciplina truth_mode: o prompt crítico nunca recebe sinal heurístico
+/// disfarçado de simbólico verificado por solver.
 fn symbolic_context_enabled() -> bool {
     std::env::var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE")
         .ok()
@@ -29,19 +35,152 @@ fn symbolic_context_enabled() -> bool {
         .unwrap_or(false)
 }
 
-/// Gera resumo simbólico do draft usando PCS (Symbolic Computational Psychiatry)
-/// Extrai conceitos-chave, relações lógicas e estrutura semântica
-pub async fn generate_symbolic_summary(draft: &str, ctx: &BeagleContext) -> anyhow::Result<String> {
+/// Sinais sintomáticos em [0,1] extraídos do draft por proxy de palavra-chave.
+/// São a ENTRADA (aproximada) do solver — quem é verificado por solver é o RACIOCÍNIO
+/// (a evolução temporal da ODE), não estes sinais de entrada.
+fn extract_symptom_signals(text: &str) -> std::collections::BTreeMap<String, f64> {
+    let t = text.to_lowercase();
+    let terms: [(&str, &[&str]); 4] = [
+        (
+            "depression",
+            &[
+                "depress",
+                "anhedon",
+                "humor deprimido",
+                "desânimo",
+                "melancol",
+            ],
+        ),
+        (
+            "anxiety",
+            &["ansied", "anxiety", "pânico", "panic", "preocupaç", "worry"],
+        ),
+        (
+            "stress",
+            &[
+                "estresse", "stress", "cortisol", "burnout", "alostá", "allosta",
+            ],
+        ),
+        (
+            "sleep",
+            &[
+                "insôn",
+                "insomn",
+                "privação de sono",
+                "sleep deprivation",
+                "vigília",
+            ],
+        ),
+    ];
+    let mut out = std::collections::BTreeMap::new();
+    for (sym, kws) in terms.iter() {
+        let hits = kws.iter().filter(|kw| t.contains(**kw)).count();
+        // `sleep` é qualidade do sono: default alto (0.7), e CAI quando insônia é citada.
+        let v = if *sym == "sleep" {
+            (0.7 - 0.15 * hits as f64).max(0.1)
+        } else if hits == 0 {
+            0.5 // neutro
+        } else {
+            (0.5 + 0.15 * hits as f64).min(1.0)
+        };
+        out.insert((*sym).to_string(), v);
+    }
+    out
+}
+
+/// Chama o verbo `pcs.reason` do Sounio Inference Service (ODE de sintomas, RK4 em Sounio puro).
+/// HTTP POST com timeout de 90s; qualquer falha vira `Err` (o chamador faz fallback heurístico).
+/// `SOUNIO_INFERENCE_URL` aponta o serviço (default: Service in-cluster). Resposta:
+/// `{ final_state: {depression,anxiety,stress,sleep}, severity_score }`.
+async fn pcs_reason_sounio(
+    symptoms: &std::collections::BTreeMap<String, f64>,
+) -> anyhow::Result<serde_json::Value> {
+    let base = std::env::var("SOUNIO_INFERENCE_URL")
+        .unwrap_or_else(|_| "http://sounio-inference.beagle.svc.cluster.local:80".to_string());
+    let url = format!("{}/v1/pcs/reason", base.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "symptoms": {
+            "depression": symptoms.get("depression").copied().unwrap_or(0.5),
+            "anxiety": symptoms.get("anxiety").copied().unwrap_or(0.5),
+            "stress": symptoms.get("stress").copied().unwrap_or(0.5),
+            "sleep": symptoms.get("sleep").copied().unwrap_or(0.7),
+        }
+    });
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(90))
+        .build()?;
+    let resp = client.post(&url).json(&body).send().await?;
+    if !resp.status().is_success() {
+        anyhow::bail!("pcs.reason HTTP {}", resp.status());
+    }
+    Ok(resp.json::<serde_json::Value>().await?)
+}
+
+/// Gera resumo simbólico do draft via PCS (Symbolic Computational Psychiatry).
+///
+/// Quando o gate está ligado, chama o verbo `pcs.reason` do Sounio Inference Service (ODE de
+/// sintomas, RK4 em Sounio puro); em qualquer falha (ou gate OFF) faz fallback para heurística
+/// de palavra-chave. O bloco retornado se auto-rotula com o status real (VERIFICADO POR SOLVER
+/// vs HEURÍSTICO).
+pub async fn generate_symbolic_summary(
+    draft: &str,
+    _ctx: &BeagleContext,
+) -> anyhow::Result<String> {
     info!("Gerando resumo simbólico do draft");
 
-    // Por enquanto, usa heurísticas simples para extrair conceitos
-    // TODO: Integrar com PCS real via Julia quando disponível
     let concepts = extract_key_concepts(draft);
     let logical_structure = analyze_logical_structure(draft);
 
+    // Caminho REAL: solver simbólico em SOUNIO (verbo pcs.reason), via HTTP — gated.
+    if symbolic_context_enabled() {
+        let symptoms = extract_symptom_signals(draft);
+        match pcs_reason_sounio(&symptoms).await {
+            Ok(res) => {
+                let fs = res.get("final_state");
+                let g = |k: &str| fs.and_then(|o| o.get(k)).and_then(|v| v.as_f64());
+                let fmt_state = |k: &str| {
+                    g(k).map(|v| format!("{}={:.3}", k, v))
+                        .unwrap_or_else(|| format!("{}=?", k))
+                };
+                let signals_in: Vec<String> = symptoms
+                    .iter()
+                    .map(|(k, v)| format!("{}={:.2}", k, v))
+                    .collect();
+                let severity = res
+                    .get("severity_score")
+                    .and_then(|v| v.as_f64())
+                    .map(|s| format!("{:.3}", s))
+                    .unwrap_or_else(|| "?".into());
+                info!(severity = %severity, "PCS solver Sounio OK");
+                return Ok(format!(
+                    "## Resumo Simbólico — VERIFICADO POR SOLVER (PCS/Sounio)\n\n\
+                    > Raciocínio resolvido pelo verbo `pcs.reason` do Sounio Inference Service \
+                    (ODE de sintomas integrada por RK4 em Sounio puro; portado do antigo Julia). \
+                    Os sinais de ENTRADA são proxy de palavra-chave (aproximados); a EVOLUÇÃO \
+                    temporal e a severidade abaixo são verificadas por solver.\n\n\
+                    **Sinais de entrada (proxy)**: {}\n\n\
+                    **Estado simbólico final (t=10)**: {}, {}, {}, {}\n\n\
+                    **Severity score (solver)**: {}\n\n\
+                    **Conceitos-chave (heurístico)**: {}",
+                    signals_in.join(", "),
+                    fmt_state("depression"),
+                    fmt_state("anxiety"),
+                    fmt_state("stress"),
+                    fmt_state("sleep"),
+                    severity,
+                    concepts.join(", "),
+                ));
+            }
+            Err(e) => {
+                warn!(error = %e, "PCS solver Sounio indisponível; fallback heurístico");
+            }
+        }
+    }
+
+    // Fallback HEURÍSTICO (auto-rotulado).
     let summary = format!(
         "## Resumo Simbólico — HEURÍSTICO (NÃO verificado por solver)\n\n\
-        > ⚠️ Gerado por heurísticas de palavra-chave, NÃO pelo PCS/Julia (ainda não conectado). \
+        > ⚠️ Gerado por heurísticas de palavra-chave, NÃO pelo PCS/Sounio (indisponível neste ambiente). \
         Trate como dica fraca/aproximada — não como sinal simbólico verificado por solver.\n\n\
         **Conceitos-chave**: {}\n\n\
         **Estrutura lógica**: {}",
@@ -797,10 +936,11 @@ pub async fn run_athena(
         prompt.push_str("\n\n");
     }
 
-    // Contexto simbólico (PCS) — heurístico e GATED (OFF por padrão; ver symbolic_context_enabled).
+    // Contexto simbólico (PCS) — GATED (OFF por padrão; ver symbolic_context_enabled).
+    // O bloco se auto-rotula com o status real (VERIFICADO POR SOLVER vs HEURÍSTICO).
     if symbolic_context_enabled() {
         if let Ok(symbolic_summary) = generate_symbolic_summary(draft, ctx).await {
-            prompt.push_str("=== CONTEXTO SIMBÓLICO (heurístico, NÃO verificado por solver) ===\n");
+            prompt.push_str("=== CONTEXTO SIMBÓLICO (PCS) ===\n");
             prompt.push_str(&symbolic_summary);
             prompt.push_str("\n\n");
         }
@@ -1006,15 +1146,12 @@ pub async fn arbitrate_final(
     ctx: &BeagleContext,
     run_id: &str,
 ) -> anyhow::Result<(String, ProviderTier)> {
-    // Contexto simbólico (PCS) — HEURÍSTICO e GATED. O PCS/Julia real não está conectado, então
-    // só injeta com BEAGLE_SYMBOLIC_CONTEXT_ENABLE=1 e sempre marcado como não-verificado-por-solver
-    // (antes era injetado SEMPRE como "Resumo Simbólico (PCS)" — sinal falso no prompt do Juiz).
+    // Contexto simbólico (PCS) — GATED (OFF por padrão). Quando ligado, tenta o solver Julia real
+    // e cai para heurística se indisponível; o bloco se auto-rotula com o status real. Só injeta com
+    // BEAGLE_SYMBOLIC_CONTEXT_ENABLE=1 (antes era injetado SEMPRE como sinal simbólico — falso no Juiz).
     let symbolic_block = if symbolic_context_enabled() {
         match generate_symbolic_summary(original_draft, ctx).await {
-            Ok(s) => format!(
-                "**Resumo Simbólico (heurístico, NÃO verificado por solver)**:\n{}\n\n",
-                s
-            ),
+            Ok(s) => format!("**Contexto Simbólico (PCS)**:\n{}\n\n", s),
             Err(e) => {
                 warn!("Falha ao gerar resumo simbólico: {}", e);
                 String::new()
@@ -1092,6 +1229,64 @@ mod tests {
             score: 0.83,
             provider_tier: "grok-3".into(),
         }
+    }
+
+    #[test]
+    fn symptom_signals_are_bounded_and_responsive() {
+        // Texto neutro → tudo no baseline (sleep alto, demais 0.5).
+        let neutral = extract_symptom_signals("compilador e geometria da informação");
+        assert_eq!(neutral.get("depression").copied(), Some(0.5));
+        assert_eq!(neutral.get("sleep").copied(), Some(0.7));
+
+        // Termos clínicos elevam os sinais; insônia REBAIXA o sono.
+        let clinical =
+            extract_symptom_signals("paciente com depressão, ansiedade, estresse e insônia");
+        assert!(clinical["depression"] > 0.5);
+        assert!(clinical["anxiety"] > 0.5);
+        assert!(clinical["stress"] > 0.5);
+        assert!(clinical["sleep"] < 0.7);
+        // Sempre dentro de [0,1].
+        for v in clinical.values() {
+            assert!((0.0..=1.0).contains(v), "sinal fora de [0,1]: {v}");
+        }
+    }
+
+    // E2E contra o serviço vivo: `SOUNIO_INFERENCE_URL=http://127.0.0.1:<pf> \
+    // cargo test -p beagle-triad symbolic_summary_live -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn symbolic_summary_live_is_solver_verified() {
+        std::env::set_var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE", "true");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let out = generate_symbolic_summary("paciente com depressão, ansiedade e insônia", &ctx)
+            .await
+            .expect("summary");
+        std::env::remove_var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE");
+        eprintln!("{out}");
+        assert!(
+            out.contains("VERIFICADO POR SOLVER (PCS/Sounio)"),
+            "got: {out}"
+        );
+        assert!(out.contains("Severity score (solver)"));
+    }
+
+    #[tokio::test]
+    async fn symbolic_summary_falls_back_honestly_without_solver() {
+        // Gate LIGADO mas o Sounio Inference Service inalcançável: o resumo DEVE se
+        // rotular como heurístico — nunca como verificado por solver (truth_mode).
+        std::env::set_var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE", "true");
+        std::env::set_var("SOUNIO_INFERENCE_URL", "http://127.0.0.1:1"); // porta morta
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let out = generate_symbolic_summary("texto sobre entropia e PBPK", &ctx)
+            .await
+            .expect("summary should always succeed (fallback)");
+        std::env::remove_var("BEAGLE_SYMBOLIC_CONTEXT_ENABLE");
+        std::env::remove_var("SOUNIO_INFERENCE_URL");
+        assert!(
+            out.contains("HEURÍSTICO (NÃO verificado por solver)"),
+            "fallback deve se auto-rotular heurístico, got: {out}"
+        );
+        assert!(!out.contains("VERIFICADO POR SOLVER"));
     }
 
     #[test]
