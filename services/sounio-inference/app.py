@@ -331,6 +331,91 @@ def pcs_reason(req: PcsReasonReq):
     }
 
 
+# ───────────────────────── theorem.prove ─────────────────────────
+# Propositional natural-deduction proving via Sounio's theorem::search (auto_prove + verify).
+# SOUND by construction: only a real derivation (proof tree) counts as PROVED — auto_prove's
+# truth-table/`trusted` fallback (root proof tag 22) is rejected to UNKNOWN, since it was
+# observed to over-accept (e.g. claiming A ⊢ B). Arithmetic is NOT offered (it is trusted()-
+# backed in the stdlib, not a real derivation).
+_CONN = {"and": "prop_and", "or": "prop_or", "implies": "prop_implies"}
+
+
+def _compile_prop(e, atoms, lines, ctr):
+    if not isinstance(e, dict) or len(e) != 1:
+        raise HTTPException(422, "each expr must be a single-key object")
+    (k, val), = e.items()
+    if k == "atom":
+        if val not in atoms:
+            raise HTTPException(422, f"unknown atom: {val}")
+        v = f"e{ctr[0]}"; ctr[0] += 1
+        lines.append(f"    let {v} = ctx_prop(&! ctx, prop_custom({atoms[val]}))")
+        return v
+    if k == "not":
+        inner = _compile_prop(val, atoms, lines, ctr)
+        v = f"e{ctr[0]}"; ctr[0] += 1
+        lines.append(f"    let {v} = ctx_prop(&! ctx, prop_not({inner}))")
+        return v
+    if k in _CONN:
+        if not isinstance(val, list) or len(val) != 2:
+            raise HTTPException(422, f"{k} needs exactly 2 operands")
+        lft = _compile_prop(val[0], atoms, lines, ctr)
+        rgt = _compile_prop(val[1], atoms, lines, ctr)
+        v = f"e{ctr[0]}"; ctr[0] += 1
+        lines.append(f"    let {v} = ctx_prop(&! ctx, {_CONN[k]}({lft}, {rgt}))")
+        return v
+    raise HTTPException(422, f"bad connective: {k}")
+
+
+class TheoremReq(BaseModel):
+    atoms: list[str]
+    hypotheses: list[dict] = []
+    goal: dict
+    depth: int = 6
+
+
+@app.post("/v1/theorem/prove")
+def theorem_prove(req: TheoremReq):
+    if not (1 <= len(req.atoms) <= 32):
+        raise HTTPException(422, "1..32 atoms")
+    atoms = {n: i + 1 for i, n in enumerate(req.atoms)}
+    lines, ctr = [], [0]
+    hyp_vars = [_compile_prop(h, atoms, lines, ctr) for h in req.hypotheses]
+    asserts = "\n".join(f"    assume(&! ctx, {i + 1}, {v})" for i, v in enumerate(hyp_vars))
+    goal_var = _compile_prop(req.goal, atoms, lines, ctr)
+    depth = max(1, min(int(req.depth), 64))
+    src = (
+        "use theorem::search::{proof_context_new, ctx_prop, ctx_get_proof, prop_custom, "
+        "prop_and, prop_or, prop_not, prop_implies, assume, auto_prove, verify}\n"
+        "fn main() -> i64 with IO, Mut, Div, Panic {\n"
+        "    var ctx = proof_context_new()\n"
+        + "\n".join(lines) + "\n" + asserts + "\n"
+        f"    let prf = auto_prove(&! ctx, {goal_var}, {depth})\n"
+        '    if prf < 0 { println("UNKNOWN"); println("0.0"); return 0 }\n'
+        "    let pr = ctx_get_proof(&ctx, prf)\n"
+        '    if pr.tag == 22 { println("UNKNOWN"); println("0.0"); return 0 }\n'
+        "    let v = verify(&ctx, prf)\n"
+        '    if v.is_valid { println("PROVED") } else { println("INVALID") }\n'
+        "    println(pr.confidence)\n"
+        "    return 0\n}\n"
+    )
+    toks = _compile_and_run(src).split()
+    verdict = next((t for t in toks if t in ("PROVED", "UNKNOWN", "INVALID")), None)
+    conf = next((t for t in toks if t.replace(".", "", 1).replace("-", "", 1).isdigit()), None)
+    if not verdict:
+        raise HTTPException(502, "no verdict from theorem.prove")
+    return {
+        "verb": "theorem.prove", "result": verdict,
+        "confidence": float(conf) if conf is not None else None,
+        "logic": "propositional natural deduction (sound: real derivation only)",
+        "meaning": {
+            "PROVED": "goal DERIVED from hypotheses (real proof tree)",
+            "UNKNOWN": "no derivation found (NOT a refutation)",
+            "INVALID": "proof failed verification",
+        }[verdict],
+        "engine": "sounio::theorem::search (auto_prove + verify)",
+    }
+
+
 @app.get("/v1/catalog")
 def catalog():
     return {"verbs": [
@@ -338,6 +423,7 @@ def catalog():
         {"verb": "gum.propagate", "path": "/v1/gum/propagate", "nature": "numeric uncertainty propagation"},
         {"verb": "causal.dsep", "path": "/v1/causal/dsep", "nature": "structural graph reasoning"},
         {"verb": "pcs.reason", "path": "/v1/pcs/reason", "nature": "symptom ODE dynamics (Sounio RK4)"},
+        {"verb": "theorem.prove", "path": "/v1/theorem/prove", "nature": "propositional proof (natural deduction)"},
     ]}
 
 

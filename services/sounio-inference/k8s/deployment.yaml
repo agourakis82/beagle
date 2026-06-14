@@ -42,7 +42,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: sounio-inference
-          image: 192.168.3.207:5003/sounio-inference:v2
+          image: 192.168.3.207:5003/sounio-inference:v3
           imagePullPolicy: Always
           ports:
             - containerPort: 8799
