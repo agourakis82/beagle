@@ -42,6 +42,10 @@ export class BeagleClient {
 
         const headers: Record<string, string> = {
             "Content-Type": "application/json",
+            // Consumer identity for beagle-core's consumer-policy gate. Without this the
+            // server returns 401 when BEAGLE_CONSUMER_POLICY_ENABLED=true (the k8s/prod
+            // path), which silently blocked the canonical index population (plan #1).
+            "X-Beagle-Consumer": process.env.BEAGLE_CONSUMER || "beagle-operator",
         };
 
         if (this.authToken) {

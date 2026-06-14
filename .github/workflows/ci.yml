@@ -61,3 +61,13 @@ jobs:
           cargo test --package beagle-config --package beagle-core --package beagle-health --package beagle-observability --package beagle-darwin --package beagle-monorepo --release --no-fail-fast
           cargo test --workspace --release --no-fail-fast || true
 
+      # Enforce the retrieval regression gate (plan #4). The full beagle-hypergraph
+      # test target needs a live DB (sqlx::query! macros), hence the `|| true` above —
+      # but the nDCG@10/Recall@10 gate is a self-contained --lib unit test with a frozen
+      # synthetic golden set, so it can (and must) block CI deterministically without a DB.
+      - name: Retrieval regression gate (nDCG@10 / Recall@10)
+        env:
+          SQLX_OFFLINE: "true"
+        run: |
+          cargo test --package beagle-hypergraph --lib eval_gate_ndcg10_recall10 --release
+
