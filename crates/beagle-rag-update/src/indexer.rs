@@ -5,6 +5,15 @@ use crate::ledger::{IngestionLedger, LedgerRecord, LedgerStatus};
 use crate::qdrant::{post_webhook_json, QdrantClient};
 use crate::state::{IndexState, RepoState};
 use anyhow::{Context, Result};
+
+/// Opt-in: when on, the indexer writes Qdrant-native hybrid points (named dense +
+/// IDF sparse) into a hybrid collection so `query_hybrid` (/points/query + RRF) has
+/// sparse vectors to match. Off by default — the dense path is unchanged (plan #8).
+fn hybrid_retrieval_enabled() -> bool {
+    std::env::var("BEAGLE_HYBRID_RETRIEVAL")
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -182,6 +191,7 @@ async fn index_file(
 
     let mut upserted = 0usize;
     let batch_size = 8usize;
+    let hybrid = hybrid_retrieval_enabled();
     for batch in chunks.chunks(batch_size) {
         let texts: Vec<String> = batch.iter().map(|c| c.text.clone()).collect();
         let vectors = embed.embed_batch(&texts).await?;
@@ -204,16 +214,27 @@ async fn index_file(
                 "commit": head,
                 "indexed_at": Utc::now().to_rfc3339(),
             });
-            points.push(serde_json::json!({
-                "id": id,
-                "vector": vector,
-                "payload": payload,
-            }));
+            if hybrid {
+                let (indices, values) = crate::qdrant::sparse_from_text(&chunk.text);
+                points.push(serde_json::json!({
+                    "id": id,
+                    "vector": { "dense": vector, "text": { "indices": indices, "values": values } },
+                    "payload": payload,
+                }));
+            } else {
+                points.push(serde_json::json!({
+                    "id": id,
+                    "vector": vector,
+                    "payload": payload,
+                }));
+            }
         }
-        qdrant
-            .upsert_points(&cfg.collection, points)
-            .await
-            .context("failed to upsert points")?;
+        if hybrid {
+            qdrant.upsert_hybrid_points(&cfg.collection, points).await
+        } else {
+            qdrant.upsert_points(&cfg.collection, points).await
+        }
+        .context("failed to upsert points")?;
         upserted += batch.len();
     }
 
@@ -276,7 +297,11 @@ pub async fn run_incremental(
         if dim == 0 {
             anyhow::bail!("failed to infer embedding dimension");
         }
-        qdrant.ensure_collection(&cfg.collection, dim).await?;
+        if hybrid_retrieval_enabled() {
+            qdrant.ensure_hybrid_collection(&cfg.collection, dim).await?;
+        } else {
+            qdrant.ensure_collection(&cfg.collection, dim).await?;
+        }
     }
 
     let mut summary = IndexSummary::default();
