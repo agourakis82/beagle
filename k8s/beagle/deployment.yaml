@@ -25,7 +25,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: core-server
-          image: 192.168.3.207:5003/beagle-core-exocortex:sounio-workday-mvp-c63a309
+          image: 192.168.3.207:5003/beagle-core-exocortex:modernization-601b8e31
           imagePullPolicy: Always
           ports:
             - name: http
@@ -36,6 +36,40 @@ spec:
             - secretRef:
                 name: beagle-core-secrets
                 optional: true
+          # Inline overrides for the LLM-routing + Triad smt.check backstop.
+          # Grok/XAI is dead → every tier falls back to the in-cluster LocalFleet,
+          # so the fleet model IS the working model for ATHENA/HERMES/ARGOS/Judge AND
+          # for the smt.check claim-extraction step. deepseek-chat is fast, non-reasoning
+          # (LocalFleetClient reads message.content — reasoning models return empty), and
+          # extracts QF_LIA constraints reliably. BEAGLE_TRIAD_SMT_CHECK enables the
+          # Sounio smt.check consistency backstop in beagle-triad (gate accepts 1/true/yes/on).
+          env:
+            - name: BEAGLE_CONSUMER_POLICY_ENABLED
+              value: "false"
+            - name: EMBEDDING_URL
+              value: http://router.llm-router.svc.cluster.local:4000/v1
+            - name: BEAGLE_VLLM_URL
+              value: http://router.llm-router.svc.cluster.local:4000/v1
+            - name: BEAGLE_EMBEDDING_URL
+              value: http://router.llm-router.svc.cluster.local:4000/v1
+            - name: BEAGLE_EMBEDDING_MODEL
+              value: bge-m3
+            - name: OPENAI_API_KEY
+              value: noauth
+            - name: BEAGLE_DEEPSEEK_ENABLE
+              value: "false"
+            - name: BEAGLE_TRIAD_SMT_CHECK
+              value: "1"
+            - name: SOUNIO_INFERENCE_URL
+              value: http://sounio-inference.beagle.svc.cluster.local:80
+            - name: XAI_BASE_URL
+              value: http://router.llm-router.svc.cluster.local:4000/v1/chat/completions
+            - name: BEAGLE_GROK_MODEL
+              value: deepseek-chat
+            - name: BEAGLE_GROK_HEAVY_MODEL
+              value: deepseek-chat
+            - name: BEAGLE_LLM_FLEET_MODEL
+              value: deepseek-chat
           volumeMounts:
             - name: beagle-data
               mountPath: /var/lib/beagle
@@ -45,19 +79,25 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
+          # Relaxed so a heavy Triad run (long LocalFleet calls saturating the single
+          # event loop) cannot trip the liveness probe and SIGKILL the pod mid-run.
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 15
-            periodSeconds: 20
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 30
           resources:
             requests:
-              cpu: 250m
-              memory: 256Mi
-            limits:
               cpu: "1"
-              memory: 1Gi
+              memory: 512Mi
+            limits:
+              cpu: "4"
+              memory: 2Gi
           securityContext:
             allowPrivilegeEscalation: false
             appArmorProfile:
