@@ -70,10 +70,15 @@ spec:
               value: deepseek-chat
             - name: BEAGLE_GROK_HEAVY_MODEL
               value: deepseek-chat
-            # Triad agents (ATHENA/HERMES/ARGOS/Judge) run on the fleet default:
+            # Fleet default = fast non-reasoning workhorse for draft-gen + utilities
+            # (reasoning models truncate at low max_tokens; draft-gen uses complete()/2048):
             - name: BEAGLE_LLM_FLEET_MODEL
+              value: deepseek-chat
+            # Triad AGENTS (ATHENA/HERMES/ARGOS/Judge) explicitly use a robust reasoning model
+            # (beagle-triad calls them with max_tokens=8000 so reasoning_content has headroom):
+            - name: BEAGLE_TRIAD_AGENT_MODEL
               value: glm-5.1
-            # smt.check claim-extraction is pinned here (code default is deepseek-chat too):
+            # smt.check claim-extraction pinned to a fast structured-JSON model:
             - name: BEAGLE_TRIAD_EXTRACTION_MODEL
               value: deepseek-chat
           volumeMounts:

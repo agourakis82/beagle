@@ -849,12 +849,15 @@ async fn call_llm_with_stats_triad(
     // Escolhe client com limites
     let (client, tier) = ctx.router.choose_with_limits(&meta, &current_stats);
 
-    // Chama LLM com orçamento de tokens AMPLO. Modelos de reasoning (glm-5.1, minimax-m3)
-    // gastam tokens em `reasoning_content` ANTES do `content`; com max_tokens baixo (2048) o
-    // content sai vazio/truncado (Juiz=0 chars). 8000 dá folga p/ reasoning + resposta longa.
-    // Modelos de chat (deepseek-chat) simplesmente usam o teto que precisarem.
+    // Os AGENTES do Triad (ATHENA/HERMES/ARGOS/Juiz/evolve) rodam num modelo de reasoning
+    // ROBUSTO (glm-5.1 por padrão, override via BEAGLE_TRIAD_AGENT_MODEL) — explicitamente, NÃO
+    // pelo fleet default, para que o resto da plataforma (draft-gen, utilidades) possa usar um
+    // modelo de chat rápido sem arrastar tudo para o caminho lento de reasoning.
+    // max_tokens AMPLO: modelos de reasoning gastam tokens em `reasoning_content` ANTES do
+    // `content`; com max_tokens baixo (2048) o content sai vazio/truncado (Juiz=0 chars).
     let req = beagle_llm::LlmRequest {
-        model: "default".to_string(),
+        model: std::env::var("BEAGLE_TRIAD_AGENT_MODEL")
+            .unwrap_or_else(|_| "glm-5.1".to_string()),
         messages: vec![beagle_llm::ChatMessage::user(prompt)],
         temperature: Some(0.7),
         max_tokens: Some(8000),
