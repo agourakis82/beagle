@@ -18,6 +18,7 @@ tracing = { workspace = true }
 tokio = { workspace = true, features = ["sync", "net"] }
 axum = { workspace = true, features = ["macros"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+blake3 = "1.5"
 
 # Graph storage - beagle-memory provides the full Neo4jGraphStore implementation
 beagle-memory = { path = "../beagle-memory", optional = true }
