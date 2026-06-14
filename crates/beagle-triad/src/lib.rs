@@ -1125,19 +1125,28 @@ async fn solver_claim_consistency(
          índice em todas as constraints). Cada afirmação vira UMA constraint; `a >= b` vira \
          `(-1)*a <= -b`. Responda SOMENTE com JSON, sem prosa: \
          {{\"variables\":[\"nome0\",...],\"constraints\":[{{\"label\":\"texto curto\",\"coeffs\":[inteiro por variável],\"bound\":inteiro}}]}}. \
+         REGRA DE UNIFICAÇÃO (crítica): se duas ou mais afirmações se referem à MESMA grandeza física \
+         — mesma unidade e mesmo objeto medido (ex.: a MESMA `dose diária administrada de X` descrita \
+         num ponto como mínimo necessário e noutro como máximo permitido) — use o MESMO índice de \
+         variável para TODAS elas, mesmo que os papéis (mínimo/máximo, necessário/administrado/eficaz) \
+         sejam diferentes. Papel diferente da mesma grandeza NÃO é variável nova. \
          Se NÃO houver afirmações quantitativas lineares explícitas, responda \
          {{\"variables\":[],\"constraints\":[]}}. NÃO invente; só o que está LITERALMENTE no texto.\
          \n\n=== TEXTO ===\n{}",
         draft_excerpt
     );
+    // Extração de constraints é tarefa de PRECISÃO (unificar variáveis corretamente): roteia para
+    // o modelo forte (high_quality + phd + critical), não o workhorse barato — caso contrário a
+    // extração super-divide grandezas iguais em variáveis distintas e perde a contradição (SAT em
+    // vez de UNSAT). requires_high_quality=true, requires_phd_level_reasoning=true, critical=true.
     let meta = RequestMeta::new(
         false,
-        false,
+        true,
         false,
         prompt.chars().count() / 4,
         false,
-        false,
-        false,
+        true,
+        true,
     );
     let (text, _tier) = call_llm_with_stats_triad(ctx, run_id, &prompt, meta)
         .await
