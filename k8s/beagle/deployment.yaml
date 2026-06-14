@@ -62,6 +62,10 @@ spec:
               value: "false"
             - name: BEAGLE_TRIAD_SMT_CHECK
               value: "1"
+            # Second formal ARGOS check: Sounio causal.dsep (d-separation of an extracted DAG).
+            # Fires only when the solver proves d-separation while the draft claims dependence.
+            - name: BEAGLE_TRIAD_DSEP_CHECK
+              value: "1"
             - name: SOUNIO_INFERENCE_URL
               value: http://sounio-inference.beagle.svc.cluster.local:80
             - name: XAI_BASE_URL

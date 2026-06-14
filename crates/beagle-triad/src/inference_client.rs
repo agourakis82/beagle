@@ -111,6 +111,82 @@ pub async fn smt_check(base_url: &str, constraints: Vec<LiaConstraint>) -> Verdi
     }
 }
 
+// ─────────────────────────── causal.dsep ──────────────────────────────────
+
+/// Request to `/v1/causal/dsep`.
+///
+/// `n` = number of nodes (1..32); `edges` = directed DAG edges as `[from, to]` pairs;
+/// `x`, `y` = query nodes (0-indexed); `z` = conditioning set (may be empty).
+#[derive(Debug, Clone, Serialize)]
+pub struct DsepRequest {
+    pub n: usize,
+    pub edges: Vec<[usize; 2]>,
+    pub x: usize,
+    pub y: usize,
+    pub z: Vec<usize>,
+}
+
+/// Response from `/v1/causal/dsep`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DsepResponse {
+    pub d_separated: bool,
+    pub meaning: String,
+}
+
+/// Result of a causal d-separation query. Mirrors [`Verdict`] philosophy: any
+/// HTTP/parse failure collapses to `Unknown`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DsepVerdict {
+    /// x ⊥ y | z (d-separated; Pearl Bayes-ball confirms blocked paths).
+    Separated,
+    /// x and y are d-connected (at least one active path given z).
+    Connected,
+    /// Service unreachable, timeout, non-2xx, or parse error.
+    Unknown,
+}
+
+/// POST `{base_url}/v1/causal/dsep` and map to a [`DsepVerdict`].
+///
+/// Honest by construction: ANY error yields [`DsepVerdict::Unknown`].
+pub async fn causal_dsep(base_url: &str, req: DsepRequest) -> DsepVerdict {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(error = %e, "causal_dsep: client build failed");
+            return DsepVerdict::Unknown;
+        }
+    };
+    let url = format!("{}/v1/causal/dsep", base_url.trim_end_matches('/'));
+    let resp = match client.post(&url).json(&req).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, %url, "causal_dsep: request failed; Unknown");
+            return DsepVerdict::Unknown;
+        }
+    };
+    if !resp.status().is_success() {
+        warn!(status = %resp.status(), "causal_dsep: non-success; Unknown");
+        return DsepVerdict::Unknown;
+    }
+    match resp.json::<DsepResponse>().await {
+        Ok(body) => {
+            if body.d_separated {
+                info!("causal_dsep: solver proved d-separation (Pearl Bayes-ball)");
+                DsepVerdict::Separated
+            } else {
+                DsepVerdict::Connected
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "causal_dsep: parse failed; Unknown");
+            DsepVerdict::Unknown
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,5 +219,11 @@ mod tests {
             smt_check("http://127.0.0.1:1", vec![]).await,
             Verdict::Unknown
         );
+    }
+
+    #[tokio::test]
+    async fn causal_dsep_unreachable_is_unknown() {
+        let req = DsepRequest { n: 3, edges: vec![[0, 1], [1, 2]], x: 0, y: 2, z: vec![] };
+        assert_eq!(causal_dsep("http://127.0.0.1:1", req).await, DsepVerdict::Unknown);
     }
 }
