@@ -37,12 +37,14 @@ spec:
                 name: beagle-core-secrets
                 optional: true
           # Inline overrides for the LLM-routing + Triad smt.check backstop.
-          # Grok/XAI is dead → every tier falls back to the in-cluster LocalFleet,
-          # so the fleet model IS the working model for ATHENA/HERMES/ARGOS/Judge AND
-          # for the smt.check claim-extraction step. deepseek-chat is fast, non-reasoning
-          # (LocalFleetClient reads message.content — reasoning models return empty), and
-          # extracts QF_LIA constraints reliably. BEAGLE_TRIAD_SMT_CHECK enables the
-          # Sounio smt.check consistency backstop in beagle-triad (gate accepts 1/true/yes/on).
+          # Grok/XAI is dead → every tier falls back to the in-cluster LocalFleet, so the
+          # fleet model IS the working model for the Triad agents (ATHENA/HERMES/ARGOS/Judge).
+          # glm-5.1 is a robust reasoning model; beagle-triad now calls agents with
+          # max_tokens=8000 so the reasoning_content budget doesn't starve the answer content.
+          # The smt.check claim-EXTRACTION step is pinned to deepseek-chat in code
+          # (call_llm_extraction, override via BEAGLE_TRIAD_EXTRACTION_MODEL): a fast,
+          # non-reasoning model gives reliable structured JSON for QF_LIA constraint extraction.
+          # BEAGLE_TRIAD_SMT_CHECK enables the Sounio smt.check backstop (gate accepts 1/true/yes/on).
           env:
             - name: BEAGLE_CONSUMER_POLICY_ENABLED
               value: "false"
@@ -68,7 +70,16 @@ spec:
               value: deepseek-chat
             - name: BEAGLE_GROK_HEAVY_MODEL
               value: deepseek-chat
+            # Fleet default = fast non-reasoning workhorse for draft-gen + utilities
+            # (reasoning models truncate at low max_tokens; draft-gen uses complete()/2048):
             - name: BEAGLE_LLM_FLEET_MODEL
+              value: deepseek-chat
+            # Triad AGENTS (ATHENA/HERMES/ARGOS/Judge) explicitly use a robust reasoning model
+            # (beagle-triad calls them with max_tokens=8000 so reasoning_content has headroom):
+            - name: BEAGLE_TRIAD_AGENT_MODEL
+              value: glm-5.1
+            # smt.check claim-extraction pinned to a fast structured-JSON model:
+            - name: BEAGLE_TRIAD_EXTRACTION_MODEL
               value: deepseek-chat
           volumeMounts:
             - name: beagle-data

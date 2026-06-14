@@ -849,8 +849,21 @@ async fn call_llm_with_stats_triad(
     // Escolhe client com limites
     let (client, tier) = ctx.router.choose_with_limits(&meta, &current_stats);
 
-    // Chama LLM
-    let output = client.complete(prompt).await?;
+    // Os AGENTES do Triad (ATHENA/HERMES/ARGOS/Juiz/evolve) rodam num modelo de reasoning
+    // ROBUSTO (glm-5.1 por padrão, override via BEAGLE_TRIAD_AGENT_MODEL) — explicitamente, NÃO
+    // pelo fleet default, para que o resto da plataforma (draft-gen, utilidades) possa usar um
+    // modelo de chat rápido sem arrastar tudo para o caminho lento de reasoning.
+    // max_tokens AMPLO: modelos de reasoning gastam tokens em `reasoning_content` ANTES do
+    // `content`; com max_tokens baixo (2048) o content sai vazio/truncado (Juiz=0 chars).
+    let req = beagle_llm::LlmRequest {
+        model: std::env::var("BEAGLE_TRIAD_AGENT_MODEL")
+            .unwrap_or_else(|_| "glm-5.1".to_string()),
+        messages: vec![beagle_llm::ChatMessage::user(prompt)],
+        temperature: Some(0.7),
+        max_tokens: Some(8000),
+    };
+    let text = client.chat(req).await?;
+    let output = beagle_llm::LlmOutput::from_text(text, prompt);
 
     // Atualiza stats
     ctx.llm_stats.update(run_id, |stats| {
@@ -874,6 +887,38 @@ async fn call_llm_with_stats_triad(
         }
     });
 
+    Ok((output.text, tier))
+}
+
+/// Chamada de EXTRAÇÃO de claims para o solver: força um modelo de CHAT determinístico
+/// (deepseek-chat por padrão, override via `BEAGLE_TRIAD_EXTRACTION_MODEL`) com temperatura 0.
+/// Diferente dos agentes (que rodam num modelo de reasoning robusto como glm-5.1), a extração
+/// precisa de JSON estruturado CONFIÁVEL e barato — reasoning é lento e arrisca truncar o JSON
+/// pequeno, e modelos de chat não-reasoning não super-dividem variáveis tão facilmente. O
+/// `LocalFleetClient` honra `req.model` quando nomeia um modelo real, então isto é independente
+/// do fleet default usado pelos agentes.
+async fn call_llm_extraction(
+    ctx: &BeagleContext,
+    run_id: &str,
+    prompt: &str,
+    meta: RequestMeta,
+) -> anyhow::Result<(String, ProviderTier)> {
+    let current_stats = ctx.llm_stats.get_or_create(run_id);
+    let (client, tier) = ctx.router.choose_with_limits(&meta, &current_stats);
+    let req = beagle_llm::LlmRequest {
+        model: std::env::var("BEAGLE_TRIAD_EXTRACTION_MODEL")
+            .unwrap_or_else(|_| "deepseek-chat".to_string()),
+        messages: vec![beagle_llm::ChatMessage::user(prompt)],
+        temperature: Some(0.0),
+        max_tokens: Some(2048),
+    };
+    let text = client.chat(req).await?;
+    let output = beagle_llm::LlmOutput::from_text(text, prompt);
+    ctx.llm_stats.update(run_id, |stats| {
+        stats.grok3_calls += 1;
+        stats.grok3_tokens_in += output.tokens_in_est as u32;
+        stats.grok3_tokens_out += output.tokens_out_est as u32;
+    });
     Ok((output.text, tier))
 }
 
@@ -1146,20 +1191,18 @@ async fn solver_claim_consistency(
          \n\n=== TEXTO ===\n{}",
         draft_excerpt
     );
-    // Extração de constraints é tarefa de PRECISÃO (unificar variáveis corretamente): roteia para
-    // o modelo forte (high_quality + phd + critical), não o workhorse barato — caso contrário a
-    // extração super-divide grandezas iguais em variáveis distintas e perde a contradição (SAT em
-    // vez de UNSAT). requires_high_quality=true, requires_phd_level_reasoning=true, critical=true.
+    // Meta barato: `call_llm_extraction` força o modelo de chat (deepseek-chat) explicitamente,
+    // então não dependemos do tier para escolher o modelo — só do override de `req.model`.
     let meta = RequestMeta::new(
         false,
-        true,
+        false,
         false,
         prompt.chars().count() / 4,
         false,
-        true,
-        true,
+        false,
+        false,
     );
-    let (text, _tier) = call_llm_with_stats_triad(ctx, run_id, &prompt, meta)
+    let (text, _tier) = call_llm_extraction(ctx, run_id, &prompt, meta)
         .await
         .ok()?;
 
