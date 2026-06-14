@@ -1074,11 +1074,18 @@ pub async fn run_hermes(
 /// - Claims sem suporte empírico adequado
 /// - Confusão entre metáfora e mecanismo
 /// - Ausência de desenho empírico razoável
-/// Gate: a verificação por solver só roda com `BEAGLE_TRIAD_SMT_CHECK=1` (OFF por padrão).
+/// Gate: a verificação por solver só roda com `BEAGLE_TRIAD_SMT_CHECK` ligado (OFF por padrão).
+/// Aceita as formas usuais de "ligado": `1`, `true`, `yes`, `on` (case-insensitive). Antes o
+/// código fazia `v.parse::<bool>()`, que REJEITA `"1"` (só aceita `true`/`false`) — então o valor
+/// documentado `BEAGLE_TRIAD_SMT_CHECK=1` deixava o gate silenciosamente DESLIGADO.
 fn smt_claim_check_enabled() -> bool {
     std::env::var("BEAGLE_TRIAD_SMT_CHECK")
-        .ok()
-        .and_then(|v| v.parse::<bool>().ok())
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -1119,17 +1126,21 @@ async fn solver_claim_consistency(
     }
     let draft_excerpt: String = draft.chars().take(6000).collect();
     let prompt = format!(
-        "Extraia APENAS afirmações quantitativas LINEARES e EXPLÍCITAS do texto como \
-         constraints inteiras QF_LIA na forma `soma(coef_i * x_i) <= bound`. Mapeie cada \
-         quantidade numérica nomeada a uma variável inteira x0,x1,... (mesma variável = mesmo \
-         índice em todas as constraints). Cada afirmação vira UMA constraint; `a >= b` vira \
-         `(-1)*a <= -b`. Responda SOMENTE com JSON, sem prosa: \
-         {{\"variables\":[\"nome0\",...],\"constraints\":[{{\"label\":\"texto curto\",\"coeffs\":[inteiro por variável],\"bound\":inteiro}}]}}. \
-         REGRA DE UNIFICAÇÃO (crítica): se duas ou mais afirmações se referem à MESMA grandeza física \
-         — mesma unidade e mesmo objeto medido (ex.: a MESMA `dose diária administrada de X` descrita \
-         num ponto como mínimo necessário e noutro como máximo permitido) — use o MESMO índice de \
-         variável para TODAS elas, mesmo que os papéis (mínimo/máximo, necessário/administrado/eficaz) \
-         sejam diferentes. Papel diferente da mesma grandeza NÃO é variável nova. \
+        "Extraia afirmações quantitativas LINEARES e EXPLÍCITAS do texto como constraints inteiras \
+         QF_LIA. Trabalhe em DOIS PASSOS.\n\
+         PASSO 1 — CANONIZE AS VARIÁVEIS: liste as grandezas físicas distintas. A IDENTIDADE de uma \
+         variável é definida SÓ por (unidade de medida + entidade medida). IGNORE COMPLETAMENTE \
+         palavras de papel/qualificador como: mínimo, máximo, mínima, máxima, necessária, necessário, \
+         administrada, eficaz, segura, permitida, alvo, recomendada, limite. Dois números com a MESMA \
+         unidade sobre a MESMA entidade são a MESMA variável, mesmo em frases/seções diferentes e mesmo \
+         com qualificadores opostos. Exemplo OBRIGATÓRIO de unificação: 'a dose diária administrada de \
+         Zentamab ... no mínimo 80 mg' e 'a dose diária administrada de Zentamab ... no máximo 40 mg' \
+         são UMA ÚNICA variável (unidade=mg, entidade=dose diária de Zentamab) → x0; vira x0>=80 E x0<=40.\n\
+         PASSO 2 — EMITA AS CONSTRAINTS na forma `soma(coef_i * x_i) <= bound` usando os índices do passo 1. \
+         `a >= b` vira `(-1)*a <= -b`; `a <= b` fica `(+1)*a <= b`. Confira o SINAL: 'no mínimo 80' é x>=80 \
+         → coeffs com -1 e bound -80; 'no máximo 40' é x<=40 → coeffs com +1 e bound 40.\n\
+         Responda SOMENTE com JSON, sem prosa: \
+         {{\"variables\":[\"unidade|entidade\",...],\"constraints\":[{{\"label\":\"texto curto\",\"coeffs\":[inteiro por variável],\"bound\":inteiro}}]}}. \
          Se NÃO houver afirmações quantitativas lineares explícitas, responda \
          {{\"variables\":[],\"constraints\":[]}}. NÃO invente; só o que está LITERALMENTE no texto.\
          \n\n=== TEXTO ===\n{}",
