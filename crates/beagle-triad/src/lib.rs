@@ -13,6 +13,11 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tracing::{info, warn};
 
+/// HTTP client for the Sounio Inference Service (`smt.check`) — lets the triad
+/// ask Sounio's own DPLL(T) solver whether an extracted constraint set is
+/// consistent. See the module docs for the truth-mode boundary.
+pub mod inference_client;
+
 /// O contexto simbólico (PCS) só é injetado nos prompts quando explicitamente habilitado.
 /// O PCS/Julia real ainda NÃO está conectado — o resumo é heurístico (palavra-chave), então
 /// fica OFF por padrão (e, quando ligado, é sempre marcado como não-verificado-por-solver).
