@@ -21,6 +21,7 @@ import { feedbackTools } from "./feedback.js";
 import { experimentalTools } from "./experimental.js";
 import { exocortexTools } from "./exocortex.js";
 import { standardTools } from "./standard.js";
+import { sounioInferenceTools } from "./sounio-inference.js";
 
 export interface McpTool {
     name: string;
@@ -491,6 +492,31 @@ const TOOL_POLICIES: Record<string, ToolPolicy> = {
         requiredScopes: RUN_RESEARCH,
         riskLevel: "experimental",
     },
+    sounio_smt_check: {
+        annotations: annotations("Sounio SMT Check (QF_LIA)", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    sounio_gum_propagate: {
+        annotations: annotations("Sounio GUM Uncertainty Propagation", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    sounio_causal_dsep: {
+        annotations: annotations("Sounio Causal d-Separation", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    sounio_pcs_reason: {
+        annotations: annotations("Sounio PCS ODE Reason", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
+    sounio_theorem_prove: {
+        annotations: annotations("Sounio Propositional Theorem Prove", true, false, true),
+        requiredScopes: READ_EXOCORTEX,
+        riskLevel: "read",
+    },
 };
 
 const REVIEW_SAFE_TOOL_NAMES = new Set([
@@ -521,6 +547,11 @@ const REVIEW_SAFE_TOOL_NAMES = new Set([
     "beagle_list_recent_runs",
     "beagle_get_science_job_status",
     "beagle_get_science_job_artifacts",
+    "sounio_smt_check",
+    "sounio_gum_propagate",
+    "sounio_causal_dsep",
+    "sounio_pcs_reason",
+    "sounio_theorem_prove",
 ]);
 
 function applyPolicy(tool: McpTool): McpTool {
@@ -549,6 +580,9 @@ export function defineTools(client: BeagleClient): McpTool[] {
         // Extended tools
         ...scienceJobTools(client),
         ...experimentalTools(client),
+
+        // Sounio Inference Service verbs (direct sidecar, no BeagleClient)
+        ...sounioInferenceTools(),
     ].map(applyPolicy);
 
     const surface = toolSurface();

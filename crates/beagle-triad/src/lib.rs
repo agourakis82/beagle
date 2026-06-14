@@ -1134,6 +1134,20 @@ fn smt_claim_check_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// Gate para verificação formal de d-separação causal via Sounio `causal.dsep`. Mesmo estilo
+/// de parse que [`smt_claim_check_enabled`]: aceita `1`, `true`, `yes`, `on` (case-insensitive).
+/// OFF por padrão.
+fn dsep_claim_check_enabled() -> bool {
+    std::env::var("BEAGLE_TRIAD_DSEP_CHECK")
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 /// Extrai o primeiro objeto JSON balanceado de um texto (o LLM costuma cercar com prosa).
 fn first_json_object(s: &str) -> Option<String> {
     let start = s.find('{')?;
@@ -1151,6 +1165,57 @@ fn first_json_object(s: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Filtra e deduplica constraints antes de enviar ao solver.
+///
+/// Regras conservadoras (não tocam em contradições reais):
+/// 1. Remove duplicatas exatas: mesmo vetor `coeffs` e mesmo `bound`.
+/// 2. Remove "twins" fabricados pelo LLM: quando o `label` (lower-case) contém
+///    "limite inferior" ou "limite superior" E o padrão de coeficientes dessa
+///    constraint é a NEGAÇÃO EXATA do de outra constraint no conjunto. Esse é o
+///    sinal de que o LLM dividiu uma única afirmação de um limite em dois
+///    constraints inventados — o twin negado é o ruído; o original permanece.
+fn dedup_constraints(
+    mut cs: Vec<inference_client::LiaConstraint>,
+) -> Vec<inference_client::LiaConstraint> {
+    // Passo 1: dedup exata.
+    let mut seen: std::collections::HashSet<(Vec<i64>, i64)> = std::collections::HashSet::new();
+    cs.retain(|c| seen.insert((c.coeffs.clone(), c.bound)));
+
+    // Passo 2: descarta twins fabricados.
+    // Um twin é detectado quando:
+    //   (a) o label contém "limite inferior" OU "limite superior" (marcador de fabricação), E
+    //   (b) existe OUTRA constraint cujos coeffs são a negação exata do twin E cujo bound = -twin.bound.
+    // Só descartamos o twin marcado — a constraint "original" (sem marcador ou com bound diferente)
+    // permanece, preservando contradições reais.
+    let originals: Vec<(Vec<i64>, i64)> = cs
+        .iter()
+        .map(|c| (c.coeffs.clone(), c.bound))
+        .collect();
+
+    cs.retain(|c| {
+        let lbl = c
+            .label
+            .as_deref()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let is_fabricated_label =
+            lbl.contains("limite inferior") || lbl.contains("limite superior");
+        if !is_fabricated_label {
+            return true; // sem marcador → manter sempre
+        }
+        // Verifica se existe outra constraint com coeffs negados e bound negado.
+        let neg_coeffs: Vec<i64> = c.coeffs.iter().map(|&k| -k).collect();
+        let neg_bound = -c.bound;
+        let has_mirror = originals
+            .iter()
+            .any(|(oc, ob)| *oc == neg_coeffs && *ob == neg_bound);
+        // Descarta apenas se um mirror exato foi encontrado (é provável twin de fabricação).
+        !has_mirror
+    });
+
+    cs
 }
 
 /// Verificação formal de consistência de claims via Sounio `smt.check`.
@@ -1184,6 +1249,11 @@ async fn solver_claim_consistency(
          PASSO 2 — EMITA AS CONSTRAINTS na forma `soma(coef_i * x_i) <= bound` usando os índices do passo 1. \
          `a >= b` vira `(-1)*a <= -b`; `a <= b` fica `(+1)*a <= b`. Confira o SINAL: 'no mínimo 80' é x>=80 \
          → coeffs com -1 e bound -80; 'no máximo 40' é x<=40 → coeffs com +1 e bound 40.\n\
+         PROIBIÇÃO ABSOLUTA — NÃO INVENTE TWINS: NÃO divida uma única afirmação de limite em dois \
+         constraints. Se o texto diz apenas 'no mínimo 80 mg', emita SOMENTE a constraint x>=80 \
+         (coeffs=[-1], bound=-80). NÃO crie um segundo constraint 'limite inferior' ou 'limite superior' \
+         paralelo. NÃO invente um limite oposto (inferior ou superior) que não esteja LITERALMENTE no texto. \
+         Cada afirmação do texto deve gerar NO MÁXIMO UMA constraint.\n\
          Responda SOMENTE com JSON, sem prosa: \
          {{\"variables\":[\"unidade|entidade\",...],\"constraints\":[{{\"label\":\"texto curto\",\"coeffs\":[inteiro por variável],\"bound\":inteiro}}]}}. \
          Se NÃO houver afirmações quantitativas lineares explícitas, responda \
@@ -1231,8 +1301,10 @@ async fn solver_claim_consistency(
             label,
         });
     }
+    // Dedup e filtra twins fabricados antes de enviar ao solver.
+    let constraints = dedup_constraints(constraints);
     if constraints.len() < 2 {
-        return None; // precisa de >=2 claims pra haver contradição
+        return None; // precisa de >=2 claims não-redundantes pra haver contradição
     }
 
     let base = inference_client::inference_base_url();
@@ -1249,11 +1321,15 @@ async fn solver_claim_consistency(
                     )
                 })
                 .collect();
-            info!("solver_claim_consistency: UNSAT — contradição provada por Sounio smt.check");
+            info!(
+                n_constraints = constraints.len(),
+                "solver_claim_consistency: UNSAT — contradição provada por Sounio smt.check"
+            );
             Some(format!(
                 "## ⚠️ Contradição provada por solver (Sounio SMT)\n\n\
                 O verificador formal `smt.check` (Sounio, DPLL(T) QF_LIA) provou que o conjunto de \
-                afirmações quantitativas abaixo — extraídas do draft — é **mutuamente contraditório** (UNSAT):\n\n\
+                afirmações quantitativas abaixo — extraídas do draft — é **mutuamente contraditório** (UNSAT).\n\n\
+                **Conjunto extraído (após dedup; pode conter constraints redundantes além do núcleo conflitante):**\n\n\
                 {}\n\n\
                 > **Honestidade (truth-mode):** a EXTRAÇÃO de claims é feita por LLM e é falível. \
                 O solver provou apenas que ESTAS constraints são inconsistentes entre si — \
@@ -1261,6 +1337,148 @@ async fn solver_claim_consistency(
                 lines.join("\n")
             ))
         }
+        _ => None,
+    }
+}
+
+/// Verificação formal de independência causal via Sounio `causal.dsep`.
+///
+/// Fluxo:
+/// 1. O LLM (deepseek-chat, temperatura 0) tenta extrair do draft um DAG compacto
+///    (nós + arestas dirigidas) e uma query de d-separação (x, y, conditioning set z).
+/// 2. O JSON é validado ESTRITAMENTE: qualquer campo ausente, tipo errado, ou grafo com
+///    >32 nós ou aresta inválida → retorna `None` imediatamente (honestidade antes de tudo).
+/// 3. O verbo `causal.dsep` (Sounio, Bayes-ball de Pearl) decide.
+/// 4. Retorna um bloco markdown APENAS quando o solver prova d-separação (caminho bloqueado)
+///    em uma relação que o draft afirma como dependente/causal — sinal de incoerência estrutural.
+///    SAT (d-connected) ou Unknown → `None`.
+///
+/// **Honestidade (truth-mode):** a extração de grafos causais a partir de prosa é altamente
+/// falível. O grafo extraído raramente captura todas as arestas reais do draft. O achado
+/// reportado refere-se APENAS ao grafo extraído — não ao sistema causal real do autor.
+/// ARGOS deve tratar este sinal como fraco/indicativo, nunca como prova definitiva.
+async fn causal_claim_check(
+    draft: &str,
+    ctx: &BeagleContext,
+    run_id: &str,
+) -> Option<String> {
+    if !dsep_claim_check_enabled() {
+        return None;
+    }
+    let draft_excerpt: String = draft.chars().take(6000).collect();
+    let prompt = format!(
+        "Extraia DO TEXTO abaixo, SE E SOMENTE SE houver afirmações causais EXPLÍCITAS e \
+         INEQUÍVOCAS, um grafo dirigido acíclico (DAG) compacto e uma query de d-separação.\n\
+         PASSO 1 — IDENTIFIQUE VARIÁVEIS CAUSAIS EXPLÍCITAS: liste variáveis/entidades distintas \
+         mencionadas explicitamente como causas ou efeitos. Atribua índices 0,1,2,... \
+         (máximo 16 variáveis). Se não houver relações causais explícitas, responda com o JSON \
+         vazio abaixo.\n\
+         PASSO 2 — IDENTIFIQUE ARESTAS: só inclua arestas AFIRMADAS LITERALMENTE no texto \
+         (\"X causa Y\", \"X afeta Y\", \"Y depende de X\", etc.). NÃO infira nem invente.\n\
+         PASSO 3 — ESCOLHA UMA QUERY: selecione dois nós x e y que o texto AFIRMA que têm \
+         uma relação causal ou de dependência. O conditioning set z deve ser vazio ou \
+         conter APENAS variáveis explicitamente mencionadas como confundidoras/mediadoras.\n\
+         Responda SOMENTE com JSON (sem prosa):\n\
+         {{\"nodes\":[\"nome0\",\"nome1\",...],\"edges\":[[from_int,to_int],...],\
+         \"x\":int,\"y\":int,\"z\":[int,...],\
+         \"claim\":\"texto literal da relação causal afirmada\"}}\n\
+         Se NÃO houver relações causais explícitas e inequívocas, responda:\n\
+         {{\"nodes\":[],\"edges\":[],\"x\":0,\"y\":0,\"z\":[],\"claim\":\"\"}}\n\
+         NÃO invente; só o que está LITERALMENTE no texto.\n\n\
+         === TEXTO ===\n{}",
+        draft_excerpt
+    );
+    let meta = RequestMeta::new(false, false, false, prompt.chars().count() / 4, false, false, false);
+    let (text, _tier) = call_llm_extraction(ctx, run_id, &prompt, meta).await.ok()?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
+
+    // Strict validation: bail if extraction is ambiguous or incomplete.
+    let nodes = parsed.get("nodes")?.as_array()?;
+    let edges_raw = parsed.get("edges")?.as_array()?;
+    let x = parsed.get("x")?.as_u64()? as usize;
+    let y = parsed.get("y")?.as_u64()? as usize;
+    let claim = parsed.get("claim")?.as_str().unwrap_or("").trim().to_string();
+
+    // Empty extraction → nothing to check (honest: no finding).
+    if nodes.is_empty() || claim.is_empty() {
+        return None;
+    }
+    let n = nodes.len();
+    // Reject oversized or trivially degenerate graphs.
+    if n > 32 || n < 2 || x >= n || y >= n || x == y {
+        return None;
+    }
+
+    let z_arr = parsed.get("z")?.as_array()?;
+    let z: Vec<usize> = z_arr.iter().filter_map(|v| v.as_u64().map(|u| u as usize)).collect();
+    if z.iter().any(|&zi| zi >= n) {
+        return None;
+    }
+
+    let mut edges: Vec<[usize; 2]> = Vec::new();
+    for e in edges_raw {
+        let pair = e.as_array()?;
+        if pair.len() != 2 { return None; }
+        let a = pair[0].as_u64()? as usize;
+        let b = pair[1].as_u64()? as usize;
+        if a >= n || b >= n { return None; }
+        edges.push([a, b]);
+    }
+    // Need at least one edge connecting x→...→y path candidates.
+    if edges.is_empty() {
+        return None;
+    }
+
+    let node_names: Vec<String> = nodes
+        .iter()
+        .map(|v| v.as_str().unwrap_or("?").to_string())
+        .collect();
+
+    let req = inference_client::DsepRequest { n, edges, x, y, z: z.clone() };
+    let base = inference_client::inference_base_url();
+    match inference_client::causal_dsep(&base, req).await {
+        inference_client::DsepVerdict::Separated => {
+            // The draft CLAIMS dependence between x and y, but the solver proves d-separation
+            // given z — structural incoherence in the extracted DAG.
+            let x_name = node_names.get(x).cloned().unwrap_or_else(|| format!("node{x}"));
+            let y_name = node_names.get(y).cloned().unwrap_or_else(|| format!("node{y}"));
+            let z_names: Vec<String> = z.iter()
+                .map(|&zi| node_names.get(zi).cloned().unwrap_or_else(|| format!("node{zi}")))
+                .collect();
+            let cond = if z_names.is_empty() {
+                "∅ (sem condicionamento)".to_string()
+            } else {
+                format!("{{{}}}", z_names.join(", "))
+            };
+            info!(
+                "causal_claim_check: d-separation proved — {} ⊥ {} | {}",
+                x_name, y_name, cond
+            );
+            Some(format!(
+                "## ⚠️ Incoerência causal detectada por solver (Sounio causal.dsep)\n\n\
+                O verificador formal `causal.dsep` (Sounio, Bayes-ball de Pearl) analisou o grafo \
+                causal extraído do draft e provou **d-separação** entre **{}** e **{}** dado \
+                **{}** — ou seja, no DAG extraído NÃO existe caminho ativo entre estes nós, \
+                mas o texto afirma uma relação de dependência/causalidade:\n\n\
+                > *\"{}\"*\n\n\
+                **Grafo extraído ({} arestas):** {}\n\n\
+                > **Honestidade (truth-mode):** a extração de grafos causais a partir de prosa é \
+                altamente falível. O solver provou d-separação apenas no grafo extraído — \
+                que pode estar incompleto. Verifique se o draft omitiu arestas que justificariam \
+                a relação afirmada antes de concluir que o texto está errado.",
+                x_name,
+                y_name,
+                cond,
+                claim,
+                edges_raw.len(),
+                node_names.iter().enumerate()
+                    .map(|(i, name)| format!("{i}:{name}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        }
+        // Connected or Unknown → no finding (honest: absence of evidence ≠ evidence of absence).
         _ => None,
     }
 }
@@ -1312,6 +1530,22 @@ pub async fn run_argos(
         );
     }
 
+    // Segunda verificação formal: d-separação causal via Sounio causal.dsep (gated).
+    // Prova d-separação no grafo causal EXTRAÍDO do draft — incoerência estrutural
+    // quando o texto afirma dependência mas o DAG extraído a bloqueia.
+    // Sinal FRACO (extração de grafos causais é altamente falível): None em caso de
+    // dúvida, erro, grafo insuficiente, ou d-conexão (status quo).
+    let causal_finding = causal_claim_check(original_draft, ctx, run_id).await;
+    if let Some(ref f) = causal_finding {
+        prompt.push_str("\n\n=== VERIFICAÇÃO FORMAL CAUSAL (Sounio causal.dsep — estrutural) ===\n");
+        prompt.push_str(f);
+        prompt.push_str(
+            "\nEste achado é baseado no grafo causal extraído do draft (pode estar incompleto). \
+             Trate como hipótese a investigar: o draft pode ter omitido arestas que justificam \
+             a relação afirmada. A prova de d-separação é formal apenas para o DAG extraído.\n",
+        );
+    }
+
     // ARGOS usa Heavy: crítica sobre claims científicos
     let meta = RequestMeta::new(
         false,                      // requires_math (ou true se for Methods de KEC/PBPK)
@@ -1327,10 +1561,13 @@ pub async fn run_argos(
 
     let score = extract_score(&text).unwrap_or(0.9);
 
-    // Surfacea o achado do solver no topo do relatório de ARGOS (independe do que o LLM disse).
-    let suggestions_md = match solver_finding {
-        Some(f) => format!("{}\n\n---\n\n{}", f, text),
-        None => text,
+    // Surfacea os achados formais no topo do relatório de ARGOS (independente do LLM).
+    // SMT primeiro (contradição quantitativa), depois causal (incoerência estrutural).
+    let suggestions_md = match (solver_finding, causal_finding) {
+        (Some(smt), Some(causal)) => format!("{}\n\n---\n\n{}\n\n---\n\n{}", smt, causal, text),
+        (Some(smt), None) => format!("{}\n\n---\n\n{}", smt, text),
+        (None, Some(causal)) => format!("{}\n\n---\n\n{}", causal, text),
+        (None, None) => text,
     };
 
     Ok((
@@ -1648,5 +1885,55 @@ mod tests {
         // Falls back to env BEAGLE_DATA_DIR layout; verify path shape only.
         let p = stage_path(std::path::Path::new("/tmp/triad/run42"), "evolve");
         assert!(p.ends_with("evolve.json"));
+    }
+
+    #[tokio::test]
+    async fn dsep_check_is_off_by_default() {
+        std::env::remove_var("BEAGLE_TRIAD_DSEP_CHECK");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let out = causal_claim_check("X causa Y diretamente", &ctx, "t").await;
+        assert!(out.is_none());
+    }
+
+    #[test]
+    fn dedup_constraints_removes_exact_duplicates() {
+        let make = |coeffs: Vec<i64>, bound: i64, label: Option<&str>| {
+            inference_client::LiaConstraint {
+                coeffs,
+                bound,
+                label: label.map(|s| s.to_string()),
+            }
+        };
+        let cs = vec![
+            make(vec![-1], -80, Some("dose >= 80")),
+            make(vec![-1], -80, Some("dose >= 80")), // exact dup
+            make(vec![1], 40, Some("dose <= 40")),
+        ];
+        let deduped = dedup_constraints(cs);
+        assert_eq!(deduped.len(), 2);
+    }
+
+    #[test]
+    fn dedup_constraints_drops_fabricated_twins() {
+        let make = |coeffs: Vec<i64>, bound: i64, label: Option<&str>| {
+            inference_client::LiaConstraint {
+                coeffs,
+                bound,
+                label: label.map(|s| s.to_string()),
+            }
+        };
+        // Real constraint: x >= 80 (coeffs=[-1], bound=-80)
+        // Fabricated twin "limite inferior": coeffs=[1], bound=80 (negation of [-1],-80)
+        let cs = vec![
+            make(vec![-1], -80, Some("dose >= 80")),
+            make(vec![1], 80, Some("limite inferior fabricado")),
+            make(vec![1], 40, Some("dose <= 40")),
+        ];
+        let deduped = dedup_constraints(cs);
+        // The twin labeled "limite inferior" should be dropped; the other two remain.
+        assert_eq!(deduped.len(), 2);
+        assert!(deduped.iter().all(|c| {
+            c.label.as_deref().map_or(true, |l| !l.contains("limite inferior"))
+        }));
     }
 }
