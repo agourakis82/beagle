@@ -89,8 +89,7 @@ impl GrokClient {
             .and_then(|v| v.parse().ok())
             .unwrap_or(1000);
 
-        let base_url = env::var("XAI_BASE_URL")
-            .unwrap_or_else(|_| "https://api.x.ai/v1/chat/completions".to_string());
+        let base_url = Self::validated_base_url();
         let model =
             env::var("BEAGLE_GROK_MODEL").unwrap_or_else(|_| "grok-4-1-fast-reasoning".to_string());
         let heavy_model =
@@ -107,6 +106,47 @@ impl GrokClient {
             heavy_model,
             max_retries,
             initial_backoff_ms,
+        }
+    }
+
+    /// Resolve the chat endpoint from `XAI_BASE_URL`, validated so an override can never
+    /// leak the `Authorization: Bearer <key>` to an arbitrary external host: `https` is always
+    /// allowed; plain `http` only when the host is loopback / RFC1918 / cluster-internal
+    /// (`*.svc`, `*.cluster.local`, `*.local`, `*.internal`). Anything else (or an unparseable
+    /// value) logs an error and falls back to the hardcoded XAI default.
+    fn validated_base_url() -> String {
+        const DEFAULT: &str = "https://api.x.ai/v1/chat/completions";
+        let Ok(raw) = env::var("XAI_BASE_URL") else {
+            return DEFAULT.to_string();
+        };
+        match reqwest::Url::parse(&raw) {
+            Ok(u) => {
+                let host = u.host_str().unwrap_or("");
+                let private_ip = host
+                    .parse::<std::net::Ipv4Addr>()
+                    .map(|ip| ip.is_private() || ip.is_loopback())
+                    .unwrap_or(false);
+                let private_name = host == "localhost"
+                    || host.ends_with(".svc")
+                    || host.ends_with(".cluster.local")
+                    || host.ends_with(".local")
+                    || host.ends_with(".internal");
+                let is_private = private_ip || private_name;
+                if u.scheme() == "https" || (u.scheme() == "http" && is_private) {
+                    raw
+                } else {
+                    error!(
+                        "XAI_BASE_URL rejeitado (scheme={} host={} expõe o Bearer a host externo/cleartext); usando default XAI",
+                        u.scheme(),
+                        host
+                    );
+                    DEFAULT.to_string()
+                }
+            }
+            Err(e) => {
+                error!("XAI_BASE_URL inválido ({e}); usando default XAI");
+                DEFAULT.to_string()
+            }
         }
     }
 
