@@ -1074,6 +1074,134 @@ pub async fn run_hermes(
 /// - Claims sem suporte empírico adequado
 /// - Confusão entre metáfora e mecanismo
 /// - Ausência de desenho empírico razoável
+/// Gate: a verificação por solver só roda com `BEAGLE_TRIAD_SMT_CHECK=1` (OFF por padrão).
+fn smt_claim_check_enabled() -> bool {
+    std::env::var("BEAGLE_TRIAD_SMT_CHECK")
+        .ok()
+        .and_then(|v| v.parse::<bool>().ok())
+        .unwrap_or(false)
+}
+
+/// Extrai o primeiro objeto JSON balanceado de um texto (o LLM costuma cercar com prosa).
+fn first_json_object(s: &str) -> Option<String> {
+    let start = s.find('{')?;
+    let mut depth = 0i32;
+    for (i, ch) in s[start..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(s[start..start + i + ch.len_utf8()].to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Verificação formal de consistência de claims via Sounio `smt.check`.
+///
+/// Fluxo: o LLM extrai afirmações quantitativas LINEARES do draft como constraints
+/// inteiras QF_LIA → o verbo `smt.check` (DPLL(T) do Sounio) decide. Retorna um bloco
+/// markdown de achado APENAS quando o solver prova `UNSAT` (contradição). Qualquer falha
+/// (sem claims, serviço fora, parse, SAT/UNKNOWN) → `None` — honesto por construção, nunca
+/// fabrica achado. Truth-mode: o solver prova que ESTAS constraints extraídas (falíveis) são
+/// contraditórias, NÃO que "o draft está errado".
+async fn solver_claim_consistency(
+    draft: &str,
+    ctx: &BeagleContext,
+    run_id: &str,
+) -> Option<String> {
+    if !smt_claim_check_enabled() {
+        return None;
+    }
+    let draft_excerpt: String = draft.chars().take(6000).collect();
+    let prompt = format!(
+        "Extraia APENAS afirmações quantitativas LINEARES e EXPLÍCITAS do texto como \
+         constraints inteiras QF_LIA na forma `soma(coef_i * x_i) <= bound`. Mapeie cada \
+         quantidade numérica nomeada a uma variável inteira x0,x1,... (mesma variável = mesmo \
+         índice em todas as constraints). Cada afirmação vira UMA constraint; `a >= b` vira \
+         `(-1)*a <= -b`. Responda SOMENTE com JSON, sem prosa: \
+         {{\"variables\":[\"nome0\",...],\"constraints\":[{{\"label\":\"texto curto\",\"coeffs\":[inteiro por variável],\"bound\":inteiro}}]}}. \
+         Se NÃO houver afirmações quantitativas lineares explícitas, responda \
+         {{\"variables\":[],\"constraints\":[]}}. NÃO invente; só o que está LITERALMENTE no texto.\
+         \n\n=== TEXTO ===\n{}",
+        draft_excerpt
+    );
+    let meta = RequestMeta::new(
+        false,
+        false,
+        false,
+        prompt.chars().count() / 4,
+        false,
+        false,
+        false,
+    );
+    let (text, _tier) = call_llm_with_stats_triad(ctx, run_id, &prompt, meta)
+        .await
+        .ok()?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
+    let cons_json = parsed.get("constraints")?.as_array()?;
+    let mut constraints: Vec<inference_client::LiaConstraint> = Vec::new();
+    for c in cons_json {
+        let coeffs: Vec<i64> = match c.get("coeffs").and_then(|v| v.as_array()) {
+            Some(arr) => arr.iter().filter_map(|v| v.as_i64()).collect(),
+            None => continue,
+        };
+        if coeffs.is_empty() || coeffs.iter().all(|&k| k == 0) {
+            continue;
+        }
+        let bound = match c.get("bound").and_then(|v| v.as_i64()) {
+            Some(b) => b,
+            None => continue,
+        };
+        let label = c
+            .get("label")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        constraints.push(inference_client::LiaConstraint {
+            coeffs,
+            bound,
+            label,
+        });
+    }
+    if constraints.len() < 2 {
+        return None; // precisa de >=2 claims pra haver contradição
+    }
+
+    let base = inference_client::inference_base_url();
+    match inference_client::smt_check(&base, constraints.clone()).await {
+        inference_client::Verdict::Unsat => {
+            let lines: Vec<String> = constraints
+                .iter()
+                .map(|c| {
+                    format!(
+                        "- `{}`",
+                        c.label
+                            .clone()
+                            .unwrap_or_else(|| format!("Σ{:?}·x <= {}", c.coeffs, c.bound))
+                    )
+                })
+                .collect();
+            info!("solver_claim_consistency: UNSAT — contradição provada por Sounio smt.check");
+            Some(format!(
+                "## ⚠️ Contradição provada por solver (Sounio SMT)\n\n\
+                O verificador formal `smt.check` (Sounio, DPLL(T) QF_LIA) provou que o conjunto de \
+                afirmações quantitativas abaixo — extraídas do draft — é **mutuamente contraditório** (UNSAT):\n\n\
+                {}\n\n\
+                > **Honestidade (truth-mode):** a EXTRAÇÃO de claims é feita por LLM e é falível. \
+                O solver provou apenas que ESTAS constraints são inconsistentes entre si — \
+                confirme contra o texto antes de afirmar que o draft em si está errado.",
+                lines.join("\n")
+            ))
+        }
+        _ => None,
+    }
+}
+
 pub async fn run_argos(
     original_draft: &str,
     hermes: &TriadOpinion,
@@ -1107,6 +1235,20 @@ pub async fn run_argos(
     prompt.push_str("\n\n=== DRAFT_HERMES ===\n");
     prompt.push_str(&hermes.suggestions_md);
 
+    // Verificação formal de consistência via Sounio smt.check (gated). UNSAT = contradição
+    // PROVADA por solver — sinal forte para ARGOS, e surfaceado no relatório. Honesto:
+    // None quando não há contradição provada ou o serviço está fora.
+    let solver_finding = solver_claim_consistency(original_draft, ctx, run_id).await;
+    if let Some(ref f) = solver_finding {
+        prompt.push_str("\n\n=== VERIFICAÇÃO FORMAL POR SOLVER (Sounio SMT — verificada) ===\n");
+        prompt.push_str(f);
+        prompt.push_str(
+            "\nIncorpore este achado verificado por solver na sua crítica. É forte (prova \
+             formal), mas a EXTRAÇÃO de claims que o alimentou é falível — trate a contradição \
+             como provada apenas para as constraints extraídas, não como veredito sobre o autor.\n",
+        );
+    }
+
     // ARGOS usa Heavy: crítica sobre claims científicos
     let meta = RequestMeta::new(
         false,                      // requires_math (ou true se for Methods de KEC/PBPK)
@@ -1122,11 +1264,17 @@ pub async fn run_argos(
 
     let score = extract_score(&text).unwrap_or(0.9);
 
+    // Surfacea o achado do solver no topo do relatório de ARGOS (independe do que o LLM disse).
+    let suggestions_md = match solver_finding {
+        Some(f) => format!("{}\n\n---\n\n{}", f, text),
+        None => text,
+    };
+
     Ok((
         TriadOpinion {
             agent: "ARGOS".into(),
             summary: "Crítica adversarial e apontamento de falhas lógicas".into(),
-            suggestions_md: text,
+            suggestions_md,
             score,
             provider_tier: tier.as_str().to_string(),
         },
@@ -1220,6 +1368,33 @@ fn extract_score(response: &str) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_json_object_extracts_from_prose() {
+        let s =
+            "claro, aqui está: {\"constraints\":[{\"coeffs\":[1],\"bound\":3}]} — espero que ajude";
+        let j = first_json_object(s).expect("deve extrair");
+        let v: serde_json::Value = serde_json::from_str(&j).unwrap();
+        assert!(v.get("constraints").unwrap().as_array().unwrap().len() == 1);
+    }
+
+    #[test]
+    fn first_json_object_handles_nesting() {
+        assert_eq!(
+            first_json_object("x {\"a\":{\"b\":1}} y").as_deref(),
+            Some("{\"a\":{\"b\":1}}")
+        );
+        assert!(first_json_object("no json here").is_none());
+    }
+
+    #[tokio::test]
+    async fn solver_check_is_off_by_default() {
+        // Sem BEAGLE_TRIAD_SMT_CHECK, a verificação não roda (nem chama LLM/serviço).
+        std::env::remove_var("BEAGLE_TRIAD_SMT_CHECK");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let out = solver_claim_consistency("dose >= 6 e dose <= 3", &ctx, "t").await;
+        assert!(out.is_none());
+    }
 
     fn sample_opinion() -> TriadOpinion {
         TriadOpinion {
