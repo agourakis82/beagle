@@ -1578,6 +1578,110 @@ fn theorem_claim_check_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// Gate for the SymbCoT semantic faithfulness check (P2).
+/// Controlled by `BEAGLE_TRIAD_SYMB_VERIFY=1|true|yes|on`. OFF by default.
+/// When off, [`verify_translation_faithfulness`] returns `true` (abstain-safe pass-through).
+fn symb_verify_enabled() -> bool {
+    std::env::var("BEAGLE_TRIAD_SYMB_VERIFY")
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// SymbCoT-style semantic faithfulness verifier (P2).
+///
+/// After the extraction LLM produces a formal artifact and BEFORE trusting the
+/// solver verdict, this does ONE extra cheap LLM call that back-translates the
+/// formal artifact to NL and asks whether it is semantically equivalent to
+/// `source_excerpt`. If NOT equivalent → caller must abstain (drop the finding).
+///
+/// # Honest-by-construction contract
+/// - Gate OFF → returns `true` (pass-through; no LLM call, no latency).
+/// - Any LLM / parse error → returns `true` (do NOT hide real incoherences because
+///   the verifier is down; this layer catches *translator* errors, not solver errors).
+/// - Only an explicit, well-formed `{"equivalent": false}` triggers abstention.
+async fn verify_translation_faithfulness(
+    source_excerpt: &str,
+    formal_nl_description: &str,
+    ctx: &BeagleContext,
+    run_id: &str,
+) -> bool {
+    if !symb_verify_enabled() {
+        return true; // gate OFF: pass-through, zero overhead
+    }
+    let prompt = format!(
+        "You are a semantic faithfulness verifier (SymbCoT-Verifier layer).\n\
+         You are given:\n\
+         (A) SOURCE CLAIM — the original natural-language excerpt from a scientific draft.\n\
+         (B) FORMAL NL DESCRIPTION — a natural-language back-translation of the formal artifact\n\
+             (constraints / causal graph / GUM inputs / propositional hypotheses) that was\n\
+             extracted from (A) and will be handed to a formal solver.\n\
+         \n\
+         Task: judge whether (B) is SEMANTICALLY EQUIVALENT to (A) — i.e., the formal artifact\n\
+         captures the same entities, quantities, relationships, and logical scope that (A) asserts.\n\
+         \n\
+         Rules:\n\
+         - Answer ONLY with a JSON object: {{\"equivalent\": true|false, \"reason\": \"one sentence\"}}\n\
+         - Answer false ONLY if there is a clear, specific semantic mismatch (wrong variable,\n\
+           inverted inequality, missing key entity, wrong causal direction, wrong operator).\n\
+         - Do NOT answer false for minor phrasing differences, abbreviations, or unit normalization.\n\
+         - If unsure, answer true (benefit of the doubt).\n\
+         \n\
+         === SOURCE CLAIM ===\n\
+         {}\n\
+         \n\
+         === FORMAL NL DESCRIPTION ===\n\
+         {}",
+        source_excerpt, formal_nl_description,
+    );
+    let meta = RequestMeta::new(
+        false,
+        false,
+        false,
+        prompt.chars().count() / 4,
+        false,
+        false,
+        false,
+    );
+    let (text, _) = match call_llm_extraction(ctx, run_id, &prompt, meta).await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, run_id, "verify_translation_faithfulness: LLM call failed; allowing finding (pass)");
+            return true;
+        }
+    };
+    let parsed = match first_json_object(&text)
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+    {
+        Some(v) => v,
+        None => {
+            warn!(
+                run_id,
+                "verify_translation_faithfulness: JSON parse failed; allowing finding (pass)"
+            );
+            return true;
+        }
+    };
+    match parsed.get("equivalent").and_then(|v| v.as_bool()) {
+        Some(false) => {
+            let reason = parsed
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("no reason given");
+            warn!(
+                run_id,
+                reason, "verify_translation_faithfulness: NOT equivalent — abstaining from finding"
+            );
+            false
+        }
+        _ => true, // true, null, missing, or ambiguity → pass
+    }
+}
+
 /// Extrai o primeiro objeto JSON balanceado de um texto (o LLM costuma cercar com prosa).
 fn first_json_object(s: &str) -> Option<String> {
     let start = s.find('{')?;
@@ -1790,6 +1894,34 @@ async fn solver_claim_consistency_traced(
             run_id: run_id.to_string(),
         });
         return None; // precisa de >=2 claims não-redundantes pra haver contradição
+    }
+
+    // P2: SymbCoT faithfulness check — back-translate the constraints to NL and
+    // ask the LLM if it matches the source. Mismatch → abstain (gate OFF = pass).
+    let formal_nl_description = {
+        let lines: Vec<String> = constraints
+            .iter()
+            .map(|c| {
+                c.label
+                    .clone()
+                    .unwrap_or_else(|| format!("Σ{:?}·x <= {}", c.coeffs, c.bound))
+            })
+            .collect();
+        format!(
+            "The following linear integer constraints were extracted from the claim: {}",
+            lines.join("; ")
+        )
+    };
+    let source_excerpt: String = draft.chars().take(800).collect();
+    if !verify_translation_faithfulness(&source_excerpt, &formal_nl_description, ctx, run_id).await
+    {
+        registry.push(VerdictRecord {
+            verb: "smt.check",
+            input_sha256: String::new(),
+            result: "extraction-empty".to_string(),
+            run_id: run_id.to_string(),
+        });
+        return None;
     }
 
     // Fingerprint o JSON exato que será POSTado ao solver.
@@ -2032,6 +2164,51 @@ async fn causal_claim_check_traced(
         }
     };
     let (x, y, z) = (req.x, req.y, req.z.clone());
+
+    // P2: SymbCoT faithfulness check on the extracted DAG. Mismatch → abstain (gate OFF = pass).
+    {
+        let x_name_pre = node_names
+            .get(x)
+            .cloned()
+            .unwrap_or_else(|| format!("node{x}"));
+        let y_name_pre = node_names
+            .get(y)
+            .cloned()
+            .unwrap_or_else(|| format!("node{y}"));
+        let cond_pre = z
+            .iter()
+            .map(|&zi| {
+                node_names
+                    .get(zi)
+                    .cloned()
+                    .unwrap_or_else(|| format!("node{zi}"))
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let formal_nl_description = format!(
+            "A directed acyclic graph with nodes [{}] and {} directed edge(s) was extracted. \
+             The query asks whether '{}' and '{}' are d-separated given conditioning set {{{}}}. \
+             The draft claims they have a causal/dependency relation: '{}'",
+            node_names.join(", "),
+            edges_len,
+            x_name_pre,
+            y_name_pre,
+            cond_pre,
+            claim,
+        );
+        let source_excerpt: String = draft.chars().take(800).collect();
+        if !verify_translation_faithfulness(&source_excerpt, &formal_nl_description, ctx, run_id)
+            .await
+        {
+            registry.push(VerdictRecord {
+                verb: "causal.dsep",
+                input_sha256: String::new(),
+                result: "validation-rejected".to_string(),
+                run_id: run_id.to_string(),
+            });
+            return None;
+        }
+    }
 
     let artifact = serde_json::to_string(&req).unwrap_or_default();
     let sha = artifact_sha256(&artifact);
@@ -2300,6 +2477,28 @@ async fn gum_claim_check_traced(
                 return None;
             }
         };
+
+    // P2: SymbCoT faithfulness check on the extracted GUM artifact. Mismatch → abstain.
+    {
+        let formal_nl_description = format!(
+            "The derived quantity '{}' is computed as '{}' {} '{}' using the {} operation. \
+             Input '{}' has value {:.4} ± {:.4}; input '{}' has value {:.4} ± {:.4}. \
+             The draft declares uncertainty ±{:.4} for the derived quantity.",
+            y_label, a_lbl, op, b_lbl, op, a_lbl, a_val, a_u, b_lbl, b_val, b_u, claimed_u,
+        );
+        let source_excerpt: String = draft.chars().take(800).collect();
+        if !verify_translation_faithfulness(&source_excerpt, &formal_nl_description, ctx, run_id)
+            .await
+        {
+            registry.push(VerdictRecord {
+                verb: "gum.propagate",
+                input_sha256: String::new(),
+                result: "validation-rejected".to_string(),
+                run_id: run_id.to_string(),
+            });
+            return None;
+        }
+    }
 
     let req = inference_client::GumRequest {
         inputs: vec![
@@ -2573,6 +2772,30 @@ async fn theorem_claim_check_traced(
     };
 
     let n_hyps = hypotheses.len();
+
+    // P2: SymbCoT faithfulness check on the extracted propositional deduction.
+    {
+        let formal_nl_description = format!(
+            "A propositional deduction was extracted with atoms [{}], {} hypothesis/hypotheses, \
+             and a goal. The draft presents this as a sufficient logical deduction: '{}'",
+            atoms.join(", "),
+            n_hyps,
+            argument,
+        );
+        let source_excerpt: String = draft.chars().take(800).collect();
+        if !verify_translation_faithfulness(&source_excerpt, &formal_nl_description, ctx, run_id)
+            .await
+        {
+            registry.push(VerdictRecord {
+                verb: "theorem.prove",
+                input_sha256: String::new(),
+                result: "validation-rejected".to_string(),
+                run_id: run_id.to_string(),
+            });
+            return None;
+        }
+    }
+
     let req = inference_client::TheoremRequest {
         atoms: atoms.clone(),
         hypotheses,
@@ -3084,6 +3307,47 @@ mod tests {
         let (out, _summary) = reg.redact_unattested(spurious);
         assert!(out.contains("[REDACTED"));
         assert!(out.contains("Integrity check FAILED"));
+    }
+
+    // ===== P2: SymbCoT semantic faithfulness verifier =====
+
+    #[tokio::test]
+    async fn symb_verify_off_by_default_passes_through() {
+        std::env::remove_var("BEAGLE_TRIAD_SYMB_VERIFY");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let result =
+            verify_translation_faithfulness("claim text", "formal description", &ctx, "t").await;
+        assert!(result, "gate OFF must be a pass-through (true)");
+    }
+
+    #[tokio::test]
+    async fn symb_verify_on_llm_error_passes_through() {
+        // Gate ON + mock LLM (no real 'equivalent:false') → must still pass (true),
+        // honest: a verifier outage must not silently suppress real findings.
+        std::env::set_var("BEAGLE_TRIAD_SYMB_VERIFY", "1");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let result = verify_translation_faithfulness(
+            "dose >= 80 mg and dose <= 40 mg",
+            "constraints: dose >= 80; dose <= 40",
+            &ctx,
+            "t",
+        )
+        .await;
+        std::env::remove_var("BEAGLE_TRIAD_SYMB_VERIFY");
+        assert!(result, "no explicit equivalent:false → pass");
+    }
+
+    #[test]
+    fn symb_verify_gate_parse() {
+        for val in ["1", "true", "yes", "on", "TRUE", "YES", "ON"] {
+            std::env::set_var("BEAGLE_TRIAD_SYMB_VERIFY", val);
+            assert!(symb_verify_enabled(), "expected truthy for {val}");
+        }
+        for val in ["0", "false", "no", "off", ""] {
+            std::env::set_var("BEAGLE_TRIAD_SYMB_VERIFY", val);
+            assert!(!symb_verify_enabled(), "expected falsy for {val}");
+        }
+        std::env::remove_var("BEAGLE_TRIAD_SYMB_VERIFY");
     }
 
     // ===== P3: self-consistency policies + run_extraction_with_consistency =====
