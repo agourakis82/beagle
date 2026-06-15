@@ -856,8 +856,7 @@ async fn call_llm_with_stats_triad(
     // max_tokens AMPLO: modelos de reasoning gastam tokens em `reasoning_content` ANTES do
     // `content`; com max_tokens baixo (2048) o content sai vazio/truncado (Juiz=0 chars).
     let req = beagle_llm::LlmRequest {
-        model: std::env::var("BEAGLE_TRIAD_AGENT_MODEL")
-            .unwrap_or_else(|_| "glm-5.1".to_string()),
+        model: std::env::var("BEAGLE_TRIAD_AGENT_MODEL").unwrap_or_else(|_| "glm-5.1".to_string()),
         messages: vec![beagle_llm::ChatMessage::user(prompt)],
         temperature: Some(0.7),
         max_tokens: Some(8000),
@@ -1148,6 +1147,20 @@ fn dsep_claim_check_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// Gate para verificação formal de propagação de incerteza via Sounio `gum.propagate`.
+/// Mesmo estilo de parse que [`smt_claim_check_enabled`]: aceita `1`, `true`, `yes`, `on`
+/// (case-insensitive). OFF por padrão.
+fn gum_claim_check_enabled() -> bool {
+    std::env::var("BEAGLE_TRIAD_GUM_CHECK")
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 /// Extrai o primeiro objeto JSON balanceado de um texto (o LLM costuma cercar com prosa).
 fn first_json_object(s: &str) -> Option<String> {
     let start = s.find('{')?;
@@ -1189,17 +1202,10 @@ fn dedup_constraints(
     //   (b) existe OUTRA constraint cujos coeffs são a negação exata do twin E cujo bound = -twin.bound.
     // Só descartamos o twin marcado — a constraint "original" (sem marcador ou com bound diferente)
     // permanece, preservando contradições reais.
-    let originals: Vec<(Vec<i64>, i64)> = cs
-        .iter()
-        .map(|c| (c.coeffs.clone(), c.bound))
-        .collect();
+    let originals: Vec<(Vec<i64>, i64)> = cs.iter().map(|c| (c.coeffs.clone(), c.bound)).collect();
 
     cs.retain(|c| {
-        let lbl = c
-            .label
-            .as_deref()
-            .unwrap_or("")
-            .to_ascii_lowercase();
+        let lbl = c.label.as_deref().unwrap_or("").to_ascii_lowercase();
         let is_fabricated_label =
             lbl.contains("limite inferior") || lbl.contains("limite superior");
         if !is_fabricated_label {
@@ -1272,9 +1278,7 @@ async fn solver_claim_consistency(
         false,
         false,
     );
-    let (text, _tier) = call_llm_extraction(ctx, run_id, &prompt, meta)
-        .await
-        .ok()?;
+    let (text, _tier) = call_llm_extraction(ctx, run_id, &prompt, meta).await.ok()?;
 
     let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
     let cons_json = parsed.get("constraints")?.as_array()?;
@@ -1357,11 +1361,7 @@ async fn solver_claim_consistency(
 /// falível. O grafo extraído raramente captura todas as arestas reais do draft. O achado
 /// reportado refere-se APENAS ao grafo extraído — não ao sistema causal real do autor.
 /// ARGOS deve tratar este sinal como fraco/indicativo, nunca como prova definitiva.
-async fn causal_claim_check(
-    draft: &str,
-    ctx: &BeagleContext,
-    run_id: &str,
-) -> Option<String> {
+async fn causal_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Option<String> {
     if !dsep_claim_check_enabled() {
         return None;
     }
@@ -1388,7 +1388,15 @@ async fn causal_claim_check(
          === TEXTO ===\n{}",
         draft_excerpt
     );
-    let meta = RequestMeta::new(false, false, false, prompt.chars().count() / 4, false, false, false);
+    let meta = RequestMeta::new(
+        false,
+        false,
+        false,
+        prompt.chars().count() / 4,
+        false,
+        false,
+        false,
+    );
     let (text, _tier) = call_llm_extraction(ctx, run_id, &prompt, meta).await.ok()?;
 
     let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
@@ -1398,7 +1406,12 @@ async fn causal_claim_check(
     let edges_raw = parsed.get("edges")?.as_array()?;
     let x = parsed.get("x")?.as_u64()? as usize;
     let y = parsed.get("y")?.as_u64()? as usize;
-    let claim = parsed.get("claim")?.as_str().unwrap_or("").trim().to_string();
+    let claim = parsed
+        .get("claim")?
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_string();
 
     // Empty extraction → nothing to check (honest: no finding).
     if nodes.is_empty() || claim.is_empty() {
@@ -1411,7 +1424,10 @@ async fn causal_claim_check(
     }
 
     let z_arr = parsed.get("z")?.as_array()?;
-    let z: Vec<usize> = z_arr.iter().filter_map(|v| v.as_u64().map(|u| u as usize)).collect();
+    let z: Vec<usize> = z_arr
+        .iter()
+        .filter_map(|v| v.as_u64().map(|u| u as usize))
+        .collect();
     if z.iter().any(|&zi| zi >= n) {
         return None;
     }
@@ -1419,10 +1435,14 @@ async fn causal_claim_check(
     let mut edges: Vec<[usize; 2]> = Vec::new();
     for e in edges_raw {
         let pair = e.as_array()?;
-        if pair.len() != 2 { return None; }
+        if pair.len() != 2 {
+            return None;
+        }
         let a = pair[0].as_u64()? as usize;
         let b = pair[1].as_u64()? as usize;
-        if a >= n || b >= n { return None; }
+        if a >= n || b >= n {
+            return None;
+        }
         edges.push([a, b]);
     }
     // Need at least one edge connecting x→...→y path candidates.
@@ -1435,16 +1455,34 @@ async fn causal_claim_check(
         .map(|v| v.as_str().unwrap_or("?").to_string())
         .collect();
 
-    let req = inference_client::DsepRequest { n, edges, x, y, z: z.clone() };
+    let req = inference_client::DsepRequest {
+        n,
+        edges,
+        x,
+        y,
+        z: z.clone(),
+    };
     let base = inference_client::inference_base_url();
     match inference_client::causal_dsep(&base, req).await {
         inference_client::DsepVerdict::Separated => {
             // The draft CLAIMS dependence between x and y, but the solver proves d-separation
             // given z — structural incoherence in the extracted DAG.
-            let x_name = node_names.get(x).cloned().unwrap_or_else(|| format!("node{x}"));
-            let y_name = node_names.get(y).cloned().unwrap_or_else(|| format!("node{y}"));
-            let z_names: Vec<String> = z.iter()
-                .map(|&zi| node_names.get(zi).cloned().unwrap_or_else(|| format!("node{zi}")))
+            let x_name = node_names
+                .get(x)
+                .cloned()
+                .unwrap_or_else(|| format!("node{x}"));
+            let y_name = node_names
+                .get(y)
+                .cloned()
+                .unwrap_or_else(|| format!("node{y}"));
+            let z_names: Vec<String> = z
+                .iter()
+                .map(|&zi| {
+                    node_names
+                        .get(zi)
+                        .cloned()
+                        .unwrap_or_else(|| format!("node{zi}"))
+                })
                 .collect();
             let cond = if z_names.is_empty() {
                 "∅ (sem condicionamento)".to_string()
@@ -1472,7 +1510,9 @@ async fn causal_claim_check(
                 cond,
                 claim,
                 edges_raw.len(),
-                node_names.iter().enumerate()
+                node_names
+                    .iter()
+                    .enumerate()
                     .map(|(i, name)| format!("{i}:{name}"))
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -1481,6 +1521,177 @@ async fn causal_claim_check(
         // Connected or Unknown → no finding (honest: absence of evidence ≠ evidence of absence).
         _ => None,
     }
+}
+
+/// Verificação formal de propagação de incerteza via Sounio `gum.propagate`.
+///
+/// Fluxo:
+/// 1. O LLM (deepseek-chat, temp 0) extrai do draft, SE E SOMENTE SE houver, uma grandeza
+///    DERIVADA `Y` calculada a partir de EXATAMENTE dois insumos medidos `A` e `B` por uma
+///    operação binária (`add`/`sub`/`mul`/`div`), MAIS a incerteza DECLARADA pelo draft para `Y`.
+/// 2. O JSON é validado estritamente (números finitos, incertezas ≥ 0, incerteza declarada > 0,
+///    operação reconhecida) — qualquer ambiguidade → `None`.
+/// 3. O verbo `gum.propagate` (Sounio, GUM/JCGM 100) propaga `u(A)` e `u(B)` pela operação e
+///    devolve a incerteza-padrão combinada `u_c`.
+/// 4. Retorna um bloco markdown APENAS quando a incerteza DECLARADA é MATERIALMENTE MENOR que a
+///    incerteza-padrão combinada propagada (subdeclaração — o erro científico sério). Tratamos
+///    `±` declarado da forma MAIS GENEROSA possível (como 1σ): se mesmo assim ele é menor que
+///    `u_c`, a declaração é insustentável sob os insumos extraídos. Sobre-declaração, SAT, e
+///    qualquer falha → `None` (honesto: ausência de evidência ≠ evidência de ausência).
+///
+/// **Honestidade (truth-mode):** a extração dos números e da relação funcional é falível; a GUM
+/// assume insumos NÃO-correlacionados e a operação extraída. O achado prova apenas que, SOB os
+/// insumos e a operação extraídos, a incerteza declarada é estreita demais — não que o draft
+/// esteja errado. Sinal fraco/indicativo para ARGOS.
+async fn gum_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Option<String> {
+    if !gum_claim_check_enabled() {
+        return None;
+    }
+    let draft_excerpt: String = draft.chars().take(6000).collect();
+    let prompt = format!(
+        "Extraia DO TEXTO abaixo, SE E SOMENTE SE houver uma grandeza DERIVADA calculada a partir \
+         de EXATAMENTE DOIS insumos medidos por UMA operação aritmética binária, E o texto DECLARAR \
+         explicitamente uma incerteza para essa grandeza derivada.\n\
+         PASSO 1 — ACHE A GRANDEZA DERIVADA Y: ela é obtida de A e B por uma de: soma (add), \
+         subtração (sub), multiplicação (mul) ou divisão (div). Ex.: clearance = dose / AUC (div); \
+         exposição total = Cmax + Cmin (add).\n\
+         PASSO 2 — EXTRAIA OS INSUMOS: para A e B pegue o VALOR e a INCERTEZA-PADRÃO (o '±', desvio-\
+         padrão, ou erro-padrão) LITERALMENTE declarados no texto. Se o texto não declara a incerteza \
+         de um insumo, NÃO invente — responda found=false.\n\
+         PASSO 3 — EXTRAIA A INCERTEZA DECLARADA DE Y: o valor do '±' (ou meia-largura de IC, ou \
+         desvio-padrão) que o texto atribui a Y. Se Y não tem incerteza declarada, found=false.\n\
+         Responda SOMENTE com JSON, sem prosa:\n\
+         {{\"found\":true|false,\"op\":\"add|sub|mul|div\",\
+         \"a\":{{\"value\":num,\"u\":num,\"label\":\"texto curto\"}},\
+         \"b\":{{\"value\":num,\"u\":num,\"label\":\"texto curto\"}},\
+         \"y_label\":\"texto curto\",\"claimed_value\":num,\"claimed_uncertainty\":num}}\n\
+         Se NÃO houver uma grandeza derivada de DOIS insumos COM incertezas declaradas E uma \
+         incerteza declarada para a derivada, responda {{\"found\":false}}. NÃO invente; só o que \
+         está LITERALMENTE no texto.\n\n=== TEXTO ===\n{}",
+        draft_excerpt
+    );
+    let meta = RequestMeta::new(
+        false,
+        false,
+        false,
+        prompt.chars().count() / 4,
+        false,
+        false,
+        false,
+    );
+    let (text, _tier) = call_llm_extraction(ctx, run_id, &prompt, meta).await.ok()?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
+    if !parsed
+        .get("found")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let op = parsed.get("op")?.as_str()?.trim().to_ascii_lowercase();
+    if !matches!(op.as_str(), "add" | "sub" | "mul" | "div") {
+        return None;
+    }
+    // Extrai um {value,u,label} validando finitude e u >= 0.
+    let get_input = |key: &str| -> Option<(f64, f64, String)> {
+        let o = parsed.get(key)?;
+        let value = o.get("value")?.as_f64()?;
+        let u = o.get("u")?.as_f64()?;
+        if !value.is_finite() || !u.is_finite() || u < 0.0 {
+            return None;
+        }
+        let label = o
+            .get("label")
+            .and_then(|v| v.as_str())
+            .unwrap_or(key)
+            .to_string();
+        Some((value, u, label))
+    };
+    let (a_val, a_u, a_lbl) = get_input("a")?;
+    let (b_val, b_u, b_lbl) = get_input("b")?;
+
+    let claimed_u = parsed.get("claimed_uncertainty")?.as_f64()?;
+    if !claimed_u.is_finite() || claimed_u <= 0.0 {
+        return None; // sem incerteza declarada positiva não há o que comparar
+    }
+    let y_label = parsed
+        .get("y_label")
+        .and_then(|v| v.as_str())
+        .unwrap_or("grandeza derivada")
+        .to_string();
+
+    // div por zero (ou perto) na operação ⇒ propagação degenera; abstém-se.
+    if op == "div" && b_val.abs() < f64::EPSILON {
+        return None;
+    }
+
+    let req = inference_client::GumRequest {
+        inputs: vec![
+            inference_client::GumInput {
+                value: a_val,
+                u: a_u,
+                label: Some(a_lbl.clone()),
+            },
+            inference_client::GumInput {
+                value: b_val,
+                u: b_u,
+                label: Some(b_lbl.clone()),
+            },
+        ],
+        op: op.clone(),
+    };
+    let base = inference_client::inference_base_url();
+    let propagated = inference_client::gum_propagate(&base, req).await?;
+    let u_c = propagated.combined_std_uncertainty;
+    if !u_c.is_finite() || u_c <= 0.0 {
+        return None;
+    }
+
+    // Subdeclaração: a incerteza declarada (lida da forma MAIS generosa, como 1σ) é
+    // materialmente menor que a incerteza-padrão combinada propagada. Margem conservadora
+    // de 20% para absorver ruído de extração — só dispara em subdeclaração CLARA.
+    if claimed_u >= u_c * 0.8 {
+        return None;
+    }
+    let pct_tighter = ((u_c - claimed_u) / u_c * 100.0).round() as i64;
+
+    info!(
+        u_c,
+        claimed_u,
+        op = %op,
+        "gum_claim_check: incerteza declarada subdeclarada vs propagação GUM"
+    );
+    Some(format!(
+        "## ⚠️ Incerteza subdeclarada — propagação GUM (Sounio gum.propagate)\n\n\
+        O verificador formal `gum.propagate` (Sounio, GUM/JCGM 100) propagou a incerteza dos \
+        insumos declarados pelo draft através da operação `{op}` e obteve, para **{y}**:\n\n\
+        - incerteza-padrão combinada **u_c = {u_c:.4}** (U₉₅ = {u95:.4}, k ≈ {k:.2}; IC95% [{lo:.4}, {hi:.4}]).\n\n\
+        O draft, porém, declara uma incerteza de **±{claimed:.4}** para a mesma grandeza — \
+        **{pct}% mais estreita** que a incerteza-padrão combinada propagada. Mesmo na leitura mais \
+        generosa (tratando o `±` declarado como 1σ), a incerteza declarada é menor que a propagação \
+        GUM permite a partir dos insumos declarados (`{a_lbl}`: {a_val}±{a_u}; `{b_lbl}`: {b_val}±{b_u}).\n\n\
+        > **Honestidade (truth-mode):** a EXTRAÇÃO dos números e da relação funcional é feita por LLM \
+        e é falível; a GUM aqui assume insumos NÃO-correlacionados e a operação `{op}` extraída. \
+        O solver provou apenas que, SOB os insumos e a operação extraídos, a incerteza declarada é \
+        menor que a propagada — confirme contra o texto (convenção do `±`, correlação dos insumos, \
+        relação funcional real) antes de afirmar que o draft está errado.",
+        op = op,
+        y = y_label,
+        u_c = u_c,
+        u95 = propagated.expanded_uncertainty_95,
+        k = propagated.coverage_factor_k95,
+        lo = propagated.interval_95[0],
+        hi = propagated.interval_95[1],
+        claimed = claimed_u,
+        pct = pct_tighter,
+        a_lbl = a_lbl,
+        a_val = a_val,
+        a_u = a_u,
+        b_lbl = b_lbl,
+        b_val = b_val,
+        b_u = b_u,
+    ))
 }
 
 pub async fn run_argos(
@@ -1537,12 +1748,31 @@ pub async fn run_argos(
     // dúvida, erro, grafo insuficiente, ou d-conexão (status quo).
     let causal_finding = causal_claim_check(original_draft, ctx, run_id).await;
     if let Some(ref f) = causal_finding {
-        prompt.push_str("\n\n=== VERIFICAÇÃO FORMAL CAUSAL (Sounio causal.dsep — estrutural) ===\n");
+        prompt
+            .push_str("\n\n=== VERIFICAÇÃO FORMAL CAUSAL (Sounio causal.dsep — estrutural) ===\n");
         prompt.push_str(f);
         prompt.push_str(
             "\nEste achado é baseado no grafo causal extraído do draft (pode estar incompleto). \
              Trate como hipótese a investigar: o draft pode ter omitido arestas que justificam \
              a relação afirmada. A prova de d-separação é formal apenas para o DAG extraído.\n",
+        );
+    }
+
+    // Terceira verificação formal: propagação de incerteza via Sounio gum.propagate (gated).
+    // Propaga a incerteza dos insumos declarados pela operação extraída e dispara só quando a
+    // incerteza DECLARADA para a grandeza derivada é materialmente MENOR que a propagada
+    // (subdeclaração). Sinal indicativo: a propagação é formal, mas os números/operação
+    // extraídos são falíveis e a GUM assume insumos não-correlacionados. None em caso de dúvida.
+    let gum_finding = gum_claim_check(original_draft, ctx, run_id).await;
+    if let Some(ref f) = gum_finding {
+        prompt
+            .push_str("\n\n=== VERIFICAÇÃO FORMAL DE INCERTEZA (Sounio gum.propagate — GUM) ===\n");
+        prompt.push_str(f);
+        prompt.push_str(
+            "\nEste achado compara a incerteza DECLARADA no draft com a propagação GUM dos insumos \
+             extraídos. Trate como hipótese: confirme a convenção do `±` (1σ vs IC95%), se os \
+             insumos são correlacionados, e se a relação funcional extraída é a real, antes de \
+             concluir que a incerteza declarada está subdeclarada.\n",
         );
     }
 
@@ -1895,15 +2125,23 @@ mod tests {
         assert!(out.is_none());
     }
 
+    #[tokio::test]
+    async fn gum_check_is_off_by_default() {
+        // Sem BEAGLE_TRIAD_GUM_CHECK, a verificação não roda (nem chama LLM/serviço).
+        std::env::remove_var("BEAGLE_TRIAD_GUM_CHECK");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let out = gum_claim_check("CL = dose/AUC = 5.0 ± 0.05", &ctx, "t").await;
+        assert!(out.is_none());
+    }
+
     #[test]
     fn dedup_constraints_removes_exact_duplicates() {
-        let make = |coeffs: Vec<i64>, bound: i64, label: Option<&str>| {
-            inference_client::LiaConstraint {
+        let make =
+            |coeffs: Vec<i64>, bound: i64, label: Option<&str>| inference_client::LiaConstraint {
                 coeffs,
                 bound,
                 label: label.map(|s| s.to_string()),
-            }
-        };
+            };
         let cs = vec![
             make(vec![-1], -80, Some("dose >= 80")),
             make(vec![-1], -80, Some("dose >= 80")), // exact dup
@@ -1915,13 +2153,12 @@ mod tests {
 
     #[test]
     fn dedup_constraints_drops_fabricated_twins() {
-        let make = |coeffs: Vec<i64>, bound: i64, label: Option<&str>| {
-            inference_client::LiaConstraint {
+        let make =
+            |coeffs: Vec<i64>, bound: i64, label: Option<&str>| inference_client::LiaConstraint {
                 coeffs,
                 bound,
                 label: label.map(|s| s.to_string()),
-            }
-        };
+            };
         // Real constraint: x >= 80 (coeffs=[-1], bound=-80)
         // Fabricated twin "limite inferior": coeffs=[1], bound=80 (negation of [-1],-80)
         let cs = vec![
@@ -1933,7 +2170,9 @@ mod tests {
         // The twin labeled "limite inferior" should be dropped; the other two remain.
         assert_eq!(deduped.len(), 2);
         assert!(deduped.iter().all(|c| {
-            c.label.as_deref().map_or(true, |l| !l.contains("limite inferior"))
+            c.label
+                .as_deref()
+                .map_or(true, |l| !l.contains("limite inferior"))
         }));
     }
 }

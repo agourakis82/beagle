@@ -187,6 +187,93 @@ pub async fn causal_dsep(base_url: &str, req: DsepRequest) -> DsepVerdict {
     }
 }
 
+// ─────────────────────────── gum.propagate ────────────────────────────────
+
+/// One measured input to a GUM propagation: `value ± u`, where `u` is the
+/// standard (1σ) uncertainty of the input.
+#[derive(Debug, Clone, Serialize)]
+pub struct GumInput {
+    pub value: f64,
+    pub u: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// Request to `/v1/gum/propagate`: exactly two inputs combined by `op`
+/// (`add` | `sub` | `mul` | `div`). The v1 verb is the binary form only.
+#[derive(Debug, Clone, Serialize)]
+pub struct GumRequest {
+    pub inputs: Vec<GumInput>,
+    pub op: String,
+}
+
+/// Response from `/v1/gum/propagate`. Extra service fields (verb, op, eff_dof,
+/// engine, …) are ignored by serde.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GumResponse {
+    /// Propagated point value of the derived quantity.
+    pub value: f64,
+    /// Combined standard (1σ) uncertainty u_c (GUM JCGM 100).
+    pub combined_std_uncertainty: f64,
+    /// Expanded uncertainty at 95% (U_95 = k·u_c).
+    pub expanded_uncertainty_95: f64,
+    /// Coverage factor k for the 95% interval.
+    pub coverage_factor_k95: f64,
+    /// Relative uncertainty (%) of the derived quantity.
+    pub rel_uncertainty_pct: f64,
+    /// 95% coverage interval `[lo, hi]`.
+    pub interval_95: [f64; 2],
+}
+
+/// POST `{base_url}/v1/gum/propagate` and return the propagated uncertainty.
+///
+/// Honest by construction: a wrong input arity, or ANY error
+/// (build/connect/timeout/non-2xx/parse), yields `None` — treated as "Unknown",
+/// never a fabricated number. The result is a *weak corroborating signal*: it
+/// holds only for the inputs and operation handed to it (typically LLM-extracted,
+/// fallible) and assumes uncorrelated inputs.
+pub async fn gum_propagate(base_url: &str, req: GumRequest) -> Option<GumResponse> {
+    if req.inputs.len() != 2 {
+        return None; // v1 verb is the binary form only
+    }
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(error = %e, "gum_propagate: client build failed");
+            return None;
+        }
+    };
+    let url = format!("{}/v1/gum/propagate", base_url.trim_end_matches('/'));
+    let resp = match client.post(&url).json(&req).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, %url, "gum_propagate: request failed; None");
+            return None;
+        }
+    };
+    if !resp.status().is_success() {
+        warn!(status = %resp.status(), "gum_propagate: non-success; None");
+        return None;
+    }
+    match resp.json::<GumResponse>().await {
+        Ok(body) => {
+            info!(
+                value = body.value,
+                u_c = body.combined_std_uncertainty,
+                "gum_propagate: propagated combined standard uncertainty"
+            );
+            Some(body)
+        }
+        Err(e) => {
+            warn!(error = %e, "gum_propagate: parse failed; None");
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,7 +310,51 @@ mod tests {
 
     #[tokio::test]
     async fn causal_dsep_unreachable_is_unknown() {
-        let req = DsepRequest { n: 3, edges: vec![[0, 1], [1, 2]], x: 0, y: 2, z: vec![] };
-        assert_eq!(causal_dsep("http://127.0.0.1:1", req).await, DsepVerdict::Unknown);
+        let req = DsepRequest {
+            n: 3,
+            edges: vec![[0, 1], [1, 2]],
+            x: 0,
+            y: 2,
+            z: vec![],
+        };
+        assert_eq!(
+            causal_dsep("http://127.0.0.1:1", req).await,
+            DsepVerdict::Unknown
+        );
+    }
+
+    #[tokio::test]
+    async fn gum_propagate_unreachable_is_none() {
+        // Honest fallback: a dead endpoint yields None (Unknown), never a fabricated number.
+        let req = GumRequest {
+            inputs: vec![
+                GumInput {
+                    value: 100.0,
+                    u: 2.0,
+                    label: None,
+                },
+                GumInput {
+                    value: 20.0,
+                    u: 0.8,
+                    label: None,
+                },
+            ],
+            op: "div".to_string(),
+        };
+        assert!(gum_propagate("http://127.0.0.1:1", req).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn gum_propagate_wrong_arity_is_none() {
+        // The v1 verb is binary-only: anything other than two inputs is rejected locally.
+        let req = GumRequest {
+            inputs: vec![GumInput {
+                value: 1.0,
+                u: 0.1,
+                label: None,
+            }],
+            op: "add".to_string(),
+        };
+        assert!(gum_propagate("http://127.0.0.1:1", req).await.is_none());
     }
 }
