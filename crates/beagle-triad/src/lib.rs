@@ -1861,6 +1861,16 @@ pub async fn run_argos(
         - Confusão entre metáfora poética e mecanismo científico concreto\n\
         - Ausência de desenho empírico razoável (onde há espaço para experimentos/predictions testáveis)\n\
         - Problemas de coerência lógica e ambiguidade conceitual\n\n\
+        REGRA INVIOLÁVEL — VERIFICAÇÕES FORMAIS POR SOLVER:\n\
+        Você só pode citar um resultado de solver formal (Sounio `smt.check`, `causal.dsep`, \
+        `gum.propagate`, `theorem.prove`, ou qualquer verificador) se ele aparecer LITERALMENTE \
+        numa seção `=== VERIFICAÇÃO FORMAL ... ===` fornecida abaixo. NUNCA afirme que um solver \
+        \"rodou\", \"provou\", \"retornou\" (UNSAT/SAT/UNKNOWN/PROVED/d-separação/etc.) ou foi \
+        \"validado por\" se NÃO houver o bloco correspondente no input. NÃO invente, NÃO infira, \
+        NÃO presuma qual seria o veredito, e NÃO nomeie um verbo de solver que não foi fornecido. \
+        Se NENHUMA seção de verificação formal estiver presente, NÃO mencione solvers — faça sua \
+        crítica como raciocínio próprio, explicitamente SEM atribuí-la a um verificador. \
+        Atribuir a um solver um resultado que não foi fornecido é uma FALHA GRAVE de honestidade.\n\n\
         Você recebeu:\n\
         - O DRAFT original de um artigo\n\
         - Um DRAFT reescrito por HERMES\n\
