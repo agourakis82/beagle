@@ -205,21 +205,49 @@ impl BrainConnector {
 
     /// Should escalate to deeper reasoning?
     pub fn should_escalate(&self) -> bool {
-        self.state.salience >= self.config.salience_threshold
-            || matches!(
-                self.state.awareness_level,
-                AwarenessLevel::Deliberative | AwarenessLevel::Focused
-            )
+        escalation_decision(&self.state, self.config.salience_threshold)
     }
 
     /// Get recommended LLM tier
     pub fn recommended_tier(&self) -> &'static str {
-        match self.state.awareness_level {
-            AwarenessLevel::Automatic | AwarenessLevel::Normal => "tier1",
-            AwarenessLevel::Focused | AwarenessLevel::Flow | AwarenessLevel::Deliberative => {
-                "tier2"
-            }
-        }
+        recommended_tier_for_state(&self.state)
+    }
+}
+
+// ============================================================================
+// Single-source escalation helpers (public, used by the orchestrator)
+// ============================================================================
+
+/// **Single source of truth** for the escalation decision.
+///
+/// Takes a `ConsciousnessState` snapshot (produced by `BrainConnector`) and
+/// the configured salience threshold. Returns `true` when the orchestrator
+/// should route to a higher-quality LLM tier.
+///
+/// This is the ONLY function that may make this decision inside
+/// `beagle-exocortex`.  The orchestrator must call it — never compare raw
+/// urgency values against magic constants — so that the provenance of every
+/// escalation is traceable back to the `BrainConnector` heuristic.
+///
+/// Note: this is a *heuristic*, not a solver-verified Φ value.  The real IIT
+/// calculator lives in `beagle-transcend::IIT4Calculator` and is not on the
+/// live path.
+pub fn escalation_decision(state: &ConsciousnessState, salience_threshold: f32) -> bool {
+    state.salience >= salience_threshold
+        || matches!(
+            state.awareness_level,
+            AwarenessLevel::Deliberative | AwarenessLevel::Focused
+        )
+}
+
+/// Map an awareness level to an LLM-tier label.
+///
+/// Companion to [`escalation_decision`]; call this after deciding to escalate
+/// so that the tier mapping also has a single, documented home.
+pub fn recommended_tier_for_state(state: &ConsciousnessState) -> &'static str {
+    match state.awareness_level {
+        AwarenessLevel::Automatic | AwarenessLevel::Normal => "tier1",
+        AwarenessLevel::Focused | AwarenessLevel::Flow | AwarenessLevel::Deliberative => "tier2",
     }
 }
 
@@ -248,5 +276,64 @@ mod tests {
 
         brain.attend("Test item".to_string());
         assert_eq!(brain.spotlight().len(), 1);
+    }
+
+    /// Verify that `escalation_decision` and `BrainConnector::should_escalate`
+    /// agree — i.e. the free function IS what the connector delegates to.
+    #[test]
+    fn test_escalation_decision_matches_connector() {
+        let config = BrainConnectorConfig::default(); // salience_threshold = 0.5
+        let mut brain = BrainConnector::new(config);
+
+        // Below threshold, low awareness → no escalation
+        brain.update_salience(0.3);
+        let state = brain.get_state();
+        assert_eq!(
+            brain.should_escalate(),
+            escalation_decision(&state, 0.5),
+            "BrainConnector::should_escalate must delegate to escalation_decision"
+        );
+        assert!(!brain.should_escalate());
+
+        // Above threshold → escalate
+        brain.update_salience(0.8);
+        let state = brain.get_state();
+        assert_eq!(
+            brain.should_escalate(),
+            escalation_decision(&state, 0.5),
+            "BrainConnector::should_escalate must delegate to escalation_decision"
+        );
+        assert!(brain.should_escalate());
+
+        // Deliberative level always escalates even at low salience
+        brain.set_awareness_level(AwarenessLevel::Deliberative);
+        // set_awareness_level sets salience to 0.9 per the impl, so also check
+        // the logic directly with a constructed low-salience Deliberative state
+        let low_salience_deliberative = ConsciousnessState {
+            salience: 0.1,
+            awareness_level: AwarenessLevel::Deliberative,
+            ..ConsciousnessState::default()
+        };
+        assert!(
+            escalation_decision(&low_salience_deliberative, 0.5),
+            "Deliberative awareness must escalate regardless of salience"
+        );
+    }
+
+    /// Verify that recommended_tier_for_state agrees with BrainConnector::recommended_tier.
+    #[test]
+    fn test_recommended_tier_matches_connector() {
+        let config = BrainConnectorConfig::default();
+        let mut brain = BrainConnector::new(config);
+
+        brain.set_awareness_level(AwarenessLevel::Normal);
+        let state = brain.get_state();
+        assert_eq!(brain.recommended_tier(), recommended_tier_for_state(&state));
+        assert_eq!(brain.recommended_tier(), "tier1");
+
+        brain.set_awareness_level(AwarenessLevel::Focused);
+        let state = brain.get_state();
+        assert_eq!(brain.recommended_tier(), recommended_tier_for_state(&state));
+        assert_eq!(brain.recommended_tier(), "tier2");
     }
 }
