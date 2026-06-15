@@ -1368,6 +1368,151 @@ pub async fn run_hermes(
     ))
 }
 
+// ============================================================================
+// P3 — Per-domain selective verification via self-consistency
+//
+// PRAGMATIC PROXY, NOT PCFG GRAMMAR-ENTROPY: we run the extraction LLM k times
+// at temp 0 and require a configurable majority to agree on a canonical key
+// before trusting the artifact. Disagreement is the signal that the extraction
+// is ambiguous → abstain (no finding). This catches AMBIGUOUS extractions; it
+// does NOT catch confidently-wrong extractions where all k calls hallucinate the
+// same artifact. The SOTA full solution (PCFG grammar-entropy) is deliberately
+// out of scope. All gates default OFF, so this path is inert by default.
+// ============================================================================
+
+/// Policy settings for one extraction domain. Env-tunable so production can
+/// adjust k/agreement without recompiling.
+#[derive(Debug, Clone, Copy)]
+pub struct ExtractionPolicy {
+    /// Independent extraction calls to run (k-consistency).
+    /// Env: `BEAGLE_TRIAD_{DOMAIN}_K`.
+    pub k: usize,
+    /// Minimum calls that must agree on the same canonical key (≤ k).
+    /// Env: `BEAGLE_TRIAD_{DOMAIN}_AGREE`.
+    pub agree: usize,
+    /// Attach a confidence label to findings from this domain (causal/gum only).
+    pub confidence_label: bool,
+}
+
+/// Outcome of k-consistency extraction.
+#[derive(Debug)]
+pub enum ConsistencyResult<T> {
+    /// A sufficient majority agreed; `votes` is the winning count.
+    Agreed { artifact: T, votes: usize },
+    /// Insufficient agreement across the k runs — abstain.
+    Abstained { k: usize, agree_required: usize },
+}
+
+/// Read an [`ExtractionPolicy`] for a named domain from env. Domain names are
+/// uppercase: `SMT`, `CAUSAL`, `GUM`, `THEOREM`. `agree` is clamped to `1..=k`.
+fn read_policy(
+    domain: &str,
+    default_k: usize,
+    default_agree: usize,
+    confidence_label: bool,
+) -> ExtractionPolicy {
+    let k = std::env::var(format!("BEAGLE_TRIAD_{domain}_K"))
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(default_k)
+        .max(1);
+    let agree = std::env::var(format!("BEAGLE_TRIAD_{domain}_AGREE"))
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(default_agree)
+        .min(k)
+        .max(1);
+    ExtractionPolicy {
+        k,
+        agree,
+        confidence_label,
+    }
+}
+
+/// SMT domain: logic-shaped → majority (k=3, agree=2), no confidence label.
+fn smt_policy() -> ExtractionPolicy {
+    read_policy("SMT", 3, 2, false)
+}
+
+/// Causal domain: factual/structural → unanimous (k=3, agree=3), confidence label ON.
+fn causal_policy() -> ExtractionPolicy {
+    read_policy("CAUSAL", 3, 3, true)
+}
+
+/// GUM domain: numeric/factual → unanimous (k=3, agree=3), confidence label ON.
+fn gum_policy() -> ExtractionPolicy {
+    read_policy("GUM", 3, 3, true)
+}
+
+/// Theorem domain: logic-shaped → majority (k=3, agree=2), no confidence label.
+fn theorem_policy() -> ExtractionPolicy {
+    read_policy("THEOREM", 3, 2, false)
+}
+
+/// Run `call_llm_extraction` k times and require a configurable majority of
+/// responses to agree on the same canonical key before building the artifact.
+///
+/// `extract_fn` maps raw LLM text → a canonical comparable key (None = unusable).
+/// `build_fn` maps the first agreeing raw text → the actual artifact `T`.
+///
+/// Cost: k=3 at temp 0 on the cheap extraction model is inexpensive; temp 0 makes
+/// outputs near-deterministic, so agreement on a VALID extraction is high and
+/// disagreement is exactly the ambiguity signal we abstain on.
+async fn run_extraction_with_consistency<T, F, G>(
+    policy: ExtractionPolicy,
+    ctx: &BeagleContext,
+    run_id: &str,
+    prompt: &str,
+    extract_fn: F,
+    build_fn: G,
+) -> ConsistencyResult<T>
+where
+    F: Fn(&str) -> Option<String>,
+    G: Fn(&str) -> Option<T>,
+{
+    let meta = RequestMeta::new(
+        false,
+        false,
+        false,
+        prompt.chars().count() / 4,
+        false,
+        false,
+        false,
+    );
+    let mut texts: Vec<String> = Vec::with_capacity(policy.k);
+    for _ in 0..policy.k {
+        if let Ok((t, _)) = call_llm_extraction(ctx, run_id, prompt, meta.clone()).await {
+            texts.push(t);
+        }
+    }
+    if texts.is_empty() {
+        return ConsistencyResult::Abstained {
+            k: policy.k,
+            agree_required: policy.agree,
+        };
+    }
+    let mut freq: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut key_to_text: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for text in &texts {
+        if let Some(key) = extract_fn(text) {
+            *freq.entry(key.clone()).or_insert(0) += 1;
+            key_to_text.entry(key).or_insert_with(|| text.clone());
+        }
+    }
+    if let Some((best_key, &votes)) = freq.iter().max_by_key(|(_, &v)| v) {
+        if votes >= policy.agree {
+            if let Some(artifact) = build_fn(&key_to_text[best_key]) {
+                return ConsistencyResult::Agreed { artifact, votes };
+            }
+        }
+    }
+    ConsistencyResult::Abstained {
+        k: policy.k,
+        agree_required: policy.agree,
+    }
+}
+
 /// ARGOS: crítico adversarial
 ///
 /// Age como revisor Q1 duro (Nature Human Behaviour, Kybernetes, Frontiers), focado em:
@@ -1561,44 +1706,80 @@ async fn solver_claim_consistency_traced(
          \n\n=== TEXTO ===\n{}",
         draft_excerpt
     );
-    // Meta barato: `call_llm_extraction` força o modelo de chat (deepseek-chat) explicitamente,
-    // então não dependemos do tier para escolher o modelo — só do override de `req.model`.
-    let meta = RequestMeta::new(
-        false,
-        false,
-        false,
-        prompt.chars().count() / 4,
-        false,
-        false,
-        false,
-    );
-    let (text, _tier) = call_llm_extraction(ctx, run_id, &prompt, meta).await.ok()?;
-
-    let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
-    let cons_json = parsed.get("constraints")?.as_array()?;
-    let mut constraints: Vec<inference_client::LiaConstraint> = Vec::new();
-    for c in cons_json {
-        let coeffs: Vec<i64> = match c.get("coeffs").and_then(|v| v.as_array()) {
-            Some(arr) => arr.iter().filter_map(|v| v.as_i64()).collect(),
-            None => continue,
-        };
-        if coeffs.is_empty() || coeffs.iter().all(|&k| k == 0) {
-            continue;
+    // P3: self-consistency (k extrações; maioria deve concordar). smt_policy() = k=3,
+    // agree=2 (logic-shaped). Chave canônica = lista ordenada de (label:bound).
+    // Meta barato: `call_llm_extraction` força o modelo de chat (deepseek-chat) e é
+    // computado dentro de run_extraction_with_consistency.
+    let policy = smt_policy();
+    let extract_key = |text: &str| -> Option<String> {
+        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(text)?).ok()?;
+        let cons = parsed.get("constraints")?.as_array()?;
+        let mut keys: Vec<String> = cons
+            .iter()
+            .filter_map(|c| {
+                let label = c.get("label").and_then(|v| v.as_str()).unwrap_or("");
+                let bound = c.get("bound").and_then(|v| v.as_i64())?;
+                Some(format!("{}:{bound}", label.trim()))
+            })
+            .collect();
+        keys.sort();
+        Some(keys.join("|"))
+    };
+    let build_artifact = |text: &str| -> Option<Vec<inference_client::LiaConstraint>> {
+        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(text)?).ok()?;
+        let cons_json = parsed.get("constraints")?.as_array()?;
+        let mut constraints: Vec<inference_client::LiaConstraint> = Vec::new();
+        for c in cons_json {
+            let coeffs: Vec<i64> = match c.get("coeffs").and_then(|v| v.as_array()) {
+                Some(arr) => arr.iter().filter_map(|v| v.as_i64()).collect(),
+                None => continue,
+            };
+            if coeffs.is_empty() || coeffs.iter().all(|&k| k == 0) {
+                continue;
+            }
+            let bound = match c.get("bound").and_then(|v| v.as_i64()) {
+                Some(b) => b,
+                None => continue,
+            };
+            let label = c
+                .get("label")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            constraints.push(inference_client::LiaConstraint {
+                coeffs,
+                bound,
+                label,
+            });
         }
-        let bound = match c.get("bound").and_then(|v| v.as_i64()) {
-            Some(b) => b,
-            None => continue,
-        };
-        let label = c
-            .get("label")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        constraints.push(inference_client::LiaConstraint {
-            coeffs,
-            bound,
-            label,
-        });
-    }
+        Some(constraints)
+    };
+
+    let constraints = match run_extraction_with_consistency(
+        policy,
+        ctx,
+        run_id,
+        &prompt,
+        extract_key,
+        build_artifact,
+    )
+    .await
+    {
+        ConsistencyResult::Agreed { artifact, .. } => artifact,
+        ConsistencyResult::Abstained { k, agree_required } => {
+            info!(
+                k,
+                agree_required, "solver_claim_consistency: abstém — extrações divergiram"
+            );
+            registry.push(VerdictRecord {
+                verb: "smt.check",
+                input_sha256: String::new(),
+                result: "extraction-empty".to_string(),
+                run_id: run_id.to_string(),
+            });
+            return None;
+        }
+    };
+
     // Dedup e filtra twins fabricados antes de enviar ao solver.
     let constraints = dedup_constraints(constraints);
     if constraints.len() < 2 {
@@ -1723,32 +1904,39 @@ async fn causal_claim_check_traced(
          === TEXTO ===\n{}",
         draft_excerpt
     );
-    let meta = RequestMeta::new(
-        false,
-        false,
-        false,
-        prompt.chars().count() / 4,
-        false,
-        false,
-        false,
-    );
-    let text = match call_llm_extraction(ctx, run_id, &prompt, meta).await {
-        Ok((t, _tier)) => t,
-        Err(_) => {
-            registry.push(VerdictRecord {
-                verb: "causal.dsep",
-                input_sha256: String::new(),
-                result: "validation-rejected".to_string(),
-                run_id: run_id.to_string(),
-            });
+    // P3: self-consistency. causal_policy() = k=3, agree=3 (unânime; factual/estrutural),
+    // confidence_label=true. Chave canônica = x/y + lista ordenada de arestas + prefixo do claim.
+    let policy = causal_policy();
+    let extract_key = |text: &str| -> Option<String> {
+        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(text)?).ok()?;
+        let nodes = parsed.get("nodes")?.as_array()?;
+        if nodes.is_empty() {
             return None;
         }
+        let edges = parsed.get("edges")?.as_array()?;
+        let claim = parsed.get("claim").and_then(|v| v.as_str()).unwrap_or("");
+        let x = parsed.get("x")?.as_u64()?;
+        let y = parsed.get("y")?.as_u64()?;
+        let mut edge_strs: Vec<String> = edges
+            .iter()
+            .filter_map(|e| {
+                let p = e.as_array()?;
+                Some(format!("{}>{}", p.first()?.as_u64()?, p.get(1)?.as_u64()?))
+            })
+            .collect();
+        edge_strs.sort();
+        let claim_prefix: String = claim.trim().chars().take(40).collect();
+        Some(format!(
+            "x{}y{}|{}|{}",
+            x,
+            y,
+            edge_strs.join(","),
+            claim_prefix
+        ))
     };
-
-    // Strict validation in an inner closure so any early `?`/`None` converges to a
-    // single `validation-rejected` VerdictRecord below (honest-by-construction).
-    let extracted: Option<(inference_client::DsepRequest, Vec<String>, String, usize)> = (|| {
-        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
+    type CausalArtifact = (inference_client::DsepRequest, Vec<String>, String, usize);
+    let build_artifact = |text: &str| -> Option<CausalArtifact> {
+        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(text)?).ok()?;
 
         let nodes = parsed.get("nodes")?.as_array()?;
         let edges_raw = parsed.get("edges")?.as_array()?;
@@ -1812,11 +2000,28 @@ async fn causal_claim_check_traced(
             z: z.clone(),
         };
         Some((req, node_names, claim, edges_len))
-    })();
+    };
 
-    let (req, node_names, claim, edges_len) = match extracted {
-        Some(v) => v,
-        None => {
+    let (req, node_names, claim, edges_len, votes) = match run_extraction_with_consistency(
+        policy,
+        ctx,
+        run_id,
+        &prompt,
+        extract_key,
+        build_artifact,
+    )
+    .await
+    {
+        ConsistencyResult::Agreed {
+            artifact: (req, node_names, claim, edges_len),
+            votes,
+        } => (req, node_names, claim, edges_len, votes),
+        ConsistencyResult::Abstained { k, agree_required } => {
+            info!(
+                k,
+                agree_required,
+                "causal_claim_check: abstém — extrações divergiram (domínio factual)"
+            );
             registry.push(VerdictRecord {
                 verb: "causal.dsep",
                 input_sha256: String::new(),
@@ -1873,7 +2078,18 @@ async fn causal_claim_check_traced(
                 "causal_claim_check: d-separation proved — {} ⊥ {} | {}",
                 x_name, y_name, cond
             );
-            Some(format!(
+            // P3: rótulo de confiança (causal é factual → confidence_label=true).
+            let confidence_note = if policy.confidence_label {
+                format!(
+                    "> **Confiança da extração:** {}/{} chamadas de extração concordaram com este \
+                     grafo causal (threshold {}). Mesmo com concordância, a extração de grafos a \
+                     partir de prosa é altamente falível.\n\n",
+                    votes, policy.k, policy.agree
+                )
+            } else {
+                String::new()
+            };
+            let finding = format!(
                 "## ⚠️ Incoerência causal detectada por solver (Sounio causal.dsep)\n\n\
                 O verificador formal `causal.dsep` (Sounio, Bayes-ball de Pearl) analisou o grafo \
                 causal extraído do draft e provou **d-separação** entre **{}** e **{}** dado \
@@ -1896,7 +2112,8 @@ async fn causal_claim_check_traced(
                     .map(|(i, name)| format!("{i}:{name}"))
                     .collect::<Vec<_>>()
                     .join(", ")
-            ))
+            );
+            Some(format!("{confidence_note}{finding}"))
         }
         // Connected or Unknown → no finding (honest: absence of evidence ≠ evidence of absence).
         _ => None,
@@ -1970,33 +2187,41 @@ async fn gum_claim_check_traced(
          está LITERALMENTE no texto.\n\n=== TEXTO ===\n{}",
         draft_excerpt
     );
-    let meta = RequestMeta::new(
-        false,
-        false,
-        false,
-        prompt.chars().count() / 4,
-        false,
-        false,
-        false,
-    );
-    let text = match call_llm_extraction(ctx, run_id, &prompt, meta).await {
-        Ok((t, _tier)) => t,
-        Err(_) => {
-            registry.push(VerdictRecord {
-                verb: "gum.propagate",
-                input_sha256: String::new(),
-                result: "validation-rejected".to_string(),
-                run_id: run_id.to_string(),
-            });
+    // P3: self-consistency. gum_policy() = k=3, agree=3 (unânime; numérico/factual),
+    // confidence_label=true. Chave canônica = op + labels + claimed_uncertainty (3 sig figs).
+    type GumExtract = (f64, f64, String, f64, f64, String, String, f64, String);
+    let policy = gum_policy();
+    let extract_key = |text: &str| -> Option<String> {
+        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(text)?).ok()?;
+        if !parsed
+            .get("found")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             return None;
         }
+        let op = parsed.get("op")?.as_str()?.trim().to_ascii_lowercase();
+        let a_lbl = parsed
+            .get("a")?
+            .get("label")
+            .and_then(|v| v.as_str())
+            .unwrap_or("a");
+        let b_lbl = parsed
+            .get("b")?
+            .get("label")
+            .and_then(|v| v.as_str())
+            .unwrap_or("b");
+        let cu = parsed.get("claimed_uncertainty")?.as_f64()?;
+        Some(format!(
+            "{}|{}|{}|{:.3e}",
+            op,
+            a_lbl.trim(),
+            b_lbl.trim(),
+            cu
+        ))
     };
-
-    // Strict numeric validation in an inner closure so any early `None` converges to
-    // a single `validation-rejected` VerdictRecord (honest-by-construction).
-    type GumExtract = (f64, f64, String, f64, f64, String, String, f64, String);
-    let extracted: Option<GumExtract> = (|| {
-        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
+    let build_artifact = |text: &str| -> Option<GumExtract> {
+        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(text)?).ok()?;
         if !parsed
             .get("found")
             .and_then(|v| v.as_bool())
@@ -2041,20 +2266,40 @@ async fn gum_claim_check_traced(
             return None;
         }
         Some((a_val, a_u, a_lbl, b_val, b_u, b_lbl, op, claimed_u, y_label))
-    })();
-
-    let (a_val, a_u, a_lbl, b_val, b_u, b_lbl, op, claimed_u, y_label) = match extracted {
-        Some(v) => v,
-        None => {
-            registry.push(VerdictRecord {
-                verb: "gum.propagate",
-                input_sha256: String::new(),
-                result: "validation-rejected".to_string(),
-                run_id: run_id.to_string(),
-            });
-            return None;
-        }
     };
+
+    let (a_val, a_u, a_lbl, b_val, b_u, b_lbl, op, claimed_u, y_label, votes) =
+        match run_extraction_with_consistency(
+            policy,
+            ctx,
+            run_id,
+            &prompt,
+            extract_key,
+            build_artifact,
+        )
+        .await
+        {
+            ConsistencyResult::Agreed {
+                artifact: (a_val, a_u, a_lbl, b_val, b_u, b_lbl, op, claimed_u, y_label),
+                votes,
+            } => (
+                a_val, a_u, a_lbl, b_val, b_u, b_lbl, op, claimed_u, y_label, votes,
+            ),
+            ConsistencyResult::Abstained { k, agree_required } => {
+                info!(
+                    k,
+                    agree_required,
+                    "gum_claim_check: abstém — extrações divergiram (domínio numérico/factual)"
+                );
+                registry.push(VerdictRecord {
+                    verb: "gum.propagate",
+                    input_sha256: String::new(),
+                    result: "validation-rejected".to_string(),
+                    run_id: run_id.to_string(),
+                });
+                return None;
+            }
+        };
 
     let req = inference_client::GumRequest {
         inputs: vec![
@@ -2125,7 +2370,17 @@ async fn gum_claim_check_traced(
         op = %op,
         "gum_claim_check: incerteza declarada subdeclarada vs propagação GUM"
     );
-    Some(format!(
+    // P3: rótulo de confiança (gum é numérico/factual → confidence_label=true).
+    let confidence_note = if policy.confidence_label {
+        format!(
+            "> **Confiança da extração:** {}/{} chamadas de extração concordaram com esta \
+             grandeza derivada (threshold {}).\n\n",
+            votes, policy.k, policy.agree
+        )
+    } else {
+        String::new()
+    };
+    let finding = format!(
         "## ⚠️ Incerteza subdeclarada — propagação GUM (Sounio gum.propagate)\n\n\
         O verificador formal `gum.propagate` (Sounio, GUM/JCGM 100) propagou a incerteza dos \
         insumos declarados pelo draft através da operação `{op}` e obteve, para **{y}**:\n\n\
@@ -2154,7 +2409,8 @@ async fn gum_claim_check_traced(
         b_lbl = b_lbl,
         b_val = b_val,
         b_u = b_u,
-    ))
+    );
+    Some(format!("{confidence_note}{finding}"))
 }
 
 /// Verificação formal de dedução proposicional via Sounio `theorem.prove`.
@@ -2225,38 +2481,35 @@ async fn theorem_claim_check_traced(
          === TEXTO ===\n{}",
         draft_excerpt
     );
-    let meta = RequestMeta::new(
-        false,
-        false,
-        false,
-        prompt.chars().count() / 4,
-        false,
-        false,
-        false,
-    );
-    let text = match call_llm_extraction(ctx, run_id, &prompt, meta).await {
-        Ok((t, _tier)) => t,
-        Err(_) => {
-            registry.push(VerdictRecord {
-                verb: "theorem.prove",
-                input_sha256: String::new(),
-                result: "validation-rejected".to_string(),
-                run_id: run_id.to_string(),
-            });
-            return None;
-        }
-    };
-
-    // Strict validation in an inner closure so any early `None` converges to a single
-    // `validation-rejected` VerdictRecord (honest-by-construction).
+    // P3: self-consistency. theorem_policy() = k=3, agree=2 (maioria; logic-shaped),
+    // confidence_label=false. Chave canônica = átomos ordenados + serialização do goal.
     type TheoremExtract = (
         Vec<String>,
         Vec<serde_json::Value>,
         serde_json::Value,
         String,
     );
-    let extracted: Option<TheoremExtract> = (|| {
-        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
+    let policy = theorem_policy();
+    let extract_key = |text: &str| -> Option<String> {
+        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(text)?).ok()?;
+        if !parsed
+            .get("found")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            return None;
+        }
+        let atoms = parsed.get("atoms")?.as_array()?;
+        let mut atom_strs: Vec<&str> = atoms.iter().filter_map(|v| v.as_str()).collect();
+        atom_strs.sort();
+        let goal_str = parsed
+            .get("goal")
+            .map(|g| g.to_string())
+            .unwrap_or_default();
+        Some(format!("atoms:{}|goal:{}", atom_strs.join(","), goal_str))
+    };
+    let build_artifact = |text: &str| -> Option<TheoremExtract> {
+        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(text)?).ok()?;
         if !parsed
             .get("found")
             .and_then(|v| v.as_bool())
@@ -2291,11 +2544,24 @@ async fn theorem_claim_check_traced(
             return None;
         }
         Some((atoms, hypotheses, goal, argument))
-    })();
+    };
 
-    let (atoms, hypotheses, goal, argument) = match extracted {
-        Some(v) => v,
-        None => {
+    let (atoms, hypotheses, goal, argument) = match run_extraction_with_consistency(
+        policy,
+        ctx,
+        run_id,
+        &prompt,
+        extract_key,
+        build_artifact,
+    )
+    .await
+    {
+        ConsistencyResult::Agreed { artifact, .. } => artifact,
+        ConsistencyResult::Abstained { k, agree_required } => {
+            info!(
+                k,
+                agree_required, "theorem_claim_check: abstém — extrações divergiram"
+            );
             registry.push(VerdictRecord {
                 verb: "theorem.prove",
                 input_sha256: String::new(),
@@ -2818,6 +3084,145 @@ mod tests {
         let (out, _summary) = reg.redact_unattested(spurious);
         assert!(out.contains("[REDACTED"));
         assert!(out.contains("Integrity check FAILED"));
+    }
+
+    // ===== P3: self-consistency policies + run_extraction_with_consistency =====
+
+    #[test]
+    fn extraction_policy_defaults() {
+        for d in ["SMT", "CAUSAL", "GUM", "THEOREM"] {
+            std::env::remove_var(format!("BEAGLE_TRIAD_{d}_K"));
+            std::env::remove_var(format!("BEAGLE_TRIAD_{d}_AGREE"));
+        }
+        let smt = smt_policy();
+        assert_eq!((smt.k, smt.agree, smt.confidence_label), (3, 2, false));
+        let causal = causal_policy();
+        assert_eq!(
+            (causal.k, causal.agree, causal.confidence_label),
+            (3, 3, true)
+        );
+        let gum = gum_policy();
+        assert_eq!((gum.k, gum.agree, gum.confidence_label), (3, 3, true));
+        let theorem = theorem_policy();
+        assert_eq!(
+            (theorem.k, theorem.agree, theorem.confidence_label),
+            (3, 2, false)
+        );
+    }
+
+    #[test]
+    fn read_policy_env_override() {
+        std::env::set_var("BEAGLE_TRIAD_SMT_K", "5");
+        std::env::set_var("BEAGLE_TRIAD_SMT_AGREE", "4");
+        let smt = smt_policy();
+        assert_eq!((smt.k, smt.agree), (5, 4));
+        // agree clamped to <= k, and both >= 1.
+        std::env::set_var("BEAGLE_TRIAD_CAUSAL_K", "1");
+        std::env::set_var("BEAGLE_TRIAD_CAUSAL_AGREE", "9");
+        let causal = causal_policy();
+        assert_eq!((causal.k, causal.agree), (1, 1));
+        for v in [
+            "BEAGLE_TRIAD_SMT_K",
+            "BEAGLE_TRIAD_SMT_AGREE",
+            "BEAGLE_TRIAD_CAUSAL_K",
+            "BEAGLE_TRIAD_CAUSAL_AGREE",
+        ] {
+            std::env::remove_var(v);
+        }
+    }
+
+    async fn consistency_with_keys(
+        keys: Vec<&'static str>,
+        k: usize,
+        agree: usize,
+    ) -> ConsistencyResult<u32> {
+        // We cannot easily mock call_llm_extraction's k responses to distinct values,
+        // so we exercise the freq/threshold logic directly via the same algorithm the
+        // helper uses. This mirrors run_extraction_with_consistency's counting.
+        use std::collections::HashMap;
+        let mut freq: HashMap<&str, usize> = HashMap::new();
+        for key in &keys {
+            *freq.entry(key).or_insert(0) += 1;
+        }
+        let policy = ExtractionPolicy {
+            k,
+            agree,
+            confidence_label: false,
+        };
+        if let Some((_best, &votes)) = freq.iter().max_by_key(|(_, &v)| v) {
+            if votes >= policy.agree {
+                return ConsistencyResult::Agreed {
+                    artifact: 42u32,
+                    votes,
+                };
+            }
+        }
+        ConsistencyResult::Abstained {
+            k: policy.k,
+            agree_required: policy.agree,
+        }
+    }
+
+    #[tokio::test]
+    async fn run_extraction_with_consistency_majority() {
+        // 'K','K','X' with agree=2 → Agreed votes=2.
+        match consistency_with_keys(vec!["K", "K", "X"], 3, 2).await {
+            ConsistencyResult::Agreed { artifact, votes } => {
+                assert_eq!(artifact, 42);
+                assert_eq!(votes, 2);
+            }
+            _ => panic!("expected Agreed"),
+        }
+    }
+
+    #[tokio::test]
+    async fn run_extraction_with_consistency_no_majority() {
+        // 'A','B','C' with agree=2 → Abstained (no key has 2 votes).
+        match consistency_with_keys(vec!["A", "B", "C"], 3, 2).await {
+            ConsistencyResult::Abstained { k, agree_required } => {
+                assert_eq!((k, agree_required), (3, 2));
+            }
+            _ => panic!("expected Abstained"),
+        }
+    }
+
+    #[tokio::test]
+    async fn run_extraction_with_consistency_unanimous_required() {
+        // 'K','K','X' with agree=3 → Abstained (only 2 votes, need 3).
+        match consistency_with_keys(vec!["K", "K", "X"], 3, 3).await {
+            ConsistencyResult::Abstained { .. } => {}
+            _ => panic!("expected Abstained for unanimous threshold"),
+        }
+    }
+
+    #[tokio::test]
+    async fn run_extraction_with_consistency_real_helper_abstains_on_mock_empty() {
+        // With a mock LLM that does not return parseable constraint JSON, the helper
+        // must abstain (no key reaches the threshold) — honest fallback.
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let policy = ExtractionPolicy {
+            k: 3,
+            agree: 2,
+            confidence_label: false,
+        };
+        let result: ConsistencyResult<u32> = run_extraction_with_consistency(
+            policy,
+            &ctx,
+            "t",
+            "prompt",
+            |_t| None,
+            |_t| Some(7u32),
+        )
+        .await;
+        assert!(matches!(result, ConsistencyResult::Abstained { .. }));
+    }
+
+    #[tokio::test]
+    async fn theorem_check_abstains_gate_off_no_consistency_calls() {
+        std::env::remove_var("BEAGLE_TRIAD_THEOREM_CHECK");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let out = theorem_claim_check("logo X", &ctx, "t").await;
+        assert!(out.is_none());
     }
 
     fn sample_opinion() -> TriadOpinion {
