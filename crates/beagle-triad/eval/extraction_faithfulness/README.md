@@ -72,13 +72,24 @@ SMT is faithful even on its traps — including the sign and role-qualifier trap
 the original production SMT bug (variable-splitting) once failed, confirming the
 two-step canonicalization prompt holds up.
 
-## Actionable (recommended, not yet applied)
+## Prompt fixes applied + re-measured
 
-- **GUM extraction prompt**: add an explicit unit-normalization step (normalize all
-  inputs to a common unit before emitting values). Expected to lift `gum/unit` toward
-  1.0. Production prompt change → re-measure here, then redeploy.
-- **Causal extraction prompt**: strengthen the "only edges asserted LITERALLY"
-  instruction against distractor variables.
+Both fixes were applied to the production extraction prompts in `lib.rs` and
+re-measured here (the harness parses the prompt at eval time, so this validates the
+fix *before* redeploy):
+
+- **GUM unit-normalization** (new PASSO 2b: normalize all inputs to a common unit
+  before emitting): `gum/unit` **0.00 → 0.50**, gum domain **0.80 → 0.90**, overall
+  **0.900 → 0.933 ± 0.000**.
+- **Causal distractor-edge guard** (only edges with an explicit causal verb; mentioned/
+  measured/co-occurring ≠ edge): `causal/distractor` unchanged at **0.50** — this case
+  needs more than a prompt tweak (the model still extracts the spurious edge or the
+  case is genuinely ambiguous).
+
+Honest note: the GUM unit fix recovered one of the two unit cases; the other unit case
+and the causal distractor case remain. Not over-tuned to this 30-case set (overfitting
+risk). The residual failures are candidates for the P2 round-trip check (layer-2) or a
+larger corpus. Redeploy of the prompt changes is a separate step (validated here first).
 
 ## Caveats
 

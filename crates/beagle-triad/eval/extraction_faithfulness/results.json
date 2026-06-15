@@ -3,7 +3,7 @@
   "model": "deepseek-chat",
   "n": 30,
   "trials": 5,
-  "overall_faithfulness_mean": 0.9,
+  "overall_faithfulness_mean": 0.9333333333333333,
   "overall_faithfulness_std": 0.0,
   "by_domain": {
     "causal": {
@@ -18,14 +18,14 @@
       ]
     },
     "gum": {
-      "mean": 0.8,
+      "mean": 0.9,
       "std": 0.0,
       "trials": [
-        0.8,
-        0.8,
-        0.8,
-        0.8,
-        0.8
+        0.9,
+        0.9,
+        0.9,
+        0.9,
+        0.9
       ]
     },
     "smt": {
@@ -74,7 +74,7 @@
       "std": 0.0
     },
     "gum/unit": {
-      "mean": 0.0,
+      "mean": 0.5,
       "std": 0.0
     },
     "smt/clean": {
@@ -270,9 +270,9 @@
       "trap_type": "unit",
       "lang": "pt",
       "gold": "gum-ok",
-      "faithful_frac": 0.0,
+      "faithful_frac": 1.0,
       "verdicts_seen": [
-        "gum-understated"
+        "gum-ok"
       ]
     },
     {

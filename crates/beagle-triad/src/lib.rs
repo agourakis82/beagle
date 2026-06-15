@@ -2275,8 +2275,13 @@ async fn causal_claim_check_traced(
          mencionadas explicitamente como causas ou efeitos. Atribua índices 0,1,2,... \
          (máximo 16 variáveis). Se não houver relações causais explícitas, responda com o JSON \
          vazio abaixo.\n\
-         PASSO 2 — IDENTIFIQUE ARESTAS: só inclua arestas AFIRMADAS LITERALMENTE no texto \
-         (\"X causa Y\", \"X afeta Y\", \"Y depende de X\", etc.). NÃO infira nem invente.\n\
+         PASSO 2 — IDENTIFIQUE ARESTAS: só inclua aresta X→Y quando o texto AFIRMA EXPLICITAMENTE um \
+         vínculo causal direcional entre X e Y (\"X causa Y\", \"X afeta Y\", \"Y depende de X\", \
+         \"X reduz/aumenta Y\", \"X→Y\"). NÃO infira nem invente. CONTRA DISTRATORES: uma variável \
+         apenas MENCIONADA, MEDIDA, listada como característica basal, ou CO-OCORRENTE — sem um verbo \
+         causal explícito ligando-a a outra — NÃO gera aresta alguma. Correlação, associação \
+         estatística, ou aparecer na mesma frase NÃO é aresta causal. Na dúvida sobre se um vínculo é \
+         causal-explícito, NÃO inclua a aresta.\n\
          PASSO 3 — ESCOLHA UMA QUERY: selecione dois nós x e y que o texto AFIRMA que têm \
          uma relação causal ou de dependência. O conditioning set z deve ser vazio ou \
          conter APENAS variáveis explicitamente mencionadas como confundidoras/mediadoras.\n\
@@ -2633,8 +2638,17 @@ async fn gum_claim_check_traced(
          PASSO 2 — EXTRAIA OS INSUMOS: para A e B pegue o VALOR e a INCERTEZA-PADRÃO (o '±', desvio-\
          padrão, ou erro-padrão) LITERALMENTE declarados no texto. Se o texto não declara a incerteza \
          de um insumo, NÃO invente — responda found=false.\n\
+         PASSO 2b — NORMALIZE AS UNIDADES (OBRIGATÓRIO antes de emitir): se A, B e Y não estão TODOS \
+         na mesma unidade, converta valores E incertezas para uma ÚNICA unidade comum coerente com a \
+         operação (para div, o numerador e o denominador podem ter unidades distintas, mas cada um \
+         deve ser internamente consistente; para add/sub, A e B DEVEM ficar na MESMA unidade). \
+         Conversões usuais: 1 g = 1000 mg; 1 mg = 1000 µg (mcg); 1 µg = 1000 ng; 1 L = 1000 mL; \
+         1 h = 60 min. Emita os números JÁ CONVERTIDOS (ex.: '2 g' e '2100 mg' viram 2000 e 2100; \
+         '250 µg' vira 250000 ng). Converta também a incerteza com o MESMO fator do valor. NUNCA \
+         emita '2 g' como o inteiro 2 ao lado de um valor em mg.\n\
          PASSO 3 — EXTRAIA A INCERTEZA DECLARADA DE Y: o valor do '±' (ou meia-largura de IC, ou \
-         desvio-padrão) que o texto atribui a Y. Se Y não tem incerteza declarada, found=false.\n\
+         desvio-padrão) que o texto atribui a Y, NA MESMA unidade normalizada de Y. Se Y não tem \
+         incerteza declarada, found=false.\n\
          Responda SOMENTE com JSON, sem prosa:\n\
          {{\"found\":true|false,\"op\":\"add|sub|mul|div\",\
          \"a\":{{\"value\":num,\"u\":num,\"label\":\"texto curto\"}},\

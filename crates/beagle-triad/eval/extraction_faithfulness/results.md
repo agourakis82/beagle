@@ -2,14 +2,14 @@
 
 model: `deepseek-chat` · 30 cases · **5 trials** (temp 0; LLM still nondeterministic)
 
-**Overall faithfulness: 0.900 ± 0.000**
+**Overall faithfulness: 0.933 ± 0.000**
 
 ## By domain (mean ± std over trials)
 
 | domain | mean | std |
 |---|---|---|
 | causal | 0.900 | 0.000 |
-| gum | 0.800 | 0.000 |
+| gum | 0.900 | 0.000 |
 | smt | 1.000 | 0.000 |
 
 ## By trap type
@@ -24,7 +24,7 @@ model: `deepseek-chat` · 30 cases · **5 trials** (temp 0; LLM still nondetermi
 | gum/distractor_number | 1.000 | 0.000 |
 | gum/no_valid_extraction | 1.000 | 0.000 |
 | gum/role_qualifier | 1.000 | 0.000 |
-| gum/unit | 0.000 | 0.000 |
+| gum/unit | 0.500 | 0.000 |
 | smt/clean | 1.000 | 0.000 |
 | smt/distractor_number | 1.000 | 0.000 |
 | smt/role_qualifier | 1.000 | 0.000 |
