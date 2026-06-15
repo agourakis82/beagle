@@ -10,6 +10,7 @@ use beagle_core::BeagleContext;
 use beagle_llm::{stats::LlmCallsStats as LlmCallsStatsLLM, ProviderTier, RequestMeta};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use tracing::{info, warn};
 
@@ -17,6 +18,194 @@ use tracing::{info, warn};
 /// ask Sounio's own DPLL(T) solver whether an extracted constraint set is
 /// consistent. See the module docs for the truth-mode boundary.
 pub mod inference_client;
+
+/// Fingerprints the serialized input artifact that was handed to a Sounio verb.
+/// Input is the raw string rendered just before the HTTP call (the constraint /
+/// DSep / GUM / theorem JSON). Returns hex SHA-256.
+fn artifact_sha256(artifact_json: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(artifact_json.as_bytes());
+    format!("{:x}", h.finalize())
+}
+
+/// Immutable record of ONE solver call that actually executed in this run.
+///
+/// The record is created INSIDE each traced `*_claim_check` function, at the exact
+/// point the HTTP response is received — not from the markdown text ARGOS sees.
+/// This makes it structurally impossible to have a [`VerdictRecord`] for a call
+/// that never happened.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerdictRecord {
+    /// Sounio verb: one of `smt.check`, `causal.dsep`, `gum.propagate`, `theorem.prove`.
+    pub verb: &'static str,
+    /// SHA-256 hex of the JSON artifact handed to the solver (fingerprints the input).
+    /// Empty when the call never reached the solver (gate-off / extraction-empty).
+    pub input_sha256: String,
+    /// The solver verdict string as returned, or an abstain marker: `UNSAT`, `SAT`,
+    /// `UNKNOWN`, `PROVED`, `INVALID`, `d-separated`, `d-connected`, `gum-understated`,
+    /// `gum-ok`, `gate-off`, `extraction-empty`, `validation-rejected`, `transport-error`.
+    pub result: String,
+    /// Copied from the enclosing `run_argos` call for cross-referencing.
+    pub run_id: String,
+}
+
+/// Per-run registry of [`VerdictRecord`]s, one per enabled solver gate.
+///
+/// Always populated before the ARGOS LLM call is issued, so the post-hoc
+/// validator ([`VerdictRegistry::redact_unattested`]) has the ground truth when
+/// it scans ARGOS's output. The registry is local to a single `run_argos` call
+/// and never persisted, so stale records from a previous run can never validate
+/// current output.
+#[derive(Debug, Default)]
+pub struct VerdictRegistry {
+    records: Vec<VerdictRecord>,
+}
+
+impl VerdictRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Append a record. Called once per solver gate, regardless of verdict.
+    pub fn push(&mut self, r: VerdictRecord) {
+        self.records.push(r);
+    }
+
+    /// Number of records currently held.
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    /// True when no records have been pushed.
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+
+    /// Returns the record for `verb` if exactly one exists (linear scan; only four
+    /// verbs, so O(4) is fine). Ambiguous (multiple) matches return `None`.
+    pub fn lookup(&self, verb: &str) -> Option<&VerdictRecord> {
+        let mut hits = self.records.iter().filter(|r| r.verb == verb);
+        let first = hits.next()?;
+        if hits.next().is_some() {
+            return None; // ambiguous — shouldn't happen (one record per verb)
+        }
+        Some(first)
+    }
+
+    /// Post-hoc validator: scans `argos_text` for solver-attribution patterns
+    /// (verb name + verdict keyword on the SAME line) and REDACTS any attribution
+    /// that has no matching attested [`VerdictRecord`].
+    ///
+    /// A line is flagged when it names a solver verb AND a verdict keyword. The
+    /// attribution is allowed through only when a [`VerdictRecord`] for that verb
+    /// exists AND its `result` is not an abstain/gate marker (`gate-off`,
+    /// `extraction-empty`, `validation-rejected`, `transport-error`). Otherwise the
+    /// line is replaced with a `[REDACTED ...]` marker. A machine-checked integrity
+    /// note is appended at the bottom.
+    ///
+    /// Granularity is line-level (conservative; avoids false positives across
+    /// multi-sentence prose). The ARGOS verification blocks always put verb+verdict
+    /// on the same line, so attested attributions pass unchanged.
+    ///
+    /// Returns the validated (possibly redacted) text plus a short summary line.
+    pub fn redact_unattested(&self, argos_text: &str) -> (String, String) {
+        const VERBS: &[&str] = &["smt.check", "causal.dsep", "gum.propagate", "theorem.prove"];
+        const VERDICT_WORDS: &[&str] = &[
+            "unsat",
+            "sat",
+            "proved",
+            "unknown",
+            "invalid",
+            "d-separ",
+            "d-conect",
+            "d-connect",
+        ];
+
+        let mut redactions: Vec<String> = Vec::new();
+        let mut out_lines: Vec<String> = Vec::new();
+
+        for line in argos_text.lines() {
+            let lower = line.to_ascii_lowercase();
+            let mut flagged_verb: Option<&str> = None;
+
+            // Flag iff the line names a verb AND a verdict word.
+            'outer: for verb in VERBS {
+                if lower.contains(verb) {
+                    for vw in VERDICT_WORDS {
+                        if lower.contains(vw) {
+                            flagged_verb = Some(verb);
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+
+            match flagged_verb {
+                None => out_lines.push(line.to_string()),
+                Some(verb) => {
+                    let attested = self
+                        .lookup(verb)
+                        .map(|r| {
+                            !matches!(
+                                r.result.as_str(),
+                                "gate-off"
+                                    | "extraction-empty"
+                                    | "validation-rejected"
+                                    | "transport-error"
+                            )
+                        })
+                        .unwrap_or(false);
+
+                    if attested {
+                        out_lines.push(line.to_string());
+                    } else {
+                        let marker = format!(
+                            "[REDACTED: solver attribution unattested — no executed VerdictRecord for `{verb}`]"
+                        );
+                        redactions.push(format!("`{verb}` — no VerdictRecord"));
+                        out_lines.push(marker);
+                        warn!(
+                            verb = verb,
+                            "redact_unattested: ARGOS cited a solver verdict with no matching VerdictRecord — line redacted"
+                        );
+                    }
+                }
+            }
+        }
+
+        let integrity_note = if redactions.is_empty() {
+            format!(
+                "\n\n---\n**[Integrity check PASSED]** All solver verdict attribution(s) in this \
+                 ARGOS output match a VerdictRecord from this run ({} record(s)). No confabulated \
+                 citations detected.",
+                self.records.len()
+            )
+        } else {
+            format!(
+                "\n\n---\n**[Integrity check FAILED — {} attribution(s) REDACTED]** The following \
+                 verb(s) were cited without an attested VerdictRecord: {}. Redacted lines were \
+                 replaced with [REDACTED] markers above.",
+                redactions.len(),
+                redactions.join("; ")
+            )
+        };
+
+        let summary = if redactions.is_empty() {
+            format!("integrity=PASS records={}", self.records.len())
+        } else {
+            format!(
+                "integrity=FAIL redacted={} verbs={}",
+                redactions.len(),
+                redactions.join(",")
+            )
+        };
+
+        (
+            format!("{}{}", out_lines.join("\n"), integrity_note),
+            summary,
+        )
+    }
+}
 
 /// O contexto simbólico (PCS) só é injetado nos prompts quando explicitamente habilitado
 /// (`BEAGLE_SYMBOLIC_CONTEXT_ENABLE=1`), e fica OFF por padrão.
@@ -1248,12 +1437,34 @@ fn dedup_constraints(
 /// (sem claims, serviço fora, parse, SAT/UNKNOWN) → `None` — honesto por construção, nunca
 /// fabrica achado. Truth-mode: o solver prova que ESTAS constraints extraídas (falíveis) são
 /// contraditórias, NÃO que "o draft está errado".
+/// Thin wrapper preserving the historic signature for direct callers/tests.
+/// Delegates to [`solver_claim_consistency_traced`] with a throwaway registry.
 async fn solver_claim_consistency(
     draft: &str,
     ctx: &BeagleContext,
     run_id: &str,
 ) -> Option<String> {
+    let mut registry = VerdictRegistry::new();
+    solver_claim_consistency_traced(draft, ctx, run_id, &mut registry).await
+}
+
+/// Traced variant: identical logic to [`solver_claim_consistency`] but also emits
+/// exactly one [`VerdictRecord`] on every code path (gate-off, extraction-empty,
+/// SAT/UNSAT/UNKNOWN). Called by `run_argos`. The `&mut VerdictRegistry` makes the
+/// record emission structurally mandatory.
+async fn solver_claim_consistency_traced(
+    draft: &str,
+    ctx: &BeagleContext,
+    run_id: &str,
+    registry: &mut VerdictRegistry,
+) -> Option<String> {
     if !smt_claim_check_enabled() {
+        registry.push(VerdictRecord {
+            verb: "smt.check",
+            input_sha256: String::new(),
+            result: "gate-off".to_string(),
+            run_id: run_id.to_string(),
+        });
         return None;
     }
     let draft_excerpt: String = draft.chars().take(6000).collect();
@@ -1324,11 +1535,32 @@ async fn solver_claim_consistency(
     // Dedup e filtra twins fabricados antes de enviar ao solver.
     let constraints = dedup_constraints(constraints);
     if constraints.len() < 2 {
+        registry.push(VerdictRecord {
+            verb: "smt.check",
+            input_sha256: String::new(),
+            result: "extraction-empty".to_string(),
+            run_id: run_id.to_string(),
+        });
         return None; // precisa de >=2 claims não-redundantes pra haver contradição
     }
 
+    // Fingerprint o JSON exato que será POSTado ao solver.
+    let artifact = serde_json::to_string(&constraints).unwrap_or_default();
+    let sha = artifact_sha256(&artifact);
     let base = inference_client::inference_base_url();
-    match inference_client::smt_check(&base, constraints.clone()).await {
+    let verdict = inference_client::smt_check(&base, constraints.clone()).await;
+    registry.push(VerdictRecord {
+        verb: "smt.check",
+        input_sha256: sha,
+        result: match verdict {
+            inference_client::Verdict::Sat => "SAT",
+            inference_client::Verdict::Unsat => "UNSAT",
+            inference_client::Verdict::Unknown => "UNKNOWN",
+        }
+        .to_string(),
+        run_id: run_id.to_string(),
+    });
+    match verdict {
         inference_client::Verdict::Unsat => {
             let lines: Vec<String> = constraints
                 .iter()
@@ -1377,8 +1609,28 @@ async fn solver_claim_consistency(
 /// falível. O grafo extraído raramente captura todas as arestas reais do draft. O achado
 /// reportado refere-se APENAS ao grafo extraído — não ao sistema causal real do autor.
 /// ARGOS deve tratar este sinal como fraco/indicativo, nunca como prova definitiva.
+/// Thin wrapper preserving the historic signature for direct callers/tests.
 async fn causal_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Option<String> {
+    let mut registry = VerdictRegistry::new();
+    causal_claim_check_traced(draft, ctx, run_id, &mut registry).await
+}
+
+/// Traced variant of [`causal_claim_check`]: emits exactly one [`VerdictRecord`]
+/// on every code path (gate-off, validation-rejected, d-separated/d-connected,
+/// transport-error). Called by `run_argos`.
+async fn causal_claim_check_traced(
+    draft: &str,
+    ctx: &BeagleContext,
+    run_id: &str,
+    registry: &mut VerdictRegistry,
+) -> Option<String> {
     if !dsep_claim_check_enabled() {
+        registry.push(VerdictRecord {
+            verb: "causal.dsep",
+            input_sha256: String::new(),
+            result: "gate-off".to_string(),
+            run_id: run_id.to_string(),
+        });
         return None;
     }
     let draft_excerpt: String = draft.chars().take(6000).collect();
@@ -1413,73 +1665,118 @@ async fn causal_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> O
         false,
         false,
     );
-    let (text, _tier) = call_llm_extraction(ctx, run_id, &prompt, meta).await.ok()?;
-
-    let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
-
-    // Strict validation: bail if extraction is ambiguous or incomplete.
-    let nodes = parsed.get("nodes")?.as_array()?;
-    let edges_raw = parsed.get("edges")?.as_array()?;
-    let x = parsed.get("x")?.as_u64()? as usize;
-    let y = parsed.get("y")?.as_u64()? as usize;
-    let claim = parsed
-        .get("claim")?
-        .as_str()
-        .unwrap_or("")
-        .trim()
-        .to_string();
-
-    // Empty extraction → nothing to check (honest: no finding).
-    if nodes.is_empty() || claim.is_empty() {
-        return None;
-    }
-    let n = nodes.len();
-    // Reject oversized or trivially degenerate graphs.
-    if n > 32 || n < 2 || x >= n || y >= n || x == y {
-        return None;
-    }
-
-    let z_arr = parsed.get("z")?.as_array()?;
-    let z: Vec<usize> = z_arr
-        .iter()
-        .filter_map(|v| v.as_u64().map(|u| u as usize))
-        .collect();
-    if z.iter().any(|&zi| zi >= n) {
-        return None;
-    }
-
-    let mut edges: Vec<[usize; 2]> = Vec::new();
-    for e in edges_raw {
-        let pair = e.as_array()?;
-        if pair.len() != 2 {
+    let text = match call_llm_extraction(ctx, run_id, &prompt, meta).await {
+        Ok((t, _tier)) => t,
+        Err(_) => {
+            registry.push(VerdictRecord {
+                verb: "causal.dsep",
+                input_sha256: String::new(),
+                result: "validation-rejected".to_string(),
+                run_id: run_id.to_string(),
+            });
             return None;
         }
-        let a = pair[0].as_u64()? as usize;
-        let b = pair[1].as_u64()? as usize;
-        if a >= n || b >= n {
-            return None;
-        }
-        edges.push([a, b]);
-    }
-    // Need at least one edge connecting x→...→y path candidates.
-    if edges.is_empty() {
-        return None;
-    }
-
-    let node_names: Vec<String> = nodes
-        .iter()
-        .map(|v| v.as_str().unwrap_or("?").to_string())
-        .collect();
-
-    let req = inference_client::DsepRequest {
-        n,
-        edges,
-        x,
-        y,
-        z: z.clone(),
     };
+
+    // Strict validation in an inner closure so any early `?`/`None` converges to a
+    // single `validation-rejected` VerdictRecord below (honest-by-construction).
+    let extracted: Option<(inference_client::DsepRequest, Vec<String>, String, usize)> = (|| {
+        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
+
+        let nodes = parsed.get("nodes")?.as_array()?;
+        let edges_raw = parsed.get("edges")?.as_array()?;
+        let x = parsed.get("x")?.as_u64()? as usize;
+        let y = parsed.get("y")?.as_u64()? as usize;
+        let claim = parsed
+            .get("claim")?
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+
+        // Empty extraction → nothing to check (honest: no finding).
+        if nodes.is_empty() || claim.is_empty() {
+            return None;
+        }
+        let n = nodes.len();
+        // Reject oversized or trivially degenerate graphs.
+        if n > 32 || n < 2 || x >= n || y >= n || x == y {
+            return None;
+        }
+
+        let z_arr = parsed.get("z")?.as_array()?;
+        let z: Vec<usize> = z_arr
+            .iter()
+            .filter_map(|v| v.as_u64().map(|u| u as usize))
+            .collect();
+        if z.iter().any(|&zi| zi >= n) {
+            return None;
+        }
+
+        let mut edges: Vec<[usize; 2]> = Vec::new();
+        for e in edges_raw {
+            let pair = e.as_array()?;
+            if pair.len() != 2 {
+                return None;
+            }
+            let a = pair[0].as_u64()? as usize;
+            let b = pair[1].as_u64()? as usize;
+            if a >= n || b >= n {
+                return None;
+            }
+            edges.push([a, b]);
+        }
+        // Need at least one edge connecting x→...→y path candidates.
+        if edges.is_empty() {
+            return None;
+        }
+        let edges_len = edges.len();
+
+        let node_names: Vec<String> = nodes
+            .iter()
+            .map(|v| v.as_str().unwrap_or("?").to_string())
+            .collect();
+
+        let req = inference_client::DsepRequest {
+            n,
+            edges,
+            x,
+            y,
+            z: z.clone(),
+        };
+        Some((req, node_names, claim, edges_len))
+    })();
+
+    let (req, node_names, claim, edges_len) = match extracted {
+        Some(v) => v,
+        None => {
+            registry.push(VerdictRecord {
+                verb: "causal.dsep",
+                input_sha256: String::new(),
+                result: "validation-rejected".to_string(),
+                run_id: run_id.to_string(),
+            });
+            return None;
+        }
+    };
+    let (x, y, z) = (req.x, req.y, req.z.clone());
+
+    let artifact = serde_json::to_string(&req).unwrap_or_default();
+    let sha = artifact_sha256(&artifact);
     let base = inference_client::inference_base_url();
-    match inference_client::causal_dsep(&base, req).await {
+    let verdict = inference_client::causal_dsep(&base, req).await;
+    registry.push(VerdictRecord {
+        verb: "causal.dsep",
+        input_sha256: sha,
+        result: match verdict {
+            inference_client::DsepVerdict::Separated => "d-separated",
+            inference_client::DsepVerdict::Connected => "d-connected",
+            inference_client::DsepVerdict::Unknown => "transport-error",
+        }
+        .to_string(),
+        run_id: run_id.to_string(),
+    });
+    match verdict {
         inference_client::DsepVerdict::Separated => {
             // The draft CLAIMS dependence between x and y, but the solver proves d-separation
             // given z — structural incoherence in the extracted DAG.
@@ -1525,7 +1822,7 @@ async fn causal_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> O
                 y_name,
                 cond,
                 claim,
-                edges_raw.len(),
+                edges_len,
                 node_names
                     .iter()
                     .enumerate()
@@ -1559,8 +1856,28 @@ async fn causal_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> O
 /// assume insumos NÃO-correlacionados e a operação extraída. O achado prova apenas que, SOB os
 /// insumos e a operação extraídos, a incerteza declarada é estreita demais — não que o draft
 /// esteja errado. Sinal fraco/indicativo para ARGOS.
+/// Thin wrapper preserving the historic signature for direct callers/tests.
 async fn gum_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Option<String> {
+    let mut registry = VerdictRegistry::new();
+    gum_claim_check_traced(draft, ctx, run_id, &mut registry).await
+}
+
+/// Traced variant of [`gum_claim_check`]: emits exactly one [`VerdictRecord`] on
+/// every code path (gate-off, validation-rejected, transport-error,
+/// gum-understated, gum-ok). Called by `run_argos`.
+async fn gum_claim_check_traced(
+    draft: &str,
+    ctx: &BeagleContext,
+    run_id: &str,
+    registry: &mut VerdictRegistry,
+) -> Option<String> {
     if !gum_claim_check_enabled() {
+        registry.push(VerdictRecord {
+            verb: "gum.propagate",
+            input_sha256: String::new(),
+            result: "gate-off".to_string(),
+            run_id: run_id.to_string(),
+        });
         return None;
     }
     let draft_excerpt: String = draft.chars().take(6000).collect();
@@ -1595,52 +1912,82 @@ async fn gum_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Opti
         false,
         false,
     );
-    let (text, _tier) = call_llm_extraction(ctx, run_id, &prompt, meta).await.ok()?;
-
-    let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
-    if !parsed
-        .get("found")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
-        return None;
-    }
-    let op = parsed.get("op")?.as_str()?.trim().to_ascii_lowercase();
-    if !matches!(op.as_str(), "add" | "sub" | "mul" | "div") {
-        return None;
-    }
-    // Extrai um {value,u,label} validando finitude e u >= 0.
-    let get_input = |key: &str| -> Option<(f64, f64, String)> {
-        let o = parsed.get(key)?;
-        let value = o.get("value")?.as_f64()?;
-        let u = o.get("u")?.as_f64()?;
-        if !value.is_finite() || !u.is_finite() || u < 0.0 {
+    let text = match call_llm_extraction(ctx, run_id, &prompt, meta).await {
+        Ok((t, _tier)) => t,
+        Err(_) => {
+            registry.push(VerdictRecord {
+                verb: "gum.propagate",
+                input_sha256: String::new(),
+                result: "validation-rejected".to_string(),
+                run_id: run_id.to_string(),
+            });
             return None;
         }
-        let label = o
-            .get("label")
-            .and_then(|v| v.as_str())
-            .unwrap_or(key)
-            .to_string();
-        Some((value, u, label))
     };
-    let (a_val, a_u, a_lbl) = get_input("a")?;
-    let (b_val, b_u, b_lbl) = get_input("b")?;
 
-    let claimed_u = parsed.get("claimed_uncertainty")?.as_f64()?;
-    if !claimed_u.is_finite() || claimed_u <= 0.0 {
-        return None; // sem incerteza declarada positiva não há o que comparar
-    }
-    let y_label = parsed
-        .get("y_label")
-        .and_then(|v| v.as_str())
-        .unwrap_or("grandeza derivada")
-        .to_string();
+    // Strict numeric validation in an inner closure so any early `None` converges to
+    // a single `validation-rejected` VerdictRecord (honest-by-construction).
+    type GumExtract = (f64, f64, String, f64, f64, String, String, f64, String);
+    let extracted: Option<GumExtract> = (|| {
+        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
+        if !parsed
+            .get("found")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            return None;
+        }
+        let op = parsed.get("op")?.as_str()?.trim().to_ascii_lowercase();
+        if !matches!(op.as_str(), "add" | "sub" | "mul" | "div") {
+            return None;
+        }
+        // Extrai um {value,u,label} validando finitude e u >= 0.
+        let get_input = |key: &str| -> Option<(f64, f64, String)> {
+            let o = parsed.get(key)?;
+            let value = o.get("value")?.as_f64()?;
+            let u = o.get("u")?.as_f64()?;
+            if !value.is_finite() || !u.is_finite() || u < 0.0 {
+                return None;
+            }
+            let label = o
+                .get("label")
+                .and_then(|v| v.as_str())
+                .unwrap_or(key)
+                .to_string();
+            Some((value, u, label))
+        };
+        let (a_val, a_u, a_lbl) = get_input("a")?;
+        let (b_val, b_u, b_lbl) = get_input("b")?;
 
-    // div por zero (ou perto) na operação ⇒ propagação degenera; abstém-se.
-    if op == "div" && b_val.abs() < f64::EPSILON {
-        return None;
-    }
+        let claimed_u = parsed.get("claimed_uncertainty")?.as_f64()?;
+        if !claimed_u.is_finite() || claimed_u <= 0.0 {
+            return None; // sem incerteza declarada positiva não há o que comparar
+        }
+        let y_label = parsed
+            .get("y_label")
+            .and_then(|v| v.as_str())
+            .unwrap_or("grandeza derivada")
+            .to_string();
+
+        // div por zero (ou perto) na operação ⇒ propagação degenera; abstém-se.
+        if op == "div" && b_val.abs() < f64::EPSILON {
+            return None;
+        }
+        Some((a_val, a_u, a_lbl, b_val, b_u, b_lbl, op, claimed_u, y_label))
+    })();
+
+    let (a_val, a_u, a_lbl, b_val, b_u, b_lbl, op, claimed_u, y_label) = match extracted {
+        Some(v) => v,
+        None => {
+            registry.push(VerdictRecord {
+                verb: "gum.propagate",
+                input_sha256: String::new(),
+                result: "validation-rejected".to_string(),
+                run_id: run_id.to_string(),
+            });
+            return None;
+        }
+    };
 
     let req = inference_client::GumRequest {
         inputs: vec![
@@ -1657,17 +2004,50 @@ async fn gum_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Opti
         ],
         op: op.clone(),
     };
+    let artifact = serde_json::to_string(&req).unwrap_or_default();
+    let sha = artifact_sha256(&artifact);
     let base = inference_client::inference_base_url();
-    let propagated = inference_client::gum_propagate(&base, req).await?;
+    let propagated = match inference_client::gum_propagate(&base, req).await {
+        Some(p) => p,
+        None => {
+            registry.push(VerdictRecord {
+                verb: "gum.propagate",
+                input_sha256: sha,
+                result: "transport-error".to_string(),
+                run_id: run_id.to_string(),
+            });
+            return None;
+        }
+    };
     let u_c = propagated.combined_std_uncertainty;
     if !u_c.is_finite() || u_c <= 0.0 {
+        registry.push(VerdictRecord {
+            verb: "gum.propagate",
+            input_sha256: sha,
+            result: "transport-error".to_string(),
+            run_id: run_id.to_string(),
+        });
         return None;
     }
+
+    // Veredito: subdeclaração (gum-understated) dispara achado; caso contrário gum-ok.
+    let understated = claimed_u < u_c * 0.8;
+    registry.push(VerdictRecord {
+        verb: "gum.propagate",
+        input_sha256: sha,
+        result: if understated {
+            "gum-understated"
+        } else {
+            "gum-ok"
+        }
+        .to_string(),
+        run_id: run_id.to_string(),
+    });
 
     // Subdeclaração: a incerteza declarada (lida da forma MAIS generosa, como 1σ) é
     // materialmente menor que a incerteza-padrão combinada propagada. Margem conservadora
     // de 20% para absorver ruído de extração — só dispara em subdeclaração CLARA.
-    if claimed_u >= u_c * 0.8 {
+    if !understated {
         return None;
     }
     let pct_tighter = ((u_c - claimed_u) / u_c * 100.0).round() as i64;
@@ -1729,8 +2109,28 @@ async fn gum_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Opti
 /// sobre premissas implícitas (conhecimento de domínio, aritmética, quantificadores) também dá
 /// `UNKNOWN`. Por isso o achado é uma HIPÓTESE FRACA: "ou faltam premissas no texto, ou é um
 /// non-sequitur" — nunca um veredito de invalidez.
+/// Thin wrapper preserving the historic signature for direct callers/tests.
 async fn theorem_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Option<String> {
+    let mut registry = VerdictRegistry::new();
+    theorem_claim_check_traced(draft, ctx, run_id, &mut registry).await
+}
+
+/// Traced variant of [`theorem_claim_check`]: emits exactly one [`VerdictRecord`]
+/// on every code path (gate-off, validation-rejected, transport-error, PROVED,
+/// UNKNOWN, INVALID). Called by `run_argos`.
+async fn theorem_claim_check_traced(
+    draft: &str,
+    ctx: &BeagleContext,
+    run_id: &str,
+    registry: &mut VerdictRegistry,
+) -> Option<String> {
     if !theorem_claim_check_enabled() {
+        registry.push(VerdictRecord {
+            verb: "theorem.prove",
+            input_sha256: String::new(),
+            result: "gate-off".to_string(),
+            run_id: run_id.to_string(),
+        });
         return None;
     }
     let draft_excerpt: String = draft.chars().take(6000).collect();
@@ -1767,42 +2167,77 @@ async fn theorem_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> 
         false,
         false,
     );
-    let (text, _tier) = call_llm_extraction(ctx, run_id, &prompt, meta).await.ok()?;
+    let text = match call_llm_extraction(ctx, run_id, &prompt, meta).await {
+        Ok((t, _tier)) => t,
+        Err(_) => {
+            registry.push(VerdictRecord {
+                verb: "theorem.prove",
+                input_sha256: String::new(),
+                result: "validation-rejected".to_string(),
+                run_id: run_id.to_string(),
+            });
+            return None;
+        }
+    };
 
-    let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
-    if !parsed
-        .get("found")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
-        return None;
-    }
-    let atoms: Vec<String> = parsed
-        .get("atoms")?
-        .as_array()?
-        .iter()
-        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-        .collect();
-    if atoms.is_empty() || atoms.len() > 32 {
-        return None;
-    }
-    let hypotheses: Vec<serde_json::Value> = parsed.get("hypotheses")?.as_array()?.clone();
-    if hypotheses.is_empty() {
-        return None; // sem premissas não há dedução a checar
-    }
-    let goal = parsed.get("goal")?.clone();
-    if !goal.is_object() {
-        return None;
-    }
-    let argument = parsed
-        .get("argument")?
-        .as_str()
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    if argument.is_empty() {
-        return None;
-    }
+    // Strict validation in an inner closure so any early `None` converges to a single
+    // `validation-rejected` VerdictRecord (honest-by-construction).
+    type TheoremExtract = (
+        Vec<String>,
+        Vec<serde_json::Value>,
+        serde_json::Value,
+        String,
+    );
+    let extracted: Option<TheoremExtract> = (|| {
+        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
+        if !parsed
+            .get("found")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            return None;
+        }
+        let atoms: Vec<String> = parsed
+            .get("atoms")?
+            .as_array()?
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect();
+        if atoms.is_empty() || atoms.len() > 32 {
+            return None;
+        }
+        let hypotheses: Vec<serde_json::Value> = parsed.get("hypotheses")?.as_array()?.clone();
+        if hypotheses.is_empty() {
+            return None; // sem premissas não há dedução a checar
+        }
+        let goal = parsed.get("goal")?.clone();
+        if !goal.is_object() {
+            return None;
+        }
+        let argument = parsed
+            .get("argument")?
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if argument.is_empty() {
+            return None;
+        }
+        Some((atoms, hypotheses, goal, argument))
+    })();
+
+    let (atoms, hypotheses, goal, argument) = match extracted {
+        Some(v) => v,
+        None => {
+            registry.push(VerdictRecord {
+                verb: "theorem.prove",
+                input_sha256: String::new(),
+                result: "validation-rejected".to_string(),
+                run_id: run_id.to_string(),
+            });
+            return None;
+        }
+    };
 
     let n_hyps = hypotheses.len();
     let req = inference_client::TheoremRequest {
@@ -1811,10 +2246,34 @@ async fn theorem_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> 
         goal,
         depth: 12, // bem acima do default 6 — reduz UNKNOWN espúrio por busca rasa
     };
+    let artifact = serde_json::to_string(&req).unwrap_or_default();
+    let sha = artifact_sha256(&artifact);
     let base = inference_client::inference_base_url();
     // Some(Proved)/None → sem achado. None inclui serviço fora E estrutura malformada (422):
     // honesto — nunca confundir "serviço indisponível" com "non-sequitur".
-    let verdict = inference_client::theorem_prove(&base, req).await?;
+    let verdict = match inference_client::theorem_prove(&base, req).await {
+        Some(v) => v,
+        None => {
+            registry.push(VerdictRecord {
+                verb: "theorem.prove",
+                input_sha256: sha,
+                result: "transport-error".to_string(),
+                run_id: run_id.to_string(),
+            });
+            return None;
+        }
+    };
+    registry.push(VerdictRecord {
+        verb: "theorem.prove",
+        input_sha256: sha,
+        result: match verdict {
+            inference_client::ProofVerdict::Proved => "PROVED",
+            inference_client::ProofVerdict::Unknown => "UNKNOWN",
+            inference_client::ProofVerdict::Invalid => "INVALID",
+        }
+        .to_string(),
+        run_id: run_id.to_string(),
+    });
     let outcome = match verdict {
         inference_client::ProofVerdict::Proved => return None,
         inference_client::ProofVerdict::Unknown => "UNKNOWN (nenhuma derivação encontrada)",
@@ -1853,6 +2312,11 @@ pub async fn run_argos(
     ctx: &BeagleContext,
     run_id: &str,
 ) -> anyhow::Result<(TriadOpinion, ProviderTier)> {
+    // P1: VerdictRegistry — populado ANTES da chamada LLM do ARGOS. Cada função traced
+    // empurra exatamente um VerdictRecord, então a ground truth existe antes de ARGOS
+    // escrever qualquer coisa. Local à run; nunca persistido (sem records obsoletos).
+    let mut registry = VerdictRegistry::new();
+
     let mut prompt = String::from(
         "Você é ARGOS, agente crítico adversarial do sistema BEAGLE.\n\n\
         Você atua como revisor Q1 rigoroso (Nature Human Behaviour, Kybernetes, Frontiers in Computational Neuroscience).\n\
@@ -1892,7 +2356,8 @@ pub async fn run_argos(
     // Verificação formal de consistência via Sounio smt.check (gated). UNSAT = contradição
     // PROVADA por solver — sinal forte para ARGOS, e surfaceado no relatório. Honesto:
     // None quando não há contradição provada ou o serviço está fora.
-    let solver_finding = solver_claim_consistency(original_draft, ctx, run_id).await;
+    let solver_finding =
+        solver_claim_consistency_traced(original_draft, ctx, run_id, &mut registry).await;
     if let Some(ref f) = solver_finding {
         prompt.push_str("\n\n=== VERIFICAÇÃO FORMAL POR SOLVER (Sounio SMT — verificada) ===\n");
         prompt.push_str(f);
@@ -1908,7 +2373,8 @@ pub async fn run_argos(
     // quando o texto afirma dependência mas o DAG extraído a bloqueia.
     // Sinal FRACO (extração de grafos causais é altamente falível): None em caso de
     // dúvida, erro, grafo insuficiente, ou d-conexão (status quo).
-    let causal_finding = causal_claim_check(original_draft, ctx, run_id).await;
+    let causal_finding =
+        causal_claim_check_traced(original_draft, ctx, run_id, &mut registry).await;
     if let Some(ref f) = causal_finding {
         prompt
             .push_str("\n\n=== VERIFICAÇÃO FORMAL CAUSAL (Sounio causal.dsep — estrutural) ===\n");
@@ -1925,7 +2391,7 @@ pub async fn run_argos(
     // incerteza DECLARADA para a grandeza derivada é materialmente MENOR que a propagada
     // (subdeclaração). Sinal indicativo: a propagação é formal, mas os números/operação
     // extraídos são falíveis e a GUM assume insumos não-correlacionados. None em caso de dúvida.
-    let gum_finding = gum_claim_check(original_draft, ctx, run_id).await;
+    let gum_finding = gum_claim_check_traced(original_draft, ctx, run_id, &mut registry).await;
     if let Some(ref f) = gum_finding {
         prompt
             .push_str("\n\n=== VERIFICAÇÃO FORMAL DE INCERTEZA (Sounio gum.propagate — GUM) ===\n");
@@ -1942,7 +2408,8 @@ pub async fn run_argos(
     // O sinal MAIS FRACO: dispara só quando o prover NÃO reconstrói uma dedução proposicional
     // que o draft afirma ser suficiente. UNKNOWN ≠ refutação (prover proposicional/profundidade
     // limitada) — por isso entra como hipótese fraca, com a ressalva mais forte. None em dúvida.
-    let theorem_finding = theorem_claim_check(original_draft, ctx, run_id).await;
+    let theorem_finding =
+        theorem_claim_check_traced(original_draft, ctx, run_id, &mut registry).await;
     if let Some(ref f) = theorem_finding {
         prompt.push_str(
             "\n\n=== VERIFICAÇÃO FORMAL DEDUTIVA (Sounio theorem.prove — proposicional) ===\n",
@@ -1967,17 +2434,29 @@ pub async fn run_argos(
         true,                       // critical_section (revisão crítica)
     );
 
-    let (text, tier) = call_llm_with_stats_triad(ctx, run_id, &prompt, meta).await?;
+    let (raw_text, tier) = call_llm_with_stats_triad(ctx, run_id, &prompt, meta).await?;
 
-    let score = extract_score(&text).unwrap_or(0.9);
+    // P1: validador post-hoc de atribuição. Varre o texto do LLM por co-ocorrências
+    // (verbo, veredito). Qualquer atribuição sem VerdictRecord correspondente é REDIGIDA
+    // (não apenas avisada) — correção estrutural, não lembrete de prompt.
+    let (validated_text, integrity_summary) = registry.redact_unattested(&raw_text);
+    info!(
+        run_id = %run_id,
+        integrity = %integrity_summary,
+        "run_argos: validação post-hoc de atribuição concluída"
+    );
+
+    let score = extract_score(&validated_text).unwrap_or(0.9);
 
     // Surfacea os achados formais no topo do relatório de ARGOS (independente do LLM).
     // SMT primeiro (contradição quantitativa), depois causal (incoerência estrutural).
     let suggestions_md = match (solver_finding, causal_finding) {
-        (Some(smt), Some(causal)) => format!("{}\n\n---\n\n{}\n\n---\n\n{}", smt, causal, text),
-        (Some(smt), None) => format!("{}\n\n---\n\n{}", smt, text),
-        (None, Some(causal)) => format!("{}\n\n---\n\n{}", causal, text),
-        (None, None) => text,
+        (Some(smt), Some(causal)) => {
+            format!("{}\n\n---\n\n{}\n\n---\n\n{}", smt, causal, validated_text)
+        }
+        (Some(smt), None) => format!("{}\n\n---\n\n{}", smt, validated_text),
+        (None, Some(causal)) => format!("{}\n\n---\n\n{}", causal, validated_text),
+        (None, None) => validated_text,
     };
 
     Ok((
@@ -2104,6 +2583,117 @@ mod tests {
         let ctx = BeagleContext::new_with_mock().expect("mock ctx");
         let out = solver_claim_consistency("dose >= 6 e dose <= 3", &ctx, "t").await;
         assert!(out.is_none());
+    }
+
+    // ===== P1: VerdictRegistry + post-hoc attribution validator =====
+
+    fn rec(verb: &'static str, result: &str) -> VerdictRecord {
+        VerdictRecord {
+            verb,
+            input_sha256: String::new(),
+            result: result.to_string(),
+            run_id: "t".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_verdict_registry_push_and_lookup() {
+        let mut reg = VerdictRegistry::new();
+        reg.push(rec("smt.check", "UNSAT"));
+        reg.push(rec("causal.dsep", "d-separated"));
+        reg.push(rec("gum.propagate", "gum-understated"));
+        reg.push(rec("theorem.prove", "UNKNOWN"));
+        assert_eq!(reg.lookup("smt.check").unwrap().result, "UNSAT");
+        assert_eq!(reg.lookup("causal.dsep").unwrap().result, "d-separated");
+        assert_eq!(reg.lookup("theorem.prove").unwrap().result, "UNKNOWN");
+        assert!(reg.lookup("nonexistent.verb").is_none());
+    }
+
+    #[test]
+    fn test_redact_unattested_passes_when_record_exists() {
+        let mut reg = VerdictRegistry::new();
+        reg.push(rec("smt.check", "UNSAT"));
+        let (out, summary) =
+            reg.redact_unattested("O solver `smt.check` retornou UNSAT para o conjunto.");
+        assert!(!out.contains("[REDACTED"));
+        assert!(out.contains("smt.check"));
+        assert!(summary.starts_with("integrity=PASS"));
+        assert!(out.contains("Integrity check PASSED"));
+    }
+
+    #[test]
+    fn test_redact_unattested_redacts_when_no_record() {
+        let reg = VerdictRegistry::new();
+        let (out, summary) =
+            reg.redact_unattested("O `theorem.prove` retornou UNKNOWN, refutando o argumento.");
+        assert!(out.contains("[REDACTED"));
+        assert!(summary.starts_with("integrity=FAIL"));
+        assert!(out.contains("Integrity check FAILED"));
+    }
+
+    #[test]
+    fn test_redact_unattested_redacts_gate_off_record() {
+        let mut reg = VerdictRegistry::new();
+        reg.push(rec("theorem.prove", "gate-off"));
+        let (out, summary) = reg.redact_unattested("O `theorem.prove` retornou UNKNOWN.");
+        assert!(out.contains("[REDACTED"));
+        assert!(summary.starts_with("integrity=FAIL"));
+    }
+
+    #[test]
+    fn test_redact_unattested_passes_gate_off_without_verdict_word() {
+        let mut reg = VerdictRegistry::new();
+        reg.push(rec("theorem.prove", "gate-off"));
+        // Line names the verb but NO verdict keyword → not flagged.
+        let (out, summary) =
+            reg.redact_unattested("O verbo `theorem.prove` está disponível no cluster.");
+        assert!(!out.contains("[REDACTED"));
+        assert!(summary.starts_with("integrity=PASS"));
+    }
+
+    #[test]
+    fn test_artifact_sha256_is_deterministic() {
+        let a = artifact_sha256("hello world");
+        let b = artifact_sha256("hello world");
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 64); // hex SHA-256
+    }
+
+    #[test]
+    fn test_artifact_sha256_differs_on_different_input() {
+        assert_ne!(artifact_sha256("{\"a\":1}"), artifact_sha256("{\"a\":2}"));
+    }
+
+    #[tokio::test]
+    async fn test_solver_claim_consistency_traced_pushes_gate_off_when_disabled() {
+        std::env::remove_var("BEAGLE_TRIAD_SMT_CHECK");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let mut reg = VerdictRegistry::new();
+        let out =
+            solver_claim_consistency_traced("dose >= 6 e dose <= 3", &ctx, "t", &mut reg).await;
+        assert!(out.is_none());
+        assert_eq!(reg.lookup("smt.check").unwrap().result, "gate-off");
+    }
+
+    #[tokio::test]
+    async fn test_theorem_claim_check_traced_pushes_gate_off_when_disabled() {
+        std::env::remove_var("BEAGLE_TRIAD_THEOREM_CHECK");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let mut reg = VerdictRegistry::new();
+        let out = theorem_claim_check_traced("logo, portanto X", &ctx, "t", &mut reg).await;
+        assert!(out.is_none());
+        assert_eq!(reg.lookup("theorem.prove").unwrap().result, "gate-off");
+    }
+
+    #[test]
+    fn test_integrity_note_appears_for_spurious_attribution() {
+        // End-to-end of the redaction layer: an empty registry (no solver ran) and
+        // ARGOS text that fabricates a theorem.prove UNKNOWN verdict → redacted.
+        let reg = VerdictRegistry::new();
+        let spurious = "## Problemas\nO `theorem.prove` provou UNKNOWN, logo o argumento falha.";
+        let (out, _summary) = reg.redact_unattested(spurious);
+        assert!(out.contains("[REDACTED"));
+        assert!(out.contains("Integrity check FAILED"));
     }
 
     fn sample_opinion() -> TriadOpinion {
