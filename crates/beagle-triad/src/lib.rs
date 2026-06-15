@@ -1519,6 +1519,7 @@ where
 /// - Claims sem suporte empírico adequado
 /// - Confusão entre metáfora e mecanismo
 /// - Ausência de desenho empírico razoável
+///
 /// Gate: a verificação por solver só roda com `BEAGLE_TRIAD_SMT_CHECK` ligado (OFF por padrão).
 /// Aceita as formas usuais de "ligado": `1`, `true`, `yes`, `on` (case-insensitive). Antes o
 /// código fazia `v.parse::<bool>()`, que REJEITA `"1"` (só aceita `true`/`false`) — então o valor
@@ -1682,6 +1683,98 @@ async fn verify_translation_faithfulness(
     }
 }
 
+/// Gate that enables the CoT ensemble cross-check for all four domains (P5).
+/// When ON, a domain's claim_check that finds a solver incoherence ALSO fires a
+/// cheap LLM CoT call on the same artifact and compares verdicts. OFF by default.
+fn cot_ensemble_enabled() -> bool {
+    std::env::var("BEAGLE_TRIAD_COT_ENSEMBLE")
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// CoT verdict returned by [`cot_call`], mapped onto the solver verdicts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CotVerdict {
+    /// LLM agrees the artifact is incoherent / UNSAT / understated / non-provable.
+    Incoherent,
+    /// LLM thinks the artifact is coherent / SAT / sound.
+    Coherent,
+    /// LLM unreachable, timed out, or gave an unrecognised answer.
+    Unknown,
+}
+
+/// Cheap model used for CoT cross-checks (deepseek-chat by default).
+/// Override with `BEAGLE_TRIAD_COT_MODEL`.
+fn cot_model() -> String {
+    std::env::var("BEAGLE_TRIAD_COT_MODEL").unwrap_or_else(|_| "deepseek-chat".to_string())
+}
+
+/// Fire a single cheap CoT LLM call (via `ctx.router` directly, not the extraction
+/// override) and return a [`CotVerdict`]. The prompt must instruct a one-word reply.
+async fn cot_call(ctx: &BeagleContext, run_id: &str, prompt: &str) -> CotVerdict {
+    let meta = RequestMeta::new(
+        false,
+        false,
+        false,
+        prompt.chars().count() / 4,
+        false,
+        false,
+        false,
+    );
+    let current_stats = ctx.llm_stats.get_or_create(run_id);
+    let (client, _tier) = ctx.router.choose_with_limits(&meta, &current_stats);
+    let req = beagle_llm::LlmRequest {
+        model: cot_model(),
+        messages: vec![beagle_llm::ChatMessage::user(prompt)],
+        temperature: Some(0.0),
+        max_tokens: Some(512),
+    };
+    match client.chat(req).await {
+        Err(e) => {
+            warn!(error = %e, "cot_call: LLM error; Unknown");
+            CotVerdict::Unknown
+        }
+        Ok(text) => {
+            let t = text.trim().to_ascii_uppercase();
+            if t.contains("INCOHERENT") {
+                CotVerdict::Incoherent
+            } else if t.contains("COHERENT") {
+                CotVerdict::Coherent
+            } else {
+                warn!(reply = %text, "cot_call: unrecognised reply; Unknown");
+                CotVerdict::Unknown
+            }
+        }
+    }
+}
+
+/// Attach a CONFIDENCE label to a solver-finding markdown block (P5).
+/// Solver+CoT agreement → HIGH; divergence/unknown → MEDIUM (solver remains authoritative).
+fn attach_confidence(finding: &str, cot: CotVerdict) -> String {
+    match cot {
+        CotVerdict::Incoherent => format!(
+            "{finding}\n\n> **CONFIDENCE: HIGH** — Solver e CoT concordam na incoerência \
+             (concordância neurosimbólica+CoT é sinal forte; o veredito do solver é autoritativo)."
+        ),
+        CotVerdict::Coherent => format!(
+            "{finding}\n\n> **CONFIDENCE: MEDIUM** — Solver provou incoerência, mas o CoT LLM \
+             avaliou o mesmo artefato como coerente (divergência de modo). O veredito do solver \
+             formal é autoritativo; a divergência indica que a EXTRAÇÃO do artefato pode ser \
+             parcial ou que o LLM não viu a contradição — investigue antes de afirmar que o \
+             draft está errado."
+        ),
+        CotVerdict::Unknown => format!(
+            "{finding}\n\n> **CONFIDENCE: MEDIUM** — CoT indisponível ou inconclusivo; veredito \
+             do solver é autoritativo, mas não há confirmação de modo complementar."
+        ),
+    }
+}
+
 /// Extrai o primeiro objeto JSON balanceado de um texto (o LLM costuma cercar com prosa).
 fn first_json_object(s: &str) -> Option<String> {
     let start = s.find('{')?;
@@ -1755,6 +1848,7 @@ fn dedup_constraints(
 /// contraditórias, NÃO que "o draft está errado".
 /// Thin wrapper preserving the historic signature for direct callers/tests.
 /// Delegates to [`solver_claim_consistency_traced`] with a throwaway registry.
+#[cfg_attr(not(test), allow(dead_code))]
 async fn solver_claim_consistency(
     draft: &str,
     ctx: &BeagleContext,
@@ -1957,7 +2051,7 @@ async fn solver_claim_consistency_traced(
                 n_constraints = constraints.len(),
                 "solver_claim_consistency: UNSAT — contradição provada por Sounio smt.check"
             );
-            Some(format!(
+            let finding_md = format!(
                 "## ⚠️ Contradição provada por solver (Sounio SMT)\n\n\
                 O verificador formal `smt.check` (Sounio, DPLL(T) QF_LIA) provou que o conjunto de \
                 afirmações quantitativas abaixo — extraídas do draft — é **mutuamente contraditório** (UNSAT).\n\n\
@@ -1967,7 +2061,30 @@ async fn solver_claim_consistency_traced(
                 O solver provou apenas que ESTAS constraints são inconsistentes entre si — \
                 confirme contra o texto antes de afirmar que o draft em si está errado.",
                 lines.join("\n")
-            ))
+            );
+            // P5: ensemble com CoT (gated, barato, complementar).
+            if cot_ensemble_enabled() {
+                let cot_prompt = format!(
+                    "You are a scientific logic checker. Below is a set of linear constraints \
+                     extracted from a research draft. Are these constraints jointly satisfiable \
+                     (no contradiction), or are they mutually contradictory (incoherent)?\n\n\
+                     Constraints:\n{}\n\n\
+                     Think step by step, then reply with exactly one word: INCOHERENT or COHERENT.",
+                    constraints
+                        .iter()
+                        .map(|c| c
+                            .label
+                            .clone()
+                            .unwrap_or_else(|| format!("Σ{:?}·x <= {}", c.coeffs, c.bound)))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                );
+                let cot = cot_call(ctx, run_id, &cot_prompt).await;
+                info!(cot = ?cot, "solver_claim_consistency: CoT ensemble verdict");
+                Some(attach_confidence(&finding_md, cot))
+            } else {
+                Some(finding_md)
+            }
         }
         _ => None,
     }
@@ -1990,6 +2107,7 @@ async fn solver_claim_consistency_traced(
 /// reportado refere-se APENAS ao grafo extraído — não ao sistema causal real do autor.
 /// ARGOS deve tratar este sinal como fraco/indicativo, nunca como prova definitiva.
 /// Thin wrapper preserving the historic signature for direct callers/tests.
+#[cfg_attr(not(test), allow(dead_code))]
 async fn causal_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Option<String> {
     let mut registry = VerdictRegistry::new();
     causal_claim_check_traced(draft, ctx, run_id, &mut registry).await
@@ -2087,7 +2205,7 @@ async fn causal_claim_check_traced(
         }
         let n = nodes.len();
         // Reject oversized or trivially degenerate graphs.
-        if n > 32 || n < 2 || x >= n || y >= n || x == y {
+        if !(2..=32).contains(&n) || x >= n || y >= n || x == y {
             return None;
         }
 
@@ -2290,7 +2408,31 @@ async fn causal_claim_check_traced(
                     .collect::<Vec<_>>()
                     .join(", ")
             );
-            Some(format!("{confidence_note}{finding}"))
+            let labeled = format!("{confidence_note}{finding}");
+            // P5: ensemble com CoT (gated, complementar).
+            if cot_ensemble_enabled() {
+                let cot_prompt = format!(
+                    "You are a causal inference checker. The following is a directed acyclic graph \
+                     (DAG, {} edges) and a claimed causal/dependence relationship from a research draft.\n\n\
+                     Nodes: {}\n\
+                     Claimed relationship: \"{}\"\n\
+                     Query: Is '{}' causally independent of '{}' given {}?\n\n\
+                     Think step by step. Then reply with exactly one word: \
+                     INCOHERENT (the claim is inconsistent with the DAG structure) \
+                     or COHERENT (the DAG supports the claim).",
+                    edges_len,
+                    node_names.join(", "),
+                    claim,
+                    x_name,
+                    y_name,
+                    cond
+                );
+                let cot = cot_call(ctx, run_id, &cot_prompt).await;
+                info!(cot = ?cot, "causal_claim_check: CoT ensemble verdict");
+                Some(attach_confidence(&labeled, cot))
+            } else {
+                Some(labeled)
+            }
         }
         // Connected or Unknown → no finding (honest: absence of evidence ≠ evidence of absence).
         _ => None,
@@ -2318,6 +2460,7 @@ async fn causal_claim_check_traced(
 /// insumos e a operação extraídos, a incerteza declarada é estreita demais — não que o draft
 /// esteja errado. Sinal fraco/indicativo para ARGOS.
 /// Thin wrapper preserving the historic signature for direct callers/tests.
+#[cfg_attr(not(test), allow(dead_code))]
 async fn gum_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Option<String> {
     let mut registry = VerdictRegistry::new();
     gum_claim_check_traced(draft, ctx, run_id, &mut registry).await
@@ -2609,7 +2752,29 @@ async fn gum_claim_check_traced(
         b_val = b_val,
         b_u = b_u,
     );
-    Some(format!("{confidence_note}{finding}"))
+    let labeled = format!("{confidence_note}{finding}");
+    // P5: ensemble com CoT (gated, complementar).
+    if cot_ensemble_enabled() {
+        let cot_prompt = format!(
+            "You are an uncertainty propagation checker (GUM/JCGM 100). A research draft claims \
+             the following derived quantity has a stated uncertainty.\n\n\
+             Derived quantity: {}\n\
+             Operation: {} ({} {} {})\n\
+             Input A: {} ± {} ({})\n\
+             Input B: {} ± {} ({})\n\
+             Draft claims uncertainty: ± {}\n\
+             GUM propagated standard uncertainty: {}\n\n\
+             Is the draft's stated uncertainty plausibly consistent with GUM propagation, \
+             or is it understated (incoherent)?\n\
+             Think step by step. Reply with exactly one word: INCOHERENT or COHERENT.",
+            y_label, op, a_lbl, op, b_lbl, a_val, a_u, a_lbl, b_val, b_u, b_lbl, claimed_u, u_c
+        );
+        let cot = cot_call(ctx, run_id, &cot_prompt).await;
+        info!(cot = ?cot, "gum_claim_check: CoT ensemble verdict");
+        Some(attach_confidence(&labeled, cot))
+    } else {
+        Some(labeled)
+    }
 }
 
 /// Verificação formal de dedução proposicional via Sounio `theorem.prove`.
@@ -2632,6 +2797,7 @@ async fn gum_claim_check_traced(
 /// `UNKNOWN`. Por isso o achado é uma HIPÓTESE FRACA: "ou faltam premissas no texto, ou é um
 /// non-sequitur" — nunca um veredito de invalidez.
 /// Thin wrapper preserving the historic signature for direct callers/tests.
+#[cfg_attr(not(test), allow(dead_code))]
 async fn theorem_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Option<String> {
     let mut registry = VerdictRegistry::new();
     theorem_claim_check_traced(draft, ctx, run_id, &mut registry).await
@@ -2841,7 +3007,7 @@ async fn theorem_claim_check_traced(
         result = outcome,
         "theorem_claim_check: dedução proposicional explícita NÃO reconstruída pelo prover"
     );
-    Some(format!(
+    let finding_md = format!(
         "## ⚠️ Dedução não reconstruída — prova proposicional (Sounio theorem.prove)\n\n\
         O verificador formal `theorem.prove` (Sounio, dedução natural proposicional; SOM por \
         construção: só conta derivação real) **NÃO conseguiu derivar** a conclusão a partir das \
@@ -2858,7 +3024,29 @@ async fn theorem_claim_check_traced(
         arg = argument,
         atoms = atoms.join(", "),
         res = outcome,
-    ))
+    );
+    // P5: ensemble com CoT (gated, complementar). Domínio mais fraco — prompt só com o
+    // texto literal e os átomos (a árvore pode codificar premissas invisíveis na prosa).
+    if cot_ensemble_enabled() {
+        let cot_prompt = format!(
+            "You are a logical argument checker. A research draft presents the following \
+             propositional argument and claims it is a valid logical deduction.\n\n\
+             Argument as stated in the draft: \"{}\"\n\
+             Atoms: {}\n\
+             Number of explicit premises: {}\n\n\
+             Is this argument a valid logical deduction from its stated premises alone \
+             (no implicit domain knowledge), or is it incoherent / a non-sequitur?\n\
+             Think step by step. Reply with exactly one word: INCOHERENT or COHERENT.",
+            argument,
+            atoms.join(", "),
+            n_hyps
+        );
+        let cot = cot_call(ctx, run_id, &cot_prompt).await;
+        info!(cot = ?cot, "theorem_claim_check: CoT ensemble verdict");
+        Some(attach_confidence(&finding_md, cot))
+    } else {
+        Some(finding_md)
+    }
 }
 
 pub async fn run_argos(
@@ -3307,6 +3495,42 @@ mod tests {
         let (out, _summary) = reg.redact_unattested(spurious);
         assert!(out.contains("[REDACTED"));
         assert!(out.contains("Integrity check FAILED"));
+    }
+
+    // ===== P5: CoT ensemble + confidence labels =====
+
+    #[test]
+    fn cot_ensemble_is_off_by_default() {
+        std::env::remove_var("BEAGLE_TRIAD_COT_ENSEMBLE");
+        assert!(!cot_ensemble_enabled());
+    }
+
+    #[test]
+    fn cot_ensemble_enabled_by_one() {
+        std::env::set_var("BEAGLE_TRIAD_COT_ENSEMBLE", "1");
+        assert!(cot_ensemble_enabled());
+        std::env::remove_var("BEAGLE_TRIAD_COT_ENSEMBLE");
+    }
+
+    #[test]
+    fn attach_confidence_high_on_agreement() {
+        let f = attach_confidence("## Finding\ntest", CotVerdict::Incoherent);
+        assert!(f.contains("CONFIDENCE: HIGH"));
+        assert!(f.contains("## Finding"));
+    }
+
+    #[test]
+    fn attach_confidence_medium_on_divergence() {
+        let f = attach_confidence("## Finding\ntest", CotVerdict::Coherent);
+        assert!(f.contains("CONFIDENCE: MEDIUM"));
+        assert!(f.contains("divergência de modo"));
+    }
+
+    #[test]
+    fn attach_confidence_medium_on_unknown_cot() {
+        let f = attach_confidence("## Finding\ntest", CotVerdict::Unknown);
+        assert!(f.contains("CONFIDENCE: MEDIUM"));
+        assert!(f.contains("indisponível"));
     }
 
     // ===== P2: SymbCoT semantic faithfulness verifier =====
