@@ -110,70 +110,136 @@ impl VerdictRegistry {
     /// Returns the validated (possibly redacted) text plus a short summary line.
     pub fn redact_unattested(&self, argos_text: &str) -> (String, String) {
         const VERBS: &[&str] = &["smt.check", "causal.dsep", "gum.propagate", "theorem.prove"];
-        const VERDICT_WORDS: &[&str] = &[
-            "unsat",
-            "sat",
-            "proved",
-            "unknown",
-            "invalid",
-            "d-separ",
-            "d-conect",
-            "d-connect",
-        ];
+        // Canonical solver verdict tokens, matched as WHOLE WORDS and case-SENSITIVE
+        // on the original line. ARGOS fabrications use these exact uppercase forms;
+        // matching them as bare substrings (e.g. "sat") false-positives on Portuguese
+        // prose like "satisfatório", "datasets", or English "satisfy".
+        const CANONICAL_VERDICTS: &[&str] = &["UNSAT", "SAT", "PROVED", "UNKNOWN", "INVALID"];
+        // d-separation tokens are unambiguous: keep them as case-insensitive prefixes.
+        const DSEP_TOKENS: &[&str] = &["d-separ", "d-conect", "d-connect"];
+
+        // Whole-word check: the token must not be flanked by alphanumeric chars.
+        fn contains_word(haystack: &str, needle: &str) -> bool {
+            let nbytes = needle.as_bytes();
+            let hbytes = haystack.as_bytes();
+            if nbytes.is_empty() || nbytes.len() > hbytes.len() {
+                return false;
+            }
+            let mut start = 0usize;
+            while let Some(pos) = haystack[start..].find(needle) {
+                let idx = start + pos;
+                let before_ok = idx == 0
+                    || !haystack[..idx]
+                        .chars()
+                        .next_back()
+                        .map(|c| c.is_alphanumeric())
+                        .unwrap_or(false);
+                let after_idx = idx + needle.len();
+                let after_ok = after_idx >= haystack.len()
+                    || !haystack[after_idx..]
+                        .chars()
+                        .next()
+                        .map(|c| c.is_alphanumeric())
+                        .unwrap_or(false);
+                if before_ok && after_ok {
+                    return true;
+                }
+                start = idx + 1;
+                if start >= haystack.len() {
+                    break;
+                }
+            }
+            false
+        }
 
         let mut redactions: Vec<String> = Vec::new();
         let mut out_lines: Vec<String> = Vec::new();
 
         for line in argos_text.lines() {
             let lower = line.to_ascii_lowercase();
-            let mut flagged_verb: Option<&str> = None;
 
-            // Flag iff the line names a verb AND a verdict word.
-            'outer: for verb in VERBS {
-                if lower.contains(verb) {
-                    for vw in VERDICT_WORDS {
-                        if lower.contains(vw) {
-                            flagged_verb = Some(verb);
-                            break 'outer;
-                        }
+            // A line carries a solver-verdict attribution iff it names a verb AND
+            // contains a canonical verdict token (whole-word, case-sensitive) or an
+            // unambiguous d-separation token (case-insensitive prefix).
+            let has_verdict = CANONICAL_VERDICTS.iter().any(|v| contains_word(line, v))
+                || DSEP_TOKENS.iter().any(|t| lower.contains(t));
+
+            // Collect ALL verbs named on this line (not just the first), so a second
+            // verb on the same line cannot smuggle an unattested attribution through.
+            let mut flagged_verbs: Vec<&str> = Vec::new();
+            if has_verdict {
+                for verb in VERBS {
+                    if lower.contains(verb) {
+                        flagged_verbs.push(verb);
                     }
                 }
             }
 
-            match flagged_verb {
-                None => out_lines.push(line.to_string()),
-                Some(verb) => {
-                    let attested = self
-                        .lookup(verb)
-                        .map(|r| {
-                            !matches!(
-                                r.result.as_str(),
-                                "gate-off"
-                                    | "extraction-empty"
-                                    | "validation-rejected"
-                                    | "transport-error"
-                            )
-                        })
-                        .unwrap_or(false);
+            if flagged_verbs.is_empty() {
+                out_lines.push(line.to_string());
+                continue;
+            }
 
-                    if attested {
-                        out_lines.push(line.to_string());
-                    } else {
-                        let marker = format!(
-                            "[REDACTED: solver attribution unattested — no executed VerdictRecord for `{verb}`]"
-                        );
-                        redactions.push(format!("`{verb}` — no VerdictRecord"));
-                        out_lines.push(marker);
-                        warn!(
-                            verb = verb,
-                            "redact_unattested: ARGOS cited a solver verdict with no matching VerdictRecord — line redacted"
-                        );
-                    }
+            let is_attested = |verb: &str| {
+                self.lookup(verb)
+                    .map(|r| {
+                        !matches!(
+                            r.result.as_str(),
+                            "gate-off"
+                                | "extraction-empty"
+                                | "validation-rejected"
+                                | "transport-error"
+                                | "build-failed"
+                        )
+                    })
+                    .unwrap_or(false)
+            };
+
+            let unattested: Vec<&str> = flagged_verbs
+                .iter()
+                .copied()
+                .filter(|v| !is_attested(v))
+                .collect();
+
+            if unattested.is_empty() {
+                out_lines.push(line.to_string());
+            } else {
+                let verbs_joined = unattested.join("`, `");
+                let marker = format!(
+                    "[REDACTED: solver attribution unattested — no executed VerdictRecord for `{verbs_joined}`]"
+                );
+                for v in &unattested {
+                    redactions.push(format!("`{v}` — no VerdictRecord"));
                 }
+                out_lines.push(marker);
+                warn!(
+                    verbs = %unattested.join(","),
+                    "redact_unattested: ARGOS cited a solver verdict with no matching VerdictRecord — line redacted"
+                );
             }
         }
 
-        let integrity_note = if redactions.is_empty() {
+        // Distinguish "a solver ran and all attributions matched" (PASSED) from
+        // "no solver ran at all" (NEUTRAL). Emitting PASSED when every record is a
+        // non-attested marker would falsely imply solver verification happened.
+        const NON_ATTESTED: &[&str] = &[
+            "gate-off",
+            "extraction-empty",
+            "validation-rejected",
+            "transport-error",
+            "build-failed",
+        ];
+        let no_solver_ran = self
+            .records
+            .iter()
+            .all(|r| NON_ATTESTED.contains(&r.result.as_str()));
+
+        let integrity_note = if redactions.is_empty() && no_solver_ran {
+            "\n\n---\n**[Integrity check: nenhum solver rodou]** Todos os gates estavam desligados \
+             ou abstiveram; não há veredito de solver para validar. A saída do ARGOS NÃO foi \
+             cruzada com um registro de solver."
+                .to_string()
+        } else if redactions.is_empty() {
             format!(
                 "\n\n---\n**[Integrity check PASSED]** All solver verdict attribution(s) in this \
                  ARGOS output match a VerdictRecord from this run ({} record(s)). No confabulated \
@@ -190,7 +256,9 @@ impl VerdictRegistry {
             )
         };
 
-        let summary = if redactions.is_empty() {
+        let summary = if redactions.is_empty() && no_solver_ran {
+            format!("integrity=NEUTRAL records={}", self.records.len())
+        } else if redactions.is_empty() {
             format!("integrity=PASS records={}", self.records.len())
         } else {
             format!(
@@ -1505,6 +1573,11 @@ where
             if let Some(artifact) = build_fn(&key_to_text[best_key]) {
                 return ConsistencyResult::Agreed { artifact, votes };
             }
+            warn!(
+                best_key = %best_key,
+                votes,
+                "run_extraction_with_consistency: build_fn returned None despite agreement — treating as Abstained"
+            );
         }
     }
     ConsistencyResult::Abstained {
@@ -1608,6 +1681,7 @@ fn symb_verify_enabled() -> bool {
 async fn verify_translation_faithfulness(
     source_excerpt: &str,
     formal_nl_description: &str,
+    formal_json: &str,
     ctx: &BeagleContext,
     run_id: &str,
 ) -> bool {
@@ -1621,14 +1695,19 @@ async fn verify_translation_faithfulness(
          (B) FORMAL NL DESCRIPTION — a natural-language back-translation of the formal artifact\n\
              (constraints / causal graph / GUM inputs / propositional hypotheses) that was\n\
              extracted from (A) and will be handed to a formal solver.\n\
+         (C) FORMAL (JSON enviado ao solver) — the EXACT JSON payload that will be POSTed to the\n\
+             solver. Post-processing (dedup, sign normalization, index remap) happens between (B)\n\
+             and (C), so (C) may differ from (B); judge BOTH against (A).\n\
          \n\
-         Task: judge whether (B) is SEMANTICALLY EQUIVALENT to (A) — i.e., the formal artifact\n\
-         captures the same entities, quantities, relationships, and logical scope that (A) asserts.\n\
+         Task: judge whether BOTH (B) AND (C) faithfully represent (A) — i.e., the formal artifact\n\
+         captures the same entities, quantities, relationships, and logical scope that (A) asserts,\n\
+         with no sign flip, reordering error, or index/variable remap that changes the meaning.\n\
          \n\
          Rules:\n\
          - Answer ONLY with a JSON object: {{\"equivalent\": true|false, \"reason\": \"one sentence\"}}\n\
-         - Answer false ONLY if there is a clear, specific semantic mismatch (wrong variable,\n\
-           inverted inequality, missing key entity, wrong causal direction, wrong operator).\n\
+         - Answer false ONLY if there is a clear, specific semantic mismatch in (B) OR (C) (wrong\n\
+           variable, inverted inequality, missing key entity, wrong causal direction, wrong operator,\n\
+           sign flip introduced in the JSON).\n\
          - Do NOT answer false for minor phrasing differences, abbreviations, or unit normalization.\n\
          - If unsure, answer true (benefit of the doubt).\n\
          \n\
@@ -1636,8 +1715,11 @@ async fn verify_translation_faithfulness(
          {}\n\
          \n\
          === FORMAL NL DESCRIPTION ===\n\
+         {}\n\
+         \n\
+         === FORMAL (JSON enviado ao solver) ===\n\
          {}",
-        source_excerpt, formal_nl_description,
+        source_excerpt, formal_nl_description, formal_json,
     );
     let meta = RequestMeta::new(
         false,
@@ -1755,24 +1837,66 @@ async fn cot_call(ctx: &BeagleContext, run_id: &str, prompt: &str) -> CotVerdict
 
 /// Attach a CONFIDENCE label to a solver-finding markdown block (P5).
 /// Solver+CoT agreement → HIGH; divergence/unknown → MEDIUM (solver remains authoritative).
-fn attach_confidence(finding: &str, cot: CotVerdict) -> String {
+///
+/// `domain` selects the divergence wording. For "theorem", a solver UNKNOWN/INVALID is
+/// explicitly NOT a proof of invalidity, so the divergence message must not claim the
+/// solver "proved incoherence". For "smt"/"causal"/"gum", the solver verdicts (UNSAT,
+/// d-separated, understated uncertainty) ARE real proofs, so the original wording holds.
+fn attach_confidence(finding: &str, cot: CotVerdict, domain: &str) -> String {
     match cot {
         CotVerdict::Incoherent => format!(
             "{finding}\n\n> **CONFIDENCE: HIGH** — Solver e CoT concordam na incoerência \
              (concordância neurosimbólica+CoT é sinal forte; o veredito do solver é autoritativo)."
         ),
-        CotVerdict::Coherent => format!(
-            "{finding}\n\n> **CONFIDENCE: MEDIUM** — Solver provou incoerência, mas o CoT LLM \
-             avaliou o mesmo artefato como coerente (divergência de modo). O veredito do solver \
-             formal é autoritativo; a divergência indica que a EXTRAÇÃO do artefato pode ser \
-             parcial ou que o LLM não viu a contradição — investigue antes de afirmar que o \
-             draft está errado."
-        ),
+        CotVerdict::Coherent => {
+            if domain == "theorem" {
+                format!(
+                    "{finding}\n\n> **CONFIDENCE: MEDIUM** — Solver NÃO conseguiu reconstruir a \
+                     dedução (UNKNOWN/INVALID — não é prova de invalidade) e o CoT avaliou o \
+                     argumento como válido (divergência de modo); investigue premissas implícitas \
+                     antes de concluir non-sequitur."
+                )
+            } else {
+                format!(
+                    "{finding}\n\n> **CONFIDENCE: MEDIUM** — Solver provou incoerência, mas o CoT LLM \
+                     avaliou o mesmo artefato como coerente (divergência de modo). O veredito do solver \
+                     formal é autoritativo; a divergência indica que a EXTRAÇÃO do artefato pode ser \
+                     parcial ou que o LLM não viu a contradição — investigue antes de afirmar que o \
+                     draft está errado."
+                )
+            }
+        }
         CotVerdict::Unknown => format!(
             "{finding}\n\n> **CONFIDENCE: MEDIUM** — CoT indisponível ou inconclusivo; veredito \
              do solver é autoritativo, mas não há confirmação de modo complementar."
         ),
     }
+}
+
+/// Canonical self-consistency key for an SMT extraction JSON (`{"constraints":[...]}`).
+///
+/// The key is a sorted join of `label|bound|coeffs` per constraint. `coeffs` MUST be
+/// part of the key so two extractions with the same `(label, bound)` but a different
+/// linear combination do not falsely "agree" in the P3 consistency gate.
+fn smt_canonical_key(json: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(json).ok()?;
+    let cons = parsed.get("constraints")?.as_array()?;
+    let mut keys: Vec<String> = cons
+        .iter()
+        .filter_map(|c| {
+            let label = c.get("label").and_then(|v| v.as_str()).unwrap_or("");
+            let bound = c.get("bound").and_then(|v| v.as_i64())?;
+            let mut coeffs: Vec<i64> = c
+                .get("coeffs")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
+                .unwrap_or_default();
+            coeffs.sort();
+            Some(format!("{}|{}|{:?}", label.trim(), bound, coeffs))
+        })
+        .collect();
+    keys.sort();
+    Some(keys.join("|"))
 }
 
 /// Extrai o primeiro objeto JSON balanceado de um texto (o LLM costuma cercar com prosa).
@@ -1909,20 +2033,8 @@ async fn solver_claim_consistency_traced(
     // Meta barato: `call_llm_extraction` força o modelo de chat (deepseek-chat) e é
     // computado dentro de run_extraction_with_consistency.
     let policy = smt_policy();
-    let extract_key = |text: &str| -> Option<String> {
-        let parsed: serde_json::Value = serde_json::from_str(&first_json_object(text)?).ok()?;
-        let cons = parsed.get("constraints")?.as_array()?;
-        let mut keys: Vec<String> = cons
-            .iter()
-            .filter_map(|c| {
-                let label = c.get("label").and_then(|v| v.as_str()).unwrap_or("");
-                let bound = c.get("bound").and_then(|v| v.as_i64())?;
-                Some(format!("{}:{bound}", label.trim()))
-            })
-            .collect();
-        keys.sort();
-        Some(keys.join("|"))
-    };
+    let extract_key =
+        |text: &str| -> Option<String> { smt_canonical_key(&first_json_object(text)?) };
     let build_artifact = |text: &str| -> Option<Vec<inference_client::LiaConstraint>> {
         let parsed: serde_json::Value = serde_json::from_str(&first_json_object(text)?).ok()?;
         let cons_json = parsed.get("constraints")?.as_array()?;
@@ -2006,20 +2118,36 @@ async fn solver_claim_consistency_traced(
             lines.join("; ")
         )
     };
-    let source_excerpt: String = draft.chars().take(800).collect();
-    if !verify_translation_faithfulness(&source_excerpt, &formal_nl_description, ctx, run_id).await
+    let source_excerpt: String = draft.chars().take(6000).collect();
+    let formal_json = serde_json::to_string(&inference_client::SmtCheckRequest {
+        constraints: constraints.clone(),
+    })
+    .unwrap_or_default();
+    if !verify_translation_faithfulness(
+        &source_excerpt,
+        &formal_nl_description,
+        &formal_json,
+        ctx,
+        run_id,
+    )
+    .await
     {
         registry.push(VerdictRecord {
             verb: "smt.check",
             input_sha256: String::new(),
-            result: "extraction-empty".to_string(),
+            result: "validation-rejected".to_string(),
             run_id: run_id.to_string(),
         });
         return None;
     }
 
-    // Fingerprint o JSON exato que será POSTado ao solver.
-    let artifact = serde_json::to_string(&constraints).unwrap_or_default();
+    // Fingerprint o JSON exato que será POSTado ao solver. O cliente envia o
+    // wrapper `{"constraints":[...]}` (SmtCheckRequest), não o array nu, então
+    // o hash precisa ser do wrapper para casar com o payload real do wire.
+    let artifact = serde_json::to_string(&inference_client::SmtCheckRequest {
+        constraints: constraints.clone(),
+    })
+    .unwrap_or_default();
     let sha = artifact_sha256(&artifact);
     let base = inference_client::inference_base_url();
     let verdict = inference_client::smt_check(&base, constraints.clone()).await;
@@ -2081,7 +2209,7 @@ async fn solver_claim_consistency_traced(
                 );
                 let cot = cot_call(ctx, run_id, &cot_prompt).await;
                 info!(cot = ?cot, "solver_claim_consistency: CoT ensemble verdict");
-                Some(attach_confidence(&finding_md, cot))
+                Some(attach_confidence(&finding_md, cot, "smt"))
             } else {
                 Some(finding_md)
             }
@@ -2164,7 +2292,6 @@ async fn causal_claim_check_traced(
             return None;
         }
         let edges = parsed.get("edges")?.as_array()?;
-        let claim = parsed.get("claim").and_then(|v| v.as_str()).unwrap_or("");
         let x = parsed.get("x")?.as_u64()?;
         let y = parsed.get("y")?.as_u64()?;
         let mut edge_strs: Vec<String> = edges
@@ -2175,14 +2302,10 @@ async fn causal_claim_check_traced(
             })
             .collect();
         edge_strs.sort();
-        let claim_prefix: String = claim.trim().chars().take(40).collect();
-        Some(format!(
-            "x{}y{}|{}|{}",
-            x,
-            y,
-            edge_strs.join(","),
-            claim_prefix
-        ))
+        // Purely STRUCTURAL key: the free-text `claim` summary varies by paraphrase
+        // even at temp 0, causing spurious abstention. The DAG structure (x, y, edges)
+        // is stable; the claim string is still used in the finding text, not here.
+        Some(format!("x{}y{}|{}", x, y, edge_strs.join(",")))
     };
     type CausalArtifact = (inference_client::DsepRequest, Vec<String>, String, usize);
     let build_artifact = |text: &str| -> Option<CausalArtifact> {
@@ -2314,9 +2437,16 @@ async fn causal_claim_check_traced(
             cond_pre,
             claim,
         );
-        let source_excerpt: String = draft.chars().take(800).collect();
-        if !verify_translation_faithfulness(&source_excerpt, &formal_nl_description, ctx, run_id)
-            .await
+        let source_excerpt: String = draft.chars().take(6000).collect();
+        let formal_json = serde_json::to_string(&req).unwrap_or_default();
+        if !verify_translation_faithfulness(
+            &source_excerpt,
+            &formal_nl_description,
+            &formal_json,
+            ctx,
+            run_id,
+        )
+        .await
         {
             registry.push(VerdictRecord {
                 verb: "causal.dsep",
@@ -2429,7 +2559,7 @@ async fn causal_claim_check_traced(
                 );
                 let cot = cot_call(ctx, run_id, &cot_prompt).await;
                 info!(cot = ?cot, "causal_claim_check: CoT ensemble verdict");
-                Some(attach_confidence(&labeled, cot))
+                Some(attach_confidence(&labeled, cot, "causal"))
             } else {
                 Some(labeled)
             }
@@ -2629,9 +2759,31 @@ async fn gum_claim_check_traced(
              The draft declares uncertainty ±{:.4} for the derived quantity.",
             y_label, a_lbl, op, b_lbl, op, a_lbl, a_val, a_u, b_lbl, b_val, b_u, claimed_u,
         );
-        let source_excerpt: String = draft.chars().take(800).collect();
-        if !verify_translation_faithfulness(&source_excerpt, &formal_nl_description, ctx, run_id)
-            .await
+        let source_excerpt: String = draft.chars().take(6000).collect();
+        let formal_json = serde_json::to_string(&inference_client::GumRequest {
+            inputs: vec![
+                inference_client::GumInput {
+                    value: a_val,
+                    u: a_u,
+                    label: Some(a_lbl.clone()),
+                },
+                inference_client::GumInput {
+                    value: b_val,
+                    u: b_u,
+                    label: Some(b_lbl.clone()),
+                },
+            ],
+            op: op.clone(),
+        })
+        .unwrap_or_default();
+        if !verify_translation_faithfulness(
+            &source_excerpt,
+            &formal_nl_description,
+            &formal_json,
+            ctx,
+            run_id,
+        )
+        .await
         {
             registry.push(VerdictRecord {
                 verb: "gum.propagate",
@@ -2771,7 +2923,7 @@ async fn gum_claim_check_traced(
         );
         let cot = cot_call(ctx, run_id, &cot_prompt).await;
         info!(cot = ?cot, "gum_claim_check: CoT ensemble verdict");
-        Some(attach_confidence(&labeled, cot))
+        Some(attach_confidence(&labeled, cot, "gum"))
     } else {
         Some(labeled)
     }
@@ -2948,9 +3100,22 @@ async fn theorem_claim_check_traced(
             n_hyps,
             argument,
         );
-        let source_excerpt: String = draft.chars().take(800).collect();
-        if !verify_translation_faithfulness(&source_excerpt, &formal_nl_description, ctx, run_id)
-            .await
+        let source_excerpt: String = draft.chars().take(6000).collect();
+        let formal_json = serde_json::to_string(&serde_json::json!({
+            "atoms": atoms,
+            "hypotheses": hypotheses,
+            "goal": goal,
+            "depth": 12,
+        }))
+        .unwrap_or_default();
+        if !verify_translation_faithfulness(
+            &source_excerpt,
+            &formal_nl_description,
+            &formal_json,
+            ctx,
+            run_id,
+        )
+        .await
         {
             registry.push(VerdictRecord {
                 verb: "theorem.prove",
@@ -3043,7 +3208,7 @@ async fn theorem_claim_check_traced(
         );
         let cot = cot_call(ctx, run_id, &cot_prompt).await;
         info!(cot = ?cot, "theorem_claim_check: CoT ensemble verdict");
-        Some(attach_confidence(&finding_md, cot))
+        Some(attach_confidence(&finding_md, cot, "theorem"))
     } else {
         Some(finding_md)
     }
@@ -3195,12 +3360,14 @@ pub async fn run_argos(
         + gum_s.finding_emitted
         + theorem_s.finding_emitted) as usize;
     let finding_rate = (total_ran > 0).then(|| total_findings as f32 / total_ran as f32);
-    let vsummary = VerificationSummary {
+    // `completed_at` is stamped AFTER the (slow) Heavy LLM call + redaction below,
+    // so it reflects when run_argos actually finished, not when the gates resolved.
+    let mut vsummary = VerificationSummary {
         smt: smt_s,
         causal: causal_s,
         gum: gum_s,
         theorem: theorem_s,
-        completed_at: Utc::now().to_rfc3339(),
+        completed_at: String::new(),
         finding_rate,
     };
     let machine_note = vsummary.machine_note();
@@ -3222,6 +3389,8 @@ pub async fn run_argos(
     // (verbo, veredito). Qualquer atribuição sem VerdictRecord correspondente é REDIGIDA
     // (não apenas avisada) — correção estrutural, não lembrete de prompt.
     let (validated_text, integrity_summary) = registry.redact_unattested(&raw_text);
+    // Stamp completion now that the Heavy LLM call and redaction are done.
+    vsummary.completed_at = Utc::now().to_rfc3339();
     info!(
         run_id = %run_id,
         integrity = %integrity_summary,
@@ -3445,11 +3614,46 @@ mod tests {
     fn test_redact_unattested_passes_gate_off_without_verdict_word() {
         let mut reg = VerdictRegistry::new();
         reg.push(rec("theorem.prove", "gate-off"));
-        // Line names the verb but NO verdict keyword → not flagged.
+        // Line names the verb but NO verdict keyword → not flagged. All records are
+        // non-attested (gate-off) and no redactions → NEUTRAL, not PASSED.
         let (out, summary) =
             reg.redact_unattested("O verbo `theorem.prove` está disponível no cluster.");
         assert!(!out.contains("[REDACTED"));
-        assert!(summary.starts_with("integrity=PASS"));
+        assert!(summary.starts_with("integrity=NEUTRAL"));
+        assert!(out.contains("nenhum solver rodou"));
+    }
+
+    #[test]
+    fn test_redact_unattested_no_false_positive_on_satisfatorio() {
+        // "sat" as a bare substring used to false-positive on "satisfatório",
+        // "datasets", etc. The whole-word case-sensitive canonical match must NOT
+        // flag this line even though it names a verb and contains those letters.
+        let mut reg = VerdictRegistry::new();
+        reg.push(rec("smt.check", "gate-off"));
+        let (out, _summary) = reg.redact_unattested(
+            "O `smt.check` não retornou um resultado satisfatório para os datasets.",
+        );
+        assert!(
+            !out.contains("[REDACTED"),
+            "must not redact prose containing 'satisfatório'/'datasets': {out}"
+        );
+    }
+
+    #[test]
+    fn test_redact_unattested_flags_second_verb_on_line() {
+        // smt.check has a real record but theorem.prove (also on the line) does not;
+        // collecting ALL verbs must still redact because theorem.prove is unattested.
+        let mut reg = VerdictRegistry::new();
+        reg.push(rec("smt.check", "UNSAT"));
+        let (out, summary) = reg.redact_unattested(
+            "O `smt.check` deu UNSAT e o `theorem.prove` deu UNKNOWN no mesmo passo.",
+        );
+        assert!(
+            out.contains("[REDACTED"),
+            "second unattested verb must redact: {out}"
+        );
+        assert!(summary.starts_with("integrity=FAIL"));
+        assert!(out.contains("theorem.prove"));
     }
 
     #[test]
@@ -3514,21 +3718,34 @@ mod tests {
 
     #[test]
     fn attach_confidence_high_on_agreement() {
-        let f = attach_confidence("## Finding\ntest", CotVerdict::Incoherent);
+        let f = attach_confidence("## Finding\ntest", CotVerdict::Incoherent, "smt");
         assert!(f.contains("CONFIDENCE: HIGH"));
         assert!(f.contains("## Finding"));
     }
 
     #[test]
     fn attach_confidence_medium_on_divergence() {
-        let f = attach_confidence("## Finding\ntest", CotVerdict::Coherent);
+        let f = attach_confidence("## Finding\ntest", CotVerdict::Coherent, "smt");
         assert!(f.contains("CONFIDENCE: MEDIUM"));
         assert!(f.contains("divergência de modo"));
+        // smt/causal/gum: the solver verdict IS a real proof.
+        assert!(f.contains("Solver provou incoerência"));
+    }
+
+    #[test]
+    fn attach_confidence_theorem_divergence_does_not_claim_proof() {
+        // theorem UNKNOWN/INVALID is explicitly NOT a proof of invalidity, so the
+        // divergence message must not say the solver "provou incoerência".
+        let f = attach_confidence("## Finding\ntest", CotVerdict::Coherent, "theorem");
+        assert!(f.contains("CONFIDENCE: MEDIUM"));
+        assert!(f.contains("divergência de modo"));
+        assert!(!f.contains("Solver provou incoerência"));
+        assert!(f.contains("não é prova de invalidade"));
     }
 
     #[test]
     fn attach_confidence_medium_on_unknown_cot() {
-        let f = attach_confidence("## Finding\ntest", CotVerdict::Unknown);
+        let f = attach_confidence("## Finding\ntest", CotVerdict::Unknown, "smt");
         assert!(f.contains("CONFIDENCE: MEDIUM"));
         assert!(f.contains("indisponível"));
     }
@@ -3539,8 +3756,14 @@ mod tests {
     async fn symb_verify_off_by_default_passes_through() {
         std::env::remove_var("BEAGLE_TRIAD_SYMB_VERIFY");
         let ctx = BeagleContext::new_with_mock().expect("mock ctx");
-        let result =
-            verify_translation_faithfulness("claim text", "formal description", &ctx, "t").await;
+        let result = verify_translation_faithfulness(
+            "claim text",
+            "formal description",
+            "{\"constraints\":[]}",
+            &ctx,
+            "t",
+        )
+        .await;
         assert!(result, "gate OFF must be a pass-through (true)");
     }
 
@@ -3553,6 +3776,7 @@ mod tests {
         let result = verify_translation_faithfulness(
             "dose >= 80 mg and dose <= 40 mg",
             "constraints: dose >= 80; dose <= 40",
+            "{\"constraints\":[{\"coeffs\":[-1],\"bound\":-80},{\"coeffs\":[1],\"bound\":40}]}",
             &ctx,
             "t",
         )
@@ -3572,6 +3796,28 @@ mod tests {
             assert!(!symb_verify_enabled(), "expected falsy for {val}");
         }
         std::env::remove_var("BEAGLE_TRIAD_SYMB_VERIFY");
+    }
+
+    #[test]
+    fn smt_canonical_key_distinguishes_different_coeffs() {
+        // Same label+bound but different coefficient vectors must NOT collide:
+        // they are structurally different linear constraints.
+        let a =
+            smt_canonical_key("{\"constraints\":[{\"label\":\"x\",\"coeffs\":[1],\"bound\":5}]}");
+        let b =
+            smt_canonical_key("{\"constraints\":[{\"label\":\"x\",\"coeffs\":[1,1],\"bound\":5}]}");
+        assert!(a.is_some() && b.is_some());
+        assert_ne!(a, b, "different coeffs must yield different keys");
+    }
+
+    #[test]
+    fn smt_canonical_key_stable_under_coeff_order() {
+        // coeffs are sorted, so permutations of the same multiset agree.
+        let a =
+            smt_canonical_key("{\"constraints\":[{\"label\":\"x\",\"coeffs\":[1,2],\"bound\":5}]}");
+        let b =
+            smt_canonical_key("{\"constraints\":[{\"label\":\"x\",\"coeffs\":[2,1],\"bound\":5}]}");
+        assert_eq!(a, b);
     }
 
     // ===== P3: self-consistency policies + run_extraction_with_consistency =====

@@ -33,9 +33,13 @@ pub struct LiaConstraint {
     pub label: Option<String>,
 }
 
+/// Wire payload POSTed to `/v1/smt/check`: serializes to `{"constraints":[...]}`.
+///
+/// Public so callers (e.g. beagle-triad's `VerdictRecord` fingerprinting) can hash
+/// the EXACT JSON sent on the wire instead of a bare `[...]` array.
 #[derive(Debug, Clone, Serialize)]
-struct SmtCheckRequest {
-    constraints: Vec<LiaConstraint>,
+pub struct SmtCheckRequest {
+    pub constraints: Vec<LiaConstraint>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
