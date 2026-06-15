@@ -1,0 +1,304 @@
+{
+  "eval": "p3-abstention-operating-point",
+  "model": "deepseek-chat",
+  "k_max": 5,
+  "n": 30,
+  "configs": [
+    {
+      "config": "k=1/majority",
+      "coverage": 0.8666666666666667,
+      "precision_on_trusted": 0.9230769230769231,
+      "trusted": 26,
+      "n": 30,
+      "abstained_unfaithful": 0,
+      "total_unfaithful": 2
+    },
+    {
+      "config": "k=3/majority",
+      "coverage": 0.8,
+      "precision_on_trusted": 0.9166666666666666,
+      "trusted": 24,
+      "n": 30,
+      "abstained_unfaithful": 0,
+      "total_unfaithful": 2
+    },
+    {
+      "config": "k=5/majority",
+      "coverage": 0.7666666666666667,
+      "precision_on_trusted": 0.9130434782608695,
+      "trusted": 23,
+      "n": 30,
+      "abstained_unfaithful": 0,
+      "total_unfaithful": 2
+    },
+    {
+      "config": "k=3/unanimous",
+      "coverage": 0.7,
+      "precision_on_trusted": 0.9047619047619048,
+      "trusted": 21,
+      "n": 30,
+      "abstained_unfaithful": 0,
+      "total_unfaithful": 2
+    },
+    {
+      "config": "k=5/unanimous",
+      "coverage": 0.7,
+      "precision_on_trusted": 0.9047619047619048,
+      "trusted": 21,
+      "n": 30,
+      "abstained_unfaithful": 0,
+      "total_unfaithful": 2
+    },
+    {
+      "config": "production-policy",
+      "coverage": 0.8,
+      "precision_on_trusted": 0.9166666666666666,
+      "trusted": 24,
+      "n": 30,
+      "abstained_unfaithful": 0,
+      "total_unfaithful": 2
+    }
+  ],
+  "per_case": [
+    {
+      "id": "smt-clean-00",
+      "domain": "smt",
+      "trap": "clean",
+      "gold": "SAT",
+      "ref_faithful": true,
+      "distinct_keys_k5": 3
+    },
+    {
+      "id": "smt-clean-01",
+      "domain": "smt",
+      "trap": "clean",
+      "gold": "SAT",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "smt-sign-02",
+      "domain": "smt",
+      "trap": "sign",
+      "gold": "UNSAT",
+      "ref_faithful": true,
+      "distinct_keys_k5": 3
+    },
+    {
+      "id": "smt-sign-03",
+      "domain": "smt",
+      "trap": "sign",
+      "gold": "UNSAT",
+      "ref_faithful": true,
+      "distinct_keys_k5": 2
+    },
+    {
+      "id": "smt-role_qualifier-04",
+      "domain": "smt",
+      "trap": "role_qualifier",
+      "gold": "UNSAT",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "smt-role_qualifier-05",
+      "domain": "smt",
+      "trap": "role_qualifier",
+      "gold": "UNSAT",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "smt-distractor_number-06",
+      "domain": "smt",
+      "trap": "distractor_number",
+      "gold": "SAT",
+      "ref_faithful": true,
+      "distinct_keys_k5": 4
+    },
+    {
+      "id": "smt-distractor_number-07",
+      "domain": "smt",
+      "trap": "distractor_number",
+      "gold": "SAT",
+      "ref_faithful": true,
+      "distinct_keys_k5": 3
+    },
+    {
+      "id": "smt-unit-08",
+      "domain": "smt",
+      "trap": "unit",
+      "gold": "UNSAT",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "smt-unit-09",
+      "domain": "smt",
+      "trap": "unit",
+      "gold": "UNSAT",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "gum-clean-10",
+      "domain": "gum",
+      "trap": "clean",
+      "gold": "gum-ok",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "gum-clean-11",
+      "domain": "gum",
+      "trap": "clean",
+      "gold": "gum-understated",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "gum-role_qualifier-12",
+      "domain": "gum",
+      "trap": "role_qualifier",
+      "gold": "gum-understated",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "gum-distractor_number-13",
+      "domain": "gum",
+      "trap": "distractor_number",
+      "gold": "gum-understated",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "gum-no_valid_extraction-14",
+      "domain": "gum",
+      "trap": "no_valid_extraction",
+      "gold": "abstain",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "gum-unit-15",
+      "domain": "gum",
+      "trap": "unit",
+      "gold": "gum-ok",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "gum-clean-16",
+      "domain": "gum",
+      "trap": "clean",
+      "gold": "gum-ok",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "gum-role_qualifier-17",
+      "domain": "gum",
+      "trap": "role_qualifier",
+      "gold": "gum-ok",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "gum-no_valid_extraction-18",
+      "domain": "gum",
+      "trap": "no_valid_extraction",
+      "gold": "abstain",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "gum-unit-19",
+      "domain": "gum",
+      "trap": "unit",
+      "gold": "gum-understated",
+      "ref_faithful": false,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "causal-clean-20",
+      "domain": "causal",
+      "trap": "clean",
+      "gold": "d-separated",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "causal-implicit_premise-21",
+      "domain": "causal",
+      "trap": "implicit_premise",
+      "gold": "d-connected",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "causal-no_valid_extraction-22",
+      "domain": "causal",
+      "trap": "no_valid_extraction",
+      "gold": "abstain",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "causal-clean-23",
+      "domain": "causal",
+      "trap": "clean",
+      "gold": "d-separated",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "causal-distractor_number-24",
+      "domain": "causal",
+      "trap": "distractor_number",
+      "gold": "d-separated",
+      "ref_faithful": false,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "causal-implicit_premise-25",
+      "domain": "causal",
+      "trap": "implicit_premise",
+      "gold": "d-connected",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "causal-clean-26",
+      "domain": "causal",
+      "trap": "clean",
+      "gold": "d-separated",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "causal-no_valid_extraction-27",
+      "domain": "causal",
+      "trap": "no_valid_extraction",
+      "gold": "abstain",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "causal-distractor_number-28",
+      "domain": "causal",
+      "trap": "distractor_number",
+      "gold": "d-separated",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    },
+    {
+      "id": "causal-implicit_premise-29",
+      "domain": "causal",
+      "trap": "implicit_premise",
+      "gold": "d-connected",
+      "ref_faithful": true,
+      "distinct_keys_k5": 1
+    }
+  ]
+}
