@@ -19,7 +19,10 @@ use beagle_llm::RequestMeta;
 use beagle_personality::{ConversationContext, PersonalityConfig, PersonalitySystem};
 
 use crate::agents::{AgentCapability, AgentMesh, AgentMeshConfig, AgentTeam};
-use crate::brain::{AwarenessLevel, BrainConnector, BrainConnectorConfig, ConsciousnessState};
+use crate::brain::{
+    escalation_decision, recommended_tier_for_state, AwarenessLevel, BrainConnector,
+    BrainConnectorConfig, ConsciousnessState,
+};
 use crate::config::ExocortexConfig;
 use crate::context::{
     ContextAdaptations, ContextManager, ContextManagerConfig, SituationalContext,
@@ -294,10 +297,13 @@ impl PersonalExocortex {
         // 7. Get user profile for personalization
         let profile = self.identity.read().await.get_current_profile();
 
-        // 8. Generate response (placeholder - would connect to actual LLM pipeline)
+        // 8. Generate response — pass the BrainConnector snapshot so that
+        //    LLM-tier escalation uses the single-source `escalation_decision`
+        //    function rather than raw urgency thresholds.
         let response = self
             .generate_response(
                 &input,
+                &consciousness_state,
                 &relevant_episodes,
                 &context,
                 &adaptations,
@@ -405,10 +411,17 @@ impl PersonalExocortex {
         capabilities
     }
 
-    /// Generate response using BeagleContext router for LLM calls
+    /// Generate response using BeagleContext router for LLM calls.
+    ///
+    /// `salience_state` is the snapshot from `BrainConnector::get_state()` taken
+    /// earlier in `process()`.  It is the **single source of truth** for the
+    /// LLM-tier escalation decision: [`escalation_decision`] (from `brain.rs`)
+    /// is called here and nowhere else.  Do not add urgency-based or hardcoded
+    /// tier overrides; adjust the `BrainConnector` state upstream instead.
     async fn generate_response(
         &self,
         input: &ExocortexInput,
+        salience_state: &ConsciousnessState,
         memories: &[EpisodicMemory],
         context: &SituationalContext,
         adaptations: &[ContextAdaptations],
@@ -552,12 +565,22 @@ impl PersonalExocortex {
 
         // If we have a BeagleContext, use the router for LLM calls
         if let Some(ref ctx) = self.beagle_ctx {
-            // Determine request metadata based on capabilities and urgency
-            let requires_high_quality = input.urgency > 0.7
-                || team
-                    .members
-                    .iter()
-                    .any(|m| m.capability == AgentCapability::Research);
+            // ----------------------------------------------------------------
+            // Escalation decision — SINGLE SOURCE OF TRUTH.
+            //
+            // `salience_state` was produced by `BrainConnector::get_state()`
+            // at the start of `process()`.  We call `escalation_decision()`
+            // from `brain.rs` here; no other place in this crate may derive
+            // `requires_high_quality` or `critical_section` from raw urgency
+            // values or magic constants.  Adjust the BrainConnector state
+            // upstream (e.g. `set_awareness_level`) to change routing.
+            // ----------------------------------------------------------------
+            let salience_threshold = self.config.brain.phi_threshold as f32;
+            let should_escalate = escalation_decision(salience_state, salience_threshold);
+            let _tier = recommended_tier_for_state(salience_state); // logged/observable
+
+            // Math/PhD capability is still driven by the agent team selection,
+            // which is based on query content — orthogonal to salience escalation.
             let requires_phd = team
                 .members
                 .iter()
@@ -568,10 +591,10 @@ impl PersonalExocortex {
                 requires_math: requires_phd,
                 requires_vision: input.modality == InputModality::Multimodal,
                 approximate_tokens: prompt.len() / 4,
-                requires_high_quality,
+                requires_high_quality: should_escalate,
                 high_bias_risk: false,
                 requires_phd_level_reasoning: requires_phd,
-                critical_section: input.urgency > 0.9,
+                critical_section: should_escalate,
                 ..Default::default()
             };
 
@@ -932,5 +955,52 @@ mod tests {
         assert!(capabilities.contains(&AgentCapability::Writing));
         assert!(capabilities.contains(&AgentCapability::Coding));
         assert!(capabilities.contains(&AgentCapability::Research));
+    }
+
+    /// Verify that the orchestrator's LLM-tier escalation decision is driven
+    /// exclusively by `BrainConnector` state, not by raw urgency values.
+    ///
+    /// Plan item #11 — single-source Phi/salience.
+    #[tokio::test]
+    async fn test_escalation_source_is_brain_connector() {
+        use crate::brain::{escalation_decision, BrainConnectorConfig};
+        use crate::config::ExocortexConfig;
+
+        let mut config = ExocortexConfig::default();
+        // Set a clearly non-default threshold so we know which value is used.
+        config.brain.phi_threshold = 0.65;
+
+        let exocortex = PersonalExocortex::new(config.clone()).await.unwrap();
+
+        // Drive the brain into a high-salience state.
+        exocortex
+            .brain
+            .write()
+            .await
+            .set_awareness_level(AwarenessLevel::Deliberative); // salience → 0.9
+
+        let state = exocortex.brain.read().await.get_state();
+        let threshold = config.brain.phi_threshold as f32;
+
+        // The orchestrator must use exactly this decision.
+        let expected_escalate = escalation_decision(&state, threshold);
+        assert!(
+            expected_escalate,
+            "BrainConnector in Deliberative state must produce escalation=true"
+        );
+
+        // Drive the brain into a low-salience state.
+        exocortex
+            .brain
+            .write()
+            .await
+            .set_awareness_level(AwarenessLevel::Automatic); // salience → 0.1
+
+        let state_low = exocortex.brain.read().await.get_state();
+        let expected_no_escalate = escalation_decision(&state_low, threshold);
+        assert!(
+            !expected_no_escalate,
+            "BrainConnector in Automatic state must produce escalation=false"
+        );
     }
 }

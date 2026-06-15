@@ -63,7 +63,10 @@ pub mod orchestrator;
 pub mod workflow;
 
 pub use agents::{AgentCapability, AgentMesh, AgentMeshConfig, AgentTeam, TaskContext};
-pub use brain::{AwarenessLevel, BrainConnector, BrainConnectorConfig, ConsciousnessState};
+pub use brain::{
+    escalation_decision, recommended_tier_for_state, AwarenessLevel, BrainConnector,
+    BrainConnectorConfig, ConsciousnessState,
+};
 pub use config::ExocortexConfig;
 pub use context::{ContextAdaptations, ContextManager, ContextManagerConfig, SituationalContext};
 pub use error::{ExocortexError, ExocortexResult};

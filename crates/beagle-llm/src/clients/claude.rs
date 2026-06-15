@@ -13,7 +13,8 @@
 
 use crate::anthropic::AnthropicClient as LegacyAnthropicClient;
 use crate::models::{CompletionRequest, Message as LegacyMessage, ModelType};
-use crate::{LlmClient, LlmRequest, Tier};
+use crate::output::TokenUsage;
+use crate::{LlmClient, LlmOutput, LlmRequest, Tier};
 use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -100,6 +101,77 @@ impl LlmClient for ClaudeClient {
         Tier::CloudGrokMain
     }
 
+    /// Override: captures real usage from the Anthropic API response instead of estimating chars/4.
+    async fn complete(&self, prompt: &str) -> anyhow::Result<LlmOutput> {
+        let req = LlmRequest {
+            model: "default".to_string(),
+            messages: vec![crate::ChatMessage::user(prompt)],
+            temperature: Some(0.7),
+            max_tokens: Some(4096),
+        };
+
+        // Convert and send, capturing the full CompletionResponse with usage.
+        let messages: Vec<LegacyMessage> = req
+            .messages
+            .into_iter()
+            .map(|msg| LegacyMessage {
+                role: msg.role,
+                content: msg.content,
+            })
+            .collect();
+
+        let model_type = match self.model {
+            ClaudeModel::Sonnet45 => ModelType::ClaudeSonnet45,
+            ClaudeModel::Sonnet35 => ModelType::ClaudeSonnet45,
+            ClaudeModel::Opus3 => ModelType::ClaudeSonnet4,
+        };
+
+        let legacy_request = CompletionRequest {
+            model: model_type,
+            messages,
+            max_tokens: 4096,
+            temperature: 0.7,
+            system: None,
+        };
+
+        let response = self.inner.complete(legacy_request).await?;
+
+        // Anthropic usage object: { "input_tokens": N, "output_tokens": M }
+        let maybe_usage = {
+            let input = response
+                .usage
+                .get("input_tokens")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32);
+            let output = response
+                .usage
+                .get("output_tokens")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32);
+            match (input, output) {
+                (Some(i), Some(o)) => {
+                    info!(
+                        "Claude response received (tokens: input={}, output={})",
+                        i, o
+                    );
+                    Some(TokenUsage::measured(i, o, i + o))
+                }
+                _ => {
+                    info!(
+                        "Claude response received (usage not available, falling back to estimate)"
+                    );
+                    None
+                }
+            }
+        };
+
+        let output = match maybe_usage {
+            Some(u) => LlmOutput::with_measured_usage(response.content, prompt, u),
+            None => LlmOutput::from_text(response.content, prompt),
+        };
+        Ok(output)
+    }
+
     async fn chat(&self, request: LlmRequest) -> anyhow::Result<String> {
         debug!(
             "Sending request to Claude API (model: {})",
@@ -181,5 +253,38 @@ mod tests {
             .unwrap();
         println!("Sonnet 4.5: {}", response.text);
         assert!(!response.text.is_empty());
+    }
+
+    /// Unit test: parse a representative Anthropic usage JSON and assert measured counts.
+    /// No network — exercises the extraction logic only.
+    #[test]
+    fn test_claude_usage_extraction_from_json() {
+        // Simulate the serde_json::Value that AnthropicClient stores in CompletionResponse.usage
+        let usage_json = serde_json::json!({
+            "input_tokens": 42,
+            "output_tokens": 17
+        });
+
+        let input = usage_json
+            .get("input_tokens")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32);
+        let output = usage_json
+            .get("output_tokens")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as u32);
+
+        let (i, o) = (input.unwrap(), output.unwrap());
+        let usage = TokenUsage::measured(i, o, i + o);
+
+        assert!(usage.measured, "TokenUsage must be measured");
+        assert_eq!(usage.prompt, 42);
+        assert_eq!(usage.completion, 17);
+        assert_eq!(usage.total, 59);
+
+        let output = LlmOutput::with_measured_usage("hello".to_string(), "prompt", usage);
+        assert!(output.usage.measured);
+        assert_eq!(output.usage.prompt, 42);
+        assert_eq!(output.usage.completion, 17);
     }
 }
