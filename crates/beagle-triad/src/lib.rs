@@ -470,6 +470,61 @@ pub struct EvolvedClaim {
     pub citations: Vec<String>,
 }
 
+/// Per-verb accounting of formal verification attempts in a single run.
+/// Counts are from the perspective of `run_argos`: each verb either ran
+/// (gate enabled) or was skipped (gate disabled / gates are OFF by default).
+/// `finding_emitted` is 1 if the verb produced an incoherence finding.
+///
+/// SOTA note: formal verifiability of scientific prose is partial (VeriCoT-class
+/// benchmarks); a finding has precision >> raw accuracy but recall is low. This
+/// struct makes that honest and machine-readable.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VerbStats {
+    /// 0 or 1 — each verb runs at most once per ARGOS.
+    pub ran: u8,
+    /// 1 when the gate was disabled (verb skipped).
+    pub abstained: u8,
+    /// 1 when the verb emitted an incoherence finding (UNSAT/d-sep/understated/non-sequitur).
+    pub finding_emitted: u8,
+}
+
+/// Machine-readable summary of formal verification attempts emitted by `run_argos`.
+/// Attached to [`TriadReport`] so callers can display or log it without parsing prose.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VerificationSummary {
+    pub smt: VerbStats,
+    pub causal: VerbStats,
+    pub gum: VerbStats,
+    pub theorem: VerbStats,
+    /// ISO-8601 timestamp when `run_argos` completed (UTC).
+    pub completed_at: String,
+    /// Fraction of ran verbs that emitted a finding (None when all abstained).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_rate: Option<f32>,
+}
+
+impl VerificationSummary {
+    /// Compact one-liner appended to formal-verification section headers, e.g.
+    /// `[verification: 2/4 ran, 1 finding(s), rate 50%]` or
+    /// `[verification: all abstained — gates disabled or no verifiable claims]`.
+    pub fn machine_note(&self) -> String {
+        let total_ran = (self.smt.ran + self.causal.ran + self.gum.ran + self.theorem.ran) as usize;
+        let total_findings = (self.smt.finding_emitted
+            + self.causal.finding_emitted
+            + self.gum.finding_emitted
+            + self.theorem.finding_emitted) as usize;
+        if total_ran == 0 {
+            return "[verification: all abstained — gates disabled or no verifiable claims]"
+                .to_string();
+        }
+        let rate_pct = (total_findings as f32 / total_ran as f32 * 100.0).round() as u32;
+        format!(
+            "[verification: {}/{} ran, {} finding(s), rate {}%]",
+            total_ran, 4, total_findings, rate_pct
+        )
+    }
+}
+
 /// Relatório final da Triad
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TriadReport {
@@ -483,6 +538,11 @@ pub struct TriadReport {
     /// EVOLVE não foi executada (preserva compat com consumidores existentes).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evolved: Option<EvolvedDraft>,
+    /// Contabilidade de verificação formal vinda de ARGOS (`run_argos`). `None`
+    /// quando o estágio ARGOS foi carregado de checkpoint (resume) ou no caminho
+    /// legado. Sempre `Some` para execuções frescas de ARGOS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_summary: Option<VerificationSummary>,
 }
 
 /// Estatísticas de chamadas LLM
@@ -696,6 +756,9 @@ pub async fn run_triad_tournament(
     };
 
     // 4) ARGOS (crítico)
+    // P4: VerificationSummary é Some apenas para execuções frescas de ARGOS; resume
+    // de checkpoint deixa None (compat retroativa preservada no relatório).
+    let mut argos_vsummary: Option<VerificationSummary> = None;
     let argos: TriadOpinion = match resume
         .then(|| load_stage::<TriadOpinion>(&ckpt_dir, "argos"))
         .flatten()
@@ -706,16 +769,19 @@ pub async fn run_triad_tournament(
         }
         None => {
             info!("⚔️  Executando ARGOS...");
-            let (op, tier) =
+            let (op, tier, vsummary) =
                 run_argos(&original_draft, &hermes, &athena, ctx, &input.run_id).await?;
             info!(
-                "✅ ARGOS concluído - Score: {:.2} | Provider: {}",
+                "✅ ARGOS concluído - Score: {:.2} | Provider: {} | {}",
                 op.score,
-                tier.as_str()
+                tier.as_str(),
+                vsummary.machine_note()
             );
             if checkpoint {
                 save_stage(&ckpt_dir, "argos", &op);
+                save_stage(&ckpt_dir, "argos_verification", &vsummary);
             }
+            argos_vsummary = Some(vsummary);
             op
         }
     };
@@ -802,6 +868,7 @@ pub async fn run_triad_tournament(
         created_at: Utc::now(),
         llm_stats: llm_stats_converted,
         evolved,
+        verification_summary: argos_vsummary,
     };
 
     // Persiste o relatório final (best-effort, #21C).
@@ -2311,7 +2378,7 @@ pub async fn run_argos(
     athena: &TriadOpinion,
     ctx: &BeagleContext,
     run_id: &str,
-) -> anyhow::Result<(TriadOpinion, ProviderTier)> {
+) -> anyhow::Result<(TriadOpinion, ProviderTier, VerificationSummary)> {
     // P1: VerdictRegistry — populado ANTES da chamada LLM do ARGOS. Cada função traced
     // empurra exatamente um VerdictRecord, então a ground truth existe antes de ARGOS
     // escrever qualquer coisa. Local à run; nunca persistido (sem records obsoletos).
@@ -2423,6 +2490,44 @@ pub async fn run_argos(
         );
     }
 
+    // P4: VerificationSummary a partir do estado dos gates + desfecho de cada verbo.
+    // Um verbo "ran" quando seu gate estava ON (independentemente do sucesso da extração);
+    // "abstained" = gate OFF; "finding_emitted" = 1 só quando houve achado de incoerência.
+    let verb_stats = |gate: bool, finding: &Option<String>| -> VerbStats {
+        if gate {
+            VerbStats {
+                ran: 1,
+                abstained: 0,
+                finding_emitted: finding.is_some() as u8,
+            }
+        } else {
+            VerbStats {
+                ran: 0,
+                abstained: 1,
+                finding_emitted: 0,
+            }
+        }
+    };
+    let smt_s = verb_stats(smt_claim_check_enabled(), &solver_finding);
+    let causal_s = verb_stats(dsep_claim_check_enabled(), &causal_finding);
+    let gum_s = verb_stats(gum_claim_check_enabled(), &gum_finding);
+    let theorem_s = verb_stats(theorem_claim_check_enabled(), &theorem_finding);
+    let total_ran = (smt_s.ran + causal_s.ran + gum_s.ran + theorem_s.ran) as usize;
+    let total_findings = (smt_s.finding_emitted
+        + causal_s.finding_emitted
+        + gum_s.finding_emitted
+        + theorem_s.finding_emitted) as usize;
+    let finding_rate = (total_ran > 0).then(|| total_findings as f32 / total_ran as f32);
+    let vsummary = VerificationSummary {
+        smt: smt_s,
+        causal: causal_s,
+        gum: gum_s,
+        theorem: theorem_s,
+        completed_at: Utc::now().to_rfc3339(),
+        finding_rate,
+    };
+    let machine_note = vsummary.machine_note();
+
     // ARGOS usa Heavy: crítica sobre claims científicos
     let meta = RequestMeta::new(
         false,                      // requires_math (ou true se for Methods de KEC/PBPK)
@@ -2448,15 +2553,33 @@ pub async fn run_argos(
 
     let score = extract_score(&validated_text).unwrap_or(0.9);
 
-    // Surfacea os achados formais no topo do relatório de ARGOS (independente do LLM).
-    // SMT primeiro (contradição quantitativa), depois causal (incoerência estrutural).
-    let suggestions_md = match (solver_finding, causal_finding) {
-        (Some(smt), Some(causal)) => {
-            format!("{}\n\n---\n\n{}\n\n---\n\n{}", smt, causal, validated_text)
-        }
-        (Some(smt), None) => format!("{}\n\n---\n\n{}", smt, validated_text),
-        (None, Some(causal)) => format!("{}\n\n---\n\n{}", causal, validated_text),
-        (None, None) => validated_text,
+    // P4: surfacea TODOS os quatro achados formais no topo do relatório de ARGOS
+    // (corrige a omissão anterior de gum/theorem). Ordem: SMT, causal, GUM, theorem.
+    // O machine_note vai como comentário HTML (invisível em renderers Markdown, mas
+    // legível por máquina) no topo de suggestions_md.
+    let mut formal_blocks: Vec<String> = Vec::new();
+    if let Some(f) = solver_finding {
+        formal_blocks.push(f);
+    }
+    if let Some(f) = causal_finding {
+        formal_blocks.push(f);
+    }
+    if let Some(f) = gum_finding {
+        formal_blocks.push(f);
+    }
+    if let Some(f) = theorem_finding {
+        formal_blocks.push(f);
+    }
+    let note_block = format!("<!-- {} -->\n\n", machine_note);
+    let suggestions_md = if formal_blocks.is_empty() {
+        format!("{}{}", note_block, validated_text)
+    } else {
+        format!(
+            "{}{}\n\n---\n\n{}",
+            note_block,
+            formal_blocks.join("\n\n---\n\n"),
+            validated_text
+        )
     };
 
     Ok((
@@ -2468,6 +2591,7 @@ pub async fn run_argos(
             provider_tier: tier.as_str().to_string(),
         },
         tier,
+        vsummary,
     ))
 }
 
@@ -2844,6 +2968,83 @@ mod tests {
         });
         let report: TriadReport = serde_json::from_value(legacy).unwrap();
         assert!(report.evolved.is_none());
+        // P4: verification_summary also defaults to None for legacy JSON.
+        assert!(report.verification_summary.is_none());
+    }
+
+    // ===== P4: VerificationSummary =====
+
+    #[tokio::test]
+    async fn verification_summary_all_gates_off_all_abstained() {
+        std::env::remove_var("BEAGLE_TRIAD_SMT_CHECK");
+        std::env::remove_var("BEAGLE_TRIAD_DSEP_CHECK");
+        std::env::remove_var("BEAGLE_TRIAD_GUM_CHECK");
+        std::env::remove_var("BEAGLE_TRIAD_THEOREM_CHECK");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let athena = sample_opinion();
+        let hermes = sample_opinion();
+        let (_op, _tier, vsummary) = run_argos("draft", &hermes, &athena, &ctx, "t")
+            .await
+            .expect("run_argos");
+        assert_eq!(vsummary.smt.abstained, 1);
+        assert_eq!(vsummary.causal.abstained, 1);
+        assert_eq!(vsummary.gum.abstained, 1);
+        assert_eq!(vsummary.theorem.abstained, 1);
+        assert!(vsummary.finding_rate.is_none());
+        assert!(vsummary.machine_note().contains("all abstained"));
+    }
+
+    #[test]
+    fn machine_note_format_with_findings() {
+        let v = VerificationSummary {
+            smt: VerbStats {
+                ran: 1,
+                abstained: 0,
+                finding_emitted: 1,
+            },
+            causal: VerbStats {
+                ran: 1,
+                abstained: 0,
+                finding_emitted: 0,
+            },
+            gum: VerbStats {
+                ran: 0,
+                abstained: 1,
+                finding_emitted: 0,
+            },
+            theorem: VerbStats {
+                ran: 0,
+                abstained: 1,
+                finding_emitted: 0,
+            },
+            completed_at: "2026-06-15T00:00:00Z".to_string(),
+            finding_rate: Some(0.5),
+        };
+        assert_eq!(
+            v.machine_note(),
+            "[verification: 2/4 ran, 1 finding(s), rate 50%]"
+        );
+    }
+
+    #[test]
+    fn machine_note_zero_ran() {
+        let v = VerificationSummary::default();
+        assert!(v.machine_note().contains("all abstained"));
+    }
+
+    #[tokio::test]
+    async fn run_argos_returns_three_tuple_with_vsummary() {
+        std::env::remove_var("BEAGLE_TRIAD_SMT_CHECK");
+        std::env::remove_var("BEAGLE_TRIAD_DSEP_CHECK");
+        std::env::remove_var("BEAGLE_TRIAD_GUM_CHECK");
+        std::env::remove_var("BEAGLE_TRIAD_THEOREM_CHECK");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let athena = sample_opinion();
+        let hermes = sample_opinion();
+        let result = run_argos("draft", &hermes, &athena, &ctx, "t").await;
+        let (_op, _tier, vsummary) = result.expect("run_argos");
+        assert!(vsummary.finding_rate.is_none());
+        assert_eq!(vsummary.smt.ran, 0);
     }
 
     #[test]
