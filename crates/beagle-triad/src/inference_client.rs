@@ -274,6 +274,83 @@ pub async fn gum_propagate(base_url: &str, req: GumRequest) -> Option<GumRespons
     }
 }
 
+// ─────────────────────────── theorem.prove ────────────────────────────────
+
+/// Request to `/v1/theorem/prove`.
+///
+/// `atoms` = named propositional atoms (1..32). `hypotheses` and `goal` are
+/// propositional expression trees, each a single-key JSON object: `{"atom":name}`,
+/// `{"not":expr}`, `{"and":[expr,expr]}`, `{"or":[expr,expr]}`, `{"implies":[expr,expr]}`.
+/// We forward them as raw `serde_json::Value` and let the service validate the
+/// structure (any malformed tree → non-2xx → [`ProofVerdict`] absent).
+#[derive(Debug, Clone, Serialize)]
+pub struct TheoremRequest {
+    pub atoms: Vec<String>,
+    pub hypotheses: Vec<serde_json::Value>,
+    pub goal: serde_json::Value,
+    pub depth: u32,
+}
+
+/// Response from `/v1/theorem/prove`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TheoremResponse {
+    pub result: String,
+}
+
+/// Result of a propositional proof attempt.
+///
+/// The service is SOUND by construction: only a real derivation counts as
+/// [`ProofVerdict::Proved`]; the `trusted`/truth-table fallback is rejected to
+/// [`ProofVerdict::Unknown`]. Crucially, **`Unknown` is NOT a refutation** — the
+/// prover is propositional and depth-bounded, so a sound argument resting on
+/// implicit/non-propositional premises also yields `Unknown`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProofVerdict {
+    /// Goal DERIVED from the hypotheses (real proof tree).
+    Proved,
+    /// No derivation found — NOT a refutation (incompleteness / bounded depth).
+    Unknown,
+    /// A proof tree was produced but failed verification.
+    Invalid,
+}
+
+/// POST `{base_url}/v1/theorem/prove`. Returns `Some(verdict)` only on a real
+/// solver verdict; ANY transport/parse failure (or an unrecognized result) yields
+/// `None` — so the caller never mistakes "service down" for "no derivation".
+pub async fn theorem_prove(base_url: &str, req: TheoremRequest) -> Option<ProofVerdict> {
+    if req.atoms.is_empty() || req.atoms.len() > 32 {
+        return None;
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .ok()?;
+    let url = format!("{}/v1/theorem/prove", base_url.trim_end_matches('/'));
+    let resp = match client.post(&url).json(&req).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, %url, "theorem_prove: request failed; None");
+            return None;
+        }
+    };
+    if !resp.status().is_success() {
+        warn!(status = %resp.status(), "theorem_prove: non-success; None");
+        return None;
+    }
+    match resp.json::<TheoremResponse>().await {
+        Ok(body) => match body.result.as_str() {
+            "PROVED" => Some(ProofVerdict::Proved),
+            "UNKNOWN" => Some(ProofVerdict::Unknown),
+            "INVALID" => Some(ProofVerdict::Invalid),
+            _ => None,
+        },
+        Err(e) => {
+            warn!(error = %e, "theorem_prove: parse failed; None");
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,6 +398,29 @@ mod tests {
             causal_dsep("http://127.0.0.1:1", req).await,
             DsepVerdict::Unknown
         );
+    }
+
+    #[tokio::test]
+    async fn theorem_prove_unreachable_is_none() {
+        // Honest: a dead endpoint must be None, never mistaken for "no derivation".
+        let req = TheoremRequest {
+            atoms: vec!["A".into(), "B".into()],
+            hypotheses: vec![serde_json::json!({"atom": "A"})],
+            goal: serde_json::json!({"atom": "B"}),
+            depth: 12,
+        };
+        assert!(theorem_prove("http://127.0.0.1:1", req).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn theorem_prove_empty_atoms_is_none() {
+        let req = TheoremRequest {
+            atoms: vec![],
+            hypotheses: vec![],
+            goal: serde_json::json!({"atom": "A"}),
+            depth: 12,
+        };
+        assert!(theorem_prove("http://127.0.0.1:1", req).await.is_none());
     }
 
     #[tokio::test]

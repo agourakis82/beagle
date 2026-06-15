@@ -1161,6 +1161,22 @@ fn gum_claim_check_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// Gate para verificação formal de dedução proposicional via Sounio `theorem.prove`.
+/// Mesmo estilo de parse: aceita `1`, `true`, `yes`, `on` (case-insensitive). OFF por padrão.
+/// É o sinal MAIS FRACO dos backstops (UNKNOWN ≠ refutação; prover proposicional e de
+/// profundidade limitada), então fica desligado por padrão e só dispara em deduções
+/// proposicionais EXPLÍCITAS e auto-contidas.
+fn theorem_claim_check_enabled() -> bool {
+    std::env::var("BEAGLE_TRIAD_THEOREM_CHECK")
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 /// Extrai o primeiro objeto JSON balanceado de um texto (o LLM costuma cercar com prosa).
 fn first_json_object(s: &str) -> Option<String> {
     let start = s.find('{')?;
@@ -1694,6 +1710,142 @@ async fn gum_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Opti
     ))
 }
 
+/// Verificação formal de dedução proposicional via Sounio `theorem.prove`.
+///
+/// O backstop MAIS FRACO e mais conservador dos quatro. Fluxo:
+/// 1. O LLM (deepseek-chat, temp 0) extrai do draft, SE E SOMENTE SE houver uma dedução
+///    proposicional EXPLÍCITA e AUTO-CONTIDA (marcadores "portanto/logo/conclui-se/segue-se"),
+///    cujas premissas o texto afirma serem SUFICIENTES para a conclusão: átomos nomeados,
+///    hipóteses e meta como árvores proposicionais (atom/not/and/or/implies).
+/// 2. Validação local mínima (átomos 1..32, ≥1 hipótese, meta presente); as árvores são
+///    repassadas e o serviço valida a estrutura (malformado → não-2xx → `None`).
+/// 3. O verbo `theorem.prove` (Sounio, dedução natural, SOM por construção: só derivação real)
+///    decide. PROVED → sem achado (a dedução se sustenta).
+/// 4. Retorna um bloco markdown quando o prover NÃO deriva a conclusão (`UNKNOWN`/`INVALID`)
+///    de uma dedução que o draft afirma ser suficiente — possível non-sequitur.
+///
+/// **Honestidade (truth-mode) — crítica aqui:** `UNKNOWN` **NÃO é refutação**. O prover é
+/// PROPOSICIONAL e de profundidade limitada; uma dedução cientificamente válida que repouse
+/// sobre premissas implícitas (conhecimento de domínio, aritmética, quantificadores) também dá
+/// `UNKNOWN`. Por isso o achado é uma HIPÓTESE FRACA: "ou faltam premissas no texto, ou é um
+/// non-sequitur" — nunca um veredito de invalidez.
+async fn theorem_claim_check(draft: &str, ctx: &BeagleContext, run_id: &str) -> Option<String> {
+    if !theorem_claim_check_enabled() {
+        return None;
+    }
+    let draft_excerpt: String = draft.chars().take(6000).collect();
+    let prompt = format!(
+        "Extraia DO TEXTO abaixo, SE E SOMENTE SE houver uma DEDUÇÃO LÓGICA proposicional \
+         EXPLÍCITA, INEQUÍVOCA e AUTO-CONTIDA — ou seja, o texto afirma uma conclusão como \
+         consequência LÓGICA de premissas declaradas (marcadores: 'portanto', 'logo', \
+         'conclui-se que', 'segue-se que', 'therefore'), e as premissas declaradas são \
+         apresentadas como SUFICIENTES para a conclusão.\n\
+         REGRA DE OURO — SÓ EXTRAIA SE FOR PURAMENTE PROPOSICIONAL: a dedução deve ser \
+         expressável SÓ com proposições atômicas (verdadeiro/falso) e os conectivos E (and), \
+         OU (or), NÃO (not), SE-ENTÃO (implies). Se o argumento depende de aritmética, \
+         quantificadores ('todo', 'algum'), conhecimento de domínio implícito, ou relações \
+         numéricas/causais, responda found=false. NÃO force.\n\
+         PASSO 1 — ÁTOMOS: liste as proposições atômicas distintas como strings curtas (máx 32).\n\
+         PASSO 2 — HIPÓTESES: cada premissa declarada como uma árvore. Uma árvore é um objeto de \
+         CHAVE ÚNICA: {{\"atom\":\"nome\"}}, {{\"not\":<árvore>}}, {{\"and\":[<árvore>,<árvore>]}}, \
+         {{\"or\":[<árvore>,<árvore>]}}, {{\"implies\":[<árvore>,<árvore>]}}.\n\
+         PASSO 3 — META: a conclusão afirmada, como uma árvore no mesmo formato.\n\
+         Responda SOMENTE com JSON, sem prosa:\n\
+         {{\"found\":true|false,\"atoms\":[\"...\"],\"hypotheses\":[<árvore>,...],\
+         \"goal\":<árvore>,\"argument\":\"texto literal da dedução afirmada\"}}\n\
+         Se NÃO houver uma dedução proposicional explícita e auto-contida, responda \
+         {{\"found\":false}}. NÃO invente; só o que está LITERALMENTE no texto.\n\n\
+         === TEXTO ===\n{}",
+        draft_excerpt
+    );
+    let meta = RequestMeta::new(
+        false,
+        false,
+        false,
+        prompt.chars().count() / 4,
+        false,
+        false,
+        false,
+    );
+    let (text, _tier) = call_llm_extraction(ctx, run_id, &prompt, meta).await.ok()?;
+
+    let parsed: serde_json::Value = serde_json::from_str(&first_json_object(&text)?).ok()?;
+    if !parsed
+        .get("found")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let atoms: Vec<String> = parsed
+        .get("atoms")?
+        .as_array()?
+        .iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect();
+    if atoms.is_empty() || atoms.len() > 32 {
+        return None;
+    }
+    let hypotheses: Vec<serde_json::Value> = parsed.get("hypotheses")?.as_array()?.clone();
+    if hypotheses.is_empty() {
+        return None; // sem premissas não há dedução a checar
+    }
+    let goal = parsed.get("goal")?.clone();
+    if !goal.is_object() {
+        return None;
+    }
+    let argument = parsed
+        .get("argument")?
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if argument.is_empty() {
+        return None;
+    }
+
+    let n_hyps = hypotheses.len();
+    let req = inference_client::TheoremRequest {
+        atoms: atoms.clone(),
+        hypotheses,
+        goal,
+        depth: 12, // bem acima do default 6 — reduz UNKNOWN espúrio por busca rasa
+    };
+    let base = inference_client::inference_base_url();
+    // Some(Proved)/None → sem achado. None inclui serviço fora E estrutura malformada (422):
+    // honesto — nunca confundir "serviço indisponível" com "non-sequitur".
+    let verdict = inference_client::theorem_prove(&base, req).await?;
+    let outcome = match verdict {
+        inference_client::ProofVerdict::Proved => return None,
+        inference_client::ProofVerdict::Unknown => "UNKNOWN (nenhuma derivação encontrada)",
+        inference_client::ProofVerdict::Invalid => "INVALID (a derivação falhou na verificação)",
+    };
+    info!(
+        n_hyps,
+        n_atoms = atoms.len(),
+        result = outcome,
+        "theorem_claim_check: dedução proposicional explícita NÃO reconstruída pelo prover"
+    );
+    Some(format!(
+        "## ⚠️ Dedução não reconstruída — prova proposicional (Sounio theorem.prove)\n\n\
+        O verificador formal `theorem.prove` (Sounio, dedução natural proposicional; SOM por \
+        construção: só conta derivação real) **NÃO conseguiu derivar** a conclusão a partir das \
+        {n} premissas EXPLÍCITAS extraídas do draft, que o texto apresenta como dedução lógica:\n\n\
+        > *\"{arg}\"*\n\n\
+        **Átomos extraídos:** {atoms}. **Resultado do prover:** {res}.\n\n\
+        > **Honestidade (truth-mode) — leia com cuidado:** `UNKNOWN` **NÃO é uma refutação**. O \
+        prover é PROPOSICIONAL e de profundidade limitada: ele não encontrou derivação, mas a \
+        dedução pode repousar sobre premissas IMPLÍCITAS (conhecimento de domínio, aritmética, \
+        quantificadores) não capturadas na extração, ou sobre uma relação não-proposicional. \
+        Trate como hipótese FRACA — ou faltam premissas no texto, ou é um non-sequitur — e \
+        verifique manualmente antes de afirmar que o argumento é inválido.",
+        n = n_hyps,
+        arg = argument,
+        atoms = atoms.join(", "),
+        res = outcome,
+    ))
+}
+
 pub async fn run_argos(
     original_draft: &str,
     hermes: &TriadOpinion,
@@ -1773,6 +1925,24 @@ pub async fn run_argos(
              extraídos. Trate como hipótese: confirme a convenção do `±` (1σ vs IC95%), se os \
              insumos são correlacionados, e se a relação funcional extraída é a real, antes de \
              concluir que a incerteza declarada está subdeclarada.\n",
+        );
+    }
+
+    // Quarta verificação formal: dedução proposicional via Sounio theorem.prove (gated).
+    // O sinal MAIS FRACO: dispara só quando o prover NÃO reconstrói uma dedução proposicional
+    // que o draft afirma ser suficiente. UNKNOWN ≠ refutação (prover proposicional/profundidade
+    // limitada) — por isso entra como hipótese fraca, com a ressalva mais forte. None em dúvida.
+    let theorem_finding = theorem_claim_check(original_draft, ctx, run_id).await;
+    if let Some(ref f) = theorem_finding {
+        prompt.push_str(
+            "\n\n=== VERIFICAÇÃO FORMAL DEDUTIVA (Sounio theorem.prove — proposicional) ===\n",
+        );
+        prompt.push_str(f);
+        prompt.push_str(
+            "\nSinal FRACO: o prover é proposicional e de profundidade limitada, então `UNKNOWN` \
+             NÃO é refutação. Trate como hipótese — ou o draft omitiu premissas, ou a dedução é \
+             um non-sequitur. NÃO afirme invalidez do argumento só com base neste achado; use-o \
+             para PEDIR que as premissas sejam tornadas explícitas.\n",
         );
     }
 
@@ -2131,6 +2301,15 @@ mod tests {
         std::env::remove_var("BEAGLE_TRIAD_GUM_CHECK");
         let ctx = BeagleContext::new_with_mock().expect("mock ctx");
         let out = gum_claim_check("CL = dose/AUC = 5.0 ± 0.05", &ctx, "t").await;
+        assert!(out.is_none());
+    }
+
+    #[tokio::test]
+    async fn theorem_check_is_off_by_default() {
+        // Sem BEAGLE_TRIAD_THEOREM_CHECK, a verificação não roda (nem chama LLM/serviço).
+        std::env::remove_var("BEAGLE_TRIAD_THEOREM_CHECK");
+        let ctx = BeagleContext::new_with_mock().expect("mock ctx");
+        let out = theorem_claim_check("Se A então B; A; portanto C", &ctx, "t").await;
         assert!(out.is_none());
     }
 
