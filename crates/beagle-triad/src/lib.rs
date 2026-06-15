@@ -115,8 +115,15 @@ impl VerdictRegistry {
         // matching them as bare substrings (e.g. "sat") false-positives on Portuguese
         // prose like "satisfatório", "datasets", or English "satisfy".
         const CANONICAL_VERDICTS: &[&str] = &["UNSAT", "SAT", "PROVED", "UNKNOWN", "INVALID"];
-        // d-separation tokens are unambiguous: keep them as case-insensitive prefixes.
-        const DSEP_TOKENS: &[&str] = &["d-separ", "d-conect", "d-connect"];
+        // d-separation VERDICT words (case-insensitive). Match the verdicts
+        // `d-separated`/`d-connected` (+ PT stems `d-separad`/`d-conectad`), NOT the
+        // bare concept "d-separation"/"d-separação" — the broad `d-separ` prefix
+        // false-positived on prose merely discussing d-separation (eval #1 FP).
+        const DSEP_TOKENS: &[&str] = &["d-separated", "d-connected", "d-separad", "d-conectad"];
+        // GUM verdict words (case-insensitive). Without these, fabricated
+        // `gum.propagate` attributions cite `gum-understated`/`gum-ok` and slip the
+        // detector entirely — eval #1 measured this as the whole residual (8/8 misses).
+        const GUM_TOKENS: &[&str] = &["gum-understated", "gum-ok"];
 
         // Whole-word check: the token must not be flanked by alphanumeric chars.
         fn contains_word(haystack: &str, needle: &str) -> bool {
@@ -162,7 +169,8 @@ impl VerdictRegistry {
             // contains a canonical verdict token (whole-word, case-sensitive) or an
             // unambiguous d-separation token (case-insensitive prefix).
             let has_verdict = CANONICAL_VERDICTS.iter().any(|v| contains_word(line, v))
-                || DSEP_TOKENS.iter().any(|t| lower.contains(t));
+                || DSEP_TOKENS.iter().any(|t| lower.contains(t))
+                || GUM_TOKENS.iter().any(|t| lower.contains(t));
 
             // Collect ALL verbs named on this line (not just the first), so a second
             // verb on the same line cannot smuggle an unattested attribution through.
@@ -3636,6 +3644,39 @@ mod tests {
         assert!(
             !out.contains("[REDACTED"),
             "must not redact prose containing 'satisfatório'/'datasets': {out}"
+        );
+    }
+
+    #[test]
+    fn test_redact_unattested_flags_fabricated_gum_verdict() {
+        // Regression (eval #1): the GUM verdict vocabulary (`gum-understated`/`gum-ok`)
+        // was missing from the detector, so fabricated gum.propagate attributions
+        // slipped through — the whole measured residual. A gum verdict with no record
+        // MUST now redact.
+        let reg = VerdictRegistry::new();
+        let (out, _summary) = reg.redact_unattested(
+            "O `gum.propagate` sinalizou gum-understated para a incerteza combinada do desfecho.",
+        );
+        assert!(
+            out.contains("[REDACTED"),
+            "fabricated gum-understated attribution must redact: {out}"
+        );
+    }
+
+    #[test]
+    fn test_redact_unattested_no_false_positive_on_dseparation_concept() {
+        // Regression (eval #1): the broad `d-separ` prefix flagged prose merely
+        // discussing the CONCEPT "d-separation"/"d-separação". The detector now keys on
+        // the verdict words (`d-separated`/`d-connected`), so abstract discussion of the
+        // concept near the verb name must NOT redact.
+        let mut reg = VerdictRegistry::new();
+        reg.push(rec("causal.dsep", "gate-off"));
+        let (out, _summary) = reg.redact_unattested(
+            "The authors' explanation of d-separation is intellectually satisfying but is not a formal invocation of `causal.dsep`.",
+        );
+        assert!(
+            !out.contains("[REDACTED"),
+            "discussing the d-separation concept must not redact: {out}"
         );
     }
 
