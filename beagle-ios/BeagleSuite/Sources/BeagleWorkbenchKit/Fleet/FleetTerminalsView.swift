@@ -48,6 +48,10 @@ public struct FleetTerminalsView: View {
             }
             if store.opened.isEmpty {
                 ContentUnavailableView("Pick an agent", systemImage: "terminal")
+            } else if store.opened.contains(store.activeAgent) {
+                // While the active session is still attaching (or failed), the SwiftTerm
+                // canvas is an empty void. Cover it with a legible state instead.
+                connectionOverlay(for: store.activeAgent)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -64,6 +68,58 @@ public struct FleetTerminalsView: View {
                     }
                 }
         )
+    }
+
+    /// Legible state for the active terminal while it is not yet showing live output.
+    @ViewBuilder private func connectionOverlay(for agent: String) -> some View {
+        switch store.state(for: agent) {
+        case .connecting:
+            terminalStatePane(title: "Connecting to \(agent)…",
+                              subtitle: "Waking the fleet pod and attaching the session.",
+                              showsProgress: true, retry: nil)
+        case .reconnecting:
+            terminalStatePane(title: "Reconnecting to \(agent)…",
+                              subtitle: "The link dropped — re-attaching to the session.",
+                              showsProgress: true, retry: nil)
+        case .failed(let message):
+            terminalStatePane(title: "Couldn't reach \(agent)",
+                              subtitle: message.isEmpty ? "The fleet pod didn't respond. The workspace may be offline." : message,
+                              showsProgress: false, retry: { store.open(agent); haptic() })
+        case .idle, .connected:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder private func terminalStatePane(
+        title: String, subtitle: String, showsProgress: Bool, retry: (() -> Void)?
+    ) -> some View {
+        VStack(spacing: 12) {
+            if showsProgress {
+                ProgressView().tint(Self.amber)
+            } else {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 28)).foregroundStyle(Self.amber)
+            }
+            Text(title)
+                .font(.system(.subheadline, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.9))
+            Text(subtitle)
+                .font(.caption).foregroundStyle(.white.opacity(0.55))
+                .multilineTextAlignment(.center)
+            if let retry {
+                Button(action: retry) {
+                    Text("Retry")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                        .background(Self.amber.opacity(0.22), in: Capsule())
+                        .foregroundStyle(Self.amber)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Self.canvas)
     }
 
     private var agentBar: some View {

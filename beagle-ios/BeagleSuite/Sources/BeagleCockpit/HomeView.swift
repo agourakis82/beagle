@@ -52,6 +52,7 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Spacer(minLength: BeagleSpacing.xl)
                     homeInvitation
+                    Spacer(minLength: BeagleSpacing.xl)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, BeagleSpacing.lg)
@@ -722,15 +723,60 @@ struct HomeView: View {
 
     /// Clean empty-state invitation — replaces the old prompt-card scaffolding.
     /// The input bar below is where you actually type; this is just the prompt.
+    /// Starter prompts for the empty launchpad — tappable, mirroring Recall's "TRY"
+    /// affordances so an empty Home offers a way in instead of a blank void.
+    private var starterPrompts: [String] {
+        [
+            "Help me think through a hard decision",
+            "Summarize what the cluster did today",
+            "Draft a plan for my next work session"
+        ]
+    }
+
     private var homeInvitation: some View {
-        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
-            Text("What are you working on?")
-                .font(BeagleFont.title2.font)
-                .fontWeight(.semibold)
-                .foregroundStyle(BeagleTheme.textPrimary)
-            Text("Type a thought below — Beagle stays with it.")
-                .font(BeagleFont.subheadline.font)
-                .foregroundStyle(BeagleTheme.textSecondary)
+        VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+            Image(systemName: "brain")
+                .font(.system(size: 32, weight: .regular))
+                .foregroundStyle(BeagleTheme.truthObserved)
+
+            VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+                Text("What are you working on?")
+                    .font(BeagleFont.title2.font)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                Text("Type a thought below — Beagle stays with it.")
+                    .font(BeagleFont.subheadline.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+            }
+
+            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                ForEach(starterPrompts, id: \.self) { prompt in
+                    Button {
+                        inputText = prompt
+                        Task { await conversation.sendMessage(prompt) }
+                    } label: {
+                        HStack(spacing: BeagleSpacing.xs) {
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                            Text(prompt)
+                                .font(BeagleFont.subheadline.font)
+                                .foregroundStyle(BeagleTheme.textSecondary)
+                                .multilineTextAlignment(.leading)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, BeagleSpacing.xs)
+                        .padding(.horizontal, BeagleSpacing.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: BeagleRadius.md)
+                                .fill(BeagleTheme.surface1.opacity(0.5))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, BeagleSpacing.xs)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, BeagleSpacing.md)
