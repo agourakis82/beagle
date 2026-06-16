@@ -53,7 +53,10 @@ impl ExocortexRepository {
         Ok(())
     }
 
-    pub(crate) fn create_commit(&self, req: CreateCommitRequest) -> anyhow::Result<ChronoselfCommit> {
+    pub(crate) fn create_commit(
+        &self,
+        req: CreateCommitRequest,
+    ) -> anyhow::Result<ChronoselfCommit> {
         self.ensure()?;
         let now = Utc::now();
         let last = self
@@ -272,7 +275,10 @@ impl ExocortexRepository {
         })
     }
 
-    pub(crate) fn failed_write_inbox(&self, limit: usize) -> anyhow::Result<Vec<FailedWriteInboxItem>> {
+    pub(crate) fn failed_write_inbox(
+        &self,
+        limit: usize,
+    ) -> anyhow::Result<Vec<FailedWriteInboxItem>> {
         self.read_recent_jsonl::<FailedWriteInboxItem>(FAILED_WRITES_LOG, limit)
     }
 
@@ -986,7 +992,10 @@ impl ExocortexRepository {
         })
     }
 
-    pub(crate) fn project_memory(&self, req: ProjectMemoryRequest) -> anyhow::Result<MemoryProjectionRun> {
+    pub(crate) fn project_memory(
+        &self,
+        req: ProjectMemoryRequest,
+    ) -> anyhow::Result<MemoryProjectionRun> {
         self.ensure()?;
         let source_filter = req.source_refs;
         let imports = self.read_recent_jsonl::<OmniConversation>(OMNIMEMORY_LOG, usize::MAX)?;
@@ -1077,7 +1086,10 @@ impl ExocortexRepository {
         Ok(run)
     }
 
-    pub(crate) fn project_import(&self, import: &OmniConversation) -> anyhow::Result<ProjectionOutcome> {
+    pub(crate) fn project_import(
+        &self,
+        import: &OmniConversation,
+    ) -> anyhow::Result<ProjectionOutcome> {
         if import.privacy_class == "restricted" {
             return Ok(ProjectionOutcome::default());
         }
@@ -1105,7 +1117,11 @@ impl ExocortexRepository {
         })
     }
 
-    pub(crate) fn build_import_episode(&self, import: &OmniConversation, source_ref: &str) -> MemoryEpisode {
+    pub(crate) fn build_import_episode(
+        &self,
+        import: &OmniConversation,
+        source_ref: &str,
+    ) -> MemoryEpisode {
         MemoryEpisode {
             id: stable_id("episode", &[source_ref, &import.raw_content_ref]),
             created_at: Utc::now().to_rfc3339(),
@@ -1132,7 +1148,10 @@ impl ExocortexRepository {
         }
     }
 
-    pub(crate) fn project_memory_event(&self, event: &MemoryEvent) -> anyhow::Result<ProjectionOutcome> {
+    pub(crate) fn project_memory_event(
+        &self,
+        event: &MemoryEvent,
+    ) -> anyhow::Result<ProjectionOutcome> {
         let privacy = normalize_privacy_class(
             event
                 .metadata
@@ -1607,7 +1626,10 @@ impl ExocortexRepository {
         Ok(Some(MemoryTruthSetResponse { truthset, cases }))
     }
 
-    pub(crate) fn latest_memory_truthset(&self, truthset_id: &str) -> anyhow::Result<Option<MemoryTruthSet>> {
+    pub(crate) fn latest_memory_truthset(
+        &self,
+        truthset_id: &str,
+    ) -> anyhow::Result<Option<MemoryTruthSet>> {
         Ok(self
             .read_recent_jsonl::<MemoryTruthSet>(MEMORY_TRUTHSETS_LOG, usize::MAX)?
             .into_iter()
@@ -1652,7 +1674,10 @@ impl ExocortexRepository {
         Ok(())
     }
 
-    pub(crate) fn run_graph_bakeoff(&self, req: GraphBakeoffRequest) -> anyhow::Result<GraphBakeoffRun> {
+    pub(crate) fn run_graph_bakeoff(
+        &self,
+        req: GraphBakeoffRequest,
+    ) -> anyhow::Result<GraphBakeoffRun> {
         self.ensure()?;
         let limit = req.dataset_limit.unwrap_or(200).clamp(1, 2_000);
         let atoms = self.read_recent_jsonl::<MemoryAtom>(MEMORY_ATOMS_LOG, limit)?;
@@ -1798,7 +1823,10 @@ impl ExocortexRepository {
         })
     }
 
-    pub(crate) fn memory_graph_recent(&self, limit: usize) -> anyhow::Result<MemoryGraphRecentResponse> {
+    pub(crate) fn memory_graph_recent(
+        &self,
+        limit: usize,
+    ) -> anyhow::Result<MemoryGraphRecentResponse> {
         self.ensure()?;
         let limit = limit.clamp(1, 50);
         let status = self.memory_projection_status()?;
@@ -1837,7 +1865,10 @@ impl ExocortexRepository {
         })
     }
 
-    pub(crate) fn memory_worlds_recent(&self, limit: usize) -> anyhow::Result<MemoryWorldsRecentResponse> {
+    pub(crate) fn memory_worlds_recent(
+        &self,
+        limit: usize,
+    ) -> anyhow::Result<MemoryWorldsRecentResponse> {
         self.ensure()?;
         let limit = limit.clamp(1, 50);
         Ok(MemoryWorldsRecentResponse {
@@ -1847,7 +1878,10 @@ impl ExocortexRepository {
         })
     }
 
-    pub(crate) fn graphrag_query(&self, req: GraphRagQueryRequest) -> anyhow::Result<GraphRagQueryResponse> {
+    pub(crate) fn graphrag_query(
+        &self,
+        req: GraphRagQueryRequest,
+    ) -> anyhow::Result<GraphRagQueryResponse> {
         self.ensure()?;
         let max_items = req.max_items.unwrap_or(5).clamp(1, 20);
         let requested_mode = req.mode.clone().unwrap_or_else(memory_hot_path_mode);
@@ -2375,7 +2409,10 @@ impl ExocortexRepository {
             .find(|atom| atom.id == atom_id))
     }
 
-    pub(crate) fn find_memory_candidate(&self, candidate_id: &str) -> anyhow::Result<Option<MemoryCandidate>> {
+    pub(crate) fn find_memory_candidate(
+        &self,
+        candidate_id: &str,
+    ) -> anyhow::Result<Option<MemoryCandidate>> {
         Ok(self
             .read_recent_jsonl::<MemoryCandidate>(MEMORY_CANDIDATES_LOG, usize::MAX)?
             .into_iter()
@@ -2392,7 +2429,10 @@ impl ExocortexRepository {
             .find(|decision| decision.candidate_id == candidate_id))
     }
 
-    pub(crate) fn latest_memory_candidates(&self, limit: usize) -> anyhow::Result<Vec<MemoryCandidate>> {
+    pub(crate) fn latest_memory_candidates(
+        &self,
+        limit: usize,
+    ) -> anyhow::Result<Vec<MemoryCandidate>> {
         let mut seen = std::collections::BTreeSet::<String>::new();
         let mut candidates = Vec::new();
         for candidate in
@@ -2636,7 +2676,10 @@ impl ExocortexRepository {
         }
     }
 
-    pub(crate) fn analyze_temporal(&self, req: TemporalAnalyzeRequest) -> anyhow::Result<TemporalAnalysis> {
+    pub(crate) fn analyze_temporal(
+        &self,
+        req: TemporalAnalyzeRequest,
+    ) -> anyhow::Result<TemporalAnalysis> {
         self.ensure()?;
         let now = Utc::now();
         let commits = self.read_recent_jsonl::<ChronoselfCommit>(CHRONOSELF_LOG, 50)?;
@@ -2737,7 +2780,10 @@ impl ExocortexRepository {
         Ok(analysis)
     }
 
-    pub(crate) fn create_audit_event(&self, req: CreateAuditEventRequest) -> anyhow::Result<AuditEvent> {
+    pub(crate) fn create_audit_event(
+        &self,
+        req: CreateAuditEventRequest,
+    ) -> anyhow::Result<AuditEvent> {
         self.ensure()?;
         let event = AuditEvent {
             id: Uuid::new_v4().to_string(),
@@ -2763,7 +2809,10 @@ impl ExocortexRepository {
         Ok(event)
     }
 
-    pub(crate) fn create_memory_event(&self, req: CreateMemoryEventRequest) -> anyhow::Result<MemoryEvent> {
+    pub(crate) fn create_memory_event(
+        &self,
+        req: CreateMemoryEventRequest,
+    ) -> anyhow::Result<MemoryEvent> {
         self.ensure()?;
         let event = MemoryEvent {
             id: Uuid::new_v4().to_string(),
@@ -2836,7 +2885,10 @@ impl ExocortexRepository {
         Ok(candidate)
     }
 
-    pub(crate) fn context_compile(&self, req: ContextCompileRequest) -> anyhow::Result<ContextPack> {
+    pub(crate) fn context_compile(
+        &self,
+        req: ContextCompileRequest,
+    ) -> anyhow::Result<ContextPack> {
         self.ensure()?;
         let mode = req.mode.clone().unwrap_or_else(memory_hot_path_mode);
         let query_response = self.graphrag_query(GraphRagQueryRequest {
@@ -3029,7 +3081,10 @@ impl ExocortexRepository {
         })
     }
 
-    pub(crate) fn run_dreamcycle(&self, req: DreamCycleRunRequest) -> anyhow::Result<DreamCycleRun> {
+    pub(crate) fn run_dreamcycle(
+        &self,
+        req: DreamCycleRunRequest,
+    ) -> anyhow::Result<DreamCycleRun> {
         self.ensure()?;
         let limit = req.limit.unwrap_or(500).clamp(1, 5_000);
         let episodes = self.read_recent_jsonl::<MemoryEpisode>(MEMORY_EPISODES_LOG, limit)?;
@@ -3484,7 +3539,10 @@ impl ExocortexRepository {
         Ok(latest)
     }
 
-    pub(crate) fn build_home_snapshot(&self, query: HomeQuery) -> anyhow::Result<ExocortexHomeSnapshot> {
+    pub(crate) fn build_home_snapshot(
+        &self,
+        query: HomeQuery,
+    ) -> anyhow::Result<ExocortexHomeSnapshot> {
         let current_self = self.current_self()?;
         let commits = self.read_recent_jsonl::<ChronoselfCommit>(CHRONOSELF_LOG, 5)?;
         let imports = self.read_recent_jsonl::<OmniConversation>(OMNIMEMORY_LOG, 5)?;
@@ -3913,7 +3971,11 @@ impl ExocortexRepository {
         Ok(true)
     }
 
-    pub(crate) fn append_jsonl<T: Serialize>(&self, file_name: &str, value: &T) -> anyhow::Result<()> {
+    pub(crate) fn append_jsonl<T: Serialize>(
+        &self,
+        file_name: &str,
+        value: &T,
+    ) -> anyhow::Result<()> {
         self.ensure()?;
         let path = self.root.join(file_name);
         let mut file = OpenOptions::new().create(true).append(true).open(path)?;
@@ -3951,7 +4013,11 @@ impl ExocortexRepository {
     /// recall_answer LEXICAL FALLBACK so that, during a memory-engine outage, recall still
     /// returns real conversation passages instead of only degraded metadata atoms.
     /// Bounded: reads at most 5000 recent records and scores at most 2000 candidate turns.
-    pub(crate) fn lexical_passage_search(&self, query: &str, k: usize) -> anyhow::Result<Vec<RecallSource>> {
+    pub(crate) fn lexical_passage_search(
+        &self,
+        query: &str,
+        k: usize,
+    ) -> anyhow::Result<Vec<RecallSource>> {
         let records =
             self.read_recent_jsonl::<ConversationPassageRecord>(CONVERSATION_PASSAGES_LOG, 5000)?;
         let q_tokens: std::collections::HashSet<String> = tokenize(query).into_iter().collect();
@@ -3998,7 +4064,11 @@ impl ExocortexRepository {
         Ok(scored.into_iter().take(k).map(|(_, s)| s).collect())
     }
 
-    pub(crate) fn write_snapshot<T: Serialize>(&self, file_name: &str, value: &T) -> anyhow::Result<()> {
+    pub(crate) fn write_snapshot<T: Serialize>(
+        &self,
+        file_name: &str,
+        value: &T,
+    ) -> anyhow::Result<()> {
         self.ensure()?;
         let path = self.root.join(file_name);
         let tmp = path.with_extension("tmp");
@@ -4022,5 +4092,72 @@ impl ExocortexRepository {
         }
         let data = fs::read_to_string(path)?;
         Ok(Some(serde_json::from_str(&data)?))
+    }
+
+    /// Hyperedges that REFLECT REALITY: every distinct `MemoryRelation`
+    /// (subject→object) projected from recent memory atoms, as a directed hyperedge,
+    /// plus any user-created hyperedges appended to `HYPEREDGES_LOG`. Optional
+    /// `node_id` filters to edges incident on that node (matched on node ids / endpoints).
+    pub(crate) fn list_hyperedges(
+        &self,
+        node_id: Option<&str>,
+        limit: usize,
+    ) -> anyhow::Result<Vec<HyperedgeRecord>> {
+        self.ensure()?;
+        let mut out: Vec<HyperedgeRecord> = Vec::new();
+        let graph = self.memory_graph_recent(limit.clamp(1, 50))?;
+        for rel in &graph.relations {
+            let mut metadata = BTreeMap::new();
+            metadata.insert("confidence".to_string(), format!("{:.3}", rel.confidence));
+            metadata.insert("source".to_string(), "memory-relation".to_string());
+            out.push(HyperedgeRecord {
+                id: stable_id(
+                    "hyperedge-rel",
+                    &[&rel.subject, &rel.predicate, &rel.object],
+                ),
+                label: rel.predicate.clone(),
+                node_ids: vec![rel.subject.clone(), rel.object.clone()],
+                metadata,
+                directed: true,
+                created_at: graph.generated_at.clone(),
+            });
+        }
+        out.extend(self.read_recent_jsonl::<HyperedgeRecord>(HYPEREDGES_LOG, usize::MAX)?);
+        if let Some(nid) = node_id {
+            out.retain(|h| h.id == nid || h.node_ids.iter().any(|n| n == nid));
+        }
+        Ok(out)
+    }
+
+    /// Append a user-created hyperedge to `HYPEREDGES_LOG` and return it. The id is
+    /// content-stable so repeated identical creates collapse to one logical edge.
+    pub(crate) fn create_hyperedge(
+        &self,
+        label: &str,
+        node_ids: Vec<String>,
+        directed: bool,
+        mut metadata: BTreeMap<String, String>,
+    ) -> anyhow::Result<HyperedgeRecord> {
+        self.ensure()?;
+        let id = {
+            let mut key: Vec<&str> = vec![label];
+            for n in &node_ids {
+                key.push(n.as_str());
+            }
+            stable_id("hyperedge", &key)
+        };
+        metadata
+            .entry("source".to_string())
+            .or_insert_with(|| "user-created".to_string());
+        let record = HyperedgeRecord {
+            id,
+            label: label.to_string(),
+            node_ids,
+            metadata,
+            directed,
+            created_at: Utc::now().to_rfc3339(),
+        };
+        self.append_jsonl(HYPEREDGES_LOG, &record)?;
+        Ok(record)
     }
 }

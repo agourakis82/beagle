@@ -457,10 +457,7 @@ pub async fn run_beagle_pipeline(
     // só lê o .md) seguem normalmente.
     match render_to_pdf(&draft, &draft_pdf).await {
         Ok(()) => info!("✅ Draft PDF salvo: {}", draft_pdf.display()),
-        Err(e) => tracing::warn!(
-            "PDF não gerado (best-effort; segue com draft.md): {}",
-            e
-        ),
+        Err(e) => tracing::warn!("PDF não gerado (best-effort; segue com draft.md): {}", e),
     }
 
     // 5) Run report (inclui science_job_ids e UserContext se fornecidos)
