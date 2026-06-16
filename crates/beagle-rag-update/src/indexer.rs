@@ -11,7 +11,12 @@ use anyhow::{Context, Result};
 /// sparse vectors to match. Off by default — the dense path is unchanged (plan #8).
 fn hybrid_retrieval_enabled() -> bool {
     std::env::var("BEAGLE_HYBRID_RETRIEVAL")
-        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 use chrono::Utc;
@@ -298,7 +303,9 @@ pub async fn run_incremental(
             anyhow::bail!("failed to infer embedding dimension");
         }
         if hybrid_retrieval_enabled() {
-            qdrant.ensure_hybrid_collection(&cfg.collection, dim).await?;
+            qdrant
+                .ensure_hybrid_collection(&cfg.collection, dim)
+                .await?;
         } else {
             qdrant.ensure_collection(&cfg.collection, dim).await?;
         }

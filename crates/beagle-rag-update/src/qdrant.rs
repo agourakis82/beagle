@@ -190,13 +190,8 @@ impl QdrantClient {
         with_payload: bool,
     ) -> Result<Vec<serde_json::Value>> {
         let url = format!("{}/collections/{}/points/query", self.base_url, collection);
-        let body = build_hybrid_query_body(
-            dense,
-            sparse_indices,
-            sparse_values,
-            limit,
-            with_payload,
-        );
+        let body =
+            build_hybrid_query_body(dense, sparse_indices, sparse_values, limit, with_payload);
         let resp = self.client.post(&url).json(&body).send().await?;
         let status = resp.status();
         if !status.is_success() {
@@ -386,10 +381,7 @@ mod tests {
         assert_eq!(prefetch.len(), 2);
         assert_eq!(prefetch[0].get("using").unwrap(), "dense");
         assert_eq!(prefetch[1].get("using").unwrap(), "text");
-        assert_eq!(
-            body.get("query").unwrap().get("fusion").unwrap(),
-            "rrf"
-        );
+        assert_eq!(body.get("query").unwrap().get("fusion").unwrap(), "rrf");
         // limit*2 applied to prefetch, limit to outer query.
         assert_eq!(prefetch[0].get("limit").unwrap(), 10);
         assert_eq!(body.get("limit").unwrap(), 5);
