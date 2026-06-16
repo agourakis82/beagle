@@ -59,10 +59,29 @@ private struct AcceptResult: Codable, Sendable { let ok: Bool? }
 /// Typed backend error so the UI can show the real HTTP status + body (not a generic URLError).
 struct CognitiveError: LocalizedError {
     let status: Int
-    let body: String
+    let body: String              // raw response body — kept for diagnostics, never shown verbatim
+    var contentType: String? = nil
+
+    /// User-facing message. NEVER surfaces a raw HTML / non-JSON body into the UI — a
+    /// misrouted 404 returns an HTML error page, and echoing it paints `<!DOCTYPE html>…`
+    /// (and even `<script>`) into the answer card. JSON errors get their decoded message;
+    /// everything else collapses to a clean "HTTP <status>".
     var errorDescription: String? {
         let b = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        return b.isEmpty ? "HTTP \(status)" : "\(status): \(b.prefix(180))"
+        let isJSON = (contentType?.localizedCaseInsensitiveContains("json") ?? false)
+            || b.hasPrefix("{") || b.hasPrefix("[")
+        let looksHTML = (contentType?.localizedCaseInsensitiveContains("html") ?? false)
+            || b.hasPrefix("<") || b.hasPrefix("<!")
+        guard isJSON, !looksHTML, !b.isEmpty else {
+            return "Recall service unavailable (HTTP \(status))."
+        }
+        // JSON error body — surface a short decoded message if the server provided one.
+        if let data = b.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let msg = (obj["error"] as? String) ?? (obj["message"] as? String) ?? (obj["detail"] as? String)
+            if let msg, !msg.isEmpty { return "\(status): \(msg.prefix(180))" }
+        }
+        return "\(status): \(b.prefix(180))"
     }
 }
 
@@ -87,7 +106,9 @@ struct CognitiveAPI: Sendable {
     }
 
     func recall(query: String, scope: String) async throws -> RecallAnswer {
-        try await post("/api/recall/answer", ["query": query, "scope": scope])
+        // Canonical exocortex path. The backend also aliases the legacy "/api/recall/answer",
+        // but the prefixed route is the contract; the alias is only a safety net.
+        try await post("/api/exocortex/v1/recall/answer", ["query": query, "scope": scope])
     }
 
     func propose(scope: String) async throws -> ProposeResult {
@@ -116,7 +137,8 @@ struct CognitiveAPI: Sendable {
                     return try JSONDecoder().decode(T.self, from: data)
                 }
                 let text = String(data: data, encoding: .utf8) ?? ""
-                let err = CognitiveError(status: http.statusCode, body: text)
+                let err = CognitiveError(status: http.statusCode, body: text,
+                                         contentType: http.value(forHTTPHeaderField: "Content-Type"))
                 // 4xx is deterministic (e.g. 400 "query required") — don't retry other hosts.
                 if (400..<500).contains(http.statusCode) { throw err }
                 lastError = err // 5xx/502/503 → try the next URL
