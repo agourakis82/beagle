@@ -1,0 +1,26 @@
+{
+  "eval": "p2-roundtrip-catch",
+  "model": "deepseek-chat",
+  "n_faithful": 26,
+  "n_unfaithful": 34,
+  "recall_catch": 0.7647058823529411,
+  "false_abstain_rate": 0.38461538461538464,
+  "by_corruption": {
+    "op_swap": {
+      "n": 8,
+      "catch_rate": 0.75
+    },
+    "sign_flip": {
+      "n": 10,
+      "catch_rate": 1.0
+    },
+    "spurious_edge": {
+      "n": 8,
+      "catch_rate": 0.5
+    },
+    "unit_desync": {
+      "n": 8,
+      "catch_rate": 0.75
+    }
+  }
+}
