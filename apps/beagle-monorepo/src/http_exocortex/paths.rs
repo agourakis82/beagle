@@ -43,6 +43,7 @@ pub(crate) const FAILED_WRITES_LOG: &str = "failed_writes.jsonl";
 pub(crate) const SPATIAL_WORLDS_LOG: &str = "spatial_worlds.jsonl";
 pub(crate) const SPATIAL_EVIDENCE_LOG: &str = "sounio_spatial_evidence.jsonl";
 pub(crate) const CONVERSATION_PORTALS_LOG: &str = "conversation_portals.jsonl";
+pub(crate) const HYPEREDGES_LOG: &str = "hyperedges.jsonl";
 pub(crate) const PROMOTED_CONVERSATION_CLIPS_LOG: &str = "promoted_conversation_clips.jsonl";
 pub(crate) const FOCUS_COACH_EVENTS_LOG: &str = "focus_coach_events.jsonl";
 pub(crate) const SPATIAL_SCHEMA: &str = "beagle-spatial-control-room-v3.6";

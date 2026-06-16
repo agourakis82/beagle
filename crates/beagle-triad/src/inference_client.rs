@@ -355,6 +355,119 @@ pub async fn theorem_prove(base_url: &str, req: TheoremRequest) -> Option<ProofV
     }
 }
 
+// ─────────────────────────── fractal.recurse ──────────────────────────────
+
+/// Request to `/v1/fractal/recurse` — deterministic Sounio fractal-tree growth
+/// (the pure-Sounio replacement for the dead Julia `Fractal.jl` shell-out).
+#[derive(Debug, Clone, Serialize)]
+pub struct FractalRequest {
+    pub depth: u32,
+    pub branching: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<f64>,
+}
+
+/// Response from `/v1/fractal/recurse`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FractalResponse {
+    pub node_count: u64,
+    pub max_depth: u32,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+/// POST `{base_url}/v1/fractal/recurse`. Honest by construction: ANY error
+/// (build/connect/timeout/non-2xx/parse) yields `None`, never a fabricated tree.
+pub async fn fractal_recurse(base_url: &str, req: FractalRequest) -> Option<FractalResponse> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .ok()?;
+    let url = format!("{}/v1/fractal/recurse", base_url.trim_end_matches('/'));
+    let resp = match client.post(&url).json(&req).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, %url, "fractal_recurse: request failed; None");
+            return None;
+        }
+    };
+    if !resp.status().is_success() {
+        warn!(status = %resp.status(), "fractal_recurse: non-success; None");
+        return None;
+    }
+    match resp.json::<FractalResponse>().await {
+        Ok(body) => Some(body),
+        Err(e) => {
+            warn!(error = %e, "fractal_recurse: parse failed; None");
+            None
+        }
+    }
+}
+
+// ─────────────────────────── phi.compute ──────────────────────────────────
+
+/// Request to `/v1/phi/compute`: an n-node substrate with a row-major `n*n`
+/// connectivity matrix (weights >= 0). The service computes IIT-4 Φ + MIP in
+/// Sounio (ported from `beagle-transcend::IIT4Calculator`).
+#[derive(Debug, Clone, Serialize)]
+pub struct PhiRequest {
+    pub n: u32,
+    pub matrix: Vec<f64>,
+}
+
+/// Response from `/v1/phi/compute`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PhiResponse {
+    pub n: u32,
+    pub phi: f64,
+    /// Minimum-information-partition: two disjoint index groups over `0..n`.
+    pub mip_partition: Vec<Vec<usize>>,
+    #[serde(default)]
+    pub integrated: bool,
+}
+
+/// POST `{base_url}/v1/phi/compute`. Honest by construction: a malformed substrate
+/// (matrix length != n*n, or n out of 2..=8) or ANY error yields `None` — never a
+/// fabricated Φ. Φ here is a *measurement over the supplied substrate*, which the
+/// caller builds from real memory; it is not a claim about the query's "truth".
+pub async fn phi_compute(base_url: &str, req: PhiRequest) -> Option<PhiResponse> {
+    let n = req.n as usize;
+    if !(2..=8).contains(&n) || req.matrix.len() != n * n {
+        return None;
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .ok()?;
+    let url = format!("{}/v1/phi/compute", base_url.trim_end_matches('/'));
+    let resp = match client.post(&url).json(&req).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, %url, "phi_compute: request failed; None");
+            return None;
+        }
+    };
+    if !resp.status().is_success() {
+        warn!(status = %resp.status(), "phi_compute: non-success; None");
+        return None;
+    }
+    match resp.json::<PhiResponse>().await {
+        Ok(body) => {
+            info!(
+                phi = body.phi,
+                "phi_compute: integrated information over substrate"
+            );
+            Some(body)
+        }
+        Err(e) => {
+            warn!(error = %e, "phi_compute: parse failed; None");
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -425,6 +538,36 @@ mod tests {
             depth: 12,
         };
         assert!(theorem_prove("http://127.0.0.1:1", req).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn fractal_recurse_unreachable_is_none() {
+        let req = FractalRequest {
+            depth: 3,
+            branching: 2,
+            budget: None,
+            seed: None,
+        };
+        assert!(fractal_recurse("http://127.0.0.1:1", req).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn phi_compute_malformed_substrate_is_none() {
+        // matrix length must equal n*n; a mismatch is rejected locally as None.
+        let bad = PhiRequest {
+            n: 3,
+            matrix: vec![0.0; 4],
+        };
+        assert!(phi_compute("http://127.0.0.1:1", bad).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn phi_compute_unreachable_is_none() {
+        let req = PhiRequest {
+            n: 2,
+            matrix: vec![0.0, 0.5, 0.5, 0.0],
+        };
+        assert!(phi_compute("http://127.0.0.1:1", req).await.is_none());
     }
 
     #[tokio::test]

@@ -6,6 +6,41 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// A hyperedge as the iOS cockpit's `Hyperedge` model expects it. Surfaced from
+/// the REAL knowledge graph: every distinct `MemoryRelation` (subject→object) plus
+/// any user-created edges in `HYPEREDGES_LOG`. Serializes to the exact client keys
+/// (`id`/`label`/`node_ids`/`metadata`/`directed`/`created_at`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HyperedgeRecord {
+    pub id: String,
+    pub label: String,
+    pub node_ids: Vec<String>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, String>,
+    #[serde(default)]
+    pub directed: bool,
+    pub created_at: String,
+}
+
+/// POST /api/hyperedges body (BeagleClient `createHyperedge`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateHyperedgeRequest {
+    pub label: String,
+    #[serde(default)]
+    pub node_ids: Vec<String>,
+    #[serde(default)]
+    pub directed: bool,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, String>,
+}
+
+/// GET /api/hyperedges optional `?node_id=` incidence filter.
+#[derive(Debug, Clone, Deserialize)]
+pub struct HyperedgeListQuery {
+    #[serde(default)]
+    pub node_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextSnapshot {
     #[serde(default)]
@@ -3117,4 +3152,3 @@ pub struct MemoryEventListResponse {
 pub struct ProjectStateListResponse {
     pub projects: Vec<ProjectState>,
 }
-

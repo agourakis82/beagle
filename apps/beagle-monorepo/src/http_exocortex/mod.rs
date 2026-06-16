@@ -35,27 +35,25 @@ use crate::http::AppState;
 // `exocortex_routes()` keeps referencing them unqualified (pure code movement).
 mod capture;
 mod chronoself;
-mod mind_palace;
-mod sounio;
-mod spatial;
-mod paths;
 mod dtos;
+mod memory_truth;
+mod mind_palace;
+mod paths;
 mod repository;
 mod routes;
-mod memory_truth;
+mod sounio;
+mod spatial;
 
 pub(crate) use capture::*;
 pub(crate) use chronoself::*;
-pub(crate) use mind_palace::*;
-pub(crate) use sounio::*;
-pub(crate) use spatial::*;
-pub(crate) use paths::*;
 pub(crate) use dtos::*;
+pub(crate) use memory_truth::*;
+pub(crate) use mind_palace::*;
+pub(crate) use paths::*;
 pub(crate) use repository::*;
 pub(crate) use routes::*;
-pub(crate) use memory_truth::*;
-
-
+pub(crate) use sounio::*;
+pub(crate) use spatial::*;
 
 pub(crate) async fn exocortex_home_handler(
     State(_state): State<AppState>,
@@ -964,7 +962,14 @@ pub(crate) async fn propose_handler(
     } else {
         let ctx_str = sources
             .iter()
-            .map(|s| format!("[{}] ({}) {}", s.n, s.date.as_deref().unwrap_or("?"), s.text))
+            .map(|s| {
+                format!(
+                    "[{}] ({}) {}",
+                    s.n,
+                    s.date.as_deref().unwrap_or("?"),
+                    s.text
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
         let prompt = format!(
@@ -1049,7 +1054,6 @@ pub(crate) fn internal_error(error: anyhow::Error) -> StatusCode {
     StatusCode::INTERNAL_SERVER_ERROR
 }
 
-
 pub(crate) fn chronoself_hash(
     self_version: &str,
     parent_commit_ids: &[String],
@@ -1088,7 +1092,10 @@ pub(crate) fn confidence_for_delta(delta: &IdentityDelta) -> f64 {
     (1.0 - (change_count as f64 * 0.05)).clamp(0.60, 0.95)
 }
 
-pub(crate) fn format_target_hardware_context(hardware: &TargetHardware, platform: Option<&str>) -> String {
+pub(crate) fn format_target_hardware_context(
+    hardware: &TargetHardware,
+    platform: Option<&str>,
+) -> String {
     let phone = hardware.phone.as_deref().unwrap_or("iPhone");
     let watch = hardware.watch.as_deref().unwrap_or("Apple Watch");
     let mut context = format!(
@@ -1348,7 +1355,9 @@ pub(crate) fn metadata_string_array(
     }
 }
 
-pub(crate) fn ensure_object(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+pub(crate) fn ensure_object(
+    value: serde_json::Value,
+) -> serde_json::Map<String, serde_json::Value> {
     match value {
         serde_json::Value::Object(object) => object,
         serde_json::Value::Null => serde_json::Map::new(),
@@ -1570,7 +1579,9 @@ pub(crate) fn append_conversation_passages(
     )
 }
 
-pub(crate) fn graphrag_to_memory_result(response: GraphRagQueryResponse) -> beagle_memory::MemoryResult {
+pub(crate) fn graphrag_to_memory_result(
+    response: GraphRagQueryResponse,
+) -> beagle_memory::MemoryResult {
     let highlights = response
         .evidence
         .iter()
@@ -1864,7 +1875,10 @@ pub(crate) fn mind_palace_room(
     }
 }
 
-pub(crate) fn upsert_mind_palace_room(rooms: &mut BTreeMap<String, MindPalaceRoom>, mut room: MindPalaceRoom) {
+pub(crate) fn upsert_mind_palace_room(
+    rooms: &mut BTreeMap<String, MindPalaceRoom>,
+    mut room: MindPalaceRoom,
+) {
     if let Some(existing) = rooms.get_mut(&room.id) {
         existing.priority = existing.priority.max(room.priority);
         existing.state = if existing.state == "active" || room.state != "active" {
@@ -1917,7 +1931,9 @@ pub(crate) fn title_case_label(value: &str) -> String {
         .join(" ")
 }
 
-pub(crate) fn normalize_transcription_segment(segment: TranscriptionSegment) -> TranscriptionSegment {
+pub(crate) fn normalize_transcription_segment(
+    segment: TranscriptionSegment,
+) -> TranscriptionSegment {
     TranscriptionSegment {
         text: truncate_chars(segment.text.trim(), 2000),
         start_ms: segment.start_ms,
@@ -1946,7 +1962,10 @@ pub(crate) fn dedupe_strings(values: Vec<String>, limit: usize) -> Vec<String> {
     out
 }
 
-pub(crate) fn projection_hash(episodes: &[MemoryEpisode], atoms: &[MemoryAtom]) -> anyhow::Result<String> {
+pub(crate) fn projection_hash(
+    episodes: &[MemoryEpisode],
+    atoms: &[MemoryAtom],
+) -> anyhow::Result<String> {
     let mut hasher = Sha256::new();
     hasher.update(MEMORY_PROJECTION_SCHEMA.as_bytes());
     hasher.update(serde_json::to_vec(episodes)?);
@@ -2773,7 +2792,10 @@ pub(crate) fn bakeoff_candidates(
     ]
 }
 
-pub(crate) fn memory_communities(atoms: &[MemoryAtom], worlds: &[MemoryWorld]) -> Vec<MemoryCommunity> {
+pub(crate) fn memory_communities(
+    atoms: &[MemoryAtom],
+    worlds: &[MemoryWorld],
+) -> Vec<MemoryCommunity> {
     let mut buckets = std::collections::BTreeMap::<String, Vec<&MemoryAtom>>::new();
     for atom in atoms {
         let key = atom
@@ -3095,7 +3117,9 @@ pub(crate) fn materialize_sounio_claim(
     Ok((claim, errors, warnings))
 }
 
-pub(crate) fn validate_materialized_sounio_claim(claim: &SounioClaim) -> (Vec<String>, Vec<String>) {
+pub(crate) fn validate_materialized_sounio_claim(
+    claim: &SounioClaim,
+) -> (Vec<String>, Vec<String>) {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     if claim.claim_text.trim().is_empty() {
@@ -3154,7 +3178,10 @@ pub(crate) fn sounio_claim_promotion_gate(claim: &SounioClaim) -> serde_json::Va
     })
 }
 
-pub(crate) fn merge_json_objects(left: serde_json::Value, right: serde_json::Value) -> serde_json::Value {
+pub(crate) fn merge_json_objects(
+    left: serde_json::Value,
+    right: serde_json::Value,
+) -> serde_json::Value {
     match (left, right) {
         (serde_json::Value::Object(mut left), serde_json::Value::Object(right)) => {
             for (key, value) in right {
@@ -3187,7 +3214,10 @@ pub(crate) fn claim_lifecycle_status(claims: &[SounioClaim]) -> BTreeMap<String,
         .collect()
 }
 
-pub(crate) fn build_sounio_claim_graph(paper_run_id: &str, claims: Vec<SounioClaim>) -> SounioClaimGraph {
+pub(crate) fn build_sounio_claim_graph(
+    paper_run_id: &str,
+    claims: Vec<SounioClaim>,
+) -> SounioClaimGraph {
     let mut status_counts = BTreeMap::<String, usize>::new();
     let mut edges = Vec::new();
     let mut unsupported_claim_ids = Vec::new();
@@ -3411,7 +3441,10 @@ pub(crate) fn validate_sounio_program(program: &SounioProgram) -> Vec<String> {
     errors
 }
 
-pub(crate) fn sounio_program_warnings(program: &SounioProgram, source_format: Option<&str>) -> Vec<String> {
+pub(crate) fn sounio_program_warnings(
+    program: &SounioProgram,
+    source_format: Option<&str>,
+) -> Vec<String> {
     let mut warnings = Vec::new();
     if source_format == Some("sio") {
         warnings.push(
@@ -3667,7 +3700,10 @@ pub(crate) fn paper_run_markdown(run: &PaperRun) -> String {
     text
 }
 
-pub(crate) fn atoms_from_import(import: &OmniConversation, episode: &MemoryEpisode) -> Vec<MemoryAtom> {
+pub(crate) fn atoms_from_import(
+    import: &OmniConversation,
+    episode: &MemoryEpisode,
+) -> Vec<MemoryAtom> {
     let mut atoms = Vec::new();
     push_atoms(
         &mut atoms,
@@ -3741,7 +3777,10 @@ pub(crate) fn push_atoms(
     }
 }
 
-pub(crate) fn relations_for_import(import: &OmniConversation, episode: &MemoryEpisode) -> Vec<MemoryRelation> {
+pub(crate) fn relations_for_import(
+    import: &OmniConversation,
+    episode: &MemoryEpisode,
+) -> Vec<MemoryRelation> {
     let mut relations = relations_for_tags(&import.tags, &episode.id);
     for project in &import.extracted.projects_mentioned {
         relations.push(MemoryRelation {
@@ -4249,6 +4288,281 @@ pub(crate) fn ranking_trace_json(
 
 pub(crate) fn truncate_chars(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
+}
+
+// ───────────────────────── cognitive playground ─────────────────────────
+// The iOS cockpit calls un-prefixed paths that 404'd because no backend existed.
+// They now resolve to REAL engines: deep-think → TieredRouter (LLM); fractal.recurse
+// + phi.compute → Sounio verbs on the inference service (Julia is gone, Φ is the real
+// IIT-4 bipartition-MIP ported into Sounio); hyperedges → the live memory-graph store.
+// Honest by construction throughout: a failed verb/router NEVER fabricates a result.
+use beagle_triad::inference_client::{
+    fractal_recurse, inference_base_url, phi_compute, FractalRequest, PhiRequest,
+};
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct DeepThinkRequest {
+    #[serde(default)]
+    root_prompt: String,
+    #[serde(default)]
+    max_depth: Option<u32>,
+}
+
+/// POST /api/cognitive/deep-think — real multi-pass reasoning via the TieredRouter.
+/// Emits the `ChatResponse` shape the iOS `deepThink` decoder expects.
+pub(crate) async fn deep_think_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<DeepThinkRequest>,
+) -> Json<serde_json::Value> {
+    let topic = req.root_prompt.trim().to_string();
+    if topic.is_empty() {
+        return Json(serde_json::json!({
+            "response": "", "agent_kind": "deep_think",
+            "flow_state": "idle", "error": "empty root_prompt"
+        }));
+    }
+    let depth = req.max_depth.unwrap_or(3).clamp(1, 6);
+    let prompt = format!(
+        "You are the deep-reasoning layer of an exocortex. Reason about the topic below in \
+         {depth} progressively deeper passes: pass 1 restates the core question and surfaces \
+         hidden assumptions; each further pass goes one level deeper — mechanisms, \
+         second-order effects, strongest counter-arguments. Be rigorous and concrete; do not \
+         pad. End with a 2-3 sentence SYNTHESIS.\n\nTopic:\n{topic}"
+    );
+    let consumer_identity = headers
+        .get("X-Beagle-Consumer")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let mut bctx = state.ctx.lock().await;
+    let meta = RequestMeta {
+        approximate_tokens: prompt.len() / 4,
+        requires_high_quality: true,
+        requires_phd_level_reasoning: depth >= 4,
+        identity: consumer_identity,
+        ..Default::default()
+    };
+    let stats = bctx.llm_stats.get_or_create("deep_think");
+    let (client, tier) = bctx.router.choose_with_limits(&meta, &stats);
+    let tier_label = format!("{tier:?}");
+    match bctx.router.complete_chosen(&client, tier, &prompt).await {
+        Ok(answer) => Json(serde_json::json!({
+            "response": answer,
+            "model": tier_label,
+            "agent_kind": "deep_think",
+            "flow_state": "flow",
+        })),
+        Err(e) => Json(serde_json::json!({
+            "response": "",
+            "agent_kind": "deep_think",
+            "flow_state": "idle",
+            "error": format!("router error: {e}"),
+        })),
+    }
+}
+
+/// POST /api/fractal/recurse — Sounio deterministic fractal-tree growth.
+/// Dual shape matching the iOS client: with `branching_factor` it is `startFractalTree`
+/// → flat `FractalTree`; bare `root_prompt` is `fractalGrow` → `{result, summary}`.
+/// Both backed by the same `fractal.recurse` verb.
+pub(crate) async fn fractal_recurse_handler(
+    Json(body): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let root_prompt = body
+        .get("root_prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let has_branching = body.get("branching_factor").is_some();
+    let branching = body
+        .get("branching_factor")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2) as u32;
+    let max_depth = body
+        .get("max_depth")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(if has_branching { 2 } else { 5 }) as u32;
+    let now = Utc::now().to_rfc3339();
+    let root_id = stable_id("fractal", &[&root_prompt, &now]);
+    let req = FractalRequest {
+        depth: max_depth.clamp(1, 16),
+        branching: branching.clamp(2, 8),
+        budget: Some(10_000),
+        seed: Some(root_prompt.chars().count() as f64),
+    };
+    let res = fractal_recurse(&inference_base_url(), req).await;
+    match (res, has_branching) {
+        (Some(r), true) => Json(serde_json::json!({
+            "root_id": root_id,
+            "root_prompt": root_prompt,
+            "max_depth": r.max_depth,
+            "branching": branching,
+            "node_count": r.node_count,
+            "generated_at": now,
+            "truth_mode": "computed",
+        })),
+        (Some(r), false) => Json(serde_json::json!({
+            "result": {
+                "root_id": root_id,
+                "node_count": r.node_count,
+                "max_depth": r.max_depth,
+                "truncated": r.truncated,
+            },
+            "summary": format!(
+                "Sounio fractal grew {} nodes to depth {} from the seed prompt.",
+                r.node_count, r.max_depth
+            ),
+        })),
+        (None, true) => Json(serde_json::json!({
+            "root_id": root_id, "root_prompt": root_prompt,
+            "max_depth": 0, "branching": branching, "node_count": 0,
+            "generated_at": now, "truth_mode": "unavailable",
+        })),
+        (None, false) => Json(serde_json::json!({
+            "result": serde_json::Value::Null,
+            "summary": "fractal verb unavailable",
+        })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct PhiQueryRequest {
+    #[serde(default)]
+    query: String,
+}
+
+/// POST /api/exocortex/process — measure integrated information Φ over a substrate
+/// BUILT FROM REAL MEMORY: recall up to 8 atoms for the query, build an n×n connectivity
+/// matrix from pairwise token-overlap (Jaccard), and run the Sounio `phi.compute` verb.
+/// Returns the iOS `PhiMeasurement` shape. Honest: <2 atoms or verb failure → no faked Φ
+/// (the `truth_mode` field reports exactly why).
+pub(crate) async fn exocortex_process_handler(
+    Json(req): Json<PhiQueryRequest>,
+) -> Json<serde_json::Value> {
+    let query = req.query.trim().to_string();
+    let snippet: String = query.chars().take(120).collect();
+    let now = Utc::now().to_rfc3339();
+    if query.is_empty() {
+        return Json(serde_json::json!({
+            "query_snippet": snippet, "substrate_size": 0,
+            "truth_mode": "empty_query", "measured_at": now,
+            "awareness_level": "indeterminate",
+        }));
+    }
+    let sources = memory_engine_recall(&query, "all", 8).await;
+    let n = sources.len();
+    if n < 2 {
+        return Json(serde_json::json!({
+            "query_snippet": snippet, "substrate_size": n,
+            "truth_mode": "insufficient_substrate", "measured_at": now,
+            "awareness_level": "indeterminate",
+        }));
+    }
+    let tokens: Vec<BTreeSet<String>> = sources
+        .iter()
+        .map(|s| {
+            s.text
+                .to_lowercase()
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| w.len() > 3)
+                .map(|w| w.to_string())
+                .collect()
+        })
+        .collect();
+    let mut matrix = vec![0.0f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            if i != j {
+                let inter = tokens[i].intersection(&tokens[j]).count();
+                let uni = tokens[i].union(&tokens[j]).count().max(1);
+                matrix[i * n + j] = inter as f64 / uni as f64;
+            }
+        }
+    }
+    let t0 = std::time::Instant::now();
+    let res = phi_compute(
+        &inference_base_url(),
+        PhiRequest {
+            n: n as u32,
+            matrix,
+        },
+    )
+    .await;
+    let dur = t0.elapsed().as_millis() as u64;
+    match res {
+        Some(p) => {
+            let awareness = if p.phi <= 0.0 {
+                "decomposable"
+            } else if p.phi < 0.5 {
+                "low"
+            } else if p.phi < 1.5 {
+                "moderate"
+            } else {
+                "high"
+            };
+            let mip: Vec<Vec<String>> = p
+                .mip_partition
+                .iter()
+                .map(|grp| {
+                    grp.iter()
+                        .filter_map(|&idx| {
+                            sources
+                                .get(idx)
+                                .map(|s| s.text.chars().take(40).collect::<String>())
+                        })
+                        .collect()
+                })
+                .collect();
+            Json(serde_json::json!({
+                "query_snippet": snippet,
+                "phi": p.phi,
+                "substrate_size": p.n,
+                "mip_partition": mip,
+                "awareness_level": awareness,
+                "router_tier": "sounio::phi.compute",
+                "measured_at": now,
+                "duration_ms": dur,
+                "truth_mode": "measured",
+            }))
+        }
+        None => Json(serde_json::json!({
+            "query_snippet": snippet, "substrate_size": n,
+            "truth_mode": "verb_unavailable", "measured_at": now,
+            "awareness_level": "indeterminate",
+        })),
+    }
+}
+
+/// GET /api/hyperedges — real memory-graph relations + user-created edges.
+pub(crate) async fn hyperedges_list_handler(
+    Query(q): Query<HyperedgeListQuery>,
+) -> Result<Json<Vec<HyperedgeRecord>>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    match repo.list_hyperedges(q.node_id.as_deref(), 50) {
+        Ok(list) => Ok(Json(list)),
+        Err(e) => {
+            error!("hyperedges_list: {e}");
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// POST /api/hyperedges — create a hyperedge in the real store.
+pub(crate) async fn hyperedges_create_handler(
+    Json(req): Json<CreateHyperedgeRequest>,
+) -> Result<Json<HyperedgeRecord>, StatusCode> {
+    if req.label.trim().is_empty() || req.node_ids.is_empty() {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let repo = ExocortexRepository::default();
+    match repo.create_hyperedge(&req.label, req.node_ids, req.directed, req.metadata) {
+        Ok(rec) => Ok(Json(rec)),
+        Err(e) => {
+            error!("hyperedges_create: {e}");
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
 
 #[cfg(test)]

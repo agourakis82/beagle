@@ -10,6 +10,8 @@ Verbs (v1, CPU):
   POST /v1/smt/check      — QF_LIA consistency (theorem::smt DPLL(T)) -> SAT/UNSAT/UNKNOWN
   POST /v1/gum/propagate  — GUM uncertainty propagation (epistemic::gum)
   POST /v1/causal/dsep    — d-separation / conditional independence (causal::base, Bayes-ball)
+  POST /v1/fractal/recurse— deterministic fractal-tree growth (pure Sounio; replaces Julia)
+  POST /v1/phi/compute    — IIT-4 integrated information Φ + MIP (pure Sounio)
   GET  /health            — liveness + toolchain probe
   GET  /v1/catalog        — verb catalog
 """
@@ -416,6 +418,165 @@ def theorem_prove(req: TheoremReq):
     }
 
 
+# ───────────────────────── fractal.recurse ─────────────────────────
+# Deterministic fractal-tree growth in pure Sounio (replaces the dead Julia
+# Fractal.jl grow_fractal! shell-out — Julia is not in the deployed image).
+# Budget-bounded breadth-first growth: node_count = Σ branching^i for i in 0..depth,
+# capped at `budget`; max_depth is the deepest level actually grown within budget.
+FRACTAL_SIO_TEMPLATE = r'''fn main() -> i64 with IO, Mut, Div {
+    let max_depth: i64 = __DEPTH__
+    let branching: i64 = __BRANCH__
+    let budget: i64 = __BUDGET__
+    var node_count: i64 = 0
+    var level_size: i64 = 1
+    var depth_reached: i64 = 0
+    var level: i64 = 0
+    var stop: i64 = 0
+    while level <= max_depth && stop == 0 {
+        if node_count + level_size > budget {
+            node_count = budget
+            depth_reached = level
+            stop = 1
+        } else {
+            node_count = node_count + level_size
+            depth_reached = level
+            level_size = level_size * branching
+            level = level + 1
+        }
+    }
+    println(node_count); println(",")
+    println(depth_reached); println(",")
+    0
+}
+'''
+
+
+class FractalRecurseReq(BaseModel):
+    depth: int = Field(5, ge=1, le=16)
+    branching: int = Field(2, ge=2, le=8)
+    budget: int = Field(10000, ge=1, le=1_000_000)
+    seed: float = 1.0
+
+
+@app.post("/v1/fractal/recurse")
+def fractal_recurse(req: FractalRecurseReq):
+    src = (
+        FRACTAL_SIO_TEMPLATE
+        .replace("__DEPTH__", str(_int(req.depth)))
+        .replace("__BRANCH__", str(_int(req.branching)))
+        .replace("__BUDGET__", str(_int(req.budget)))
+    )
+    toks = [t for t in _compile_and_run(src).replace("\n", "").split(",") if t.strip()]
+    try:
+        node_count, max_depth_reached = (int(t) for t in toks[:2])
+    except ValueError:
+        raise HTTPException(502, f"could not parse fractal output: {toks[:2]}")
+    return {
+        "verb": "fractal.recurse",
+        "depth_requested": req.depth, "branching": req.branching, "budget": req.budget,
+        "seed": req.seed,
+        "node_count": node_count, "max_depth": max_depth_reached,
+        "truncated": node_count >= req.budget,
+        "engine": "sounio (deterministic budget-bounded fractal-tree growth)",
+    }
+
+
+# ───────────────────────── phi.compute ─────────────────────────
+# IIT-4 integrated information Φ + minimum-information-partition (MIP) in pure
+# Sounio. Ports the beagle-transcend IIT4Calculator bipartition-MIP method: over
+# all non-trivial bipartitions of an n-node substrate (connectivity matrix W,
+# row-major, weights >= 0), Φ is the minimum normalized cross-partition weight
+# (information lost by the best cut); the MIP is the cut achieving it. Φ≈0 ⇒
+# substrate decomposable (not integrated); Φ>0 ⇒ irreducible integration.
+# Exhaustive over all 2^n bipartitions (n<=8 request cap → <=256 partitions).
+PHI_SIO_TEMPLATE = r'''fn main() -> i64 with IO, Mut, Div {
+    let n: i64 = __N__
+    var w: [f64; 64] = [0.0; 64]
+__WEIGHTS__
+    var pow2n: i64 = 1
+    var t: i64 = 0
+    while t < n { pow2n = pow2n * 2; t = t + 1 }
+    var best_phi: f64 = 1.0e18
+    var best_mask: i64 = 0
+    var mask: i64 = 1
+    while mask < pow2n - 1 {
+        var cross: f64 = 0.0
+        var size1: i64 = 0
+        var i: i64 = 0
+        while i < n {
+            var pi: i64 = mask
+            var ki: i64 = 0
+            while ki < i { pi = pi / 2; ki = ki + 1 }
+            let mi: i64 = pi % 2
+            if mi == 1 { size1 = size1 + 1 }
+            var j: i64 = 0
+            while j < n {
+                var pj: i64 = mask
+                var kj: i64 = 0
+                while kj < j { pj = pj / 2; kj = kj + 1 }
+                let mj: i64 = pj % 2
+                if mi == 1 && mj == 0 {
+                    cross = cross + w[i*n+j] + w[j*n+i]
+                }
+                j = j + 1
+            }
+            i = i + 1
+        }
+        let size2: i64 = n - size1
+        var minsz: i64 = size1
+        if size2 < size1 { minsz = size2 }
+        if minsz > 0 {
+            let norm: f64 = cross / (minsz as f64)
+            if norm < best_phi { best_phi = norm; best_mask = mask }
+        }
+        mask = mask + 1
+    }
+    println(best_phi); println(",")
+    println(best_mask); println(",")
+    0
+}
+'''
+
+
+class PhiComputeReq(BaseModel):
+    n: int = Field(..., ge=2, le=8)
+    matrix: list[float] = Field(..., description="row-major n*n connectivity, weights >= 0")
+
+
+@app.post("/v1/phi/compute")
+def phi_compute(req: PhiComputeReq):
+    n = _int(req.n)
+    if len(req.matrix) != n * n:
+        raise HTTPException(422, f"matrix must have exactly n*n={n * n} entries")
+    weights = []
+    for idx, v in enumerate(req.matrix):
+        fv = _num(v)
+        if fv != 0.0:
+            weights.append(f"    w[{idx}] = {fv!r}")
+    src = (
+        PHI_SIO_TEMPLATE
+        .replace("__N__", str(n))
+        .replace("__WEIGHTS__", "\n".join(weights))
+    )
+    toks = [t for t in _compile_and_run(src).replace("\n", "").split(",") if t.strip()]
+    try:
+        phi = float(toks[0])
+        mask = int(toks[1])
+    except (ValueError, IndexError):
+        raise HTTPException(502, f"could not parse phi output: {toks[:2]}")
+    part1 = [i for i in range(n) if (mask >> i) & 1]
+    part2 = [i for i in range(n) if not ((mask >> i) & 1)]
+    return {
+        "verb": "phi.compute",
+        "n": n, "phi": phi,
+        "mip_partition": [part1, part2],
+        "integrated": phi > 0.0,
+        "meaning": "irreducible integration (Φ>0)" if phi > 0.0
+        else "substrate decomposable — not integrated (Φ=0)",
+        "engine": "sounio (IIT-4 bipartition-MIP; ported from beagle-transcend IIT4Calculator)",
+    }
+
+
 @app.get("/v1/catalog")
 def catalog():
     return {"verbs": [
@@ -424,6 +585,8 @@ def catalog():
         {"verb": "causal.dsep", "path": "/v1/causal/dsep", "nature": "structural graph reasoning"},
         {"verb": "pcs.reason", "path": "/v1/pcs/reason", "nature": "symptom ODE dynamics (Sounio RK4)"},
         {"verb": "theorem.prove", "path": "/v1/theorem/prove", "nature": "propositional proof (natural deduction)"},
+        {"verb": "fractal.recurse", "path": "/v1/fractal/recurse", "nature": "deterministic fractal-tree growth (Sounio)"},
+        {"verb": "phi.compute", "path": "/v1/phi/compute", "nature": "IIT-4 integrated information Φ + MIP (Sounio)"},
     ]}
 
 

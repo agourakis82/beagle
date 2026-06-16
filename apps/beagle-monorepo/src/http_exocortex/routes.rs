@@ -3,8 +3,11 @@
 //! reachable here via `use super::*` since they are pub(crate)).
 
 use super::*;
-use axum::{routing::{get, post}, Router};
 use crate::http::AppState;
+use axum::{
+    routing::{get, post},
+    Router,
+};
 
 pub fn exocortex_routes() -> Router<AppState> {
     Router::new()
@@ -308,6 +311,16 @@ pub fn exocortex_routes() -> Router<AppState> {
         .route("/api/propose", post(propose_handler))
         .route("/api/exocortex/v1/propose/accept", post(accept_handler))
         .route("/api/propose/accept", post(accept_handler))
+        // Cognitive playground — the iOS cockpit's un-prefixed calls, now real:
+        // deep-think via the TieredRouter, fractal.recurse + exocortex/process (Φ) via
+        // Sounio verbs on the inference service, hyperedges via the live memory graph.
+        .route("/api/cognitive/deep-think", post(deep_think_handler))
+        .route("/api/fractal/recurse", post(fractal_recurse_handler))
+        .route("/api/exocortex/process", post(exocortex_process_handler))
+        .route(
+            "/api/hyperedges",
+            get(hyperedges_list_handler).post(hyperedges_create_handler),
+        )
         .route(
             "/api/exocortex/v1/projects/active",
             get(active_projects_handler),
