@@ -295,6 +295,11 @@ pub fn exocortex_routes() -> Router<AppState> {
             "/api/exocortex/v1/recall/answer",
             post(recall_answer_handler),
         )
+        // Alias: the iOS cockpit (CognitiveRecall.swift) POSTs the un-prefixed
+        // `/api/recall/answer`. Map it to the same handler so the shipped app build
+        // stops 404ing (and rendering the HTML error page into the answer card)
+        // before the client path fix lands.
+        .route("/api/recall/answer", post(recall_answer_handler))
         .route(
             "/api/exocortex/v1/projects/active",
             get(active_projects_handler),

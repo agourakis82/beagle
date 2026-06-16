@@ -22,6 +22,7 @@ beagle-llm = { path = "../beagle-llm" }
 beagle-feedback = { path = "../beagle-feedback" }
 beagle-symbolic = { path = "../beagle-symbolic" }
 regex = "1.10"
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = "3.10"
