@@ -423,23 +423,33 @@ struct ThoughtCaptureWidget: Widget {
 
 struct CaptureWidgetEntry: TimelineEntry {
     let date: Date
-    let thoughtCount: Int
+    /// Real shared-thought captures queued in the App Group and not yet synced to the
+    /// cluster. Replaces the old hardcoded thoughtCount: 0 mock.
+    let pendingCount: Int
 }
 
 struct CaptureWidgetProvider: TimelineProvider {
     typealias Entry = CaptureWidgetEntry
 
+    // Same App Group the Share Extension writes to and CognitiveStore.drainSharedThoughtQueue reads.
+    private static let appGroupId = "group.dev.sounio.cockpit"
+
+    private func pendingCount() -> Int {
+        UserDefaults(suiteName: Self.appGroupId)?
+            .array(forKey: "pendingSharedThoughts")?.count ?? 0
+    }
+
     func placeholder(in context: Context) -> CaptureWidgetEntry {
-        CaptureWidgetEntry(date: .now, thoughtCount: 0)
+        CaptureWidgetEntry(date: .now, pendingCount: 0)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (CaptureWidgetEntry) -> Void) {
-        completion(CaptureWidgetEntry(date: .now, thoughtCount: 0))
+        completion(CaptureWidgetEntry(date: .now, pendingCount: pendingCount()))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<CaptureWidgetEntry>) -> Void) {
-        let entry = CaptureWidgetEntry(date: .now, thoughtCount: 0)
-        let next = Date.now.addingTimeInterval(3600)
+        let entry = CaptureWidgetEntry(date: .now, pendingCount: pendingCount())
+        let next = Date.now.addingTimeInterval(1800)
         completion(Timeline(entries: [entry], policy: .after(next)))
     }
 }
@@ -461,7 +471,9 @@ struct CaptureWidgetView: View {
                             .tracking(0.5)
                     }
                     .foregroundStyle(.secondary)
-                    Text("Tap to capture a thought")
+                    Text(entry.pendingCount > 0
+                         ? "\(entry.pendingCount) queued to sync"
+                         : "Tap to capture a thought")
                         .font(.system(size: 11))
                 }
             }
@@ -475,7 +487,7 @@ struct CaptureWidgetView: View {
                     Text("Capture")
                         .font(BeagleTheme.uiFont(size: 13, weight: .semibold))
                         .foregroundStyle(BeagleTheme.textPrimary)
-                    Text("Tap to think")
+                    Text(entry.pendingCount > 0 ? "\(entry.pendingCount) queued" : "Tap to think")
                         .font(BeagleTheme.dataFont(size: 10))
                         .foregroundStyle(BeagleTheme.textTertiary)
                 }
