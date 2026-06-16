@@ -204,13 +204,15 @@ public struct FlowStateIntent: AppIntent {
     public init() {}
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
-        let state = await BeagleClient.shared.cognitiveState()
-        if let hrv = state.value?.hrv {
-            let ms = hrv.latestMs ?? 0
-            let flow = hrv.displayFlowState
-            return .result(dialog: "HRV: \(Int(ms)) ms. You're in \(flow) state.")
+        // The /api/v1/cognitive/state endpoint was retired on beagle-core. HRV / flow now
+        // reads from local HealthKit via PhysioStore (the same source CheckReadinessIntent
+        // uses) — the authoritative origin for this signal. PhysioStore is @MainActor.
+        let posture = await MainActor.run { PhysioStore().cognitivePosture }
+        if let hrv = posture.hrv {
+            let intensity = posture.suggestedIntensity.rawValue
+            return .result(dialog: "HRV: \(Int(hrv)) ms. Suggested intensity: \(intensity).")
         }
-        return .result(dialog: "Could not read flow state. Check Apple Watch connection.")
+        return .result(dialog: "No HRV reading yet. Open Beagle to authorize HealthKit, or check your Apple Watch.")
     }
 }
 

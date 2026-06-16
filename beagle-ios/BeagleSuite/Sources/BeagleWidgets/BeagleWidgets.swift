@@ -300,36 +300,42 @@ struct FlowStateWidget: Widget {
             FlowStateWidgetView(entry: entry)
                 .containerBackground(BeagleTheme.surface0, for: .widget)
         }
-        .configurationDisplayName("Flow State")
-        .description("Your HRV and cognitive flow state on the lock screen.")
+        .configurationDisplayName("Cluster Pulse")
+        .description("Active agents and cluster health at a glance.")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular, .systemSmall])
     }
 }
 
 struct FlowStateEntry: TimelineEntry {
     let date: Date
-    let hrvMs: Double
-    let flowState: String
+    let activeAgents: Int
+    let activeSessions: Int
+    let clusterHealth: String
 }
 
 struct FlowStateProvider: TimelineProvider {
     typealias Entry = FlowStateEntry
 
     func placeholder(in context: Context) -> FlowStateEntry {
-        FlowStateEntry(date: .now, hrvMs: 72, flowState: "NORMAL")
+        FlowStateEntry(date: .now, activeAgents: 2, activeSessions: 1, clusterHealth: "healthy")
     }
 
     func getSnapshot(in context: Context, completion: @escaping (FlowStateEntry) -> Void) {
-        completion(FlowStateEntry(date: .now, hrvMs: 72, flowState: "NORMAL"))
+        completion(FlowStateEntry(date: .now, activeAgents: 2, activeSessions: 1, clusterHealth: "healthy"))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<FlowStateEntry>) -> Void) {
         nonisolated(unsafe) let completion = completion
         Task {
-            let state = await BeagleClient.shared.cognitiveState()
-            let hrv = state.value?.hrv?.latestMs ?? 0
-            let flow = state.value?.hrv?.displayFlowState ?? "UNKNOWN"
-            let entry = FlowStateEntry(date: .now, hrvMs: hrv, flowState: flow)
+            // cognitive/state was retired on beagle-core; cluster pulse now comes from the
+            // mobile summary gateway (CockpitClient.fetchMobile), which is real and live.
+            let summary = await CockpitClient.shared.mobileSummary()
+            let agents = summary.value?.activeAgentsCount ?? 0
+            let sessions = summary.value?.activeSessionsCount ?? 0
+            let healthRaw = summary.value?.clusterHealth ?? ""
+            let health = healthRaw.isEmpty ? "unknown" : healthRaw
+            let entry = FlowStateEntry(date: .now, activeAgents: agents,
+                                       activeSessions: sessions, clusterHealth: health)
             let next = Date.now.addingTimeInterval(600)
             completion(Timeline(entries: [entry], policy: .after(next)))
         }
@@ -340,11 +346,11 @@ struct FlowStateWidgetView: View {
     @Environment(\.widgetFamily) var family
     let entry: FlowStateEntry
 
-    private var flowColor: Color {
-        switch entry.flowState {
-        case "FLOW":   return BeagleTheme.truthObserved
-        case "STRESS": return BeagleTheme.stateError
-        default:       return BeagleTheme.textData
+    private var healthColor: Color {
+        switch entry.clusterHealth.lowercased() {
+        case "healthy", "ok", "ready", "green":          return BeagleTheme.truthObserved
+        case "unhealthy", "down", "error", "red", "critical": return BeagleTheme.stateError
+        default:                                          return BeagleTheme.textData
         }
     }
 
@@ -354,9 +360,9 @@ struct FlowStateWidgetView: View {
             ZStack {
                 AccessoryWidgetBackground()
                 VStack(spacing: 1) {
-                    Text("\(Int(entry.hrvMs))")
+                    Text("\(entry.activeAgents)")
                         .font(.system(size: 18, weight: .bold, design: .rounded))
-                    Text("ms")
+                    Text("agt")
                         .font(.system(size: 8))
                         .foregroundStyle(.secondary)
                 }
@@ -364,35 +370,35 @@ struct FlowStateWidgetView: View {
         case .accessoryRectangular:
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Image(systemName: "heart.fill")
+                    Image(systemName: "cpu.fill")
                         .font(.system(size: 10))
-                    Text("FLOW")
+                    Text("CLUSTER")
                         .font(.system(size: 9, weight: .semibold))
                         .tracking(0.5)
                 }
                 .foregroundStyle(.secondary)
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("\(Int(entry.hrvMs))")
+                    Text("\(entry.activeAgents)")
                         .font(.system(size: 22, weight: .bold, design: .rounded))
-                    Text("ms")
+                    Text(entry.activeAgents == 1 ? "agent" : "agents")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
-                Text(entry.flowState.lowercased())
+                Text("\(entry.clusterHealth.lowercased()) · \(entry.activeSessions) sessions")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
             }
         default:
             // systemSmall
             VStack(spacing: 8) {
-                Text("FLOW")
+                Text("CLUSTER")
                     .font(BeagleTheme.uiFont(size: 9, weight: .semibold))
                     .tracking(1)
                     .foregroundStyle(BeagleTheme.textTertiary)
-                Text("\(Int(entry.hrvMs))")
+                Text("\(entry.activeAgents)")
                     .font(.system(size: 36, weight: .bold, design: .rounded))
-                    .foregroundStyle(flowColor)
-                Text("ms · \(entry.flowState)")
+                    .foregroundStyle(healthColor)
+                Text("active · \(entry.clusterHealth.lowercased())")
                     .font(BeagleTheme.dataFont(size: 11))
                     .foregroundStyle(BeagleTheme.textSecondary)
             }
