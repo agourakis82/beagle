@@ -300,6 +300,14 @@ pub fn exocortex_routes() -> Router<AppState> {
         // stops 404ing (and rendering the HTML error page into the answer card)
         // before the client path fix lands.
         .route("/api/recall/answer", post(recall_answer_handler))
+        // Recall "Next" mode: the fleet proposes next steps (LLM, grounded in recall) +
+        // accept logs to the proposals board. Canonical exocortex path (the public gateway
+        // already routes /api/exocortex/* → beagle-core) + the un-prefixed aliases the
+        // shipped client currently uses.
+        .route("/api/exocortex/v1/propose", post(propose_handler))
+        .route("/api/propose", post(propose_handler))
+        .route("/api/exocortex/v1/propose/accept", post(accept_handler))
+        .route("/api/propose/accept", post(accept_handler))
         .route(
             "/api/exocortex/v1/projects/active",
             get(active_projects_handler),

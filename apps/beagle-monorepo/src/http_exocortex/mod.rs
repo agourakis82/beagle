@@ -856,6 +856,185 @@ pub(crate) async fn recall_answer_handler(
     }))
 }
 
+/// Request for POST /api/(exocortex/v1/)propose — the cockpit Recall "Next" mode.
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct ProposeRequest {
+    #[serde(default)]
+    pub scope: Option<String>,
+}
+
+/// One proposed next step (matches the iOS `Proposal` Codable: title/why/effort).
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct Proposal {
+    pub title: String,
+    pub why: String,
+    pub effort: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct AcceptRequest {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub why: String,
+    #[serde(default)]
+    pub scope: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct AcceptResponse {
+    pub ok: bool,
+}
+
+/// Parse proposals from an LLM reply: first balanced JSON object, then
+/// `{"proposals":[{title,why,effort}]}`. Fail-soft → empty vec (never errors).
+fn parse_proposals(raw: &str) -> Vec<Proposal> {
+    let Some(start) = raw.find('{') else {
+        return Vec::new();
+    };
+    let mut depth = 0i32;
+    let mut end = None;
+    for (i, ch) in raw[start..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(start + i + ch.len_utf8());
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let Some(end) = end else {
+        return Vec::new();
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw[start..end]) else {
+        return Vec::new();
+    };
+    let Some(arr) = v.get("proposals").and_then(|p| p.as_array()) else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|p| {
+            let title = p.get("title")?.as_str()?.trim().to_string();
+            if title.is_empty() {
+                return None;
+            }
+            let why = p
+                .get("why")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let effort = p
+                .get("effort")
+                .and_then(|x| x.as_str())
+                .map(|s| s.trim().to_uppercase())
+                .filter(|s| matches!(s.as_str(), "S" | "M" | "L"))
+                .unwrap_or_else(|| "M".to_string());
+            Some(Proposal { title, why, effort })
+        })
+        .take(6)
+        .collect()
+}
+
+/// POST /api/(exocortex/v1/)propose — the fleet proposes next steps for a scope,
+/// grounded in recalled exocortex memory. Mirrors `recall_answer_handler`'s
+/// retrieval + LLM-synthesis pattern; fail-soft (LLM/parse failure → empty
+/// proposals, never 5xx — the retrieved sources are still returned).
+pub(crate) async fn propose_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<ProposeRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let scope = req.scope.clone();
+    let scope_s = scope.clone().unwrap_or_else(|| "all".to_string());
+    let sources = memory_engine_recall(
+        &format!("recent work, open threads, blockers, and next steps for {scope_s}"),
+        &scope_s,
+        8,
+    )
+    .await;
+
+    let mut model: Option<String> = None;
+    let proposals = if sources.is_empty() {
+        Vec::new()
+    } else {
+        let ctx_str = sources
+            .iter()
+            .map(|s| format!("[{}] ({}) {}", s.n, s.date.as_deref().unwrap_or("?"), s.text))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let prompt = format!(
+            "You are the planning layer of an exocortex. From the memory atoms below \
+             (recent state/work in scope '{scope_s}'), propose 3-5 CONCRETE next steps. \
+             Each has: a short imperative `title`, a one-sentence `why` grounded in the \
+             atoms, and an `effort` of exactly S, M, or L. Respond with ONLY JSON, no \
+             prose:\n{{\"proposals\":[{{\"title\":\"...\",\"why\":\"...\",\"effort\":\"S|M|L\"}}]}}\n\n\
+             Memory atoms:\n{ctx_str}"
+        );
+        let consumer_identity = headers
+            .get("X-Beagle-Consumer")
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+        let raw = {
+            let mut bctx = state.ctx.lock().await;
+            let meta = RequestMeta {
+                approximate_tokens: prompt.len() / 4,
+                identity: consumer_identity,
+                ..Default::default()
+            };
+            let stats = bctx.llm_stats.get_or_create("propose");
+            let (client, tier) = bctx.router.choose_with_limits(&meta, &stats);
+            model = Some(format!("{tier:?}"));
+            match bctx.router.complete_chosen(&client, tier, &prompt).await {
+                Ok(a) => a,
+                Err(e) => {
+                    error!("propose synthesis failed (returning empty proposals): {e}");
+                    String::new()
+                }
+            }
+        };
+        parse_proposals(&raw)
+    };
+
+    Ok(Json(serde_json::json!({
+        "proposals": proposals,
+        "sources": sources,
+        "model": model,
+        "scope": scope,
+    })))
+}
+
+/// POST /api/(exocortex/v1/)propose/accept — log an accepted proposal to the durable
+/// proposals board (a JSONL in the exocortex root). Returns `{ok:true}`.
+pub(crate) async fn accept_handler(
+    State(_state): State<AppState>,
+    Json(req): Json<AcceptRequest>,
+) -> Result<Json<AcceptResponse>, StatusCode> {
+    let repo = ExocortexRepository::default();
+    repo.ensure().map_err(internal_error)?;
+    let entry = serde_json::json!({
+        "ts": Utc::now().to_rfc3339(),
+        "kind": "proposal_accepted",
+        "scope": req.scope,
+        "title": req.title,
+        "why": req.why,
+    });
+    let path = repo.root.join("proposals_board.jsonl");
+    use std::io::Write as _;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| internal_error(anyhow::Error::from(e)))?;
+    writeln!(f, "{entry}").map_err(|e| internal_error(anyhow::Error::from(e)))?;
+    Ok(Json(AcceptResponse { ok: true }))
+}
+
 pub(crate) async fn active_projects_handler(
     State(_state): State<AppState>,
 ) -> Result<Json<ProjectStateListResponse>, StatusCode> {
