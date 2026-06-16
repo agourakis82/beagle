@@ -24,8 +24,14 @@ struct CognitiveBridgeField: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The field animates briefly on appear to feel alive, then SETTLES (pauses the
+    /// TimelineView). A static Home screen must not redraw this Canvas at 24fps forever —
+    /// that was ~7-8% idle CPU. Paused → SwiftUI stops calling the closure → ~0% idle.
+    @State private var animating = false
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: reduceMotion ? 1.2 : 1 / 24, paused: false)) { timeline in
+        // 12fps is plenty for the slow sin/cos breathing; halves redraws vs. the old 24fps.
+        TimelineView(.animation(minimumInterval: reduceMotion ? 1.2 : 1 / 12, paused: !animating)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
                 drawBackground(in: &context, size: size, time: t)
@@ -35,6 +41,19 @@ struct CognitiveBridgeField: View {
             }
         }
         .frame(height: 118)
+        .onAppear {
+            // No perpetual motion under Reduce Motion or Low Power Mode.
+            guard !reduceMotion, !ProcessInfo.processInfo.isLowPowerModeEnabled else {
+                animating = false
+                return
+            }
+            animating = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(6))
+                animating = false   // settle: idle Home stops burning CPU
+            }
+        }
+        .onDisappear { animating = false }
         .overlay(alignment: .bottomLeading) {
             HStack(spacing: BeagleSpacing.xs) {
                 legend("Device", color: BeagleTheme.truthDeclared)

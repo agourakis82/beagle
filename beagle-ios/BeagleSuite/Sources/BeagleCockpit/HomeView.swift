@@ -3229,8 +3229,11 @@ private struct HomeGradient: View {
         )
         .ignoresSafeArea()
         .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 10).repeatForever(autoreverses: true)) {
+            guard !reduceMotion, !ProcessInfo.processInfo.isLowPowerModeEnabled else { return }
+            // One-shot settle drift instead of repeatForever: the mesh eases into its
+            // resting position once and stops. A perpetual MeshGradient animation kept the
+            // GPU/CPU redrawing an idle Home forever (part of the ~7-8% idle-CPU cost).
+            withAnimation(.easeInOut(duration: 10)) {
                 phase = 1
             }
         }
