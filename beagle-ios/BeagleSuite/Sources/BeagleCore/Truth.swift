@@ -31,6 +31,39 @@ public enum TruthMode: String, Codable, Sendable, CaseIterable {
     }
 
     public var displayLabel: String { rawValue }
+
+    /// Downgrade a mode to `.stale` once its observation is older than `staleAfter`.
+    /// Lets any surface show freshness-aware provenance from a `Truthful`'s observedAt.
+    public func aged(_ observedAt: Date?, staleAfter: TimeInterval = 86_400) -> TruthMode {
+        guard self != .stale else { return .stale }
+        guard let observedAt else { return .stale }
+        return Date().timeIntervalSince(observedAt) > staleAfter ? .stale : self
+    }
+}
+
+public extension Date {
+    /// Compact freshness label for truth surfaces: "just now", "12s ago", "2mo ago".
+    var truthFreshness: String {
+        let s = Date().timeIntervalSince(self)
+        switch s {
+        case ..<5:         return "just now"
+        case ..<60:        return "\(Int(s))s ago"
+        case ..<3_600:     return "\(Int(s / 60))m ago"
+        case ..<86_400:    return "\(Int(s / 3_600))h ago"
+        case ..<2_592_000: return "\(Int(s / 86_400))d ago"
+        default:           return "\(Int(s / 2_592_000))mo ago"
+        }
+    }
+}
+
+public extension Optional where Wrapped == String {
+    /// Parse a cluster ISO-8601 timestamp string (with or without fractional seconds).
+    var iso8601Date: Date? {
+        guard let self, !self.isEmpty else { return nil }
+        let frac = ISO8601DateFormatter()
+        frac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return frac.date(from: self) ?? ISO8601DateFormatter().date(from: self)
+    }
 }
 
 /// A truth-aware container: value + epistemic metadata.

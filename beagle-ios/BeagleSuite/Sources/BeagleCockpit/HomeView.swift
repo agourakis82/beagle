@@ -49,10 +49,14 @@ struct HomeView: View {
             // Empty conversation = a clean launchpad — the invitation sits just above the
             // input (no greeting hero, no void). Active conversation = the thread scrolls.
             if conversation.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    Spacer(minLength: BeagleSpacing.xl)
+                VStack(alignment: .leading, spacing: BeagleSpacing.lg) {
+                    Spacer(minLength: BeagleSpacing.md)
+                    if let summary = homeSummary?.value,
+                       summary.activeAgentsCount != nil || !(summary.laneResults?.isEmpty ?? true) {
+                        clusterBriefingCard(summary)
+                    }
                     homeInvitation
-                    Spacer(minLength: BeagleSpacing.xl)
+                    Spacer(minLength: BeagleSpacing.md)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, BeagleSpacing.lg)
@@ -780,6 +784,102 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, BeagleSpacing.md)
+    }
+
+    // MARK: - Living briefing (empty Home answers "what should I look at?")
+
+    /// Cluster briefing sourced from the live /api/mobile/v1/summary. Every value carries a
+    /// TruthChip so freshness is glanceable — the cluster header is live (just fetched), the
+    /// returned-work item shows its real age (which is often days/months old).
+    @ViewBuilder
+    private func clusterBriefingCard(_ summary: MobileHomeSummary) -> some View {
+        let lane = summary.laneResults?.first(where: { $0.readyForOpen }) ?? summary.laneResults?.first
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            HStack {
+                Text("CLUSTER BRIEFING")
+                    .font(BeagleFont.dataSmall.font)
+                    .tracking(1)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                Spacer()
+                if let t = homeSummary {
+                    TruthBadge(t)
+                }
+            }
+
+            HStack(spacing: BeagleSpacing.xs) {
+                Circle()
+                    .fill(briefingHealthColor(summary.clusterHealth))
+                    .frame(width: 7, height: 7)
+                Text(briefingClusterLine(summary))
+                    .font(BeagleFont.subheadline.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+            }
+
+            if let lane {
+                Divider().overlay(Color.white.opacity(0.06))
+                VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(lane.displayHeadline)
+                            .font(BeagleFont.subheadline.font.weight(.semibold))
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                            .lineLimit(1)
+                        Spacer(minLength: BeagleSpacing.xs)
+                        let ts = lane.latestResultAt.iso8601Date
+                        TruthBadge(.observed.aged(ts), observedAt: ts, compact: true)
+                    }
+                    Text("\(lane.projectSlug) · \(lane.displayStateLabel)")
+                        .font(BeagleFont.dataSmall.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+
+                    if let action = lane.recommendedAction, !action.isEmpty {
+                        Button {
+                            inputText = action
+                            Task { await conversation.sendMessage("About \(lane.projectSlug): \(action)") }
+                        } label: {
+                            HStack(spacing: BeagleSpacing.xs) {
+                                Image(systemName: "arrow.forward.circle.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(BeagleTheme.truthObserved)
+                                Text(action)
+                                    .font(BeagleFont.subheadline.font)
+                                    .foregroundStyle(BeagleTheme.textSecondary)
+                                    .multilineTextAlignment(.leading)
+                                Spacer(minLength: 0)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 2)
+                    }
+                }
+            }
+        }
+        .padding(BeagleSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .fill(BeagleTheme.surface1.opacity(0.6))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+        )
+    }
+
+    private func briefingHealthColor(_ health: String?) -> Color {
+        switch (health ?? "").lowercased() {
+        case "healthy", "ok", "ready", "green":  return BeagleTheme.truthObserved
+        case "unhealthy", "down", "critical", "red": return BeagleTheme.stateError
+        default:                                  return BeagleTheme.truthRemembered
+        }
+    }
+
+    private func briefingClusterLine(_ s: MobileHomeSummary) -> String {
+        let health = s.clusterHealth?.isEmpty == false ? s.clusterHealth! : "unknown"
+        let agents = s.activeAgentsCount ?? 0
+        let sessions = s.activeSessionsCount ?? 0
+        var parts = [health, "\(agents) agent\(agents == 1 ? "" : "s") active"]
+        if sessions > 0 { parts.append("\(sessions) session\(sessions == 1 ? "" : "s")") }
+        return parts.joined(separator: " · ")
     }
 
     private var discussionFieldCard: some View {

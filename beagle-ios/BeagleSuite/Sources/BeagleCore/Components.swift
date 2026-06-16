@@ -12,10 +12,20 @@ import SwiftUI
 
 public struct TruthBadge: View {
     let mode: TruthMode
+    let observedAt: Date?
     let compact: Bool
 
-    public init(_ mode: TruthMode, compact: Bool = false) {
+    public init(_ mode: TruthMode, observedAt: Date? = nil, compact: Bool = false) {
         self.mode = mode
+        self.observedAt = observedAt
+        self.compact = compact
+    }
+
+    /// Provenance + freshness straight from a Truthful — the canonical way to badge any
+    /// cluster-sourced value. The mode auto-downgrades to stale once the observation ages out.
+    public init<T>(_ truthful: Truthful<T>, compact: Bool = false) {
+        self.mode = truthful.mode.aged(truthful.observedAt)
+        self.observedAt = truthful.observedAt
         self.compact = compact
     }
 
@@ -29,6 +39,11 @@ public struct TruthBadge: View {
                     .font(BeagleFont.caption.font)
                     .fontWeight(.medium)
             }
+            if let observedAt {
+                Text(observedAt.truthFreshness)
+                    .font(BeagleFont.dataSmall.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
         }
         .foregroundStyle(BeagleTheme.color(for: mode))
         .padding(.horizontal, compact ? BeagleSpacing.xxs : BeagleSpacing.xs)
@@ -37,7 +52,14 @@ public struct TruthBadge: View {
             Capsule()
                 .fill(BeagleTheme.color(for: mode).opacity(0.10))
         )
-        .accessibilityLabel("Truth: \(mode.rawValue)")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var accessibilityText: String {
+        var text = "Truth: \(mode.rawValue)"
+        if let observedAt { text += ", \(observedAt.truthFreshness)" }
+        return text
     }
 
     private var symbolName: String {
