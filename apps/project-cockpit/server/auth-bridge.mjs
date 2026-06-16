@@ -68,8 +68,10 @@ const SGLANG_MODEL =
   DYNAMO_MODEL;
 const BEAGLE_ALLOWED_PROXY_PREFIXES = [
   "/api/v1/cognitive/",
+  "/api/cognitive/deep-think",
   "/api/exocortex/process",
   "/api/fractal/recurse",
+  "/api/hyperedges",
   "/api/deep_think"
 ];
 
