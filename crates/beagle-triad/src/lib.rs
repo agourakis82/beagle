@@ -2113,16 +2113,34 @@ async fn solver_claim_consistency_traced(
     // P2: SymbCoT faithfulness check — back-translate the constraints to NL and
     // ask the LLM if it matches the source. Mismatch → abstain (gate OFF = pass).
     let formal_nl_description = {
+        // Render each constraint as a COMPLETE readable inequality (not just its label),
+        // so the faithfulness verifier can actually confirm equivalence against the claim.
+        // A terse label-only description was measured to cause heavy false-abstain.
         let lines: Vec<String> = constraints
             .iter()
             .map(|c| {
-                c.label
-                    .clone()
-                    .unwrap_or_else(|| format!("Σ{:?}·x <= {}", c.coeffs, c.bound))
+                let label = c.label.clone().unwrap_or_else(|| "constraint".to_string());
+                // Single-variable ±1 constraints read as "<quantity> >= / <= value".
+                let nonzero: Vec<(usize, i64)> = c
+                    .coeffs
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, &k)| k != 0)
+                    .map(|(i, &k)| (i, k))
+                    .collect();
+                if let [(_, k)] = nonzero[..] {
+                    if k == 1 {
+                        return format!("{label}: the quantity must be <= {}", c.bound);
+                    } else if k == -1 {
+                        return format!("{label}: the quantity must be >= {}", -c.bound);
+                    }
+                }
+                format!("{label}: Σ{:?}·x <= {}", c.coeffs, c.bound)
             })
             .collect();
         format!(
-            "The following linear integer constraints were extracted from the claim: {}",
+            "The following linear integer constraints (over the same shared variable unless noted) \
+             were extracted from the claim: {}",
             lines.join("; ")
         )
     };
@@ -2439,12 +2457,25 @@ async fn causal_claim_check_traced(
             })
             .collect::<Vec<_>>()
             .join(", ");
+        // List the ACTUAL edges (not just a count) so the verifier can confirm the DAG
+        // matches the claim — a count-only description was measured to cause false-abstain.
+        let edge_list: String = req
+            .edges
+            .iter()
+            .map(|[a, b]| {
+                let an = node_names.get(*a).map(|s| s.as_str()).unwrap_or("?");
+                let bn = node_names.get(*b).map(|s| s.as_str()).unwrap_or("?");
+                format!("{an}→{bn}")
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
         let formal_nl_description = format!(
-            "A directed acyclic graph with nodes [{}] and {} directed edge(s) was extracted. \
+            "A directed acyclic graph with nodes [{}] and {} directed edge(s) [{}] was extracted. \
              The query asks whether '{}' and '{}' are d-separated given conditioning set {{{}}}. \
              The draft claims they have a causal/dependency relation: '{}'",
             node_names.join(", "),
             edges_len,
+            edge_list,
             x_name_pre,
             y_name_pre,
             cond_pre,

@@ -43,23 +43,62 @@ def p2_abstains(source, nl_desc, formal_json):
         return False  # mirror lib.rs: unparseable -> pass (benefit of the doubt)
     return obj.get("equivalent") is False
 
-# ---- per-domain NL back-translation (mirrors the Rust formal_nl_description) -
+# ---- (B) NL back-translation + (C) solver JSON — EXACT mirror of lib.rs ------
 def nl_desc(domain, art):
     if domain == "smt":
-        cs = "; ".join(f"{c.get('label','?')}: sum({c.get('coeffs')})·x <= {c.get('bound')}"
-                       for c in (art.get("constraints") or []))
-        return f"QF_LIA constraints over the same variable(s): {cs}"
+        lines = []
+        for c in (art.get("constraints") or []):
+            label = c.get("label") or "constraint"
+            nz = [(i, k) for i, k in enumerate(c.get("coeffs") or []) if k != 0]
+            b = c.get("bound")
+            if len(nz) == 1 and nz[0][1] == 1:
+                lines.append(f"{label}: the quantity must be <= {b}")
+            elif len(nz) == 1 and nz[0][1] == -1:
+                lines.append(f"{label}: the quantity must be >= {-b}")
+            else:
+                lines.append(f"{label}: sum({c.get('coeffs')})·x <= {b}")
+        return ("The following linear integer constraints (over the same shared variable unless noted) "
+                "were extracted from the claim: " + "; ".join(lines))
     if domain == "gum":
         a, b = art.get("a", {}), art.get("b", {})
-        return (f"Derived {art.get('y_label','Y')} = {a.get('label','A')} {art.get('op')} {b.get('label','B')}; "
-                f"A={a.get('value')}±{a.get('u')}, B={b.get('value')}±{b.get('u')}; "
-                f"claimed uncertainty of Y = {art.get('claimed_uncertainty')}")
+        op = art.get("op")
+        al, bl, yl = a.get("label", "A"), b.get("label", "B"), art.get("y_label", "Y")
+        return (f"The derived quantity '{yl}' is computed as '{al}' {op} '{bl}' using the {op} operation. "
+                f"Input '{al}' has value {float(a.get('value',0)):.4f} ± {float(a.get('u',0)):.4f}; "
+                f"input '{bl}' has value {float(b.get('value',0)):.4f} ± {float(b.get('u',0)):.4f}. "
+                f"The draft declares uncertainty ±{float(art.get('claimed_uncertainty',0)):.4f} for the derived quantity.")
     if domain == "causal":
         names = art.get("nodes") or []
-        es = "; ".join(f"{names[e[0]] if e[0]<len(names) else e[0]} -> {names[e[1]] if e[1]<len(names) else e[1]}"
-                       for e in (art.get("edges") or []))
-        return f"DAG edges: {es}. Query: node{art.get('x')} d-sep node{art.get('y')} given {art.get('z')}. Asserted: {art.get('claim')}"
+        x, y = art.get("x", 0), art.get("y", 0)
+        xn = names[x] if x < len(names) else f"node{x}"
+        yn = names[y] if y < len(names) else f"node{y}"
+        z = art.get("z") or []
+        cond = ", ".join(names[i] if i < len(names) else f"node{i}" for i in z)
+        edges = art.get("edges") or []
+        elist = ", ".join(f"{names[e[0]] if e[0]<len(names) else '?'}→{names[e[1]] if e[1]<len(names) else '?'}"
+                          for e in edges if isinstance(e, list) and len(e) == 2)
+        return (f"A directed acyclic graph with nodes [{', '.join(names)}] and {len(edges)} "
+                f"directed edge(s) [{elist}] was extracted. The query asks whether '{xn}' and '{yn}' are d-separated "
+                f"given conditioning set {{{cond}}}. The draft claims they have a causal/dependency "
+                f"relation: '{art.get('claim','')}'")
     return json.dumps(art)
+
+def fjson(domain, art):
+    """(C) = the EXACT JSON payload POSTed to the solver (mirrors the Rust request struct)."""
+    if domain == "smt":
+        cons = [{"coeffs": c.get("coeffs"), "bound": c.get("bound"), **({"label": c["label"]} if c.get("label") else {})}
+                for c in (art.get("constraints") or [])]
+        return json.dumps({"constraints": cons}, ensure_ascii=False)
+    if domain == "gum":
+        a, b = art.get("a", {}), art.get("b", {})
+        inputs = [{"value": a.get("value"), "u": a.get("u"), **({"label": a["label"]} if a.get("label") else {})},
+                  {"value": b.get("value"), "u": b.get("u"), **({"label": b["label"]} if b.get("label") else {})}]
+        return json.dumps({"inputs": inputs, "op": art.get("op")}, ensure_ascii=False)
+    if domain == "causal":
+        nodes = art.get("nodes") or []
+        return json.dumps({"n": len(nodes), "edges": art.get("edges") or [],
+                           "x": art.get("x"), "y": art.get("y"), "z": art.get("z") or []}, ensure_ascii=False)
+    return json.dumps(art, ensure_ascii=False)
 
 # ---- corruptions (produce an UNFAITHFUL artifact) ---------------------------
 def corrupt(domain, art):
@@ -94,22 +133,28 @@ def main():
     out_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else HERE
     cases = [json.loads(l) for l in corpus.read_text().splitlines() if l.strip() and not l.startswith("#")]
 
-    faithful_rows, unfaithful_rows = [], []
+    trials = int(os.environ.get("TRIALS", "3"))
+    # build the labeled pairs once
+    pairs = []  # (kind, domain, label, claim, B, C)
     for c in cases:
         gj = c["gold_artifact_json"].strip()
         if gj == "null":
             continue
         art = json.loads(gj)
         domain, claim = c["domain"], c["nl_claim"]
-        # faithful pair (gold)
-        ab = p2_abstains(claim, nl_desc(domain, art), json.dumps(art, ensure_ascii=False))
-        faithful_rows.append({"domain": domain, "trap": c["trap_type"], "p2_abstain": ab})
-        print(f"{'XX' if ab else 'ok'} faithful  [{domain}/{c['trap_type']}] p2_abstain={ab}")
-        # unfaithful pairs (corruptions)
+        pairs.append(("faithful", domain, c["trap_type"], claim, nl_desc(domain, art), fjson(domain, art)))
         for ctype, cart in corrupt(domain, art):
-            ab = p2_abstains(claim, nl_desc(domain, cart), json.dumps(cart, ensure_ascii=False))
-            unfaithful_rows.append({"domain": domain, "corruption": ctype, "p2_abstain": ab})
-            print(f"{'ok' if ab else 'XX'} corrupt:{ctype:13s} [{domain}] p2_abstain={ab}")
+            pairs.append(("unfaithful", domain, ctype, claim, nl_desc(domain, cart), fjson(domain, cart)))
+
+    # run each pair `trials` times; a pair "abstains" by majority vote across trials
+    faithful_rows, unfaithful_rows = [], []
+    for kind, domain, label, claim, B, C in pairs:
+        votes = sum(1 for _ in range(trials) if p2_abstains(claim, B, C))
+        ab = votes > trials / 2  # majority abstain
+        row = {"domain": domain, "label": label, "p2_abstain": ab, "abstain_votes": f"{votes}/{trials}"}
+        (faithful_rows if kind == "faithful" else unfaithful_rows).append(row)
+        good = (ab if kind == "unfaithful" else not ab)
+        print(f"{'ok' if good else 'XX'} {kind:10s} [{domain}/{label}] abstain={ab} ({votes}/{trials})")
 
     def rate(rs):
         return (sum(1 for r in rs if r["p2_abstain"]) / len(rs)) if rs else float("nan")
@@ -117,7 +162,7 @@ def main():
     false_abstain = rate(faithful_rows)          # abstain among faithful (over-caution)
     by_corruption = {}
     for r in unfaithful_rows:
-        by_corruption.setdefault(r["corruption"], []).append(r)
+        by_corruption.setdefault(r["label"], []).append(r)
 
     report = {"eval": "p2-roundtrip-catch", "model": R.MODEL,
               "n_faithful": len(faithful_rows), "n_unfaithful": len(unfaithful_rows),
