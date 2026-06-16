@@ -114,11 +114,11 @@ struct CheckReadinessIntent: AppIntent {
     static let openAppWhenRun = false
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        // PhysioStore is @MainActor, so we read from it on the main actor
-        let posture = await MainActor.run {
-            let store = PhysioStore()
-            return store.cognitivePosture
-        }
+        // PhysioStore is @MainActor. MUST refresh before reading — a bare
+        // PhysioStore().cognitivePosture is always empty (no HealthKit query has run).
+        let store = await MainActor.run { PhysioStore() }
+        await store.refresh(requestAuthorization: true)
+        let posture = await MainActor.run { store.cognitivePosture }
 
         if let readiness = posture.readiness {
             let pct = Int(readiness * 100)

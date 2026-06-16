@@ -205,9 +205,11 @@ public struct FlowStateIntent: AppIntent {
 
     public func perform() async throws -> some IntentResult & ProvidesDialog {
         // The /api/v1/cognitive/state endpoint was retired on beagle-core. HRV / flow now
-        // reads from local HealthKit via PhysioStore (the same source CheckReadinessIntent
-        // uses) — the authoritative origin for this signal. PhysioStore is @MainActor.
-        let posture = await MainActor.run { PhysioStore().cognitivePosture }
+        // reads from local HealthKit via PhysioStore — the authoritative origin for this signal.
+        // MUST refresh first: a bare PhysioStore().cognitivePosture is always empty.
+        let store = await MainActor.run { PhysioStore() }
+        await store.refresh(requestAuthorization: true)
+        let posture = await MainActor.run { store.cognitivePosture }
         if let hrv = posture.hrv {
             let intensity = posture.suggestedIntensity.rawValue
             return .result(dialog: "HRV: \(Int(hrv)) ms. Suggested intensity: \(intensity).")

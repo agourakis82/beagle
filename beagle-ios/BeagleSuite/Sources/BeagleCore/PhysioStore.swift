@@ -466,9 +466,12 @@ public final class PhysioStore {
         authorizationState = .requesting
         try await healthStore.requestAuthorization(toShare: [], read: readTypes)
 
-        let hrvType = HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!
-        let status = healthStore.authorizationStatus(for: hrvType)
-        authorizationState = status == .sharingDenied ? .denied : .authorized
+        // HealthKit deliberately hides READ authorization for privacy: authorizationStatus(for:)
+        // reports SHARE/write state, which is always .sharingDenied for a read-only request.
+        // Treating that as denial was blocking all body-state reads. If requestAuthorization did
+        // not throw, proceed as authorized and let the actual samples decide meaningfulness
+        // (PhysioSummary.truthMode maps authorized-but-empty to .remembered, not a hard failure).
+        authorizationState = .authorized
     }
 
     private func latestQuantitySample(

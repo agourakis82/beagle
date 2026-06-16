@@ -129,7 +129,7 @@ struct HomeView: View {
         .refreshable {
             async let c: () = catalog.refresh()
             async let g: () = cognitive.refresh()
-            async let p: () = physio.refresh()
+            async let p: () = physio.refresh(requestAuthorization: true)
             async let s = CockpitClient.shared.mobileSummary()
             let summary = await s
             applyHomeSummary(summary)
