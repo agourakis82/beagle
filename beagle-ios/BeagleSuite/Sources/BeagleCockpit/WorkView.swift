@@ -1183,9 +1183,12 @@ private struct AgentConsoleView: View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
             HStack(alignment: .firstTextBaseline, spacing: BeagleSpacing.sm) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Agent Console")
-                        .font(BeagleFont.headline.font)
-                        .foregroundStyle(BeagleTheme.textPrimary)
+                    HStack(spacing: BeagleSpacing.xs) {
+                        Text("Agent Console")
+                            .font(BeagleFont.headline.font)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                        TruthBadge(consoleTruth.mode, observedAt: consoleTruth.at)
+                    }
                     Text(subtitle)
                         .font(BeagleFont.caption.font)
                         .foregroundStyle(BeagleTheme.textSecondary)
@@ -1213,6 +1216,15 @@ private struct AgentConsoleView: View {
                 }
             }
         }
+    }
+
+    /// Provenance + freshness of the lane data. With no live workspace session the lane
+    /// states are declared defaults (○), not observed; with a session they're observed and
+    /// age toward stale (◌) using the snapshot's updatedAt.
+    private var consoleTruth: (mode: TruthMode, at: Date?) {
+        let at = snapshot.updatedAt.iso8601Date
+        if snapshot.sessionId == nil { return (.declared, at) }
+        return (TruthMode.observed.aged(at), at)
     }
 
     private var subtitle: String {
