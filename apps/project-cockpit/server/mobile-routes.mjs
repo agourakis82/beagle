@@ -836,6 +836,41 @@ export function registerMobileRoutes(app, deps) {
     })
   );
 
+  // Resolve to `fallback` if `p` rejects OR exceeds `ms` — never hang, never throw.
+  // The mobile summary fan-out hits live per-project services; without this, ONE slow or
+  // hung downstream (sessions / lane-result) made the whole endpoint time out. `catalog`
+  // stays fast because it only reads a cached file; this gives `summary` the same
+  // graceful-degradation contract (return partial data instead of hanging).
+  const SUMMARY_SUBCALL_TIMEOUT_MS = Number(
+    process.env.PROJECT_COCKPIT_MOBILE_SUMMARY_TIMEOUT_MS || 3000
+  );
+  const withTimeout = (p, ms, fallback) =>
+    new Promise((resolve) => {
+      let done = false;
+      const t = setTimeout(() => {
+        if (!done) {
+          done = true;
+          resolve(fallback);
+        }
+      }, ms);
+      Promise.resolve(p).then(
+        (v) => {
+          if (!done) {
+            done = true;
+            clearTimeout(t);
+            resolve(v);
+          }
+        },
+        () => {
+          if (!done) {
+            done = true;
+            clearTimeout(t);
+            resolve(fallback);
+          }
+        }
+      );
+    });
+
   app.get(
     "/api/mobile/v1/summary",
     withEnvelope(async () => {
@@ -853,7 +888,11 @@ export function registerMobileRoutes(app, deps) {
             if (!slug) {
               return null;
             }
-            const resolvedProject = await deps.getProjectOrThrow(slug).catch(() => entry);
+            const resolvedProject = await withTimeout(
+              deps.getProjectOrThrow(slug).catch(() => entry),
+              SUMMARY_SUBCALL_TIMEOUT_MS,
+              entry
+            );
             const laneProject = {
               projectSlug: cleanString(
                 resolvedProject?.projectSlug || resolvedProject?.slug || slug
@@ -868,9 +907,9 @@ export function registerMobileRoutes(app, deps) {
               )
             };
             const [clientSessions, agentSessions, laneResult] = await Promise.all([
-              deps.listProjectSessions(slug),
-              listAgentSessions(slug).catch(() => []),
-              buildProjectLaneResultSummary(laneProject)
+              withTimeout(deps.listProjectSessions(slug), SUMMARY_SUBCALL_TIMEOUT_MS, { active: [] }),
+              withTimeout(listAgentSessions(slug).catch(() => []), SUMMARY_SUBCALL_TIMEOUT_MS, []),
+              withTimeout(buildProjectLaneResultSummary(laneProject), SUMMARY_SUBCALL_TIMEOUT_MS, null)
             ]);
             const activeClientSessions = Array.isArray(clientSessions?.active)
               ? clientSessions.active.map(normalizeClientSession)
