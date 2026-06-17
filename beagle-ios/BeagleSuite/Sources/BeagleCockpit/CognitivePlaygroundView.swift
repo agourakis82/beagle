@@ -33,8 +33,8 @@ struct CognitivePlaygroundView: View {
                 switch surface {
                 case .phi:        PhiLab()
                 case .hyperedges: HyperedgesLab()
-                case .fractal:    pending("Fractal", "Real node/depth structure from the Sounio fractal verb — wiring next.")
-                case .deepThink:  pending("Deep-think", "Real multi-pass reasoning from /api/cognitive/deep-think — wiring next.")
+                case .fractal:    FractalLab()
+                case .deepThink:  DeepThinkLab()
                 }
             }
         }
@@ -412,6 +412,295 @@ private struct HyperedgesLab: View {
                 error = result.error ?? "Edge creation failed."
             }
             creating = false
+        }
+    }
+}
+
+// MARK: - Fractal Lab (Sounio deterministic fractal-tree growth)
+
+private struct FractalLab: View {
+    @State private var prompt = ""
+    @State private var depth = 4
+    @State private var branching = 2
+    @State private var tree: FractalTree?
+    @State private var loading = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+                Text("Fractal Recursion")
+                    .font(BeagleFont.headline.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                Text("Deterministic fractal-tree growth computed by the Sounio fractal.recurse verb. Real node and depth counts — no decorative geometry.")
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+            }
+
+            TextField("Seed prompt…", text: $prompt, axis: .vertical)
+                .lineLimit(1...3)
+                .padding(BeagleSpacing.sm)
+                .background(RoundedRectangle(cornerRadius: BeagleRadius.md).fill(BeagleTheme.surface1.opacity(0.6)))
+
+            HStack(spacing: BeagleSpacing.lg) {
+                Stepper("depth \(depth)", value: $depth, in: 1...12)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                Stepper("branching \(branching)", value: $branching, in: 2...8)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+            }
+
+            Button(action: grow) {
+                Text(loading ? "Growing…" : "Grow fractal")
+                    .font(BeagleFont.subheadline.font.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, BeagleSpacing.sm)
+                    .background(BeagleTheme.truthObserved.opacity(0.18), in: RoundedRectangle(cornerRadius: BeagleRadius.md))
+                    .foregroundStyle(BeagleTheme.truthObserved)
+            }
+            .buttonStyle(.plain)
+            .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || loading)
+
+            if loading {
+                HStack(spacing: BeagleSpacing.xs) {
+                    ProgressView().tint(BeagleTheme.truthObserved)
+                    Text("Growing fractal in Sounio…").font(BeagleFont.caption.font).foregroundStyle(BeagleTheme.textSecondary)
+                }
+            } else if let error {
+                card { Label(error, systemImage: "exclamationmark.triangle").font(BeagleFont.caption.font).foregroundStyle(BeagleTheme.stateError) }
+            } else if let t = tree {
+                result(t)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(BeagleSpacing.md)
+    }
+
+    @ViewBuilder private func result(_ t: FractalTree) -> some View {
+        if t.truthMode == "computed", let nodes = t.nodeCount {
+            card {
+                VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("NODES").font(.system(size: 13, weight: .bold)).foregroundStyle(BeagleTheme.textTertiary)
+                        Spacer()
+                        TruthBadge(.observed, observedAt: t.generatedAt.iso8601Date)
+                    }
+                    Text("\(nodes)")
+                        .font(.system(size: 46, weight: .bold, design: .rounded))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                    stat("max depth", "\(t.maxDepth ?? 0)")
+                    stat("branching", "\(t.branching ?? branching)")
+                    if let d = t.durationMs { stat("compute", "\(d) ms") }
+                    Divider().overlay(Color.white.opacity(0.06))
+                    levelBreakdown(depth: t.maxDepth ?? 0, branching: t.branching ?? branching, total: nodes)
+                }
+            }
+        } else {
+            card {
+                VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                    HStack {
+                        TruthBadge(.stale)
+                        Spacer()
+                        Text(t.truthMode ?? "unknown").font(BeagleFont.dataSmall.font).foregroundStyle(BeagleTheme.textTertiary)
+                    }
+                    Text("Fractal engine unavailable")
+                        .font(BeagleFont.subheadline.font.weight(.semibold))
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    Text("The Sounio fractal.recurse verb didn't return a computed tree. No node counts are shown because none were computed.")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                }
+            }
+        }
+    }
+
+    // Faithful per-level breakdown of the budget-bounded growth (mirrors the verb's BFS).
+    @ViewBuilder private func levelBreakdown(depth: Int, branching: Int, total: Int) -> some View {
+        let rows = levels(depth: depth, branching: branching, total: total)
+        VStack(alignment: .leading, spacing: 4) {
+            Text("NODES PER LEVEL").font(BeagleFont.dataSmall.font).tracking(1).foregroundStyle(BeagleTheme.textTertiary)
+            ForEach(rows, id: \.level) { row in
+                HStack(spacing: BeagleSpacing.xs) {
+                    Text("L\(row.level)").font(.system(.caption2, design: .monospaced)).foregroundStyle(BeagleTheme.textTertiary).frame(width: 28, alignment: .leading)
+                    GeometryReader { geo in
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(BeagleTheme.truthObserved.opacity(0.5))
+                            .frame(width: max(2, geo.size.width * CGFloat(row.count) / CGFloat(max(total, 1))))
+                    }
+                    .frame(height: 8)
+                    Text("\(row.count)").font(.system(.caption2, design: .monospaced)).foregroundStyle(BeagleTheme.textSecondary).frame(width: 48, alignment: .trailing)
+                }
+            }
+        }
+    }
+
+    private func levels(depth: Int, branching: Int, total: Int) -> [(level: Int, count: Int)] {
+        var rows: [(level: Int, count: Int)] = []
+        var remaining = total
+        var levelSize = 1
+        var i = 0
+        while i <= depth && remaining > 0 {
+            let count = min(levelSize, remaining)
+            rows.append((i, count))
+            remaining -= count
+            if levelSize <= total { levelSize *= max(branching, 1) }
+            i += 1
+        }
+        return rows
+    }
+
+    private func stat(_ key: String, _ value: String) -> some View {
+        HStack {
+            Text(key).font(BeagleFont.caption.font).foregroundStyle(BeagleTheme.textTertiary)
+            Spacer()
+            Text(value).font(BeagleFont.caption.font.weight(.medium)).foregroundStyle(BeagleTheme.textSecondary)
+        }
+    }
+
+    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(BeagleSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: BeagleRadius.lg).fill(BeagleTheme.surface1.opacity(0.5)))
+            .overlay(RoundedRectangle(cornerRadius: BeagleRadius.lg).strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
+    }
+
+    private func grow() {
+        let p = prompt.trimmingCharacters(in: .whitespaces)
+        guard !p.isEmpty else { return }
+        loading = true; error = nil; tree = nil
+        Task {
+            let result = await BeagleClient.shared.startFractalTree(prompt: p, maxDepth: depth, branching: branching)
+            if let t = result.value {
+                tree = t
+            } else {
+                error = result.error ?? "Fractal growth failed to reach the backend."
+            }
+            loading = false
+        }
+    }
+}
+
+// MARK: - Deep-think Lab (multi-pass reasoning via TieredRouter)
+
+private struct DeepThinkLab: View {
+    @State private var prompt = ""
+    @State private var depth = 3
+    @State private var response: ChatResponse?
+    @State private var observedAt: Date?
+    @State private var loading = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+                Text("Deep-think")
+                    .font(BeagleFont.headline.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                Text("Multi-pass reasoning routed through the live TieredRouter. The model badge shows which tier actually answered — a LocalFallback answer looks different from a premium one.")
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+            }
+
+            TextField("Topic to reason about…", text: $prompt, axis: .vertical)
+                .lineLimit(1...4)
+                .padding(BeagleSpacing.sm)
+                .background(RoundedRectangle(cornerRadius: BeagleRadius.md).fill(BeagleTheme.surface1.opacity(0.6)))
+
+            HStack {
+                Stepper("passes \(depth)", value: $depth, in: 1...6)
+                    .font(BeagleFont.caption.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                Spacer()
+                Button(action: think) {
+                    Text(loading ? "Thinking…" : "Think")
+                        .font(BeagleFont.subheadline.font.weight(.semibold))
+                        .padding(.horizontal, BeagleSpacing.md)
+                        .padding(.vertical, BeagleSpacing.sm)
+                        .background(BeagleTheme.truthObserved.opacity(0.18), in: RoundedRectangle(cornerRadius: BeagleRadius.md))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                }
+                .buttonStyle(.plain)
+                .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || loading)
+            }
+
+            if loading {
+                HStack(spacing: BeagleSpacing.xs) {
+                    ProgressView().tint(BeagleTheme.truthObserved)
+                    Text("Reasoning in \(depth) pass\(depth == 1 ? "" : "es")…").font(BeagleFont.caption.font).foregroundStyle(BeagleTheme.textSecondary)
+                }
+            } else if let error {
+                card { Label(error, systemImage: "exclamationmark.triangle").font(BeagleFont.caption.font).foregroundStyle(BeagleTheme.stateError) }
+            } else if let r = response {
+                result(r)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(BeagleSpacing.md)
+    }
+
+    @ViewBuilder private func result(_ r: ChatResponse) -> some View {
+        if let text = r.response, !text.trimmingCharacters(in: .whitespaces).isEmpty {
+            card {
+                VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                    HStack(spacing: BeagleSpacing.xs) {
+                        if let model = r.model {
+                            Text(model)
+                                .font(BeagleFont.dataSmall.font)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(BeagleTheme.truthObserved.opacity(0.15), in: Capsule())
+                                .foregroundStyle(BeagleTheme.truthObserved)
+                        }
+                        if let flow = r.flowState {
+                            Text(flow).font(BeagleFont.dataSmall.font).foregroundStyle(BeagleTheme.textTertiary)
+                        }
+                        Spacer()
+                        TruthBadge(.observed, observedAt: observedAt)
+                    }
+                    Text(text)
+                        .font(BeagleFont.body.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .textSelection(.enabled)
+                    if let tk = r.tokensUsed { stat("tokens", "\(tk)") }
+                }
+            }
+        } else {
+            card { Label("The router returned no reasoning text.", systemImage: "exclamationmark.triangle").font(BeagleFont.caption.font).foregroundStyle(BeagleTheme.stateError) }
+        }
+    }
+
+    private func stat(_ key: String, _ value: String) -> some View {
+        HStack {
+            Text(key).font(BeagleFont.caption.font).foregroundStyle(BeagleTheme.textTertiary)
+            Spacer()
+            Text(value).font(BeagleFont.caption.font.weight(.medium)).foregroundStyle(BeagleTheme.textSecondary)
+        }
+    }
+
+    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(BeagleSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: BeagleRadius.lg).fill(BeagleTheme.surface1.opacity(0.5)))
+            .overlay(RoundedRectangle(cornerRadius: BeagleRadius.lg).strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
+    }
+
+    private func think() {
+        let p = prompt.trimmingCharacters(in: .whitespaces)
+        guard !p.isEmpty else { return }
+        loading = true; error = nil; response = nil
+        Task {
+            let result = await BeagleClient.shared.deepThink(prompt: p, depth: depth)
+            if let r = result.value {
+                response = r
+                observedAt = result.observedAt ?? Date()
+            } else {
+                error = result.error ?? "Deep-think failed to reach the backend."
+            }
+            loading = false
         }
     }
 }
