@@ -101,6 +101,14 @@ struct BeagleCockpitApp: App {
                 .environment(catalog)
         }
         .menuBarExtraStyle(.window)
+
+        // ⌘, opens the model/settings surface as a proper macOS Settings window.
+        Settings {
+            NavigationStack { ModelSettingsView() }
+                .frame(minWidth: 520, minHeight: 600)
+                .preferredColorScheme(.dark)
+                .tint(BeagleTheme.truthObserved)
+        }
         #endif
     }
 
@@ -533,6 +541,7 @@ struct RootView: View {
             macSelectedContent
         }
         .background(ShellPresenceBackground(presence: shellPresence))
+        .navigationTitle(sidebarSelection.rawValue)
     }
 
     private var macStatusStrip: some View {
