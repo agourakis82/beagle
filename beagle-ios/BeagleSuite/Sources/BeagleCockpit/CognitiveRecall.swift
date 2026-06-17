@@ -527,6 +527,8 @@ struct RecallPane: View {
                 .foregroundStyle(CK.txt)
                 .padding()
                 .padding(.bottom, 40)
+                .frame(maxWidth: 820)
+                .frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
             .task {

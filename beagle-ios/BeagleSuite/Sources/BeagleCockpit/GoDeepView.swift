@@ -53,6 +53,8 @@ struct GoDeepView: View {
                 }
                 .padding(.horizontal, pageHorizontalPadding)
                 .padding(.bottom, BeagleSpacing.jumbo + 20)
+                .frame(maxWidth: 820)
+                .frame(maxWidth: .infinity)
             }
             .background { depthGradient }
             .navigationTitle("Go Deeper")
