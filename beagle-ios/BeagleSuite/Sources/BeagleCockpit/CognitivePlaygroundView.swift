@@ -32,7 +32,7 @@ struct CognitivePlaygroundView: View {
             ScrollView {
                 switch surface {
                 case .phi:        PhiLab()
-                case .hyperedges: pending("Hyperedges", "The 35 real knowledge-graph edges from /api/hyperedges — wiring next.")
+                case .hyperedges: HyperedgesLab()
                 case .fractal:    pending("Fractal", "Real node/depth structure from the Sounio fractal verb — wiring next.")
                 case .deepThink:  pending("Deep-think", "Real multi-pass reasoning from /api/cognitive/deep-think — wiring next.")
                 }
@@ -246,6 +246,172 @@ private struct PhiLab: View {
                 error = result.error ?? "Φ measurement failed to reach the backend."
             }
             loading = false
+        }
+    }
+}
+
+// MARK: - Hyperedges Lab (real knowledge-graph edges)
+
+private struct HyperedgesLab: View {
+    @State private var edges: [Hyperedge] = []
+    @State private var observedAt: Date?
+    @State private var loading = false
+    @State private var error: String?
+    @State private var nodeFilter = ""
+
+    @State private var showCreate = false
+    @State private var newLabel = ""
+    @State private var newSubject = ""
+    @State private var newObject = ""
+    @State private var creating = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Knowledge-Graph Edges")
+                        .font(BeagleFont.headline.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    Text("Real memory relations from /api/hyperedges")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                }
+                Spacer()
+                if !edges.isEmpty { TruthBadge(.observed, observedAt: observedAt) }
+            }
+
+            HStack(spacing: BeagleSpacing.xs) {
+                TextField("Filter by node id…", text: $nodeFilter)
+                    .autocorrectionDisabled()
+                    .padding(BeagleSpacing.sm)
+                    .background(RoundedRectangle(cornerRadius: BeagleRadius.md).fill(BeagleTheme.surface1.opacity(0.6)))
+                    .onSubmit { load(node: nodeFilter) }
+                Button { load(node: nodeFilter) } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 44, height: 44)
+                        .background(BeagleTheme.truthObserved.opacity(0.18), in: RoundedRectangle(cornerRadius: BeagleRadius.md))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                }
+                .buttonStyle(.plain)
+            }
+
+            DisclosureGroup(isExpanded: $showCreate) {
+                VStack(spacing: BeagleSpacing.xs) {
+                    field("predicate (label)", $newLabel)
+                    field("subject node id", $newSubject)
+                    field("object node id", $newObject)
+                    Button(action: create) {
+                        Text(creating ? "Creating…" : "Create edge")
+                            .font(BeagleFont.subheadline.font.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, BeagleSpacing.sm)
+                            .background(BeagleTheme.truthObserved.opacity(0.18), in: RoundedRectangle(cornerRadius: BeagleRadius.md))
+                            .foregroundStyle(BeagleTheme.truthObserved)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(creating || newLabel.isEmpty || newSubject.isEmpty || newObject.isEmpty)
+                }
+                .padding(.top, BeagleSpacing.xs)
+            } label: {
+                Text("New edge")
+                    .font(BeagleFont.subheadline.font.weight(.medium))
+                    .foregroundStyle(BeagleTheme.textPrimary)
+            }
+            .tint(BeagleTheme.truthObserved)
+
+            if loading {
+                HStack(spacing: BeagleSpacing.xs) {
+                    ProgressView().tint(BeagleTheme.truthObserved)
+                    Text("Loading edges…").font(BeagleFont.caption.font).foregroundStyle(BeagleTheme.textSecondary)
+                }
+            } else if let error {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(BeagleFont.caption.font).foregroundStyle(BeagleTheme.stateError)
+            } else if edges.isEmpty {
+                Text(nodeFilter.isEmpty ? "No edges returned." : "No edges for that node.")
+                    .font(BeagleFont.caption.font).foregroundStyle(BeagleTheme.textTertiary)
+            } else {
+                Text("\(edges.count) edge\(edges.count == 1 ? "" : "s")")
+                    .font(BeagleFont.dataSmall.font).foregroundStyle(BeagleTheme.textTertiary)
+                ForEach(edges) { edgeRow($0) }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(BeagleSpacing.md)
+        .task { if edges.isEmpty { load(node: nil) } }
+    }
+
+    private func field(_ placeholder: String, _ text: Binding<String>) -> some View {
+        TextField(placeholder, text: text)
+            .autocorrectionDisabled()
+            .font(BeagleFont.caption.font)
+            .padding(BeagleSpacing.sm)
+            .background(RoundedRectangle(cornerRadius: BeagleRadius.md).fill(BeagleTheme.surface0.opacity(0.7)))
+    }
+
+    private func edgeRow(_ e: Hyperedge) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(e.label ?? "relation")
+                    .font(BeagleFont.subheadline.font.weight(.semibold))
+                    .foregroundStyle(BeagleTheme.truthObserved)
+                Spacer()
+                if let c = e.metadata?["confidence"] {
+                    Text("conf \(c)").font(BeagleFont.dataSmall.font).foregroundStyle(BeagleTheme.textTertiary)
+                }
+            }
+            if let nodes = e.nodeIds, nodes.count >= 2 {
+                HStack(spacing: 6) {
+                    Text(nodes[0]).lineLimit(1)
+                    Image(systemName: e.directed == true ? "arrow.right" : "arrow.left.arrow.right")
+                        .font(.system(size: 10)).foregroundStyle(BeagleTheme.textTertiary)
+                    Text(nodes[1]).lineLimit(1)
+                }
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(BeagleTheme.textSecondary)
+            } else if let nodes = e.nodeIds {
+                Text(nodes.joined(separator: ", "))
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(BeagleTheme.textSecondary).lineLimit(1)
+            }
+            if let s = e.metadata?["source"] {
+                Text("source: \(s)").font(BeagleFont.dataSmall.font).foregroundStyle(BeagleTheme.textTertiary)
+            }
+        }
+        .padding(BeagleSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: BeagleRadius.md).fill(BeagleTheme.surface1.opacity(0.5)))
+        .overlay(RoundedRectangle(cornerRadius: BeagleRadius.md).strokeBorder(Color.white.opacity(0.05), lineWidth: 1))
+    }
+
+    private func load(node: String?) {
+        loading = true; error = nil
+        let trimmed = (node ?? "").trimmingCharacters(in: .whitespaces)
+        Task {
+            let result = await BeagleClient.shared.queryHyperedges(nodeId: trimmed.isEmpty ? nil : trimmed)
+            if let e = result.value {
+                edges = e
+                observedAt = result.observedAt ?? Date()
+            } else {
+                error = result.error ?? "Could not reach the hyperedge graph."
+            }
+            loading = false
+        }
+    }
+
+    private func create() {
+        creating = true; error = nil
+        Task {
+            let result = await BeagleClient.shared.createHyperedge(label: newLabel, nodeIds: [newSubject, newObject])
+            if let edge = result.value {
+                edges.insert(edge, at: 0)
+                newLabel = ""; newSubject = ""; newObject = ""; showCreate = false
+            } else {
+                error = result.error ?? "Edge creation failed."
+            }
+            creating = false
         }
     }
 }
