@@ -46,6 +46,8 @@ targets:
       path: BeagleCockpit-Info.plist
       properties:
         LSApplicationCategoryType: public.app-category.productivity
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleIconName: AppIcon
         CFBundleDisplayName: BeagleCockpit
         UILaunchScreen: {}
@@ -110,6 +112,8 @@ targets:
       path: BeagleWidgets-Info.plist
       properties:
         CFBundleDisplayName: BeagleWidgets
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -138,6 +142,8 @@ targets:
       path: BeagleShare-Info.plist
       properties:
         CFBundleDisplayName: Beagle Capture
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
@@ -204,3 +210,19 @@ targets:
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access:
           - health-records
+
+schemes:
+  BeagleCockpit:
+    build:
+      targets:
+        BeagleCockpit: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
