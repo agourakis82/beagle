@@ -234,7 +234,13 @@ struct RootView: View {
             #if os(macOS)
             macLayout
             #else
-            phoneLayout
+            // iPad regular width gets the persistent sidebar; iPhone / compact (Slide
+            // Over, narrow Stage Manager) keep the tab bar.
+            if sizeClass == .regular {
+                macLayout
+            } else {
+                phoneLayout
+            }
             #endif
         }
         .task {
@@ -370,8 +376,9 @@ struct RootView: View {
         .tabViewStyle(.sidebarAdaptable)
     }
 
-#if os(macOS)
-    // MARK: - Mac Layout (sidebar + detail)
+#if os(macOS) || os(iOS)
+    // MARK: - Mac/iPad sidebar layout (shared NavigationSplitView)
+    // Used on macOS always, and on iPad regular width (iPhone/compact use phoneLayout).
 
     enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         case home = "Home"
@@ -445,9 +452,16 @@ struct RootView: View {
     @State private var sidebarSelection: SidebarItem = .home
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
+    // iOS List single-selection needs an OPTIONAL binding (macOS allows non-optional).
+    // This proxy keeps `sidebarSelection` non-optional everywhere else while satisfying
+    // both platforms' `List(selection:)`.
+    private var sidebarSelectionBinding: Binding<SidebarItem?> {
+        Binding(get: { sidebarSelection }, set: { if let v = $0 { sidebarSelection = v } })
+    }
+
     private var macLayout: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            List(selection: $sidebarSelection) {
+            List(selection: sidebarSelectionBinding) {
                 ForEach(SidebarSection.allCases) { section in
                     Section(section.rawValue) {
                         ForEach(section.items) { item in
