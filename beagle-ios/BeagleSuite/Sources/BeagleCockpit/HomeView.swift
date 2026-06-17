@@ -58,7 +58,8 @@ struct HomeView: View {
                     homeInvitation
                     Spacer(minLength: BeagleSpacing.md)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: 820, alignment: .leading)
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, BeagleSpacing.lg)
             } else {
                 ScrollView {
@@ -67,6 +68,8 @@ struct HomeView: View {
                         .padding(.top, BeagleSpacing.xl)
                         .padding(.bottom, BeagleSpacing.jumbo)
                         .scrollTargetLayout()
+                        .frame(maxWidth: 820)
+                        .frame(maxWidth: .infinity)
                 }
             }
 
