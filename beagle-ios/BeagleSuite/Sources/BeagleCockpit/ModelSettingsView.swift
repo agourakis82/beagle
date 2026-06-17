@@ -38,6 +38,7 @@ struct ModelSettingsView: View {
                 hfTokenCard
                 statusCard
                 diagnosticsLink
+                cognitivePlaygroundLink
                 catalogSection
             }
             .padding(.horizontal, BeagleSpacing.lg)
@@ -304,6 +305,50 @@ struct ModelSettingsView: View {
             }
             .buttonStyle(SecondaryButton(color: BeagleTheme.truthObserved))
         }
+    }
+
+    // MARK: - Cognitive Playground link
+
+    private var cognitivePlaygroundLink: some View {
+        NavigationLink {
+            CognitivePlaygroundView()
+        } label: {
+            HStack(spacing: BeagleSpacing.sm) {
+                ZStack {
+                    Circle()
+                        .fill(BeagleTheme.truthObserved.opacity(0.08))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "function")
+                        .font(.system(size: 15))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Cognitive Playground")
+                        .font(BeagleFont.subheadline.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    Text("Measure Φ, browse hyperedges, grow fractals — real backend")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
+            .frame(minHeight: 54)
+            .padding(.horizontal, BeagleSpacing.md)
+            .padding(.vertical, BeagleSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                    .fill(BeagleTheme.surface1.opacity(0.5))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: BeagleRadius.lg)
+                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Diagnostics link

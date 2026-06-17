@@ -25,19 +25,20 @@
 		459A916447C162277C0E2299 /* CognitiveBridgeField.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB312C9D46D9321BC2DD8F95 /* CognitiveBridgeField.swift */; };
 		4DA6AD62DD347FAACCB96433 /* DeepExplorationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */; };
 		4F30330ABC2C3224A105FB72 /* BeagleWorkbenchKit in Frameworks */ = {isa = PBXBuildFile; productRef = 19404BEBA13FB54406BE5069 /* BeagleWorkbenchKit */; };
+		4F65E298CDC06A93095BB178 /* AgentsHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95B4CE43B87FD3AB52F29A2F /* AgentsHubView.swift */; };
 		516E1D231C1D60DF1ECDB5A1 /* BeagleShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		558DF95BA7821C7D9511DA64 /* DiagnosticsRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */; };
 		5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 287C64605E5D53C799744EFA /* AgentSessionView.swift */; };
 		5F331BD1E2ED5220BA6CD405 /* SpatialControlRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3FB27D4E37CE6A23B06B09 /* SpatialControlRoomView.swift */; };
 		6DDB4BC3B8EB67E8090EE6BF /* BeagleInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96E1A662D877979794235C0 /* BeagleInputBar.swift */; };
-		6E6000A0EF68CA72D9A9871D /* AgentsHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE7F03E4222B36E554BD2414 /* AgentsHubView.swift */; };
-		E060595801EE412366A26306 /* ProviderSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F0EC4F2F9CD3E16E598B606 /* ProviderSetupView.swift */; };
 		8003CBD314227378F652535A /* BeagleSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F68F6456B64893491C1B93 /* BeagleSurface.swift */; };
 		8074F587452ECB33D0DAEA08 /* LorenzAttractorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2CE724AEFED517CAC6C94C0 /* LorenzAttractorView.swift */; };
 		88A28D4391FECECF547F0F1F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
 		8A5884FB4F1AAAAF5E951305 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 89A4FE3D86B15D992A7B5030 /* BeagleCore */; };
 		907EF19DEAD54A0CE58672EC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6B7360324065FECF7F1A2F /* HomeView.swift */; };
+		92A9DDD7CB92B63998A516BD /* CognitivePlaygroundView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A510FA4C8E413ECE85C4A76 /* CognitivePlaygroundView.swift */; };
 		92B4E05E95660C6A18722F63 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = EC23CD7FEB1FC70A4E7192BF /* BeagleCore */; };
+		940357316D6ABA1C8BB85DF3 /* CognitiveRecall.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCFA09876B0976760E929222 /* CognitiveRecall.swift */; };
 		951D9C072CAFC68FA6BAE300 /* AgentActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF024B3743049659F7073E6C /* AgentActivityView.swift */; };
 		955AF5DFA3C5E28DE9E71AAF /* GoDeepButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */; };
 		9CC023D0D4B249261F286235 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
@@ -65,9 +66,8 @@
 		E73BE34C11A09D57EE250508 /* ConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 639809058407AA2A7F31CBFA /* ConversationView.swift */; };
 		E7D7E3A1DBEE70B042E893B4 /* BuildInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 902E0125E6DDA133D4486E04 /* BuildInfo.swift */; };
 		E90459441F120031896D82A3 /* SpatialTriadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81EA117A445504E0B157182 /* SpatialTriadView.swift */; };
-		EB384F03246A4789BF44FDA1 /* BeagleWorkbenchKit in Frameworks */ = {isa = PBXBuildFile; productRef = 19404BEBA13FB54406BE5069 /* BeagleWorkbenchKit */; };
 		EFC226181CCAC66E7086F83E /* ScienceJobsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77EBB6E9F932B4C6400037BD /* ScienceJobsView.swift */; };
-		F4A9D3BD3D143BA532ECB4FD /* CognitiveRecall.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71A04851C759B0560E826ED /* CognitiveRecall.swift */; };
+		F59314FBEDEDB8D51128167F /* ProviderSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4023CB24CCDF9382D2F91CD3 /* ProviderSetupView.swift */; };
 		FB770F638C6B2329AB979A4F /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 85AA837F77CBB98A5A3D1297 /* BeagleCore */; };
 		FD773EBDECB3C46EB77F7469 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */; };
 /* End PBXBuildFile section */
@@ -120,6 +120,7 @@
 		3133A19FD4CA197756C9D57A /* WorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkView.swift; sourceTree = "<group>"; };
 		365A4A4180DF64759923830A /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
 		3FADF6A9C3533B785FE38619 /* GoDeepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoDeepView.swift; sourceTree = "<group>"; };
+		4023CB24CCDF9382D2F91CD3 /* ProviderSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSetupView.swift; sourceTree = "<group>"; };
 		4391CB65FB2D130CC3568338 /* BeagleCockpit.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BeagleCockpit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleWidgets.swift; sourceTree = "<group>"; };
 		47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalContentView.swift; sourceTree = "<group>"; };
@@ -132,6 +133,7 @@
 		579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleAppIntents.swift; sourceTree = "<group>"; };
 		57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepExplorationView.swift; sourceTree = "<group>"; };
 		58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriadReviewView.swift; sourceTree = "<group>"; };
+		5A510FA4C8E413ECE85C4A76 /* CognitivePlaygroundView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CognitivePlaygroundView.swift; sourceTree = "<group>"; };
 		5D3FB27D4E37CE6A23B06B09 /* SpatialControlRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialControlRoomView.swift; sourceTree = "<group>"; };
 		5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HPCDashboardView.swift; sourceTree = "<group>"; };
 		5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleVisionOSApp.swift; sourceTree = "<group>"; };
@@ -145,6 +147,7 @@
 		88F68F6456B64893491C1B93 /* BeagleSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleSurface.swift; sourceTree = "<group>"; };
 		8F9429744BAEF1DC81205FFB /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		902E0125E6DDA133D4486E04 /* BuildInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildInfo.swift; sourceTree = "<group>"; };
+		95B4CE43B87FD3AB52F29A2F /* AgentsHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsHubView.swift; sourceTree = "<group>"; };
 		95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 		A08540D355E6437F5F11ED49 /* JournalingSuggestionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalingSuggestionsView.swift; sourceTree = "<group>"; };
 		AB312C9D46D9321BC2DD8F95 /* CognitiveBridgeField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CognitiveBridgeField.swift; sourceTree = "<group>"; };
@@ -159,10 +162,8 @@
 		EC6B7360324065FECF7F1A2F /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		EECE76875D595132E400D65E /* HeatmapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeatmapView.swift; sourceTree = "<group>"; };
 		F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoDeepButton.swift; sourceTree = "<group>"; };
-		F71A04851C759B0560E826ED /* CognitiveRecall.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CognitiveRecall.swift; sourceTree = "<group>"; };
 		F96E1A662D877979794235C0 /* BeagleInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleInputBar.swift; sourceTree = "<group>"; };
-		FE7F03E4222B36E554BD2414 /* AgentsHubView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentsHubView.swift; sourceTree = "<group>"; };
-		3F0EC4F2F9CD3E16E598B606 /* ProviderSetupView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProviderSetupView.swift; sourceTree = "<group>"; };
+		FCFA09876B0976760E929222 /* CognitiveRecall.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CognitiveRecall.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -204,7 +205,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				FB770F638C6B2329AB979A4F /* BeagleCore in Frameworks */,
-				EB384F03246A4789BF44FDA1 /* BeagleWorkbenchKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -216,6 +216,7 @@
 			children = (
 				BF024B3743049659F7073E6C /* AgentActivityView.swift */,
 				287C64605E5D53C799744EFA /* AgentSessionView.swift */,
+				95B4CE43B87FD3AB52F29A2F /* AgentsHubView.swift */,
 				579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */,
 				818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */,
 				F96E1A662D877979794235C0 /* BeagleInputBar.swift */,
@@ -223,6 +224,8 @@
 				902E0125E6DDA133D4486E04 /* BuildInfo.swift */,
 				189F9DCDE0C15DEF48A24B21 /* ChatBubbleView.swift */,
 				AB312C9D46D9321BC2DD8F95 /* CognitiveBridgeField.swift */,
+				5A510FA4C8E413ECE85C4A76 /* CognitivePlaygroundView.swift */,
+				FCFA09876B0976760E929222 /* CognitiveRecall.swift */,
 				D4E5BFBC8407D4C833BA3F95 /* CognitiveStateView.swift */,
 				E19225CC4B80CE9408A68022 /* ControlRoomView.swift */,
 				639809058407AA2A7F31CBFA /* ConversationView.swift */,
@@ -246,6 +249,7 @@
 				B4EBFAF926379A760494FDDE /* PlatformView.swift */,
 				49590C3934C2C786F704ADB3 /* PostureGradientBackground.swift */,
 				2C4128C7822635F0B4D0B966 /* PresencePill.swift */,
+				4023CB24CCDF9382D2F91CD3 /* ProviderSetupView.swift */,
 				77EBB6E9F932B4C6400037BD /* ScienceJobsView.swift */,
 				6BCE6419932AE042CD69160D /* SpatialDeskMissionControlView.swift */,
 				4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */,
@@ -253,9 +257,6 @@
 				180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */,
 				58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */,
 				3133A19FD4CA197756C9D57A /* WorkView.swift */,
-				FE7F03E4222B36E554BD2414 /* AgentsHubView.swift */,
-				3F0EC4F2F9CD3E16E598B606 /* ProviderSetupView.swift */,
-				F71A04851C759B0560E826ED /* CognitiveRecall.swift */,
 			);
 			name = BeagleCockpit;
 			path = BeagleSuite/Sources/BeagleCockpit;
@@ -354,7 +355,6 @@
 			name = BeagleVisionOS;
 			packageProductDependencies = (
 				85AA837F77CBB98A5A3D1297 /* BeagleCore */,
-				19404BEBA13FB54406BE5069 /* BeagleWorkbenchKit */,
 			);
 			productName = BeagleVisionOS;
 			productReference = 67516A1FA21422BE9A964B96 /* BeagleVisionOS.app */;
@@ -474,7 +474,6 @@
 				};
 			};
 			buildConfigurationList = 814EEFD125CED6230A012DEF /* Build configuration list for PBXProject "BeagleSuite" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -542,6 +541,7 @@
 			files = (
 				951D9C072CAFC68FA6BAE300 /* AgentActivityView.swift in Sources */,
 				5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */,
+				4F65E298CDC06A93095BB178 /* AgentsHubView.swift in Sources */,
 				2506AE1D807F002678049438 /* BeagleAppIntents.swift in Sources */,
 				B29E7F8F8148C1AF28D130D0 /* BeagleCockpitApp.swift in Sources */,
 				6DDB4BC3B8EB67E8090EE6BF /* BeagleInputBar.swift in Sources */,
@@ -549,6 +549,8 @@
 				E7D7E3A1DBEE70B042E893B4 /* BuildInfo.swift in Sources */,
 				9D3E9AC3F435A2A585B1F48B /* ChatBubbleView.swift in Sources */,
 				459A916447C162277C0E2299 /* CognitiveBridgeField.swift in Sources */,
+				92A9DDD7CB92B63998A516BD /* CognitivePlaygroundView.swift in Sources */,
+				940357316D6ABA1C8BB85DF3 /* CognitiveRecall.swift in Sources */,
 				39966D4FD11EC8661B54479D /* CognitiveStateView.swift in Sources */,
 				DC905A79099605C79BAFCD31 /* ControlRoomView.swift in Sources */,
 				E73BE34C11A09D57EE250508 /* ConversationView.swift in Sources */,
@@ -572,6 +574,7 @@
 				BD5252A15774BB0AFF4C2537 /* PlatformView.swift in Sources */,
 				1B55247C99EAB1B670864938 /* PostureGradientBackground.swift in Sources */,
 				BB19063FBD1E753D7FD91FAA /* PresencePill.swift in Sources */,
+				F59314FBEDEDB8D51128167F /* ProviderSetupView.swift in Sources */,
 				EFC226181CCAC66E7086F83E /* ScienceJobsView.swift in Sources */,
 				C7199097F3FA38EE2525D4D7 /* SpatialDeskMissionControlView.swift in Sources */,
 				A7E50EC5008FE3C119415E16 /* SpeechRecognizer.swift in Sources */,
@@ -579,9 +582,6 @@
 				DBDE230C56BD951ED91BCF5C /* ThoughtCaptureView.swift in Sources */,
 				A3ED060D3B5CB1EB7489B82E /* TriadReviewView.swift in Sources */,
 				C4F95F143E38413D13ABCBF1 /* WorkView.swift in Sources */,
-				6E6000A0EF68CA72D9A9871D /* AgentsHubView.swift in Sources */,
-				E060595801EE412366A26306 /* ProviderSetupView.swift in Sources */,
-				F4A9D3BD3D143BA532ECB4FD /* CognitiveRecall.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -753,7 +753,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 29;
+				CURRENT_PROJECT_VERSION = 28;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -823,7 +823,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 29;
+				CURRENT_PROJECT_VERSION = 28;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
