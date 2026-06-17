@@ -83,6 +83,8 @@ struct BeagleCockpitApp: App {
         #endif
         #if os(macOS)
         .windowStyle(.automatic)
+        .defaultSize(width: 1200, height: 800)
+        .windowResizability(.contentSize)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Refresh Catalog") {
@@ -355,6 +357,9 @@ struct RootView: View {
             }
         }
         .tint(BeagleTheme.accent)
+        // iPad (regular width) promotes the tab bar to a sidebar; iPhone keeps the
+        // bottom tabs. Fixes the P0 where a 13" iPad rendered the iPhone tab layout.
+        .tabViewStyle(.sidebarAdaptable)
     }
 
 #if os(macOS)
