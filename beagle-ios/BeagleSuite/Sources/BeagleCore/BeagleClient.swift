@@ -519,7 +519,7 @@ public actor BeagleClient {
                 // JSONDecoder(); a local one is equivalent and avoids crossing a
                 // non-Sendable JSONDecoder across the actor boundary per frame.
                 let bases = await self.baseURLs
-                let session = await self.session
+                let session = self.session
                 let decoder = JSONDecoder()
 
                 for base in bases {
