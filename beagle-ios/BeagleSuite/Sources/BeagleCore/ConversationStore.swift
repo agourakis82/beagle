@@ -82,6 +82,7 @@ public final class ConversationStore {
     // MARK: - Orchestration layer (A/B/C)
     public var pendingPlan: AgentPlan? = nil
     public private(set) var verificationResults: [UUID: VerificationResult] = [:]
+    private var verificationInFlight: Set<UUID> = []
 
     public func autonomyMode(for profile: DiscussionProfile) -> AutonomyMode {
         let key = "autonomy_\(profile.rawValue)"
@@ -100,12 +101,18 @@ public final class ConversationStore {
             planId: plan.planId,
             steps: plan.steps.map { ConfirmedStep(id: $0.id, depth: depths[$0.id] ?? $0.depthDefault) }
         )
-        _ = await client.postEncoded(ActionResponse.self, path: "/api/orchestration/plan/confirm", body: confirmed, timeout: 30)
-        pendingPlan = nil
+        let planResult = await client.postEncoded(ActionResponse.self, path: "/api/orchestration/plan/confirm", body: confirmed, timeout: 30)
+        if planResult.value != nil {
+            pendingPlan = nil
+        }
     }
 
     public func fetchVerification(for messageId: UUID, profileId: String) async {
-        let lookback = lookbackDays(for: discussionProfile)
+        guard !verificationInFlight.contains(messageId) else { return }
+        verificationInFlight.insert(messageId)
+        defer { verificationInFlight.remove(messageId) }
+        let profile = DiscussionProfile(rawValue: profileId) ?? discussionProfile
+        let lookback = lookbackDays(for: profile)
         let result = await client.post(
             VerificationResult.self,
             path: "/api/exocortex/v1/verify",
@@ -114,6 +121,10 @@ public final class ConversationStore {
         )
         if let vr = result.value {
             verificationResults[messageId] = vr
+            let validIds = Set(messages.map(\.id))
+            verificationResults.keys
+                .filter { !validIds.contains($0) }
+                .forEach { verificationResults.removeValue(forKey: $0) }
         }
     }
 
@@ -403,6 +414,7 @@ public final class ConversationStore {
     /// Clear all messages.
     public func clear() {
         messages.removeAll()
+        verificationResults = [:]
         isStreaming = false
         guard let modelContext else { return }
         let conversationId = persistenceConversationId
