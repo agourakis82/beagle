@@ -40,20 +40,24 @@ spec:
           image: 192.168.3.207:5003/moshi-server:2026-06-18
           imagePullPolicy: IfNotPresent
           securityContext:
-            privileged: true
-            allowPrivilegeEscalation: true
+            allowPrivilegeEscalation: false
+            # seccompProfile Unconfined: cluster-wide doctrine — Python asyncio
+            # uses socketpair(2) which the RuntimeDefault seccomp profile blocks,
+            # causing asyncio crashes. All GPU pods in this cluster carry this.
             seccompProfile:
               type: Unconfined
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: HF_HOME
               value: /var/cache/huggingface
-            - name: HF_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: moshi-secrets
-                  key: HF_TOKEN
             - name: PYTHONUNBUFFERED
               value: "1"
+            # HF_TOKEN is mounted as a file (not env) to keep it out of
+            # /proc/<pid>/environ. Read by huggingface_hub via HF_TOKEN_PATH.
+            - name: HF_TOKEN_PATH
+              value: /run/secrets/hf-token
           ports:
             - name: ws
               containerPort: 8998
@@ -89,7 +93,15 @@ spec:
           volumeMounts:
             - name: hf-cache
               mountPath: /var/cache/huggingface
+            - name: hf-token
+              mountPath: /run/secrets/hf-token
+              subPath: HF_TOKEN
+              readOnly: true
       volumes:
         - name: hf-cache
           persistentVolumeClaim:
             claimName: moshi-hf-cache
+        - name: hf-token
+          secret:
+            secretName: moshi-secrets
+            defaultMode: 0400
