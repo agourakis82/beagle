@@ -79,6 +79,51 @@ public final class ConversationStore {
     private var _streamingTask: Task<Void, Never>?
     public private(set) var autoImportState: ConversationAutoImportState = .idle
 
+    // MARK: - Orchestration layer (A/B/C)
+    public var pendingPlan: AgentPlan? = nil
+    public private(set) var verificationResults: [UUID: VerificationResult] = [:]
+
+    public func autonomyMode(for profile: DiscussionProfile) -> AutonomyMode {
+        let key = "autonomy_\(profile.rawValue)"
+        let raw = UserDefaults.standard.integer(forKey: key)
+        return AutonomyMode(rawValue: raw) ?? .ask
+    }
+
+    public func setAutonomyMode(_ mode: AutonomyMode, for profile: DiscussionProfile) {
+        let key = "autonomy_\(profile.rawValue)"
+        UserDefaults.standard.set(mode.rawValue, forKey: key)
+    }
+
+    public func confirmPlan(depths: [String: Int]) async {
+        guard let plan = pendingPlan else { return }
+        let confirmed = ConfirmedPlan(
+            planId: plan.planId,
+            steps: plan.steps.map { ConfirmedStep(id: $0.id, depth: depths[$0.id] ?? $0.depthDefault) }
+        )
+        _ = await client.postEncoded(ActionResponse.self, path: "/api/orchestration/plan/confirm", body: confirmed, timeout: 30)
+        pendingPlan = nil
+    }
+
+    public func fetchVerification(for messageId: UUID, profileId: String) async {
+        let lookback = lookbackDays(for: discussionProfile)
+        let result = await client.post(
+            VerificationResult.self,
+            path: "/api/exocortex/v1/verify",
+            body: ["message_id": messageId.uuidString, "profile_id": profileId, "lookback_days": lookback],
+            timeout: 20
+        )
+        if let vr = result.value {
+            verificationResults[messageId] = vr
+        }
+    }
+
+    private func lookbackDays(for profile: DiscussionProfile) -> Int {
+        switch profile {
+        case .claudeCode, .grok, .kimi: return 90
+        default: return 30
+        }
+    }
+
     /// Whether to prefer on-device model when available.
     public var preferLocal: Bool = true
     public var autoImportsConversationMemory: Bool = true
