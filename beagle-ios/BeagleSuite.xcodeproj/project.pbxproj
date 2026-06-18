@@ -34,6 +34,7 @@
 		AA11223344556602AABB0003 /* ToolDepthSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11223344556601AABB0003 /* ToolDepthSlider.swift */; };
 		AA11223344556602AABB0004 /* EvidenceTag.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11223344556601AABB0004 /* EvidenceTag.swift */; };
 		AA11223344556602AABB0005 /* VerificationStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11223344556601AABB0005 /* VerificationStrip.swift */; };
+		AA11223344556602AABB0006 /* AutonomyDial.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11223344556601AABB0006 /* AutonomyDial.swift */; };
 		5F331BD1E2ED5220BA6CD405 /* SpatialControlRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3FB27D4E37CE6A23B06B09 /* SpatialControlRoomView.swift */; };
 		6DDB4BC3B8EB67E8090EE6BF /* BeagleInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96E1A662D877979794235C0 /* BeagleInputBar.swift */; };
 		8003CBD314227378F652535A /* BeagleSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F68F6456B64893491C1B93 /* BeagleSurface.swift */; };
@@ -126,6 +127,7 @@
 		AA11223344556601AABB0003 /* ToolDepthSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolDepthSlider.swift; sourceTree = "<group>"; };
 		AA11223344556601AABB0004 /* EvidenceTag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EvidenceTag.swift; sourceTree = "<group>"; };
 		AA11223344556601AABB0005 /* VerificationStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationStrip.swift; sourceTree = "<group>"; };
+		AA11223344556601AABB0006 /* AutonomyDial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutonomyDial.swift; sourceTree = "<group>"; };
 		2C4128C7822635F0B4D0B966 /* PresencePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresencePill.swift; sourceTree = "<group>"; };
 		3133A19FD4CA197756C9D57A /* WorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkView.swift; sourceTree = "<group>"; };
 		365A4A4180DF64759923830A /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
@@ -230,6 +232,7 @@
 				AA11223344556601AABB0003 /* ToolDepthSlider.swift */,
 				AA11223344556601AABB0004 /* EvidenceTag.swift */,
 				AA11223344556601AABB0005 /* VerificationStrip.swift */,
+				AA11223344556601AABB0006 /* AutonomyDial.swift */,
 				287C64605E5D53C799744EFA /* AgentSessionView.swift */,
 				95B4CE43B87FD3AB52F29A2F /* AgentsHubView.swift */,
 				579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */,
@@ -560,6 +563,7 @@
 				AA11223344556602AABB0003 /* ToolDepthSlider.swift in Sources */,
 				AA11223344556602AABB0004 /* EvidenceTag.swift in Sources */,
 				AA11223344556602AABB0005 /* VerificationStrip.swift in Sources */,
+				AA11223344556602AABB0006 /* AutonomyDial.swift in Sources */,
 				5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */,
 				4F65E298CDC06A93095BB178 /* AgentsHubView.swift in Sources */,
 				2506AE1D807F002678049438 /* BeagleAppIntents.swift in Sources */,

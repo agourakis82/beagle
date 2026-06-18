@@ -18,6 +18,7 @@ struct ConversationView: View {
     @State private var inputText = ""
     @State private var userScrolledUp = false
     @State private var showHarvestSheet = false
+    @State private var showAutonomyDial = false
 
     private var profilePlaceholder: String {
         switch conversation.discussionProfile {
@@ -80,16 +81,25 @@ struct ConversationView: View {
     }
 
     private var discussionProfileStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: BeagleSpacing.xs) {
-                ForEach(DiscussionProfile.allCases) { profile in
-                    discussionProfileButton(for: profile)
-                    .buttonStyle(.plain)
+        VStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    ForEach(DiscussionProfile.allCases) { profile in
+                        discussionProfileButton(for: profile)
+                        .buttonStyle(.plain)
+                    }
                 }
+                .padding(.horizontal, BeagleSpacing.lg)
+                .padding(.top, BeagleSpacing.sm)
+                .padding(.bottom, BeagleSpacing.xs)
             }
-            .padding(.horizontal, BeagleSpacing.lg)
-            .padding(.top, BeagleSpacing.sm)
-            .padding(.bottom, BeagleSpacing.xs)
+            if showAutonomyDial {
+                AutonomyDial(conversation: conversation)
+                    .padding(.horizontal, BeagleSpacing.lg)
+                    .padding(.bottom, BeagleSpacing.xs)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.spring(response: 0.32, dampingFraction: 0.75), value: showAutonomyDial)
+            }
         }
     }
 
@@ -105,7 +115,12 @@ struct ConversationView: View {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             #endif
             withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) {
-                conversation.discussionProfile = profile
+                if isSelected {
+                    showAutonomyDial.toggle()
+                } else {
+                    conversation.discussionProfile = profile
+                    showAutonomyDial = false
+                }
             }
         } label: {
             HStack(spacing: BeagleSpacing.xs) {
