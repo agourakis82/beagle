@@ -19,6 +19,7 @@ struct ConversationView: View {
     @State private var userScrolledUp = false
     @State private var showHarvestSheet = false
     @State private var showAutonomyDial = false
+    @State private var selectedVerificationId: UUID? = nil
 
     private var profilePlaceholder: String {
         switch conversation.discussionProfile {
@@ -38,6 +39,7 @@ struct ConversationView: View {
     }
 
     var body: some View {
+        HStack(spacing: 0) {
         VStack(spacing: 0) {
             discussionProfileStrip
             messageList
@@ -78,6 +80,26 @@ struct ConversationView: View {
             AgentPlanCard(conversation: conversation)
                 .presentationDetents([.medium, .large])
         }
+
+        #if os(macOS)
+        if let msgId = selectedVerificationId,
+           let vr = conversation.verificationResults[msgId] {
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+                    Text("Evidence")
+                        .font(BeagleFont.subheadline.font)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    VerificationStrip(result: vr, profileHue: BeagleTheme.truthObserved)
+                }
+                .padding(BeagleSpacing.md)
+            }
+            .frame(width: 280)
+            .background(BeagleTheme.surface1.opacity(0.35))
+        }
+        #endif
+        } // end HStack
     }
 
     private var discussionProfileStrip: some View {
@@ -162,6 +184,9 @@ struct ConversationView: View {
                                 verificationResult: conversation.verificationResults[message.id],
                                 onCheckSources: message.role == .assistant ? {
                                     Task { await conversation.fetchVerification(for: message.id, profileId: conversation.discussionProfile.rawValue) }
+                                    #if os(macOS)
+                                    selectedVerificationId = message.id
+                                    #endif
                                 } : nil
                             )
                             .id(message.id)
