@@ -43,7 +43,7 @@ struct VerificationStrip: View {
                 expandedContent
                     .padding(.horizontal, BeagleSpacing.sm)
                     .padding(.bottom, BeagleSpacing.sm)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .background(
