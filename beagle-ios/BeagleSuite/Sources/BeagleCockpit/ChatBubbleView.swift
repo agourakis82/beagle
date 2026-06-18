@@ -13,6 +13,7 @@ import BeagleCore
 struct ChatBubbleView: View {
     let message: ChatMessage
     var onRegenerate: (() -> Void)?
+    var profileHue: Color = BeagleTheme.truthObserved
 
     @State private var cursorVisible = true
 
@@ -57,17 +58,26 @@ struct ChatBubbleView: View {
     private var userBubble: some View {
         Text(message.content)
             .font(BeagleFont.body.font)
+            .lineSpacing(3)
             .foregroundStyle(BeagleTheme.textPrimary)
             .padding(.horizontal, BeagleSpacing.md)
             .padding(.vertical, BeagleSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                    .fill(BeagleTheme.truthObserved.opacity(0.15))
+                    .fill(Color.white.opacity(0.07))
+                    .overlay(
+                        LinearGradient(
+                            colors: [.black.opacity(0.08), .clear],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: BeagleRadius.lg))
+                    )
             )
             .overlay(
                 RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                    .strokeBorder(BeagleTheme.truthObserved.opacity(0.1), lineWidth: 1)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
             )
+            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
     }
 
     // MARK: - Assistant bubble
@@ -90,16 +100,29 @@ struct ChatBubbleView: View {
         .animation(BeagleMotion.fast, value: message.isStreaming && message.content.isEmpty)
         .padding(.horizontal, BeagleSpacing.md)
         .padding(.vertical, BeagleSpacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: BeagleRadius.lg)
-                .fill(message.voiceName != nil ? voiceFill : BeagleTheme.surface2)
-        )
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(message.voiceName != nil ? voiceTint : profileHue)
+                .frame(width: 3)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: BeagleRadius.lg,
+                    bottomLeadingRadius: BeagleRadius.lg,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0
+                ))
+        }
+        .clipShape(RoundedRectangle(cornerRadius: BeagleRadius.lg))
         .overlay(
             RoundedRectangle(cornerRadius: BeagleRadius.lg)
                 .strokeBorder(
                     message.voiceName != nil ? voiceTint.opacity(0.2) : Color.white.opacity(0.06),
                     lineWidth: 1
                 )
+        )
+        .shadow(
+            color: (message.voiceName != nil ? voiceTint : profileHue).opacity(0.18),
+            radius: 12, x: 0, y: 4
         )
     }
 
@@ -365,6 +388,7 @@ private struct MarkdownMessage: View {
                 case .prose(let s):
                     Text(prose(s))
                         .font(BeagleFont.body.font)
+                        .lineSpacing(4)
                         .foregroundStyle(BeagleTheme.textPrimary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)

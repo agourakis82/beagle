@@ -129,9 +129,15 @@ struct ConversationView: View {
                                 message: message,
                                 onRegenerate: message.role == .assistant ? {
                                     Task { await conversation.regenerateLastResponse() }
-                                } : nil
+                                } : nil,
+                                profileHue: BeagleTheme.profileHue(for: conversation.discussionProfile)
                             )
                             .id(message.id)
+                            .scrollTransition(.animated) { content, phase in
+                                content
+                                    .opacity(phase.isIdentity ? 1.0 : 0.55)
+                                    .scaleEffect(phase.isIdentity ? 1.0 : 0.97)
+                            }
 
                             // Go Deeper on assistant responses
                             if message.role == .assistant && !message.isStreaming {
