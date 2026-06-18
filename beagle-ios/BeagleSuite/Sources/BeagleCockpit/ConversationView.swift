@@ -69,6 +69,7 @@ struct ConversationView: View {
             HarvestSheetView(conversation: conversation)
                 .presentationDetents([.medium])
         }
+        #endif
         .sheet(isPresented: Binding(
             get: { conversation.pendingPlan != nil },
             set: { if !$0 { conversation.pendingPlan = nil } }
@@ -76,7 +77,6 @@ struct ConversationView: View {
             AgentPlanCard(conversation: conversation)
                 .presentationDetents([.medium, .large])
         }
-        #endif
     }
 
     private var discussionProfileStrip: some View {

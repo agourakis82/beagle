@@ -29,6 +29,9 @@
 		516E1D231C1D60DF1ECDB5A1 /* BeagleShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		558DF95BA7821C7D9511DA64 /* DiagnosticsRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */; };
 		5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 287C64605E5D53C799744EFA /* AgentSessionView.swift */; };
+		AA11223344556602AABB0001 /* AgentPlanCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11223344556601AABB0001 /* AgentPlanCard.swift */; };
+		AA11223344556602AABB0002 /* HarvestSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11223344556601AABB0002 /* HarvestSheetView.swift */; };
+		AA11223344556602AABB0003 /* ToolDepthSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11223344556601AABB0003 /* ToolDepthSlider.swift */; };
 		5F331BD1E2ED5220BA6CD405 /* SpatialControlRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3FB27D4E37CE6A23B06B09 /* SpatialControlRoomView.swift */; };
 		6DDB4BC3B8EB67E8090EE6BF /* BeagleInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96E1A662D877979794235C0 /* BeagleInputBar.swift */; };
 		8003CBD314227378F652535A /* BeagleSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F68F6456B64893491C1B93 /* BeagleSurface.swift */; };
@@ -116,6 +119,9 @@
 		1A6266364731B5C6EF907DE7 /* SpatialThoughtsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialThoughtsView.swift; sourceTree = "<group>"; };
 		277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HyperbolicGraphView.swift; sourceTree = "<group>"; };
 		287C64605E5D53C799744EFA /* AgentSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionView.swift; sourceTree = "<group>"; };
+		AA11223344556601AABB0001 /* AgentPlanCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPlanCard.swift; sourceTree = "<group>"; };
+		AA11223344556601AABB0002 /* HarvestSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarvestSheetView.swift; sourceTree = "<group>"; };
+		AA11223344556601AABB0003 /* ToolDepthSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolDepthSlider.swift; sourceTree = "<group>"; };
 		2C4128C7822635F0B4D0B966 /* PresencePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresencePill.swift; sourceTree = "<group>"; };
 		3133A19FD4CA197756C9D57A /* WorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkView.swift; sourceTree = "<group>"; };
 		365A4A4180DF64759923830A /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
@@ -215,6 +221,9 @@
 			isa = PBXGroup;
 			children = (
 				BF024B3743049659F7073E6C /* AgentActivityView.swift */,
+				AA11223344556601AABB0001 /* AgentPlanCard.swift */,
+				AA11223344556601AABB0002 /* HarvestSheetView.swift */,
+				AA11223344556601AABB0003 /* ToolDepthSlider.swift */,
 				287C64605E5D53C799744EFA /* AgentSessionView.swift */,
 				95B4CE43B87FD3AB52F29A2F /* AgentsHubView.swift */,
 				579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */,
@@ -540,6 +549,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				951D9C072CAFC68FA6BAE300 /* AgentActivityView.swift in Sources */,
+				AA11223344556602AABB0001 /* AgentPlanCard.swift in Sources */,
+				AA11223344556602AABB0002 /* HarvestSheetView.swift in Sources */,
+				AA11223344556602AABB0003 /* ToolDepthSlider.swift in Sources */,
 				5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */,
 				4F65E298CDC06A93095BB178 /* AgentsHubView.swift in Sources */,
 				2506AE1D807F002678049438 /* BeagleAppIntents.swift in Sources */,

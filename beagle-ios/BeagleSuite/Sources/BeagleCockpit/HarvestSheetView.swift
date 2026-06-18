@@ -41,7 +41,9 @@ struct HarvestSheetView: View {
             .padding(.horizontal, BeagleSpacing.lg)
             .background(.ultraThinMaterial)
             .navigationTitle("")
+#if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+#endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
