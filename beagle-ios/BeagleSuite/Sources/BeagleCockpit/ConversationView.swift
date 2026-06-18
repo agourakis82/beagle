@@ -33,6 +33,10 @@ struct ConversationView: View {
                 newMessagePill
             }
 
+            if conversation.isStreaming {
+                streamingContextBar
+            }
+
             BeagleInputBar(
                 text: $inputText,
                 placeholder: "Talk to Beagle...",
@@ -169,6 +173,30 @@ struct ConversationView: View {
         .padding(.bottom, BeagleSpacing.xs)
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .sensoryFeedback(.impact(weight: .light), trigger: userScrolledUp)
+    }
+
+    // MARK: - Streaming context bar
+
+    private var streamingContextBar: some View {
+        HStack(spacing: BeagleSpacing.xs) {
+            Image(systemName: conversation.discussionProfile.iconName)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(BeagleTheme.truthObserved)
+            Text(conversation.discussionProfile.label)
+                .font(BeagleFont.caption2.font)
+                .fontWeight(.semibold)
+                .foregroundStyle(BeagleTheme.textSecondary)
+            Text("·")
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .font(BeagleFont.caption2.font)
+            Text("responding")
+                .font(BeagleFont.caption2.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+            Spacer()
+        }
+        .padding(.horizontal, BeagleSpacing.lg)
+        .padding(.vertical, BeagleSpacing.xxs)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     // MARK: - Empty state (with thought starters)

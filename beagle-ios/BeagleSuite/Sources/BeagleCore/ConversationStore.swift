@@ -295,7 +295,7 @@ public final class ConversationStore {
                     sourceSurface: "beagle-apple-cloud"
                 )
             } else {
-                messages[idx].content = result.error ?? "No response received."
+                messages[idx].content = result.error ?? "The cluster didn't respond — tap ↺ to try again."
                 messages[idx].isStreaming = false
                 persist(message: messages[idx])
             }

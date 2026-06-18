@@ -108,6 +108,17 @@ struct BeagleInputBar: View {
         .padding(.horizontal, BeagleSpacing.sm)
         .padding(.vertical, mode == .terminal ? BeagleSpacing.xs : BeagleSpacing.xxs)
         .background(inputBackground)
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.md)
+                .strokeBorder(
+                    BeagleTheme.truthObserved.opacity(isEnabled ? 0 : 0.28),
+                    lineWidth: isEnabled ? 0 : 1
+                )
+                .animation(
+                    isEnabled ? .easeOut(duration: 0.2) : .easeInOut(duration: 1.1).repeatForever(autoreverses: true),
+                    value: isEnabled
+                )
+        )
         .onKeyPress(characters: .init(charactersIn: "cd"), phases: .down) { press in
             guard press.modifiers.contains(.control) else { return .ignored }
             if press.characters == "c" {

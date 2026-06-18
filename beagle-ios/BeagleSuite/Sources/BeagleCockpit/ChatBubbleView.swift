@@ -81,10 +81,13 @@ struct ChatBubbleView: View {
 
             if message.isStreaming && message.content.isEmpty {
                 streamingPlaceholder
+                    .transition(.opacity)
             } else {
                 renderedContent
+                    .transition(.opacity)
             }
         }
+        .animation(BeagleMotion.fast, value: message.isStreaming && message.content.isEmpty)
         .padding(.horizontal, BeagleSpacing.md)
         .padding(.vertical, BeagleSpacing.sm)
         .background(
@@ -317,7 +320,11 @@ private struct ThinkingIndicator: View {
     private static let messages = [
         "Beagle is thinking...",
         "Following the thread...",
+        "Reaching for the cluster...",
+        "Consulting the exocortex...",
         "Shaping a response...",
+        "Processing through the bridge...",
+        "Composing from memory...",
     ]
 
     var body: some View {
