@@ -334,4 +334,5 @@ pub fn exocortex_routes() -> Router<AppState> {
             "/api/orchestration/plan/confirm",
             post(confirm_plan_handler),
         )
+        .route("/api/moshi/v1/session", get(moshi_session_handler))
 }
