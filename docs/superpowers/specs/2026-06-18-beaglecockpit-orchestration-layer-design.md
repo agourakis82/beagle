@@ -44,11 +44,11 @@ These are NOT a three-layer architecture taxonomy. They are three composable UI 
 
 When Beagle is about to take multi-step action (tool calls, cluster jobs, exocortex writes), surface the plan as an editable card before execution. Grounded in AgentStepper finding: structured review before execution is the highest-ROI intervention.
 
-### Layout
+### Layout (sheet, rises from bottom)
 
 ```
 ╔══════════════════════════════════════════════════════════╗
-║  Plan · Web Research + Memory                  [Edit]   ║
+║  Plan · Web Research + Memory                  [Cancel] ║
 ║  ─────────────────────────────────────────────────────  ║
 ║  Step 1  Search — deep web research                     ║
 ║          Depth: ●────────────────── (5/5)               ║
@@ -128,7 +128,13 @@ Client sends back confirmed plan with user-adjusted depths before execution.
 
 After assistant response, surface the evidence quality inline — not as a warning, not as a red flag, but as epistemic context that helps the user judge quickly. Grounded in: v_bal evidence, Gravity7 post-action audit pattern, and the **temporal memory advantage** Beagle has that no other system can replicate.
 
-### Layout (collapsed, default)
+### Activation
+
+- **iOS/iPadOS:** Long-press any assistant bubble → context menu includes "Check sources" → strip expands below that bubble inline
+- **macOS:** Tap any assistant bubble → sidebar panel on the right updates to show that bubble's verification context (persistent, never hidden)
+- Only assistant bubbles have verification context; user bubbles do not
+
+### Layout (iOS inline, collapsed default)
 
 ```
 ───────────────────────────────────────────────
@@ -160,7 +166,7 @@ After assistant response, surface the evidence quality inline — not as a warni
 The exocortex stores timestamped knowledge artifacts. The verification strip can query:
 
 ```
-/api/exocortex/v1/verify?claim={claim_hash}&lookback=30d
+/api/exocortex/v1/verify?claim={claim_hash}&lookback=90d
 ```
 
 Response includes any conflicting notes from the user's own memory within the lookback window. This surfaces contradictions the user themselves recorded — the most trusted form of verification.
@@ -306,12 +312,12 @@ These emit to the feedback system (`crates/beagle-feedback/`) as `OrchestrationE
 
 ---
 
-## Open Questions (decide before implementation)
+## Decisions (resolved 2026-06-18)
 
-1. **Plan card location:** Above input bar (always visible) vs. as a full-screen sheet? Recommendation: above input bar, 280pt max height with scroll if needed.
+1. **Plan card location:** **Sheet** — modal rising from bottom. Rationale: conversations are frequently long (50–100+ exchanges); users need focused attention on plan + sliders without the scroll context competing. Sheet dismisses back to the conversation cleanly.
 
-2. **Slider step count:** Continuous float (0.0–1.0) vs. discrete integers (1–5)? Recommendation: discrete 1–5, maps cleanly to backend parameters.
+2. **Slider step count:** **Discrete 1–5** — maps cleanly to concrete backend parameters. UI renders as `Slider(value:in:step:)` with step 1.0 and semantic labels at extremes ("Surface ←→ Exhaustive"), feeling continuous visually while being discrete semantically.
 
-3. **Verification strip on iOS vs macOS:** On macOS, strip can be persistent sidebar. On iOS, must be collapsible. Recommendation: same collapsible component on both platforms; macOS gets `.frame(maxWidth: 320)` sidebar option later.
+3. **Verification strip:** **Per-bubble, tap-long to activate** on iOS. On macOS, **persistent sidebar from day one** (not deferred) — users with long conversations want to pin evidence from a specific message while continuing to read. Strip is contextual to the tapped bubble, not bound to "current/last" message.
 
-4. **Temporal lookback window:** 7d, 30d, or user-configurable? Recommendation: 30d default, configurable in profile settings.
+4. **Temporal lookback:** **90d default**, configurable per profile. Rationale: medical/research threads are revisited across weeks; a contradiction from 45 days ago is exactly the signal worth surfacing. High-memory profiles (Darwin, claudeCode) default 90d; platform profiles (cluster, codex) default 30d. "All time" available as manual override.
