@@ -6,7 +6,7 @@ import Foundation
 
 // MARK: - A: Agent Plan
 
-public struct AgentPlan: Decodable, Sendable {
+public struct AgentPlan: Codable, Equatable, Sendable {
     public let planId: String
     public let title: String
     public let steps: [PlanStep]
@@ -15,7 +15,7 @@ public struct AgentPlan: Decodable, Sendable {
     }
 }
 
-public struct PlanStep: Decodable, Sendable, Identifiable {
+public struct PlanStep: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let tool: String
     public let label: String
@@ -34,20 +34,20 @@ public struct PlanStep: Decodable, Sendable, Identifiable {
     }
 }
 
-public struct ConfirmedPlan: Encodable, Sendable {
+public struct ConfirmedPlan: Codable, Equatable, Sendable {
     public let planId: String
     public let steps: [ConfirmedStep]
     enum CodingKeys: String, CodingKey { case planId = "plan_id"; case steps }
 }
 
-public struct ConfirmedStep: Encodable, Sendable {
+public struct ConfirmedStep: Codable, Equatable, Sendable {
     public let id: String
     public let depth: Int
 }
 
 // MARK: - B: Verification
 
-public struct VerificationResult: Decodable, Sendable {
+public struct VerificationResult: Codable, Equatable, Sendable {
     public let messageId: String
     public let sources: [EvidenceItem]
     public let temporalConflict: TemporalConflict?
@@ -57,17 +57,17 @@ public struct VerificationResult: Decodable, Sendable {
     }
 }
 
-public struct EvidenceItem: Decodable, Sendable, Identifiable {
+public struct EvidenceItem: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let label: String
-    public let url: String?
+    public let url: URL?
     public let confidence: EvidenceConfidence
-    public enum EvidenceConfidence: String, Decodable, Sendable {
+    public enum EvidenceConfidence: String, Codable, Equatable, Sendable {
         case cited, inferred, unverified, conflict
     }
 }
 
-public struct TemporalConflict: Decodable, Sendable {
+public struct TemporalConflict: Codable, Equatable, Sendable {
     public let summary: String
     public let noteId: String?
     public let daysAgo: Int
@@ -78,7 +78,7 @@ public struct TemporalConflict: Decodable, Sendable {
 
 // MARK: - C: Autonomy
 
-public enum AutonomyMode: Int, CaseIterable, Sendable {
+public enum AutonomyMode: Int, Codable, Equatable, CaseIterable, Sendable {
     case ask = 0, plan = 1, auto = 2
     public var label: String {
         switch self { case .ask: return "Ask"; case .plan: return "Plan"; case .auto: return "Auto" }
@@ -94,10 +94,10 @@ public enum AutonomyMode: Int, CaseIterable, Sendable {
 
 // MARK: - Instrumentation
 
-public struct OrchestrationEvent: Encodable, Sendable {
+public struct OrchestrationEvent: Codable, Equatable, Sendable {
     public let eventType: String
     public let profileId: String
-    public let autonomyMode: Int
+    public let autonomyMode: AutonomyMode
     public let metadata: [String: String]
     enum CodingKeys: String, CodingKey {
         case eventType = "event_type"; case profileId = "profile_id"
