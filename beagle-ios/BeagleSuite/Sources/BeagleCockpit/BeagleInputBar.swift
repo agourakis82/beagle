@@ -54,19 +54,35 @@ struct BeagleInputBar: View {
     let onSubmit: (String) -> Void
     var onStop: (() -> Void)? = nil
     var onSpecialKey: ((SpecialKey) -> Void)?
+    // Chromatic Presence
+    var activeProfileHue: Color = BeagleTheme.truthObserved
+    var isStreaming: Bool = false
+    var streamingProfileLabel: String = "Beagle"
 
     @FocusState private var isFocused: Bool
     @State private var textHeight: CGFloat = 22
     @State private var submitCount: Int = 0
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: BeagleSpacing.xs) {
-            inputFieldContainer
-            sendButton
+        HStack(alignment: .bottom, spacing: 0) {
+            Rectangle()
+                .fill(activeProfileHue)
+                .frame(width: 3)
+                .clipShape(UnevenRoundedRectangle(
+                    topLeadingRadius: BeagleRadius.md,
+                    bottomLeadingRadius: BeagleRadius.md,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 0
+                ))
+            HStack(alignment: .bottom, spacing: BeagleSpacing.xs) {
+                inputFieldContainer
+                sendButton
+            }
+            .animation(BeagleMotion.fast, value: isEnabled)
+            .padding(.horizontal, BeagleSpacing.md)
+            .padding(.vertical, BeagleSpacing.sm)
         }
-        .animation(BeagleMotion.fast, value: isEnabled)
-        .padding(.horizontal, BeagleSpacing.md)
-        .padding(.vertical, BeagleSpacing.sm)
+        .background(activeProfileHue.opacity(0.05))
         .background(.ultraThinMaterial)
         .sensoryFeedback(.impact(weight: .medium), trigger: submitCount)
         .onChange(of: focusRequest) {
@@ -103,7 +119,23 @@ struct BeagleInputBar: View {
             if mode == .terminal {
                 promptPrefix
             }
-            textInputArea
+            if isStreaming {
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "brain")
+                        .font(.system(size: 11))
+                        .foregroundStyle(activeProfileHue)
+                        .symbolEffect(.pulse, isActive: true)
+                    Text("\(streamingProfileLabel) · responding...")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                    Spacer()
+                }
+                .padding(.leading, 5)
+                .padding(.top, 8)
+                .frame(minHeight: 40)
+            } else {
+                textInputArea
+            }
         }
         .padding(.horizontal, BeagleSpacing.sm)
         .padding(.vertical, mode == .terminal ? BeagleSpacing.xs : BeagleSpacing.xxs)
@@ -111,7 +143,7 @@ struct BeagleInputBar: View {
         .overlay(
             RoundedRectangle(cornerRadius: BeagleRadius.md)
                 .strokeBorder(
-                    BeagleTheme.truthObserved.opacity(isEnabled ? 0 : 0.28),
+                    activeProfileHue.opacity(isEnabled ? 0 : 0.28),
                     lineWidth: isEnabled ? 0 : 1
                 )
                 .animation(
@@ -248,9 +280,14 @@ struct BeagleInputBar: View {
             Button {
                 performSubmit()
             } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundStyle(isTextEmpty ? BeagleTheme.textTertiary : BeagleTheme.truthObserved)
+                ZStack {
+                    Circle()
+                        .fill(isTextEmpty ? Color.white.opacity(0.1) : activeProfileHue)
+                        .frame(width: 32, height: 32)
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(isTextEmpty ? BeagleTheme.textTertiary : .white)
+                }
             }
             .buttonStyle(.plain)
             .disabled(isTextEmpty || !isEnabled)

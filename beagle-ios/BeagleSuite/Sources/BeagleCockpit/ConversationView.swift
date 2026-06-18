@@ -17,6 +17,19 @@ struct ConversationView: View {
     let onRefresh: (() async -> Void)?
     @State private var inputText = ""
     @State private var userScrolledUp = false
+    @State private var showHarvestSheet = false
+
+    private var profilePlaceholder: String {
+        switch conversation.discussionProfile {
+        case .cluster:    return "Talk to Beagle..."
+        case .qwen3b:     return "Ask Qwen..."
+        case .yi6b:       return "Ask Yi..."
+        case .grok:       return "Ask Grok..."
+        case .kimi:       return "Ask Kimi..."
+        case .claudeCode: return "Ask Claude Code..."
+        case .codex:      return "Ask Codex..."
+        }
+    }
 
     init(conversation: ConversationStore, onRefresh: (() async -> Void)? = nil) {
         self.conversation = conversation
@@ -69,16 +82,18 @@ struct ConversationView: View {
 
     private func discussionProfileButton(for profile: DiscussionProfile) -> some View {
         let isSelected = conversation.discussionProfile == profile
-        let foreground = isSelected ? BeagleTheme.truthObserved : BeagleTheme.textSecondary
-        let fill = isSelected
-            ? BeagleTheme.truthObserved.opacity(0.12)
-            : BeagleTheme.surface1.opacity(0.45)
-        let stroke = isSelected
-            ? BeagleTheme.truthObserved.opacity(0.18)
-            : BeagleTheme.hairline
+        let hue = BeagleTheme.profileHue(for: profile)
+        let foreground = isSelected ? hue : BeagleTheme.textSecondary
+        let fill = isSelected ? hue.opacity(0.18) : BeagleTheme.surface1.opacity(0.45)
+        let stroke = isSelected ? hue.opacity(0.40) : BeagleTheme.hairline
 
         return Button {
-            conversation.discussionProfile = profile
+            #if os(iOS)
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            #endif
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) {
+                conversation.discussionProfile = profile
+            }
         } label: {
             HStack(spacing: BeagleSpacing.xs) {
                 Image(systemName: profile.iconName)
@@ -97,6 +112,7 @@ struct ConversationView: View {
             .background(Capsule().fill(fill))
             .overlay(Capsule().strokeBorder(stroke, lineWidth: 1))
         }
+        .animation(.spring(response: 0.38, dampingFraction: 0.72), value: isSelected)
     }
 
     // MARK: - Message list

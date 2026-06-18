@@ -139,6 +139,38 @@ public final class ConversationStore {
         }
         isStreaming = false
     }
+    public func harvestConversation(mode: String) async throws -> String {
+        let transcript = messages.map { m in
+            "\(m.role == .user ? "User" : "Assistant"): \(m.content)"
+        }.joined(separator: "\n\n")
+
+        let profile = discussionProfile.rawValue
+
+        if mode == "save" {
+            let payload: [String: any Sendable] = [
+                "content": transcript,
+                "tags": [profile, "harvest", "conversation"],
+                "title": "Conversation harvest — \(profile) — \(messages.count) exchanges",
+                "source_surface": "cockpit-harvest"
+            ]
+            let result = await client.post(ActionResponse.self, path: "/api/exocortex/v1/feed/raw", body: payload, timeout: 60)
+            if let out = result.value?.output, !out.isEmpty { return out }
+            if result.error == nil { return "Saved to memory — \(messages.count) exchanges stored." }
+            throw URLError(.badServerResponse)
+        } else {
+            let payload: [String: any Sendable] = [
+                "mode": mode,
+                "profile": profile,
+                "transcript": transcript,
+                "message_count": messages.count
+            ]
+            let result = await client.post(ActionResponse.self, path: "/api/cognitive/deep-think", body: payload, timeout: 120)
+            if let out = result.value?.output, !out.isEmpty { return out }
+            if result.error == nil { return "Analysis complete — check the Recall tab for results." }
+            throw URLError(.badServerResponse)
+        }
+    }
+
 
     /// Send a message with HRV-gated routing:
     /// FLOW → cloud (deep reasoning worth the latency)
