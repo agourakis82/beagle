@@ -159,6 +159,20 @@ public enum BeagleTheme {
         dark:  Color.white.opacity(0.08)
     )
 
+
+    // MARK: - Discussion profile hues (Chromatic Presence system)
+    public static func profileHue(for profile: DiscussionProfile) -> Color {
+        switch profile {
+        case .cluster:    return Color(hue: 186/360, saturation: 0.70, brightness: 0.85) // teal
+        case .qwen3b:     return Color(hue: 40/360,  saturation: 0.80, brightness: 0.90) // amber
+        case .yi6b:       return Color(hue: 150/360, saturation: 0.65, brightness: 0.80) // emerald
+        case .grok:       return Color(hue: 275/360, saturation: 0.60, brightness: 0.88) // violet
+        case .kimi:       return Color(hue: 215/360, saturation: 0.65, brightness: 0.90) // sky blue
+        case .claudeCode: return Color(hue: 25/360,  saturation: 0.85, brightness: 0.92) // orange
+        case .codex:      return Color(hue: 120/360, saturation: 0.55, brightness: 0.78) // green
+        }
+    }
+
     // MARK: - Legacy font aliases (deprecated — use BeagleFont instead)
 
     public static func dataFont(size: CGFloat = 13, weight: Font.Weight = .regular) -> Font {
