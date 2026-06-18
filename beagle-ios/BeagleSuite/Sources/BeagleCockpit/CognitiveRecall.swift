@@ -815,7 +815,7 @@ private struct FlowChips: View {
 }
 
 /// Minimal flow layout (wraps chips to multiple rows).
-private struct FlowLayout: Layout {
+struct FlowLayout: Layout {
     var spacing: CGFloat = 7
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

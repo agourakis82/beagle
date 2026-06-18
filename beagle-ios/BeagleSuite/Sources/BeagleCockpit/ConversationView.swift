@@ -143,7 +143,11 @@ struct ConversationView: View {
                                 onRegenerate: message.role == .assistant ? {
                                     Task { await conversation.regenerateLastResponse() }
                                 } : nil,
-                                profileHue: BeagleTheme.profileHue(for: conversation.discussionProfile)
+                                profileHue: BeagleTheme.profileHue(for: conversation.discussionProfile),
+                                verificationResult: conversation.verificationResults[message.id],
+                                onCheckSources: message.role == .assistant ? {
+                                    Task { await conversation.fetchVerification(for: message.id, profileId: conversation.discussionProfile.rawValue) }
+                                } : nil
                             )
                             .id(message.id)
                             .scrollTransition(.animated) { content, phase in

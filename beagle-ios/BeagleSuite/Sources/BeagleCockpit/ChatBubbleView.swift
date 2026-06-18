@@ -14,6 +14,8 @@ struct ChatBubbleView: View {
     let message: ChatMessage
     var onRegenerate: (() -> Void)?
     var profileHue: Color = BeagleTheme.truthObserved
+    var verificationResult: VerificationResult? = nil
+    var onCheckSources: (() -> Void)? = nil
 
     @State private var cursorVisible = true
 
@@ -40,6 +42,9 @@ struct ChatBubbleView: View {
         VStack(alignment: message.role == .user ? .trailing : .leading, spacing: BeagleSpacing.xxs) {
             messageBody
             messageFooter
+            if message.role == .assistant, let result = verificationResult {
+                VerificationStrip(result: result, profileHue: profileHue)
+            }
         }
     }
 
@@ -330,6 +335,14 @@ struct ChatBubbleView: View {
             Divider()
 
             GoDeepContextAction(prompt: message.content)
+
+            if let onCheckSources {
+                Button {
+                    onCheckSources()
+                } label: {
+                    Label("Check sources", systemImage: "checkmark.shield")
+                }
+            }
         }
     }
 }
