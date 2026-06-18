@@ -38,6 +38,7 @@ mod chronoself;
 mod dtos;
 mod memory_truth;
 mod mind_palace;
+mod orchestration;
 mod paths;
 mod repository;
 mod routes;
@@ -49,6 +50,7 @@ pub(crate) use chronoself::*;
 pub(crate) use dtos::*;
 pub(crate) use memory_truth::*;
 pub(crate) use mind_palace::*;
+pub(crate) use orchestration::*;
 pub(crate) use paths::*;
 pub(crate) use repository::*;
 pub(crate) use routes::*;
@@ -617,12 +619,12 @@ pub(crate) async fn graphrag_query_handler(
 
 #[derive(Serialize)]
 pub(crate) struct RecallSource {
-    n: usize,
-    text: String,
+    pub(crate) n: usize,
+    pub(crate) text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    date: Option<String>,
-    source: String,
-    score: f64,
+    pub(crate) date: Option<String>,
+    pub(crate) source: String,
+    pub(crate) score: f64,
 }
 
 #[derive(Serialize)]
