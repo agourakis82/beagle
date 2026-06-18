@@ -52,6 +52,7 @@ struct BeagleInputBar: View {
     let isEnabled: Bool
     var focusRequest: Int = 0
     let onSubmit: (String) -> Void
+    var onStop: (() -> Void)? = nil
     var onSpecialKey: ((SpecialKey) -> Void)?
 
     @FocusState private var isFocused: Bool
@@ -63,6 +64,7 @@ struct BeagleInputBar: View {
             inputFieldContainer
             sendButton
         }
+        .animation(BeagleMotion.fast, value: isEnabled)
         .padding(.horizontal, BeagleSpacing.md)
         .padding(.vertical, BeagleSpacing.sm)
         .background(.ultraThinMaterial)
@@ -210,19 +212,39 @@ struct BeagleInputBar: View {
             .allowsHitTesting(false)
     }
 
-    // MARK: - Send button
+    // MARK: - Send / Stop button
 
+    @ViewBuilder
     private var sendButton: some View {
-        Button {
-            performSubmit()
-        } label: {
-            Image(systemName: "arrow.up.circle.fill")
-                .font(.system(size: 24))
-                .foregroundStyle(isTextEmpty ? BeagleTheme.textTertiary : BeagleTheme.truthObserved)
+        if !isEnabled, let onStop {
+            // Streaming in progress — show stop button
+            Button {
+                onStop()
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(BeagleTheme.stateError.opacity(0.15))
+                        .frame(width: 30, height: 30)
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(BeagleTheme.stateError)
+                }
+            }
+            .buttonStyle(.plain)
+            .transition(.scale(scale: 0.7).combined(with: .opacity))
+        } else {
+            // Ready to send
+            Button {
+                performSubmit()
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(isTextEmpty ? BeagleTheme.textTertiary : BeagleTheme.truthObserved)
+            }
+            .buttonStyle(.plain)
+            .disabled(isTextEmpty || !isEnabled)
+            .transition(.scale(scale: 0.7).combined(with: .opacity))
         }
-        .buttonStyle(.plain)
-        .disabled(isTextEmpty || !isEnabled)
-        .animation(BeagleMotion.fast, value: isTextEmpty)
     }
 
     private var isTextEmpty: Bool {

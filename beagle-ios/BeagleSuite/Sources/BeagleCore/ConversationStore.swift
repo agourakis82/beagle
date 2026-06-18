@@ -76,6 +76,7 @@ public final class ConversationStore {
 
     public private(set) var messages: [ChatMessage] = []
     public private(set) var isStreaming: Bool = false
+    private var _streamingTask: Task<Void, Never>?
     public private(set) var autoImportState: ConversationAutoImportState = .idle
 
     /// Whether to prefer on-device model when available.
@@ -119,6 +120,25 @@ public final class ConversationStore {
     public var behaviorContext: String? = nil
     public var noteTakingContext: String? = nil
     public var physioPolicy: PhysioConversationPolicy? = nil
+
+    /// Kick off a message send, storing the task so it can be cancelled via stopStreaming().
+    /// Call this from the UI instead of Task { await sendMessage(_:) }.
+    public func submitMessage(_ text: String) {
+        _streamingTask?.cancel()
+        _streamingTask = Task { await self.sendMessage(text) }
+    }
+
+    /// Cancel the in-flight streaming task and mark the pending message as done.
+    public func stopStreaming() {
+        _streamingTask?.cancel()
+        _streamingTask = nil
+        // Clean up any empty placeholder left by a cancelled cloud request
+        messages.removeAll { $0.isStreaming && $0.content.isEmpty }
+        if let idx = messages.indices.last(where: { messages[$0].isStreaming }) {
+            messages[idx].isStreaming = false
+        }
+        isStreaming = false
+    }
 
     /// Send a message with HRV-gated routing:
     /// FLOW → cloud (deep reasoning worth the latency)

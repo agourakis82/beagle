@@ -40,7 +40,10 @@ struct ConversationView: View {
                 isEnabled: !conversation.isStreaming,
                 onSubmit: { text in
                     userScrolledUp = false
-                    Task { await conversation.sendMessage(text) }
+                    conversation.submitMessage(text)
+                },
+                onStop: {
+                    conversation.stopStreaming()
                 }
             )
         }
@@ -233,7 +236,7 @@ struct ConversationView: View {
     private func thoughtStarter(_ text: String, icon: String, color: Color) -> some View {
         Button {
             inputText = text
-            Task { await conversation.sendMessage(text) }
+            conversation.submitMessage(text)
         } label: {
             HStack(spacing: BeagleSpacing.sm) {
                 Image(systemName: icon)
