@@ -1620,7 +1620,7 @@ private struct VisualWorkbenchStage: View {
                     onBakeOff: onBakeOffArtifact,
                     onRuntime: onRuntime
                 )
-                .frame(width: 360)
+                .frame(minWidth: 300, idealWidth: 360, maxWidth: 420)
             }
         }
     }

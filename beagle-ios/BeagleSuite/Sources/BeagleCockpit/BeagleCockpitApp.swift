@@ -14,6 +14,11 @@ import SwiftUI
 import SwiftData
 import BeagleCore
 import BeagleWorkbenchKit
+
+extension Notification.Name {
+    fileprivate static let beagleNavigateSidebar = Notification.Name("beagle.navigate.sidebar")
+}
+
 #if os(iOS)
 import UIKit
 import BackgroundTasks
@@ -91,6 +96,16 @@ struct BeagleCockpitApp: App {
                     Task { await catalog.refresh() }
                 }
                 .keyboardShortcut("r", modifiers: .command)
+            }
+            CommandMenu("Go") {
+                Button("Home") { NotificationCenter.default.post(name: .beagleNavigateSidebar, object: "Home") }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("Work") { NotificationCenter.default.post(name: .beagleNavigateSidebar, object: "Work") }
+                    .keyboardShortcut("2", modifiers: .command)
+                Button("Terminals") { NotificationCenter.default.post(name: .beagleNavigateSidebar, object: "Terminals") }
+                    .keyboardShortcut("3", modifiers: .command)
+                Button("Recall") { NotificationCenter.default.post(name: .beagleNavigateSidebar, object: "Recall") }
+                    .keyboardShortcut("4", modifiers: .command)
             }
         }
         #endif
@@ -500,6 +515,11 @@ struct RootView: View {
                         }
                     }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .beagleNavigateSidebar)) { note in
+            guard let raw = note.object as? String,
+                  let item = SidebarItem(rawValue: raw) else { return }
+            sidebarSelection = item
         }
     }
 
