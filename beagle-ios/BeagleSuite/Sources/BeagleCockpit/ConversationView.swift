@@ -64,6 +64,19 @@ struct ConversationView: View {
                 }
             )
         }
+        #if os(iOS)
+        .sheet(isPresented: $showHarvestSheet) {
+            HarvestSheetView(conversation: conversation)
+                .presentationDetents([.medium])
+        }
+        .sheet(isPresented: Binding(
+            get: { conversation.pendingPlan != nil },
+            set: { if !$0 { conversation.pendingPlan = nil } }
+        )) {
+            AgentPlanCard(conversation: conversation)
+                .presentationDetents([.medium, .large])
+        }
+        #endif
     }
 
     private var discussionProfileStrip: some View {
