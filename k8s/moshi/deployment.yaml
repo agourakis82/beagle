@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: moshi-server
+  namespace: moshi
+  labels:
+    app.kubernetes.io/name: moshi-server
+    app.kubernetes.io/part-of: beagle
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: moshi-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: moshi-server
+        app.kubernetes.io/part-of: beagle
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: r770-proxmox
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      containers:
+        - name: moshi
+          image: 192.168.3.207:5003/moshi-server:2026-06-18
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: true
+            seccompProfile:
+              type: Unconfined
+          env:
+            - name: HF_HOME
+              value: /var/cache/huggingface
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: moshi-secrets
+                  key: HF_TOKEN
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          ports:
+            - name: ws
+              containerPort: 8998
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: ws
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            tcpSocket:
+              port: ws
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
+          livenessProbe:
+            tcpSocket:
+              port: ws
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "4"
+              memory: 18Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 22Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /var/cache/huggingface
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim:
+            claimName: moshi-hf-cache
