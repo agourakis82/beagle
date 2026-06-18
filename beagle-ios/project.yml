@@ -16,8 +16,8 @@ settings:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_USER_SCRIPT_SANDBOXING: true
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: 28
+    MARKETING_VERSION: "1.01"
+    CURRENT_PROJECT_VERSION: 32
     ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
 packages:
@@ -36,6 +36,8 @@ targets:
     dependencies:
       - package: BeagleSuite
         product: BeagleCore
+      - package: BeagleSuite
+        product: BeagleWorkbenchKit
       - target: BeagleWidgets
         platformFilter: iOS
       - target: BeagleShare
@@ -59,7 +61,6 @@ targets:
         NSHealthShareUsageDescription: "Beagle reads recovery signals like HRV, sleep, and workouts so the exocortex can adapt to your actual state."
         NSHealthUpdateUsageDescription: "Beagle records cognitive state snapshots alongside your thoughts so the exocortex can correlate insights with your physiological state."
         NSSpeechRecognitionUsageDescription: "Beagle uses speech recognition for voice commands."
-        NSSupportsLiveActivities: true
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
           - CFBundleURLSchemes:
@@ -88,7 +89,9 @@ targets:
     entitlements:
       path: Entitlements/BeagleCockpit.entitlements
       properties:
+        aps-environment: development
         com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.background-delivery: true
         com.apple.security.application-groups:
           - group.dev.sounio.cockpit
         com.apple.developer.kernel.increased-memory-limit: true
