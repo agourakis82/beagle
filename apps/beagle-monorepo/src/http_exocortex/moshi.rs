@@ -35,10 +35,11 @@ pub(crate) async fn moshi_session_handler(
     // If unset, only requests without an Origin header (native clients, curl) are allowed.
     let allowed = env::var("BEAGLE_ALLOWED_ORIGINS").unwrap_or_default();
     if let Some(origin) = headers.get(axum::http::header::ORIGIN).and_then(|v| v.to_str().ok()) {
+        // Exact match only — starts_with is bypassable via https://allowed.evil.com
         let permitted = allowed
             .split(',')
             .map(str::trim)
-            .any(|o| !o.is_empty() && (origin == o || origin.starts_with(o)));
+            .any(|o| !o.is_empty() && origin.eq_ignore_ascii_case(o));
         if !permitted {
             warn!("moshi: rejected WS upgrade from unlisted origin: {origin}");
             return (StatusCode::FORBIDDEN, "origin not permitted").into_response();
