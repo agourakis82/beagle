@@ -22,6 +22,7 @@ public actor BeagleClient {
 
     private let session: URLSession
     private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
 
     /// beagle-server URLs — tried in sequence.
     private var baseURLs: [URL] = [
@@ -48,12 +49,17 @@ public actor BeagleClient {
         ]
         self.session = URLSession(configuration: config)
         self.decoder = JSONDecoder()
+        self.encoder = JSONEncoder()
     }
 
     public func configure(baseURLs: [URL], consumerId: String? = nil, token: String? = nil) {
         self.baseURLs = baseURLs
         if let consumerId { self.consumerId = consumerId }
         if let token { self.consumerToken = token }
+    }
+
+    private static func pathComponent(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
     }
 
     /// Whether beagle-server is reachable (quick health check).
@@ -195,6 +201,81 @@ public actor BeagleClient {
         return .staleError(lastError)
     }
 
+    public func postEncoded<T: Decodable & Sendable, Body: Encodable & Sendable>(
+        _ type: T.Type,
+        path: String,
+        body: Body,
+        timeout: TimeInterval = 120,
+        requiresAuth: Bool = true
+    ) async -> Truthful<T> {
+        if requiresAuth {
+            let authReady = await ensureAuth()
+            guard authReady else {
+                let authError = authBootstrapError ?? "Auth bootstrap failed"
+                print("[BeagleClient] [\(type)] POST \(path) auth blocked: \(authError)")
+                return .staleError(authError)
+            }
+        }
+
+        let payload: Data
+        do {
+            payload = try encoder.encode(body)
+        } catch {
+            return .staleError("Failed to encode request: \(error.localizedDescription)")
+        }
+
+        var lastError = "beagle-server unreachable"
+        let debugLabel = "[\(type)] POST \(path)"
+        print("[BeagleClient] \(debugLabel) starting...")
+
+        for base in baseURLs {
+            guard let url = URL(string: path, relativeTo: base) else {
+                print("[BeagleClient] \(debugLabel) failed to construct URL with base: \(base)")
+                continue
+            }
+            var responseData: Data?
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.timeoutInterval = timeout
+                applyAuth(&request)
+                request.httpBody = payload
+
+                print("[BeagleClient] \(debugLabel) requesting: \(url)")
+                let (data, response) = try await session.data(for: request)
+                responseData = data
+
+                guard let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode) else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    let bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
+                    lastError = formatError(statusCode: statusCode, data: data, fallback: "HTTP \(statusCode)")
+                    print("[BeagleClient] \(debugLabel) ❌ HTTP \(statusCode)")
+                    print("[BeagleClient] Response body: \(bodyText.prefix(300))")
+                    continue
+                }
+
+                let decoded = try decoder.decode(T.self, from: data)
+                print("[BeagleClient] \(debugLabel) ✅ success")
+                return .observed(decoded, source: url.host)
+            } catch {
+                lastError = error.localizedDescription
+                let bodyText: String
+                if let data = responseData {
+                    bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
+                } else {
+                    bodyText = "<no response data>"
+                }
+                print("[BeagleClient] \(debugLabel) ❌ error: \(error.localizedDescription)")
+                print("[BeagleClient] Response body: \(bodyText.prefix(300))")
+                continue
+            }
+        }
+        print("[BeagleClient] \(debugLabel) all URLs failed: \(lastError)")
+        return .staleError(lastError)
+    }
+
     /// Fetch auth token from cockpit bridge (zero hardcode).
     /// Re-fetches when token is older than 4 minutes (server TTL is 5min).
     private var tokenFetchedAt: Date?
@@ -293,6 +374,14 @@ public actor BeagleClient {
         return false
     }
 
+    /// Returns the current bearer token after ensuring auth, for use by first-party
+    /// WebSocket clients (e.g. MoshiSessionManager) that cannot use applyAuth directly.
+    /// Falls back to empty string if auth is unavailable.
+    public func resolvedBearerToken() async -> String {
+        if !tokenFetched { _ = await ensureAuth() }
+        return consumerToken ?? ""
+    }
+
     public func authBootstrapStatus() -> Truthful<String> {
         if tokenFetched {
             return .observed(consumerId ?? "token ready", source: "cockpit-auth-bridge")
@@ -366,15 +455,47 @@ public actor BeagleClient {
 
     // MARK: - Thought Capture
 
-    /// Capture a thought via HERMES system prompt → beagle-server.
+    /// Capture a thought as cluster-canonical GraphRAG++ memory.
     public func captureThought(text: String, source: String = "ios") async -> Truthful<ChatResponse> {
-        let hermesPrompt = """
-        You are HERMES. Refine the following thought fragment into a structured memory while preserving the original insight. Output only the refined text.
+        let request = AssistedImportRequestFactory.capture(
+            text: text,
+            source: source
+        )
+        if request.privacyClass == "restricted" {
+            return .declared(
+                ChatResponse(
+                    response: "Restricted content was not uploaded. It must stay in the local outbox until you explicitly review it.",
+                    model: "beagle-local-privacy-guard",
+                    source: request.sourceSurface,
+                    sessionId: request.sessionId,
+                    conversationMode: "restricted_local_only"
+                ),
+                source: request.sourceSurface
+            )
+        }
 
-        Source: \(source)
-        Thought: \(text)
-        """
-        return await llmComplete(prompt: hermesPrompt)
+        let result = await assistedImportBatch(request)
+        guard let importResult = result.value else {
+            return .staleError(result.error ?? "Assisted import failed", source: result.source)
+        }
+        let atoms = importResult.projection?.atomsCreated ?? 0
+        let episodes = importResult.projection?.episodesCreated ?? 0
+        let response = importResult.status == "imported"
+            ? "Captured into cluster GraphRAG++ memory (\(episodes) episode, \(atoms) atoms)."
+            : (importResult.reason ?? "Capture was not imported.")
+        return Truthful(
+            value: ChatResponse(
+                response: response,
+                model: "beagle-graphrag++",
+                source: importResult.sourceSurface,
+                sessionId: importResult.sessionId,
+                conversationMode: "assisted_import"
+            ),
+            mode: result.mode,
+            observedAt: result.observedAt,
+            source: result.source,
+            error: result.error
+        )
     }
 
     // MARK: - Triad (adversarial review)
@@ -384,6 +505,85 @@ public actor BeagleClient {
         await post(TriadResult.self, path: "/dev/debate", body: [
             "topic": prompt
         ], timeout: 120)
+    }
+
+    /// Streaming debate: consumes the SSE endpoint and yields incremental events
+    /// (text deltas as agents speak, then a final consolidated TriadResult).
+    /// Falls back through the same multi-URL chain as the non-streaming path.
+    nonisolated public func streamTriad(prompt: String) -> AsyncStream<TriadStreamEvent> {
+        AsyncStream { continuation in
+            let task = Task { [weak self] in
+                guard let self else { continuation.finish(); return }
+
+                let authReady = await self.ensureAuth()
+                guard authReady else {
+                    continuation.yield(.error(await self.authBootstrapError ?? "Auth bootstrap failed"))
+                    continuation.finish()
+                    return
+                }
+
+                // Snapshot actor-isolated state up front so the streaming loop runs
+                // off-actor with Sendable values only. The actor's decoder is a plain
+                // JSONDecoder(); a local one is equivalent and avoids crossing a
+                // non-Sendable JSONDecoder across the actor boundary per frame.
+                let bases = await self.baseURLs
+                let session = await self.session
+                let decoder = JSONDecoder()
+
+                for base in bases {
+                    if Task.isCancelled { break }
+                    // applyAuth mutates an inout request, so build it on the actor.
+                    guard let request = await self.makeDebateStreamRequest(base: base, prompt: prompt) else { continue }
+
+                    do {
+                        let (bytes, response) = try await session.bytes(for: request)
+                        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                            continue // try the next base URL
+                        }
+                        for try await line in bytes.lines {
+                            if Task.isCancelled { break }
+                            // SSE frames look like "data: <payload>"; ignore comments/blanks.
+                            guard line.hasPrefix("data:") else { continue }
+                            let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                            if payload.isEmpty || payload == "[DONE]" { continue }
+                            guard let data = payload.data(using: .utf8) else { continue }
+                            // A full TriadResult frame ends the stream; otherwise it's a delta.
+                            if let final = try? decoder.decode(TriadResult.self, from: data),
+                               final.consensus != nil || final.scores != nil {
+                                continuation.yield(.final(final))
+                            } else if let delta = try? decoder.decode(TriadStreamDelta.self, from: data) {
+                                continuation.yield(.delta(agent: delta.agent, text: delta.text ?? delta.content ?? ""))
+                            } else {
+                                continuation.yield(.delta(agent: nil, text: payload))
+                            }
+                        }
+                        continuation.finish()
+                        return
+                    } catch {
+                        continue // network/parse error → next base URL
+                    }
+                }
+                if !Task.isCancelled {
+                    continuation.yield(.error("Debate stream unreachable on all endpoints."))
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Actor-isolated builder so `applyAuth` (which mutates an inout request) runs
+    /// on the actor; returns a Sendable URLRequest for the off-actor stream loop.
+    private func makeDebateStreamRequest(base: URL, prompt: String) -> URLRequest? {
+        guard let url = URL(string: "/dev/debate", relativeTo: base) else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 180
+        applyAuth(&request)
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["topic": prompt, "stream": true])
+        return request
     }
 
     // MARK: - Round Table (exotic model debate)
@@ -451,6 +651,551 @@ public actor BeagleClient {
 
     public func queryMemory(query: String) async -> Truthful<ChatResponse> {
         await post(ChatResponse.self, path: "/api/memory/query", body: ["query": query])
+    }
+
+    // MARK: - Exocortex v1
+
+    public func exocortexHome(
+        activeProjectSlug: String? = nil,
+        platform: String = "apple"
+    ) async -> Truthful<ExocortexHomeSnapshot> {
+        var queryItems: [String] = []
+        if let activeProjectSlug,
+           let encoded = activeProjectSlug.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            queryItems.append("active_project_slug=\(encoded)")
+        }
+        if let encoded = platform.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            queryItems.append("platform=\(encoded)")
+        }
+        let suffix = queryItems.isEmpty ? "" : "?\(queryItems.joined(separator: "&"))"
+        return await fetch(
+            ExocortexHomeSnapshot.self,
+            path: "/api/exocortex/v1/home\(suffix)",
+            timeout: 20
+        )
+    }
+
+    public func memoryProjectionStatus() async -> Truthful<MemoryProjectionStatus> {
+        await fetch(
+            MemoryProjectionStatus.self,
+            path: "/api/exocortex/v1/memory/projection/status",
+            timeout: 20
+        )
+    }
+
+    public func memoryGraphStatus() async -> Truthful<MemoryGraphStatus> {
+        await fetch(
+            MemoryGraphStatus.self,
+            path: "/api/exocortex/v1/memory/graph/status",
+            timeout: 20
+        )
+    }
+
+    public func memoryGraphBakeoffStatus() async -> Truthful<MemoryGraphStatus> {
+        await fetch(
+            MemoryGraphStatus.self,
+            path: "/api/exocortex/v1/memory/graph/bakeoff/status",
+            timeout: 20
+        )
+    }
+
+    public func memoryBenchmarkStatus() async -> Truthful<MemoryBenchmarkStatus> {
+        await fetch(
+            MemoryBenchmarkStatus.self,
+            path: "/api/exocortex/v1/memory/bench/status",
+            timeout: 20
+        )
+    }
+
+    public func memoryTruthSetStatus(id: String) async -> Truthful<MemoryTruthSetStatus> {
+        await fetch(
+            MemoryTruthSetStatus.self,
+            path: "/api/exocortex/v1/memory/truthsets/\(id)",
+            timeout: 20
+        )
+    }
+
+    public func runMemoryGraphBakeoff(datasetLimit: Int = 200) async -> Truthful<GraphBakeoffRun> {
+        await post(
+            GraphBakeoffRun.self,
+            path: "/api/exocortex/v1/memory/graph/bakeoff",
+            body: [
+                "dataset_limit": max(1, min(datasetLimit, 2000)),
+                "include_baseline": true
+            ],
+            timeout: 120
+        )
+    }
+
+    public func indexMemoryGraph(rebuild: Bool = false, runtime: String? = nil) async -> Truthful<GraphIndexRun> {
+        var body: [String: any Sendable] = [
+            "rebuild": rebuild,
+            "source_refs": [String]()
+        ]
+        if let runtime, !runtime.isEmpty {
+            body["runtime"] = runtime
+        }
+        return await post(
+            GraphIndexRun.self,
+            path: "/api/exocortex/v1/memory/index-graph",
+            body: body,
+            timeout: 120
+        )
+    }
+
+    public func memoryGraphRecent(limit: Int = 12) async -> Truthful<MemoryGraphRecentResponse> {
+        await fetch(
+            MemoryGraphRecentResponse.self,
+            path: "/api/exocortex/v1/memory/graph/recent?limit=\(max(1, min(limit, 50)))",
+            timeout: 20
+        )
+    }
+
+    public func memoryWorldsRecent(limit: Int = 12) async -> Truthful<MemoryWorldsRecentResponse> {
+        await fetch(
+            MemoryWorldsRecentResponse.self,
+            path: "/api/exocortex/v1/memory/worlds/recent?limit=\(max(1, min(limit, 50)))",
+            timeout: 20
+        )
+    }
+
+    public func registerSpatialWorld(_ request: CreateSpatialWorldRequest) async -> Truthful<SpatialWorld> {
+        await postEncoded(
+            SpatialWorld.self,
+            path: "/api/exocortex/v1/spatial/worlds/marble",
+            body: request,
+            timeout: 60
+        )
+    }
+
+    public func spatialWorld(_ worldId: String) async -> Truthful<SpatialWorld> {
+        await fetch(
+            SpatialWorld.self,
+            path: "/api/exocortex/v1/spatial/worlds/\(Self.pathComponent(worldId))",
+            timeout: 20
+        )
+    }
+
+    public func spatialWorldAssets(_ worldId: String) async -> Truthful<SpatialAssetManifest> {
+        await fetch(
+            SpatialAssetManifest.self,
+            path: "/api/exocortex/v1/spatial/worlds/\(Self.pathComponent(worldId))/assets",
+            timeout: 20
+        )
+    }
+
+    public func spatialControlRoom(projectSlug: String = "sounio") async -> Truthful<ControlRoomSnapshot> {
+        await fetch(
+            ControlRoomSnapshot.self,
+            path: "/api/exocortex/v1/spatial/projects/\(Self.pathComponent(projectSlug))/control-room",
+            timeout: 20
+        )
+    }
+
+    public func createSounioSpatialEvidence(
+        worldId: String,
+        request: CreateSounioSpatialEvidenceRequest
+    ) async -> Truthful<SounioSpatialEvidence> {
+        await postEncoded(
+            SounioSpatialEvidence.self,
+            path: "/api/exocortex/v1/spatial/worlds/\(Self.pathComponent(worldId))/sounio/evidence",
+            body: request,
+            timeout: 60
+        )
+    }
+
+    public func mindPalace() async -> Truthful<MindPalaceSnapshot> {
+        await fetch(
+            MindPalaceSnapshot.self,
+            path: "/api/exocortex/v1/mind-palace",
+            timeout: 20
+        )
+    }
+
+    public func mindPalaceRooms() async -> Truthful<[MindPalaceRoom]> {
+        await fetch(
+            [MindPalaceRoom].self,
+            path: "/api/exocortex/v1/mind-palace/rooms",
+            timeout: 20
+        )
+    }
+
+    public func spatialDesk() async -> Truthful<SpatialDeskSnapshot> {
+        await fetch(
+            SpatialDeskSnapshot.self,
+            path: "/api/exocortex/v1/mind-palace/desk",
+            timeout: 20
+        )
+    }
+
+    public func nextBestPlace() async -> Truthful<NextBestPlaceDecision> {
+        await fetch(
+            NextBestPlaceDecision.self,
+            path: "/api/exocortex/v1/mind-palace/next-best-place",
+            timeout: 20
+        )
+    }
+
+    public func spatialActionMenu() async -> Truthful<SpatialActionMenu> {
+        await fetch(
+            SpatialActionMenu.self,
+            path: "/api/exocortex/v1/mind-palace/action-menu",
+            timeout: 20
+        )
+    }
+
+    public func createConversationPortal(_ request: CreateConversationPortalRequest) async -> Truthful<ConversationPortal> {
+        await postEncoded(
+            ConversationPortal.self,
+            path: "/api/exocortex/v1/conversation-portals",
+            body: request,
+            timeout: 20
+        )
+    }
+
+    public func promoteConversationPortal(
+        portalId: String,
+        request: PromoteConversationPortalRequest
+    ) async -> Truthful<PromotedConversationClip> {
+        await postEncoded(
+            PromotedConversationClip.self,
+            path: "/api/exocortex/v1/conversation-portals/\(Self.pathComponent(portalId))/promote",
+            body: request,
+            timeout: 60
+        )
+    }
+
+    public func focusCoachStatus() async -> Truthful<FocusCoachState> {
+        await fetch(
+            FocusCoachState.self,
+            path: "/api/exocortex/v1/focus-coach/status",
+            timeout: 20
+        )
+    }
+
+    public func recordFocusCoachEvent(_ request: FocusCoachEventRequest) async -> Truthful<FocusCoachState> {
+        await postEncoded(
+            FocusCoachState.self,
+            path: "/api/exocortex/v1/focus-coach/events",
+            body: request,
+            timeout: 20
+        )
+    }
+
+    public func memoryCandidates(limit: Int = 20) async -> Truthful<MemoryCandidateListResponse> {
+        await fetch(
+            MemoryCandidateListResponse.self,
+            path: "/api/exocortex/v1/memory/candidates?limit=\(max(1, min(limit, 100)))",
+            timeout: 20
+        )
+    }
+
+    public func memoryGovernanceStatus() async -> Truthful<MemoryGovernanceStatus> {
+        await fetch(
+            MemoryGovernanceStatus.self,
+            path: "/api/exocortex/v1/memory/governance/status",
+            timeout: 20
+        )
+    }
+
+    public func memoryContradictions(limit: Int = 20) async -> Truthful<MemoryContradictionListResponse> {
+        await fetch(
+            MemoryContradictionListResponse.self,
+            path: "/api/exocortex/v1/memory/contradictions?limit=\(max(1, min(limit, 100)))",
+            timeout: 20
+        )
+    }
+
+    public func graphRagQuery(
+        query: String,
+        scope: String? = nil,
+        maxItems: Int = 5,
+        mode: String = "hypermemory_multivector"
+    ) async -> Truthful<GraphRagQueryResponse> {
+        var body: [String: any Sendable] = [
+            "query": query,
+            "max_items": maxItems,
+            "mode": mode
+        ]
+        if let scope, !scope.isEmpty {
+            body["scope"] = scope
+        }
+        return await post(
+            GraphRagQueryResponse.self,
+            path: "/api/exocortex/v1/graphrag/query",
+            body: body,
+            timeout: 60
+        )
+    }
+
+    public func assistedImportBatch(
+        _ request: AssistedImportBatchRequest
+    ) async -> Truthful<AssistedImportBatchResult> {
+        await postEncoded(
+            AssistedImportBatchResult.self,
+            path: "/api/exocortex/v1/memory/assisted-import",
+            body: request,
+            timeout: 120
+        )
+    }
+
+    public func captureSessionStart(
+        _ request: CaptureSessionStartRequest
+    ) async -> Truthful<CaptureSession> {
+        await postEncoded(
+            CaptureSession.self,
+            path: "/api/exocortex/v1/capture/sessions",
+            body: request,
+            timeout: 30
+        )
+    }
+
+    public func captureSessionStatus(
+        sessionId: String
+    ) async -> Truthful<CaptureSession> {
+        await fetch(
+            CaptureSession.self,
+            path: "/api/exocortex/v1/capture/sessions/\(sessionId)",
+            timeout: 20
+        )
+    }
+
+    public func captureSessionEvent(
+        sessionId: String,
+        request: CaptureSessionEventRequest
+    ) async -> Truthful<CaptureSessionEvent> {
+        await postEncoded(
+            CaptureSessionEvent.self,
+            path: "/api/exocortex/v1/capture/sessions/\(sessionId)/events",
+            body: request,
+            timeout: 30
+        )
+    }
+
+    public func visualEvidenceArtifact(
+        _ request: VisualEvidenceArtifactRequest
+    ) async -> Truthful<VisualEvidenceArtifact> {
+        await postEncoded(
+            VisualEvidenceArtifact.self,
+            path: "/api/exocortex/v1/capture/visual/artifacts",
+            body: request,
+            timeout: 60
+        )
+    }
+
+    public func visualEvidenceAnalyze(
+        _ request: VisualEvidenceAnalyzeRequest
+    ) async -> Truthful<VisualEvidenceAnalysis> {
+        await postEncoded(
+            VisualEvidenceAnalysis.self,
+            path: "/api/exocortex/v1/capture/visual/analyze",
+            body: request,
+            timeout: 90
+        )
+    }
+
+    public func captureReview(
+        _ request: CaptureReviewRequest
+    ) async -> Truthful<CaptureReviewResult> {
+        await postEncoded(
+            CaptureReviewResult.self,
+            path: "/api/exocortex/v1/capture/review",
+            body: request,
+            timeout: 60
+        )
+    }
+
+    public func startSounioPaperRun(
+        paperId: String? = nil,
+        title: String? = nil,
+        dryRun: Bool = false
+    ) async -> Truthful<PaperRun> {
+        var body: [String: any Sendable] = [
+            "surface": "beagle-apple",
+            "principal": "beagle-app",
+            "dry_run": dryRun
+        ]
+        if let paperId, !paperId.isEmpty {
+            body["paper_id"] = paperId
+        }
+        if let title, !title.isEmpty {
+            body["title"] = title
+        }
+        return await post(
+            PaperRun.self,
+            path: "/api/exocortex/v1/sounio/paperruns",
+            body: body,
+            timeout: 120
+        )
+    }
+
+    public func checkSounioClaim(_ claim: SounioClaimInput) async -> Truthful<SounioClaimCheckResponse> {
+        await postEncoded(
+            SounioClaimCheckResponse.self,
+            path: "/api/exocortex/v1/sounio/claims/check",
+            body: SounioClaimCheckRequest(claim: claim),
+            timeout: 30
+        )
+    }
+
+    public func typeSounioMoment(_ request: SounioMomentTypeRequest) async -> Truthful<SounioMoment> {
+        await postEncoded(
+            SounioMoment.self,
+            path: "/api/exocortex/v1/sounio/moments/type",
+            body: request,
+            timeout: 30
+        )
+    }
+
+    public func recentSounioMoments(projectSlug: String = "sounio", limit: Int = 20) async -> Truthful<SounioMomentListResponse> {
+        let slug = projectSlug.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? projectSlug
+        return await fetch(
+            SounioMomentListResponse.self,
+            path: "/api/exocortex/v1/sounio/moments/recent?project_slug=\(slug)&limit=\(limit)",
+            timeout: 30
+        )
+    }
+
+    public func reviewSounioMoment(
+        momentId: String,
+        decision: String,
+        rationale: String? = nil,
+        evidenceRefs: [String] = [],
+        reviewState: String? = nil,
+        provenance: ExocortexJSONValue? = .object(["source": .string("beagle-apple")])
+    ) async -> Truthful<SounioMoment> {
+        let body = SounioMomentReviewRequest(
+            reviewer: "demetrios",
+            decision: decision,
+            rationale: rationale,
+            evidenceRefs: evidenceRefs,
+            reviewState: reviewState,
+            provenance: provenance
+        )
+        let encodedId = momentId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? momentId
+        return await postEncoded(
+            SounioMoment.self,
+            path: "/api/exocortex/v1/sounio/moments/\(encodedId)/review",
+            body: body,
+            timeout: 30
+        )
+    }
+
+    public func sounioWorkdayStatus(projectSlug: String = "sounio", limit: Int = 20) async -> Truthful<SounioWorkdaySnapshot> {
+        let slug = projectSlug.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? projectSlug
+        return await fetch(
+            SounioWorkdaySnapshot.self,
+            path: "/api/exocortex/v1/sounio/workday/status?project_slug=\(slug)&limit=\(limit)",
+            timeout: 30
+        )
+    }
+
+    public func sounioPaperRunStatus(_ paperRunId: String) async -> Truthful<PaperRun> {
+        await fetch(
+            PaperRun.self,
+            path: "/api/exocortex/v1/sounio/paperruns/\(paperRunId)",
+            timeout: 30
+        )
+    }
+
+    public func approveSounioPaperRunStep(
+        paperRunId: String,
+        stepId: String,
+        decision: String = "approved",
+        rationale: String? = nil
+    ) async -> Truthful<PaperRun> {
+        var body: [String: any Sendable] = [
+            "step_id": stepId,
+            "decision": decision,
+            "reviewer": "demetrios"
+        ]
+        if let rationale, !rationale.isEmpty {
+            body["rationale"] = rationale
+        }
+        return await post(
+            PaperRun.self,
+            path: "/api/exocortex/v1/sounio/paperruns/\(paperRunId)/approve-step",
+            body: body,
+            timeout: 30
+        )
+    }
+
+    public func addSounioClaim(
+        paperRunId: String,
+        claim: SounioClaimInput,
+        principal: String = "beagle-app",
+        surface: String = "beagle-apple-paper-workbench"
+    ) async -> Truthful<SounioClaim> {
+        let body = AddSounioClaimRequest(
+            claim: claim,
+            principal: principal,
+            surface: surface
+        )
+        return await postEncoded(
+            SounioClaim.self,
+            path: "/api/exocortex/v1/sounio/paperruns/\(paperRunId)/claims",
+            body: body,
+            timeout: 30
+        )
+    }
+
+    public func reviewSounioClaim(
+        paperRunId: String,
+        claimId: String,
+        decision: String,
+        rationale: String? = nil,
+        evidenceRefs: [String] = [],
+        epistemicStatus: String? = nil,
+        publicationReadiness: String? = nil,
+        provenance: ExocortexJSONValue? = .object(["source": .string("beagle-apple")])
+    ) async -> Truthful<SounioClaim> {
+        let body = ReviewSounioClaimRequest(
+            reviewer: "demetrios",
+            decision: decision,
+            rationale: rationale,
+            evidenceRefs: evidenceRefs,
+            epistemicStatus: epistemicStatus,
+            publicationReadiness: publicationReadiness,
+            provenance: provenance
+        )
+        return await postEncoded(
+            SounioClaim.self,
+            path: "/api/exocortex/v1/sounio/paperruns/\(paperRunId)/claims/\(claimId)/review",
+            body: body,
+            timeout: 30
+        )
+    }
+
+    public func sounioPaperRunTheatre(_ paperRunId: String) async -> Truthful<PaperRunTheatreSnapshot> {
+        await fetch(
+            PaperRunTheatreSnapshot.self,
+            path: "/api/exocortex/v1/sounio/paperruns/\(paperRunId)/theatre",
+            timeout: 30
+        )
+    }
+
+    public func sounioPaperRunPublicDigest(_ paperRunId: String) async -> Truthful<PublicDigestArtifact> {
+        await fetch(
+            PublicDigestArtifact.self,
+            path: "/api/exocortex/v1/sounio/paperruns/\(paperRunId)/public-digest",
+            timeout: 30
+        )
+    }
+
+    public func sounioPaperRunArtifacts(_ paperRunId: String) async -> Truthful<PaperRunArtifactsResponse> {
+        await fetch(
+            PaperRunArtifactsResponse.self,
+            path: "/api/exocortex/v1/sounio/paperruns/\(paperRunId)/artifacts",
+            timeout: 30
+        )
+    }
+
+    public func sounioTrace(paperRunId: String? = nil, limit: Int = 25) async -> Truthful<SounioTraceListResponse> {
+        var path = "/api/exocortex/v1/sounio/trace?limit=\(limit)"
+        if let paperRunId, !paperRunId.isEmpty {
+            path += "&paper_run_id=\(paperRunId)"
+        }
+        return await fetch(SounioTraceListResponse.self, path: path, timeout: 30)
     }
 
     // MARK: - Literature Search
@@ -530,6 +1275,29 @@ public actor BeagleClient {
         await fetch(CognitiveState.self, path: "/api/v1/cognitive/state")
     }
 
+    /// Real HERMES-style LLM refinement of a captured thought (Wave 2 capture/refine).
+    /// `languageHint` (BCP-47, e.g. "pt-BR") instructs the refiner to keep the
+    /// thought in the user's language instead of translating it to English.
+    public func refineThought(
+        text: String,
+        projectSlug: String?,
+        source: String,
+        languageHint: String? = Locale.current.identifier(.bcp47)
+    ) async -> Truthful<ThoughtRefineResponse> {
+        await postEncoded(
+            ThoughtRefineResponse.self,
+            path: "/api/exocortex/v1/capture/refine",
+            body: ThoughtRefineRequest(
+                rawText: text,
+                projectSlug: projectSlug,
+                sourceSurface: source,
+                languageHint: languageHint,
+                preserveLanguage: true
+            ),
+            timeout: 60
+        )
+    }
+
     /// Per-caller Φ rhythm (tool usage patterns).
     public func toolRhythmPhi() async -> Truthful<ChatResponse> {
         await fetch(ChatResponse.self, path: "/api/v1/cognitive/tool_rhythm_phi?caller=ios&split=true")
@@ -558,12 +1326,13 @@ public actor BeagleClient {
     // MARK: - Hypergraph
 
     public func queryHyperedges(nodeId: String? = nil) async -> Truthful<[Hyperedge]> {
-        let detail = nodeId.map { " for node \($0)" } ?? ""
-        return .staleError("Hyperedge route retired on current beagle-core backend\(detail)")
+        let q = nodeId.map { "?node_id=\($0)" } ?? ""
+        return await fetch([Hyperedge].self, path: "/api/hyperedges\(q)")
     }
 
     public func createHyperedge(label: String, nodeIds: [String]) async -> Truthful<Hyperedge> {
-        .staleError("Hyperedge creation route retired on current beagle-core backend")
+        await post(Hyperedge.self, path: "/api/hyperedges",
+                   body: ["label": label, "node_ids": nodeIds, "directed": false])
     }
 
     // MARK: - Feedback
@@ -712,7 +1481,13 @@ public actor BeagleClient {
         probabilistic: Bool = true,
         applyDecoherence: Bool = true
     ) async -> Truthful<QuantumReasoningResult> {
-        .staleError("Quantum reasoning route is retired on the current beagle-core backend")
+        await post(QuantumReasoningResult.self, path: "/dev/quantum-reasoning", body: [
+            "hypotheses": hypotheses,
+            "threshold": threshold,
+            "interference_strength": interferenceStrength,
+            "probabilistic": probabilistic,
+            "apply_decoherence": applyDecoherence
+        ] as [String: any Sendable], timeout: 90)
     }
 
     public func swarmConsensus(query: String) async -> Truthful<SwarmResult> {
@@ -729,7 +1504,9 @@ public actor BeagleClient {
         graphId: String,
         intervention: String
     ) async -> Truthful<CausalIntervention> {
-        .staleError("Causal intervention route is retired on the current beagle-core backend")
+        await post(CausalIntervention.self, path: "/dev/causal/intervention", body: [
+            "graph_id": graphId, "intervention": intervention
+        ] as [String: any Sendable], timeout: 90)
     }
 
     public func temporalReasoning(query: String) async -> Truthful<TemporalResult> {
@@ -743,7 +1520,8 @@ public actor BeagleClient {
     }
 
     public func adversarialCompete(query: String) async -> Truthful<AdversarialResult> {
-        .staleError("Adversarial compete route is retired on the current beagle-core backend")
+        await post(AdversarialResult.self, path: "/dev/adversarial-compete",
+                   body: ["query": query], timeout: 180)
     }
 
     public func research(query: String) async -> Truthful<ResearchResult> {
@@ -776,7 +1554,8 @@ public actor BeagleClient {
     }
 
     public func worldModelCounterfactual(query: String) async -> Truthful<WorldModelCounterfactual> {
-        .staleError("World model counterfactual route is retired on the current beagle-core backend")
+        await post(WorldModelCounterfactual.self, path: "/api/worldmodel/counterfactual",
+                   body: ["query": query], timeout: 90)
     }
 
     // MARK: - Extended (Fractal, PCS, Serendipity)
@@ -790,8 +1569,20 @@ public actor BeagleClient {
         await post(PCSReasonResult.self, path: "/api/pcs/reason", body: ["symptoms": [query]], timeout: 60)
     }
 
-    public func serendipityDiscover(query: String) async -> Truthful<SerendipityResult> {
-        .staleError("Serendipity route no longer accepts free-text query input on the current beagle-core backend")
+    public func serendipityDiscover(
+        query: String,
+        recallContext: String? = nil
+    ) async -> Truthful<SerendipityResult> {
+        // Real beagle-serendipity engine (Wave 1/3). Slow (LLM-backed) — generous timeout.
+        // When `recallContext` is supplied the engine reuses the caller's already-loaded
+        // recall context instead of re-running its own retrieval pass.
+        var body: [String: any Sendable] = ["focus_project": query]
+        if let recallContext, !recallContext.isEmpty {
+            body["recall_context"] = recallContext
+            body["reuse_context"] = true
+        }
+        return await post(SerendipityResult.self, path: "/api/serendipity/discover",
+                          body: body, timeout: 120)
     }
 
     public func deepThink(prompt: String, depth: Int = 3) async -> Truthful<ChatResponse> {
@@ -849,5 +1640,54 @@ struct BeagleBackendErrorPayload: Decodable {
         }
 
         return parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Triad streaming (SSE)
+
+/// One event from the streaming debate endpoint.
+public enum TriadStreamEvent: Sendable {
+    /// Incremental text from an agent (agent name when the frame identifies one).
+    case delta(agent: String?, text: String)
+    /// Final consolidated review; the stream ends after this.
+    case final(TriadResult)
+    /// Stream-level failure (auth/network/unreachable).
+    case error(String)
+}
+
+/// A single SSE delta frame from `/dev/debate?stream=true`.
+struct TriadStreamDelta: Decodable, Sendable {
+    let agent: String?
+    let text: String?
+    let content: String?
+}
+
+// MARK: - Wave 2: capture/refine (real LLM thought refinement)
+
+public struct ThoughtRefineResponse: Codable, Sendable {
+    public let refinedText: String
+    public let model: String?
+    public let tier: String?
+    enum CodingKeys: String, CodingKey {
+        case refinedText = "refined_text"
+        case model
+        case tier
+    }
+}
+
+struct ThoughtRefineRequest: Encodable, Sendable {
+    let rawText: String
+    let projectSlug: String?
+    let sourceSurface: String?
+    /// BCP-47 hint (e.g. "pt-BR") so refinement keeps the user's language.
+    let languageHint: String?
+    /// Explicit flag instructing the backend never to translate the refined text.
+    let preserveLanguage: Bool
+    enum CodingKeys: String, CodingKey {
+        case rawText = "raw_text"
+        case projectSlug = "project_slug"
+        case sourceSurface = "source_surface"
+        case languageHint = "language_hint"
+        case preserveLanguage = "preserve_language"
     }
 }
