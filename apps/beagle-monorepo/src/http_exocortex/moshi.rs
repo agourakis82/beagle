@@ -8,6 +8,7 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use chrono::Utc;
@@ -20,10 +21,29 @@ use uuid::Uuid;
 
 use crate::http::AppState;
 
+/// All routes are behind `api_token_auth` middleware (http.rs protected_routes).
+/// This handler adds an explicit Origin allowlist as defense-in-depth against
+/// Cross-Site WebSocket Hijacking, even though Bearer tokens are not forwarded by
+/// browsers cross-origin (making CSWSH low-risk here).
 pub(crate) async fn moshi_session_handler(
     ws: WebSocketUpgrade,
+    headers: HeaderMap,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
+    // Origin check: allow same-origin requests and the known Beagle iOS/web origins.
+    // BEAGLE_ALLOWED_ORIGINS is comma-separated, e.g. "https://beagle.sounio.dev,beagle-app".
+    // If unset, only requests without an Origin header (native clients, curl) are allowed.
+    let allowed = env::var("BEAGLE_ALLOWED_ORIGINS").unwrap_or_default();
+    if let Some(origin) = headers.get(axum::http::header::ORIGIN).and_then(|v| v.to_str().ok()) {
+        let permitted = allowed
+            .split(',')
+            .map(str::trim)
+            .any(|o| !o.is_empty() && (origin == o || origin.starts_with(o)));
+        if !permitted {
+            warn!("moshi: rejected WS upgrade from unlisted origin: {origin}");
+            return (StatusCode::FORBIDDEN, "origin not permitted").into_response();
+        }
+    }
     ws.on_upgrade(move |socket| handle_moshi_session(socket, state))
 }
 
