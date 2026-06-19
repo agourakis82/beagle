@@ -85,7 +85,7 @@ struct HomeView: View {
         }
         .background { HomeGradient(thoughtCount: cognitive.recentThoughts.count, hasJobs: !cognitive.activeJobs.isEmpty) }
         .navigationTitle("Beagle")
-        .navigationBarTitleDisplayModeIfAvailable(.large)
+        .navigationBarTitleDisplayModeIfAvailable(.inline)
         .overlay {
             if let milestone = milestoneToShow {
                 MilestoneCelebration(count: milestone) {
@@ -96,6 +96,20 @@ struct HomeView: View {
             }
         }
         .toolbar {
+            // Wordmark MOCK (Option B): branded inline lockup in place of the
+            // plain large title — teal brain glyph + "Beagle".
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 6) {
+                    Image(systemName: "brain")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                    Text("Beagle")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .tracking(0.4)
+                }
+            }
+
             ToolbarItem(placement: homeToolbarPlacement) {
                 NavigationLink {
                     DeepExplorationView()
