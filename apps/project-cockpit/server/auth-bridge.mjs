@@ -743,6 +743,46 @@ export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000
   }
 }
 
+// Stream a chat completion from the LiteLLM router (good models: deepseek/glm,
+// always-on, OpenAI-compatible SSE) — unlike the flaky/tiny cluster candidates.
+// Calls onToken(delta) per chunk; returns the assembled text + model + usage.
+export async function streamChatViaRouter({ messages, model, onToken, signal }) {
+  const url = process.env.PROJECT_COCKPIT_LLM_ROUTER_URL
+    || "http://router.llm-router.svc.cluster.local:4000/v1/chat/completions";
+  const chosen = cleanString(model) || process.env.PROJECT_COCKPIT_LLM_ROUTER_MODEL || "deepseek-chat";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", Accept: "text/event-stream", Authorization: "Bearer noauth" },
+    body: JSON.stringify({ model: chosen, messages, stream: true, temperature: 0.3 }),
+    signal
+  });
+  if (!res.ok || !res.body) throw new Error(`router stream HTTP ${res.status}`);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "", fullText = "", usage = null, modelName = chosen;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buffer.indexOf("\n\n")) >= 0) {
+      const evt = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 2);
+      if (!evt.startsWith("data:")) continue;
+      const data = evt.slice(5).trim();
+      if (data === "[DONE]") continue;
+      try {
+        const json = JSON.parse(data);
+        const delta = json?.choices?.[0]?.delta?.content;
+        if (delta) { fullText += delta; onToken?.(delta); }
+        if (json?.model) modelName = json.model;
+        if (json?.usage) usage = json.usage;
+      } catch { /* skip partial/non-JSON keepalives */ }
+    }
+  }
+  return { fullText, model: modelName, usage };
+}
+
 export async function proxyBeagleCompletion({
   prompt,
   system = "",

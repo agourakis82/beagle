@@ -18,7 +18,8 @@ import {
   proxyCheapProviderCompletion,
   proxySubscriptionBridgeCompletion,
   proxyDiscussionLabCompletion,
-  fetchExocortexContext
+  fetchExocortexContext,
+  streamChatViaRouter
 } from "./auth-bridge.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
@@ -1507,6 +1508,44 @@ export function registerMobileRoutes(app, deps) {
       }
     })
   );
+
+  // SSE streaming chat: memory-grounded + token-by-token via the LiteLLM router
+  // (deepseek/glm, always-on). Client renders tokens as they arrive instead of
+  // waiting for the full blob. Raw res (bypasses withEnvelope's JSON).
+  app.post("/api/mobile/v1/chat/stream", async (req, res) => {
+    const prompt = cleanString(req.body?.prompt);
+    if (!prompt) {
+      res.status(400).json({ ok: false, error: { code: "BAD_REQUEST", message: "prompt is required" } });
+      return;
+    }
+    const memoryContext = await fetchExocortexContext(prompt);
+    const system = [cleanString(req.body?.system), memoryContext].filter(Boolean).join("\n\n");
+    const messages = [];
+    if (system) messages.push({ role: "system", content: system });
+    messages.push({ role: "user", content: prompt });
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+    const ctrl = new AbortController();
+    res.on("close", () => ctrl.abort());
+    try {
+      const result = await streamChatViaRouter({
+        messages,
+        model: cleanString(req.body?.model),
+        signal: ctrl.signal,
+        onToken: (delta) => { res.write(`data: ${JSON.stringify({ token: delta })}\n\n`); }
+      });
+      res.write(`data: ${JSON.stringify({ done: true, model: result.model, source: "cluster", tokens_used: result.usage?.total_tokens || 0 })}\n\n`);
+      res.end();
+    } catch (error) {
+      res.write(`data: ${JSON.stringify({ error: String(error?.message || error) })}\n\n`);
+      res.end();
+    }
+  });
 
   app.post("/api/llm/complete", async (req, res) => {
     try {
