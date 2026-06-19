@@ -692,8 +692,16 @@ export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000
   const q = cleanString(query);
   if (!q) return "";
   try {
-    const tokenResult = await fetchOperatorToken();
-    if (!tokenResult?.token) return "";
+    // beagle-core's /api/memory routes accept the operator token from
+    // beagle-core-tokens (injected here as env via secretKeyRef). The shared
+    // fetchOperatorToken() reads beagle-core-secrets, whose token beagle-core
+    // rejects with 401. Prefer the explicit env token; fall back to the shared.
+    let token = cleanString(process.env.BEAGLE_MEMORY_API_TOKEN);
+    if (!token) {
+      const tokenResult = await fetchOperatorToken();
+      token = tokenResult?.token || "";
+    }
+    if (!token) return "";
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     let res;
@@ -704,7 +712,7 @@ export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000
           Accept: "application/json",
           "content-type": "application/json",
           "X-Beagle-Consumer": "beagle-operator",
-          Authorization: `Bearer ${tokenResult.token}`
+          Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({ query: q }),
         signal: ctrl.signal
