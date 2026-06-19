@@ -674,19 +674,32 @@ public final class LocalLLMEngine {
 
         do {
             let config = model.mlxConfiguration
-            let downloader = HubApiDownloader()
-            let tokenizer = HFTokenizerLoader()
 
-            let container = try await loadModelContainer(
-                from: downloader,
-                using: tokenizer,
-                configuration: config
-            ) { [weak self] progress in
-                Task { @MainActor [weak self] in
-                    self?.downloadProgress = progress.fractionCompleted
-                    self?.loadState = .downloading(progress.fractionCompleted)
+            // Progress reporting bound weakly at the @MainActor level, so it can
+            // be passed into the detached loader without referencing `self`
+            // inside concurrently-executing code (Swift-6 isolation).
+            let onProgress: @Sendable (Double) -> Void = { [weak self] fraction in
+                Task { @MainActor in
+                    self?.downloadProgress = fraction
+                    self?.loadState = .downloading(fraction)
                 }
             }
+
+            // Run the heavy MLX download/weight-load OFF the main actor. The
+            // engine is @MainActor, so awaiting the loader inline blocked the
+            // main thread and froze the app until force-quit on device. Detach
+            // it; hop back to @MainActor only for the cheap session + state.
+            let container = try await Task.detached(priority: .userInitiated) {
+                let downloader = HubApiDownloader()
+                let tokenizer = HFTokenizerLoader()
+                return try await loadModelContainer(
+                    from: downloader,
+                    using: tokenizer,
+                    configuration: config
+                ) { progress in
+                    onProgress(progress.fractionCompleted)
+                }
+            }.value
 
             modelContainer = container
             chatSession = makeChatSession(with: container)
