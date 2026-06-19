@@ -187,6 +187,19 @@ struct WorkView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            // Branded inline lockup, matching Home's nav (glyph + title) for
+            // full nav consistency across tabs.
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 6) {
+                    Image(systemName: "square.grid.2x2.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                    Text("Work")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .tracking(0.4)
+                }
+            }
             ToolbarItem(placement: toolbarPlacement) {
                 Menu {
                     Button {

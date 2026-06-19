@@ -600,7 +600,7 @@ struct RecallPane: View {
             VStack(spacing: 10) {
                 Image(systemName: "brain.head.profile")
                     .font(.system(size: 38, weight: .regular))
-                    .foregroundStyle(CK.line2)
+                    .foregroundStyle(CK.turq)
                 Text("Composed recall")
                     .font(.title3.weight(.bold)).foregroundStyle(CK.fg)
                 Text("Ask a question — your exocortex retrieves the memory and the fleet composes the answer, with sources.")
