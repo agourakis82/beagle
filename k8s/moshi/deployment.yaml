@@ -25,7 +25,7 @@ spec:
     spec:
       runtimeClassName: nvidia
       nodeSelector:
-        kubernetes.io/hostname: r770-proxmox
+        kubernetes.io/hostname: r740-proxmox
       tolerations:
         - key: sounio.dev/compute
           operator: Equal
@@ -37,23 +37,33 @@ spec:
           effect: NoSchedule
       containers:
         - name: moshi
-          image: 192.168.3.207:5003/moshi-server:2026-06-18
+          image: 192.168.3.207:5003/moshi-server:2026-06-18-gcc
           imagePullPolicy: IfNotPresent
           securityContext:
-            allowPrivilegeEscalation: false
             # seccompProfile Unconfined: cluster-wide doctrine — Python asyncio
             # uses socketpair(2) which the RuntimeDefault seccomp profile blocks,
             # causing asyncio crashes. All GPU pods in this cluster carry this.
             seccompProfile:
               type: Unconfined
+            # appArmor Unconfined + NOT dropping caps: the NVIDIA container
+            # runtime needs capabilities to access /dev/nvidia*. Dropping ALL
+            # caps breaks CUDA init (cudaErrorOperatingSystem / error 304).
+            # Mirrors the working qwen-vl GPU-pod recipe on this cluster.
+            appArmorProfile:
+              type: Unconfined
             capabilities:
-              drop:
-                - ALL
+              add:
+                - IPC_LOCK
           env:
             - name: HF_HOME
               value: /var/cache/huggingface
             - name: PYTHONUNBUFFERED
               value: "1"
+            # Pin to the r740 A5000 (24 GiB) by GPU UUID. r740 is time-sliced
+            # across an RTX 8000 + this A5000; the device plugin honors an
+            # explicit UUID to select the physical card (same recipe qwen-vl used).
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: GPU-5618b771-c8f2-16a6-b94e-0ba3537c47db
             # HF_TOKEN is mounted as a file (not env) to keep it out of
             # /proc/<pid>/environ. Read by huggingface_hub via HF_TOKEN_PATH.
             - name: HF_TOKEN_PATH

@@ -19,7 +19,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopus-dev \
     libsndfile1 \
     ffmpeg \
+    gcc \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
+
+# moshi routes every attention Linear through bitsandbytes (unconditional
+# `import bitsandbytes` in moshi/utils/quantize.py), which initializes Triton.
+# Triton JIT-compiles its CUDA driver shim at runtime and needs a C compiler.
+# Python.h and Triton's bundled cuda.h are already in the image; only the
+# compiler was missing. Triton resolves it via `cc`/$CC — gcc provides both.
+ENV CC=gcc
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin

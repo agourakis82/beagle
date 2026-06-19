@@ -1,8 +1,8 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: beagle-core-build
-  namespace: beagle
+  name: moshi-server-build-gcc
+  namespace: moshi
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 3600
@@ -21,35 +21,27 @@ spec:
           effect: NoSchedule
       restartPolicy: Never
       initContainers:
-        - name: clone
-          image: alpine/git:latest
-          env:
-            - name: BEAGLE_GIT_BRANCH
-              value: main
-            - name: BEAGLE_GIT_REF
-              value: main
+        # Copy the Dockerfile out of the read-only ConfigMap mount into a clean
+        # writable context dir. The Dockerfile is self-contained (pip + apt,
+        # multi-stage), so no repo files are needed in the build context.
+        - name: stage-dockerfile
+          image: busybox:1.36
           command:
             - /bin/sh
             - -lc
-            - git clone --depth=50 --branch="${BEAGLE_GIT_BRANCH:-main}" https://github.com/agourakis82/beagle.git /workspace && cd /workspace && git checkout "${BEAGLE_GIT_REF:-main}"
+            - cp /config/Dockerfile /workspace/Dockerfile && ls -l /workspace
           volumeMounts:
             - name: workspace
               mountPath: /workspace
-          resources:
-            requests:
-              memory: 256Mi
-            limits:
-              memory: 512Mi
+            - name: dockerfile
+              mountPath: /config
       containers:
         - name: kaniko
           image: gcr.io/kaniko-project/executor:latest
-          env:
-            - name: BEAGLE_IMAGE_TAG
-              value: moshi-voice-44e49930
           args:
-            - "--dockerfile=/workspace/apps/beagle-monorepo/Dockerfile.core_server"
+            - "--dockerfile=/workspace/Dockerfile"
             - "--context=dir:///workspace"
-            - "--destination=192.168.3.207:5003/beagle-core-exocortex:$(BEAGLE_IMAGE_TAG)"
+            - "--destination=192.168.3.207:5003/moshi-server:2026-06-18-gcc"
             - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"
@@ -67,4 +59,7 @@ spec:
       volumes:
         - name: workspace
           emptyDir:
-            sizeLimit: 5Gi
+            sizeLimit: 2Gi
+        - name: dockerfile
+          configMap:
+            name: moshi-dockerfile
