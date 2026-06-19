@@ -1129,11 +1129,15 @@ struct HomeView: View {
     /// Selecting a cloud/cluster route is an explicit choice to leave the device mind:
     /// unload any local model so `sendMessage` routes to the cloud, then set the route.
     private func selectCloudRoute(_ profile: DiscussionProfile) {
+        // Switch the route IMMEDIATELY so the picker never blocks. Unloading an
+        // on-device model frees multiple GB of MLX weights on the @MainActor —
+        // doing it inline froze the UI mid-switch. Defer it to the next runloop
+        // so the route change lands instantly and the cleanup can't block it.
+        conversation.discussionProfile = profile
         let llm = LocalLLMEngine.shared
         if llm.isReady || llm.loadState == .loading {
-            llm.unload()
+            Task { @MainActor in llm.unload() }
         }
-        conversation.discussionProfile = profile
     }
 
     private var companionSignalStrip: some View {
