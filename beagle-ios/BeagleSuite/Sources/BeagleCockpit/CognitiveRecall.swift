@@ -158,25 +158,29 @@ struct CognitiveAPI: Sendable {
 
 private enum CK {
     // Adaptive: light value first (legible on white), dark value = original purple world.
-    static let bg      = Color(lightHex: 0xF6F4FA, darkHex: 0x1b1426)
-    static let bg2     = Color(lightHex: 0xEFEBF5, darkHex: 0x21192d)
-    static let panel   = Color(lightHex: 0xFFFFFF, darkHex: 0x271e36)
-    static let card    = Color(lightHex: 0xF7F4FB, darkHex: 0x2a2038)
-    static let card2   = Color(lightHex: 0xEEE9F4, darkHex: 0x352947)
-    static let line    = Color(lightHex: 0xE3DDEC, darkHex: 0x3c2f50)
-    static let line2   = Color(lightHex: 0xD0C7DE, darkHex: 0x54426b)
-    static let fg      = Color(lightHex: 0x1B1426, darkHex: 0xfbf5ef)
-    static let txt     = Color(lightHex: 0x2C2638, darkHex: 0xddd2e0)
-    static let dim     = Color(lightHex: 0x6E6579, darkHex: 0xa596ad)
-    static let faint   = Color(lightHex: 0x9990A4, darkHex: 0x7a6a82)
-    static let accent  = Color(lightHex: 0xA8620A, darkHex: 0xffc24d)
-    static let accent2 = Color(lightHex: 0xCC4E28, darkHex: 0xff7a4c)
+    // Realigned to the Sovereign Dark system (was a plum/amber sub-brand that
+    // clashed with the near-black + teal used everywhere else). Surfaces ->
+    // near-black slate, amber accents -> teal, warm-purple text -> cool slate.
+    // Semantic project (sounio/darwin) + warn/ok/lo colors preserved.
+    static let bg      = Color(lightHex: 0xF6F4FA, darkHex: 0x050A12)
+    static let bg2     = Color(lightHex: 0xEFEBF5, darkHex: 0x081020)
+    static let panel   = Color(lightHex: 0xFFFFFF, darkHex: 0x0A1628)
+    static let card    = Color(lightHex: 0xF7F4FB, darkHex: 0x0F1F38)
+    static let card2   = Color(lightHex: 0xEEE9F4, darkHex: 0x162A4A)
+    static let line    = Color(lightHex: 0xE3DDEC, darkHex: 0x1C2C40)
+    static let line2   = Color(lightHex: 0xD0C7DE, darkHex: 0x2A3A52)
+    static let fg      = Color(lightHex: 0x1B1426, darkHex: 0xF0F6FF)
+    static let txt     = Color(lightHex: 0x2C2638, darkHex: 0xD6E2F0)
+    static let dim     = Color(lightHex: 0x6E6579, darkHex: 0x93A6BD)
+    static let faint   = Color(lightHex: 0x9990A4, darkHex: 0x6A7A8C)
+    static let accent  = Color(lightHex: 0x0E9886, darkHex: 0x2DD4BF)
+    static let accent2 = Color(lightHex: 0x0C7D8A, darkHex: 0x22C4C4)
     static let turq    = Color(lightHex: 0x0E9886, darkHex: 0x2dd4bf)
-    static let ink     = Color(hex: 0x2a1a06)   // text on amber (both modes)
+    static let ink     = Color(hex: 0x031018)   // dark text on teal
     static let ok      = Color(lightHex: 0x1B9D70, darkHex: 0x56d6a0)
     static let warn    = Color(lightHex: 0xB9760A, darkHex: 0xffb454)
     static let lo      = Color(lightHex: 0xCC4133, darkHex: 0xff7a6b)
-    static let beagle  = Color(lightHex: 0xA8620A, darkHex: 0xffc24d)
+    static let beagle  = Color(lightHex: 0x0E9886, darkHex: 0x2DD4BF)
     static let sounio  = Color(lightHex: 0x3A5BD0, darkHex: 0x7c9cff)
     static let darwin  = Color(lightHex: 0x1B9D70, darkHex: 0x56d6a0)
 
