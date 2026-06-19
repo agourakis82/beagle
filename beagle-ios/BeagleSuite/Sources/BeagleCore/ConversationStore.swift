@@ -352,38 +352,59 @@ public final class ConversationStore {
         messages.append(placeholder)
         isStreaming = true
 
-        let result = await client.chat(
-            prompt: contextualPrompt,
-            system: activeSystemInstruction,
-            projectSlug: projectSlug,
-            projectFamily: projectFamily,
-            publicationScope: publicationScope,
-            discussionProfile: discussionProfile,
-            flowState: flowState,
-            physioPolicy: physioPolicy
-        )
+        // Real token-by-token streaming via the cockpit SSE endpoint. This loop
+        // body runs on the @MainActor (sendMessageCloud is @MainActor), so the
+        // incremental message updates are actor-safe. Replaces the old
+        // fetch-full-blob + fake revealText() typing animation.
+        var streamed = ""
+        var finalModel: String? = nil
+        var finalTokens: Int? = nil
+        var finalSource: String? = nil
+        var streamError: Error? = nil
+        do {
+            for try await event in client.chatStream(
+                prompt: contextualPrompt,
+                system: activeSystemInstruction,
+                projectSlug: projectSlug,
+                projectFamily: projectFamily,
+                publicationScope: publicationScope,
+                discussionProfile: discussionProfile,
+                flowState: flowState,
+                physioPolicy: physioPolicy
+            ) {
+                switch event {
+                case .token(let t):
+                    streamed += t
+                    if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+                        messages[idx].content = streamed
+                    }
+                case .done(let model, let tokens, let source):
+                    finalModel = model
+                    finalTokens = tokens
+                    finalSource = source
+                }
+            }
+        } catch {
+            streamError = error
+        }
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
-            if let response = result.value {
-                let fullText = stripReasoning(response.response ?? "")
-                messages[idx].model = response.model
-                messages[idx].tokensUsed = response.tokensUsed
-                messages[idx].source = response.source
-                messages[idx].agentKind = response.agentKind
-                messages[idx].sessionId = response.sessionId
-                messages[idx].podName = response.podName
-
-                // Typing reveal for cloud responses
-                await revealText(fullText, for: assistantId)
+            if !streamed.isEmpty {
+                messages[idx].content = stripReasoning(streamed)
+                messages[idx].model = finalModel
+                messages[idx].tokensUsed = finalTokens
+                messages[idx].source = finalSource ?? "cluster"
                 messages[idx].isStreaming = false
                 persist(message: messages[idx])
                 await autoImportExchange(
                     user: userMessage,
                     assistant: messages[idx],
-                    sourceSurface: "beagle-apple-cloud"
+                    sourceSurface: "beagle-apple-cloud-stream"
                 )
             } else {
-                messages[idx].content = result.error ?? "The cluster didn't respond — tap ↺ to try again."
+                messages[idx].content = streamError.map {
+                    "The cluster didn't respond — tap ↺ to try again. (\($0.localizedDescription))"
+                } ?? "The cluster didn't respond — tap ↺ to try again."
                 messages[idx].isStreaming = false
                 persist(message: messages[idx])
             }

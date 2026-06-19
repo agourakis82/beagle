@@ -1251,6 +1251,100 @@ public actor BeagleClient {
         return await post(ChatResponse.self, path: "/api/llm/complete", body: body)
     }
 
+    // MARK: - Streaming chat (SSE)
+
+    public enum ChatStreamEvent: Sendable {
+        case token(String)
+        case done(model: String?, tokensUsed: Int?, source: String?)
+    }
+
+    /// Stream a chat completion token-by-token from the cockpit SSE endpoint
+    /// (POST /api/mobile/v1/chat/stream). Consume on the caller's actor:
+    ///   for try await event in client.chatStream(...) { ... }
+    /// nonisolated: only reads the immutable `session` + builds a stream, so it
+    /// can be called synchronously from any actor (e.g. ConversationStore@MainActor).
+    public nonisolated func chatStream(
+        prompt: String,
+        system: String? = nil,
+        projectSlug: String = "sounio",
+        projectFamily: ProjectFamily? = nil,
+        publicationScope: PublicationScope? = nil,
+        discussionProfile: DiscussionProfile = .cluster,
+        flowState: String? = nil,
+        physioPolicy: PhysioConversationPolicy? = nil
+    ) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        let family = projectFamily ?? .fromProjectSlug(projectSlug)
+        let scope = publicationScope ?? .forProjectFamily(family)
+        var body: [String: any Sendable] = [
+            "prompt": prompt,
+            "projectSlug": projectSlug,
+            "projectFamily": family.rawValue,
+            "publicationScope": scope.rawValue,
+            "discussionProfile": discussionProfile.rawValue
+        ]
+        if let system, !system.isEmpty { body["system"] = system }
+        if let flowState, !flowState.isEmpty { body["flow_state"] = flowState }
+        if let physioPolicy { body["physio_policy"] = physioPolicy.requestBody }
+        let payload = try? JSONSerialization.data(withJSONObject: body)
+        let bases = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+        ]
+        let urlSession = session
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                guard let payload else {
+                    continuation.finish(throwing: URLError(.cannotParseResponse)); return
+                }
+                var lastError: Error = URLError(.cannotConnectToHost)
+                for base in bases {
+                    guard let url = URL(string: "/api/mobile/v1/chat/stream", relativeTo: base) else { continue }
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    request.timeoutInterval = 120
+                    request.httpBody = payload
+                    do {
+                        let (bytes, response) = try await urlSession.bytes(for: request)
+                        guard let http = response as? HTTPURLResponse,
+                              (200..<300).contains(http.statusCode) else {
+                            lastError = URLError(.badServerResponse); continue
+                        }
+                        for try await line in bytes.lines {
+                            if Task.isCancelled { continuation.finish(); return }
+                            guard line.hasPrefix("data:") else { continue }
+                            let json = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+                            guard !json.isEmpty, let d = json.data(using: .utf8),
+                                  let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
+                            else { continue }
+                            if let token = obj["token"] as? String {
+                                continuation.yield(.token(token))
+                            } else if obj["done"] != nil {
+                                continuation.yield(.done(
+                                    model: obj["model"] as? String,
+                                    tokensUsed: obj["tokens_used"] as? Int,
+                                    source: obj["source"] as? String))
+                            } else if let err = obj["error"] as? String {
+                                continuation.finish(throwing: NSError(
+                                    domain: "BeagleChatStream", code: 1,
+                                    userInfo: [NSLocalizedDescriptionKey: err]))
+                                return
+                            }
+                        }
+                        continuation.finish(); return
+                    } catch {
+                        lastError = error; continue
+                    }
+                }
+                continuation.finish(throwing: lastError)
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     // MARK: - HRV
 
     public func postHRV(hrv: Double, state: String) async -> Truthful<HRVResponse> {
