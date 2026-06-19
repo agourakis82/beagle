@@ -684,6 +684,57 @@ async function proxyBeagleRequest(method, req) {
   }
 }
 
+// Retrieve relevant exocortex memory for a chat prompt and format it as
+// grounding context for the system prompt. This is what turns the mobile chat
+// from a generic chatbot into the user's exocortex. Fail-soft: returns "" on
+// any error/timeout so the chat NEVER blocks or breaks on memory issues.
+export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000 } = {}) {
+  const q = cleanString(query);
+  if (!q) return "";
+  try {
+    const tokenResult = await fetchOperatorToken();
+    if (!tokenResult?.token) return "";
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let res;
+    try {
+      res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "content-type": "application/json",
+          "X-Beagle-Consumer": "beagle-operator",
+          Authorization: `Bearer ${tokenResult.token}`
+        },
+        body: JSON.stringify({ query: q }),
+        signal: ctrl.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) return "";
+    const payload = parseJsonResponse(await res.text());
+    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
+    const lines = highlights
+      .slice(0, limit)
+      .map((h) => {
+        const snippet = cleanString(h?.snippet).replace(/\s+/g, " ").slice(0, 300);
+        if (!snippet) return null;
+        const date = cleanString(h?.date).slice(0, 10);
+        return `- ${date ? `[${date}] ` : ""}${snippet}`;
+      })
+      .filter(Boolean);
+    if (lines.length === 0) return "";
+    return [
+      "## Exocortex memory — the user's own recorded context",
+      "Ground your answer in the facts below. Do NOT ask the user for information that is already present here; treat it as known. Cite or build on it where relevant.",
+      ...lines
+    ].join("\n");
+  } catch {
+    return "";
+  }
+}
+
 export async function proxyBeagleCompletion({
   prompt,
   system = "",

@@ -17,7 +17,8 @@ import {
   proxyBeagleCompletion,
   proxyCheapProviderCompletion,
   proxySubscriptionBridgeCompletion,
-  proxyDiscussionLabCompletion
+  proxyDiscussionLabCompletion,
+  fetchExocortexContext
 } from "./auth-bridge.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
@@ -675,8 +676,15 @@ async function completeChatRequest(req, deps) {
   const effectiveDiscussionProfile =
     requestedDiscussionProfile ||
     cleanString(requestedPhysioPolicy?.discussionProfile);
+  // Ground the answer in the user's exocortex memory (RAG) instead of replying
+  // generically. Without this, the mobile chat was a context-blind chatbot.
+  // Fail-soft: fetchExocortexContext returns "" on any error/timeout.
+  const memoryContext = await fetchExocortexContext(prompt);
+  const mergedSystem = [cleanString(req.body?.system), memoryContext]
+    .filter(Boolean)
+    .join("\n\n");
   const effectiveSystem = buildMobileChatSystem(
-    req.body?.system,
+    mergedSystem,
     requestedFlowState,
     requestedPhysioPolicy
   );
