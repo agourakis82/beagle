@@ -25,9 +25,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # moshi routes every attention Linear through bitsandbytes (unconditional
 # `import bitsandbytes` in moshi/utils/quantize.py), which initializes Triton.
-# Triton JIT-compiles its CUDA driver shim at runtime and needs a C compiler.
-# Python.h and Triton's bundled cuda.h are already in the image; only the
-# compiler was missing. Triton resolves it via `cc`/$CC — gcc provides both.
+# Triton JIT-compiles its CUDA driver shim (cuda_utils, plain C) at runtime and
+# needs a C compiler. This compile fires ONLY with a GPU present, so it cannot be
+# pre-baked in the GPU-less kaniko build stage — the compiler must ship in the
+# runtime image. Risk is mitigated deployment-side (drop ALL caps,
+# allowPrivilegeEscalation:false) so a compiled exploit cannot pivot.
+#
+# MINIMAL-TOOLCHAIN FOLLOW-UP (not yet built): the strictly-minimal set is
+# `gcc + libc6-dev` (NOT just gcc — the Debian gcc pkg omits libc6-dev, which
+# g++ was transitively providing; dropping g++ alone breaks the compile). A
+# rebuild to that set was blocked 2026-06-19 by r770 ephemeral-storage eviction.
 ENV CC=gcc
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages

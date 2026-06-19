@@ -40,18 +40,23 @@ spec:
           image: 192.168.3.207:5003/moshi-server:2026-06-18-gcc
           imagePullPolicy: IfNotPresent
           securityContext:
-            # seccompProfile Unconfined: cluster-wide doctrine — Python asyncio
-            # uses socketpair(2) which the RuntimeDefault seccomp profile blocks,
-            # causing asyncio crashes. All GPU pods in this cluster carry this.
+            # Hardened posture, bisected empirically (2026-06-19): the CUDA
+            # error-304 crash was caused ONLY by the default AppArmor profile,
+            # NOT by dropping capabilities. So we keep the strong controls and
+            # relax only AppArmor:
+            allowPrivilegeEscalation: false
+            # seccomp Unconfined: cluster doctrine — Python asyncio socketpair(2)
+            # is blocked by the RuntimeDefault profile (asyncio crash).
             seccompProfile:
               type: Unconfined
-            # appArmor Unconfined + NOT dropping caps: the NVIDIA container
-            # runtime needs capabilities to access /dev/nvidia*. Dropping ALL
-            # caps breaks CUDA init (cudaErrorOperatingSystem / error 304).
-            # Mirrors the working qwen-vl GPU-pod recipe on this cluster.
+            # appArmor Unconfined is REQUIRED: the host-default AppArmor profile
+            # blocks an op CUDA needs -> cudaErrorOperatingSystem (304). Verified
+            # by bisect (drop:ALL works fine *with* appArmor Unconfined).
             appArmorProfile:
               type: Unconfined
             capabilities:
+              drop:
+                - ALL
               add:
                 - IPC_LOCK
           env:
