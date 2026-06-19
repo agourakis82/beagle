@@ -742,9 +742,17 @@ struct HomeView: View {
 
     private var homeInvitation: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.md) {
-            Image(systemName: "brain")
-                .font(.system(size: 32, weight: .regular))
-                .foregroundStyle(BeagleTheme.truthObserved)
+            // Brand mark: a teal-tinted badge (PresenceFieldCard idiom) instead
+            // of a bare glyph — gives the empty state an identity anchor.
+            ZStack {
+                Circle()
+                    .fill(BeagleTheme.truthObserved.opacity(0.16))
+                    .overlay(Circle().strokeBorder(BeagleTheme.truthObserved.opacity(0.4), lineWidth: 1))
+                    .frame(width: 56, height: 56)
+                Image(systemName: "brain")
+                    .font(.system(size: 26, weight: .medium))
+                    .foregroundStyle(BeagleTheme.truthObserved)
+            }
 
             VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
                 Text("What are you working on?")
@@ -1057,7 +1065,7 @@ struct HomeView: View {
                     .foregroundStyle(BeagleTheme.textSecondary)
                     .padding(.horizontal, BeagleSpacing.sm)
                     .padding(.vertical, BeagleSpacing.xs)
-                    .background(Capsule().fill(BeagleTheme.surface1.opacity(0.45)))
+                    .background(Capsule().fill(BeagleTheme.surface1))
                     .overlay(
                         Capsule()
                             .strokeBorder(BeagleTheme.hairline, lineWidth: 1)

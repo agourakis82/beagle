@@ -64,26 +64,15 @@ struct BeagleInputBar: View {
     @State private var submitCount: Int = 0
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 0) {
-            Rectangle()
-                .fill(activeProfileHue)
-                .frame(width: 3)
-                .clipShape(UnevenRoundedRectangle(
-                    topLeadingRadius: BeagleRadius.md,
-                    bottomLeadingRadius: BeagleRadius.md,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 0
-                ))
-            HStack(alignment: .bottom, spacing: BeagleSpacing.xs) {
-                inputFieldContainer
-                sendButton
-            }
-            .animation(BeagleMotion.fast, value: isEnabled)
-            .padding(.horizontal, BeagleSpacing.md)
-            .padding(.vertical, BeagleSpacing.sm)
+        // One clean, raised input row — no bubble-bar, no nested panels.
+        // The field's own surface1 background + focus ring is the only container.
+        HStack(alignment: .bottom, spacing: BeagleSpacing.xs) {
+            inputFieldContainer
+            sendButton
         }
-        .background(activeProfileHue.opacity(0.05))
-        .background(.ultraThinMaterial)
+        .animation(BeagleMotion.fast, value: isEnabled)
+        .padding(.horizontal, BeagleSpacing.md)
+        .padding(.vertical, BeagleSpacing.sm)
         .sensoryFeedback(.impact(weight: .medium), trigger: submitCount)
         .onChange(of: focusRequest) {
             guard isEnabled else { return }
@@ -172,15 +161,22 @@ struct BeagleInputBar: View {
     }
 
     private var inputBackground: some View {
-        RoundedRectangle(cornerRadius: BeagleRadius.md)
-            .fill(BeagleTheme.surface0)
+        // Raised surface (surface1) so the field reads as a distinct, inviting
+        // element against the surface0 canvas; teal focus ring + soft glow.
+        RoundedRectangle(cornerRadius: BeagleRadius.lg)
+            .fill(BeagleTheme.surface1)
             .overlay(
-                RoundedRectangle(cornerRadius: BeagleRadius.md)
+                RoundedRectangle(cornerRadius: BeagleRadius.lg)
                     .strokeBorder(
-                        isFocused ? BeagleTheme.truthObserved.opacity(0.3) : Color.white.opacity(0.08),
+                        isFocused ? activeProfileHue.opacity(0.5) : BeagleTheme.hairline,
                         lineWidth: 1
                     )
             )
+            .shadow(
+                color: isFocused ? activeProfileHue.opacity(0.18) : Color.black.opacity(0.22),
+                radius: isFocused ? 10 : 4, y: 2
+            )
+            .animation(BeagleMotion.normal, value: isFocused)
     }
 
     // MARK: - Text input area (terminal or chat)

@@ -385,7 +385,11 @@ struct RootView: View {
                 }
             }
         }
-        .tint(BeagleTheme.accent)
+        // Unify the app accent to teal (truthObserved). The amber brand accent
+        // applied here colored ALL toolbar/nav chrome amber, clashing with the
+        // teal used everywhere else — it read as random. Amber stays reserved
+        // for semantic "warm/working" states, not chrome.
+        .tint(BeagleTheme.truthObserved)
         // iPad (regular width) promotes the tab bar to a sidebar; iPhone keeps the
         // bottom tabs. Fixes the P0 where a 13" iPad rendered the iPhone tab layout.
         .tabViewStyle(.sidebarAdaptable)
@@ -502,7 +506,11 @@ struct RootView: View {
                     .toolbar { macToolbarContent }
             }
         }
-        .tint(BeagleTheme.accent)
+        // Unify the app accent to teal (truthObserved). The amber brand accent
+        // applied here colored ALL toolbar/nav chrome amber, clashing with the
+        // teal used everywhere else — it read as random. Amber stays reserved
+        // for semantic "warm/working" states, not chrome.
+        .tint(BeagleTheme.truthObserved)
         .onChange(of: sidebarSelection) { _, newValue in
             selectedTab = newValue.legacyTabValue
         }
@@ -638,7 +646,9 @@ struct RootView: View {
             Button { showCompose = true } label: {
                 Label("New chat", systemImage: "bubble.left.and.text.bubble.right")
             }
-            .tint(BeagleTheme.accent)
+            // Teal (truthObserved) to match the rest of the toolbar — the amber
+            // brand accent on a single icon read as random in the teal UI.
+            .tint(BeagleTheme.truthObserved)
 
             Button { showCognitiveState = true } label: {
                 Label("State", systemImage: "waveform.path.ecg")
@@ -688,7 +698,9 @@ struct RootView: View {
             Button { showCompose = true } label: {
                 Label("New chat", systemImage: "bubble.left.and.text.bubble.right")
             }
-            .tint(BeagleTheme.accent)
+            // Teal (truthObserved) to match the rest of the toolbar — the amber
+            // brand accent on a single icon read as random in the teal UI.
+            .tint(BeagleTheme.truthObserved)
         }
     }
 
