@@ -29,7 +29,9 @@ struct ChatBubbleView: View {
                 .contextMenu { contextMenuItems }
 
             if message.role == .assistant {
-                Spacer(minLength: 60)
+                // Reading-first: the response occupies nearly the full column so long
+                // answers are comfortable to read on mobile (user bubbles stay inset).
+                Spacer(minLength: 8)
             }
         }
         .padding(.horizontal, BeagleSpacing.md)
@@ -408,9 +410,12 @@ private struct MarkdownMessage: View {
             ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
                 switch seg {
                 case .prose(let s):
+                    // Reading-friendly mobile typography: a touch larger than the 17pt
+                    // app body, with generous line spacing for calm, low-strain reading
+                    // of long answers.
                     Text(prose(s))
-                        .font(BeagleFont.body.font)
-                        .lineSpacing(4)
+                        .font(.system(size: 18, weight: .regular))
+                        .lineSpacing(7)
                         .foregroundStyle(BeagleTheme.textPrimary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
