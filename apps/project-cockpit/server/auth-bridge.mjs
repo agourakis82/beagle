@@ -683,6 +683,49 @@ async function proxyBeagleRequest(method, req) {
   }
 }
 
+// Fetch the latest pinned biography digest from beagle-core memory.
+// Used by the Personal space to ground the companion in who the user actually is.
+// Best-effort: returns { digest: "" } on any failure so chat is never blocked.
+export async function fetchBiographyDigest({ timeoutMs = 8000 } = {}) {
+  const tokenResult = await fetchOperatorToken();
+  if (tokenResult.error || !tokenResult.token) {
+    return { digest: "", error: tokenResult.error || "beagle token unavailable" };
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "content-type": "application/json",
+        "X-Beagle-Consumer": "beagle-operator",
+        Authorization: `Bearer ${tokenResult.token}`
+      },
+      // Tag-filtered query reliably surfaces the pinned digest (see docs/exocortex/CONTRACTS.md).
+      body: JSON.stringify({
+        query: "biografia viva Demetrios quem ele é trabalho recente",
+        k: 3,
+        tags: ["biography-digest"]
+      }),
+      signal: ctrl.signal
+    });
+    if (!res.ok) {
+      return { digest: "", error: `memory/query ${res.status}` };
+    }
+    const payload = parseJsonResponse(await res.text());
+    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
+    const sorted = highlights
+      .filter((h) => cleanString(h?.snippet))
+      .sort((a, b) => cleanString(b?.date).localeCompare(cleanString(a?.date)));
+    return { digest: cleanString(sorted[0]?.snippet) };
+  } catch (err) {
+    return { digest: "", error: err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function proxyBeagleCompletion({
   prompt,
   system = "",

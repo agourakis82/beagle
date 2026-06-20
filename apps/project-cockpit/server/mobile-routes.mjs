@@ -17,7 +17,8 @@ import {
   proxyBeagleCompletion,
   proxyCheapProviderCompletion,
   proxySubscriptionBridgeCompletion,
-  proxyDiscussionLabCompletion
+  proxyDiscussionLabCompletion,
+  fetchBiographyDigest
 } from "./auth-bridge.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
@@ -675,11 +676,31 @@ async function completeChatRequest(req, deps) {
   const effectiveDiscussionProfile =
     requestedDiscussionProfile ||
     cleanString(requestedPhysioPolicy?.discussionProfile);
-  const effectiveSystem = buildMobileChatSystem(
+  let effectiveSystem = buildMobileChatSystem(
     req.body?.system,
     requestedFlowState,
     requestedPhysioPolicy
   );
+
+  // Personal space: ground the companion in the user's living biography so it
+  // responds as someone who actually knows him, not with generic self-help.
+  // Best-effort — grounding must never block or fail the chat.
+  const chatSpace = cleanString(req.body?.space || req.body?.chatSpace).toLowerCase();
+  if (chatSpace === "personal") {
+    try {
+      const { digest } = await fetchBiographyDigest();
+      if (digest) {
+        effectiveSystem = [
+          "## Quem é Demetrios (biografia viva — fale como quem o conhece de verdade, sem genéricos)",
+          digest,
+          effectiveSystem
+        ].filter(Boolean).join("\n\n");
+      }
+    } catch {
+      // ignore — proceed ungrounded rather than break the chat
+    }
+  }
+
   let appliedDiscussionProfile = effectiveDiscussionProfile || "cluster";
 
   let result;
