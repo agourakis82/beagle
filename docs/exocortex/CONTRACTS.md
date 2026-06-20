@@ -50,6 +50,15 @@ Response (matches the plan's `highlights[].snippet/date` assumption):
 → The cockpit's `fetchBiographyDigest()` (Task 6) queries this with the
 `biography-digest` tag/term and reads `highlights[].snippet`.
 
+**Tag filtering works (verified).** Plain `{query,k}` does NOT reliably surface a
+freshly-stored pinned doc (semantic rank loses to the larger corpus). Adding
+`"tags":["biography-digest"]` (and/or `"scope":"biography_digest"`) to the body
+deterministically returns the digest as the **top** highlight:
+```json
+{ "query": "biografia viva Demetrios", "k": 3, "tags": ["biography-digest"] }
+```
+→ `fetchBiographyDigest()` uses this and takes the most-recent highlight snippet.
+
 ---
 
 ## 2. Memory INGEST — `POST /api/exocortex/v1/memory/assisted-import`
