@@ -46,3 +46,25 @@ test("renderContent handles string, block arrays, and compacts tool_use", () => 
   assert.match(r, /ok/);
   assert.match(r, /\[tool_use Bash\]/);
 });
+
+test("trimTools drops tool plumbing, keeps text + thinking", () => {
+  const blocks = [
+    { type: "text", text: "real prose" },
+    { type: "thinking", thinking: "my reasoning" },
+    { type: "tool_use", name: "Bash", input: { command: "ls" } },
+  ];
+  const t = renderContent(blocks, { trimTools: true });
+  assert.match(t, /real prose/);
+  assert.match(t, /my reasoning/);
+  assert.doesNotMatch(t, /tool_use/);
+  // a tool_result-only turn renders empty when trimmed (so it is dropped on ingest)
+  assert.equal(renderContent([{ type: "tool_result", content: "12k report" }], { trimTools: true }), "");
+});
+
+test("parseSession trimTools yields conversation prose only", () => {
+  const s = parseSession(CLAUDE, { trimTools: true });
+  // the assistant turn keeps its text, drops the tool_use
+  const asst = s.turns.find((t) => t.role === "assistant");
+  assert.match(asst.content, /vejo o lexer/);
+  assert.doesNotMatch(asst.content, /tool_use/);
+});

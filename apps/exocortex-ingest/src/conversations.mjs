@@ -5,7 +5,7 @@
 // Render a message `content` (string | array of blocks, either Claude or Codex
 // flavor) to a flat text transcript. Verbatim: keep text + thinking; compact
 // tool calls/results so the conversation stays coherent without dumping payloads.
-export function renderContent(content) {
+export function renderContent(content, { trimTools = false } = {}) {
   if (content == null) return "";
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -22,13 +22,13 @@ export function renderContent(content) {
         if (b.thinking) parts.push(b.thinking);
         break;
       case "tool_use":
-        parts.push(`[tool_use ${b.name || "?"}] ${safeJson(b.input)}`);
+        if (!trimTools) parts.push(`[tool_use ${b.name || "?"}] ${safeJson(b.input)}`);
         break;
       case "tool_result":
-        parts.push(`[tool_result] ${typeof b.content === "string" ? b.content : renderContent(b.content)}`);
+        if (!trimTools) parts.push(`[tool_result] ${typeof b.content === "string" ? b.content : renderContent(b.content)}`);
         break;
       case "image":
-        parts.push("[image]");
+        if (!trimTools) parts.push("[image]");
         break;
       default:
         if (b.text) parts.push(b.text);
@@ -59,7 +59,7 @@ function detectFormat(objs) {
   return "unknown";
 }
 
-function parseClaude(objs) {
+function parseClaude(objs, opts) {
   let sessionId = null;
   let startedAt = null;
   const turns = [];
@@ -67,7 +67,7 @@ function parseClaude(objs) {
     if (!sessionId && o.sessionId) sessionId = o.sessionId;
     if (o.type !== "user" && o.type !== "assistant") continue;
     const msg = o.message || {};
-    const content = renderContent(msg.content);
+    const content = renderContent(msg.content, opts);
     if (!content.trim()) continue;
     if (!startedAt && o.timestamp) startedAt = o.timestamp;
     turns.push({ role: msg.role || o.type, content, timestamp: o.timestamp || null });
@@ -75,7 +75,7 @@ function parseClaude(objs) {
   return { format: "claude", sessionId, cwd: null, startedAt, turns };
 }
 
-function parseCodex(objs) {
+function parseCodex(objs, opts) {
   let sessionId = null;
   let cwd = null;
   let startedAt = null;
@@ -91,7 +91,7 @@ function parseCodex(objs) {
     if (o.type !== "response_item") continue;
     const p = o.payload || {};
     if (p.type !== "message") continue;
-    const content = renderContent(p.content);
+    const content = renderContent(p.content, opts);
     if (!content.trim()) continue;
     if (!startedAt && o.timestamp) startedAt = o.timestamp;
     turns.push({ role: p.role || "assistant", content, timestamp: o.timestamp || null });
@@ -99,10 +99,10 @@ function parseCodex(objs) {
   return { format: "codex", sessionId, cwd, startedAt, turns };
 }
 
-export function parseSession(text) {
+export function parseSession(text, opts = {}) {
   const objs = parseLines(text);
   const format = detectFormat(objs);
-  if (format === "codex") return parseCodex(objs);
-  if (format === "claude") return parseClaude(objs);
+  if (format === "codex") return parseCodex(objs, opts);
+  if (format === "claude") return parseClaude(objs, opts);
   return { format: "unknown", sessionId: null, cwd: null, startedAt: null, turns: [] };
 }

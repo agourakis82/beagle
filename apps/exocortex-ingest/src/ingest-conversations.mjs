@@ -33,14 +33,14 @@ function batch(arr, n) {
   return out;
 }
 
-export async function ingestConversations(root, { limit = Infinity, dryRun = false, includeSystem = false } = {}) {
+export async function ingestConversations(root, { limit = Infinity, dryRun = false, includeSystem = false, trimTools = true } = {}) {
   const stats = { sessions: 0, parsed: 0, turnsKept: 0, turnsSkippedRole: 0, turnsSkippedSecret: 0, imports: 0, ingested: 0, errors: 0 };
   for await (const file of findSessionFiles(root)) {
     if (stats.sessions >= limit) break;
     stats.sessions++;
     let text;
     try { text = await readFile(file, "utf8"); } catch { continue; }
-    const s = parseSession(text);
+    const s = parseSession(text, { trimTools });
     if (s.format === "unknown" || !s.turns.length) continue;
     stats.parsed++;
 
