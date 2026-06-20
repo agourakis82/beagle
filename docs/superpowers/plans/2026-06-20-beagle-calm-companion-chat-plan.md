@@ -26,30 +26,36 @@
 - [ ] **Step 1.3 — Install build 42 on the device and re-test streaming on-device.** Expected: long reply begins filling within ~1–2s and flows token-by-token; no silent wait, no fake typewriter.
 - [ ] **Step 1.4 — Only if build 42 on-device still fails:** real device-runtime bug. Capture the `[BeagleClient]` console prints + which base URL won, and debug from there (systematic-debugging).
 
+> **AUDIT (2026-06-20, read against the real build-42 tip `8dc39633` — not stale).** Far more is already built than the original plan assumed (it was written against a stale ref). Per-step status folded in below. Genuinely-remaining iOS work is small + concentrated: **2.2, 2.3, 3, 4.** Tasks 2.1 and 5 are already done.
+
 ### Task 2 — Composer that respires (clear-on-send, Stop, calm empty state)
 
 **Files:** `beagle-ios/.../BeagleCockpit/HomeView.swift` (`exocortexInput`, `homeInvitation`, send wiring), `beagle-ios/.../BeagleCockpit/BeagleInputBar.swift` (Stop wiring).
 
-- [ ] **Step 2.1 — Clear the composer on send (the bug).** In HomeView's send dispatch (the `exocortexInput`/starter-prompt `onSubmit`), after handing the text to `conversation.sendMessage(_:)`, reset the bound text to `""` synchronously so the field empties immediately. Verify: type → send → field is empty, text appears only in the thread.
-- [ ] **Step 2.2 — Stop control during generation.** Wire `BeagleInputBar`'s existing stop affordance: while `conversation.isStreaming`, the send button becomes **Stop** and calls `conversation.stopStreaming()`. Verify on sim: during a (mock/local) stream, Stop halts it and the bubble finalizes.
-- [ ] **Step 2.3 — Warm, low-friction empty state.** In `homeInvitation`, soften the copy for the anxious-moment use (e.g. headline that invites talking/doubt without pressure, calm subtitle) and keep the teal brand badge. The field is focusable on appear so opening Beagle lands ready to type. Verify on sim (screenshot).
-- [ ] **Step 2.4 — Commit** (`fix(ios): composer clears on send + Stop + calm empty state`).
+- [x] **Step 2.1 — Clear the composer on send.** ALREADY DONE: `BeagleInputBar.performSubmit()` calls `onSubmit(trimmed)` then `text = ""` (BeagleInputBar.swift:361-362) for typed sends. The plan's "current bug" was a false read off stale code. *(Optional nit: the `homeInvitation` starter-prompt buttons set `inputText = prompt` and don't clear it — but the invitation disappears after the first send, so it's not user-visible. Skip unless it resurfaces.)*
+- [ ] **Step 2.2 — Stop control during generation.** PARTIAL → wire in Home. `conversation.stopStreaming()` exists (ConversationStore.swift:188) and `onStop` IS wired in `ConversationView.swift:65`, but **HomeView's `exocortexInput` does not pass `onStop`** — so the Home composer shows no Stop button while streaming (it only disables via `isEnabled: !isStreaming`). Fix = add `onStop: { conversation.stopStreaming() }` to the `BeagleInputBar(...)` call in `exocortexInput`. BeagleInputBar already renders the `stop.fill` button when `!isEnabled && onStop != nil` (BeagleInputBar.swift:258-267). Verify on sim: during a stream, Stop halts it and the bubble finalizes.
+- [ ] **Step 2.3 — Warm, low-friction empty state.** PARTIAL → copy + focus. The warm state exists (teal brain badge + starter prompts, HomeView.swift:757+), but the copy is productivity-framed ("What are you working on?" / "Type a thought below — Beagle stays with it."). Soften for the anxious-moment companion use (invite talking/doubt without pressure). Also wire focus-on-appear (bump `inputFocusRequest` in the home `.onAppear` so opening Beagle lands ready to type). Verify on sim (screenshot).
+- [ ] **Step 2.4 — Commit** (`fix(ios): wire Stop in home composer + companion empty-state copy + focus-on-appear`).
 
 ### Task 3 — Ambient presence mark (presence without demand)
 
-**Files:** `beagle-ios/.../BeagleCockpit/HomeView.swift` (nav/header), reuse `BeagleCore/Theme.swift` `BeaglePresenceState` + `bodyPresenceState`.
+**Files:** `beagle-ios/.../BeagleCockpit/HomeView.swift` (header/nav), `BeagleCore/Theme.swift` `BeaglePresenceState`.
 
-- [ ] **Step 3.1 — Breathing presence glyph in the header.** Replace/augment the static wordmark glyph with a slow **breathing** mark tinted by `bodyPresenceState.tint` (`BeagleMotion`-driven, ~3–4s cycle, low opacity range). It must NOT flash or pulse aggressively (Calm Tech: periphery, minimal attention).
-- [ ] **Step 3.2 — State shifts on send.** On send, presence moves to `.attentive`/`.active` (so there is never a silent void); during streaming, `.active`; on a stalled/errored turn, `.holding` ("I'm here through this"). Drive from `conversation.isStreaming` + the turn lifecycle.
-- [ ] **Step 3.3 — Verify on sim** (screenshot: calm breathing glyph, state change on send).
-- [ ] **Step 3.4 — Commit** (`feat(ios): ambient breathing presence mark in chat header`).
+> **AUDIT:** MOSTLY MISSING for the chat-turn intent. Presence states exist and render tinted in the header, BUT `shellPresenceState` is driven by cognitive/job signals (HomeView.swift:431) and `bodyPresenceState` by physio/HRV readiness (HomeView.swift:2408) — **neither reacts to `conversation.isStreaming` or the chat turn.** There is no slow breathing glyph tied to the conversation. **Enum-name correction:** the real `BeaglePresenceState` cases are `.attentive/.active/.strained/.dormant` (Theme.swift:193+) — there is **no `.holding`/`.resting`/`.present`**. Either add a `.holding` case or repurpose `.strained` for the stalled-turn signal.
+
+- [ ] **Step 3.1 — Breathing presence glyph in the header.** Add a slow **breathing** mark (≈3–4s cycle, low opacity range, `BeagleMotion`-driven) tinted by the conversation presence; must not flash/pulse aggressively (Calm Tech: periphery).
+- [ ] **Step 3.2 — Presence reacts to the chat turn.** Introduce a conversation-derived presence (driven by `conversation.isStreaming` + turn lifecycle): on send → `.attentive`; during stream → `.active`; on stall/error → `.strained` (or a new `.holding`). This is the "never a silent void / I'm here through this" signal — distinct from the existing cognitive/physio states.
+- [ ] **Step 3.3 — Verify on sim** (screenshot: calm breathing glyph + state change on send).
+- [ ] **Step 3.4 — Commit** (`feat(ios): chat-turn presence — breathe on stream, hold on stall`).
 
 ### Task 4 — Memory shown gently (felt understanding)
 
-**Files:** `apps/project-cockpit/server/mobile-routes.mjs` (stream `done` event: add `grounded` flag), `beagle-ios/.../BeagleCore/BeagleClient.swift` (`ChatStreamEvent.done` carries `grounded`), `BeagleCore/ConversationStore.swift` + `BeagleCockpit/ChatBubbleView.swift` (soft cue).
+**Files:** `apps/project-cockpit/server/mobile-routes.mjs` (stream `done` event), `beagle-ios/.../BeagleCore/BeagleClient.swift` (`ChatStreamEvent.done`), `ConversationStore.swift` + `BeagleCockpit/ChatBubbleView.swift`.
 
-- [ ] **Step 4.1 — Backend signals grounding.** In `/api/mobile/v1/chat/stream`, when `fetchExocortexContext` returned non-empty, include `"grounded": true` (and optionally a 1-line memory label) in the `data:{done,...}` event.
-- [ ] **Step 4.2 — iOS carries it.** Extend `ChatStreamEvent.done` with `grounded: Bool`; store on the message.
+> **AUDIT:** MISSING (not started). Backend computes `memoryContext` (mobile-routes.mjs:1521) but the `done` event omits it — it only sends `{done, model, source, tokens_used}` (line 1542). iOS `ChatStreamEvent.done` carries `(model, tokensUsed, source)` — no `grounded`. Raw materials exist: `BeagleTheme.truthRemembered` tint + a "Composing from memory…" string already in ChatBubbleView (≈line 363).
+
+- [ ] **Step 4.1 — Backend signals grounding.** In `/api/mobile/v1/chat/stream`, when `memoryContext` is non-empty, add `"grounded": true` (optionally a 1-line memory label) to the `data:{done,...}` event.
+- [ ] **Step 4.2 — iOS carries it.** Extend `ChatStreamEvent.done` with `grounded: Bool` (parse `obj["grounded"]` in `chatStream`); store on the message; thread through `sendMessageCloud`.
 - [ ] **Step 4.3 — Gentle peripheral cue.** When `grounded`, show a quiet "recalling…" / memory chip on the assistant bubble (low-contrast, `truthRemembered` tint) — informing without demanding. Verify on sim.
 - [ ] **Step 4.4 — Commit** (`feat(cockpit/ios): gentle memory-grounding cue on streamed replies`).
 
@@ -57,19 +63,23 @@
 
 **Files:** `ChatBubbleView.swift`, `HomeView.swift` (transitions), error/retry paths in `ConversationStore.sendMessageCloud`.
 
-- [ ] **Step 5.1 — Slow, soft transitions.** Message-in, presence, and composer transitions use `BeagleMotion.normal/slow` (no snappy/flashy); reduce abrupt layout jumps.
-- [ ] **Step 5.2 — Gentle errors.** On stream error/timeout, the bubble shows a warm, non-alarming line + an obvious **Retry** (reuse `regenerateLastResponse`); never a dead-end or red shout.
-- [ ] **Step 5.3 — Verify on sim** + **Commit** (`feat(ios): calm motion + gentle error/retry in chat`).
+- [x] **Step 5.1 — Slow, soft transitions.** LARGELY DONE: `ChatBubbleView` uses `BeagleMotion.normal` (line 377) + `.opacity` transitions (99/102); HomeView uses `BeagleMotion.slow` for surfaces. *(Optional polish: one `.snappy` at HomeView.swift:1697 — leave unless it reads as flashy on-device.)*
+- [x] **Step 5.2 — Gentle errors + Retry.** ALREADY DONE: stream-fail path shows "The cluster didn't respond — tap ↺ to try again" (ConversationStore `sendMessageCloud`); Retry wired via `regenerateLastResponse` (HomeView.swift:964).
+- [ ] **Step 5.3 — Confirm on device** (no separate commit expected unless the optional polish above is taken).
 
-### Task 6 — Ship build 43 + on-device judgment
+### Task 6 — Ship build ≥44 + on-device judgment
 
-- [ ] **Step 6.1 — Bump the build number.** First **read the current `CURRENT_PROJECT_VERSION` in `beagle-ios/project.yml`** (do not assume 42 — verify on the Mac), then bump to the next integer, `xcodegen generate`, commit, push.
-- [ ] **Step 6.2 — Archive (Xcode GUI, keychain) + upload** to TestFlight (`1.1 (43)`).
-- [ ] **Step 6.3 — On-device acceptance.** On the real iPhone, verify against the north star: send a message → presence shifts + tokens stream calmly (no silent wait), composer clears, Stop works, memory cue appears when grounded, errors are gentle. The bar: *does it feel like a calm companion at your side?*
+> **AUDIT correction:** the installed TestFlight build is **43 (old code, runs the blocking + fake-reveal path)**. Today's streaming work was archived as build **42** — a *lower* number — so it never superseded 43 on the device. The next build **must exceed 43** (→ 44+), built from current HEAD (which has the streaming fix). Verified: Mac `project.yml` is at 42, HEAD `8dc39633` contains streaming commit `04dc0f6c`.
+
+- [ ] **Step 6.1 — Apply the remaining iOS edits** (2.2, 2.3, 3, 4) on `feat/ios-100pct-real`, commit, push.
+- [ ] **Step 6.2 — Bump build to 44** (must exceed installed 43) in `beagle-ios/project.yml`, `xcodegen generate`, commit, push.
+- [ ] **Step 6.3 — Archive (Xcode GUI, keychain) + upload** to TestFlight as `1.1 (44)`. (No headless ASC key — upload via Xcode Organizer GUI.)
+- [ ] **Step 6.4 — On-device acceptance.** On the real iPhone (build 44): send a message → **tokens stream calmly, no silent wait**; presence shifts on send; composer clears; Stop works; memory cue appears when grounded; errors are gentle. The bar: *does it feel like a calm companion at your side?*
 
 ---
 
 ## Notes / DRY
-- Backend stream pieces (`streamChatViaRouter`, `/api/mobile/v1/chat/stream`) already exist (commit `f0c6c19b`); iOS `chatStream` + streaming `sendMessageCloud` exist (`04dc0f6`). This plan **completes + calms** them, fixes CF delivery, and adds presence/memory/motion.
+- Backend stream (`streamChatViaRouter`, `/api/mobile/v1/chat/stream`, `f0c6c19b`) **and** iOS streaming (`chatStream` + live `sendMessageCloud`, `04dc0f6`) are **both complete and correct** at the build-42 tip. CF delivery is **fine** (measured — not buffering). So the streaming half of this plan is DONE in code; the gap was purely that build 42 (the streaming build) carries a *lower* number than the installed build 43 and never shipped over it. Remaining net-new work = presence/memory + the two small composer gaps (Stop in Home, empty-state copy) + ship build ≥44.
+- **Lesson banked:** the original plan was written against a stale `feat/ios-100pct-real` ref (`64a2e653`). Always `git fetch` and read the real tip before planning iOS work. See memory `project_ios_chat_fake_streaming`.
 - Out of scope: deep RAG-ranking (separate); other tabs.
 - Every iOS step that touches streaming/CF or MLX is **device-verified**, not sim.
