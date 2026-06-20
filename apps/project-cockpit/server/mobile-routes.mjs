@@ -1519,6 +1519,9 @@ export function registerMobileRoutes(app, deps) {
       return;
     }
     const memoryContext = await fetchExocortexContext(prompt);
+    // Felt understanding: tell the client when this reply was grounded in retrieved
+    // exocortex memory, so it can show a gentle "recalling" cue (Calm Tech).
+    const grounded = typeof memoryContext === "string" && memoryContext.trim().length > 0;
     const system = [cleanString(req.body?.system), memoryContext].filter(Boolean).join("\n\n");
     const messages = [];
     if (system) messages.push({ role: "system", content: system });
@@ -1539,7 +1542,7 @@ export function registerMobileRoutes(app, deps) {
         signal: ctrl.signal,
         onToken: (delta) => { res.write(`data: ${JSON.stringify({ token: delta })}\n\n`); }
       });
-      res.write(`data: ${JSON.stringify({ done: true, model: result.model, source: "cluster", tokens_used: result.usage?.total_tokens || 0 })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true, model: result.model, source: "cluster", tokens_used: result.usage?.total_tokens || 0, grounded })}\n\n`);
       res.end();
     } catch (error) {
       res.write(`data: ${JSON.stringify({ error: String(error?.message || error) })}\n\n`);
