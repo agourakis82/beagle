@@ -106,8 +106,12 @@ User: *"essas respostas só fariam sentido se eu soubesse que eles têm todos os
 - **(A) Always-present BIOGRAPHY** — a curated distillate of *who he is + what he's been doing lately* (from repos + agents + exocortex), injected into EVERY Personal turn (not query-matched). This is what turns "você construiu tanta coisa" into "você fez o Madaros passar, subiu o Moshi, tá self-hostando o souc".
 - **(B) Corpus ingestion pipeline** — feed the biography + memory from: **git repos** (sounio, beagle, darwin-MFC…), **Sounio agent interactions** (coord/sessions/work-memory), exocortex.
 
+**GROUNDED PROOF (2026-06-20) — thesis validated end-to-end.** Re-auditioned the same "vazio/sobrecarga" prompt with `hermes-4` voice + `hunyuan-7b` muse + a manually-distilled **biography digest** (from real corpus: git activity + MEMORY + breadcrumb). Result was night-and-day vs ungrounded: it named his actual work ("Três meses e meio. Sozinho. Uma plataforma inteira. Um compilador. Um cluster que respira. Provas de Erdős."), found the solo-builder paradox ("exausto de ser dois"), integrated the muse divergence, stayed one warm voice. **Not Instagram — said only to HIM, about HIS life.** Architecture proven: persona + muse + always-present biography (real corpus) = the companion. Grounding is the soul.
+
+**Phase 2 decisions (locked):** ingest **repos + agent interactions in parallel**; biography = **short always-present digest + deep RAG on demand**.
+
 **Re-sequenced phases:**
-2. **Grounding foundation** (NEW priority): corpus ingestion + always-present biography. Then RE-AUDITION grounded to prove it stops being Instagram.
+2. **Grounding foundation** — BUILD the real pipeline (proof done manually): (a) corpus ingestion from git repos (sounio/beagle/darwin-MFC) + Sounio agent interactions (coord board / agent sessions / work-memory) into the beagle-core memory store; (b) a **digest generator** distilling who-he-is + recent-work, regenerated periodically; (c) wire the always-present digest into the Personal-space backend prompt + keep deep RAG on demand.
 3. Two-stage ensemble orchestration (muse→voice) + on-device voice decision (hermes vs qwen).
 4. Personal space + persona constant + return-feels-remembered.
 - **Co-write persona** core + intimate register WITH the user (using validated levers: warm/candid, permission-to-disagree, validate-feelings-while-challenging-thoughts, no over-safeguarding, warranted-not-ritualistic referrals, crisis-explicit).
