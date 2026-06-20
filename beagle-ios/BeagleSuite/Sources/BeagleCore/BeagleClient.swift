@@ -1255,7 +1255,7 @@ public actor BeagleClient {
 
     public enum ChatStreamEvent: Sendable {
         case token(String)
-        case done(model: String?, tokensUsed: Int?, source: String?)
+        case done(model: String?, tokensUsed: Int?, source: String?, grounded: Bool)
     }
 
     /// Stream a chat completion token-by-token from the cockpit SSE endpoint
@@ -1326,7 +1326,8 @@ public actor BeagleClient {
                                 continuation.yield(.done(
                                     model: obj["model"] as? String,
                                     tokensUsed: obj["tokens_used"] as? Int,
-                                    source: obj["source"] as? String))
+                                    source: obj["source"] as? String,
+                                    grounded: obj["grounded"] as? Bool ?? false))
                             } else if let err = obj["error"] as? String {
                                 continuation.finish(throwing: NSError(
                                     domain: "BeagleChatStream", code: 1,

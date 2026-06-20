@@ -232,6 +232,15 @@ struct ChatBubbleView: View {
                         tint: BeagleTheme.truthRemembered
                     )
                 }
+                // Felt understanding: a quiet, peripheral cue that this reply drew on
+                // your exocortex memory — informing without demanding (Calm Tech).
+                if message.grounded {
+                    PresencePill(
+                        label: "recalling",
+                        systemImage: "brain.head.profile",
+                        tint: BeagleTheme.truthRemembered.opacity(0.85)
+                    )
+                }
             }
 
             if let model = message.model {

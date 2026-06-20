@@ -100,9 +100,10 @@ struct HomeView: View {
             // plain large title — teal brain glyph + "Beagle".
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 6) {
-                    Image(systemName: "brain")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(BeagleTheme.truthObserved)
+                    // Ambient presence: a slow breathing mark that lives in the
+                    // periphery. It begins breathing the instant you send (never a
+                    // silent void) and rests calm otherwise — motion, not flashing.
+                    BreathingPresenceGlyph(active: conversation.isStreaming)
                     Text("Beagle")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(BeagleTheme.textPrimary)
@@ -137,6 +138,14 @@ struct HomeView: View {
         }
         .task {
             await bootstrap()
+        }
+        .onAppear {
+            // Calm companion: opening Beagle on an empty thread lands you ready to
+            // type (a hard moment shouldn't need an extra tap). Only when empty —
+            // never pop the keyboard back open mid-conversation.
+            if conversation.isEmpty {
+                inputFocusRequest += 1
+            }
         }
         .sheet(isPresented: $showModelManager) {
             NavigationStack {
@@ -769,11 +778,11 @@ struct HomeView: View {
             }
 
             VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
-                Text("What are you working on?")
+                Text("What's on your mind?")
                     .font(BeagleFont.title2.font)
                     .fontWeight(.semibold)
                     .foregroundStyle(BeagleTheme.textPrimary)
-                Text("Type a thought below — Beagle stays with it.")
+                Text("A thought, a doubt, or just a moment — Beagle stays with it.")
                     .font(BeagleFont.subheadline.font)
                     .foregroundStyle(BeagleTheme.textSecondary)
             }
@@ -1376,7 +1385,8 @@ struct HomeView: View {
                 BeagleHaptics.capture()
                 #endif
                 Task { await conversation.sendMessage(text) }
-            }
+            },
+            onStop: { conversation.stopStreaming() }
         )
     }
 
@@ -3544,5 +3554,44 @@ struct LaneResultCard: View {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+/// A slow breathing presence mark for the chat header (Calm Tech: periphery,
+/// minimal attention). It breathes only while `active` (Beagle streaming) and
+/// settles to a calm steady presence otherwise — no perpetual animation on an
+/// idle Home, matching the mesh's idle-CPU discipline. Honors Reduce Motion.
+/// Stays on the brand teal; presence is expressed through motion (breathing
+/// begins the instant you send), not a hue shift — there is never a silent void.
+private struct BreathingPresenceGlyph: View {
+    let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var inhale = false
+
+    private var breathing: Bool { active && !reduceMotion }
+
+    var body: some View {
+        Image(systemName: "brain")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(BeagleTheme.truthObserved)
+            .opacity(breathing ? (inhale ? 1.0 : 0.55) : 0.9)
+            .scaleEffect(breathing ? (inhale ? 1.0 : 0.92) : 1.0)
+            .animation(.easeInOut(duration: 0.6), value: active)
+            .accessibilityHidden(true)
+            .task(id: breathing) {
+                // Drive a slow ~3.5s breath while active; a manual, cancelable loop
+                // (instead of repeatForever) stops cleanly when streaming ends.
+                guard breathing else {
+                    inhale = false
+                    return
+                }
+                while !Task.isCancelled {
+                    withAnimation(.easeInOut(duration: 1.75)) { inhale = true }
+                    try? await Task.sleep(for: .seconds(1.75))
+                    if Task.isCancelled { break }
+                    withAnimation(.easeInOut(duration: 1.75)) { inhale = false }
+                    try? await Task.sleep(for: .seconds(1.75))
+                }
+            }
     }
 }

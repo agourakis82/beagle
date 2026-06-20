@@ -36,6 +36,9 @@ public struct ChatMessage: Identifiable, Sendable {
     public var voiceName: String?
     /// True once this exchange has been auto-imported into the cluster exocortex memory.
     public var savedToMemory: Bool = false
+    /// True when the reply was grounded in retrieved exocortex memory (backend
+    /// signals this on the stream `done` event). Drives a gentle "recalling" cue.
+    public var grounded: Bool = false
 
     public init(
         id: UUID = UUID(),
@@ -360,6 +363,7 @@ public final class ConversationStore {
         var finalModel: String? = nil
         var finalTokens: Int? = nil
         var finalSource: String? = nil
+        var finalGrounded = false
         var streamError: Error? = nil
         do {
             for try await event in client.chatStream(
@@ -378,10 +382,11 @@ public final class ConversationStore {
                     if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
                         messages[idx].content = streamed
                     }
-                case .done(let model, let tokens, let source):
+                case .done(let model, let tokens, let source, let grounded):
                     finalModel = model
                     finalTokens = tokens
                     finalSource = source
+                    finalGrounded = grounded
                 }
             }
         } catch {
@@ -394,6 +399,7 @@ public final class ConversationStore {
                 messages[idx].model = finalModel
                 messages[idx].tokensUsed = finalTokens
                 messages[idx].source = finalSource ?? "cluster"
+                messages[idx].grounded = finalGrounded
                 messages[idx].isStreaming = false
                 persist(message: messages[idx])
                 await autoImportExchange(
