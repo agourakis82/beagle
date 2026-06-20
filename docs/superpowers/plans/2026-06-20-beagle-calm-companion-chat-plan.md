@@ -20,7 +20,7 @@
 - [ ] **Step 1.2 — Fix delivery.** Two levers, apply in order until tokens arrive incrementally over the public path:
   - (a) Backend already sends `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `X-Accel-Buffering: no`. Verify these survive to the client over CF.
   - (b) Cloudflare: add a **Configuration Rule** for path `/api/mobile/v1/chat/stream` disabling buffering / setting `cache: bypass` + ensure no "Rocket Loader"/proxy transform; OR confirm CF passes `text/event-stream` unbuffered (it should when content-type is correct + response is chunked).
-  - (c) If the phone is on Tailscale, make `chatStream` **prefer the tailnet cockpit URL** (`http://sounio-cockpit.tail21cbc4.ts.net`) over `beagle.chiuratto.ai` for the stream only (non-CF path), keeping CF as fallback.
+  - (c) **Diagnostic/fallback only — NOT the ship path.** The north star is Beagle reachable *anywhere* anxiety rises (cellular, off-tailnet), so the CF path (a/b) is the durable primary fix. Use the tailnet cockpit URL (`http://sounio-cockpit.tail21cbc4.ts.net`) only to (i) prove the stream works at all end-to-end before blaming CF, and (ii) as an opportunistic fallback when the phone *is* on Tailscale. Do not declare Task 1 done on a tailnet-only stream.
 - [ ] **Step 1.3 — Verify on device.** `curl -N` over the chosen path shows incremental `data:{token}` events; then in-app the bubble fills token-by-token.
 - [ ] **Step 1.4 — Commit** (`fix(cockpit/ios): stream survives the public/CF path on-device`).
 
@@ -61,7 +61,7 @@
 
 ### Task 6 — Ship build 43 + on-device judgment
 
-- [ ] **Step 6.1 — Bump build 42 → 43** in `beagle-ios/project.yml`, `xcodegen generate`, commit, push.
+- [ ] **Step 6.1 — Bump the build number.** First **read the current `CURRENT_PROJECT_VERSION` in `beagle-ios/project.yml`** (do not assume 42 — verify on the Mac), then bump to the next integer, `xcodegen generate`, commit, push.
 - [ ] **Step 6.2 — Archive (Xcode GUI, keychain) + upload** to TestFlight (`1.1 (43)`).
 - [ ] **Step 6.3 — On-device acceptance.** On the real iPhone, verify against the north star: send a message → presence shifts + tokens stream calmly (no silent wait), composer clears, Stop works, memory cue appears when grounded, errors are gentle. The bar: *does it feel like a calm companion at your side?*
 
