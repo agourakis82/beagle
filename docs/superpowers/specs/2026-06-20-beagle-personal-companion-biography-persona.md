@@ -94,9 +94,22 @@ All candidates are **self-hosted on the cluster** (sovereign). Persona v2 used a
   - `internlm2.5-7b` — **FAILED** (gibberish / token code-switching in pt-BR). Dropped.
 - **Ensemble validated:** `hermes-4` voice + `hunyuan-7b` muse seeds → response was markedly deeper/more original ("produto vs propósito", "cavar em vez de levantar parede") AND stayed one constant voice (no fracture, no "seeds" mention). The muse enriches without breaking the persona. **This is the Personal-space architecture.**
 
-## Still to do
-- Decide warm **voice** (hermes-4 vs qwen2.5-14b) — on-device with real prompts.
-- Build the **two-stage ensemble orchestration** (muse→seeds→voice) in the cockpit backend for the Personal space.
+## COURSE CORRECTION (2026-06-20, user) — grounding is the soul, not the voice
+
+User: *"essas respostas só fariam sentido se eu soubesse que eles têm todos os meus repositórios como contexto, minhas interações nos agentes em Sounio etc. — do contrário é mensagem de auto-ajuda do Instagram."* He is right: the Phase-1 audition tested **voice in a vacuum**, so it read as generic self-help. Warm voice WITHOUT grounding in his real corpus = Instagram. The voice was necessary but the soul is grounding — and it does not exist yet.
+
+**Current grounding (measured):** `fetchExocortexContext` (auth-bridge.mjs:691) does ONE `POST /api/memory/query` with the user's prompt → up to 6 semantically-matched snippets from beagle-core memory. Two fatal gaps for a companion:
+1. **His real corpus is not ingested** — git **repositories** (what he builds/commits) and **Sounio agent interactions** (coord board, agent sessions, work-memory) are not in the beagle-core memory store → nothing to retrieve.
+2. **Per-query semantic RAG fails for emotional talk** — "tô com um vazio" will never semantically retrieve a Madaros commit or an agent session. The worlds don't match → it stays generic exactly when it matters.
+
+**Fix = two layers:**
+- **(A) Always-present BIOGRAPHY** — a curated distillate of *who he is + what he's been doing lately* (from repos + agents + exocortex), injected into EVERY Personal turn (not query-matched). This is what turns "você construiu tanta coisa" into "você fez o Madaros passar, subiu o Moshi, tá self-hostando o souc".
+- **(B) Corpus ingestion pipeline** — feed the biography + memory from: **git repos** (sounio, beagle, darwin-MFC…), **Sounio agent interactions** (coord/sessions/work-memory), exocortex.
+
+**Re-sequenced phases:**
+2. **Grounding foundation** (NEW priority): corpus ingestion + always-present biography. Then RE-AUDITION grounded to prove it stops being Instagram.
+3. Two-stage ensemble orchestration (muse→voice) + on-device voice decision (hermes vs qwen).
+4. Personal space + persona constant + return-feels-remembered.
 - **Co-write persona** core + intimate register WITH the user (using validated levers: warm/candid, permission-to-disagree, validate-feelings-while-challenging-thoughts, no over-safeguarding, warranted-not-ritualistic referrals, crisis-explicit).
 - Implement uncertainty→literature grounding (PubMed/guidelines) — simplified from SeaKR.
 - Build: Personal space + ensemble + biography (seed/interview/import/silent-distill + editable page) + constant persona + return-feels-remembered → one build.
