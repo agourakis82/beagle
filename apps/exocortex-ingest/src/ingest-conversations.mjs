@@ -4,7 +4,7 @@ import { parseSession } from "./conversations.mjs";
 import { scanContent } from "./secrets.mjs";
 import { assistedImport } from "./contracts.mjs";
 
-const TURNS_PER_IMPORT = 40;
+const TURNS_PER_IMPORT = process.env.BATCH_TURNS ? Number(process.env.BATCH_TURNS) : 40;
 // Roles that are real conversation. The system/developer envelope (Codex
 // permissions boilerplate, identical across sessions) is excluded unless
 // INCLUDE_SYSTEM=1, so it doesn't drown the biographical signal in recall.
