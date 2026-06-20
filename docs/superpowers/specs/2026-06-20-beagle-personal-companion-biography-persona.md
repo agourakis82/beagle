@@ -81,8 +81,22 @@ Driven by live device use: the user (a psychiatrist) had a private, flowing emot
 - **Mechanism:** two-stage on-cluster call — `muse(prompt) → creative seeds` (silent) → `voice(persona + biography slice + muse seeds + literature grounding) → the one response`. Orchestrated by the cockpit backend / LiteLLM. The voice/persona is always the same → constant.
 - Warmth is carried by **persona + grounding** (research: warmth is more persona-driven than base-model), not by reaching for a commercial model.
 
+## Phase 1 — voice/muse audition (2026-06-20, empirical, via LiteLLM router on-cluster)
+
+All candidates are **self-hosted on the cluster** (sovereign). Persona v2 used as system prompt; intimate pt-BR test prompt ("vazio/sobrecarga"); temp 0.8 voice / 0.95 muse.
+
+- **Warm voice — both strong, sovereign, nailed the persona (no LLM-speak, validate+reflect, "Demi", pt-BR):**
+  - `hermes-4` (Nous Hermes 4, rtx8000) — grounded, holds-space-first, more "therapist". Robust (coherent even when fed garbage seeds).
+  - `qwen2.5-14b` (r770) — sharper, names the pattern, more "friend who shakes you".
+  - → Voice pick still open (hermes vs qwen); decide on-device with real prompts.
+- **Muse (creative Chinese, silent divergent seeds):**
+  - `hunyuan-7b` (Tencent, a5000) — **EXCELLENT**: divergent, poetic, provocative seeds in clean pt-BR. Selected muse.
+  - `internlm2.5-7b` — **FAILED** (gibberish / token code-switching in pt-BR). Dropped.
+- **Ensemble validated:** `hermes-4` voice + `hunyuan-7b` muse seeds → response was markedly deeper/more original ("produto vs propósito", "cavar em vez de levantar parede") AND stayed one constant voice (no fracture, no "seeds" mention). The muse enriches without breaking the persona. **This is the Personal-space architecture.**
+
 ## Still to do
-- Serve + **on-device A/B 2–3 self-hosted candidates** for the warm voice; pick a creative Chinese muse.
+- Decide warm **voice** (hermes-4 vs qwen2.5-14b) — on-device with real prompts.
+- Build the **two-stage ensemble orchestration** (muse→seeds→voice) in the cockpit backend for the Personal space.
 - **Co-write persona** core + intimate register WITH the user (using validated levers: warm/candid, permission-to-disagree, validate-feelings-while-challenging-thoughts, no over-safeguarding, warranted-not-ritualistic referrals, crisis-explicit).
 - Implement uncertainty→literature grounding (PubMed/guidelines) — simplified from SeaKR.
 - Build: Personal space + ensemble + biography (seed/interview/import/silent-distill + editable page) + constant persona + return-feels-remembered → one build.
