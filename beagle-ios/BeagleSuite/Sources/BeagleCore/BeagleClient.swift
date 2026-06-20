@@ -1301,6 +1301,7 @@ public actor BeagleClient {
                 var lastError: Error = URLError(.cannotConnectToHost)
                 for base in bases {
                     guard let url = URL(string: "/api/mobile/v1/chat/stream", relativeTo: base) else { continue }
+                    print("[BeagleClient] chat/stream → \(url.absoluteString)")
                     var request = URLRequest(url: url)
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1313,6 +1314,8 @@ public actor BeagleClient {
                               (200..<300).contains(http.statusCode) else {
                             lastError = URLError(.badServerResponse); continue
                         }
+                        print("[BeagleClient] chat/stream ✅ connected \(http.statusCode) via \(base.host ?? "?") — streaming SSE")
+                        var firstToken = true
                         for try await line in bytes.lines {
                             if Task.isCancelled { continuation.finish(); return }
                             guard line.hasPrefix("data:") else { continue }
@@ -1321,14 +1324,20 @@ public actor BeagleClient {
                                   let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
                             else { continue }
                             if let token = obj["token"] as? String {
+                                if firstToken {
+                                    print("[BeagleClient] chat/stream ⬇︎ first token received — incremental stream live")
+                                    firstToken = false
+                                }
                                 continuation.yield(.token(token))
                             } else if obj["done"] != nil {
+                                print("[BeagleClient] chat/stream ✓ done — model=\(obj["model"] as? String ?? "?") grounded=\(obj["grounded"] as? Bool ?? false)")
                                 continuation.yield(.done(
                                     model: obj["model"] as? String,
                                     tokensUsed: obj["tokens_used"] as? Int,
                                     source: obj["source"] as? String,
                                     grounded: obj["grounded"] as? Bool ?? false))
                             } else if let err = obj["error"] as? String {
+                                print("[BeagleClient] chat/stream ❌ error frame: \(err)")
                                 continuation.finish(throwing: NSError(
                                     domain: "BeagleChatStream", code: 1,
                                     userInfo: [NSLocalizedDescriptionKey: err]))
@@ -1337,6 +1346,7 @@ public actor BeagleClient {
                         }
                         continuation.finish(); return
                     } catch {
+                        print("[BeagleClient] chat/stream ⚠️ \(base.host ?? "?") failed: \(error.localizedDescription) — trying next base")
                         lastError = error; continue
                     }
                 }
