@@ -33,8 +33,15 @@ function batch(arr, n) {
   return out;
 }
 
-export async function ingestConversations(root, { limit = Infinity, dryRun = false, includeSystem = false, trimTools = true } = {}) {
+export async function ingestConversations(root, { limit = Infinity, dryRun = false, includeSystem = false, trimTools = true, concurrency = 1, onProgress = null } = {}) {
   const stats = { sessions: 0, parsed: 0, turnsKept: 0, turnsSkippedRole: 0, turnsSkippedSecret: 0, imports: 0, ingested: 0, errors: 0 };
+  const inflight = new Set();
+  async function dispatch(job) {
+    if (inflight.size >= concurrency) await Promise.race(inflight);
+    const p = job().then(() => { inflight.delete(p); });
+    inflight.add(p);
+  }
+
   for await (const file of findSessionFiles(root)) {
     if (stats.sessions >= limit) break;
     stats.sessions++;
@@ -64,21 +71,26 @@ export async function ingestConversations(root, { limit = Infinity, dryRun = fal
         metadata: { orig_role: t.role },
       }));
       stats.imports++;
-      try {
-        await assistedImport({
-          title: `${s.format} session — ${label}`,
-          sessionId: `${s.format}:${s.sessionId || path.basename(file)}`,
-          sourcePlatform: `agent-${s.format}`,
-          sourceSurface: "agent-conversation",
-          importScope: "agent_conversation",
-          confidenceScore: 0.85,
-          turns,
-          tags: ["exocortex", "tier2", "agent-convo", s.format, label ? `project:${label}` : "project:unknown"],
-          metadata: { path: file, format: s.format, cwd: s.cwd, session_id: s.sessionId },
-        });
-        stats.ingested += turns.length;
-      } catch (e) { stats.errors++; }
+      const myImport = stats.imports;
+      await dispatch(async () => {
+        try {
+          await assistedImport({
+            title: `${s.format} session — ${label}`,
+            sessionId: `${s.format}:${s.sessionId || path.basename(file)}`,
+            sourcePlatform: `agent-${s.format}`,
+            sourceSurface: "agent-conversation",
+            importScope: "agent_conversation",
+            confidenceScore: 0.85,
+            turns,
+            tags: ["exocortex", "tier2", "agent-convo", s.format, label ? `project:${label}` : "project:unknown"],
+            metadata: { path: file, format: s.format, cwd: s.cwd, session_id: s.sessionId },
+          });
+          stats.ingested += turns.length;
+        } catch (e) { stats.errors++; }
+        if (onProgress && myImport % 100 === 0) onProgress({ ...stats });
+      });
     }
   }
+  await Promise.all(inflight);
   return stats;
 }
