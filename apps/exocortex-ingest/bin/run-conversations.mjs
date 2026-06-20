@@ -7,7 +7,8 @@ const includeSystem = process.env.INCLUDE_SYSTEM === "1" || process.argv.include
 const trimTools = !(process.env.FULL_VERBATIM === "1" || process.argv.includes("--verbatim"));
 const limit = process.env.LIMIT ? Number(process.env.LIMIT) : Infinity;
 const concurrency = process.env.CONCURRENCY ? Number(process.env.CONCURRENCY) : 1;
+const minSignalChars = process.env.MIN_SIGNAL_CHARS ? Number(process.env.MIN_SIGNAL_CHARS) : 0;
 const onProgress = (s) =>
   console.log(`[progress] sessions=${s.sessions} imports=${s.imports} ingested=${s.ingested} secretBlocked=${s.turnsSkippedSecret} errors=${s.errors}`);
-const stats = await ingestConversations(root, { dryRun, includeSystem, limit, trimTools, concurrency, onProgress });
+const stats = await ingestConversations(root, { dryRun, includeSystem, limit, trimTools, concurrency, onProgress, minSignalChars });
 console.log("[conversations]", JSON.stringify(stats));

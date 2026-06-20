@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseSession, renderContent } from "../src/conversations.mjs";
+import { parseSession, renderContent, isHighSignalTurn } from "../src/conversations.mjs";
 
 const CLAUDE = [
   `{"type":"queue-operation","operation":"enqueue","timestamp":"2026-03-19T21:42:12.349Z","sessionId":"sess-c"}`,
@@ -59,6 +59,17 @@ test("trimTools drops tool plumbing, keeps text + thinking", () => {
   assert.doesNotMatch(t, /tool_use/);
   // a tool_result-only turn renders empty when trimmed (so it is dropped on ingest)
   assert.equal(renderContent([{ type: "tool_result", content: "12k report" }], { trimTools: true }), "");
+});
+
+test("isHighSignalTurn keeps substantive turns, drops short/procedural/noise", () => {
+  const long = "x".repeat(220);
+  assert.equal(isHighSignalTurn({ role: "user", content: `Minha hipótese é que ${long}` }, { minChars: 200 }), true);
+  assert.equal(isHighSignalTurn({ role: "user", content: "ok" }, { minChars: 200 }), false);
+  assert.equal(isHighSignalTurn({ role: "user", content: "continue" }, { minChars: 200 }), false);
+  assert.equal(isHighSignalTurn({ role: "user", content: "<command-name>/model</command-name> " + long }, { minChars: 200 }), false);
+  assert.equal(isHighSignalTurn({ role: "user", content: "<local-command-stdout>" + long + "</local-command-stdout>" }, { minChars: 200 }), false);
+  // assistant short procedural preamble dropped by length
+  assert.equal(isHighSignalTurn({ role: "assistant", content: "Let me check the lexer." }, { minChars: 200 }), false);
 });
 
 test("parseSession trimTools yields conversation prose only", () => {

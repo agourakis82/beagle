@@ -1,6 +1,6 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
-import { parseSession } from "./conversations.mjs";
+import { parseSession, isHighSignalTurn } from "./conversations.mjs";
 import { scanContent } from "./secrets.mjs";
 import { assistedImport } from "./contracts.mjs";
 
@@ -33,8 +33,8 @@ function batch(arr, n) {
   return out;
 }
 
-export async function ingestConversations(root, { limit = Infinity, dryRun = false, includeSystem = false, trimTools = true, concurrency = 1, onProgress = null } = {}) {
-  const stats = { sessions: 0, parsed: 0, turnsKept: 0, turnsSkippedRole: 0, turnsSkippedSecret: 0, imports: 0, ingested: 0, errors: 0 };
+export async function ingestConversations(root, { limit = Infinity, dryRun = false, includeSystem = false, trimTools = true, concurrency = 1, onProgress = null, minSignalChars = 0 } = {}) {
+  const stats = { sessions: 0, parsed: 0, turnsKept: 0, turnsSkippedRole: 0, turnsSkippedSecret: 0, turnsSkippedLowSignal: 0, imports: 0, ingested: 0, errors: 0 };
   const inflight = new Set();
   async function dispatch(job) {
     if (inflight.size >= concurrency) await Promise.race(inflight);
@@ -54,6 +54,7 @@ export async function ingestConversations(root, { limit = Infinity, dryRun = fal
     const kept = [];
     for (const t of s.turns) {
       if (!includeSystem && !CONVO_ROLES.has(t.role)) { stats.turnsSkippedRole++; continue; }
+      if (minSignalChars > 0 && !isHighSignalTurn(t, { minChars: minSignalChars })) { stats.turnsSkippedLowSignal++; continue; }
       if (scanContent(t.content).flagged) { stats.turnsSkippedSecret++; continue; } // hard guardrail
       kept.push(t);
     }

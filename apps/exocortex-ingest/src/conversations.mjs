@@ -99,6 +99,22 @@ function parseCodex(objs, opts) {
   return { format: "codex", sessionId, cwd, startedAt, turns };
 }
 
+// High-signal filter: keep substantive turns (real questions/decisions/conclusions),
+// drop short/procedural chatter + harness noise. Used to cap a backfill to the
+// signal-bearing units instead of every raw turn (which is too granular + too large).
+const SIGNAL_NOISE_RE = [
+  /<local-command/i,
+  /<command-(name|message|args)/i,
+  /<\/?system-reminder/i,
+  /^\s*\/[a-z][\w-]*\s*$/i, // bare slash command
+];
+export function isHighSignalTurn(turn, { minChars = 200 } = {}) {
+  const c = (turn?.content || "").trim();
+  if (c.length < minChars) return false;
+  for (const re of SIGNAL_NOISE_RE) if (re.test(c)) return false;
+  return true;
+}
+
 export function parseSession(text, opts = {}) {
   const objs = parseLines(text);
   const format = detectFormat(objs);
