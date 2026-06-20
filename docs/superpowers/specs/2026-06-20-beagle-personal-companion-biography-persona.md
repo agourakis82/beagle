@@ -60,10 +60,21 @@ Driven by live device use: the user (a psychiatrist) had a private, flowing emot
 
 **Honest gap:** the research could **not** confidently name a self-hostable model that is both warm AND crisis-safe — open-model warmth is *unproven*, with flagged risk of *under*-refusal on crisis. → For the (sovereignty-bound, self-hosted) Personal space, the model must be chosen **empirically on-device**, not from these rankings. Warmth is heavily **persona-driven**, so a strong persona + grounding on a decent self-hosted model is the viable path.
 
+## Model architecture — LOCKED (2026-06-20)
+
+**Personal space = 100% self-hosted ensemble (sovereign — biography never leaves the cluster).** Claude is the warmth king by the data, but: (a) the Max subscription cannot be used by a custom app (would be metered Anthropic API), and (b) Claude would send the biography to Anthropic. Per the user's condition ("só usaria Claude se pudesse aproveitar o Max"), Claude is out of the Personal space.
+
+**Ensemble = one voice + a muse (NOT two alternating voices — that would break persona constancy):**
+- **Warm voice** — a self-hosted model that IS the constant persona/voice. Picked **empirically on-device** (research couldn't rank open warmth; measure don't assume). Candidates to serve+test: cluster-servable open models (e.g. Qwen3, InternLM, Llama/Mistral-class, DeepSeek-local).
+- **Muse** — a creatively-divergent Chinese model (different training corpus → associations a Western-RLHF model won't surface). Runs silently: generates divergent seeds/angles that the warm voice *integrates* into its single response. User never sees two voices.
+- **Mechanism:** two-stage on-cluster call — `muse(prompt) → creative seeds` (silent) → `voice(persona + biography slice + muse seeds + literature grounding) → the one response`. Orchestrated by the cockpit backend / LiteLLM. The voice/persona is always the same → constant.
+- Warmth is carried by **persona + grounding** (research: warmth is more persona-driven than base-model), not by reaching for a commercial model.
+
 ## Still to do
-- **Empirically test 2–3 self-hostable candidates on-device** for warmth (measure, don't assume) → pick Personal-space model.
-- Co-write persona core + intimate register (using the validated levers above).
+- Serve + **on-device A/B 2–3 self-hosted candidates** for the warm voice; pick a creative Chinese muse.
+- **Co-write persona** core + intimate register WITH the user (using validated levers: warm/candid, permission-to-disagree, validate-feelings-while-challenging-thoughts, no over-safeguarding, warranted-not-ritualistic referrals, crisis-explicit).
 - Implement uncertainty→literature grounding (PubMed/guidelines) — simplified from SeaKR.
+- Build: Personal space + ensemble + biography (seed/interview/import/silent-distill + editable page) + constant persona + return-feels-remembered → one build.
 
 ## Tie-in to the build
 
