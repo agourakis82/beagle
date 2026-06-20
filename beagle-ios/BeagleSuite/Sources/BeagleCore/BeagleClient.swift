@@ -1299,9 +1299,19 @@ public actor BeagleClient {
                     continuation.finish(throwing: URLError(.cannotParseResponse)); return
                 }
                 var lastError: Error = URLError(.cannotConnectToHost)
+                // Coarse path tag for diagnostics — conveys which route won (CF vs
+                // tailnet vs in-cluster) WITHOUT leaking full internal hostnames/IPs
+                // into the device's unified log (which ships in TestFlight builds).
+                let endpointTag: (URL) -> String = { base in
+                    let host = base.host ?? ""
+                    if host.hasSuffix("chiuratto.ai") { return "cf" }
+                    if host.hasSuffix("ts.net") || host.hasPrefix("100.") { return "tailnet" }
+                    if host.hasSuffix("cluster.local") { return "cluster" }
+                    return "other"
+                }
                 for base in bases {
                     guard let url = URL(string: "/api/mobile/v1/chat/stream", relativeTo: base) else { continue }
-                    print("[BeagleClient] chat/stream → \(url.absoluteString)")
+                    print("[BeagleClient] chat/stream → \(endpointTag(base))")
                     var request = URLRequest(url: url)
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1314,7 +1324,7 @@ public actor BeagleClient {
                               (200..<300).contains(http.statusCode) else {
                             lastError = URLError(.badServerResponse); continue
                         }
-                        print("[BeagleClient] chat/stream ✅ connected \(http.statusCode) via \(base.host ?? "?") — streaming SSE")
+                        print("[BeagleClient] chat/stream ✅ connected \(http.statusCode) via \(endpointTag(base)) — streaming SSE")
                         var firstToken = true
                         for try await line in bytes.lines {
                             if Task.isCancelled { continuation.finish(); return }
@@ -1337,7 +1347,7 @@ public actor BeagleClient {
                                     source: obj["source"] as? String,
                                     grounded: obj["grounded"] as? Bool ?? false))
                             } else if let err = obj["error"] as? String {
-                                print("[BeagleClient] chat/stream ❌ error frame: \(err)")
+                                print("[BeagleClient] chat/stream ❌ error frame (\(err.count) chars)")
                                 continuation.finish(throwing: NSError(
                                     domain: "BeagleChatStream", code: 1,
                                     userInfo: [NSLocalizedDescriptionKey: err]))
@@ -1346,7 +1356,8 @@ public actor BeagleClient {
                         }
                         continuation.finish(); return
                     } catch {
-                        print("[BeagleClient] chat/stream ⚠️ \(base.host ?? "?") failed: \(error.localizedDescription) — trying next base")
+                        let code = (error as? URLError)?.code.rawValue ?? -1
+                        print("[BeagleClient] chat/stream ⚠️ \(endpointTag(base)) failed (URLError \(code)) — trying next base")
                         lastError = error; continue
                     }
                 }
