@@ -44,11 +44,26 @@ Driven by live device use: the user (a psychiatrist) had a private, flowing emot
 - **Use:** relevant biography slices always injected into the Personal-space context, so Beagle converses with understanding.
 - **Sovereignty:** the biography is the most intimate data; it lives in the cluster exocortex and is only ever sent to the **self-hosted** Personal-space model — never to a commercial provider.
 
-## Open / pending (deep-research `wf_f62e3cd7-b46`)
+## Deep-research findings (`wf_f62e3cd7-b46`, 2026-06-20 — 27 sources, 20 confirmed / 5 refuted)
 
-- Ranked **self-hostable** model pick for the Personal space (warmth/attunement, low over-refusal/sycophancy) + commercial pick for non-sensitive.
-- Persona + safety wording that preserves warmth (do/don'ts, crisis handling, clinician-self case).
-- Uncertainty→literature-grounding mechanism (triggers, RAG over psych literature, citation without breaking warmth).
+**Confirmed:**
+- **Claude flagship (opus-4-8 / fable-5) dominates EQ-Bench 3 emotional intelligence** (Elo ~2030–2050 vs best GPT 1577, Gemini 1559). Best warmth/attunement. *medium confidence* — judge is Claude Opus 4.6 (same-family bias); LLM judges inflate empathy (+0.58–0.82 vs clinician baseline).
+- **Spiral-Bench validates the user's core insight:** it penalizes BOTH sycophancy AND **unwarranted/over-cautious help-referrals** — over-safeguarding is literally scored as risk. Protective behaviors: pushback, de-escalation, boundary-setting, **validate feelings while challenging thoughts, don't collude with delusions, warranted (not ritualistic) referrals**.
+- **No model is sycophancy-free** (~58% across commercial; RLHF-driven). Levers that cut it: **explicit permission-to-refuse + factual/grounding cues** (→ ~92–94%).
+- **Crisis safety gap:** base LLMs mishandle crisis cues 20%+ of the time (vs 93% human therapists); a careful "steel-man" prompt narrows but never closes it → crisis handling must be explicit.
+- **Uncertainty→grounding (SeaKR):** trigger retrieval only when the model's *self-aware* internal-state uncertainty is high (Gram-matrix determinant over k=20 sampled hidden states), instead of hedging.
+
+**Refuted / NOT reliable (do not act on):**
+- Specific open-ensemble EQ rankings (GLM/DeepSeek/Kimi/Grok ordering) — **refuted 0-3**.
+- "DeepSeek-R1 least over-refusal (3.9%)" — refuted 0-3.
+- claude-opus-4-8 trait profile (warm/low-moralising) — refuted 1-2.
+
+**Honest gap:** the research could **not** confidently name a self-hostable model that is both warm AND crisis-safe — open-model warmth is *unproven*, with flagged risk of *under*-refusal on crisis. → For the (sovereignty-bound, self-hosted) Personal space, the model must be chosen **empirically on-device**, not from these rankings. Warmth is heavily **persona-driven**, so a strong persona + grounding on a decent self-hosted model is the viable path.
+
+## Still to do
+- **Empirically test 2–3 self-hostable candidates on-device** for warmth (measure, don't assume) → pick Personal-space model.
+- Co-write persona core + intimate register (using the validated levers above).
+- Implement uncertainty→literature grounding (PubMed/guidelines) — simplified from SeaKR.
 
 ## Tie-in to the build
 
