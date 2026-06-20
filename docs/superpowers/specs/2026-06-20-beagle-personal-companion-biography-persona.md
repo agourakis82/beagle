@@ -111,9 +111,22 @@ User: *"essas respostas só fariam sentido se eu soubesse que eles têm todos os
 **Phase 2 decisions (locked):** ingest **repos + agent interactions in parallel**; biography = **short always-present digest + deep RAG on demand**.
 
 **Re-sequenced phases:**
-2. **Grounding foundation** — BUILD the real pipeline (proof done manually): (a) corpus ingestion from git repos (sounio/beagle/darwin-MFC) + Sounio agent interactions (coord board / agent sessions / work-memory) into the beagle-core memory store; (b) a **digest generator** distilling who-he-is + recent-work, regenerated periodically; (c) wire the always-present digest into the Personal-space backend prompt + keep deep RAG on demand.
+2. **Grounding foundation** — BUILD the real pipeline (proof done manually): (a) corpus ingestion (see "As real as it gets" below); (b) a **digest generator** distilling who-he-is + recent-work, regenerated periodically; (c) wire the always-present digest into the Personal-space backend prompt + keep deep RAG on demand.
 3. Two-stage ensemble orchestration (muse→voice) + on-device voice decision (hermes vs qwen).
 4. Personal space + persona constant + return-feels-remembered.
+
+## "As real as it gets" — full personal corpus ingestion (2026-06-20, user)
+
+User wants the companion grounded in his **entire digital life** — a multi-source ingestion *platform*, not one scraper. **No patient/clinical data on the disks (user confirmed)** → biggest compliance risk cleared; standard secret/PII exclusion still mandatory.
+
+**Hard guardrails (non-negotiable):** 100% on-cluster / self-hosted models only (never commercial — Personal-space sovereignty); hard-exclude secrets/credentials (.ssh, tokens, `.credentials.json`, .env, keychains) via detection; exclude binaries/caches/node_modules/.git-objects/heavy media; user can view/edit what was ingested (biography page). Browsing history, location, and agent-conversation sources are HIGH sensitivity.
+
+**Sources (phase by signal-density × ease):**
+- **Tier 1 — filesystem** (start): t560 `/home/devsounio` + Mac (`~/Developer`, Documentos) + iCloud Drive (mounts on Mac) + cluster storage (Ceph/OrangeFS). High signal (his writing, code, notes, docs, papers), most accessible.
+- **Tier 2 — digital activity:** sites visited (Safari history DB), **conversations with other agents** (Claude Desktop / Codex local stores) — highest-signal for *how he thinks*, high sensitivity.
+- **Tier 3 — ambient context:** iPhone location (needs iOS capture in the Beagle app), Apple Music metadata. Lower text-signal, more texture.
+
+Each tier → embeddings into beagle-core memory (deep RAG) + folds into the always-present digest. This is now a substantial build → warrants its own implementation plan.
 - **Co-write persona** core + intimate register WITH the user (using validated levers: warm/candid, permission-to-disagree, validate-feelings-while-challenging-thoughts, no over-safeguarding, warranted-not-ritualistic referrals, crisis-explicit).
 - Implement uncertainty→literature grounding (PubMed/guidelines) — simplified from SeaKR.
 - Build: Personal space + ensemble + biography (seed/interview/import/silent-distill + editable page) + constant persona + return-feels-remembered → one build.
