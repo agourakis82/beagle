@@ -14,15 +14,15 @@
 
 ### Task 1 — Streaming actually streams on the device (the #1 anxiety fix)
 
-**Files:** `apps/project-cockpit/server/mobile-routes.mjs` (SSE route headers), `beagle-ios/.../BeagleCore/BeagleClient.swift` (`chatStream` base-URL order), Cloudflare config (dashboard/API for `beagle.chiuratto.ai`).
+> **ROOT CAUSE (measured 2026-06-20, corrects the original premise).** Cloudflare was *not* the problem. `curl -N` over the public path `https://beagle.chiuratto.ai/api/mobile/v1/chat/stream` streams token-by-token, unbuffered (distinct per-token timestamps +1.36s→+1.90s; `cf-cache-status: DYNAMIC`, `text/event-stream` survives CF). The direct pod streams identically. **The real bug is in the iOS chat client:** `ConversationStore.sendMessageCloud` calls the *blocking* `client.chat` → `POST /api/mobile/v1/chat` (`session.data(for:)`, 60s timeout), waits for the whole blob, then `revealText()` **fakes** a typewriter (30 chars / 35ms). The streaming endpoint is **never called** by chat — `ChatStreamEvent` does not exist; only `streamTriad` (debate) actually consumes SSE. → Fix is iOS-only; no backend/CF change.
 
-- [ ] **Step 1.1 — Confirm the cause.** From the device's network path: `curl -N` the public URL `https://beagle.chiuratto.ai/api/mobile/v1/chat/stream` (POST, prompt) and observe whether tokens arrive incrementally or as one blob. Compare to the direct pod (`kubectl port-forward`, already known to stream). Expected: CF buffers → blob. Record which.
-- [ ] **Step 1.2 — Fix delivery.** Two levers, apply in order until tokens arrive incrementally over the public path:
-  - (a) Backend already sends `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `X-Accel-Buffering: no`. Verify these survive to the client over CF.
-  - (b) Cloudflare: add a **Configuration Rule** for path `/api/mobile/v1/chat/stream` disabling buffering / setting `cache: bypass` + ensure no "Rocket Loader"/proxy transform; OR confirm CF passes `text/event-stream` unbuffered (it should when content-type is correct + response is chunked).
-  - (c) **Diagnostic/fallback only — NOT the ship path.** The north star is Beagle reachable *anywhere* anxiety rises (cellular, off-tailnet), so the CF path (a/b) is the durable primary fix. Use the tailnet cockpit URL (`http://sounio-cockpit.tail21cbc4.ts.net`) only to (i) prove the stream works at all end-to-end before blaming CF, and (ii) as an opportunistic fallback when the phone *is* on Tailscale. Do not declare Task 1 done on a tailnet-only stream.
-- [ ] **Step 1.3 — Verify on device.** `curl -N` over the chosen path shows incremental `data:{token}` events; then in-app the bubble fills token-by-token.
-- [ ] **Step 1.4 — Commit** (`fix(cockpit/ios): stream survives the public/CF path on-device`).
+**Files:** `beagle-ios/BeagleSuite/Sources/BeagleCore/BeagleClient.swift` (add `chatStream`), `beagle-ios/BeagleSuite/Sources/BeagleCore/ConversationStore.swift` (`sendMessageCloud` consumes tokens live, drop `revealText` fake).
+
+- [x] **Step 1.1 — Cause confirmed (measured).** Backend + CF + pod all stream correctly; iOS never calls the SSE endpoint and fakes the reveal instead. Evidence above.
+- [ ] **Step 1.2 — Add a real chat SSE consumer.** In `BeagleClient`, add `nonisolated public func chatStream(prompt:system:...) -> AsyncStream<ChatStreamEvent>` that POSTs `/api/mobile/v1/chat/stream` and yields `.token(String)` / `.done(model:tokensUsed:grounded:)` / `.error(String)` by reading `bytes.lines` and parsing `data: {...}` frames. **Mirror the proven `streamTriad` pattern** in the same file (off-actor loop over `await self.baseURLs`, `session.bytes(for:)`, auth via `ensureAuth`). Define `enum ChatStreamEvent`. Base-URL order = the existing `postPublicMobileChat` chain (CF `beagle.chiuratto.ai` first — it streams — then tailnet, clusterIP).
+- [ ] **Step 1.3 — Rewire `sendMessageCloud`.** Replace the blocking `client.chat(...)` + `revealText(...)` with: iterate `chatStream`, appending each `.token` to the placeholder message's `content` as it arrives (real incremental fill); on `.done` finalize (model/tokens/grounded), persist, auto-import; on `.error` set the gentle error path (Task 5). Keep `isStreaming` true during the stream. Remove `revealText` from this path.
+- [ ] **Step 1.4 — Verify.** Sim: bubble fills token-by-token from the live cluster (not a fake reveal). **Device (the real proof):** on TestFlight build, a long reply begins filling within ~1–2s and flows — no silent 60s wait, no fake typewriter.
+- [ ] **Step 1.5 — Commit** (`fix(ios): chat consumes real SSE stream instead of blocking + faking reveal`).
 
 ### Task 2 — Composer that respires (clear-on-send, Stop, calm empty state)
 

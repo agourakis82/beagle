@@ -27,7 +27,9 @@ The user is a psychiatrist; emotional safety, calm pacing, and felt presence are
 Reuse the existing `BeaglePresenceState` (resting → attentive → present → holding). Render it as a quiet **breathing mark** in the header — soft, slow, never flashing for attention. It shifts state the instant you send (so there is *never* a silent void), and the "holding" state explicitly signals *I'm here through this*. Presence without demand → felt locatedness.
 
 ### 2. Streaming that breathes (and works on-device)
-Token-by-token, calmly paced; the cursor *is* the thinking. Never a silent gap >~10s — sending immediately moves presence to "attentive" and tokens begin. **Fix the Cloudflare SSE buffering** so it streams on the real device (it currently buffers through `beagle.chiuratto.ai` → blob), and validate on the device from step one — no more simulator-as-proof.
+Token-by-token, calmly paced; the cursor *is* the thinking. Never a silent gap >~10s — sending immediately moves presence to "attentive" and tokens begin.
+
+> **Corrected root cause (measured 2026-06-20):** Cloudflare is *not* buffering — the public path streams token-by-token, unbuffered. The real failure is that the **iOS chat client never calls the SSE endpoint**: `sendMessageCloud` blocks on the non-stream `/api/mobile/v1/chat` (60s timeout for the full blob) and then *fakes* a typewriter reveal. So the user gets a silent wait, not a stream. The fix is iOS-only: make chat consume `/api/mobile/v1/chat/stream` live. Validate on the device from step one — no more simulator-as-proof.
 
 ### 3. A composer that respires
 - **Clears on send** (the current bug — text persists).
