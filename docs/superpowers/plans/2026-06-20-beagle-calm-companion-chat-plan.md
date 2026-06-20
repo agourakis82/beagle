@@ -14,15 +14,17 @@
 
 ### Task 1 — Streaming actually streams on the device (the #1 anxiety fix)
 
-> **ROOT CAUSE (measured 2026-06-20, corrects the original premise).** Cloudflare was *not* the problem. `curl -N` over the public path `https://beagle.chiuratto.ai/api/mobile/v1/chat/stream` streams token-by-token, unbuffered (distinct per-token timestamps +1.36s→+1.90s; `cf-cache-status: DYNAMIC`, `text/event-stream` survives CF). The direct pod streams identically. **The real bug is in the iOS chat client:** `ConversationStore.sendMessageCloud` calls the *blocking* `client.chat` → `POST /api/mobile/v1/chat` (`session.data(for:)`, 60s timeout), waits for the whole blob, then `revealText()` **fakes** a typewriter (30 chars / 35ms). The streaming endpoint is **never called** by chat — `ChatStreamEvent` does not exist; only `streamTriad` (debate) actually consumes SSE. → Fix is iOS-only; no backend/CF change.
+> **RESOLVED IN CODE — measured + read 2026-06-20. This task needs SHIPPING, not coding.**
+> 1. **Cloudflare is fine.** `curl -N` over `https://beagle.chiuratto.ai/api/mobile/v1/chat/stream` streams token-by-token, unbuffered (distinct per-token timestamps +1.36s→+1.90s; `cf-cache-status: DYNAMIC`). Direct pod identical.
+> 2. **The iOS streaming code already exists and is correct at the build-42 tip (`8dc39633`).** `BeagleClient.chatStream()` (+ `enum ChatStreamEvent`) POSTs the SSE endpoint, reads `bytes.lines`, yields `.token`/`.done`, CF-first base order. `ConversationStore.sendMessageCloud` consumes it and appends tokens live on `@MainActor`, with a gentle error path. The old blocking `client.chat` + fake `revealText` typewriter is **gone**. Landed in commit `04dc0f6c` (01:00) → build bump 41→42 (01:02) → **build 42 archived 01:19 same day** (`04dc0f6c` is ancestor of HEAD ✓).
+> 3. **Cost-me-time trap:** the t560 local/origin `feat/ios-100pct-real` ref was **stale at `64a2e653`** (pre-streaming); reading `git show <stale-ref>:file` showed the OLD blocking+fake code → a false "iOS fakes streaming" conclusion. Always `git fetch` and read the real tip (Mac is freshest).
+>
+> **Therefore the only open question is shipping/installation:** was **build 42 uploaded to TestFlight** and **installed** on the device? If the phone still runs ≤41, it has the old fake. Archive ≠ upload (upload is Xcode-GUI only, no headless ASC key).
 
-**Files:** `beagle-ios/BeagleSuite/Sources/BeagleCore/BeagleClient.swift` (add `chatStream`), `beagle-ios/BeagleSuite/Sources/BeagleCore/ConversationStore.swift` (`sendMessageCloud` consumes tokens live, drop `revealText` fake).
-
-- [x] **Step 1.1 — Cause confirmed (measured).** Backend + CF + pod all stream correctly; iOS never calls the SSE endpoint and fakes the reveal instead. Evidence above.
-- [ ] **Step 1.2 — Add a real chat SSE consumer.** In `BeagleClient`, add `nonisolated public func chatStream(prompt:system:...) -> AsyncStream<ChatStreamEvent>` that POSTs `/api/mobile/v1/chat/stream` and yields `.token(String)` / `.done(model:tokensUsed:grounded:)` / `.error(String)` by reading `bytes.lines` and parsing `data: {...}` frames. **Mirror the proven `streamTriad` pattern** in the same file (off-actor loop over `await self.baseURLs`, `session.bytes(for:)`, auth via `ensureAuth`). Define `enum ChatStreamEvent`. Base-URL order = the existing `postPublicMobileChat` chain (CF `beagle.chiuratto.ai` first — it streams — then tailnet, clusterIP).
-- [ ] **Step 1.3 — Rewire `sendMessageCloud`.** Replace the blocking `client.chat(...)` + `revealText(...)` with: iterate `chatStream`, appending each `.token` to the placeholder message's `content` as it arrives (real incremental fill); on `.done` finalize (model/tokens/grounded), persist, auto-import; on `.error` set the gentle error path (Task 5). Keep `isStreaming` true during the stream. Remove `revealText` from this path.
-- [ ] **Step 1.4 — Verify.** Sim: bubble fills token-by-token from the live cluster (not a fake reveal). **Device (the real proof):** on TestFlight build, a long reply begins filling within ~1–2s and flows — no silent 60s wait, no fake typewriter.
-- [ ] **Step 1.5 — Commit** (`fix(ios): chat consumes real SSE stream instead of blocking + faking reveal`).
+- [x] **Step 1.1 — Cause confirmed (measured + read).** CF + pod + iOS code all correct at build 42. Not a code bug.
+- [ ] **Step 1.2 — Verify build 42 is uploaded to TestFlight.** Confirm the 01:19 build-42 archive was distributed (not just archived) and finished processing.
+- [ ] **Step 1.3 — Install build 42 on the device and re-test streaming on-device.** Expected: long reply begins filling within ~1–2s and flows token-by-token; no silent wait, no fake typewriter.
+- [ ] **Step 1.4 — Only if build 42 on-device still fails:** real device-runtime bug. Capture the `[BeagleClient]` console prints + which base URL won, and debug from there (systematic-debugging).
 
 ### Task 2 — Composer that respires (clear-on-send, Stop, calm empty state)
 
