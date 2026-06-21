@@ -33,8 +33,8 @@ function batch(arr, n) {
   return out;
 }
 
-export async function ingestConversations(root, { limit = Infinity, dryRun = false, includeSystem = false, trimTools = true, concurrency = 1, onProgress = null, minSignalChars = 0 } = {}) {
-  const stats = { sessions: 0, parsed: 0, turnsKept: 0, turnsSkippedRole: 0, turnsSkippedSecret: 0, turnsSkippedLowSignal: 0, imports: 0, ingested: 0, errors: 0 };
+export async function ingestConversations(root, { limit = Infinity, dryRun = false, includeSystem = false, trimTools = true, concurrency = 1, onProgress = null, minSignalChars = 0, skipSessions = 0 } = {}) {
+  const stats = { sessions: 0, skipped: 0, parsed: 0, turnsKept: 0, turnsSkippedRole: 0, turnsSkippedSecret: 0, turnsSkippedLowSignal: 0, imports: 0, ingested: 0, errors: 0 };
   const inflight = new Set();
   async function dispatch(job) {
     if (inflight.size >= concurrency) await Promise.race(inflight);
@@ -42,7 +42,11 @@ export async function ingestConversations(root, { limit = Infinity, dryRun = fal
     inflight.add(p);
   }
 
+  let seen = 0;
   for await (const file of findSessionFiles(root)) {
+    // Resume support: skip the first N session files (deterministic walk order).
+    if (seen < skipSessions) { seen++; stats.skipped++; continue; }
+    seen++;
     if (stats.sessions >= limit) break;
     stats.sessions++;
     let text;
