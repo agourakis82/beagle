@@ -4,5 +4,12 @@ lancedb==0.26.1
 # multivector worker silently drops to JSONL fallback (semantic_ready=false). 0.6.1 is the last
 # version that still exports it (verified against lancedb 0.26.1).
 lance-namespace==0.6.1
+# pylance provides the `lance` native lib that lancedb's optimize()/compaction needs. Without it,
+# optimize/compact_files/cleanup_old_versions ImportError and the table NEVER compacts -> LanceDB
+# keeps every version (time-travel) -> bloats to tens of GB / thousands of manifests -> reindex
+# OOMs. 1.0.4 is compatible with the pinned lance-namespace 0.6.1 (pylance 1.0.4 needs >=0.4.5;
+# 7.x forces lance-namespace 0.7.x which breaks lancedb 0.26.1). Verified: optimize compacts
+# (6->1 versions) and the no-pylance serving read still works. Worker calls optimize after rebuild.
+pylance==1.0.4
 numpy>=1.26,<3
 pyarrow>=15,<22
