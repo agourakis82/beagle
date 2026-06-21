@@ -39,6 +39,16 @@ MAX_WINDOWS_PER_TURN = int(os.getenv("BEAGLE_MEMORY_MAX_WINDOWS_PER_TURN", "64")
 MANIFEST_NAME = "semantic_index_manifest.json"
 # Max ids per "canonical_id IN (...)" delete statement so a huge stale set is batched.
 DELETE_BATCH_SIZE = 500
+# Memory-bounded index build: embed + write to LanceDB in batches of this many rows so peak
+# memory is ~one batch of multivector embeddings, not the whole corpus at once. This is what
+# lets a rebuild of tens of thousands of rows complete without OOM.
+BUILD_BATCH_SIZE = int(os.getenv("BEAGLE_MEMORY_BUILD_BATCH", "1000"))
+
+
+def _chunked(seq: list[Any], size: int):
+    size = max(1, size)
+    for start in range(0, len(seq), size):
+        yield seq[start : start + size]
 
 
 def load_json(path: str) -> dict[str, Any]:
@@ -241,11 +251,15 @@ def collect_candidates(export: dict[str, Any]) -> tuple[list[dict[str, Any]], in
 
 
 def encode_row(row: dict[str, Any], encoder: ColbertEncoder) -> dict[str, Any]:
-    """Fill in the embedding fields ("mv", "embedding_backend") on a candidate row in place and
-    return it. Only called for rows that are actually being (re)indexed."""
-    row["mv"] = encoder.encode(row["text"], is_query=False)
-    row["embedding_backend"] = encoder.backend
-    return row
+    """Return a NEW embedded row dict (candidate fields + "mv" + "embedding_backend").
+    Non-mutating by design: the source candidate stays text-only so that embedded rows are
+    transient and freed after each write batch (bounds peak memory). Only called for rows
+    that are actually being (re)indexed."""
+    return {
+        **row,
+        "mv": encoder.encode(row["text"], is_query=False),
+        "embedding_backend": encoder.backend,
+    }
 
 
 def collect_passage_records(
@@ -390,13 +404,27 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
             index_ready = False
 
     def full_overwrite(db: Any) -> Any:
-        """Encode every candidate and overwrite the whole table."""
+        """Encode + overwrite the whole table, BATCHED so peak memory is ~one batch of
+        embeddings rather than every candidate's multivector at once."""
         nonlocal added, deleted, skipped
-        rows_all = [encode_row(c, encoder) for c in candidates]
-        table = db.create_table(table_name, data=rows_all, schema=arrow_schema(), mode="overwrite")
-        added = len(rows_all)
         deleted = 0
         skipped = 0
+        if not candidates:
+            table = db.create_table(table_name, data=[], schema=arrow_schema(), mode="overwrite")
+            added = 0
+            return table
+        table = None
+        written = 0
+        for batch in _chunked(candidates, BUILD_BATCH_SIZE):
+            rows = [encode_row(c, encoder) for c in batch]
+            if table is None:
+                # First batch creates (overwrites) the table; rest append.
+                table = db.create_table(table_name, data=rows, schema=arrow_schema(), mode="overwrite")
+            else:
+                table.add(rows)
+            written += len(rows)
+            rows = None  # free this batch's embeddings before the next
+        added = written
         return table
 
     try:
@@ -409,20 +437,25 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
                 table = db.open_table(table_name)
                 to_upsert = [c for c in candidates if prev.get(c["canonical_id"]) != c["content_hash"]]
                 stale = [cid for cid in prev if cid not in cur]
-                rows = [encode_row(c, encoder) for c in to_upsert]
                 if stale:
                     for start in range(0, len(stale), DELETE_BATCH_SIZE):
                         batch = stale[start : start + DELETE_BATCH_SIZE]
                         in_list = ", ".join(_sql_quote(cid) for cid in batch)
                         table.delete(f"canonical_id IN ({in_list})")
-                if rows:
+                # Embed + merge_insert in batches so a large changed-set doesn't hold every
+                # embedding in memory at once (the first rebuild after a big ingest has a huge set).
+                upserted = 0
+                for batch in _chunked(to_upsert, BUILD_BATCH_SIZE):
+                    rows = [encode_row(c, encoder) for c in batch]
                     (
                         table.merge_insert("canonical_id")
                         .when_matched_update_all()
                         .when_not_matched_insert_all()
                         .execute(rows)
                     )
-                added = len(rows)
+                    upserted += len(rows)
+                    rows = None
+                added = upserted
                 deleted = len(stale)
                 skipped = len(candidates) - len(to_upsert)
                 rebuild_mode = "incremental"
@@ -458,26 +491,28 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
             error = f"{error}; native_lancedb_unavailable:{type(exc).__name__}:{exc}"
         else:
             error = f"native_lancedb_unavailable:{type(exc).__name__}:{exc}"
-        # JSONL fallback needs every embedding, so encode ALL candidates here.
-        fallback_rows = [encode_row(c, encoder) for c in candidates]
+        # JSONL fallback needs every embedding. Encode + stream to file in batches so we never
+        # hold every embedding in memory at once.
         fallback_path = Path(args.lancedb_path) / "semantic_records.jsonl"
         Path(args.lancedb_path).mkdir(parents=True, exist_ok=True)
+        written = 0
         with fallback_path.open("w", encoding="utf-8") as handle:
-            for row in fallback_rows:
-                # Persist the FULL row INCLUDING "mv" (the embeddings) so the pure-Python query
-                # fallback can score without native LanceDB. (Previously mv was dropped, leaving the
-                # JSONL unsearchable.)
-                record = dict(row)
-                record["vector_count"] = len(row.get("mv") or [])
-                record["vector_dim"] = DIM
-                json.dump(record, handle, ensure_ascii=False, sort_keys=True)
-                handle.write("\n")
+            for batch in _chunked(candidates, BUILD_BATCH_SIZE):
+                for c in batch:
+                    row = encode_row(c, encoder)
+                    # Persist the FULL row INCLUDING "mv" (the embeddings) so the pure-Python query
+                    # fallback can score without native LanceDB.
+                    row["vector_count"] = len(row.get("mv") or [])
+                    row["vector_dim"] = DIM
+                    json.dump(row, handle, ensure_ascii=False, sort_keys=True)
+                    handle.write("\n")
+                    written += 1
         worker_status = "jsonl-fallback"
         rebuild_mode = "full"
-        added = len(fallback_rows)
+        added = written
         deleted = 0
         skipped = 0
-        row_count = len(fallback_rows)
+        row_count = written
 
     payload = {
         "status": "indexed-native-multivector" if native_lancedb else worker_status,
