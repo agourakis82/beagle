@@ -369,6 +369,28 @@ def _sql_quote(value: str) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def optimize_table_guarded(table: Any) -> str:
+    """Compact data fragments + prune old versions so the table can't bloat over many rebuilds
+    (LanceDB keeps every version for time-travel; without this they accumulate into tens of GB and
+    thousands of manifests, which is what OOM'd reindex). Requires the lance native lib (pylance);
+    skips gracefully — logging to stderr — if it's not in the image, so a rebuild never fails on it."""
+    import datetime as _dt
+    try:
+        table.optimize(cleanup_older_than=_dt.timedelta(seconds=0), delete_unverified=True)
+        return "optimized"
+    except TypeError:
+        # Older/newer signature without delete_unverified.
+        try:
+            table.optimize(cleanup_older_than=_dt.timedelta(seconds=0))
+            return "optimized"
+        except Exception as exc:
+            sys.stderr.write(f"[semantic_backbone] optimize skipped: {type(exc).__name__}:{exc}\n")
+            return f"optimize-skipped:{type(exc).__name__}"
+    except Exception as exc:
+        sys.stderr.write(f"[semantic_backbone] optimize skipped: {type(exc).__name__}:{exc}\n")
+        return f"optimize-skipped:{type(exc).__name__}"
+
+
 def rebuild(args: argparse.Namespace) -> dict[str, Any]:
     started = time.time()
     export = load_json(args.export)
@@ -390,6 +412,7 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
     deleted = 0
     skipped = 0
     rebuild_mode = "full"
+    optimize_status = "not-run"
     row_count = len(candidates)
 
     def create_index_guarded(table: Any) -> None:
@@ -483,6 +506,8 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
             row_count = table.count_rows()
             native_lancedb = True
 
+        # Compact + prune so the table can't bloat over many rebuilds (the OOM root cause).
+        optimize_status = optimize_table_guarded(table)
         # Record the new indexed state so the next rebuild can diff against it.
         write_manifest(manifest_path, cur)
     except Exception as exc:
@@ -523,6 +548,7 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
         "deleted": deleted,
         "skipped": skipped,
         "rebuild_mode": rebuild_mode,
+        "optimize_status": optimize_status,
         "index_ready": index_ready,
         "maxsim_ready": native_lancedb and row_count > 0,
         "embedding_backend": encoder.backend,
