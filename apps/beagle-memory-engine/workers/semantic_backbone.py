@@ -262,6 +262,23 @@ def encode_row(row: dict[str, Any], encoder: ColbertEncoder) -> dict[str, Any]:
     }
 
 
+# Embedding is the rebuild bottleneck: one HTTP call to the TEI embedder per row. The calls are
+# I/O-bound and the embedder (bge-m3 TEI) handles concurrency, so fan them out across a thread
+# pool. EMBED_CONCURRENCY=1 restores the old sequential behavior.
+EMBED_CONCURRENCY = int(os.getenv("BEAGLE_MEMORY_EMBED_CONCURRENCY", "8"))
+
+
+def encode_rows(rows: list[dict[str, Any]], encoder: ColbertEncoder) -> list[dict[str, Any]]:
+    """Embed a batch of candidate rows, in parallel when EMBED_CONCURRENCY>1. Order is preserved
+    (ThreadPoolExecutor.map), so the written rows line up with their candidates."""
+    if EMBED_CONCURRENCY <= 1 or len(rows) <= 1:
+        return [encode_row(r, encoder) for r in rows]
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=EMBED_CONCURRENCY) as pool:
+        return list(pool.map(lambda r: encode_row(r, encoder), rows))
+
+
 def collect_passage_records(
     record: dict[str, Any],
     privacy: str,
@@ -439,7 +456,7 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
         table = None
         written = 0
         for batch in _chunked(candidates, BUILD_BATCH_SIZE):
-            rows = [encode_row(c, encoder) for c in batch]
+            rows = encode_rows(batch, encoder)
             if table is None:
                 # First batch creates (overwrites) the table; rest append.
                 table = db.create_table(table_name, data=rows, schema=arrow_schema(), mode="overwrite")
@@ -469,7 +486,7 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
                 # embedding in memory at once (the first rebuild after a big ingest has a huge set).
                 upserted = 0
                 for batch in _chunked(to_upsert, BUILD_BATCH_SIZE):
-                    rows = [encode_row(c, encoder) for c in batch]
+                    rows = encode_rows(batch, encoder)
                     (
                         table.merge_insert("canonical_id")
                         .when_matched_update_all()
