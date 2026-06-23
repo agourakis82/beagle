@@ -40,6 +40,17 @@ test("parseSolarWind takes speed (plasma) + bz (mag)", () => {
   assert.equal(r.bz.at(-1).value, -5.6);
 });
 
+// NOAA also serves array-of-objects (Kp, F10.7 products).
+test("parseKp/parseF107 handle array-of-objects format", () => {
+  const kpObj = [
+    { time_tag: "2026-06-22T00:00:00", Kp: 2.0, a_running: 7 },
+    { time_tag: "2026-06-22T03:00:00", Kp: 4.33, a_running: 20 },
+  ];
+  const f107Obj = [{ time_tag: "2026-06-21T20:00:00", flux: 141 }, { time_tag: "2026-06-22T20:00:00", flux: 143 }];
+  assert.equal(parseKp(kpObj).at(-1).kp, 4.33);
+  assert.equal(parseF107(f107Obj).at(-1).f107, 143);
+});
+
 test("mergeSpaceWeather → latest snapshot row", () => {
   const row = mergeSpaceWeather({ kp: parseKp(KP), f107: parseF107(F107), ...parseSolarWind(PLASMA, MAG) });
   assert.equal(row.kp, 5.0);

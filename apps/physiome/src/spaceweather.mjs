@@ -1,12 +1,32 @@
 // Parse NOAA SWPC products (array-of-arrays with a header row) into typed series.
 // Pure (no I/O) so it's unit-testable; the poller bin does the fetching.
 
+// Handles BOTH NOAA SWPC shapes: array-of-objects ({time_tag, <value>}) and
+// array-of-arrays with a header row (["time_tag", ...], [...]).
 function seriesByHeader(json, valueNames) {
-  if (!Array.isArray(json) || json.length < 2) return [];
+  if (!Array.isArray(json) || json.length < 1) return [];
+  const want = valueNames.map((s) => s.toLowerCase());
+
+  // array-of-objects
+  if (json[0] && !Array.isArray(json[0]) && typeof json[0] === "object") {
+    const keys = Object.keys(json[0]);
+    const tsKey = keys.find((k) => k.toLowerCase() === "time_tag");
+    const valKey = keys.find((k) => want.includes(k.toLowerCase()));
+    if (!tsKey || !valKey) return [];
+    const out = [];
+    for (const o of json) {
+      const v = Number(o[valKey]);
+      if (o[tsKey] && Number.isFinite(v)) out.push({ ts: isoUtc(o[tsKey]), value: v });
+    }
+    return out;
+  }
+
+  // array-of-arrays with header row
+  if (json.length < 2) return [];
   const header = json[0].map((h) => String(h).toLowerCase());
   const tsIdx = header.indexOf("time_tag");
   let valIdx = -1;
-  for (const name of valueNames) {
+  for (const name of want) {
     valIdx = header.indexOf(name);
     if (valIdx >= 0) break;
   }
