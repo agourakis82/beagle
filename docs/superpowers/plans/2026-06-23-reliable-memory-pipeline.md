@@ -13,6 +13,13 @@
 
 **Branch:** `feat/memory-pg` from `main` (Beagle side). conc-1 only when touching the legacy beagle-core JSONL store during migration ([[project_exocortex_ingest_constraints]]).
 
+## Decisions (post-0.1 spike, 2026-06-23)
+
+The 0.1 spike found `beagle-pg` is the stock `pgvector/pgvector:pg16` image (pgvector 0.8.2; **no** pg_search/age, not installable) and is **shared with live data (Physiome)**. Decisions:
+
+- **Dedicated `memory-pg` Postgres instance** (NOT an in-place swap of shared beagle-pg) — isolates the new pipeline from live data, zero risk to Physiome. Image: **ParadeDB base** (bundles pg_search + a recent pgvector; verify ≥0.8.3, else custom Dockerfile FROM postgres:16 adding pgvector≥0.8.3 + pg_search). New StatefulSet + PVC (ceph-rbd-ssd) + Service + secret (DSN).
+- **Graph backend = recursive-CTE on plain Postgres** (Task 4.1 resolved — **AGE deferred**). No `age` extension → `000_extensions.sql` installs only `vector` + `pg_search`; backup-safe; revisit AGE only if deep multi-hop is measured as deficient.
+
 ---
 
 ## Phase 0 — Postgres extensions + schema (foundation)

@@ -1,0 +1,149 @@
+# memory-pg — DEDICATED Postgres (ParadeDB) for the reliable memory pipeline.
+#
+# Phase 0. Isolated from the shared beagle-pg/Physiome instance — zero risk to
+# live data. Image = custom build (ParadeDB 0.24.1-pg16 base + pgvector 0.8.3
+# compiled over it, keeping pg_search 0.24.1 BM25). pgvector >=0.8.3 carries the
+# HNSW vacuum-corruption fix. See k8s/memory-pg/Dockerfile + build-job.yaml.
+# Graph backend = recursive-CTE (no `age` extension).
+#
+# Cluster conventions (mirrors beagle-pg):
+#   - namespace beagle, StorageClass ceph-rbd-ssd
+#   - tolerations for the tainted compute/gpu-batch nodes
+#   - seccompProfile Unconfined (default blocks socketpair -> asyncio crash)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: memory-pg
+  namespace: beagle
+  labels:
+    app: memory-pg
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "SBuu4F59eJytanrl69RNHoXHQrCEP"
+  DATABASE_URL: "postgresql://memory:SBuu4F59eJytanrl69RNHoXHQrCEP@memory-pg.beagle.svc.cluster.local:5432/memory"
+---
+# Headless service — stable per-pod DNS for the StatefulSet.
+apiVersion: v1
+kind: Service
+metadata:
+  name: memory-pg-headless
+  namespace: beagle
+  labels:
+    app: memory-pg
+spec:
+  clusterIP: None
+  selector:
+    app: memory-pg
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+---
+# ClusterIP service — the stable endpoint clients connect to
+# (memory-pg.beagle.svc.cluster.local:5432).
+apiVersion: v1
+kind: Service
+metadata:
+  name: memory-pg
+  namespace: beagle
+  labels:
+    app: memory-pg
+spec:
+  type: ClusterIP
+  selector:
+    app: memory-pg
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: memory-pg
+  namespace: beagle
+  labels:
+    app: memory-pg
+spec:
+  serviceName: memory-pg-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memory-pg
+  template:
+    metadata:
+      labels:
+        app: memory-pg
+      annotations:
+        container.apparmor.security.beta.kubernetes.io/postgres: unconfined
+    spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      tolerations:
+      - effect: NoSchedule
+        key: sounio.dev/compute
+        operator: Equal
+        value: heavy
+      - effect: NoSchedule
+        key: sounio.dev/pool
+        operator: Equal
+        value: gpu-batch
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      containers:
+      - name: postgres
+        image: 192.168.3.207:5003/memory-pg-postgres:pgvector083-pg16
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_DB
+          value: memory
+        - name: POSTGRES_USER
+          value: memory
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: memory-pg
+              key: POSTGRES_PASSWORD
+        # PGDATA in a subdir of the mount so the volume root stays clean.
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        securityContext:
+          seccompProfile:
+            type: Unconfined
+        resources:
+          requests:
+            cpu: 250m
+            memory: 1Gi
+          limits:
+            cpu: "2"
+            memory: 8Gi
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "memory", "-d", "memory"]
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          exec:
+            command: ["pg_isready", "-U", "memory", "-d", "memory"]
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          timeoutSeconds: 5
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: ceph-rbd-ssd
+      resources:
+        requests:
+          storage: 100Gi

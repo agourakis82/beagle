@@ -1,17 +1,18 @@
 -- 000_extensions.sql
 -- Phase 0, Task 0.1 — required extensions for the reliable memory pipeline.
 --
--- NOTE (Phase 0 spike result, 2026-06-23): the live beagle-pg image is
--- `pgvector/pgvector:pg16` (PostgreSQL 16.14) which ships ONLY pgvector 0.8.2.
--- `pg_search` (ParadeDB BM25) and `age` (Apache AGE) are NOT available on this
--- image and CANNOT be CREATE EXTENSION-ed until a custom Postgres image bundling
--- all three is built and the beagle-pg Stateful/Deployment is migrated onto it.
--- Also note pgvector must reach >=0.8.3 (HNSW vacuum-corruption fix) via the
--- image bump. Do NOT run this file against production until that image exists.
+-- DECISION (post-0.1 spike, 2026-06-23): the pipeline runs on a DEDICATED
+-- `memory-pg` Postgres instance (NOT the shared beagle-pg/Physiome instance),
+-- built from the ParadeDB image which bundles `pg_search` (BM25) and a recent
+-- pgvector (>=0.8.3, the HNSW vacuum-corruption fix). Only two extensions are
+-- created here:
 --
--- `age` is gated behind the Task 4.1 graph-backend decision (AGE vs recursive-CTE).
--- If recursive-CTE is chosen, drop the `age` line — it needs no extension.
+--   * vector    — pgvector, dense/HNSW vector search (must be >=0.8.3)
+--   * pg_search — ParadeDB BM25 lexical search
+--
+-- AGE (Apache AGE / `age`) is DEFERRED: the graph backend was resolved to
+-- recursive-CTE on plain Postgres (plan Task 4.1), which needs no extension.
+-- Revisit AGE only if deep multi-hop graph traversal is measured as deficient.
 
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_search;
-CREATE EXTENSION IF NOT EXISTS age;
