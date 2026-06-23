@@ -94,18 +94,20 @@ export async function rerank(query, candidates, { rerankFn, topN = 10 } = {}) {
  *
  * We do NOT rely on TEI's ordering — we realign by `index` to the input order.
  *
- * TEI caps a rerank request at 32 texts (HTTP 422 otherwise), but a first-stage
- * retrieve can hand us up to 50 candidates. So we split into sub-batches of
- * `maxBatch` and merge the scores back, index-aligned to the FULL input. A
- * cross-encoder scores each (query, doc) pair independently, so sub-batching is
- * exact — no cross-batch interaction is lost.
+ * A first-stage retrieve can hand us up to 50 candidates. TEI's *validation*
+ * caps a request at 32 texts (HTTP 422 above that), but the CPU reranker pod
+ * (bge-reranker-v2-m3, single replica) actually OOM-crashes on 32 *long*
+ * passages — measured. So we sub-batch conservatively (default 8) and merge the
+ * scores back, index-aligned to the FULL input. A cross-encoder scores each
+ * (query, doc) pair independently, so sub-batching is exact — no cross-batch
+ * interaction is lost — and small batches bound the reranker's peak memory.
  *
  * @param {string} url base url of the TEI reranker service (no trailing /rerank)
  * @param {{maxBatch?:number}} [opts]
  * @returns {(query:string, texts:string[]) => Promise<number[]>} scores aligned
  *   to input order.
  */
-export function makeTeiRerankFn(url, { maxBatch = 32 } = {}) {
+export function makeTeiRerankFn(url, { maxBatch = 8 } = {}) {
   const base = url.replace(/\/+$/, "");
   async function postBatch(query, texts, offset, scores) {
     const resp = await fetch(`${base}/rerank`, {
