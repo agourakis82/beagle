@@ -13,6 +13,15 @@ test("includes high-signal content", () => {
   assert.equal(classifyPath("papers/hsn.tex"), "include");
   assert.equal(classifyPath("a/thoughts.txt"), "include");
 });
+test("prose-only mode keeps writing + shell history, drops source code", () => {
+  const opt = { proseOnly: true };
+  assert.equal(classifyPath("papers/hsn.tex", opt), "include");
+  assert.equal(classifyPath("notes/diary.md", opt), "include");
+  assert.equal(classifyPath("x/.bash_history", opt), "include");
+  assert.equal(classifyPath("self-hosted/lexer/main.sio", opt), "exclude");
+  assert.equal(classifyPath("src/lib.rs", opt), "exclude");
+});
+
 test("biographical signal weighting ranks writing above generated docs", () => {
   assert.ok(signalWeight("research/hsn.tex") > signalWeight("crate/README.md"));
   assert.ok(signalWeight("journal/2026.md") > signalWeight("node_modules/pkg/README.md"));

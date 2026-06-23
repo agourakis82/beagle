@@ -18,7 +18,8 @@ import {
   proxyCheapProviderCompletion,
   proxySubscriptionBridgeCompletion,
   proxyDiscussionLabCompletion,
-  fetchBiographyDigest
+  fetchBiographyDigest,
+  fetchPhysiomeDigest
 } from "./auth-bridge.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
@@ -682,19 +683,28 @@ async function completeChatRequest(req, deps) {
     requestedPhysioPolicy
   );
 
-  // Personal space: ground the companion in the user's living biography so it
-  // responds as someone who actually knows him, not with generic self-help.
-  // Best-effort — grounding must never block or fail the chat.
+  // Personal space: ground the companion in the user's living biography and
+  // current physiome state so it responds as someone who actually knows him.
+  // Both fetches are best-effort — grounding must never block or fail the chat.
   const chatSpace = cleanString(req.body?.space || req.body?.chatSpace).toLowerCase();
   if (chatSpace === "personal") {
     try {
-      const { digest } = await fetchBiographyDigest();
-      if (digest) {
-        effectiveSystem = [
+      const [{ digest: biographyDigest }, { digest: physiomeDigest }] = await Promise.all([
+        fetchBiographyDigest(),
+        fetchPhysiomeDigest()
+      ]);
+      const sections = [];
+      if (physiomeDigest) {
+        sections.push("## Estado físico+ambiente recente", physiomeDigest);
+      }
+      if (biographyDigest) {
+        sections.push(
           "## Quem é Demetrios (biografia viva — fale como quem o conhece de verdade, sem genéricos)",
-          digest,
-          effectiveSystem
-        ].filter(Boolean).join("\n\n");
+          biographyDigest
+        );
+      }
+      if (sections.length > 0) {
+        effectiveSystem = [...sections, effectiveSystem].filter(Boolean).join("\n\n");
       }
     } catch {
       // ignore — proceed ungrounded rather than break the chat
