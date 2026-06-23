@@ -10,18 +10,14 @@
 #   - namespace beagle, StorageClass ceph-rbd-ssd
 #   - tolerations for the tainted compute/gpu-batch nodes
 #   - seccompProfile Unconfined (default blocks socketpair -> asyncio crash)
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: memory-pg
-  namespace: beagle
-  labels:
-    app: memory-pg
-type: Opaque
-stringData:
-  POSTGRES_PASSWORD: "SBuu4F59eJytanrl69RNHoXHQrCEP"
-  DATABASE_URL: "postgresql://memory:SBuu4F59eJytanrl69RNHoXHQrCEP@memory-pg.beagle.svc.cluster.local:5432/memory"
+# The `memory-pg` Secret (POSTGRES_PASSWORD + DATABASE_URL) is created OUT-OF-BAND
+# and is NEVER committed to git. Create/rotate it with:
+#   PW=$(openssl rand -hex 24)
+#   kubectl -n beagle create secret generic memory-pg \
+#     --from-literal=POSTGRES_PASSWORD="$PW" \
+#     --from-literal=DATABASE_URL="postgresql://memory:$PW@memory-pg.beagle.svc.cluster.local:5432/memory" \
+#     --dry-run=client -o yaml | kubectl -n beagle apply -f -
+# The StatefulSet below consumes it via secretKeyRef (POSTGRES_PASSWORD).
 ---
 # Headless service — stable per-pod DNS for the StatefulSet.
 apiVersion: v1
