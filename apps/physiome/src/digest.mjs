@@ -2,6 +2,8 @@
 // for the Personal companion's grounding. buildPhysiomeSummary is pure (testable);
 // generateDigest (added with DB wiring) aggregates Postgres + stores into the exocortex.
 
+import { correlatePhysiome, summarizeCorrelations } from "./correlate.mjs";
+
 function n(v, suffix = "") {
   return v == null || Number.isNaN(v) ? "—" : `${v}${suffix}`;
 }
@@ -36,10 +38,37 @@ export async function aggregateDay(pool, date) {
   };
 }
 
+// Aggregate the last `days` UTC days (inclusive of endDate, default today) into the per-day series
+// the correlation engine consumes. Thin glue over aggregateDay.
+export async function aggregateRange(pool, days = 30, endDate = null) {
+  const end = endDate ? new Date(`${endDate}T00:00:00Z`) : new Date();
+  const out = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(end);
+    d.setUTCDate(d.getUTCDate() - i);
+    out.push(await aggregateDay(pool, d.toISOString().slice(0, 10)));
+  }
+  return out;
+}
+
 // Aggregate the day → deterministic summary → store as a pinned, sovereign exocortex doc.
-export async function generateDigest(pool, date, { assistedImport }) {
+// Best-effort: also fold trailing-window correlation insights into the stored digest so the
+// companion's grounding (which already fetches the physiome-digest tag) becomes correlation-aware
+// with no cockpit change. A correlation failure must never block the daily digest.
+export async function generateDigest(pool, date, { assistedImport, correlationDays = 30 } = {}) {
   const agg = await aggregateDay(pool, date);
-  const summary = buildPhysiomeSummary(agg);
+  let summary = buildPhysiomeSummary(agg);
+  let correlations = null;
+  try {
+    const aggs = await aggregateRange(pool, correlationDays, date);
+    const res = correlatePhysiome(aggs, {});
+    if (res.correlations.some((c) => c.notable)) {
+      summary = `${summary}\n\n${summarizeCorrelations(res)}`;
+      correlations = res.correlations.filter((c) => c.notable);
+    }
+  } catch {
+    // ignore — store the plain daily digest
+  }
   await assistedImport({
     title: `Físio+ambiente — ${date}`,
     sessionId: `physiome-digest:${date}`,
@@ -50,9 +79,9 @@ export async function generateDigest(pool, date, { assistedImport }) {
     privacyClass: "sensitive",
     turns: [{ role: "user", content: summary, timestamp: new Date().toISOString(), metadata: { kind: "physiome-digest", date } }],
     tags: ["physiome-digest", "pinned", `date:${date}`],
-    metadata: { kind: "physiome-digest", date, agg },
+    metadata: { kind: "physiome-digest", date, agg, correlations },
   });
-  return { summary, agg };
+  return { summary, agg, correlations };
 }
 
 export function buildPhysiomeSummary(agg) {
