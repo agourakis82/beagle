@@ -10,12 +10,26 @@ const INCLUDE_EXT = new Set([
   ".sio", ".rs", ".swift", ".py", ".ts", ".mjs", ".js",
 ]);
 // Biographical signal: his own writing/thinking > project docs > generated/code.
-const HIGH = [/journal/i, /diary/i, /notes?/i, /research/i, /paper/i, /\.tex$/i, /thoughts?/i, /CURRENT_THREAD/i];
+const HIGH = [
+  /journal/i, /diary/i, /notes?/i, /research/i, /paper/i, /\.tex$/i, /thoughts?/i, /CURRENT_THREAD/i,
+  // his authored writing comes in many names, not just "notes/research":
+  /manuscript/i, /report/i, /audit/i, /strateg/i, /letter/i, /draft/i, /roadmap/i, /\.bash_history$/,
+];
 const LOW = [/README/i, /CHANGELOG/i, /LICENSE/i, /node_modules/i, /\.lock$/i];
 
-export function classifyPath(p) {
+// Prose-only mode: his actual writing, not source code (which is on GitHub + low
+// biographical signal + huge volume). Also pulls in shell history (dotfiles, no ext).
+const PROSE_EXT = new Set([".md", ".txt", ".tex", ".org", ".rtf", ".pdf", ".docx", ".csv"]);
+const PROSE_BASENAMES = new Set([".bash_history", ".zsh_history", ".python_history"]);
+
+export function classifyPath(p, { proseOnly = process.env.PROSE_ONLY === "1" } = {}) {
   const parts = p.split("/");
   if (parts.some((seg) => EXCLUDE_DIRS.has(seg))) return "exclude";
+  const base = parts[parts.length - 1];
+  if (proseOnly) {
+    if (PROSE_BASENAMES.has(base)) return "include";
+    return PROSE_EXT.has(path.extname(p).toLowerCase()) ? "include" : "exclude";
+  }
   const ext = path.extname(p).toLowerCase();
   if (!INCLUDE_EXT.has(ext)) return "exclude";
   return "include";

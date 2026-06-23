@@ -21,11 +21,12 @@ function batch(arr, n) {
 
 // One assisted-import per file (split into bounded batches of turns). beagle-core
 // embeds server-side, so we send text only — no client-side vectors.
-export async function ingestRoot(root, { limit = Infinity, dryRun = false } = {}) {
+export async function ingestRoot(root, { limit = Infinity, dryRun = false, minSignalWeight = 0 } = {}) {
   const stats = { scanned: 0, skippedSensitive: 0, files: 0, chunks: 0, imports: 0, ingested: 0, errors: 0 };
   for await (const f of walk(root)) {
     if (stats.scanned >= limit) break;
     stats.scanned++;
+    if (minSignalWeight > 0 && f.weight < minSignalWeight) { stats.skippedLowSignal = (stats.skippedLowSignal || 0) + 1; continue; }
     if (isSensitivePath(f.path)) { stats.skippedSensitive++; continue; }
     let text;
     try { text = await readFile(f.path, "utf8"); } catch { continue; }
