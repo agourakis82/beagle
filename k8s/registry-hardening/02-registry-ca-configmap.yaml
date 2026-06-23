@@ -1,0 +1,33 @@
+# Phase 4 — Registry CA ConfigMap
+# Distributes the lab CA cert to kaniko build jobs and cosign verification containers
+# inside the cluster. Fill in the actual PEM after Phase 1 completes.
+#
+# To populate:
+#   CA_PEM=$(kubectl get secret registry-tls-secret -n cert-manager \
+#             -o jsonpath='{.data.ca\.crt}' | base64 -d)
+#   # Then replace the placeholder below with $CA_PEM (indented 4 spaces under lab-ca.crt: |)
+#
+# Apply (after filling PEM):
+#   kubectl apply -f 02-registry-ca-configmap.yaml
+#
+# This ConfigMap is referenced by:
+#   - kaniko containers: --registry-certificate=192.168.3.207:5003=/kaniko/tls/lab-ca.crt
+#   - cosign sign containers: --registry-ca-cert=/cosign/tls/lab-ca.crt
+#   - cosign verify initContainers: --registry-ca-cert=/cosign/tls/lab-ca.crt
+#
+# Rollback: not needed — mounting this ConfigMap is additive; removing it requires
+# re-adding --insecure-registry to kaniko args (Phase 4 rollback).
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: registry-ca-cert
+  namespace: beagle
+data:
+  lab-ca.crt: |
+    # PLACEHOLDER — replace with actual PEM from cert-manager Secret after Phase 1.
+    # Run:
+    #   kubectl get secret registry-tls-secret -n cert-manager \
+    #     -o jsonpath='{.data.ca\.crt}' | base64 -d
+    # and paste the -----BEGIN CERTIFICATE----- block here.
