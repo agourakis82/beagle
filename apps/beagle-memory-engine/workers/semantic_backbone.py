@@ -250,6 +250,46 @@ def collect_candidates(export: dict[str, Any]) -> tuple[list[dict[str, Any]], in
     return candidates, restricted_count
 
 
+def iter_candidates(export_path: str, stats: dict[str, int] | None = None):
+    """Streaming twin of collect_candidates: parse the export file incrementally with ijson and
+    YIELD candidate dicts one at a time (passage expansion included), so the full corpus is never
+    resident. Byte-identical rows to collect_candidates. `stats["restricted_excluded"]` is
+    incremented for skipped restricted records when a stats dict is passed."""
+    import ijson  # local import: only the rebuild path needs it
+    sources = [
+        ("episodes", "MemoryEpisode"),
+        ("atoms", "MemoryAtom"),
+        ("worlds", "MemoryWorld"),
+        ("passages", "ConversationPassage"),
+    ]
+    for field, kind in sources:
+        with open(export_path, "rb") as handle:
+            for item in ijson.items(handle, f"{field}.item"):
+                privacy = str(item.get("privacy_class") or "sensitive").lower()
+                if privacy == "restricted":
+                    if stats is not None:
+                        stats["restricted_excluded"] = stats.get("restricted_excluded", 0) + 1
+                    continue
+                if kind == "ConversationPassage":
+                    yield from collect_passage_records(item, privacy)
+                    continue
+                text = record_text(item, kind)
+                if not text.strip():
+                    continue
+                canonical_id = str(item.get("id") or item.get("source_ref") or text_hash(text))
+                yield {
+                    "canonical_id": canonical_id,
+                    "kind": kind,
+                    "content_hash": str(item.get("content_hash") or text_hash(text)),
+                    "privacy_class": privacy,
+                    "source_refs": json.dumps(item.get("source_refs") or [], ensure_ascii=False),
+                    "chronoself_commit": str(item.get("chronoself_commit") or ""),
+                    "provenance": json.dumps(item.get("provenance") or {}, ensure_ascii=False, sort_keys=True),
+                    "occurred_at": str(item.get("occurred_at") or item.get("created_at") or ""),
+                    "text": text[:12000],
+                }
+
+
 def encode_row(row: dict[str, Any], encoder: ColbertEncoder) -> dict[str, Any]:
     """Return a NEW embedded row dict (candidate fields + "mv" + "embedding_backend").
     Non-mutating by design: the source candidate stays text-only so that embedded rows are

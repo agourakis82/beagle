@@ -18,3 +18,16 @@ def test_collect_candidates_baseline():
     assert "at2" not in ids
     # every candidate is text-bearing and carries a content_hash
     assert all(c["text"].strip() and c["content_hash"] for c in cands)
+
+
+def test_iter_candidates_matches_collect():
+    export = sb.load_json(str(FIX))
+    expected, _ = sb.collect_candidates(export)
+    got = list(sb.iter_candidates(str(FIX)))
+    assert got == expected  # same rows, same order, byte-identical dicts
+
+
+def test_iter_candidates_counts_restricted():
+    stats = {"restricted_excluded": 0}
+    list(sb.iter_candidates(str(FIX), stats))
+    assert stats["restricted_excluded"] == 1
