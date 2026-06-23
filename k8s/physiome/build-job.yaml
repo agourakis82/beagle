@@ -1,0 +1,35 @@
+# Kaniko build for the physiome image. Run with:
+#   kubectl delete job physiome-build -n beagle --ignore-not-found
+#   kubectl apply -f k8s/physiome/build-job.yaml
+# Then poll the registry tag (NOT the Job — TTL deletes it): 192.168.3.207:5003/v2/physiome/tags/list
+apiVersion: batch/v1
+kind: Job
+metadata: { name: physiome-build, namespace: beagle }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      tolerations:
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+      securityContext: { seccompProfile: { type: Unconfined } }
+      initContainers:
+        - name: clone
+          image: alpine/git:latest
+          command: ["/bin/sh","-lc","git clone --depth=1 --branch=feat/exocortex-grounding https://github.com/agourakis82/beagle.git /workspace"]
+          volumeMounts: [{ name: workspace, mountPath: /workspace }]
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - "--dockerfile=/workspace/apps/physiome/Dockerfile"
+            - "--context=dir:///workspace"
+            - "--destination=192.168.3.207:5003/physiome:0.1.0"
+            - "--insecure-registry=192.168.3.207:5003"
+            - "--cache=false"
+            - "--snapshot-mode=redo"
+          volumeMounts: [{ name: workspace, mountPath: /workspace }]
+          resources: { requests: { cpu: "1", memory: "2Gi" }, limits: { cpu: "4", memory: "6Gi" } }
+      volumes: [{ name: workspace, emptyDir: { sizeLimit: 3Gi } }]
