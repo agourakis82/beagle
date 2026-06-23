@@ -1620,3 +1620,50 @@ export function registerAuthBridgeRoutes(app) {
     res.status(result.status).json(result.payload);
   });
 }
+
+// --- Always-present grounding digests (Personal companion) ---
+// Self-contained (no cleanString dep): query beagle-core memory for the pinned digests.
+// Best-effort — return { digest: "" } on any failure so chat is never blocked.
+function _digestSnippet(payload) {
+  const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
+  const sorted = highlights
+    .filter((h) => typeof h?.snippet === "string" && h.snippet.trim())
+    .sort((a, b) => String(b?.date || "").localeCompare(String(a?.date || "")));
+  return sorted[0]?.snippet ? String(sorted[0].snippet).trim() : "";
+}
+
+async function _fetchPinnedDigest(query, tags, timeoutMs) {
+  const tokenResult = await fetchOperatorToken();
+  if (tokenResult.error || !tokenResult.token) {
+    return { digest: "", error: tokenResult.error || "beagle token unavailable" };
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "content-type": "application/json",
+        "X-Beagle-Consumer": "beagle-operator",
+        Authorization: `Bearer ${tokenResult.token}`
+      },
+      body: JSON.stringify({ query, k: 3, tags }),
+      signal: ctrl.signal
+    });
+    if (!res.ok) return { digest: "", error: `memory/query ${res.status}` };
+    return { digest: _digestSnippet(parseJsonResponse(await res.text())) };
+  } catch (err) {
+    return { digest: "", error: err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function fetchBiographyDigest({ timeoutMs = 8000 } = {}) {
+  return _fetchPinnedDigest("biografia viva Demetrios quem ele é trabalho recente", ["biography-digest"], timeoutMs);
+}
+
+export async function fetchPhysiomeDigest({ timeoutMs = 8000 } = {}) {
+  return _fetchPinnedDigest("estado físico corpo ambiente HRV sono energia recente", ["physiome-digest"], timeoutMs);
+}

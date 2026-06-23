@@ -19,7 +19,9 @@ import {
   proxySubscriptionBridgeCompletion,
   proxyDiscussionLabCompletion,
   fetchExocortexContext,
-  streamChatViaRouter
+  streamChatViaRouter,
+  fetchBiographyDigest,
+  fetchPhysiomeDigest
 } from "./auth-bridge.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
@@ -684,11 +686,30 @@ async function completeChatRequest(req, deps) {
   const mergedSystem = [cleanString(req.body?.system), memoryContext]
     .filter(Boolean)
     .join("\n\n");
-  const effectiveSystem = buildMobileChatSystem(
+  let effectiveSystem = buildMobileChatSystem(
     mergedSystem,
     requestedFlowState,
     requestedPhysioPolicy
   );
+
+  // Personal space: always-present grounding in the living biography + current physiome state
+  // (complements the per-query exocortex RAG above). Best-effort — never blocks chat.
+  const chatSpace = cleanString(req.body?.space || req.body?.chatSpace).toLowerCase();
+  if (chatSpace === "personal") {
+    try {
+      const [{ digest: biographyDigest }, { digest: physiomeDigest }] = await Promise.all([
+        fetchBiographyDigest(),
+        fetchPhysiomeDigest()
+      ]);
+      const sections = [];
+      if (physiomeDigest) sections.push("## Estado físico+ambiente recente", physiomeDigest);
+      if (biographyDigest) sections.push("## Quem é Demetrios (biografia viva — fale como quem o conhece de verdade, sem genéricos)", biographyDigest);
+      if (sections.length > 0) effectiveSystem = [...sections, effectiveSystem].filter(Boolean).join("\n\n");
+    } catch {
+      // ignore — proceed ungrounded rather than break the chat
+    }
+  }
+
   let appliedDiscussionProfile = effectiveDiscussionProfile || "cluster";
 
   let result;
