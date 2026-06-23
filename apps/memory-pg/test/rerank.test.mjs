@@ -147,3 +147,28 @@ test("makeTeiRerankFn POSTs {query,texts} and returns index-aligned scores", asy
     globalThis.fetch = realFetch;
   }
 });
+
+test("makeTeiRerankFn splits >maxBatch texts into sub-batches (TEI caps batch at 32)", async () => {
+  // The TEI reranker rejects batches > 32 (HTTP 422). A first-stage retrieve can
+  // return up to 50 candidates, so the rerank fn must sub-batch and merge scores
+  // index-aligned to the FULL input, not send all 50 at once.
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    assert.ok(body.texts.length <= 32, `sub-batch ${body.texts.length} must be <= 32`);
+    calls.push(body.texts.length);
+    return { ok: true, json: async () => body.texts.map((t, i) => ({ index: i, score: Number(t.split("#")[1]) })) };
+  };
+  try {
+    const fn = makeTeiRerankFn("http://reranker", { maxBatch: 32 });
+    const texts = Array.from({ length: 50 }, (_, i) => `doc#${i}`);
+    const scores = await fn("q", texts);
+    assert.equal(scores.length, 50, "score per input across sub-batches");
+    // global alignment: each doc's score equals its global index.
+    for (let i = 0; i < 50; i++) assert.equal(scores[i], i, `score[${i}] aligned`);
+    assert.deepEqual(calls, [32, 18], "two sub-batches: 32 then 18");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

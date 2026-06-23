@@ -12,6 +12,26 @@ function sha256hex(s) {
   return crypto.createHash("sha256").update(s).digest("hex");
 }
 
+// Postgres text and jsonb both reject embedded NUL (0x00) bytes
+// ("invalid byte sequence for encoding UTF8: 0x00"). The live exocortex corpus
+// contains them, so the ACID capture path strips NUL from content and from every
+// string in the metadata before persisting — one bad byte must never abort a
+// capture (or a migration batch).
+function stripNul(s) {
+  return s.indexOf("\u0000") === -1 ? s : s.replace(/\u0000/g, "");
+}
+
+function deepStripNul(v) {
+  if (typeof v === "string") return stripNul(v);
+  if (Array.isArray(v)) return v.map(deepStripNul);
+  if (v && typeof v === "object") {
+    const out = {};
+    for (const [k, val] of Object.entries(v)) out[stripNul(k)] = deepStripNul(val);
+    return out;
+  }
+  return v;
+}
+
 /**
  * Capture a record transactionally.
  *
@@ -41,7 +61,11 @@ export async function captureRecord(pool, rec) {
     throw new Error("captureRecord: content must be a non-empty string");
   }
 
-  const content_sha256 = sha256hex(content);
+  // Strip NUL bytes (Postgres-incompatible) before hashing so idempotency keys
+  // the stored content, and sanitize metadata strings the same way.
+  const safeContent = stripNul(content);
+  const safeMetadata = deepStripNul(metadata);
+  const content_sha256 = sha256hex(safeContent);
 
   const client = await pool.connect();
   try {
@@ -56,8 +80,8 @@ export async function captureRecord(pool, rec) {
        RETURNING id`,
       [
         source_type,
-        content,
-        JSON.stringify(metadata),
+        safeContent,
+        JSON.stringify(safeMetadata),
         occurred_at,
         content_sha256,
         privacy_class,
@@ -76,7 +100,7 @@ export async function captureRecord(pool, rec) {
     }
 
     const id = ins.rows[0].id;
-    const chunks = chunkText(content);
+    const chunks = chunkText(safeContent);
 
     if (chunks.length > 0) {
       // Bulk insert chunks in a single multi-row statement.

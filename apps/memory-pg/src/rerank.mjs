@@ -94,13 +94,20 @@ export async function rerank(query, candidates, { rerankFn, topN = 10 } = {}) {
  *
  * We do NOT rely on TEI's ordering — we realign by `index` to the input order.
  *
+ * TEI caps a rerank request at 32 texts (HTTP 422 otherwise), but a first-stage
+ * retrieve can hand us up to 50 candidates. So we split into sub-batches of
+ * `maxBatch` and merge the scores back, index-aligned to the FULL input. A
+ * cross-encoder scores each (query, doc) pair independently, so sub-batching is
+ * exact — no cross-batch interaction is lost.
+ *
  * @param {string} url base url of the TEI reranker service (no trailing /rerank)
+ * @param {{maxBatch?:number}} [opts]
  * @returns {(query:string, texts:string[]) => Promise<number[]>} scores aligned
  *   to input order.
  */
-export function makeTeiRerankFn(url) {
+export function makeTeiRerankFn(url, { maxBatch = 32 } = {}) {
   const base = url.replace(/\/+$/, "");
-  return async function teiRerank(query, texts) {
+  async function postBatch(query, texts, offset, scores) {
     const resp = await fetch(`${base}/rerank`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -114,13 +121,18 @@ export function makeTeiRerankFn(url) {
     if (!Array.isArray(body)) {
       throw new Error("TEI rerank: expected a JSON array response");
     }
-    // body is [{index, score}] — realign to input order.
-    const scores = new Array(texts.length).fill(Number.NEGATIVE_INFINITY);
+    // body is [{index, score}] local to this sub-batch — shift by offset.
     for (const item of body) {
       if (item == null || typeof item.index !== "number") {
         throw new Error("TEI rerank: malformed item (missing numeric index)");
       }
-      scores[item.index] = Number(item.score);
+      scores[offset + item.index] = Number(item.score);
+    }
+  }
+  return async function teiRerank(query, texts) {
+    const scores = new Array(texts.length).fill(Number.NEGATIVE_INFINITY);
+    for (let off = 0; off < texts.length; off += maxBatch) {
+      await postBatch(query, texts.slice(off, off + maxBatch), off, scores);
     }
     return scores;
   };
