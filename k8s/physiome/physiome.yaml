@@ -22,6 +22,9 @@ spec:
     metadata:
       labels: { app: physiome-ingest }
     spec:
+      tolerations:
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
       securityContext:
         seccompProfile:
           type: Unconfined
@@ -71,6 +74,9 @@ spec:
       template:
         spec:
           restartPolicy: OnFailure
+          tolerations:
+            - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+            - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
           securityContext:
             seccompProfile: { type: Unconfined }
           containers:
@@ -96,6 +102,9 @@ spec:
       template:
         spec:
           restartPolicy: OnFailure
+          tolerations:
+            - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+            - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
           securityContext:
             seccompProfile: { type: Unconfined }
           containers:
