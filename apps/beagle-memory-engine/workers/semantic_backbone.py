@@ -264,7 +264,11 @@ def iter_candidates(export_path: str, stats: dict[str, int] | None = None):
     ]
     for field, kind in sources:
         with open(export_path, "rb") as handle:
-            for item in ijson.items(handle, f"{field}.item"):
+            # use_float=True: ijson defaults to Decimal for numbers, which json.dumps() cannot
+            # serialize (provenance/source_refs often carry numbers) -> the worker died with
+            # "Object of type Decimal is not JSON serializable" on the real export. With
+            # use_float=True, ints stay int and reals become float, matching json.load() exactly.
+            for item in ijson.items(handle, f"{field}.item", use_float=True):
                 privacy = str(item.get("privacy_class") or "sensitive").lower()
                 if privacy == "restricted":
                     if stats is not None:

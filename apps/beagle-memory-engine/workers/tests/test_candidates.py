@@ -31,3 +31,25 @@ def test_iter_candidates_counts_restricted():
     stats = {"restricted_excluded": 0}
     list(sb.iter_candidates(str(FIX), stats))
     assert stats["restricted_excluded"] == 1
+
+
+def test_iter_candidates_numeric_provenance_serializable(tmp_path):
+    # Regression: ijson defaults to Decimal -> json.dumps crashes. Provenance/source_refs with
+    # numbers must round-trip identically to json.load (use_float=True).
+    import json as _j
+    exp = tmp_path / "num.json"
+    exp.write_text(_j.dumps({
+        "episodes": [], "worlds": [], "passages": [],
+        "atoms": [{
+            "id": "n1", "text": "atom with numeric provenance", "privacy_class": "sensitive",
+            "content_hash": "h-n1",
+            "provenance": {"score": 1.5, "n": 3, "nested": {"k": 2.0}},
+            "source_refs": [{"w": 0.25, "i": 7}],
+        }],
+    }))
+    expected, _ = sb.collect_candidates(sb.load_json(str(exp)))
+    got = list(sb.iter_candidates(str(exp)))
+    assert got == expected, "streaming must match json.load on numeric fields"
+    # and the produced provenance/source_refs strings must be valid JSON (no Decimal)
+    for c in got:
+        _j.loads(c["provenance"]); _j.loads(c["source_refs"])
