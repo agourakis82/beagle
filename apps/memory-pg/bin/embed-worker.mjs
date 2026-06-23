@@ -20,7 +20,7 @@
 //   EMBED_TEI_BATCH        max texts per TEI request (default 32)
 
 import { makePool } from "../src/db.mjs";
-import { runOnce } from "../src/embed-worker.mjs";
+import { runOnce, makeTeiEmbedFn } from "../src/embed-worker.mjs";
 
 function intEnv(name, def) {
   const v = process.env[name];
@@ -52,58 +52,20 @@ function makeTokenBucket(ratePerSec, capacity = ratePerSec) {
 }
 
 /**
- * Build a real TEI embedFn that POSTs to BEAGLE_TEI_EMBED_URL. TEI accepts a
- * batched `{ "inputs": [..] }` and returns `[[..], [..], ..]`. We chunk the
- * texts into sub-batches (EMBED_TEI_BATCH) and throttle each request.
+ * Build the worker's TEI embedFn from BEAGLE_TEI_EMBED_URL, wrapping the shared
+ * `makeTeiEmbedFn` (src/embed-worker.mjs) with a token-bucket throttle so a
+ * backfill burst can't saturate the embedding service.
  *
  * @returns {(texts: string[]) => Promise<number[][]>}
  */
-function makeTeiEmbedFn() {
+function makeWorkerEmbedFn() {
   const url = process.env.BEAGLE_TEI_EMBED_URL;
   if (!url) throw new Error("BEAGLE_TEI_EMBED_URL is required");
-  const timeoutMs = intEnv("EMBED_TEI_TIMEOUT_MS", 30000);
-  const teiBatch = intEnv("EMBED_TEI_BATCH", 32);
-  const acquire = makeTokenBucket(intEnv("EMBED_TEI_RATE", 8));
-
-  async function embedBatch(texts) {
-    await acquire();
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ inputs: texts }),
-        signal: ctrl.signal,
-      });
-      if (!resp.ok) {
-        throw new Error(`TEI ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
-      }
-      const out = await resp.json();
-      // TEI returns [[..], ..]; normalize a single-vector reply to a 1-elem batch.
-      const vectors =
-        Array.isArray(out) && out.length && Array.isArray(out[0])
-          ? out
-          : [out];
-      if (vectors.length !== texts.length) {
-        throw new Error(
-          `TEI returned ${vectors.length} vectors for ${texts.length} inputs`,
-        );
-      }
-      return vectors.map((v) => v.map(Number));
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  return async function embedFn(texts) {
-    const out = [];
-    for (let i = 0; i < texts.length; i += teiBatch) {
-      const part = await embedBatch(texts.slice(i, i + teiBatch));
-      out.push(...part);
-    }
-    return out;
-  };
+  return makeTeiEmbedFn(url, {
+    timeoutMs: intEnv("EMBED_TEI_TIMEOUT_MS", 30000),
+    teiBatch: intEnv("EMBED_TEI_BATCH", 32),
+    acquire: makeTokenBucket(intEnv("EMBED_TEI_RATE", 8)),
+  });
 }
 
 async function main() {
@@ -111,7 +73,7 @@ async function main() {
   if (!dsn) throw new Error("MEMORY_PG_DSN is required");
 
   const pool = makePool(dsn);
-  const embedFn = makeTeiEmbedFn();
+  const embedFn = makeWorkerEmbedFn();
   const batch = intEnv("EMBED_BATCH", 50);
   const modelVersion = process.env.EMBED_MODEL_VERSION || "bge-m3";
   const maxRetries = intEnv("EMBED_MAX_RETRIES", 3);

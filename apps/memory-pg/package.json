@@ -8,6 +8,7 @@
     "test": "node --test --test-concurrency=1 test/"
   },
   "dependencies": {
+    "express": "^4.22.2",
     "pg": "^8.22.0"
   }
 }

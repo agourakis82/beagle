@@ -29,6 +29,69 @@ export function toVectorLiteral(nums) {
 }
 
 /**
+ * Build a real TEI embedFn that POSTs to the sovereign bge-m3 endpoint.
+ *
+ * The TEI/sovereign embedder accepts a batched `{ "inputs": [..] }` and returns
+ * `[[..], [..], ..]` (one 1024-dim vector per input). A single-vector reply is
+ * normalized to a 1-element batch. Texts are split into sub-batches of size
+ * `teiBatch` and each request is bounded by `timeoutMs`.
+ *
+ * Shared by bin/embed-worker.mjs (background drainer) and bin/serve.mjs (query
+ * embedding) so the transport + response normalization live in exactly one place.
+ *
+ * @param {string} url  full POST URL of the embed endpoint (e.g. .../embed)
+ * @param {{ timeoutMs?: number, teiBatch?: number,
+ *           acquire?: () => Promise<void> }} [opts]
+ * @returns {(texts: string[]) => Promise<number[][]>}
+ */
+export function makeTeiEmbedFn(url, opts = {}) {
+  if (!url) throw new Error("makeTeiEmbedFn: url is required");
+  const timeoutMs = opts.timeoutMs ?? 30000;
+  const teiBatch = opts.teiBatch ?? 32;
+  // Optional token-bucket gate (the worker passes one to throttle TEI; serve
+  // does single-text queries so it can omit it).
+  const acquire = typeof opts.acquire === "function" ? opts.acquire : async () => {};
+
+  async function embedBatch(texts) {
+    await acquire();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ inputs: texts }),
+        signal: ctrl.signal,
+      });
+      if (!resp.ok) {
+        throw new Error(`TEI ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+      }
+      const out = await resp.json();
+      // TEI returns [[..], ..]; normalize a single-vector reply to a 1-elem batch.
+      const vectors =
+        Array.isArray(out) && out.length && Array.isArray(out[0]) ? out : [out];
+      if (vectors.length !== texts.length) {
+        throw new Error(
+          `TEI returned ${vectors.length} vectors for ${texts.length} inputs`,
+        );
+      }
+      return vectors.map((v) => v.map(Number));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  return async function embedFn(texts) {
+    const out = [];
+    for (let i = 0; i < texts.length; i += teiBatch) {
+      const part = await embedBatch(texts.slice(i, i + teiBatch));
+      out.push(...part);
+    }
+    return out;
+  };
+}
+
+/**
  * Process at most `batch` pending embedding jobs once.
  *
  * @param {import("pg").Pool} pool
