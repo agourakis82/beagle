@@ -29,8 +29,13 @@ metadata:
     app: memory-pg
 spec:
   clusterIP: None
+  # Select ONLY the StatefulSet pod, not every app=memory-pg pod (the embed
+  # worker / reranker / serve Deployments share that label). Without the
+  # pod-name qualifier the Service load-balances onto non-postgres pods and
+  # ~2/3 of DB connections get ECONNREFUSED.
   selector:
     app: memory-pg
+    statefulset.kubernetes.io/pod-name: memory-pg-0
   ports:
   - name: postgres
     port: 5432
@@ -47,8 +52,11 @@ metadata:
     app: memory-pg
 spec:
   type: ClusterIP
+  # See headless service above: qualify by pod-name so only the postgres pod
+  # backs this Service.
   selector:
     app: memory-pg
+    statefulset.kubernetes.io/pod-name: memory-pg-0
   ports:
   - name: postgres
     port: 5432
