@@ -95,13 +95,28 @@ pub(crate) fn trigger_reindex_debounced() {
             "http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090".to_string()
         });
         let url = format!("{}/v1/index/semantic/rebuild", base.trim_end_matches('/'));
+        // The semantic index is a full_overwrite of the most-recent `limit` SOURCE records, so a
+        // small limit windows older data OUT of the searchable index (canonical store keeps all).
+        // Default high enough to cover the whole corpus cumulatively; tunable without a rebuild as
+        // it grows. The memory-engine rebuild is memory-bounded (batched) + parallel, so a full
+        // rebuild is minutes — fine after the 30s debounce coalesces an ingest burst.
+        let reindex_limit = env::var("BEAGLE_REINDEX_LIMIT")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(1_000_000);
+        // A full-corpus rebuild far exceeds the old 300s; the POST blocks until the rebuild ends,
+        // so give it room. Tunable for very large corpora.
+        let reindex_timeout = env::var("BEAGLE_REINDEX_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(3600);
         let result = async {
             let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(300))
+                .timeout(std::time::Duration::from_secs(reindex_timeout))
                 .build()?;
             client
                 .post(&url)
-                .json(&serde_json::json!({ "limit": 20000 }))
+                .json(&serde_json::json!({ "limit": reindex_limit }))
                 .send()
                 .await
         }
