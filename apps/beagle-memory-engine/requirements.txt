@@ -13,3 +13,6 @@ lance-namespace==0.6.1
 pylance==1.0.4
 numpy>=1.26,<3
 pyarrow>=15,<22
+# Streaming JSON parser for memory-flat reindex (parses the export incrementally instead of
+# json.load of the whole corpus into Python dicts — the reindex OOM root cause).
+ijson==3.3.0
