@@ -36,3 +36,13 @@ test("validateBatch drops invalid, keeps valid", () => {
   assert.equal(r.health_samples.length, 1);
   assert.equal(r.weather_obs.length, 1);
 });
+
+test("validateBatch merges sleep_samples + workout_samples into health_samples", () => {
+  const mk = (u, t) => ({ uuid: u, ts: "2026-06-23T08:00:00Z", type: t, value: 1 });
+  const r = validateBatch({
+    health_samples: [mk("11111111-1111-1111-1111-111111111111", "HKQuantityTypeIdentifierStepCount")],
+    sleep_samples: [mk("22222222-2222-2222-2222-222222222222", "HKCategoryTypeIdentifierSleepAnalysis")],
+    workout_samples: [mk("33333333-3333-3333-3333-333333333333", "HKWorkout")],
+  });
+  assert.equal(r.health_samples.length, 3);
+});

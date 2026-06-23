@@ -40,7 +40,13 @@ export function validateWeatherObs(w) {
 }
 
 export function validateBatch(body) {
-  const hs = Array.isArray(body?.health_samples) ? body.health_samples : [];
+  // The iOS uploader sends health_samples + sleep_samples + workout_samples (all the same
+  // shape: uuid/ts/end_ts/type/value/...) — they all land in the one health_samples table.
+  const hs = [
+    ...(Array.isArray(body?.health_samples) ? body.health_samples : []),
+    ...(Array.isArray(body?.sleep_samples) ? body.sleep_samples : []),
+    ...(Array.isArray(body?.workout_samples) ? body.workout_samples : []),
+  ];
   const wo = Array.isArray(body?.weather_obs) ? body.weather_obs : [];
   return {
     health_samples: hs.map(validateHealthSample).filter(Boolean),
