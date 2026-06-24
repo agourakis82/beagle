@@ -3982,6 +3982,17 @@ impl ExocortexRepository {
         serde_json::to_writer(&mut file, value)?;
         file.write_all(b"\n")?;
         file.flush()?;
+        // Phase 3 dual-write (flag-gated, best-effort): mirror the just-written
+        // record to the reliable memory-pg pipeline. The canonical JSONL append
+        // above is authoritative — this never blocks it and never returns an
+        // error (failures are logged and swallowed).
+        if memory_pg_dual_write_enabled() {
+            if let Some(kind) = memory_pg_dual_write_kind(file_name) {
+                if let Ok(v) = serde_json::to_value(value) {
+                    spawn_memory_pg_dual_write(kind, v);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -4159,5 +4170,111 @@ impl ExocortexRepository {
         };
         self.append_jsonl(HYPEREDGES_LOG, &record)?;
         Ok(record)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 dual-write to the reliable memory-pg pipeline.
+//
+// When `BEAGLE_DUAL_WRITE_MEMORY_PG` is on, every canonical JSONL append of a
+// mirrored record kind is ALSO POSTed to memory-pg's `/capture` endpoint, which
+// runs the same extraction the migration backfill uses (so dual-write and the
+// backfill produce identical rows). This is strictly additive and best-effort:
+// the POST is fire-and-forget and a failure never affects the canonical write.
+// ---------------------------------------------------------------------------
+
+fn memory_pg_dual_write_enabled() -> bool {
+    std::env::var("BEAGLE_DUAL_WRITE_MEMORY_PG")
+        .map(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
+        })
+        .unwrap_or(false)
+}
+
+/// Map a canonical JSONL log filename to the memory-pg record `kind`, or `None`
+/// when that log is not mirrored to the reliable pipeline.
+fn memory_pg_dual_write_kind(file_name: &str) -> Option<&'static str> {
+    match file_name {
+        MEMORY_EPISODES_LOG => Some("MemoryEpisode"),
+        MEMORY_ATOMS_LOG => Some("MemoryAtom"),
+        CONVERSATION_PASSAGES_LOG => Some("ConversationPassage"),
+        _ => None,
+    }
+}
+
+/// Fire-and-forget POST `{ kind, record }` to memory-pg `/capture`. Only runs
+/// when a tokio runtime is active (the HTTP handlers); on a sync/test call site
+/// with no runtime it is a silent no-op. Never panics, never blocks.
+fn spawn_memory_pg_dual_write(kind: &'static str, record: serde_json::Value) {
+    let base = match std::env::var("MEMORY_PG_CAPTURE_URL") {
+        Ok(u) if !u.trim().is_empty() => u,
+        _ => return,
+    };
+    let token = std::env::var("MEMORY_PG_INGEST_TOKEN").unwrap_or_default();
+    let url = format!("{}/capture", base.trim_end_matches('/'));
+    let body = serde_json::json!({ "kind": kind, "record": record });
+    let handle = match tokio::runtime::Handle::try_current() {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    handle.spawn(async move {
+        let client = reqwest::Client::new();
+        let mut req = client
+            .post(&url)
+            .timeout(std::time::Duration::from_secs(10))
+            .json(&body);
+        if !token.is_empty() {
+            req = req.bearer_auth(token);
+        }
+        match req.send().await {
+            Ok(resp) if !resp.status().is_success() => {
+                tracing::warn!("dual-write memory-pg {kind}: HTTP {}", resp.status());
+            }
+            Err(e) => tracing::warn!("dual-write memory-pg {kind} failed: {e}"),
+            _ => {}
+        }
+    });
+}
+
+#[cfg(test)]
+mod dual_write_tests {
+    use super::{memory_pg_dual_write_enabled, memory_pg_dual_write_kind};
+    use super::{CONVERSATION_PASSAGES_LOG, MEMORY_ATOMS_LOG, MEMORY_EPISODES_LOG};
+
+    #[test]
+    fn kind_mapping_covers_mirrored_logs_only() {
+        assert_eq!(
+            memory_pg_dual_write_kind(MEMORY_EPISODES_LOG),
+            Some("MemoryEpisode")
+        );
+        assert_eq!(
+            memory_pg_dual_write_kind(MEMORY_ATOMS_LOG),
+            Some("MemoryAtom")
+        );
+        assert_eq!(
+            memory_pg_dual_write_kind(CONVERSATION_PASSAGES_LOG),
+            Some("ConversationPassage"),
+        );
+        // Non-mirrored logs (chronoself, failed writes, hyperedges, …) are skipped.
+        assert_eq!(memory_pg_dual_write_kind("chronoself_log.jsonl"), None);
+        assert_eq!(memory_pg_dual_write_kind("failed_writes.jsonl"), None);
+        assert_eq!(memory_pg_dual_write_kind("hyperedges.jsonl"), None);
+    }
+
+    #[test]
+    fn enabled_flag_parsing() {
+        // Serialize env mutation across this test process.
+        std::env::remove_var("BEAGLE_DUAL_WRITE_MEMORY_PG");
+        assert!(!memory_pg_dual_write_enabled(), "unset = off");
+        for on in ["1", "true", "TRUE", "on", " true "] {
+            std::env::set_var("BEAGLE_DUAL_WRITE_MEMORY_PG", on);
+            assert!(memory_pg_dual_write_enabled(), "{on:?} should enable");
+        }
+        for off in ["0", "false", "no", ""] {
+            std::env::set_var("BEAGLE_DUAL_WRITE_MEMORY_PG", off);
+            assert!(!memory_pg_dual_write_enabled(), "{off:?} should disable");
+        }
+        std::env::remove_var("BEAGLE_DUAL_WRITE_MEMORY_PG");
     }
 }

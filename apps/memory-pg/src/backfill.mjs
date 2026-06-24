@@ -53,6 +53,59 @@ function makeCandidate(item, kind, content, canonicalId, opts = {}) {
   };
 }
 
+// Export field name -> record kind. Single source of truth shared by the
+// whole-export backfill and the per-record dual-write capture endpoint, so both
+// produce byte-identical memory-pg rows (no ingest/migration drift).
+export const KIND_BY_FIELD = {
+  episodes: "MemoryEpisode",
+  atoms: "MemoryAtom",
+  worlds: "MemoryWorld",
+  passages: "ConversationPassage",
+};
+
+function isRestricted(item) {
+  return String(item.privacy_class || "sensitive").toLowerCase() === "restricted";
+}
+
+/**
+ * Flatten ONE beagle-core record (of the given kind) into capture-ready
+ * candidate rows. Pure. A conversation passage expands to one candidate per
+ * non-empty turn; everything else yields 0 or 1. Restricted records yield none.
+ * This is the shared unit used by both the backfill and the /capture endpoint.
+ * @param {string} kind  one of MemoryEpisode|MemoryAtom|MemoryWorld|ConversationPassage
+ * @param {object} item  the raw record
+ * @returns {Array<object>}
+ */
+export function extractFromRecord(kind, item) {
+  const out = [];
+  if (!item || typeof item !== "object" || isRestricted(item)) return out;
+
+  if (kind === "ConversationPassage") {
+    const passageId = String(item.id || textHash(JSON.stringify(item)));
+    const occurred_at = String(item.occurred_at || "");
+    const provenance =
+      item.provenance || { session_id: item.session_id, source_platform: item.source_platform };
+    const turns = item.turns || [];
+    for (let i = 0; i < turns.length; i++) {
+      const content = String((turns[i] || {}).content || "");
+      if (!content.trim()) continue;
+      out.push(
+        makeCandidate(item, "ConversationPassage", content, `passage:${passageId}:${i}`, {
+          occurred_at,
+          provenance,
+        }),
+      );
+    }
+    return out;
+  }
+
+  const text = recordText(item, kind);
+  if (!text.trim()) return out;
+  const canonicalId = String(item.id || item.source_ref || textHash(text));
+  out.push(makeCandidate(item, kind, text, canonicalId));
+  return out;
+}
+
 /**
  * Flatten a parsed beagle-core export into capture-ready candidate rows.
  * Pure (no DB). Mirrors the legacy iter_candidates invariants.
@@ -61,37 +114,8 @@ function makeCandidate(item, kind, content, canonicalId, opts = {}) {
  */
 export function extractCandidates(exp) {
   const out = [];
-  const simple = [
-    ["episodes", "MemoryEpisode"],
-    ["atoms", "MemoryAtom"],
-    ["worlds", "MemoryWorld"],
-  ];
-  for (const [field, kind] of simple) {
-    for (const item of exp[field] || []) {
-      if (String(item.privacy_class || "sensitive").toLowerCase() === "restricted") continue;
-      const text = recordText(item, kind);
-      if (!text.trim()) continue;
-      const canonicalId = String(item.id || item.source_ref || textHash(text));
-      out.push(makeCandidate(item, kind, text, canonicalId));
-    }
-  }
-  // Conversation passages: one record per non-empty turn.
-  for (const p of exp.passages || []) {
-    if (String(p.privacy_class || "sensitive").toLowerCase() === "restricted") continue;
-    const passageId = String(p.id || textHash(JSON.stringify(p)));
-    const occurred_at = String(p.occurred_at || "");
-    const provenance = p.provenance || { session_id: p.session_id, source_platform: p.source_platform };
-    const turns = p.turns || [];
-    for (let i = 0; i < turns.length; i++) {
-      const content = String((turns[i] || {}).content || "");
-      if (!content.trim()) continue;
-      out.push(
-        makeCandidate(p, "ConversationPassage", content, `passage:${passageId}:${i}`, {
-          occurred_at,
-          provenance,
-        }),
-      );
-    }
+  for (const [field, kind] of Object.entries(KIND_BY_FIELD)) {
+    for (const item of exp[field] || []) out.push(...extractFromRecord(kind, item));
   }
   return out;
 }

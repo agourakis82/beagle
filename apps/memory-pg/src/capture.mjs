@@ -33,6 +33,17 @@ function deepStripNul(v) {
 }
 
 /**
+ * The idempotency / dedup key for a record: sha256 of the NUL-stripped content,
+ * exactly as captureRecord stores it. Exported so the dual-write reconciliation
+ * can recompute it without drifting from the capture path.
+ * @param {string} content
+ * @returns {string} hex sha256
+ */
+export function contentSha256(content) {
+  return sha256hex(stripNul(content));
+}
+
+/**
  * Capture a record transactionally.
  *
  * @param {import("pg").Pool} pool
@@ -65,7 +76,7 @@ export async function captureRecord(pool, rec) {
   // the stored content, and sanitize metadata strings the same way.
   const safeContent = stripNul(content);
   const safeMetadata = deepStripNul(metadata);
-  const content_sha256 = sha256hex(safeContent);
+  const content_sha256 = contentSha256(content);
 
   const client = await pool.connect();
   try {

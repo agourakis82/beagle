@@ -25,6 +25,8 @@ import { makePool } from "../src/db.mjs";
 import { makeTeiEmbedFn } from "../src/embed-worker.mjs";
 import { retrieve as defaultRetrieve } from "../src/retrieve.mjs";
 import { rerank, makeTeiRerankFn } from "../src/rerank.mjs";
+import { captureRecord } from "../src/capture.mjs";
+import { extractFromRecord, candidateToRecord } from "../src/backfill.mjs";
 
 const FIRST_STAGE_K = Number(process.env.QUERY_FIRST_STAGE_K || 50);
 const DEFAULT_TOPN = Number(process.env.QUERY_DEFAULT_TOPN || 10);
@@ -52,13 +54,22 @@ export function createApp(deps) {
     firstStageK = FIRST_STAGE_K,
     defaultTopN = DEFAULT_TOPN,
     queryToken = "",
+    ingestToken = "",
+    // Default capture: persist each capture-ready record through the live ACID
+    // captureRecord against the pool. Injectable so /capture is unit-testable
+    // without a DB (stub captureFn).
+    captureFn = async (recs) => {
+      const out = [];
+      for (const r of recs) out.push(await captureRecord(pool, r));
+      return out;
+    },
   } = deps || {};
 
   if (typeof embedFn !== "function") throw new Error("createApp: embedFn required");
   if (typeof rerankFn !== "function") throw new Error("createApp: rerankFn required");
 
   const app = express();
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "4mb" }));
 
   app.get("/healthz", (_req, res) => res.json({ ok: true }));
 
@@ -67,6 +78,10 @@ export function createApp(deps) {
   function authed(req) {
     if (!queryToken) return true;
     return (req.get("authorization") || "") === `Bearer ${queryToken}`;
+  }
+  function ingestAuthed(req) {
+    if (!ingestToken) return true;
+    return (req.get("authorization") || "") === `Bearer ${ingestToken}`;
   }
 
   app.post("/query", async (req, res) => {
@@ -108,6 +123,33 @@ export function createApp(deps) {
     }
   });
 
+  // Ingest endpoint for Phase 3 dual-write: beagle-core POSTs each newly written
+  // record { kind, record } here in addition to its canonical JSONL append. We
+  // run the SAME extraction the backfill uses (extractFromRecord), so dual-write
+  // and migration produce identical memory-pg rows. Idempotent (captureRecord
+  // dedups on content_sha256); restricted records yield zero captures.
+  app.post("/capture", async (req, res) => {
+    if (!ingestAuthed(req)) return res.status(401).json({ error: "unauthorized" });
+    const body = req.body || {};
+    const kind = typeof body.kind === "string" ? body.kind : "";
+    const record = body.record;
+    if (!kind || record == null || typeof record !== "object") {
+      return res.status(400).json({ error: "kind (string) and record (object) required" });
+    }
+    try {
+      const recs = extractFromRecord(kind, record).map(candidateToRecord);
+      const results = recs.length ? await captureFn(recs) : [];
+      res.json({
+        ok: true,
+        total: recs.length,
+        created: results.filter((r) => r.created).length,
+        ids: results.map((r) => ({ id: r.id, created: r.created })),
+      });
+    } catch (e) {
+      res.status(500).json({ error: String(e?.message || e) });
+    }
+  });
+
   return app;
 }
 
@@ -132,6 +174,7 @@ async function main() {
     embedFn: makeTeiEmbedFn(embedUrl),
     rerankFn: makeTeiRerankFn(rerankUrl),
     queryToken: process.env.MEMORY_PG_QUERY_TOKEN || "",
+    ingestToken: process.env.MEMORY_PG_INGEST_TOKEN || "",
   });
 
   const port = Number(process.env.PORT || 8091);

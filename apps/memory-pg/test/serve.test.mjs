@@ -9,6 +9,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createApp } from "../bin/serve.mjs";
 
+// Stub captureFn: records the capture-ready records it was handed and reports
+// each as newly created. Lets us assert /capture's extraction+routing without a DB.
+function makeCaptureStub() {
+  const seen = [];
+  const captureFn = async (recs) => {
+    seen.push(...recs);
+    return recs.map((_, i) => ({ id: `id-${seen.length - recs.length + i}`, created: true }));
+  };
+  return { captureFn, seen };
+}
+
 // Minimal HTTP helper: start the express app on an ephemeral port, fetch, stop.
 async function withServer(app, fn) {
   const server = await new Promise((resolve) => {
@@ -133,6 +144,87 @@ test("POST /query 200 without token when queryToken unset (dev/open)", async () 
   await withServer(app, async (base) => {
     const r = await jpost(base, "/query", { query: "quantum" });
     assert.equal(r.status, 200);
+  });
+});
+
+test("POST /capture extracts a raw atom record and routes it to captureFn", async () => {
+  const s = makeStubs();
+  const cap = makeCaptureStub();
+  const app = createApp({ pool: {}, ...s, captureFn: cap.captureFn });
+  await withServer(app, async (base) => {
+    const r = await jpost(base, "/capture", {
+      kind: "MemoryAtom",
+      record: { id: "at1", text: "an atom of meaning", content_hash: "h-at1", privacy_class: "sensitive" },
+    });
+    assert.equal(r.status, 200);
+    const j = await r.json();
+    assert.equal(j.ok, true);
+    assert.equal(j.total, 1);
+    assert.equal(j.created, 1);
+    // the record handed to captureFn is the capture-ready shape (kind -> source_type, text -> content)
+    assert.equal(cap.seen.length, 1);
+    assert.equal(cap.seen[0].source_type, "MemoryAtom");
+    assert.equal(cap.seen[0].content, "an atom of meaning");
+    assert.equal(cap.seen[0].metadata.canonical_id, "at1");
+  });
+});
+
+test("POST /capture expands a passage into one record per non-empty turn", async () => {
+  const s = makeStubs();
+  const cap = makeCaptureStub();
+  const app = createApp({ pool: {}, ...s, captureFn: cap.captureFn });
+  await withServer(app, async (base) => {
+    const r = await jpost(base, "/capture", {
+      kind: "ConversationPassage",
+      record: {
+        id: "pa1", privacy_class: "sensitive", occurred_at: "2026-02-02",
+        turns: [{ content: "hello world this is a turn long enough" }, { content: "" }, { content: "second real turn here" }],
+      },
+    });
+    assert.equal(r.status, 200);
+    const j = await r.json();
+    assert.equal(j.total, 2, "two non-empty turns -> two records");
+    assert.deepEqual(cap.seen.map((x) => x.metadata.canonical_id), ["passage:pa1:0", "passage:pa1:2"]);
+  });
+});
+
+test("POST /capture skips a restricted record (0 captured), still 200", async () => {
+  const s = makeStubs();
+  const cap = makeCaptureStub();
+  const app = createApp({ pool: {}, ...s, captureFn: cap.captureFn });
+  await withServer(app, async (base) => {
+    const r = await jpost(base, "/capture", {
+      kind: "MemoryAtom",
+      record: { id: "x", normalized_text: "secret", privacy_class: "restricted" },
+    });
+    assert.equal(r.status, 200);
+    const j = await r.json();
+    assert.equal(j.total, 0);
+    assert.equal(cap.seen.length, 0, "restricted never reaches captureFn");
+  });
+});
+
+test("POST /capture rejects missing kind/record with 400", async () => {
+  const s = makeStubs();
+  const cap = makeCaptureStub();
+  const app = createApp({ pool: {}, ...s, captureFn: cap.captureFn });
+  await withServer(app, async (base) => {
+    assert.equal((await jpost(base, "/capture", { record: {} })).status, 400);
+    assert.equal((await jpost(base, "/capture", { kind: "MemoryAtom" })).status, 400);
+  });
+});
+
+test("POST /capture 401 without token when ingestToken set", async () => {
+  const s = makeStubs();
+  const cap = makeCaptureStub();
+  const app = createApp({ pool: {}, ...s, captureFn: cap.captureFn, ingestToken: "ings3cret" });
+  await withServer(app, async (base) => {
+    const body = { kind: "MemoryAtom", record: { id: "a", text: "hi there friend", privacy_class: "sensitive" } };
+    assert.equal((await jpost(base, "/capture", body)).status, 401);
+    assert.equal(
+      (await jpost(base, "/capture", body, { authorization: "Bearer ings3cret" })).status,
+      200,
+    );
   });
 });
 
