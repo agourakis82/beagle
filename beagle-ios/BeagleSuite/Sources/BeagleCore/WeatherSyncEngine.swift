@@ -37,10 +37,12 @@ public struct PhysioWeatherObservation: Sendable, Codable, Equatable {
     public let ts: String
     public let lat: Double
     public let lon: Double
-    public let tempC: Double
+    // Optional so a barometer-only observation (pressure from CMAltimeter) can omit the
+    // fields it doesn't measure instead of writing misleading zeros for temp/humidity/UV.
+    public let tempC: Double?
     public let pressureHpa: Double?
-    public let humidityPct: Double
-    public let uvIndex: Double
+    public let humidityPct: Double?
+    public let uvIndex: Double?
     public let precipMm: Double?
     public let condition: String
     /// Wind speed in km/h.
@@ -255,6 +257,13 @@ extension WeatherSyncEngine: CLLocationManagerDelegate {
 
     private func handleNewLocation(_ location: CLLocation) async {
         lastLocation = location
+        #if os(iOS)
+        // Geo-tag the device barometer with the same location stream.
+        await BaroSyncEngine.shared.noteLocation(
+            lat: location.coordinate.latitude,
+            lon: location.coordinate.longitude
+        )
+        #endif
         if let uploader = currentUploader {
             await fetchAndEnqueue(uploader: uploader)
         }

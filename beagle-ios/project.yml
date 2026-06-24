@@ -60,6 +60,9 @@ targets:
         NSMicrophoneUsageDescription: "Beagle uses the microphone for voice commands."
         NSHealthShareUsageDescription: "Beagle reads recovery signals like HRV, sleep, and workouts so the exocortex can adapt to your actual state."
         NSHealthUpdateUsageDescription: "Beagle records cognitive state snapshots alongside your thoughts so the exocortex can correlate insights with your physiological state."
+        NSLocationWhenInUseUsageDescription: "Beagle records the weather (temperature, atmospheric pressure, humidity) at your current location so the exocortex can correlate your environment with how you feel."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Beagle keeps the weather at your location current in the background so environmental shifts (pressure fronts, heat) line up with your physiological signals over time."
+        NSMotionUsageDescription: "Beagle reads the device barometer to record the exact local atmospheric pressure where you are."
         NSSpeechRecognitionUsageDescription: "Beagle uses speech recognition for voice commands."
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
@@ -92,6 +95,7 @@ targets:
         aps-environment: development
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.background-delivery: true
+        com.apple.developer.weatherkit: true
         com.apple.security.application-groups:
           - group.dev.sounio.cockpit
         com.apple.developer.kernel.increased-memory-limit: true

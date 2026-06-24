@@ -214,6 +214,7 @@ struct RootView: View {
         cognitive.activeProjectSlug = launchOverrides.projectSlug ?? cognitive.activeProjectSlug ?? "sounio"
 
         let authReady = await BeagleClient.shared.ensureAuth()
+        startPhysiomeRealtimeSync()
         async let catalogTask: () = catalog.refresh()
         async let cognitiveTask: () = cognitive.refresh()
         async let physioTask: () = physio.refresh()
@@ -232,6 +233,34 @@ struct RootView: View {
             } else {
                 bootError = "Could not reach cockpit over the public gateway or private fallback path."
             }
+        }
+    }
+
+    // MARK: - Physiome real-time ingest
+
+    /// Activate the sovereign real-time Physiome pipeline. Detached so HealthKit
+    /// authorization + background-delivery registration never block the cockpit boot.
+    ///  1. recover any samples queued (and persisted to disk) in a prior session,
+    ///  2. authorize + register HKObserverQuery/background-delivery for every type,
+    ///  3. catch up incrementally via persisted per-type anchors (no re-send, no loss),
+    ///  4. start WeatherKit + barometric/location streaming (temp, pressure, …).
+    /// Idempotent by HKObject.uuid — safe to run on every launch.
+    private func startPhysiomeRealtimeSync() {
+        Task.detached(priority: .utility) {
+            let uploader = PhysiomeUploader.shared
+            await uploader.recoverAndFlush()
+            do {
+                try await HealthSyncEngine.shared.requestAuthorization()
+                await HealthSyncEngine.shared.enableBackgroundDelivery(uploader: uploader)
+                await HealthSyncEngine.shared.catchUp(uploader: uploader)
+            } catch {
+                print("[physiome] health sync init failed: \(error)")
+            }
+            await WeatherSyncEngine.shared.start(uploader: uploader)
+            #if os(iOS)
+            // Device barometer → exact local atmospheric pressure (indoor, no network).
+            await BaroSyncEngine.shared.start(uploader: uploader)
+            #endif
         }
     }
 

@@ -93,6 +93,16 @@ public struct PhysioWorkoutSample: Sendable, Codable, Equatable {
     public let device: String?
 }
 
+// MARK: - Observer completion box
+
+/// Lets HKObserverQuery's non-Sendable completion handler cross into a Task without
+/// tripping Swift 6 'sending' diagnostics. HealthKit guarantees a single call.
+private struct SendableObserverCompletion: @unchecked Sendable {
+    private let handler: HKObserverQueryCompletionHandler
+    init(_ handler: @escaping HKObserverQueryCompletionHandler) { self.handler = handler }
+    func callAsFunction() { handler() }
+}
+
 // MARK: - Engine
 
 /// Actor that owns the HealthKit store and all anchor/observer management.
@@ -107,7 +117,10 @@ public actor HealthSyncEngine {
     // MARK: - State
 
     private let store = HKHealthStore()
-    private let iso8601: ISO8601DateFormatter = {
+    // Static + nonisolated so the (nonisolated) HKAnchoredObjectQuery result closures can
+    // format dates without crossing actor isolation. ISO8601DateFormatter is thread-safe
+    // for formatting, so concurrent reads are safe.
+    nonisolated(unsafe) private static let iso8601: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
@@ -278,8 +291,8 @@ public actor HealthSyncEngine {
                 let samples = (added as? [HKQuantitySample] ?? []).map { s -> PhysioHealthSample in
                     PhysioHealthSample(
                         uuid: s.uuid.uuidString,
-                        ts: self.iso8601.string(from: s.startDate),
-                        endTs: self.iso8601.string(from: s.endDate),
+                        ts: Self.iso8601.string(from: s.startDate),
+                        endTs: Self.iso8601.string(from: s.endDate),
                         type: label,
                         value: s.quantity.doubleValue(for: unit),
                         unit: unit.unitString,
@@ -310,8 +323,8 @@ public actor HealthSyncEngine {
                 let samples = (added as? [HKCategorySample] ?? []).map { s in
                     PhysioSleepSample(
                         uuid: s.uuid.uuidString,
-                        ts: self.iso8601.string(from: s.startDate),
-                        endTs: self.iso8601.string(from: s.endDate),
+                        ts: Self.iso8601.string(from: s.startDate),
+                        endTs: Self.iso8601.string(from: s.endDate),
                         type: label,
                         value: s.value,
                         source: s.sourceRevision.source.bundleIdentifier,
@@ -341,8 +354,8 @@ public actor HealthSyncEngine {
                 let workouts = (added as? [HKWorkout] ?? []).map { w in
                     PhysioWorkoutSample(
                         uuid: w.uuid.uuidString,
-                        ts: self.iso8601.string(from: w.startDate),
-                        endTs: self.iso8601.string(from: w.endDate),
+                        ts: Self.iso8601.string(from: w.startDate),
+                        endTs: Self.iso8601.string(from: w.endDate),
                         type: label,
                         activityType: w.workoutActivityType.rawValue,
                         durationSeconds: w.duration,
@@ -367,7 +380,8 @@ public actor HealthSyncEngine {
         uploader: PhysiomeUploader
     ) {
         let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completionHandler, error in
-            guard let self, error == nil else { completionHandler(); return }
+            let complete = SendableObserverCompletion(completionHandler)
+            guard let self, error == nil else { complete(); return }
             Task {
                 do {
                     let samples = try await self.fetchNewQuantitySamples(type: type, label: label, unit: unit)
@@ -376,7 +390,7 @@ public actor HealthSyncEngine {
                 } catch {
                     print("[HealthSyncEngine] observer fetch failed for \(label): \(error)")
                 }
-                completionHandler()
+                complete()
             }
         }
         observerTokens[label] = query
@@ -386,7 +400,8 @@ public actor HealthSyncEngine {
     private func registerSleepObserver(uploader: PhysiomeUploader) {
         guard let type = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else { return }
         let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completionHandler, error in
-            guard let self, error == nil else { completionHandler(); return }
+            let complete = SendableObserverCompletion(completionHandler)
+            guard let self, error == nil else { complete(); return }
             Task {
                 do {
                     let samples = try await self.fetchNewSleepSamples()
@@ -395,7 +410,7 @@ public actor HealthSyncEngine {
                 } catch {
                     print("[HealthSyncEngine] sleep observer fetch failed: \(error)")
                 }
-                completionHandler()
+                complete()
             }
         }
         observerTokens["HKCategoryTypeIdentifierSleepAnalysis"] = query
@@ -405,7 +420,8 @@ public actor HealthSyncEngine {
     private func registerWorkoutObserver(uploader: PhysiomeUploader) {
         let type = HKObjectType.workoutType()
         let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completionHandler, error in
-            guard let self, error == nil else { completionHandler(); return }
+            let complete = SendableObserverCompletion(completionHandler)
+            guard let self, error == nil else { complete(); return }
             Task {
                 do {
                     let workouts = try await self.fetchNewWorkouts()
@@ -414,7 +430,7 @@ public actor HealthSyncEngine {
                 } catch {
                     print("[HealthSyncEngine] workout observer fetch failed: \(error)")
                 }
-                completionHandler()
+                complete()
             }
         }
         observerTokens["HKWorkoutType"] = query
