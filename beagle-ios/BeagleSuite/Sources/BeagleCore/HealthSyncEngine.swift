@@ -46,6 +46,17 @@ public struct PhysioHealthSample: Sendable, Codable, Equatable {
     public let source: String
     /// Device model/name if available.
     public let device: String?
+    /// Extra structured fields the flat columns can't hold (e.g. ECG classification,
+    /// symptoms) — lands in the server's health_samples.metadata JSONB.
+    public let metadata: [String: String]?
+
+    // The server reads snake_case (end_ts) and the encoder does NOT convert case, so
+    // map endTs explicitly — otherwise end_ts is silently dropped (breaks sleep duration).
+    enum CodingKeys: String, CodingKey {
+        case uuid, ts
+        case endTs = "end_ts"
+        case type, value, unit, source, device, metadata
+    }
 
     public init(
         uuid: String,
@@ -55,7 +66,8 @@ public struct PhysioHealthSample: Sendable, Codable, Equatable {
         value: Double,
         unit: String,
         source: String,
-        device: String?
+        device: String?,
+        metadata: [String: String]? = nil
     ) {
         self.uuid = uuid
         self.ts = ts
@@ -65,6 +77,7 @@ public struct PhysioHealthSample: Sendable, Codable, Equatable {
         self.unit = unit
         self.source = source
         self.device = device
+        self.metadata = metadata
     }
 }
 
@@ -77,6 +90,12 @@ public struct PhysioSleepSample: Sendable, Codable, Equatable {
     public let value: Int        // raw HKCategoryValueSleepAnalysis int
     public let source: String
     public let device: String?
+
+    enum CodingKeys: String, CodingKey {
+        case uuid, ts
+        case endTs = "end_ts"    // server needs end_ts to compute sleep duration
+        case type, value, source, device
+    }
 }
 
 /// A single workout summary.
@@ -91,6 +110,17 @@ public struct PhysioWorkoutSample: Sendable, Codable, Equatable {
     public let totalDistanceMeters: Double?
     public let source: String
     public let device: String?
+
+    enum CodingKeys: String, CodingKey {
+        case uuid, ts
+        case endTs = "end_ts"
+        case type
+        case activityType = "activity_type"
+        case durationSeconds = "duration_seconds"
+        case totalEnergyKcal = "total_energy_kcal"
+        case totalDistanceMeters = "total_distance_meters"
+        case source, device
+    }
 }
 
 // MARK: - Observer completion box
@@ -148,6 +178,14 @@ public actor HealthSyncEngine {
             (.vo2Max,                                "HKQuantityTypeIdentifierVO2Max",                                HKUnit(from: "ml/kg*min")),
             (.appleSleepingWristTemperature,         "HKQuantityTypeIdentifierAppleSleepingWristTemperature",         .degreeCelsius()),
         ]
+        #if os(iOS) || os(watchOS)
+        // Circadian / environmental signals (Watch-sourced) — core to the heliobiology
+        // angle: daylight exposure, activity-ring time, ambient noise. iOS/watchOS only.
+        list.append((.timeInDaylight,            "HKQuantityTypeIdentifierTimeInDaylight",            .minute()))
+        list.append((.appleExerciseTime,         "HKQuantityTypeIdentifierAppleExerciseTime",         .minute()))
+        list.append((.appleStandTime,            "HKQuantityTypeIdentifierAppleStandTime",            .minute()))
+        list.append((.environmentalAudioExposure, "HKQuantityTypeIdentifierEnvironmentalAudioExposure", .decibelAWeightedSoundPressureLevel()))
+        #endif
         return list
     }
 
@@ -163,6 +201,9 @@ public actor HealthSyncEngine {
         if #available(iOS 18.0, watchOS 11.0, macOS 15.0, *) {
             types.insert(HKSampleType.stateOfMindType())
         }
+        #if os(iOS) || os(watchOS)
+        types.insert(HKObjectType.electrocardiogramType())   // Apple Watch ECG
+        #endif
         return types
     }
 
@@ -214,6 +255,16 @@ public actor HealthSyncEngine {
         } catch {
             print("[HealthSyncEngine] workout catch-up failed: \(error)")
         }
+
+        // ECG (Apple Watch)
+        #if os(iOS) || os(watchOS)
+        do {
+            let ecgs = try await fetchNewECG()
+            if !ecgs.isEmpty { await uploader.enqueue(healthSamples: ecgs) }
+        } catch {
+            print("[HealthSyncEngine] ECG catch-up failed: \(error)")
+        }
+        #endif
     }
 
     // MARK: - Background delivery registration
@@ -249,6 +300,16 @@ public actor HealthSyncEngine {
         } catch {
             print("[HealthSyncEngine] workout background delivery failed: \(error)")
         }
+
+        #if os(iOS) || os(watchOS)
+        let ecgType = HKObjectType.electrocardiogramType()
+        do {
+            try await store.enableBackgroundDelivery(for: ecgType, frequency: .immediate)
+            registerECGObserver(uploader: uploader)
+        } catch {
+            print("[HealthSyncEngine] ECG background delivery failed: \(error)")
+        }
+        #endif
     }
 
     // MARK: - Anchor persistence
@@ -436,5 +497,96 @@ public actor HealthSyncEngine {
         observerTokens["HKWorkoutType"] = query
         store.execute(query)
     }
+
+    // MARK: - ECG (Apple Watch electrocardiogram)
+    #if os(iOS) || os(watchOS)
+
+    /// ECG is a special sample type (a voltage time-series), not a scalar quantity. We
+    /// emit one health_sample per ECG carrying the average heart rate as the value and
+    /// the clinically meaningful scalars (classification, symptoms, sampling frequency,
+    /// measurement count) in metadata — the raw waveform is intentionally not streamed.
+    private func fetchNewECG() async throws -> [PhysioHealthSample] {
+        let label = "HKElectrocardiogram"
+        let type = HKObjectType.electrocardiogramType()
+        let anchor = loadAnchor(for: label)
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKAnchoredObjectQuery(
+                type: type, predicate: nil, anchor: anchor, limit: HKObjectQueryNoLimit
+            ) { [weak self] _, added, _, newAnchor, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let self else { continuation.resume(returning: []); return }
+                if let newAnchor { Task { await self.saveAnchor(newAnchor, for: label) } }
+                let bpm = HKUnit.count().unitDivided(by: .minute())
+                let samples = (added as? [HKElectrocardiogram] ?? []).map { ecg -> PhysioHealthSample in
+                    let avg = ecg.averageHeartRate?.doubleValue(for: bpm)
+                    var meta: [String: String] = [
+                        "classification": Self.ecgClassification(ecg.classification),
+                        "symptoms": Self.ecgSymptoms(ecg.symptomsStatus),
+                        "num_voltage_measurements": String(ecg.numberOfVoltageMeasurements),
+                    ]
+                    if let f = ecg.samplingFrequency?.doubleValue(for: .hertz()) {
+                        meta["sampling_frequency_hz"] = String(f)
+                    }
+                    return PhysioHealthSample(
+                        uuid: ecg.uuid.uuidString,
+                        ts: Self.iso8601.string(from: ecg.startDate),
+                        endTs: Self.iso8601.string(from: ecg.endDate),
+                        type: label,
+                        value: avg ?? 0,
+                        unit: "count/min",
+                        source: ecg.sourceRevision.source.bundleIdentifier,
+                        device: ecg.device?.name,
+                        metadata: meta
+                    )
+                }
+                continuation.resume(returning: samples)
+            }
+            store.execute(query)
+        }
+    }
+
+    private func registerECGObserver(uploader: PhysiomeUploader) {
+        let type = HKObjectType.electrocardiogramType()
+        let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completionHandler, error in
+            let complete = SendableObserverCompletion(completionHandler)
+            guard let self, error == nil else { complete(); return }
+            Task {
+                do {
+                    let ecgs = try await self.fetchNewECG()
+                    if !ecgs.isEmpty { await uploader.enqueue(healthSamples: ecgs) }
+                    await uploader.flush()
+                } catch {
+                    print("[HealthSyncEngine] ECG observer fetch failed: \(error)")
+                }
+                complete()
+            }
+        }
+        observerTokens["HKElectrocardiogram"] = query
+        store.execute(query)
+    }
+
+    private static func ecgClassification(_ c: HKElectrocardiogram.Classification) -> String {
+        switch c {
+        case .notSet: return "notSet"
+        case .sinusRhythm: return "sinusRhythm"
+        case .atrialFibrillation: return "atrialFibrillation"
+        case .inconclusiveLowHeartRate: return "inconclusiveLowHeartRate"
+        case .inconclusiveHighHeartRate: return "inconclusiveHighHeartRate"
+        case .inconclusivePoorReading: return "inconclusivePoorReading"
+        case .inconclusiveOther: return "inconclusiveOther"
+        case .unrecognized: return "unrecognized"
+        @unknown default: return "unknown"
+        }
+    }
+
+    private static func ecgSymptoms(_ s: HKElectrocardiogram.SymptomsStatus) -> String {
+        switch s {
+        case .notSet: return "notSet"
+        case .none: return "none"
+        case .present: return "present"
+        @unknown default: return "unknown"
+        }
+    }
+    #endif
 }
 #endif
