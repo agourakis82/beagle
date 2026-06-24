@@ -228,6 +228,38 @@ test("POST /capture 401 without token when ingestToken set", async () => {
   });
 });
 
+test("POST /query fuses graph facts into candidates when graphEnabled", async () => {
+  const s = makeStubs();
+  // graph returns a fact whose statement contains the query term → rerank floats it up.
+  const graphRetrieveFn = async () => [
+    { fact_id: "f1", statement: "quantum tunneling underlies the effect", source_record_id: "rg" },
+  ];
+  const app = createApp({ pool: {}, ...s, graphEnabled: true, graphRetrieveFn });
+  await withServer(app, async (base) => {
+    const r = await jpost(base, "/query", { query: "quantum", k: 5 });
+    assert.equal(r.status, 200);
+    const j = await r.json();
+    const fact = j.results.find((x) => x.source === "graph");
+    assert.ok(fact, "a graph-sourced result is present");
+    assert.equal(fact.chunk_id, "fact:f1");
+    assert.match(fact.text, /quantum tunneling/);
+  });
+});
+
+test("POST /query graph fusion is fail-soft (graph error → chunks still returned)", async () => {
+  const s = makeStubs();
+  const graphRetrieveFn = async () => {
+    throw new Error("graph down");
+  };
+  const app = createApp({ pool: {}, ...s, graphEnabled: true, graphRetrieveFn });
+  await withServer(app, async (base) => {
+    const r = await jpost(base, "/query", { query: "quantum", k: 5 });
+    assert.equal(r.status, 200, "graph failure does not break /query");
+    const j = await r.json();
+    assert.ok(j.results.length > 0, "chunk results still returned");
+  });
+});
+
 test("POST /query never crashes the server on a failing dep (500)", async () => {
   const s = makeStubs();
   const boom = createApp({

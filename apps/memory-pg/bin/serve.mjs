@@ -27,6 +27,7 @@ import { retrieve as defaultRetrieve } from "../src/retrieve.mjs";
 import { rerank, makeTeiRerankFn } from "../src/rerank.mjs";
 import { captureRecord } from "../src/capture.mjs";
 import { extractFromRecord, candidateToRecord } from "../src/backfill.mjs";
+import { graphRetrieve as defaultGraphRetrieve, fuseChannels } from "../src/graph.mjs";
 
 const FIRST_STAGE_K = Number(process.env.QUERY_FIRST_STAGE_K || 50);
 const DEFAULT_TOPN = Number(process.env.QUERY_DEFAULT_TOPN || 10);
@@ -63,6 +64,13 @@ export function createApp(deps) {
       for (const r of recs) out.push(await captureRecord(pool, r));
       return out;
     },
+    // Phase 4: when the graph is populated, fuse a graph-fact channel into the
+    // candidate pool before rerank. graphEnabled gates it (no-op + zero extra
+    // query until the graph is live); graphRetrieveFn is injectable for tests.
+    graphEnabled = false,
+    graphRetrieveFn = defaultGraphRetrieve,
+    graphHops = 1,
+    graphK = 20,
   } = deps || {};
 
   if (typeof embedFn !== "function") throw new Error("createApp: embedFn required");
@@ -100,11 +108,38 @@ export function createApp(deps) {
       const queryEmbedding = vectors[0];
 
       // 2. Hybrid first-stage retrieve (dense + BM25 + RRF + recency).
-      const candidates = await retrieveFn(pool, {
+      let candidates = await retrieveFn(pool, {
         queryEmbedding,
         queryText: query,
         k: firstStageK,
       });
+
+      // 2b. Graph channel (Phase 4): fuse relevant facts (vector + multi-hop) into
+      // the candidate pool by RRF. Fail-soft — a graph error never breaks /query.
+      if (graphEnabled) {
+        try {
+          const facts = await graphRetrieveFn(pool, { queryEmbedding, k: graphK, hops: graphHops });
+          if (Array.isArray(facts) && facts.length) {
+            const fused = fuseChannels([
+              { items: candidates, keyOf: (c) => "chunk:" + c.chunk_id },
+              { items: facts, keyOf: (f) => "fact:" + f.fact_id },
+            ]);
+            candidates = fused.map((x) =>
+              x.statement != null
+                ? {
+                    text: x.statement,
+                    record_id: x.source_record_id ?? null,
+                    chunk_id: "fact:" + x.fact_id,
+                    occurred_at: null,
+                    source: "graph",
+                  }
+                : x,
+            );
+          }
+        } catch {
+          /* graph fusion is best-effort; keep the chunk candidates */
+        }
+      }
 
       // 3. Cross-encoder rerank -> top-N.
       const reranked = await rerank(query, candidates, { rerankFn, topN });
@@ -115,6 +150,7 @@ export function createApp(deps) {
         chunk_id: c.chunk_id,
         rerank_score: c.rerank_score,
         occurred_at: c.occurred_at ?? null,
+        source: c.source ?? "chunk",
       }));
       res.json({ ok: true, results });
     } catch (e) {
@@ -175,6 +211,7 @@ async function main() {
     rerankFn: makeTeiRerankFn(rerankUrl),
     queryToken: process.env.MEMORY_PG_QUERY_TOKEN || "",
     ingestToken: process.env.MEMORY_PG_INGEST_TOKEN || "",
+    graphEnabled: /^(1|true|on)$/i.test((process.env.MEMORY_PG_GRAPH_ENABLED || "").trim()),
   });
 
   const port = Number(process.env.PORT || 8091);
