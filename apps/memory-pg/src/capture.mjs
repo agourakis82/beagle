@@ -12,6 +12,13 @@ function sha256hex(s) {
   return crypto.createHash("sha256").update(s).digest("hex");
 }
 
+// Phase 4 graph extraction is opt-in: only enqueue pending_graph when explicitly
+// enabled, so the sovereign-LLM-per-record cost never starts by accident.
+function graphEnabled() {
+  const v = (process.env.MEMORY_PG_GRAPH_ENABLED || "").trim();
+  return v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "on";
+}
+
 // Postgres text and jsonb both reject embedded NUL (0x00) bytes
 // ("invalid byte sequence for encoding UTF8: 0x00"). The live exocortex corpus
 // contains them, so the ACID capture path strips NUL from content and from every
@@ -134,6 +141,13 @@ export async function captureRecord(pool, rec) {
       "INSERT INTO pending_embeddings (record_id) VALUES ($1)",
       [id],
     );
+
+    // Phase 4 (flag-gated): enqueue graph extraction for the new record. Default
+    // OFF — set MEMORY_PG_GRAPH_ENABLED to start populating the knowledge graph
+    // going forward (the graph-worker drains pending_graph via the sovereign LLM).
+    if (graphEnabled()) {
+      await client.query("INSERT INTO pending_graph (record_id) VALUES ($1)", [id]);
+    }
 
     await client.query("COMMIT");
     return { id, created: true, chunk_count: chunks.length };

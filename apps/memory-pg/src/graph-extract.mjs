@@ -36,9 +36,45 @@ export function buildExtractionPrompt(content) {
   ].join("\n");
 }
 
-/** Pull the first balanced JSON object out of an LLM reply (tolerates prose/fences). */
+/**
+ * Build a sovereign LLM fn over the cluster LiteLLM router (OpenAI-compatible).
+ * Reasoning models (r1-distill-70b) are fine — parseLlmJson strips <think> blocks.
+ * @param {string} baseUrl  e.g. http://router.llm-router.svc.cluster.local:4000
+ * @param {{model:string, apiKey?:string, timeoutMs?:number, temperature?:number}} opts
+ * @returns {(prompt:string)=>Promise<string>}
+ */
+export function makeRouterLlmFn(baseUrl, opts = {}) {
+  const url = baseUrl.replace(/\/+$/, "") + "/v1/chat/completions";
+  const model = opts.model;
+  const timeoutMs = opts.timeoutMs ?? 120000;
+  const temperature = opts.temperature ?? 0;
+  if (!model) throw new Error("makeRouterLlmFn: opts.model required");
+  return async function llmFn(prompt) {
+    const headers = { "content-type": "application/json" };
+    if (opts.apiKey) headers.authorization = `Bearer ${opts.apiKey}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ model, temperature, messages: [{ role: "user", content: prompt }] }),
+        signal: ctrl.signal,
+      });
+      if (!resp.ok) throw new Error(`router ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+      const j = await resp.json();
+      return j.choices?.[0]?.message?.content ?? "";
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
+
+/** Pull the first balanced JSON object out of an LLM reply (tolerates prose/fences/reasoning). */
 function parseLlmJson(reply) {
-  const s = String(reply || "");
+  // Strip reasoning blocks first — r1-distill emits <think>...</think> that may
+  // itself contain braces, which would otherwise confuse the brace matcher.
+  const s = String(reply || "").replace(/<think>[\s\S]*?<\/think>/gi, "");
   const start = s.indexOf("{");
   if (start === -1) return null;
   let depth = 0;
@@ -91,14 +127,20 @@ export async function applyExtraction(pool, extraction, opts = {}) {
   const entities = extraction.entities || [];
   const facts = extraction.facts || [];
 
-  // Optionally embed entity names for near-dup resolution.
+  // Optionally embed entity names (for near-dup resolution) AND fact statements
+  // (for the graph retrieval channel) in one batch.
   let entEmb = {};
-  if (embedFn && entities.length) {
+  let factEmb = {};
+  if (embedFn && (entities.length || facts.length)) {
     try {
-      const vecs = await embedFn(entities.map((e) => e.name));
+      const names = entities.map((e) => e.name);
+      const statements = facts.map((f) => f.statement || "");
+      const vecs = await embedFn([...names, ...statements]);
       entities.forEach((e, i) => (entEmb[e.name] = vecs[i]));
+      facts.forEach((f, i) => (factEmb[i] = vecs[names.length + i]));
     } catch {
       entEmb = {};
+      factEmb = {};
     }
   }
 
@@ -118,7 +160,8 @@ export async function applyExtraction(pool, extraction, opts = {}) {
 
   let factsInserted = 0;
   let factsInvalidated = 0;
-  for (const f of facts) {
+  for (let fi = 0; fi < facts.length; fi++) {
+    const f = facts[fi];
     let subjectId = idByName[f.subject];
     if (!subjectId) {
       subjectId = (await resolveEntity(pool, { name: f.subject, type: "unknown" })).id;
@@ -138,7 +181,8 @@ export async function applyExtraction(pool, extraction, opts = {}) {
     const content_sha256 = sha256hex(
       [subjectId, f.predicate, objectId ?? "", objectLiteral ?? "", f.statement || ""].join("|"),
     );
-    const embLit = f.embedding ? "[" + f.embedding.join(",") + "]" : null;
+    const factVec = f.embedding ?? factEmb[fi] ?? null;
+    const embLit = factVec ? "[" + (Array.isArray(factVec) ? factVec.join(",") : factVec) + "]" : null;
 
     const client = await pool.connect();
     try {
