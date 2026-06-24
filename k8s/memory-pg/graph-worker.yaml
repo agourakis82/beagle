@@ -1,0 +1,41 @@
+# Phase 4.3 going-forward graph trickle worker — r1-distill-70b over pending_graph
+# (new memories enqueued by captureRecord when MEMORY_PG_GRAPH_ENABLED). Low volume,
+# high quality. Separate tier from the qwen historical backfill.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-pg-graph-worker
+  namespace: beagle
+  labels: { app: memory-pg, component: graph-worker }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: memory-pg, component: graph-worker }
+  template:
+    metadata:
+      labels: { app: memory-pg, component: graph-worker }
+    spec:
+      tolerations:
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+        - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }
+      securityContext:
+        seccompProfile: { type: Unconfined }
+      containers:
+        - name: graph-worker
+          image: 192.168.3.207:5003/memory-pg-embed-worker:v4
+          command: ["node", "bin/graph-worker.mjs"]
+          env:
+            - name: MEMORY_PG_DSN
+              valueFrom: { secretKeyRef: { name: memory-pg, key: DATABASE_URL } }
+            - name: GRAPH_LLM_URL
+              value: http://router.llm-router.svc.cluster.local:4000
+            - name: GRAPH_MODEL
+              value: r1-distill-70b
+            - name: BEAGLE_TEI_EMBED_URL
+              value: http://192.168.3.43:8080/embed
+            - name: GRAPH_BATCH
+              value: "2"
+          resources:
+            requests: { cpu: "200m", memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
