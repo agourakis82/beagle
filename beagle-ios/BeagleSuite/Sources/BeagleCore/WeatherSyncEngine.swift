@@ -248,7 +248,13 @@ extension WeatherSyncEngine: CLLocationManagerDelegate {
 
     nonisolated public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
-        if status == .authorizedAlways || status == .authorizedWhenInUse {
+        // `.authorizedWhenInUse` doesn't exist on macOS (it uses `.authorizedAlways`).
+        #if os(macOS)
+        let granted = (status == .authorizedAlways)
+        #else
+        let granted = (status == .authorizedAlways || status == .authorizedWhenInUse)
+        #endif
+        if granted {
             if CLLocationManager.significantLocationChangeMonitoringAvailable() {
                 manager.startMonitoringSignificantLocationChanges()
             }
