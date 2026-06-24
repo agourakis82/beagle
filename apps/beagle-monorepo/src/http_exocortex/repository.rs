@@ -3976,18 +3976,29 @@ impl ExocortexRepository {
         file_name: &str,
         value: &T,
     ) -> anyhow::Result<()> {
-        self.ensure()?;
-        let path = self.root.join(file_name);
-        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-        serde_json::to_writer(&mut file, value)?;
-        file.write_all(b"\n")?;
-        file.flush()?;
-        // Phase 3 dual-write (flag-gated, best-effort): mirror the just-written
-        // record to the reliable memory-pg pipeline. The canonical JSONL append
-        // above is authoritative — this never blocks it and never returns an
-        // error (failures are logged and swallowed).
-        if memory_pg_dual_write_enabled() {
-            if let Some(kind) = memory_pg_dual_write_kind(file_name) {
+        let mirrored = memory_pg_dual_write_kind(file_name);
+        let dual = memory_pg_dual_write_enabled();
+        // Phase 3.4 decommission: once memory-pg is the canonical store, stop
+        // appending the legacy JSONL for mirrored kinds (episodes/atoms/passages).
+        // Fail-safe — `jsonl_write_skipped` only returns true when dual-write is
+        // ALSO on, so a misconfigured BEAGLE_JSONL_APPEND_DISABLED can never
+        // silently drop writes; non-mirrored logs always keep their JSONL.
+        // Reversible: unset the flag and appends resume.
+        let skip_jsonl =
+            jsonl_write_skipped(memory_pg_jsonl_append_disabled(), dual, mirrored.is_some());
+        if !skip_jsonl {
+            self.ensure()?;
+            let path = self.root.join(file_name);
+            let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+            serde_json::to_writer(&mut file, value)?;
+            file.write_all(b"\n")?;
+            file.flush()?;
+        }
+        // Phase 3 dual-write: mirror the record to the reliable memory-pg pipeline.
+        // Best-effort shadow while JSONL is still canonical; the sole write once
+        // appends are disabled. Never blocks or errors the caller.
+        if dual {
+            if let Some(kind) = mirrored {
                 if let Ok(v) = serde_json::to_value(value) {
                     spawn_memory_pg_dual_write(kind, v);
                 }
@@ -4192,6 +4203,27 @@ fn memory_pg_dual_write_enabled() -> bool {
         .unwrap_or(false)
 }
 
+/// Phase 3.4 decommission flag: stop appending the legacy JSONL (the old stack
+/// is being retired). Read together with `jsonl_write_skipped`, which makes it
+/// fail-safe — it only suppresses the write when dual-write is also enabled.
+fn memory_pg_jsonl_append_disabled() -> bool {
+    std::env::var("BEAGLE_JSONL_APPEND_DISABLED")
+        .map(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
+        })
+        .unwrap_or(false)
+}
+
+/// Decide whether to skip the legacy JSONL append for this record. The append is
+/// suppressed ONLY when the decommission flag is set AND dual-write is enabled
+/// AND the record kind is actually mirrored to memory-pg — so a misconfigured
+/// flag (e.g. decommission on but dual-write off) never drops a write, and
+/// non-mirrored logs always keep their JSONL.
+fn jsonl_write_skipped(disabled: bool, dual_enabled: bool, mirrored: bool) -> bool {
+    disabled && dual_enabled && mirrored
+}
+
 /// Map a canonical JSONL log filename to the memory-pg record `kind`, or `None`
 /// when that log is not mirrored to the reliable pipeline.
 fn memory_pg_dual_write_kind(file_name: &str) -> Option<&'static str> {
@@ -4239,8 +4271,29 @@ fn spawn_memory_pg_dual_write(kind: &'static str, record: serde_json::Value) {
 
 #[cfg(test)]
 mod dual_write_tests {
-    use super::{memory_pg_dual_write_enabled, memory_pg_dual_write_kind};
+    use super::{jsonl_write_skipped, memory_pg_dual_write_enabled, memory_pg_dual_write_kind};
     use super::{CONVERSATION_PASSAGES_LOG, MEMORY_ATOMS_LOG, MEMORY_EPISODES_LOG};
+
+    #[test]
+    fn jsonl_append_only_skipped_when_decommission_and_dualwrite_and_mirrored() {
+        // The ONLY case that suppresses the legacy write: decommission flag on,
+        // dual-write on, and the record kind is mirrored to memory-pg.
+        assert!(jsonl_write_skipped(true, true, true));
+        // Any missing precondition keeps the JSONL append (fail-safe).
+        assert!(
+            !jsonl_write_skipped(true, false, true),
+            "decommission without dual-write must NOT skip"
+        );
+        assert!(
+            !jsonl_write_skipped(false, true, true),
+            "no decommission flag -> keep appending"
+        );
+        assert!(
+            !jsonl_write_skipped(true, true, false),
+            "non-mirrored log always keeps JSONL"
+        );
+        assert!(!jsonl_write_skipped(false, false, false));
+    }
 
     #[test]
     fn kind_mapping_covers_mirrored_logs_only() {
