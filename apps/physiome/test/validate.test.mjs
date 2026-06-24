@@ -25,6 +25,22 @@ test("validateWeatherObs requires ts, coerces numbers", () => {
   assert.equal(w.pressure_hpa, 1009);
 });
 
+test("validateWeatherObs is lossless: precip_mm alias + extra fields folded into metadata", () => {
+  // The iOS WeatherSyncEngine sends richer fields than weather_obs has columns for.
+  // Nothing should be silently dropped: precip_mm → precip, the rest → metadata JSONB.
+  const w = validateWeatherObs({
+    ts: "2026-06-24T08:00:00Z", lat: -23.5, lon: -46.6,
+    temp_c: 21, pressure_hpa: 1012, humidity: 60, uv_index: 4, condition: "Cloudy",
+    precip_mm: 2.5, wind_kph: 12, dew_point_c: 14, visibility_km: 10,
+  });
+  assert.equal(w.temp_c, 21);
+  assert.equal(w.pressure_hpa, 1012);
+  assert.equal(w.precip, 2.5, "precip_mm aliased to the precip column");
+  assert.equal(w.metadata.wind_kph, 12, "wind preserved in metadata");
+  assert.equal(w.metadata.dew_point_c, 14, "dew point preserved in metadata");
+  assert.equal(w.metadata.visibility_km, 10, "visibility preserved in metadata");
+});
+
 test("validateBatch drops invalid, keeps valid", () => {
   const r = validateBatch({
     health_samples: [
@@ -45,4 +61,18 @@ test("validateBatch merges sleep_samples + workout_samples into health_samples",
     workout_samples: [mk("33333333-3333-3333-3333-333333333333", "HKWorkout")],
   });
   assert.equal(r.health_samples.length, 3);
+});
+
+test("validateBatch reports rejected counts so the client knows what was dropped (no silent loss)", () => {
+  const r = validateBatch({
+    health_samples: [
+      { uuid: "x" }, // bad
+      { uuid: "22222222-2222-2222-2222-222222222222", ts: "2026-06-22T08:00:00Z", type: "HKQuantityTypeIdentifierStepCount", value: 10 },
+    ],
+    weather_obs: [{ lat: 0 }, { ts: "2026-06-22T08:00:00Z", lat: 0, lon: 0 }], // first bad (no ts)
+  });
+  assert.deepEqual(r.rejected, { health: 1, weather: 1 }, "counts of dropped samples surfaced");
+  assert.deepEqual(r.received, { health: 2, weather: 2 }, "counts of received samples surfaced");
+  assert.equal(r.health_samples.length, 1);
+  assert.equal(r.weather_obs.length, 1);
 });

@@ -26,33 +26,59 @@ function placeholders(count, cols) {
   return rows.join(",");
 }
 
-export async function upsertHealthSamples(pool, rows) {
+const PG_MAX_PARAMS = 65535;
+
+// Upsert `rows` in ONE transaction, split into param-safe chunks. Postgres rejects a
+// statement with >65535 bound params, so a real-time backlog (anchored-query catch-up
+// after the phone was offline) would 500 on a single giant INSERT. We chunk to stay
+// under the ceiling with margin, and wrap in BEGIN/COMMIT so a batch is all-or-nothing
+// (a mid-batch failure ROLLBACKs — the idempotent ON CONFLICT makes a full retry safe).
+//   colsPerRow: bound params per row;  toParams(row): the row's param values in order.
+async function txChunkedUpsert(pool, { sql, colsPerRow, toParams }, rows) {
   if (!rows.length) return 0;
-  const cols = 9;
-  const vals = [];
-  for (const r of rows) vals.push(r.uuid, r.ts, r.end_ts, r.type, r.value, r.unit, r.source, r.device, JSON.stringify(r.metadata || {}));
-  const q = `INSERT INTO health_samples (uuid, ts, end_ts, type, value, unit, source, device, metadata)
-    VALUES ${placeholders(rows.length, cols)}
-    ON CONFLICT (uuid) DO UPDATE SET
-      ts=EXCLUDED.ts, end_ts=EXCLUDED.end_ts, type=EXCLUDED.type, value=EXCLUDED.value,
-      unit=EXCLUDED.unit, source=EXCLUDED.source, device=EXCLUDED.device, metadata=EXCLUDED.metadata`;
-  await pool.query(q, vals);
-  return rows.length;
+  const chunkSize = Math.min(5000, Math.floor(PG_MAX_PARAMS / colsPerRow));
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const slice = rows.slice(i, i + chunkSize);
+      const vals = [];
+      for (const r of slice) vals.push(...toParams(r));
+      await client.query(sql(slice.length), vals);
+    }
+    await client.query("COMMIT");
+    return rows.length;
+  } catch (e) {
+    try { await client.query("ROLLBACK"); } catch { /* connection may be dead */ }
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+export async function upsertHealthSamples(pool, rows) {
+  return txChunkedUpsert(pool, {
+    colsPerRow: 9,
+    toParams: (r) => [r.uuid, r.ts, r.end_ts, r.type, r.value, r.unit, r.source, r.device, JSON.stringify(r.metadata || {})],
+    sql: (n) => `INSERT INTO health_samples (uuid, ts, end_ts, type, value, unit, source, device, metadata)
+      VALUES ${placeholders(n, 9)}
+      ON CONFLICT (uuid) DO UPDATE SET
+        ts=EXCLUDED.ts, end_ts=EXCLUDED.end_ts, type=EXCLUDED.type, value=EXCLUDED.value,
+        unit=EXCLUDED.unit, source=EXCLUDED.source, device=EXCLUDED.device, metadata=EXCLUDED.metadata`,
+  }, rows);
 }
 
 export async function upsertWeather(pool, rows) {
-  if (!rows.length) return 0;
-  const cols = 11;
-  const vals = [];
-  for (const r of rows) vals.push(r.ts, r.lat, r.lon, r.temp_c, r.pressure_hpa, r.humidity, r.uv_index, r.precip, r.aqi, r.condition, JSON.stringify(r.metadata || {}));
-  const q = `INSERT INTO weather_obs (ts, lat, lon, temp_c, pressure_hpa, humidity, uv_index, precip, aqi, condition, metadata)
-    VALUES ${placeholders(rows.length, cols)}
-    ON CONFLICT (ts, lat, lon) DO UPDATE SET
-      temp_c=EXCLUDED.temp_c, pressure_hpa=EXCLUDED.pressure_hpa, humidity=EXCLUDED.humidity,
-      uv_index=EXCLUDED.uv_index, precip=EXCLUDED.precip, aqi=EXCLUDED.aqi,
-      condition=EXCLUDED.condition, metadata=EXCLUDED.metadata`;
-  await pool.query(q, vals);
-  return rows.length;
+  return txChunkedUpsert(pool, {
+    colsPerRow: 11,
+    toParams: (r) => [r.ts, r.lat, r.lon, r.temp_c, r.pressure_hpa, r.humidity, r.uv_index, r.precip, r.aqi, r.condition, JSON.stringify(r.metadata || {})],
+    sql: (n) => `INSERT INTO weather_obs (ts, lat, lon, temp_c, pressure_hpa, humidity, uv_index, precip, aqi, condition, metadata)
+      VALUES ${placeholders(n, 11)}
+      ON CONFLICT (ts, lat, lon) DO UPDATE SET
+        temp_c=EXCLUDED.temp_c, pressure_hpa=EXCLUDED.pressure_hpa, humidity=EXCLUDED.humidity,
+        uv_index=EXCLUDED.uv_index, precip=EXCLUDED.precip, aqi=EXCLUDED.aqi,
+        condition=EXCLUDED.condition, metadata=EXCLUDED.metadata`,
+  }, rows);
 }
 
 export async function upsertSpaceWeather(pool, row) {

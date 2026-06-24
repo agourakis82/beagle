@@ -24,10 +24,13 @@ function authed(req) {
 app.post("/api/physiome/ingest", async (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
   try {
-    const { health_samples, weather_obs } = validateBatch(req.body || {});
+    const { health_samples, weather_obs, received, rejected } = validateBatch(req.body || {});
     const health = await upsertHealthSamples(pool, health_samples);
     const weather = await upsertWeather(pool, weather_obs);
-    res.json({ ok: true, ingested: { health, weather } });
+    if (rejected.health || rejected.weather) {
+      console.warn(`[physiome] ingest dropped invalid samples: health=${rejected.health}/${received.health} weather=${rejected.weather}/${received.weather}`);
+    }
+    res.json({ ok: true, ingested: { health, weather }, received, rejected });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }
