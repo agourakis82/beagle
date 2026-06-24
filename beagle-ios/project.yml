@@ -207,3 +207,34 @@ targets:
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access:
           - health-records
+
+  # ── BeagleLogicTests (iOS-simulator unit tests for pure BeagleCore logic) ──────
+  # Runs the platform-independent logic (e.g. BaroMath) on the iOS simulator, where
+  # BeagleCore already builds. Hosted by BeagleCockpit so it links the same way the
+  # app does. (The package's own `swift test` is a macOS-host build, unrelated here.)
+  BeagleLogicTests:
+    type: bundle.unit-test
+    supportedDestinations: [iOS]
+    sources:
+      - path: BeagleSuite/Tests/Logic
+    dependencies:
+      - target: BeagleCockpit
+        platformFilter: iOS
+      - package: BeagleSuite
+        product: BeagleCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.sounio.cockpit.logictests
+        GENERATE_INFOPLIST_FILE: true
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: S9DPGW22A8
+
+schemes:
+  BeagleLogicTests:
+    build:
+      targets:
+        BeagleLogicTests: [test]
+    test:
+      targets:
+        - BeagleLogicTests
+      gatherCoverageData: false

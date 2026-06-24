@@ -1,6 +1,10 @@
 import Testing
-@testable import BeagleCore
+import BeagleCore
 import Foundation
+
+// Pure-logic tests for the device-barometer throttle/conversion. Run on the iOS
+// Simulator via the BeagleLogicTests scheme (the package's own `swift test` is a
+// macOS-host build that is unrelated to this iOS-only logic).
 
 @Test func baroKpaToHpa() {
     // CMAltimeter reports kPa; weather_obs stores hPa (×10).
