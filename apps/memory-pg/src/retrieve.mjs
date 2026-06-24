@@ -88,7 +88,11 @@ bm25 AS (
   SELECT c.id AS chunk_id,
          row_number() OVER (ORDER BY paradedb.score(c.id) DESC) AS bm25_rank
   FROM chunks c
-  WHERE c.text @@@ $2
+  -- paradedb.match (NOT raw \`text @@@ $2\`): the query-string parser errors on
+  -- Tantivy special chars in natural queries (apostrophe in "cluster's", a
+  -- trailing "?", etc.). match() treats the input as analyzed terms, so any user
+  -- text is safe and still scored/ranked by BM25.
+  WHERE c.id @@@ paradedb.match('text', $2)
   ORDER BY paradedb.score(c.id) DESC
   LIMIT $3
 ),

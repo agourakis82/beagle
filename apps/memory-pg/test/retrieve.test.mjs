@@ -89,6 +89,27 @@ test("lexical-only match surfaces via BM25 even with a far embedding", async () 
   assert.ok(Number.isFinite(xr.bm25_rank), "X has a bm25_rank");
 });
 
+test("query with apostrophes/special chars does not break BM25 (parser-safe)", async () => {
+  // Regression: feeding raw user text into pg_search's query-string parser
+  // (`text @@@ $q`) errors on Tantivy special chars — apostrophe, `?`, etc.
+  // ("could not parse query string 'text:(... cluster's ... lane?)'"), crashing
+  // the whole retrieve. The fix routes the term query through paradedb.match,
+  // which treats input as analyzed terms. A natural query with a contraction and
+  // a trailing `?` must retrieve, not throw.
+  const queryEmbedding = oneHot(0);
+  const queryText = "how do I run the cluster's pilot lane commands?";
+  const x = await seedDoc({
+    text: "Run Slurm commands against the cluster pilot lane login pod",
+    axis: 500,
+    sha: "x",
+  });
+  await seedDoc({ text: "unrelated note about gardening", axis: 600, sha: "n1" });
+
+  const out = await retrieve(pool, { queryEmbedding, queryText, k: 10 });
+  const ids = out.map((r) => r.chunk_id);
+  assert.ok(ids.includes(x.chunk_id), "apostrophe/?-bearing query still retrieves the lexical match");
+});
+
 test("semantic match surfaces via dense even with no lexical overlap", async () => {
   // Query embedding on axis 42. Query text shares NO tokens with doc Y.
   const queryEmbedding = oneHot(42);
