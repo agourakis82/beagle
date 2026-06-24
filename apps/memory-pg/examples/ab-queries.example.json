@@ -1,0 +1,25 @@
+[
+  {
+    "query": "what is the durable fix for t560 etcd I/O starvation under the souc CI loop?",
+    "scope": "infra",
+    "gold": [
+      "etcd-ioprio.service",
+      "souc-cap.service",
+      "io.max"
+    ]
+  },
+  {
+    "query": "how is the Sounio compiler pipeline staged from source to native?",
+    "scope": "sounio",
+    "gold": [
+      "lexer",
+      "HIR",
+      "SIR",
+      "x86-64 ELF"
+    ]
+  },
+  {
+    "query": "which token authorizes the beagle-core memory export endpoint?",
+    "gold": ["operator-token", "beagle-core-tokens"]
+  }
+]
