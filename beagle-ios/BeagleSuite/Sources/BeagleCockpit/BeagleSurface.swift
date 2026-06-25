@@ -972,8 +972,11 @@ struct BeagleSurface: View {
         #if canImport(FoundationModels)
         if #available(iOS 26, macOS 26, visionOS 26, *) {
             FoundationModelsAgent.shared.configure(cognitive: cognitive, physio: physio)
-            // Light/casual messages answer instantly on-device; deep ones go to the cluster.
-            conversation.fastAvailable = FoundationModelsAgent.shared.isAvailable
+            // On-device Apple Intelligence (~3B) is too weak for the companion's voice —
+            // the richness IS the companion. Route EVERYTHING to the cluster (GLM). The
+            // ~14s latency is covered by the typing indicator. (Fast path kept for a future
+            // faster-but-capable model.)
+            conversation.fastAvailable = false
             conversation.fastResponder = { prompt, history in
                 await FoundationModelsAgent.shared.respond(to: prompt, conversationHistory: history)
             }
