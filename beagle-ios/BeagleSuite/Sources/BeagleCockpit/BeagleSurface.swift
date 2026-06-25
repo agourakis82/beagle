@@ -85,7 +85,9 @@ struct BeagleSurface: View {
                 .padding(.horizontal, BeagleSpacing.lg)
                 .padding(.bottom, BeagleSpacing.sm)
 
-            ConversationView(conversation: conversation, onRefresh: refreshLivingHome)
+            // New companion chat (design-system redesign). Flat warm bubbles over the
+            // living mesh + a single Liquid Glass composer. Reuses the same wired store.
+            ChatScreen(store: conversation)
         }
     }
 
