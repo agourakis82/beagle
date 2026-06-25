@@ -151,7 +151,11 @@ public struct ChatScreen: View {
         if args.contains("--demo") || args.contains("--demo-chat") {
             return PhysioSnapshot(sleepQuality: "light", flow: "STRESS", restingHRElevated: true)
         }
-        return PhysioSnapshot(sleepQuality: nil, flow: store.flowState, restingHRElevated: false)
+        // Real sleep quality (deep+REM ratio) → narrative word, never a number.
+        let sleep: String? = store.sleepQuality01.map { q in
+            q < 0.35 ? "light" : (q > 0.65 ? "deep" : "ok")
+        }.flatMap { $0 == "ok" ? nil : $0 }
+        return PhysioSnapshot(sleepQuality: sleep, flow: store.flowState, restingHRElevated: false)
     }
 
     // MARK: - Send

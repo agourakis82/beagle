@@ -964,6 +964,8 @@ struct BeagleSurface: View {
             else if r < 0.3 { conversation.flowState = "STRESS" }
             else { conversation.flowState = "NORMAL" }
         }
+        // Real sleep → the attuned body-as-story greeting (no metrics surfaced).
+        conversation.sleepQuality01 = physio.cognitivePosture.sleepQuality
         conversation.loadPersistedConversation()
 
         // Configure Foundation Models with stores

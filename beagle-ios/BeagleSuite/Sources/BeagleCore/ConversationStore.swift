@@ -112,6 +112,8 @@ public final class ConversationStore {
 
     /// HRV-aware flow state for routing decisions.
     public var flowState: String? = nil
+    /// Last night's sleep quality, 0–1 (deep+REM ratio). Feeds the attuned body-as-story greeting.
+    public var sleepQuality01: Double? = nil
     public var physioContext: String? = nil
     public var companionContext: String? = nil
     public var behaviorContext: String? = nil
