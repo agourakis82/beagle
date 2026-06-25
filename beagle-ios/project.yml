@@ -47,6 +47,8 @@ targets:
       properties:
         CFBundleIconName: AppIcon
         CFBundleDisplayName: BeagleCockpit
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
