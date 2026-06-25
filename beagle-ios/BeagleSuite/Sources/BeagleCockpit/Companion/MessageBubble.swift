@@ -35,24 +35,26 @@ struct MessageBubble: View {
 
     // MARK: - Bubble
 
-    private var bubble: some View {
-        Text(displayText)
-            .font(BeagleFont.body.font)
-            .foregroundStyle(isUser ? BeagleTheme.textPrimary : BeagleTheme.companionInk)
-            .textSelection(.enabled)
-            .padding(.vertical, BeagleSpacing.sm)
-            .padding(.horizontal, BeagleSpacing.md)
-            .background(isUser ? BeagleTheme.userSurface : BeagleTheme.companionSurface, in: bubbleShape)
-            .overlay(alignment: .bottomTrailing) {
-                if message.isStreaming { StreamingDot().padding(BeagleSpacing.xs) }
-            }
-            .frame(maxWidth: 540, alignment: isUser ? .trailing : .leading)
-    }
+    /// Companion is thinking — request in flight, no text yet.
+    private var isThinking: Bool { !isUser && message.isStreaming && message.content.isEmpty }
 
-    /// While streaming with no text yet, keep the bubble from collapsing.
-    private var displayText: String {
-        if message.content.isEmpty && message.isStreaming { return "…" }
-        return message.content
+    private var bubble: some View {
+        Group {
+            if isThinking {
+                TypingIndicator()
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, BeagleSpacing.md)
+            } else {
+                Text(message.content)
+                    .font(BeagleFont.body.font)
+                    .foregroundStyle(isUser ? BeagleTheme.textPrimary : BeagleTheme.companionInk)
+                    .textSelection(.enabled)
+                    .padding(.vertical, BeagleSpacing.sm)
+                    .padding(.horizontal, BeagleSpacing.md)
+            }
+        }
+        .background(isUser ? BeagleTheme.userSurface : BeagleTheme.companionSurface, in: bubbleShape)
+        .frame(maxWidth: 540, alignment: isUser ? .trailing : .leading)
     }
 
     private var bubbleShape: UnevenRoundedRectangle {
@@ -79,20 +81,26 @@ struct MessageBubble: View {
 
 // MARK: - Streaming presence (breathing dot, not a spinner)
 
-private struct StreamingDot: View {
-    @State private var on = false
+private struct TypingIndicator: View {
+    @State private var animate = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Circle()
-            .fill(BeagleTheme.truthObserved)
-            .frame(width: 7, height: 7)
-            .opacity(on ? 1.0 : 0.35)
-            .onAppear {
-                guard !reduceMotion else { on = true; return }
-                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { on = true }
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(BeagleTheme.companionInk.opacity(0.75))
+                    .frame(width: 7, height: 7)
+                    .scaleEffect(animate ? 1.0 : 0.5)
+                    .opacity(animate ? 1.0 : 0.4)
+                    .animation(
+                        reduceMotion ? nil :
+                            .easeInOut(duration: 0.6).repeatForever().delay(Double(i) * 0.18),
+                        value: animate)
             }
-            .accessibilityLabel("respondendo")
+        }
+        .onAppear { animate = true }
+        .accessibilityLabel("pensando")
     }
 }
 
