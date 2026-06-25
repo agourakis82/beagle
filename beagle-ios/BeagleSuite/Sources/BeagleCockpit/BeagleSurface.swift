@@ -81,12 +81,9 @@ struct BeagleSurface: View {
             metacognitiveNudgeLayer
             serendipityLayer
 
-            exocortexHomeCard
-                .padding(.horizontal, BeagleSpacing.lg)
-                .padding(.bottom, BeagleSpacing.sm)
-
-            // New companion chat (design-system redesign). Flat warm bubbles over the
-            // living mesh + a single Liquid Glass composer. Reuses the same wired store.
+            // Chat-first companion surface: the conversation is the hero, full-height
+            // over the living mesh. (The exocortex home card is retired from this surface
+            // — it can return as a collapsible header or a separate view later.)
             ChatScreen(store: conversation)
         }
     }
