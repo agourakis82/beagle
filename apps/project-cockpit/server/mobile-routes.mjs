@@ -19,7 +19,8 @@ import {
   proxySubscriptionBridgeCompletion,
   proxyDiscussionLabCompletion,
   fetchBiographyDigest,
-  fetchPhysiomeDigest
+  fetchPhysiomeDigest,
+  runMuseVoiceEnsemble
 } from "./auth-bridge.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
@@ -652,7 +653,8 @@ function latestIso(...values) {
   return normalized[0] || "";
 }
 
-async function completeChatRequest(req, deps) {
+async function completeChatRequest(req, deps, options = {}) {
+  const onToken = typeof options.onToken === "function" ? options.onToken : null;
   const prompt = cleanString(req.body?.prompt);
   if (!prompt) {
     throw contractFailure(ErrorCode.BAD_REQUEST, "prompt is required");
@@ -687,12 +689,16 @@ async function completeChatRequest(req, deps) {
   // current physiome state so it responds as someone who actually knows him.
   // Both fetches are best-effort — grounding must never block or fail the chat.
   const chatSpace = cleanString(req.body?.space || req.body?.chatSpace).toLowerCase();
+  let biographyDigest = "";
+  let physiomeDigest = "";
   if (chatSpace === "personal") {
     try {
-      const [{ digest: biographyDigest }, { digest: physiomeDigest }] = await Promise.all([
+      const [bioResult, physioResult] = await Promise.all([
         fetchBiographyDigest(),
         fetchPhysiomeDigest()
       ]);
+      biographyDigest = cleanString(bioResult?.digest);
+      physiomeDigest = cleanString(physioResult?.digest);
       const sections = [];
       if (physiomeDigest) {
         sections.push("## Estado físico+ambiente recente", physiomeDigest);
@@ -714,6 +720,17 @@ async function completeChatRequest(req, deps) {
   let appliedDiscussionProfile = effectiveDiscussionProfile || "cluster";
 
   let result;
+  if (chatSpace === "personal") {
+    appliedDiscussionProfile = "personal-ensemble";
+    result = await runMuseVoiceEnsemble({
+      prompt,
+      system: effectiveSystem,
+      voiceModel: cleanString(req.body?.voiceModel || req.body?.voice_model)
+        || cleanString(process.env.PROJECT_COCKPIT_PERSONAL_VOICE_MODEL)
+        || "glm-5.1",
+      onToken
+    });
+  } else {
   const subscriptionProfile = normalizeSubscriptionDiscussionProfile(effectiveDiscussionProfile);
   const cheapProviderProfile = normalizeCheapDiscussionProfile(effectiveDiscussionProfile);
   if (subscriptionProfile) {
@@ -783,6 +800,7 @@ async function completeChatRequest(req, deps) {
       offline_required: offlineRequired
     });
   }
+  }
 
   if (result.status < 200 || result.status >= 300) {
     const errorMessage =
@@ -828,9 +846,13 @@ async function completeChatRequest(req, deps) {
       : estimateTokenCount(prompt, effectiveSystem, responseText),
     generatedAt,
     truthMode: cleanString(result.payload?.truthMode) || "observed",
-    beagleUrl: cleanString(result.payload?.beagle_url || result.beagleUrl || "")
+    beagleUrl: cleanString(result.payload?.beagle_url || result.beagleUrl || ""),
+    grounded: Boolean(biographyDigest || physiomeDigest),
+    biographyDigestPresent: Boolean(biographyDigest)
   };
 }
+
+export { completeChatRequest };
 
 async function annotateClientSession(req, deps, projectSlug, currentAction) {
   const clientSessionId = cleanString(req.body?.clientSessionId);
@@ -1480,7 +1502,8 @@ export function registerMobileRoutes(app, deps) {
             conversation_mode: completion.conversationMode || null,
             applied_discussion_profile: completion.appliedDiscussionProfile || null,
             flow_state: completion.flowState || null,
-            tokens_used: completion.tokensUsed
+            tokens_used: completion.tokensUsed,
+            grounded: completion.grounded === true
           },
           meta: buildMeta(completion.generatedAt, {
             truthMode: completion.truthMode
@@ -1491,6 +1514,42 @@ export function registerMobileRoutes(app, deps) {
       }
     })
   );
+
+  app.post("/api/mobile/v1/chat/stream", async (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    const writeEvent = (payload) => {
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    try {
+      const completion = await completeChatRequest(req, deps, {
+        onToken(token) {
+          writeEvent({ token });
+        }
+      });
+      writeEvent({
+        done: true,
+        grounded: completion.grounded === true,
+        model: completion.model,
+        source: completion.source,
+        applied_discussion_profile: completion.appliedDiscussionProfile || null
+      });
+      res.end();
+    } catch (error) {
+      const mapped = mapStatusCodeToErrorCode(error?.statusCode);
+      const code = error?.code && ErrorCode[error.code] ? error.code : mapped.code;
+      writeEvent({
+        done: true,
+        error: error?.message || "mobile chat stream failed",
+        code
+      });
+      res.end();
+    }
+  });
 
   app.post("/api/llm/complete", async (req, res) => {
     try {
