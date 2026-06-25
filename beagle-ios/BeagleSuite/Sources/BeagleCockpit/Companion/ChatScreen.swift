@@ -23,9 +23,39 @@ public struct ChatScreen: View {
     public var body: some View {
         ZStack(alignment: .bottom) {
             hearth
-            conversation
+            if store.messages.isEmpty {
+                opening
+            } else {
+                presenceLayer
+                conversation
+            }
             composer
         }
+    }
+
+    // The opening moment — the companion present and breathing, greeting you. No forms,
+    // no dashboard; just presence (Gaggioli: continuous emotionally-available presence).
+    private var opening: some View {
+        VStack(spacing: BeagleSpacing.lg) {
+            Spacer()
+            CompanionPresence(state: store.flowState).frame(height: 210)
+            greeting
+            Spacer()
+            Spacer()
+        }
+        .padding(.bottom, 64)
+    }
+
+    // The companion's continuous presence — breathes in the upper space where dead void
+    // used to be. Ambient; carries a faint hue of the current state.
+    private var presenceLayer: some View {
+        VStack {
+            CompanionPresence(state: store.flowState)
+                .frame(height: 240)
+                .padding(.top, 28)
+            Spacer()
+        }
+        .allowsHitTesting(false)
     }
 
     // A warm glow rising from where the conversation lives — turns the dead black
@@ -50,9 +80,6 @@ public struct ChatScreen: View {
     private var conversation: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                if store.messages.isEmpty {
-                    greeting.padding(.top, BeagleSpacing.jumbo)
-                }
                 LazyVStack(spacing: BeagleSpacing.sm) {
                     ForEach(store.messages) { message in
                         MessageBubble(message: message)
@@ -95,20 +122,25 @@ public struct ChatScreen: View {
     // MARK: - Empty state (warm, zero-friction — no forms)
 
     private var greeting: some View {
-        VStack(spacing: BeagleSpacing.sm) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 32, weight: .light))
-                .foregroundStyle(BeagleTheme.truthObserved)
-            Text("Estou aqui.")
-                .font(BeagleFont.title2.font)
+        VStack(spacing: BeagleSpacing.xs) {
+            Text(openingLine)
+                .font(BeagleFont.title3.font)
                 .foregroundStyle(BeagleTheme.companionInk)
-            Text("Conta o que está passando — eu lembro de ti.")
+                .multilineTextAlignment(.center)
+            Text("Estou aqui — me conta como está o teu dia.")
                 .font(BeagleFont.subheadline.font)
                 .foregroundStyle(BeagleTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, BeagleSpacing.xl)
+    }
+
+    // Attuned opening — body/life as STORY (Gaggioli: body as story, not metrics). When the
+    // companion/physio context is wired in, this becomes "Você dormiu leve, o coração andou
+    // tenso…". Warm, present default until then.
+    private var openingLine: String {
+        "Oi. Que bom te ver."
     }
 
     // MARK: - Send

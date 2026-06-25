@@ -17,8 +17,9 @@ public extension BeagleTheme {
     /// Warm off-white for the companion's text (vs the cool, clinical `textPrimary`).
     static let companionInk = Color(red: 246/255, green: 241/255, blue: 233/255).opacity(0.95)
 
-    /// The companion's voice bubble — a faintly warm raised surface above the mesh.
-    static let companionSurface = Color(red: 36/255, green: 33/255, blue: 38/255)
+    /// The companion's voice bubble — a warm raised surface (brown-grey, lit from the
+    /// hearth) so the companion's voice reads warm, not clinical grey.
+    static let companionSurface = Color(red: 52/255, green: 43/255, blue: 39/255)
 
     /// The user's bubble — cool, a low-saturation echo of truth-observed (you = signal).
     static let userSurface = Color(red: 17/255, green: 37/255, blue: 51/255)
