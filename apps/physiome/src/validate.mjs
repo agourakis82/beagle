@@ -46,6 +46,14 @@ export function validateWeatherObs(w) {
   };
 }
 
+// Keep the LAST item for each key (a Map preserves insertion order; re-setting a key
+// keeps its original position but updates the value — so we rebuild to last-wins order).
+function dedupeBy(items, keyOf) {
+  const m = new Map();
+  for (const it of items) m.set(keyOf(it), it);
+  return [...m.values()];
+}
+
 export function validateBatch(body) {
   // The iOS uploader sends health_samples + sleep_samples + workout_samples (all the same
   // shape: uuid/ts/end_ts/type/value/...) — they all land in the one health_samples table.
@@ -55,8 +63,13 @@ export function validateBatch(body) {
     ...(Array.isArray(body?.workout_samples) ? body.workout_samples : []),
   ];
   const wo = Array.isArray(body?.weather_obs) ? body.weather_obs : [];
-  const health_samples = hs.map(validateHealthSample).filter(Boolean);
-  const weather_obs = wo.map(validateWeatherObs).filter(Boolean);
+  const validHealth = hs.map(validateHealthSample).filter(Boolean);
+  const validWeather = wo.map(validateWeatherObs).filter(Boolean);
+  // Dedupe within the batch (HealthKit can re-deliver the same sample). Two rows with
+  // the same conflict key in one INSERT make Postgres throw "ON CONFLICT DO UPDATE
+  // cannot affect row a second time" → 500. Last occurrence wins (newest data).
+  const health_samples = dedupeBy(validHealth, (s) => s.uuid);
+  const weather_obs = dedupeBy(validWeather, (w) => `${w.ts}|${w.lat}|${w.lon}`);
   // Surface what was dropped so the client (and logs) can see silent loss instead of
   // a batch that quietly shrank. A non-zero `rejected` is a signal worth alerting on.
   return {

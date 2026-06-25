@@ -63,6 +63,32 @@ test("validateBatch merges sleep_samples + workout_samples into health_samples",
   assert.equal(r.health_samples.length, 3);
 });
 
+test("validateBatch dedupes duplicate uuids within a batch (HealthKit re-delivers) — last wins", () => {
+  // Two rows with the same uuid in one INSERT make Postgres throw "ON CONFLICT DO
+  // UPDATE command cannot affect row a second time" → 500. Collapse to one, last wins.
+  const r = validateBatch({
+    health_samples: [
+      { uuid: "aaaaaaaa-0000-4000-8000-000000000001", ts: "2026-06-24T18:00:00Z", type: "HKQuantityTypeIdentifierHeartRate", value: 60 },
+      { uuid: "aaaaaaaa-0000-4000-8000-000000000001", ts: "2026-06-24T18:01:00Z", type: "HKQuantityTypeIdentifierHeartRate", value: 61 },
+      { uuid: "bbbbbbbb-0000-4000-8000-000000000002", ts: "2026-06-24T18:00:00Z", type: "HKQuantityTypeIdentifierHeartRate", value: 70 },
+    ],
+  });
+  assert.equal(r.health_samples.length, 2, "duplicate uuid collapsed");
+  const a = r.health_samples.find((s) => s.uuid.startsWith("aaaaaaaa"));
+  assert.equal(a.value, 61, "last occurrence wins");
+});
+
+test("validateBatch dedupes weather by (ts,lat,lon) — last wins", () => {
+  const r = validateBatch({
+    weather_obs: [
+      { ts: "2026-06-24T18:00:00Z", lat: 1, lon: 2, temp_c: 20 },
+      { ts: "2026-06-24T18:00:00Z", lat: 1, lon: 2, temp_c: 21 },
+    ],
+  });
+  assert.equal(r.weather_obs.length, 1, "duplicate (ts,lat,lon) collapsed");
+  assert.equal(r.weather_obs[0].temp_c, 21, "last wins");
+});
+
 test("validateBatch reports rejected counts so the client knows what was dropped (no silent loss)", () => {
   const r = validateBatch({
     health_samples: [
