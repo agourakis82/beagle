@@ -19,7 +19,7 @@ public extension BeagleTheme {
 
     /// The companion's voice bubble — a warm raised surface (brown-grey, lit from the
     /// hearth) so the companion's voice reads warm, not clinical grey.
-    static let companionSurface = Color(red: 52/255, green: 43/255, blue: 39/255)
+    static let companionSurface = Color(red: 61/255, green: 51/255, blue: 46/255)
 
     /// The user's bubble — a confident teal (you = the live signal), distinct from the
     /// warm companion voice and brighter than the surface so the conversation has contrast.

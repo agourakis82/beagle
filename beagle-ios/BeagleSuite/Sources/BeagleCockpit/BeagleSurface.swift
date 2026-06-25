@@ -861,7 +861,7 @@ struct BeagleSurface: View {
                         .font(BeagleFont.caption.font)
                         .fontWeight(.medium)
                 }
-                .foregroundStyle(BeagleTheme.truthObserved)
+                .foregroundStyle(BeagleTheme.textTertiary)  // recede — the companion leads
             }
             .buttonStyle(.plain)
 

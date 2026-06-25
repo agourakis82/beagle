@@ -15,6 +15,7 @@ import BeagleCore
 public struct ChatScreen: View {
     let store: ConversationStore   // @Observable — SwiftUI tracks property reads in body
     @State private var draft = ""
+    @State private var appeared = false
 
     public init(store: ConversationStore) {
         self.store = store
@@ -31,10 +32,17 @@ public struct ChatScreen: View {
             }
             composer
         }
+        // Entry ceremony — the space materializes with a breath instead of snapping in
+        // (Gaggioli: ceremony over frictionless).
+        .opacity(appeared ? 1 : 0)
+        .scaleEffect(appeared ? 1 : 0.985, anchor: .bottom)
         .task {
             if ProcessInfo.processInfo.arguments.contains("--demo-chat") {
                 store.seedDemoConversation()
             }
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.55)) { appeared = true }
         }
     }
 

@@ -75,6 +75,7 @@ struct ChatComposer: View {
         .padding(.vertical, BeagleSpacing.xs)
         .padding(.horizontal, BeagleSpacing.sm)
         .glassEffect(.regular, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.75))
         .onChange(of: pickedItem) { _, item in
             Task { attachedData = try? await item?.loadTransferable(type: Data.self) }
         }
