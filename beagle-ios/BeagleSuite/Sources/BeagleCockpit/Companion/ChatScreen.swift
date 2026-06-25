@@ -22,9 +22,27 @@ public struct ChatScreen: View {
 
     public var body: some View {
         ZStack(alignment: .bottom) {
+            hearth
             conversation
             composer
         }
+    }
+
+    // A warm glow rising from where the conversation lives — turns the dead black
+    // void into a hearth. Subtle; the living mesh (behind, in BeagleSurface) layers under.
+    private var hearth: some View {
+        RadialGradient(
+            colors: [
+                Color(red: 70/255, green: 46/255, blue: 40/255).opacity(0.45),
+                Color(red: 30/255, green: 24/255, blue: 34/255).opacity(0.25),
+                .clear
+            ],
+            center: UnitPoint(x: 0.5, y: 0.92),
+            startRadius: 0,
+            endRadius: 460
+        )
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 
     // MARK: - Conversation (flat content above the mesh)
@@ -45,8 +63,10 @@ public struct ChatScreen: View {
                 }
                 .padding(.horizontal, BeagleSpacing.md)
                 .padding(.top, BeagleSpacing.md)
+                .frame(maxWidth: .infinity, minHeight: 0, alignment: .bottom)
                 .animation(.easeOut(duration: 0.25), value: store.messages.count)
             }
+            .defaultScrollAnchor(.bottom)   // recent messages hug the composer; void goes up top
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: store.messages.last?.content) { _, _ in
                 withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
@@ -68,7 +88,8 @@ public struct ChatScreen: View {
             onVoice: {}     // TODO: voice capture
         )
         .padding(.horizontal, BeagleSpacing.md)
-        .padding(.bottom, BeagleSpacing.xs)
+        .padding(.bottom, BeagleSpacing.sm)
+        .shadow(color: .black.opacity(0.35), radius: 18, y: 6)   // lift off the surface
     }
 
     // MARK: - Empty state (warm, zero-friction — no forms)
