@@ -85,7 +85,7 @@ public struct ChatScreen: View {
     private var conversation: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: BeagleSpacing.sm) {
+                LazyVStack(spacing: BeagleSpacing.lg) {
                     ForEach(store.messages) { message in
                         MessageBubble(message: message)
                             .id(message.id)

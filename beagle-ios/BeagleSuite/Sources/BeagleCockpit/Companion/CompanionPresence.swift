@@ -38,14 +38,21 @@ struct CompanionPresence: View {
                 .scaleEffect(breathe ? 1.06 : 0.94)
                 .opacity(breathe ? 0.95 : 0.62)
 
-            // Inner glow — the quiet core.
+            // Inner glow — the quiet core, a touch more luminous for presence.
             Circle()
                 .fill(RadialGradient(
-                    colors: [ember.opacity(0.55), ember.opacity(0.12), .clear],
-                    center: .center, startRadius: 0, endRadius: 46))
-                .frame(width: 92, height: 92)
-                .blur(radius: 6)
+                    colors: [ember.opacity(0.78), ember.opacity(0.22), .clear],
+                    center: .center, startRadius: 0, endRadius: 40))
+                .frame(width: 84, height: 84)
+                .blur(radius: 5)
                 .scaleEffect(breathe ? 1.05 : 0.95)
+
+            // Bright heart — gives the ember a defined center.
+            Circle()
+                .fill(ember.opacity(0.9))
+                .frame(width: 12, height: 12)
+                .blur(radius: 5)
+                .scaleEffect(breathe ? 1.1 : 0.9)
         }
         .blendMode(.screen)               // adds light to the dark surface — warmth, not a sticker
         .allowsHitTesting(false)

@@ -21,8 +21,9 @@ public extension BeagleTheme {
     /// hearth) so the companion's voice reads warm, not clinical grey.
     static let companionSurface = Color(red: 52/255, green: 43/255, blue: 39/255)
 
-    /// The user's bubble — cool, a low-saturation echo of truth-observed (you = signal).
-    static let userSurface = Color(red: 17/255, green: 37/255, blue: 51/255)
+    /// The user's bubble — a confident teal (you = the live signal), distinct from the
+    /// warm companion voice and brighter than the surface so the conversation has contrast.
+    static let userSurface = Color(red: 20/255, green: 64/255, blue: 84/255)
 
     /// Subtle warm hairline for companion-side elements.
     static let companionHairline = Color(red: 255/255, green: 240/255, blue: 220/255).opacity(0.10)
