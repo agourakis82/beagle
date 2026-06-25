@@ -122,13 +122,16 @@ public struct ChatScreen: View {
     // MARK: - Empty state (warm, zero-friction — no forms)
 
     private var greeting: some View {
-        VStack(spacing: BeagleSpacing.xs) {
-            Text(openingLine)
-                .font(BeagleFont.title3.font)
+        let story = BodyStory.opening(physioSnapshot, hour: Calendar.current.component(.hour, from: Date()))
+        return VStack(spacing: BeagleSpacing.sm) {
+            Text(story.line)
+                .font(BeagleFont.title2.font)
+                .fontWeight(.semibold)
                 .foregroundStyle(BeagleTheme.companionInk)
                 .multilineTextAlignment(.center)
-            Text("Estou aqui — me conta como está o teu dia.")
-                .font(BeagleFont.subheadline.font)
+                .lineSpacing(2)
+            Text(story.follow)
+                .font(BeagleFont.callout.font)
                 .foregroundStyle(BeagleTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
@@ -136,11 +139,13 @@ public struct ChatScreen: View {
         .padding(.horizontal, BeagleSpacing.xl)
     }
 
-    // Attuned opening — body/life as STORY (Gaggioli: body as story, not metrics). When the
-    // companion/physio context is wired in, this becomes "Você dormiu leve, o coração andou
-    // tenso…". Warm, present default until then.
-    private var openingLine: String {
-        "Oi. Que bom te ver."
+    /// Body-as-story snapshot. Reads the wired store (flow ← HRV); `--demo` injects a
+    /// realistic body state so the attuned greeting renders without live HealthKit (sim).
+    private var physioSnapshot: PhysioSnapshot {
+        if ProcessInfo.processInfo.arguments.contains("--demo") {
+            return PhysioSnapshot(sleepQuality: "light", flow: "STRESS", restingHRElevated: true)
+        }
+        return PhysioSnapshot(sleepQuality: nil, flow: store.flowState, restingHRElevated: false)
     }
 
     // MARK: - Send
