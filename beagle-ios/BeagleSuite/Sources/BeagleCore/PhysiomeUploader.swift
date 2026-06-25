@@ -88,6 +88,9 @@ public actor PhysiomeUploader {
     private let baseRetryDelay: TimeInterval = 5
     private let maxRetryDelay: TimeInterval  = 5 * 60
     private let maxAttempts = 12
+    /// Max samples per HTTP POST — keeps each request well under the server's body
+    /// limit while letting a millions-strong Watch backlog drain over many requests.
+    private let uploadChunkSize = 5000
 
     // MARK: - In-memory queue
 
@@ -163,41 +166,46 @@ public actor PhysiomeUploader {
     private func performFlush() async {
         defer { isFlushing = false }
 
-        // Snapshot current queue and clear it optimistically.
-        let batch = PhysiomeIngestRequest(
-            healthSamples: pendingHealth,
-            sleepSamples:  pendingSleep,
-            workoutSamples: pendingWorkouts,
-            weatherObs:    pendingWeather
-        )
-        guard !batch.isEmpty else { return }
+        // Drain the queue one bounded chunk at a time. A whole-queue POST can be huge
+        // (a fresh Watch catch-up is millions of samples) and would blow the server's
+        // body limit; chunking keeps each request small and lets a big backlog drain
+        // over many requests. Each chunk takes from the FRONT (oldest first) and is
+        // only removed after the server ACKs it, so a crash mid-drain loses nothing.
+        while !pendingHealth.isEmpty || !pendingSleep.isEmpty ||
+              !pendingWorkouts.isEmpty || !pendingWeather.isEmpty {
 
-        pendingHealth   = []
-        pendingSleep    = []
-        pendingWorkouts = []
-        pendingWeather  = []
-        clearPersistedQueue()
+            var room = uploadChunkSize
+            let h  = Array(pendingHealth.prefix(room));   room -= h.count
+            let sl = Array(pendingSleep.prefix(max(0, room)));   room -= sl.count
+            let w  = Array(pendingWorkouts.prefix(max(0, room))); room -= w.count
+            let we = Array(pendingWeather.prefix(max(0, room)))
 
-        do {
-            try await upload(batch: batch)
-            consecutiveFailures = 0
-            print("[PhysiomeUploader] flushed \(batch.healthSamples.count) health + \(batch.sleepSamples.count) sleep + \(batch.workoutSamples.count) workouts + \(batch.weatherObs.count) weather samples")
-        } catch {
-            // Return items to the front of the queue and schedule retry.
-            pendingHealth   = batch.healthSamples  + pendingHealth
-            pendingSleep    = batch.sleepSamples   + pendingSleep
-            pendingWorkouts = batch.workoutSamples + pendingWorkouts
-            pendingWeather  = batch.weatherObs     + pendingWeather
-            persistQueue()
+            let chunk = PhysiomeIngestRequest(healthSamples: h, sleepSamples: sl, workoutSamples: w, weatherObs: we)
 
-            consecutiveFailures += 1
-            let delay = min(baseRetryDelay * pow(2.0, Double(consecutiveFailures - 1)), maxRetryDelay)
-            print("[PhysiomeUploader] upload failed (\(consecutiveFailures) failures), retrying in \(Int(delay))s: \(error)")
-
-            if consecutiveFailures <= maxAttempts {
-                scheduleRetry(after: delay)
-            } else {
-                print("[PhysiomeUploader] max retry attempts reached, will retry on next flush() call")
+            do {
+                try await upload(batch: chunk)
+                // ACKed — drop exactly this chunk from the front (enqueue only appends,
+                // so the front items are unchanged across the await).
+                pendingHealth.removeFirst(h.count)
+                pendingSleep.removeFirst(sl.count)
+                pendingWorkouts.removeFirst(w.count)
+                pendingWeather.removeFirst(we.count)
+                persistQueue()
+                consecutiveFailures = 0
+                let left = pendingHealth.count + pendingSleep.count + pendingWorkouts.count + pendingWeather.count
+                print("[PhysiomeUploader] flushed chunk \(h.count)h+\(sl.count)s+\(w.count)w+\(we.count)wx (\(left) remaining)")
+            } catch {
+                // Leave the queue intact (nothing removed) and back off.
+                persistQueue()
+                consecutiveFailures += 1
+                let delay = min(baseRetryDelay * pow(2.0, Double(consecutiveFailures - 1)), maxRetryDelay)
+                print("[PhysiomeUploader] chunk upload failed (\(consecutiveFailures) failures), retrying in \(Int(delay))s: \(error)")
+                if consecutiveFailures <= maxAttempts {
+                    scheduleRetry(after: delay)
+                } else {
+                    print("[PhysiomeUploader] max retry attempts reached, will retry on next flush() call")
+                }
+                return
             }
         }
     }
