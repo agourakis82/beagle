@@ -15,6 +15,8 @@ import BeagleCore
 struct MessageBubble: View {
     let message: ChatMessage
 
+    @State private var showThinking = false
+
     private var isUser: Bool { message.role == .user }
 
     var body: some View {
@@ -23,6 +25,9 @@ struct MessageBubble: View {
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: BeagleSpacing.xxs) {
                 bubble
+                if !isUser, let thinking = parsed.thinking {
+                    thinkingDisclosure(thinking)
+                }
                 if !isUser, let provenance = groundingLabel {
                     MemoryProvenanceChip(label: provenance)
                 }
@@ -31,6 +36,46 @@ struct MessageBubble: View {
             if !isUser { Spacer(minLength: BeagleSpacing.xxl) }
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    /// Split the companion's internal note (presence framing + "Nota rápida" reasoning)
+    /// from the warm message it actually says. The model puts the note above a `---` rule.
+    private var parsed: (message: String, thinking: String?) {
+        let c = message.content
+        guard let r = c.range(of: "\n---\n") ?? c.range(of: "\n---") else { return (c, nil) }
+        let before = c[..<r.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        let after = c[r.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        let looksLikeNote = ["nota", "pergunta viva", "interpretação", "próximo movimento", "abana"]
+            .contains { before.range(of: $0, options: .caseInsensitive) != nil }
+        return (after.isEmpty || !looksLikeNote) ? (c, nil) : (after, before)
+    }
+
+    @ViewBuilder
+    private func thinkingDisclosure(_ thinking: String) -> some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+            Button {
+                withAnimation(.snappy(duration: 0.25)) { showThinking.toggle() }
+            } label: {
+                HStack(spacing: BeagleSpacing.xxs) {
+                    Image(systemName: showThinking ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text(showThinking ? "esconder o que penso" : "ver o que penso")
+                        .font(BeagleFont.caption2.font)
+                }
+                .foregroundStyle(BeagleTheme.textTertiary)
+            }
+            .buttonStyle(.plain)
+
+            if showThinking {
+                Text(thinking)
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .padding(BeagleSpacing.sm)
+                    .background(BeagleTheme.companionSurface.opacity(0.5), in: RoundedRectangle(cornerRadius: BeagleRadius.md))
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(.leading, BeagleSpacing.xs)
     }
 
     // MARK: - Bubble
@@ -45,7 +90,7 @@ struct MessageBubble: View {
                     .padding(.vertical, 14)
                     .padding(.horizontal, BeagleSpacing.md)
             } else {
-                Text(message.content)
+                Text(isUser ? message.content : parsed.message)
                     .font(BeagleFont.body.font)
                     .foregroundStyle(isUser ? BeagleTheme.textPrimary : BeagleTheme.companionInk)
                     .textSelection(.enabled)

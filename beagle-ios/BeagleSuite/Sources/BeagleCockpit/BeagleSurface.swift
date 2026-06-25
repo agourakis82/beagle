@@ -972,6 +972,11 @@ struct BeagleSurface: View {
         #if canImport(FoundationModels)
         if #available(iOS 26, macOS 26, visionOS 26, *) {
             FoundationModelsAgent.shared.configure(cognitive: cognitive, physio: physio)
+            // Light/casual messages answer instantly on-device; deep ones go to the cluster.
+            conversation.fastAvailable = FoundationModelsAgent.shared.isAvailable
+            conversation.fastResponder = { prompt, history in
+                await FoundationModelsAgent.shared.respond(to: prompt, conversationHistory: history)
+            }
         }
         #endif
     }

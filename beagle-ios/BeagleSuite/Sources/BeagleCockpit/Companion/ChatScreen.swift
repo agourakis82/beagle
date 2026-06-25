@@ -116,7 +116,6 @@ public struct ChatScreen: View {
             text: $draft,
             isStreaming: store.isStreaming,
             onSend: send,
-            onAttach: {},   // TODO: multimodal image attach (iOS 27 Foundation Models)
             onVoice: {}     // TODO: voice capture
         )
         .padding(.horizontal, BeagleSpacing.md)
