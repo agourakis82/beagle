@@ -207,3 +207,15 @@ targets:
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access:
           - health-records
+
+# Explicit scheme for the iPhone app so xcodegen always emits it (auto-scheme
+# generation was inconsistent). This is the scheme to build/archive/install.
+schemes:
+  BeagleCockpit:
+    build:
+      targets:
+        BeagleCockpit: all
+    run:
+      config: Debug
+    archive:
+      config: Release
