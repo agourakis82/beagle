@@ -118,6 +118,22 @@ public final class ConversationStore {
     public var noteTakingContext: String? = nil
     public var physioPolicy: PhysioConversationPolicy? = nil
 
+    /// Demo seed for screenshots/previews — a warm, attuned sample exchange. No-op if the
+    /// conversation already has messages.
+    public func seedDemoConversation() {
+        guard messages.isEmpty else { return }
+        messages = [
+            ChatMessage(role: .user, content: "Acordei meio pra baixo hoje, não sei bem por quê."),
+            ChatMessage(role: .assistant,
+                content: "Faz sentido. Você dormiu leve e o coração andou tenso essa noite — às vezes o corpo sente antes da gente entender. Quer me contar como foi a noite?",
+                source: "physiome"),
+            ChatMessage(role: .user, content: "Acho que foi a apresentação de amanhã martelando na cabeça."),
+            ChatMessage(role: .assistant,
+                content: "A gente já passou por isso antes — e você costuma chegar mais inteiro do que imagina. Quer ensaiar o começo comigo agora, ou prefere só descarregar um pouco?",
+                source: "exocortex"),
+        ]
+    }
+
     /// Send a message with HRV-gated routing:
     /// FLOW → cloud (deep reasoning worth the latency)
     /// NORMAL → local MLX (balanced)

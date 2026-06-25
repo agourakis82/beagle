@@ -31,6 +31,11 @@ public struct ChatScreen: View {
             }
             composer
         }
+        .task {
+            if ProcessInfo.processInfo.arguments.contains("--demo-chat") {
+                store.seedDemoConversation()
+            }
+        }
     }
 
     // The opening moment — the companion present and breathing, greeting you. No forms,
@@ -142,7 +147,8 @@ public struct ChatScreen: View {
     /// Body-as-story snapshot. Reads the wired store (flow ← HRV); `--demo` injects a
     /// realistic body state so the attuned greeting renders without live HealthKit (sim).
     private var physioSnapshot: PhysioSnapshot {
-        if ProcessInfo.processInfo.arguments.contains("--demo") {
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--demo") || args.contains("--demo-chat") {
             return PhysioSnapshot(sleepQuality: "light", flow: "STRESS", restingHRElevated: true)
         }
         return PhysioSnapshot(sleepQuality: nil, flow: store.flowState, restingHRElevated: false)
