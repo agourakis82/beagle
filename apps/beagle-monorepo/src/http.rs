@@ -149,16 +149,22 @@ pub fn build_router(state: AppState) -> Router {
         .route("/dev/debate", post(go_deep_debate_handler))
         // Wave 3 — restored reasoning engines
         .route("/dev/quantum-reasoning", post(quantum_reasoning_handler))
-        .route("/dev/adversarial-compete", post(adversarial_compete_handler))
-        .route("/dev/causal/intervention", post(causal_intervention_handler))
+        .route(
+            "/dev/adversarial-compete",
+            post(adversarial_compete_handler),
+        )
+        .route(
+            "/dev/causal/intervention",
+            post(causal_intervention_handler),
+        )
         .route(
             "/api/worldmodel/counterfactual",
             post(worldmodel_counterfactual_handler),
         )
-        .route(
-            "/api/hyperedges",
-            get(hyperedges_list_handler).post(hyperedges_create_handler),
-        )
+        // NOTE: `/api/hyperedges` (GET+POST) is registered in
+        // http_exocortex::exocortex_routes() (merged above), grouped with the
+        // cognitive-playground routes. It was duplicated here by the Wave 3 commit
+        // (6c2c7b68); axum panics at startup on the overlap, so this copy is removed.
         .route("/api/v1/feedback", post(feedback_handler))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -1135,9 +1141,9 @@ async fn pcs_reason_handler(
 
     // Parse the model's JSON answer. Tolerate fenced code blocks / surrounding prose by
     // extracting the first JSON object.
-    let diagnosis = parse_first_json_object(&text).unwrap_or_else(|| {
-        serde_json::json!({ "raw": text, "parse_error": "model did not return strict JSON" })
-    });
+    let diagnosis = parse_first_json_object(&text).unwrap_or_else(
+        || serde_json::json!({ "raw": text, "parse_error": "model did not return strict JSON" }),
+    );
 
     let confidence = diagnosis
         .get("confidence")
@@ -1444,13 +1450,10 @@ async fn serendipity_discover_handler(
         Some(url) => beagle_llm::embedding::EmbeddingClient::new(url),
         None => beagle_llm::embedding::EmbeddingClient::default(),
     };
-    let embedding_vec = embed_client
-        .embed(&req.focus_project)
-        .await
-        .map_err(|e| {
-            error!("Serendipity embedding failed: {}", e);
-            StatusCode::BAD_GATEWAY
-        })?;
+    let embedding_vec = embed_client.embed(&req.focus_project).await.map_err(|e| {
+        error!("Serendipity embedding failed: {}", e);
+        StatusCode::BAD_GATEWAY
+    })?;
 
     // 2) Build a BeagleContext for the engine. The engine owns an Arc<BeagleContext> and uses it
     //    for the LLM router during exploration/impact assessment. The HTTP state holds the context
@@ -1466,20 +1469,22 @@ async fn serendipity_discover_handler(
     //    future directly. Run it on a dedicated current-thread runtime inside spawn_blocking; the
     //    returned SerendipityResult IS Send, so it crosses back cleanly.
     let focus = req.focus_project.clone();
-    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<beagle_serendipity::SerendipityResult> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        rt.block_on(async move {
-            let engine_ctx = beagle_core::BeagleContext::new(cfg).await?;
-            let engine = beagle_serendipity::SerendipityEngine::new(
-                beagle_serendipity::SerendipityConfig::default(),
-                Arc::new(engine_ctx),
-            );
-            let context_embedding = nalgebra::DVector::from_vec(embedding_vec);
-            engine.inject_serendipity(&focus, context_embedding).await
-        })
-    })
+    let result = tokio::task::spawn_blocking(
+        move || -> anyhow::Result<beagle_serendipity::SerendipityResult> {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+            rt.block_on(async move {
+                let engine_ctx = beagle_core::BeagleContext::new(cfg).await?;
+                let engine = beagle_serendipity::SerendipityEngine::new(
+                    beagle_serendipity::SerendipityConfig::default(),
+                    Arc::new(engine_ctx),
+                );
+                let context_embedding = nalgebra::DVector::from_vec(embedding_vec);
+                engine.inject_serendipity(&focus, context_embedding).await
+            })
+        },
+    )
     .await
     .map_err(|e| {
         error!("Serendipity join error: {}", e);
@@ -1503,9 +1508,7 @@ async fn serendipity_discover_handler(
                 .get("target")
                 .or_else(|| d.context.get("domain"))
                 .cloned()
-                .unwrap_or_else(|| {
-                    d.content.chars().take(80).collect::<String>()
-                });
+                .unwrap_or_else(|| d.content.chars().take(80).collect::<String>());
             let target_project = d
                 .context
                 .get("target_project")
@@ -2342,7 +2345,12 @@ async fn go_deep_debate_handler(
     drop(ctx);
 
     // Map the three opinions to named agents for the iOS TriadResult shape.
-    let find = |agent: &str| report.opinions.iter().find(|o| o.agent.eq_ignore_ascii_case(agent));
+    let find = |agent: &str| {
+        report
+            .opinions
+            .iter()
+            .find(|o| o.agent.eq_ignore_ascii_case(agent))
+    };
     let athena = find("ATHENA");
     let hermes = find("HERMES");
     let argos = find("ARGOS");
@@ -2471,7 +2479,10 @@ async fn quantum_reasoning_handler(
         return Err((StatusCode::BAD_REQUEST, "empty hypotheses".into()));
     }
     if req.hypotheses.len() > 100 {
-        return Err((StatusCode::BAD_REQUEST, "too many hypotheses (max 100)".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "too many hypotheses (max 100)".into(),
+        ));
     }
 
     // Build superposition state with all hypotheses.
@@ -2915,7 +2926,10 @@ fn parse_intervention_freetext(
     // We scan tokens and pair the nearest preceding alphabetic word with each
     // number, choosing SetValue/Shift/Scale from nearby verbs.
     let lower = text.to_lowercase();
-    let tokens: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric() && c != '.' && c != '-').filter(|t| !t.is_empty()).collect();
+    let tokens: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric() && c != '.' && c != '-')
+        .filter(|t| !t.is_empty())
+        .collect();
 
     let mut last_word: Option<String> = None;
     let mut verb_scale = false;
@@ -2946,13 +2960,37 @@ fn parse_intervention_freetext(
                 verb_scale = false;
                 verb_shift = false;
             }
-        } else if tok.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false) {
+        } else if tok
+            .chars()
+            .next()
+            .map(|c| c.is_alphabetic())
+            .unwrap_or(false)
+        {
             // Track candidate variable names (skip common verbs/stopwords).
             if !matches!(
                 *tok,
-                "to" | "by" | "the" | "a" | "of" | "and" | "with" | "for" | "what" | "if"
-                    | "scale" | "multiply" | "increase" | "raise" | "add" | "decrease"
-                    | "reduce" | "lower" | "drop" | "cut" | "double" | "triple" | "boost"
+                "to" | "by"
+                    | "the"
+                    | "a"
+                    | "of"
+                    | "and"
+                    | "with"
+                    | "for"
+                    | "what"
+                    | "if"
+                    | "scale"
+                    | "multiply"
+                    | "increase"
+                    | "raise"
+                    | "add"
+                    | "decrease"
+                    | "reduce"
+                    | "lower"
+                    | "drop"
+                    | "cut"
+                    | "double"
+                    | "triple"
+                    | "boost"
             ) {
                 last_word = Some((*tok).to_string());
             }
@@ -2995,7 +3033,11 @@ fn summarize_world_state(state: &beagle_worldmodel::WorldState) -> String {
         parts.push(format!("{k}={v:.3}"));
     }
     if parts.is_empty() {
-        format!("world state has {} entities, uncertainty {:.3}", state.entities.len(), state.uncertainty)
+        format!(
+            "world state has {} entities, uncertainty {:.3}",
+            state.entities.len(),
+            state.uncertainty
+        )
     } else {
         parts.sort();
         format!(
@@ -3060,8 +3102,8 @@ async fn causal_intervention_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     // Confidence: shrink with the relative uncertainty growth of the cf world.
-    let confidence = (1.0 / (1.0 + (counterfactual.uncertainty - factual.uncertainty).abs()))
-        .clamp(0.0, 1.0);
+    let confidence =
+        (1.0 / (1.0 + (counterfactual.uncertainty - factual.uncertainty).abs())).clamp(0.0, 1.0);
 
     Ok(Json(CausalInterventionResponse {
         outcome: summarize_world_state(&counterfactual),
@@ -3191,7 +3233,10 @@ async fn hyperedges_list_handler(
     let storage = hyperedge_storage().await?;
     let node_filter = match &q.node_id {
         Some(s) => Some(uuid::Uuid::parse_str(s).map_err(|_| {
-            (StatusCode::BAD_REQUEST, format!("invalid node_id uuid: {s}"))
+            (
+                StatusCode::BAD_REQUEST,
+                format!("invalid node_id uuid: {s}"),
+            )
         })?),
         None => None,
     };
@@ -3201,7 +3246,11 @@ async fn hyperedges_list_handler(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    info!("📐 Listed {} hyperedges (node={:?})", edges.len(), q.node_id);
+    info!(
+        "📐 Listed {} hyperedges (node={:?})",
+        edges.len(),
+        q.node_id
+    );
     Ok(Json(edges.iter().map(hyperedge_to_json).collect()))
 }
 
@@ -3224,13 +3273,22 @@ async fn hyperedges_create_handler(
         .node_ids
         .iter()
         .map(|s| {
-            uuid::Uuid::parse_str(s)
-                .map_err(|_| (StatusCode::BAD_REQUEST, format!("invalid node_id uuid: {s}")))
+            uuid::Uuid::parse_str(s).map_err(|_| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("invalid node_id uuid: {s}"),
+                )
+            })
         })
         .collect::<Result<_, _>>()?;
 
-    let edge = Hyperedge::new(req.label.clone(), node_ids, req.directed, "beagle-core".to_string())
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let edge = Hyperedge::new(
+        req.label.clone(),
+        node_ids,
+        req.directed,
+        "beagle-core".to_string(),
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     let storage = hyperedge_storage().await?;
     let created = storage
@@ -3238,7 +3296,10 @@ async fn hyperedges_create_handler(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    info!("📐 Created hyperedge {} '{}'", created.id, created.edge_type);
+    info!(
+        "📐 Created hyperedge {} '{}'",
+        created.id, created.edge_type
+    );
     Ok(Json(hyperedge_to_json(&created)))
 }
 
