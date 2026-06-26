@@ -1,4 +1,9 @@
 model_list:
+- model_name: qwq
+  litellm_params:
+    model: openai/qwq:32b
+    api_base: http://192.168.3.24:11434/v1
+    api_key: noauth
 - model_name: qwen2.5-14b
   litellm_params:
     model: openai/qwen2.5:14b
@@ -7,8 +12,8 @@ model_list:
     rpm: 600
 - model_name: qwen2.5-coder-32b
   litellm_params:
-    model: openai/qwen2.5-coder-32b
-    api_base: http://vllm.vllm-coder-rtx8000.svc.cluster.local:8000/v1
+    model: openai/qwen2.5-coder:32b
+    api_base: http://192.168.3.24:11434/v1
     api_key: noauth
     rpm: 400
 - model_name: chat-fast
@@ -18,29 +23,29 @@ model_list:
     api_key: noauth
 - model_name: code
   litellm_params:
-    model: openai/qwen2.5-coder-32b
-    api_base: http://vllm.vllm-coder-rtx8000.svc.cluster.local:8000/v1
+    model: openai/qwen2.5-coder:32b
+    api_base: http://192.168.3.24:11434/v1
     api_key: noauth
 - model_name: phi4-reasoning
   litellm_params:
-    model: openai/phi4-reasoning
-    api_base: http://vllm.vllm-phi4-rtx8000.svc.cluster.local:8000/v1
-    api_key: noauth
+    model: openai/glm-5.2
+    api_base: https://api.z.ai/api/coding/paas/v4
+    api_key: os.environ/ZAI_API_KEY
 - model_name: science
   litellm_params:
-    model: openai/phi4-reasoning
-    api_base: http://vllm.vllm-phi4-rtx8000.svc.cluster.local:8000/v1
-    api_key: noauth
+    model: openai/glm-5.2
+    api_base: https://api.z.ai/api/coding/paas/v4
+    api_key: os.environ/ZAI_API_KEY
 - model_name: r1-distill-70b
   litellm_params:
-    model: openai/r1-distill-70b
-    api_base: http://vllm.vllm-r1-rtx8000.svc.cluster.local:8000/v1
-    api_key: noauth
+    model: openai/glm-5.2
+    api_base: https://api.z.ai/api/coding/paas/v4
+    api_key: os.environ/ZAI_API_KEY
 - model_name: olmo3-think
   litellm_params:
-    model: openai/olmo3-think
-    api_base: http://vllm.vllm-olmo3-rtx8000.svc.cluster.local:8000/v1
-    api_key: noauth
+    model: openai/glm-5.2
+    api_base: https://api.z.ai/api/coding/paas/v4
+    api_key: os.environ/ZAI_API_KEY
 - model_name: hermes-4
   litellm_params:
     model: openai/hermes-4
@@ -221,6 +226,8 @@ router_settings:
   - deepseek-chat:
     - minimax-m3
   - deepseek-reasoner:
+    - glm-5.2
+  - qwq:
     - glm-5.2
 litellm_settings:
   drop_params: true
