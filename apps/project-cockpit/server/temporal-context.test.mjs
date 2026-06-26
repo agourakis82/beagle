@@ -88,3 +88,12 @@ test("I1: stampMemories caps very long snippets", () => {
   assert.ok(out[0].length < 700, `capped (got ${out[0].length})`);
   assert.ok(out[0].endsWith("…"), "ellipsis appended");
 });
+
+test("M1: short gap across local midnight is 'há poucas horas', not 'ontem'", () => {
+  // 23h44 seen from 00h30 (46 min, crossed midnight) — not really yesterday
+  assert.equal(relativeTime(at("2026-06-26T23:44:00-03:00"), at("2026-06-27T00:30:00-03:00"), TZ), "há poucas horas");
+  // 22h seen from 02h (4h, crossed midnight) — still not 'ontem'
+  assert.equal(relativeTime(at("2026-06-26T22:00:00-03:00"), at("2026-06-27T02:00:00-03:00"), TZ), "há poucas horas");
+  // a genuine day-ish gap across midnight stays 'ontem' (>= 6h)
+  assert.equal(relativeTime(at("2026-06-26T10:00:00-03:00"), at("2026-06-27T10:00:00-03:00"), TZ), "ontem");
+});

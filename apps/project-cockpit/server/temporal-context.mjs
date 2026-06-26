@@ -47,6 +47,9 @@ export function relativeTime(from, to, tz = "UTC") {
   if (deltaMs < 45 * 60 * 1000) return "agora há pouco";
   const days = localDayNumber(to, tz) - localDayNumber(from, tz);
   if (days <= 0) return "hoje " + HOJE_PREP[parteDoDia(localParts(from, tz).hour)];
+  // A short gap that merely crossed local midnight isn't really "ontem" (e.g. 23h44
+  // seen from 00h30). Only call it "ontem" once the gap is genuinely a day-ish.
+  if (days === 1 && deltaMs < 6 * 60 * 60 * 1000) return "há poucas horas";
   if (days === 1) return "ontem";
   if (days < 7) return `há ${days} dias`;
   if (days < 14) return "semana passada";
