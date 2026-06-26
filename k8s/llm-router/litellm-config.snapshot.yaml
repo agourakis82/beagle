@@ -122,8 +122,9 @@ model_list:
     rpm: 300
 - model_name: chat
   litellm_params:
-    model: deepseek/deepseek-chat
-    api_key: os.environ/DEEPSEEK_API_KEY
+    model: openai/MiniMax-M3
+    api_base: https://api.minimax.io/v1
+    api_key: os.environ/MINIMAX_API_KEY
 - model_name: kimi-k2.7
   litellm_params:
     model: openai/kimi-for-coding
@@ -180,43 +181,47 @@ router_settings:
   cooldown_time: 30
   fallbacks:
   - qwen2.5-14b:
-    - deepseek-chat
+    - minimax-m3
   - chat-fast:
-    - deepseek-chat
+    - minimax-m3
   - code:
-    - deepseek-chat
+    - minimax-m3
   - qwen2.5-coder-32b:
-    - deepseek-chat
+    - minimax-m3
   - hermes-4:
-    - deepseek-chat
+    - minimax-m3
   - mind:
-    - deepseek-chat
+    - minimax-m3
   - hunyuan-7b:
-    - deepseek-chat
+    - minimax-m3
   - phi4-reasoning:
-    - deepseek-reasoner
+    - glm-5.2
   - science:
-    - deepseek-reasoner
+    - glm-5.2
   - r1-distill-70b:
-    - deepseek-reasoner
+    - glm-5.2
   - olmo3-think:
-    - deepseek-reasoner
+    - glm-5.2
   - med:
     - minimax-m3
   - baichuan-m2-med:
     - minimax-m3
   - kimi-k2.7:
-    - deepseek-chat
+    - minimax-m3
   - kimi-k2.6:
-    - deepseek-chat
+    - minimax-m3
   - glm-5.2:
     - glm-4.7
   - glm-5.1:
-    - deepseek-chat
+    - minimax-m3
   - glm-4.7:
-    - deepseek-chat
+    - minimax-m3
   - glm:
-    - deepseek-chat
+    - minimax-m3
+  - deepseek-chat:
+    - minimax-m3
+  - deepseek-reasoner:
+    - glm-5.2
 litellm_settings:
   drop_params: true
   set_verbose: false
