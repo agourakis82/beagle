@@ -1131,7 +1131,8 @@ public actor BeagleClient {
         publicationScope: PublicationScope? = nil,
         discussionProfile: DiscussionProfile = .cluster,
         flowState: String? = nil,
-        physioPolicy: PhysioConversationPolicy? = nil
+        physioPolicy: PhysioConversationPolicy? = nil,
+        lastContactAt: Date? = nil
     ) async -> Truthful<ChatResponse> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1155,8 +1156,15 @@ public actor BeagleClient {
             "discussionProfile": discussionProfile.rawValue,
             // The companion's voice = the personal Muse+Voice dyadic ensemble, grounded in
             // the user's living biography + physiome (the "acoplamento diádico").
-            "space": "personal"
+            "space": "personal",
+            // Real-time awareness: the companion's "now" is the user's device clock + zone,
+            // so it knows it's late *for him* and (with lastContactAt) how long since they talked.
+            "clientTime": ISO8601DateFormatter().string(from: Date()),
+            "timezone": TimeZone.current.identifier
         ]
+        if let lastContactAt {
+            body["lastContactAt"] = ISO8601DateFormatter().string(from: lastContactAt)
+        }
         if let flowState, !flowState.isEmpty {
             body["flow_state"] = flowState
         }
@@ -1253,7 +1261,8 @@ public actor BeagleClient {
         publicationScope: PublicationScope? = nil,
         discussionProfile: DiscussionProfile = .cluster,
         flowState: String? = nil,
-        physioPolicy: PhysioConversationPolicy? = nil
+        physioPolicy: PhysioConversationPolicy? = nil,
+        lastContactAt: Date? = nil
     ) async -> Truthful<ChatResponse> {
         await llmComplete(
             prompt: prompt,
@@ -1263,7 +1272,8 @@ public actor BeagleClient {
             publicationScope: publicationScope,
             discussionProfile: discussionProfile,
             flowState: flowState,
-            physioPolicy: physioPolicy
+            physioPolicy: physioPolicy,
+            lastContactAt: lastContactAt
         )
     }
 

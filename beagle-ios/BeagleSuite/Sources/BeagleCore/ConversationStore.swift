@@ -76,6 +76,10 @@ public final class ConversationStore {
     public private(set) var isStreaming: Bool = false
     public private(set) var autoImportState: ConversationAutoImportState = .idle
 
+    /// When the user last sent a cloud message — the client owns the thread, so it sends
+    /// this so the companion knows how long since they last talked (temporal awareness).
+    private var lastContactAt: Date?
+
     /// Whether to prefer on-device model when available.
     public var preferLocal: Bool = true
     public var autoImportsConversationMemory: Bool = true
@@ -309,6 +313,12 @@ public final class ConversationStore {
         messages.append(placeholder)
         isStreaming = true
 
+        // Temporal awareness: send the previous contact time (the client owns the thread),
+        // then stamp this exchange as the new "last contact" for the next turn. First send →
+        // previousContact == nil → the server frames it as a first contact.
+        let previousContact = lastContactAt
+        lastContactAt = Date()
+
         let result = await client.chat(
             prompt: contextualPrompt,
             system: activeSystemInstruction,
@@ -317,7 +327,8 @@ public final class ConversationStore {
             publicationScope: publicationScope,
             discussionProfile: discussionProfile,
             flowState: flowState,
-            physioPolicy: physioPolicy
+            physioPolicy: physioPolicy,
+            lastContactAt: previousContact
         )
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
