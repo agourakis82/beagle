@@ -1,0 +1,87 @@
+# kaniko build of the memory-pg embed-worker image.
+#
+# Phase 1, Task 1.4. Mirrors k8s/memory-pg/build-job.yaml (the Phase 0 Postgres
+# image build): an initContainer git-clones branch feat/memory-pg into an
+# emptyDir, then kaniko builds apps/memory-pg/Dockerfile with --context=dir://.
+#
+# The branch (with apps/memory-pg/Dockerfile) MUST be pushed to origin before
+# applying this job.
+# Destination: 192.168.3.207:5003/memory-pg-embed-worker:v1
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: memory-pg-embed-worker-build
+  namespace: beagle
+  labels:
+    app: memory-pg
+    component: embed-worker
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: memory-pg
+        component: embed-worker
+    spec:
+      nodeSelector:
+        sounio.dev/runtime-role: cluster-core
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      restartPolicy: Never
+      initContainers:
+        - name: clone
+          image: alpine/git:latest
+          env:
+            - name: BEAGLE_GIT_BRANCH
+              value: feat/memory-pg
+          command:
+            - /bin/sh
+            - -lc
+            - git clone --depth=1 --branch="${BEAGLE_GIT_BRANCH:-main}" https://github.com/agourakis82/beagle.git /workspace
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - "--dockerfile=/workspace/apps/memory-pg/Dockerfile"
+            - "--context=dir:///workspace"
+            - "--destination=192.168.3.207:5003/memory-pg-embed-worker:v1"
+            - "--insecure-registry=192.168.3.207:5003"
+            - "--cache=false"
+            - "--snapshot-mode=redo"
+            - "--verbosity=info"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 6Gi
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 3Gi

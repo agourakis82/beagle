@@ -39,6 +39,16 @@ MAX_WINDOWS_PER_TURN = int(os.getenv("BEAGLE_MEMORY_MAX_WINDOWS_PER_TURN", "64")
 MANIFEST_NAME = "semantic_index_manifest.json"
 # Max ids per "canonical_id IN (...)" delete statement so a huge stale set is batched.
 DELETE_BATCH_SIZE = 500
+# Memory-bounded index build: embed + write to LanceDB in batches of this many rows so peak
+# memory is ~one batch of multivector embeddings, not the whole corpus at once. This is what
+# lets a rebuild of tens of thousands of rows complete without OOM.
+BUILD_BATCH_SIZE = int(os.getenv("BEAGLE_MEMORY_BUILD_BATCH", "1000"))
+
+
+def _chunked(seq: list[Any], size: int):
+    size = max(1, size)
+    for start in range(0, len(seq), size):
+        yield seq[start : start + size]
 
 
 def load_json(path: str) -> dict[str, Any]:
@@ -240,12 +250,77 @@ def collect_candidates(export: dict[str, Any]) -> tuple[list[dict[str, Any]], in
     return candidates, restricted_count
 
 
+def iter_candidates(export_path: str, stats: dict[str, int] | None = None):
+    """Streaming twin of collect_candidates: parse the export file incrementally with ijson and
+    YIELD candidate dicts one at a time (passage expansion included), so the full corpus is never
+    resident. Byte-identical rows to collect_candidates. `stats["restricted_excluded"]` is
+    incremented for skipped restricted records when a stats dict is passed."""
+    import ijson  # local import: only the rebuild path needs it
+    sources = [
+        ("episodes", "MemoryEpisode"),
+        ("atoms", "MemoryAtom"),
+        ("worlds", "MemoryWorld"),
+        ("passages", "ConversationPassage"),
+    ]
+    for field, kind in sources:
+        with open(export_path, "rb") as handle:
+            # use_float=True: ijson defaults to Decimal for numbers, which json.dumps() cannot
+            # serialize (provenance/source_refs often carry numbers) -> the worker died with
+            # "Object of type Decimal is not JSON serializable" on the real export. With
+            # use_float=True, ints stay int and reals become float, matching json.load() exactly.
+            for item in ijson.items(handle, f"{field}.item", use_float=True):
+                privacy = str(item.get("privacy_class") or "sensitive").lower()
+                if privacy == "restricted":
+                    if stats is not None:
+                        stats["restricted_excluded"] = stats.get("restricted_excluded", 0) + 1
+                    continue
+                if kind == "ConversationPassage":
+                    yield from collect_passage_records(item, privacy)
+                    continue
+                text = record_text(item, kind)
+                if not text.strip():
+                    continue
+                canonical_id = str(item.get("id") or item.get("source_ref") or text_hash(text))
+                yield {
+                    "canonical_id": canonical_id,
+                    "kind": kind,
+                    "content_hash": str(item.get("content_hash") or text_hash(text)),
+                    "privacy_class": privacy,
+                    "source_refs": json.dumps(item.get("source_refs") or [], ensure_ascii=False),
+                    "chronoself_commit": str(item.get("chronoself_commit") or ""),
+                    "provenance": json.dumps(item.get("provenance") or {}, ensure_ascii=False, sort_keys=True),
+                    "occurred_at": str(item.get("occurred_at") or item.get("created_at") or ""),
+                    "text": text[:12000],
+                }
+
+
 def encode_row(row: dict[str, Any], encoder: ColbertEncoder) -> dict[str, Any]:
-    """Fill in the embedding fields ("mv", "embedding_backend") on a candidate row in place and
-    return it. Only called for rows that are actually being (re)indexed."""
-    row["mv"] = encoder.encode(row["text"], is_query=False)
-    row["embedding_backend"] = encoder.backend
-    return row
+    """Return a NEW embedded row dict (candidate fields + "mv" + "embedding_backend").
+    Non-mutating by design: the source candidate stays text-only so that embedded rows are
+    transient and freed after each write batch (bounds peak memory). Only called for rows
+    that are actually being (re)indexed."""
+    return {
+        **row,
+        "mv": encoder.encode(row["text"], is_query=False),
+        "embedding_backend": encoder.backend,
+    }
+
+
+# Embedding is the rebuild bottleneck: one HTTP call to the TEI embedder per row. The calls are
+# I/O-bound and the embedder (bge-m3 TEI) handles concurrency, so fan them out across a thread
+# pool. EMBED_CONCURRENCY=1 restores the old sequential behavior.
+EMBED_CONCURRENCY = int(os.getenv("BEAGLE_MEMORY_EMBED_CONCURRENCY", "8"))
+
+
+def encode_rows(rows: list[dict[str, Any]], encoder: ColbertEncoder) -> list[dict[str, Any]]:
+    """Embed a batch of candidate rows, in parallel when EMBED_CONCURRENCY>1. Order is preserved
+    (ThreadPoolExecutor.map), so the written rows line up with their candidates."""
+    if EMBED_CONCURRENCY <= 1 or len(rows) <= 1:
+        return [encode_row(r, encoder) for r in rows]
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=EMBED_CONCURRENCY) as pool:
+        return list(pool.map(lambda r: encode_row(r, encoder), rows))
 
 
 def collect_passage_records(
@@ -355,13 +430,38 @@ def _sql_quote(value: str) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
+def optimize_table_guarded(table: Any) -> str:
+    """Compact data fragments + prune old versions so the table can't bloat over many rebuilds
+    (LanceDB keeps every version for time-travel; without this they accumulate into tens of GB and
+    thousands of manifests, which is what OOM'd reindex). Requires the lance native lib (pylance);
+    skips gracefully — logging to stderr — if it's not in the image, so a rebuild never fails on it."""
+    import datetime as _dt
+    try:
+        table.optimize(cleanup_older_than=_dt.timedelta(seconds=0), delete_unverified=True)
+        return "optimized"
+    except TypeError:
+        # Older/newer signature without delete_unverified.
+        try:
+            table.optimize(cleanup_older_than=_dt.timedelta(seconds=0))
+            return "optimized"
+        except Exception as exc:
+            sys.stderr.write(f"[semantic_backbone] optimize skipped: {type(exc).__name__}:{exc}\n")
+            return f"optimize-skipped:{type(exc).__name__}"
+    except Exception as exc:
+        sys.stderr.write(f"[semantic_backbone] optimize skipped: {type(exc).__name__}:{exc}\n")
+        return f"optimize-skipped:{type(exc).__name__}"
+
+
 def rebuild(args: argparse.Namespace) -> dict[str, Any]:
     started = time.time()
-    export = load_json(args.export)
     encoder = ColbertEncoder(args.model)
-    candidates, restricted_excluded_count = collect_candidates(export)
-    cur = {c["canonical_id"]: c["content_hash"] for c in candidates}
     table_name = args.table
+    # Pass 1 (streaming): build the lean id->hash manifest only — never hold the corpus content.
+    stats = {"restricted_excluded": 0}
+    cur: dict[str, str] = {}
+    for c in iter_candidates(args.export, stats):
+        cur[c["canonical_id"]] = c["content_hash"]
+    restricted_excluded_count = stats["restricted_excluded"]
 
     force_full = getattr(args, "full", False)
     manifest_path = args.lancedb_path
@@ -376,7 +476,8 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
     deleted = 0
     skipped = 0
     rebuild_mode = "full"
-    row_count = len(candidates)
+    optimize_status = "not-run"
+    row_count = len(cur)
 
     def create_index_guarded(table: Any) -> None:
         """Build the ANN index after writes; small/old tables may skip it (kept from prior code)."""
@@ -390,13 +491,33 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
             index_ready = False
 
     def full_overwrite(db: Any) -> Any:
-        """Encode every candidate and overwrite the whole table."""
+        """Encode + overwrite the whole table, streaming pass-2 so peak memory is ~one batch."""
         nonlocal added, deleted, skipped
-        rows_all = [encode_row(c, encoder) for c in candidates]
-        table = db.create_table(table_name, data=rows_all, schema=arrow_schema(), mode="overwrite")
-        added = len(rows_all)
         deleted = 0
         skipped = 0
+        table = None
+        written = 0
+        batch: list[dict[str, Any]] = []
+        def flush():
+            nonlocal table, written, batch
+            if not batch:
+                return
+            rows = encode_rows(batch, encoder)
+            if table is None:
+                table = db.create_table(table_name, data=rows, schema=arrow_schema(), mode="overwrite")
+            else:
+                table.add(rows)
+            written += len(rows)
+            rows = None
+            batch = []
+        for c in iter_candidates(args.export):
+            batch.append(c)
+            if len(batch) >= BUILD_BATCH_SIZE:
+                flush()
+        flush()
+        if table is None:  # empty corpus
+            table = db.create_table(table_name, data=[], schema=arrow_schema(), mode="overwrite")
+        added = written
         return table
 
     try:
@@ -407,24 +528,36 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
         if incremental:
             try:
                 table = db.open_table(table_name)
-                to_upsert = [c for c in candidates if prev.get(c["canonical_id"]) != c["content_hash"]]
+                to_upsert_ids = {cid for cid, h in cur.items() if prev.get(cid) != h}
                 stale = [cid for cid in prev if cid not in cur]
-                rows = [encode_row(c, encoder) for c in to_upsert]
                 if stale:
                     for start in range(0, len(stale), DELETE_BATCH_SIZE):
-                        batch = stale[start : start + DELETE_BATCH_SIZE]
-                        in_list = ", ".join(_sql_quote(cid) for cid in batch)
+                        chunk = stale[start : start + DELETE_BATCH_SIZE]
+                        in_list = ", ".join(_sql_quote(cid) for cid in chunk)
                         table.delete(f"canonical_id IN ({in_list})")
-                if rows:
-                    (
-                        table.merge_insert("canonical_id")
+                upserted = 0
+                batch: list[dict[str, Any]] = []
+                def flush_upsert():
+                    nonlocal upserted, batch
+                    if not batch:
+                        return
+                    rows = encode_rows(batch, encoder)
+                    (table.merge_insert("canonical_id")
                         .when_matched_update_all()
                         .when_not_matched_insert_all()
-                        .execute(rows)
-                    )
-                added = len(rows)
+                        .execute(rows))
+                    upserted += len(rows)
+                    rows = None
+                    batch = []
+                for c in iter_candidates(args.export):
+                    if c["canonical_id"] in to_upsert_ids:
+                        batch.append(c)
+                        if len(batch) >= BUILD_BATCH_SIZE:
+                            flush_upsert()
+                flush_upsert()
+                added = upserted
                 deleted = len(stale)
-                skipped = len(candidates) - len(to_upsert)
+                skipped = len(cur) - len(to_upsert_ids)
                 rebuild_mode = "incremental"
                 worker_status = "native-incremental"
                 create_index_guarded(table)
@@ -450,6 +583,8 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
             row_count = table.count_rows()
             native_lancedb = True
 
+        # Compact + prune so the table can't bloat over many rebuilds (the OOM root cause).
+        optimize_status = optimize_table_guarded(table)
         # Record the new indexed state so the next rebuild can diff against it.
         write_manifest(manifest_path, cur)
     except Exception as exc:
@@ -458,26 +593,27 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
             error = f"{error}; native_lancedb_unavailable:{type(exc).__name__}:{exc}"
         else:
             error = f"native_lancedb_unavailable:{type(exc).__name__}:{exc}"
-        # JSONL fallback needs every embedding, so encode ALL candidates here.
-        fallback_rows = [encode_row(c, encoder) for c in candidates]
+        # JSONL fallback needs every embedding. Encode + stream to file in batches so we never
+        # hold every embedding in memory at once.
         fallback_path = Path(args.lancedb_path) / "semantic_records.jsonl"
         Path(args.lancedb_path).mkdir(parents=True, exist_ok=True)
+        written = 0
         with fallback_path.open("w", encoding="utf-8") as handle:
-            for row in fallback_rows:
+            for c in iter_candidates(args.export):
+                row = encode_row(c, encoder)
                 # Persist the FULL row INCLUDING "mv" (the embeddings) so the pure-Python query
-                # fallback can score without native LanceDB. (Previously mv was dropped, leaving the
-                # JSONL unsearchable.)
-                record = dict(row)
-                record["vector_count"] = len(row.get("mv") or [])
-                record["vector_dim"] = DIM
-                json.dump(record, handle, ensure_ascii=False, sort_keys=True)
+                # fallback can score without native LanceDB.
+                row["vector_count"] = len(row.get("mv") or [])
+                row["vector_dim"] = DIM
+                json.dump(row, handle, ensure_ascii=False, sort_keys=True)
                 handle.write("\n")
+                written += 1
         worker_status = "jsonl-fallback"
         rebuild_mode = "full"
-        added = len(fallback_rows)
+        added = written
         deleted = 0
         skipped = 0
-        row_count = len(fallback_rows)
+        row_count = written
 
     payload = {
         "status": "indexed-native-multivector" if native_lancedb else worker_status,
@@ -488,6 +624,7 @@ def rebuild(args: argparse.Namespace) -> dict[str, Any]:
         "deleted": deleted,
         "skipped": skipped,
         "rebuild_mode": rebuild_mode,
+        "optimize_status": optimize_status,
         "index_ready": index_ready,
         "maxsim_ready": native_lancedb and row_count > 0,
         "embedding_backend": encoder.backend,

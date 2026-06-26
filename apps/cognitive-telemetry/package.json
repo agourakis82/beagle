@@ -1,0 +1,10 @@
+{
+  "name": "cognitive-telemetry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tapestry Phase B — sovereign cognitive telemetry pipeline: dyadic conversations -> bge-m3 embeddings + affect proxy -> functor F (via souc, bit-exact) -> exocortex cognitive-telemetry stream.",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

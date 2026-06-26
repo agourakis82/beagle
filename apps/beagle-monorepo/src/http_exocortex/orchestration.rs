@@ -101,15 +101,11 @@ fn profile_query(profile_id: &str, content: Option<&str>) -> String {
             "recent cluster operations, infrastructure decisions, and configuration changes"
                 .to_string()
         }
-        "grok" => {
-            "recent research claims, scientific findings, and epistemic notes".to_string()
-        }
+        "grok" => "recent research claims, scientific findings, and epistemic notes".to_string(),
         "kimi" => {
             "recent long-context analysis, document summaries, and extracted facts".to_string()
         }
-        "codex" => {
-            "recent code reviews, refactoring decisions, and API design notes".to_string()
-        }
+        "codex" => "recent code reviews, refactoring decisions, and API design notes".to_string(),
         _ => "recent knowledge artifacts, claims, and decisions".to_string(),
     }
 }

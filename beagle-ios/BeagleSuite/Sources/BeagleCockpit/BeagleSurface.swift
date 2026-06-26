@@ -81,11 +81,10 @@ struct BeagleSurface: View {
             metacognitiveNudgeLayer
             serendipityLayer
 
-            exocortexHomeCard
-                .padding(.horizontal, BeagleSpacing.lg)
-                .padding(.bottom, BeagleSpacing.sm)
-
-            ConversationView(conversation: conversation, onRefresh: refreshLivingHome)
+            // Chat-first companion surface: the conversation is the hero, full-height
+            // over the living mesh. (The exocortex home card is retired from this surface
+            // — it can return as a collapsible header or a separate view later.)
+            ChatScreen(store: conversation, breathRate: physio.cognitivePosture.respiratoryRate)
         }
     }
 
@@ -862,7 +861,7 @@ struct BeagleSurface: View {
                         .font(BeagleFont.caption.font)
                         .fontWeight(.medium)
                 }
-                .foregroundStyle(BeagleTheme.truthObserved)
+                .foregroundStyle(BeagleTheme.textTertiary)  // recede — the companion leads
             }
             .buttonStyle(.plain)
 
@@ -965,12 +964,22 @@ struct BeagleSurface: View {
             else if r < 0.3 { conversation.flowState = "STRESS" }
             else { conversation.flowState = "NORMAL" }
         }
+        // Real sleep → the attuned body-as-story greeting (no metrics surfaced).
+        conversation.sleepQuality01 = physio.cognitivePosture.sleepQuality
         conversation.loadPersistedConversation()
 
         // Configure Foundation Models with stores
         #if canImport(FoundationModels)
         if #available(iOS 26, macOS 26, visionOS 26, *) {
             FoundationModelsAgent.shared.configure(cognitive: cognitive, physio: physio)
+            // On-device Apple Intelligence (~3B) is too weak for the companion's voice —
+            // the richness IS the companion. Route EVERYTHING to the cluster (GLM). The
+            // ~14s latency is covered by the typing indicator. (Fast path kept for a future
+            // faster-but-capable model.)
+            conversation.fastAvailable = false
+            conversation.fastResponder = { prompt, history in
+                await FoundationModelsAgent.shared.respond(to: prompt, conversationHistory: history)
+            }
         }
         #endif
     }

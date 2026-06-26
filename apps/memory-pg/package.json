@@ -1,0 +1,14 @@
+{
+  "name": "memory-pg",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reliable memory pipeline service: capture -> outbox -> embed -> retrieve+rerank+graph on beagle-pg (Postgres + pgvector + pg_search + AGE).",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/"
+  },
+  "dependencies": {
+    "express": "^4.22.2",
+    "pg": "^8.22.0"
+  }
+}

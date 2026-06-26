@@ -1,0 +1,80 @@
+# memory-pg embed worker Deployment.
+#
+# Phase 1, Task 1.4. The SKIP-LOCKED outbox drainer: polls pending_embeddings,
+# embeds chunks via the sovereign TEI bge-m3 service, upserts into embeddings,
+# retries with a DLQ. Stateless, single replica (SKIP LOCKED makes it safe to
+# scale, but one suffices at single-user scale). Bounded RAM is the no-OOM proof
+# that replaces the legacy Python subprocess worker.
+#
+# Env:
+#   MEMORY_PG_DSN         <- secret memory-pg / key DATABASE_URL (DSN; never hardcoded)
+#   BEAGLE_TEI_EMBED_URL  -> sovereign bge-m3 embedder (matches beagle-memory-engine)
+#
+# Cluster conventions: tolerations for the tainted compute/gpu-batch nodes,
+# seccompProfile Unconfined (default blocks socketpair -> asyncio/runtime crash).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-pg-embed-worker
+  namespace: beagle
+  labels:
+    app: memory-pg
+    component: embed-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memory-pg
+      component: embed-worker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: memory-pg
+        component: embed-worker
+    spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      tolerations:
+        - effect: NoSchedule
+          key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+        - effect: NoSchedule
+          key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+      containers:
+        - name: embed-worker
+          image: 192.168.3.207:5003/memory-pg-embed-worker:v1
+          imagePullPolicy: IfNotPresent
+          env:
+            # DSN from the out-of-band memory-pg secret (DATABASE_URL key).
+            - name: MEMORY_PG_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: memory-pg
+                  key: DATABASE_URL
+            # Sovereign bge-m3 embedder — same endpoint beagle-memory-engine uses.
+            - name: BEAGLE_TEI_EMBED_URL
+              value: http://beagle-sovereign-embeddings.beagle.svc.cluster.local:80/embed
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            # node:20-slim's `node` user is uid 1000; specify it numerically so
+            # the kubelet can verify runAsNonRoot (a named user can't be checked).
+            runAsUser: 1000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi

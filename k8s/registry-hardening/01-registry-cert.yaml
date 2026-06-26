@@ -1,0 +1,49 @@
+# Phase 1 — Registry TLS certificate
+# Issues a TLS cert for 192.168.3.207:5003 (and registry.lab.sounio if DNS is added).
+# Backed by the beagle-lab-ca ClusterIssuer from 00-cluster-ca.yaml.
+#
+# Prerequisites:
+#   - 00-cluster-ca.yaml is applied and beagle-lab-ca Certificate is Ready
+#   - (Optional) dnsmasq on 5860 has registry.lab.sounio → 192.168.3.207
+#
+# Apply:
+#   kubectl apply -f 01-registry-cert.yaml
+#   kubectl wait --for=condition=Ready certificate/registry-tls -n cert-manager --timeout=120s
+#
+# Extract for host deployment:
+#   kubectl get secret registry-tls-secret -n cert-manager \
+#     -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/registry.crt
+#   kubectl get secret registry-tls-secret -n cert-manager \
+#     -o jsonpath='{.data.tls\.key}' | base64 -d > /tmp/registry.key
+#   kubectl get secret registry-tls-secret -n cert-manager \
+#     -o jsonpath='{.data.ca\.crt}'  | base64 -d > /tmp/lab-ca.crt
+#
+# Rollback:
+#   kubectl delete -f 01-registry-cert.yaml
+#   (Registry daemon is not touched; no traffic impact.)
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: registry-tls
+  namespace: cert-manager
+spec:
+  secretName: registry-tls-secret
+  duration: 8760h     # 1 year
+  renewBefore: 720h   # 30 days
+  issuerRef:
+    name: beagle-lab-ca
+    kind: ClusterIssuer
+  commonName: registry.lab.sounio
+  dnsNames:
+    - registry.lab.sounio
+  # Keep the raw IP in the SAN so clients that bypass DNS still work
+  ipAddresses:
+    - 192.168.3.207
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  subject:
+    organizations:
+      - beagle-lab

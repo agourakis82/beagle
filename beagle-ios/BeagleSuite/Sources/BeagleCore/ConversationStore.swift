@@ -112,17 +112,47 @@ public final class ConversationStore {
 
     /// HRV-aware flow state for routing decisions.
     public var flowState: String? = nil
+    /// Last night's sleep quality, 0–1 (deep+REM ratio). Feeds the attuned body-as-story greeting.
+    public var sleepQuality01: Double? = nil
     public var physioContext: String? = nil
     public var companionContext: String? = nil
     public var behaviorContext: String? = nil
     public var noteTakingContext: String? = nil
     public var physioPolicy: PhysioConversationPolicy? = nil
 
+    /// Fast on-device responder (Apple Foundation Models), injected by the app layer
+    /// (BeagleCore can't reach BeagleCockpit). Light/casual messages route here for an
+    /// instant reply; deep ones go to the cloud. Hybrid: on-device for light, cluster for deep.
+    public var fastResponder: ((String, [String]) async -> String?)? = nil
+    public var fastAvailable: Bool = false
+
+    /// Demo seed for screenshots/previews — a warm, attuned sample exchange. No-op if the
+    /// conversation already has messages.
+    public func seedDemoConversation() {
+        guard messages.isEmpty else { return }
+        messages = [
+            ChatMessage(role: .user, content: "Acordei meio pra baixo hoje, não sei bem por quê."),
+            ChatMessage(role: .assistant,
+                content: "Faz sentido. Você dormiu leve e o coração andou tenso essa noite — às vezes o corpo sente antes da gente entender. Quer me contar como foi a noite?",
+                source: "physiome"),
+            ChatMessage(role: .user, content: "Acho que foi a apresentação de amanhã martelando na cabeça."),
+            ChatMessage(role: .assistant,
+                content: "A gente já passou por isso antes — e você costuma chegar mais inteiro do que imagina. Quer ensaiar o começo comigo agora, ou prefere só descarregar um pouco?",
+                source: "exocortex"),
+        ]
+    }
+
     /// Send a message with HRV-gated routing:
     /// FLOW → cloud (deep reasoning worth the latency)
     /// NORMAL → local MLX (balanced)
     /// STRESS → Foundation Models (fast, don't overwhelm)
     public func sendMessage(_ text: String) async {
+        // Light, casual messages → instant on-device Apple Intelligence (when available).
+        // Deep messages → cluster for best reasoning. (Hybrid architecture.)
+        if isLight(text), fastAvailable, fastResponder != nil {
+            await sendMessageFast(text)
+            return
+        }
         switch flowState {
         case "FLOW":
             // Deep focus → use cloud for best reasoning
@@ -142,6 +172,51 @@ public final class ConversationStore {
                 await sendMessageCloud(text)
             }
         }
+    }
+
+    /// A short, casual message worth answering instantly on-device.
+    private func isLight(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).count <= 140
+    }
+
+    /// Instant on-device reply via the injected fast responder (Apple Foundation Models).
+    public func sendMessageFast(_ text: String) async {
+        let history = messages.suffix(8).map { "\($0.role == .user ? "User" : "Assistant"): \($0.content)" }
+        let userMessage = ChatMessage(role: .user, content: text)
+        messages.append(userMessage)
+        persist(message: userMessage)
+
+        let assistantId = UUID()
+        messages.append(ChatMessage(id: assistantId, role: .assistant, content: "", isStreaming: true))
+        isStreaming = true
+
+        let reply = await fastResponder?(text, history) ?? nil
+
+        if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+            if let reply, !reply.isEmpty {
+                messages[idx].model = "apple-intelligence"
+                messages[idx].isLocal = true
+                await revealText(reply, for: assistantId)
+                messages[idx].isStreaming = false
+                persist(message: messages[idx])
+            } else {
+                // On-device came back empty → hand this turn to the cloud on the same bubble.
+                let history2 = messages.dropLast().suffix(10)
+                    .map { "\($0.role == .user ? "User" : "Assistant"): \($0.content)" }
+                    .joined(separator: "\n")
+                let prompt = history2.isEmpty ? text : "\(history2)\nUser: \(text)"
+                let result = await client.chat(prompt: prompt, system: activeSystemInstruction,
+                    projectSlug: projectSlug, projectFamily: projectFamily,
+                    publicationScope: publicationScope, discussionProfile: discussionProfile,
+                    flowState: flowState, physioPolicy: physioPolicy)
+                let full = result.value?.response ?? "Tô meio devagar agora — me dá um instante e tenta de novo?"
+                messages[idx].source = result.value?.source
+                await revealText(full, for: assistantId)
+                messages[idx].isStreaming = false
+                persist(message: messages[idx])
+            }
+        }
+        isStreaming = false
     }
 
     private var activeSystemInstruction: String? {

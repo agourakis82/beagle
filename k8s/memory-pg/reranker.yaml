@@ -1,0 +1,129 @@
+# memory-pg cross-encoder reranker — Phase 2, Task 2.2.
+#
+# Sovereign, on-cluster TEI serving BAAI/bge-reranker-v2-m3 (multilingual, for
+# the PT/EL corpus). This is the second stage after retrieve.mjs's hybrid
+# dense+BM25+RRF first stage: it re-scores the top-k candidates with a cross
+# encoder (query+passage attended jointly) for sharper relevance.
+#
+# Mirrors beagle-sovereign-reranker: same TEI cpu image, same /rerank shape,
+# same tolerations + seccomp Unconfined. Differences: the model id, the names,
+# and an emptyDir model cache (the model ~600MB downloads on first start; an
+# ephemeral cache is fine for a stateless reranker — no PVC contention).
+#
+# TEI auto-detects a reranker (sequence-classification) model from --model-id
+# and exposes POST /rerank {query, texts:[...]} -> [{index, score}, ...].
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-pg-reranker
+  namespace: beagle
+  labels:
+    app: memory-pg
+    component: reranker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memory-pg
+      component: reranker
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: memory-pg
+        component: reranker
+    spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      tolerations:
+        - effect: NoSchedule
+          key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+        - effect: NoSchedule
+          key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+      containers:
+        - name: text-embeddings-inference
+          image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+          imagePullPolicy: IfNotPresent
+          args:
+            - --model-id
+            - BAAI/bge-reranker-v2-m3
+            - --port
+            - "80"
+            - --auto-truncate
+          env:
+            - name: HF_HUB_DISABLE_PROGRESS_BARS
+              value: "1"
+          ports:
+            - containerPort: 80
+              name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            appArmorProfile:
+              type: Unconfined
+            seccompProfile:
+              type: Unconfined
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 90
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 900
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+            limits:
+              cpu: "8"
+              memory: 16Gi
+          volumeMounts:
+            - mountPath: /data
+              name: model-cache
+      volumes:
+        - name: model-cache
+          emptyDir:
+            sizeLimit: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: memory-pg-reranker
+  namespace: beagle
+  labels:
+    app: memory-pg
+    component: reranker
+spec:
+  selector:
+    app: memory-pg
+    component: reranker
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+  type: ClusterIP

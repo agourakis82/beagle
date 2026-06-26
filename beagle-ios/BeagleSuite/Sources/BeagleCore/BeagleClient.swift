@@ -1152,7 +1152,10 @@ public actor BeagleClient {
             "projectSlug": projectSlug,
             "projectFamily": family.rawValue,
             "publicationScope": scope.rawValue,
-            "discussionProfile": discussionProfile.rawValue
+            "discussionProfile": discussionProfile.rawValue,
+            // The companion's voice = the personal Muse+Voice dyadic ensemble, grounded in
+            // the user's living biography + physiome (the "acoplamento diádico").
+            "space": "personal"
         ]
         if let flowState, !flowState.isEmpty {
             body["flow_state"] = flowState

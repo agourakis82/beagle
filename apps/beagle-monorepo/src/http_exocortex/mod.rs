@@ -95,13 +95,28 @@ pub(crate) fn trigger_reindex_debounced() {
             "http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090".to_string()
         });
         let url = format!("{}/v1/index/semantic/rebuild", base.trim_end_matches('/'));
+        // The semantic index is a full_overwrite of the most-recent `limit` SOURCE records, so a
+        // small limit windows older data OUT of the searchable index (canonical store keeps all).
+        // Default high enough to cover the whole corpus cumulatively; tunable without a rebuild as
+        // it grows. The memory-engine rebuild is memory-bounded (batched) + parallel, so a full
+        // rebuild is minutes — fine after the 30s debounce coalesces an ingest burst.
+        let reindex_limit = env::var("BEAGLE_REINDEX_LIMIT")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(1_000_000);
+        // A full-corpus rebuild far exceeds the old 300s; the POST blocks until the rebuild ends,
+        // so give it room. Tunable for very large corpora.
+        let reindex_timeout = env::var("BEAGLE_REINDEX_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(3600);
         let result = async {
             let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(300))
+                .timeout(std::time::Duration::from_secs(reindex_timeout))
                 .build()?;
             client
                 .post(&url)
-                .json(&serde_json::json!({ "limit": 20000 }))
+                .json(&serde_json::json!({ "limit": reindex_limit }))
                 .send()
                 .await
         }
@@ -663,9 +678,92 @@ struct MemoryEngineQueryResponse {
     semantic_results: Vec<MemoryEngineSemanticResult>,
 }
 
+/// Phase 3.3 read cutover: when `BEAGLE_RETRIEVAL_VIA_MEMORY_PG` is on, retrieval
+/// routes to the reliable memory-pg `/query` (hybrid dense+BM25+RRF → rerank)
+/// instead of the legacy memory-engine ColBERT path. Default off — flip only
+/// after the A/B harness shows the new path is at least as good.
+fn retrieval_via_memory_pg() -> bool {
+    env::var("BEAGLE_RETRIEVAL_VIA_MEMORY_PG")
+        .map(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
+        })
+        .unwrap_or(false)
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryPgResult {
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    record_id: Option<String>,
+    #[serde(default)]
+    rerank_score: Option<f64>,
+    #[serde(default)]
+    occurred_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryPgQueryResponse {
+    #[serde(default)]
+    results: Vec<MemoryPgResult>,
+}
+
+/// Map memory-pg `/query` results into the legacy `RecallSource` shape, applying
+/// the same >=40-char text filter and 1-based ranking the memory-engine path
+/// uses, so the cutover is transparent to callers and A/B-comparable.
+fn map_memory_pg_results(results: Vec<MemoryPgResult>, k: usize) -> Vec<RecallSource> {
+    results
+        .into_iter()
+        .filter(|r| r.text.trim().chars().count() >= 40)
+        .take(k)
+        .enumerate()
+        .map(|(i, r)| RecallSource {
+            n: i + 1,
+            text: r.text,
+            date: r.occurred_at,
+            source: r.record_id.unwrap_or_else(|| "memory-pg".to_string()),
+            score: r.rerank_score.unwrap_or(0.0),
+        })
+        .collect()
+}
+
+/// Retrieve from the memory-pg `/query` endpoint. Fail-soft like the legacy path.
+async fn memory_pg_recall(query: &str, k: usize) -> Vec<RecallSource> {
+    let base = env::var("MEMORY_PG_QUERY_URL")
+        .unwrap_or_else(|_| "http://memory-pg-serve.beagle.svc.cluster.local".to_string());
+    let url = format!("{}/query", base.trim_end_matches('/'));
+    let token = env::var("MEMORY_PG_QUERY_TOKEN").unwrap_or_default();
+    let body = serde_json::json!({ "query": query, "k": k });
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let mut rb = client.post(&url).json(&body);
+    if !token.is_empty() {
+        rb = rb.bearer_auth(token);
+    }
+    let resp = match rb.send().await {
+        Ok(r) if r.status().is_success() => r,
+        _ => return Vec::new(),
+    };
+    let parsed: MemoryPgQueryResponse = match resp.json().await {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    map_memory_pg_results(parsed.results, k)
+}
+
 /// Retrieve rich passages from the memory-engine `/v1/query`. Fail-soft: returns an empty
 /// vec on any error so the caller falls back to the local graphrag projection.
 pub(crate) async fn memory_engine_recall(query: &str, scope: &str, k: usize) -> Vec<RecallSource> {
+    // Phase 3.3 cutover: behind the flag, serve retrieval from memory-pg instead.
+    if retrieval_via_memory_pg() {
+        return memory_pg_recall(query, k).await;
+    }
     let base = env::var("BEAGLE_MEMORY_ENGINE_URL").unwrap_or_else(|_| {
         "http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090".to_string()
     });
@@ -4573,6 +4671,69 @@ pub(crate) async fn hyperedges_create_handler(
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn memory_pg_results_map_to_recall_sources_with_parity_filter() {
+        // >=40-char filter + 1-based n + record_id->source + rerank_score->score,
+        // matching the legacy memory-engine mapping so the cutover is transparent.
+        let results = vec![
+            MemoryPgResult {
+                text: "too short".to_string(), // < 40 chars -> filtered out
+                record_id: Some("r-short".to_string()),
+                rerank_score: Some(0.9),
+                occurred_at: None,
+            },
+            MemoryPgResult {
+                text: "a sufficiently long passage of at least forty characters here".to_string(),
+                record_id: Some("r-1".to_string()),
+                rerank_score: Some(0.81),
+                occurred_at: Some("2026-02-02".to_string()),
+            },
+            MemoryPgResult {
+                text: "another long enough passage that clears the forty character bar".to_string(),
+                record_id: None,    // -> defaults to "memory-pg"
+                rerank_score: None, // -> 0.0
+                occurred_at: None,
+            },
+        ];
+        let mapped = map_memory_pg_results(results, 10);
+        assert_eq!(mapped.len(), 2, "short result filtered out");
+        assert_eq!(mapped[0].n, 1);
+        assert_eq!(mapped[0].source, "r-1");
+        assert_eq!(mapped[0].score, 0.81);
+        assert_eq!(mapped[0].date.as_deref(), Some("2026-02-02"));
+        assert_eq!(mapped[1].n, 2);
+        assert_eq!(mapped[1].source, "memory-pg");
+        assert_eq!(mapped[1].score, 0.0);
+    }
+
+    #[test]
+    fn memory_pg_mapping_respects_k() {
+        let results: Vec<MemoryPgResult> = (0..5)
+            .map(|i| MemoryPgResult {
+                text: format!("passage number {i} that is comfortably over forty characters long"),
+                record_id: Some(format!("r-{i}")),
+                rerank_score: Some(1.0 - i as f64 * 0.1),
+                occurred_at: None,
+            })
+            .collect();
+        assert_eq!(map_memory_pg_results(results, 3).len(), 3);
+    }
+
+    #[test]
+    fn retrieval_via_memory_pg_flag_parses() {
+        std::env::remove_var("BEAGLE_RETRIEVAL_VIA_MEMORY_PG");
+        assert!(!retrieval_via_memory_pg());
+        for on in ["1", "true", "On", " TRUE "] {
+            std::env::set_var("BEAGLE_RETRIEVAL_VIA_MEMORY_PG", on);
+            assert!(retrieval_via_memory_pg(), "{on:?} enables");
+        }
+        for off in ["0", "false", ""] {
+            std::env::set_var("BEAGLE_RETRIEVAL_VIA_MEMORY_PG", off);
+            assert!(!retrieval_via_memory_pg(), "{off:?} disables");
+        }
+        std::env::remove_var("BEAGLE_RETRIEVAL_VIA_MEMORY_PG");
+    }
 
     #[test]
     fn repository_appends_commits_and_reads_newest_first() {

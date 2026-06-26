@@ -1,0 +1,53 @@
+# Phase 1 — Cluster CA bootstrap
+# Creates a self-signed root CA and a cert-manager ClusterIssuer backed by it.
+# This is the trust anchor for all internal registry TLS certs.
+#
+# Apply order:
+#   kubectl apply -f 00-cluster-ca.yaml
+#   kubectl wait --for=condition=Ready certificate/beagle-lab-ca -n cert-manager --timeout=120s
+#
+# Rollback:
+#   kubectl delete -f 00-cluster-ca.yaml
+#   (No cluster traffic is affected until nodes trust this CA.)
+
+---
+# Bootstrap issuer (self-signed, used only to sign the root CA cert)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-bootstrap
+spec:
+  selfSigned: {}
+
+---
+# Root CA certificate — stored in cert-manager namespace
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: beagle-lab-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: beagle-lab-ca
+  secretName: beagle-lab-ca-secret
+  duration: 87600h    # 10 years
+  renewBefore: 8760h  # 1 year before expiry
+  privateKey:
+    algorithm: ECDSA
+    size: 384
+  subject:
+    organizations:
+      - beagle-lab
+  issuerRef:
+    name: selfsigned-bootstrap
+    kind: ClusterIssuer
+
+---
+# CA-backed ClusterIssuer — used to issue all internal TLS certs
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: beagle-lab-ca
+spec:
+  ca:
+    secretName: beagle-lab-ca-secret

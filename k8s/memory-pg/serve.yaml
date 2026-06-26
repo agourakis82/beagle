@@ -1,0 +1,137 @@
+# memory-pg retrieval API (Deployment + Service) — Phase 2, Task 2.3.
+#
+# The read side of the reliable memory pipeline: POST /query embeds the query
+# (sovereign bge-m3), runs the hybrid dense+BM25+RRF first stage (retrieve.mjs),
+# reranks with the on-cluster bge-reranker-v2-m3 cross-encoder (rerank.mjs), and
+# returns the top-N. Stateless; reuses the embed-worker image (same app subtree)
+# with a different command (node bin/serve.mjs).
+#
+# Env:
+#   MEMORY_PG_DSN          <- secret memory-pg / DATABASE_URL (DSN; never hardcoded)
+#   BEAGLE_TEI_EMBED_URL   -> sovereign bge-m3 embedder
+#   MEMORY_PG_RERANK_URL   -> on-cluster bge-reranker-v2-m3 TEI base url
+#   MEMORY_PG_QUERY_TOKEN  <- secret memory-pg / QUERY_TOKEN (Bearer; out-of-band).
+#                             If the key is absent the gate is OPEN (dev). Add it
+#                             out-of-band to enable auth:
+#                             kubectl -n beagle patch secret memory-pg \
+#                               --type=merge -p \
+#                               "{\"stringData\":{\"QUERY_TOKEN\":\"<token>\"}}"
+#
+# Cluster conventions: tolerations for the tainted compute/gpu-batch nodes,
+# seccompProfile Unconfined (default blocks socketpair -> runtime crash).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-pg-serve
+  namespace: beagle
+  labels:
+    app: memory-pg
+    component: serve
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memory-pg
+      component: serve
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: memory-pg
+        component: serve
+    spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      tolerations:
+        - effect: NoSchedule
+          key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+        - effect: NoSchedule
+          key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
+      containers:
+        - name: serve
+          image: 192.168.3.207:5003/memory-pg-embed-worker:v1
+          imagePullPolicy: IfNotPresent
+          command: ["node", "bin/serve.mjs"]
+          env:
+            - name: PORT
+              value: "8091"
+            # DSN from the out-of-band memory-pg secret (DATABASE_URL key).
+            - name: MEMORY_PG_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: memory-pg
+                  key: DATABASE_URL
+            # Sovereign bge-m3 embedder — same endpoint the embed-worker uses, so
+            # query embeddings match the stored ones (same model_version).
+            - name: BEAGLE_TEI_EMBED_URL
+              value: http://beagle-sovereign-embeddings.beagle.svc.cluster.local:80/embed
+            # On-cluster cross-encoder reranker (Task 2.2).
+            - name: MEMORY_PG_RERANK_URL
+              value: http://memory-pg-reranker.beagle.svc.cluster.local:80
+            # Auth token (optional). secretKeyRef with optional:true so the
+            # Deployment applies before the key is patched in (gate open until set).
+            - name: MEMORY_PG_QUERY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: memory-pg
+                  key: QUERY_TOKEN
+                  optional: true
+          ports:
+            - containerPort: 8091
+              name: http
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: memory-pg-serve
+  namespace: beagle
+  labels:
+    app: memory-pg
+    component: serve
+spec:
+  selector:
+    app: memory-pg
+    component: serve
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8091
+  type: ClusterIP
