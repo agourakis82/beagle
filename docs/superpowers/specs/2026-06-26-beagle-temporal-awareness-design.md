@@ -52,10 +52,13 @@ require reordering retrieval — only returning and formatting `occurred_at`.
 With each `POST /api/mobile/v1/chat`, include in the body:
 - `clientTime`: ISO8601 with offset, e.g. `2026-06-26T23:47:00-03:00`
 - `timezone`: IANA id, e.g. `America/Sao_Paulo`
+- `lastContactAt`: ISO8601 of the *previous* message in the thread, or omitted on first contact.
 
-Source: `Date()` + `TimeZone.current.identifier` at send time, in `ConversationStore.sendMessage`
-→ request body. The "now" is genuinely the user's (knows it's late *for them*; follows them
-across timezones when travelling).
+Source: `Date()` + `TimeZone.current.identifier` at send time; `lastContactAt` is the timestamp of
+the last message already in `ConversationStore.messages` before this send. The thread
+(`home:<slug>`) is **client-side**, so the client owns "when we last talked" — the server cannot
+derive it. The "now" is genuinely the user's (knows it's late *for them*; follows them across
+timezones when travelling).
 
 ### 2. Server — temporal-context builder (`temporal-context.mjs`, pure module)
 
@@ -83,13 +86,28 @@ TEMPO AGORA: sábado, 26/jun, 23h47 (madrugada chegando, fuso dele).
 ```
 First contact omits the second line and frames it as a first meeting.
 
-### 3. Dated recall — stamp grounding snippets
+### 3. Dated recall — wire memory-pg `/query` into the personal chat, stamp snippets
 
-In the grounding path (`fetchExocortexContext` → memory-pg `retrieve`):
-- Ensure `occurred_at` is **returned** per snippet.
+The personal chat currently grounds only via `fetchBiographyDigest()` + `fetchPhysiomeDigest()`
+(distilled summaries, no per-item dates). There is **no per-query episodic retrieval** in the
+chat path. So dated recall = add one.
+
+`memory-pg /query` already exists and already recency-blends + returns `occurred_at`:
+- `POST {MEMORY_PG_QUERY_URL}/query` (default `http://memory-pg-serve.beagle.svc.cluster.local`),
+  optional `Authorization: Bearer ${MEMORY_PG_QUERY_TOKEN}`.
+- Body: `{ query: string, k?: number }` (default top-N 10).
+- Response: `{ results: [ { text, occurred_at: string|null, record_id, chunk_id, score, ... } ] }`.
+
+New best-effort helper `fetchRecentMemories(query)` in `auth-bridge.mjs` (next to the other
+fetchers). In the personal block, call it with the user's message text, then:
 - Prefix each snippet with its relative date via `relativeTime(occurred_at, now, tz)`:
-  `[ontem] <snippet>` / `[há 3 dias] <snippet>`.
+  `[ontem] <text>` / `[há 3 dias] <text>`.
 - A snippet missing `occurred_at` is left unstamped (never guess a date).
+- Add a section `## O que ele já te contou (memórias — situe no tempo quando ajudar)`.
+- Fail-soft: a query error never blocks the chat (same pattern as biography/physiome).
+
+**Measure (v1 acceptance):** these episodic snippets help the personal voice vs. add noise. If
+noisy, gate behind a flag and tune `k` / min-score before defaulting on.
 
 ### 4. Persona (`PERSONAL_PERSONA`)
 
@@ -104,17 +122,17 @@ Append a short clause, in the beagle's scent-hound spirit (feel time, don't anno
 ## Data flow (per turn)
 
 ```
-iOS  sendMessage(text) → body += {clientTime, timezone} → POST /api/mobile/v1/chat
+iOS  sendMessage(text) → body += {clientTime, timezone, lastContactAt} → POST /chat
 SRV  now           = parse(clientTime) || serverNow
-     tz            = clientTimezone || default
-     lastContactAt = thread.lastMessage.ts            // first contact → null
+     tz            = clientTimezone || "UTC"
+     lastContactAt = parse(body.lastContactAt) || null   // client-owned; first contact → null
      temporal      = buildTemporalContext({now, tz, lastContactAt})
-     grounding     = fetchExocortexContext(...)        // snippets carry occurred_at
-                     → each prefixed [relativeTime(occurred_at, now, tz)]
+     memories      = fetchRecentMemories(text)            // memory-pg /query, best-effort
+                     → each snippet prefixed [relativeTime(occurred_at, now, tz)]
      system        = PERSONAL_PERSONA
                      + TEMPO_AGORA(temporal)
                      + physiome + biography
-                     + groundingStamped
+                     + memoriesStamped
      → muse → voice(system) → response
 ```
 
@@ -138,10 +156,11 @@ SRV  now           = parse(clientTime) || serverNow
   `desdeUltimo` phrasing, first-contact, skew clamp.
 - Cross-timezone case (late-night-for-user while server is UTC).
 
-## Dependencies to confirm during implementation
+## Dependencies — resolved at planning time
 
-1. The thread store (`home:<slug>`) exposes a per-message timestamp for `lastContactAt`.
-2. The memory-pg `retrieve` path returns `occurred_at` per snippet (capture stores it; confirm
-   the read surfaces it).
+1. ~~Thread store exposes per-message timestamp~~ → the thread is **client-side**; the client
+   sends `lastContactAt`. No server thread store needed.
+2. ~~memory-pg returns `occurred_at`~~ → **confirmed**: `/query` returns `occurred_at` per result
+   and already recency-blends (`retrieve.mjs`). Just wire the fetch + stamp.
 
-If (1) or (2) is missing, that surfacing is the first task of the plan (small; data exists).
+Both the iOS body fields and the memory-pg `/query` integration are tasks in the plan.
