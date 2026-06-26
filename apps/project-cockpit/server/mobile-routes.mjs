@@ -739,13 +739,18 @@ async function completeChatRequest(req, deps, options = {}) {
     if (tempoAgora) sections.push(tempoAgora);
     try {
       const userText = cleanString(req.body?.prompt);
+      // Grounding context is the dominant cost of the companion turn — it becomes
+      // the voice model's system prompt, and prefill of a long grounded prompt on
+      // the 106B costs ~6s per ~3k tokens. So bound each piece: cap the digests and
+      // inject only the few most-relevant memories. The persona + the salient
+      // grounding stay; only the excess that bloats prefill is trimmed.
       const [bioResult, physioResult, memoryResults] = await Promise.all([
         fetchBiographyDigest(),
         fetchPhysiomeDigest(),
-        fetchRecentMemories(userText)
+        fetchRecentMemories(userText, { k: 4 })
       ]);
-      biographyDigest = cleanString(bioResult?.digest);
-      physiomeDigest = cleanString(physioResult?.digest);
+      biographyDigest = cleanString(bioResult?.digest).slice(0, 1800);
+      physiomeDigest = cleanString(physioResult?.digest).slice(0, 600);
       if (physiomeDigest) {
         sections.push("## Estado físico+ambiente recente", physiomeDigest);
       }
@@ -755,7 +760,7 @@ async function completeChatRequest(req, deps, options = {}) {
           biographyDigest
         );
       }
-      const stamped = stampMemories(memoryResults, now, tz);
+      const stamped = stampMemories(memoryResults, now, tz).slice(0, 4);
       if (stamped.length) {
         sections.push(
           "## O que ele já te contou (memórias — situe no tempo quando ajudar)",

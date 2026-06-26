@@ -697,10 +697,21 @@ async function proxyBeagleRequest(method, req) {
   }
 }
 
+// In-memory cache for the biography digest. It is "pinned" and changes slowly
+// (the user re-distills it occasionally), so re-fetching it on every companion
+// turn just adds a ~3s memory/query to the personal-chat latency for no benefit.
+// 5-minute TTL keeps it fresh enough without that cost on each message.
+let _bioDigestCache = { digest: "", at: 0 };
+const BIO_DIGEST_TTL_MS = 5 * 60 * 1000;
+
 // Fetch the latest pinned biography digest from beagle-core memory.
 // Used by the Personal space to ground the companion in who the user actually is.
 // Best-effort: returns { digest: "" } on any failure so chat is never blocked.
+// Caches a successful digest for BIO_DIGEST_TTL_MS to keep personal chat snappy.
 export async function fetchBiographyDigest({ timeoutMs = 8000 } = {}) {
+  if (_bioDigestCache.digest && Date.now() - _bioDigestCache.at < BIO_DIGEST_TTL_MS) {
+    return { digest: _bioDigestCache.digest, cached: true };
+  }
   const tokenResult = await fetchOperatorToken();
   if (tokenResult.error || !tokenResult.token) {
     return { digest: "", error: tokenResult.error || "beagle token unavailable" };
@@ -733,7 +744,9 @@ export async function fetchBiographyDigest({ timeoutMs = 8000 } = {}) {
     const sorted = highlights
       .filter((h) => cleanString(h?.snippet))
       .sort((a, b) => cleanString(b?.date).localeCompare(cleanString(a?.date)));
-    return { digest: cleanString(sorted[0]?.snippet) };
+    const digest = cleanString(sorted[0]?.snippet);
+    if (digest) _bioDigestCache = { digest, at: Date.now() };
+    return { digest };
   } catch (err) {
     return { digest: "", error: err.message };
   } finally {
