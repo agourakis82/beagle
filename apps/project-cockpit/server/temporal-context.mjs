@@ -3,12 +3,25 @@
 // "now" — the caller passes Date objects — so every function is deterministic and
 // unit-testable. All phrasing is pt-BR.
 
+const FMT_OPTS = {
+  year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hour12: false,
+};
+
+// Intl.DateTimeFormat throws RangeError on a non-IANA timeZone. The tz comes from
+// untrusted client input, so fall back to UTC instead of letting it propagate —
+// this makes EVERY function in this module self-defending (no caller can be broken
+// by a malformed timezone).
+function safeFormatter(tz) {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: tz, ...FMT_OPTS });
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", ...FMT_OPTS });
+  }
+}
+
 function localParts(date, tz) {
-  const fmt = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-  });
-  const p = Object.fromEntries(fmt.formatToParts(date).map((x) => [x.type, x.value]));
+  const p = Object.fromEntries(safeFormatter(tz).formatToParts(date).map((x) => [x.type, x.value]));
   return { y: +p.year, m: +p.month, d: +p.day, hour: +p.hour, minute: +p.minute };
 }
 
@@ -69,14 +82,20 @@ export function formatTempoAgora(ctx) {
   return lines.join("\n");
 }
 
+// Cap each recalled snippet so a few large memory-pg rows can't bloat the system
+// prompt (token-cost / context overflow). k bounds the count; this bounds the size.
+const MAX_SNIPPET = 600;
+
 /** Prefix each memory snippet with its relative date; drop empties; leave
- *  date-less snippets unstamped. `results` = memory-pg /query `.results`. */
+ *  date-less snippets unstamped; cap each snippet's length. `results` =
+ *  memory-pg /query `.results`. */
 export function stampMemories(results, now, tz = "UTC") {
   if (!Array.isArray(results)) return [];
   return results
     .map((r) => {
-      const text = typeof r?.text === "string" ? r.text.trim() : "";
+      let text = typeof r?.text === "string" ? r.text.trim() : "";
       if (!text) return null;
+      if (text.length > MAX_SNIPPET) text = text.slice(0, MAX_SNIPPET) + "…";
       const when = r?.occurred_at ? new Date(r.occurred_at) : null;
       const valid = when && !Number.isNaN(when.getTime());
       return valid ? `[${relativeTime(when, now, tz)}] ${text}` : text;

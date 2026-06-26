@@ -68,3 +68,23 @@ test("stampMemories prefixes occurred_at, skips missing, drops empties", () => {
   ], now, TZ);
   assert.deepEqual(out, ["[ontem] ele falou da apresentação", "sem data"]);
 });
+
+// --- review findings: robustness against untrusted input ---
+
+test("C1: invalid timezone never throws — falls back to UTC", () => {
+  for (const bad of ["Foo/Bar", "Europe/Nowhere", "America/Sao_Paulo; DROP", ""]) {
+    assert.doesNotThrow(() => {
+      const ctx = buildTemporalContext({ now: at("2026-06-26T12:00:00Z"), timezone: bad, lastContactAt: null });
+      assert.ok(ctx.nowLabel, `produced a label for tz=${JSON.stringify(bad)}`);
+    });
+    assert.doesNotThrow(() => relativeTime(at("2026-06-25T10:00:00Z"), at("2026-06-26T12:00:00Z"), bad));
+  }
+});
+
+test("I1: stampMemories caps very long snippets", () => {
+  const now = at("2026-06-26T23:00:00-03:00");
+  const out = stampMemories([{ text: "x".repeat(5000), occurred_at: "2026-06-25T15:00:00-03:00" }], now, TZ);
+  assert.ok(out[0].startsWith("[ontem] "));
+  assert.ok(out[0].length < 700, `capped (got ${out[0].length})`);
+  assert.ok(out[0].endsWith("…"), "ellipsis appended");
+});
