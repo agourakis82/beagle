@@ -326,10 +326,7 @@ pub fn exocortex_routes() -> Router<AppState> {
             get(active_projects_handler),
         )
         // Orchestration layer (BeagleCockpit A+B+C)
-        .route(
-            "/api/exocortex/v1/verify",
-            post(verify_handler),
-        )
+        .route("/api/exocortex/v1/verify", post(verify_handler))
         .route(
             "/api/orchestration/plan/confirm",
             post(confirm_plan_handler),

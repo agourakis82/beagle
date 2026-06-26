@@ -34,7 +34,10 @@ pub(crate) async fn moshi_session_handler(
     // BEAGLE_ALLOWED_ORIGINS is comma-separated, e.g. "https://beagle.sounio.dev,beagle-app".
     // If unset, only requests without an Origin header (native clients, curl) are allowed.
     let allowed = env::var("BEAGLE_ALLOWED_ORIGINS").unwrap_or_default();
-    if let Some(origin) = headers.get(axum::http::header::ORIGIN).and_then(|v| v.to_str().ok()) {
+    if let Some(origin) = headers
+        .get(axum::http::header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+    {
         // Exact match only — starts_with is bypassable via https://allowed.evil.com
         let permitted = allowed
             .split(',')
@@ -50,8 +53,8 @@ pub(crate) async fn moshi_session_handler(
 
 async fn handle_moshi_session(client_ws: WebSocket, _state: AppState) {
     let session_id = Uuid::new_v4().to_string();
-    let beagle_core_url = env::var("BEAGLE_CORE_SELF_URL")
-        .unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let beagle_core_url =
+        env::var("BEAGLE_CORE_SELF_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
     let beagle_api_token = env::var("BEAGLE_API_TOKEN").unwrap_or_default();
 
     let http_client = reqwest::Client::builder()
@@ -113,7 +116,11 @@ async fn handle_moshi_session(client_ws: WebSocket, _state: AppState) {
         while let Some(Ok(msg)) = client_stream.next().await {
             match msg {
                 Message::Binary(data) => {
-                    if upstream_sink.send(TungMsg::Binary(data.into())).await.is_err() {
+                    if upstream_sink
+                        .send(TungMsg::Binary(data.into()))
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -160,10 +167,23 @@ async fn handle_moshi_session(client_ws: WebSocket, _state: AppState) {
     }
 
     info!("moshi: session {session_id} closed");
-    close_capture_session(&http_client, &beagle_core_url, &beagle_api_token, &session_id, "disconnected").await;
+    close_capture_session(
+        &http_client,
+        &beagle_core_url,
+        &beagle_api_token,
+        &session_id,
+        "disconnected",
+    )
+    .await;
 }
 
-async fn append_monologue(client: &reqwest::Client, base: &str, token: &str, sid: &str, text: &str) {
+async fn append_monologue(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    sid: &str,
+    text: &str,
+) {
     let url = format!(
         "{}/api/exocortex/v1/capture/sessions/{}/events",
         base.trim_end_matches('/'),
@@ -183,7 +203,13 @@ async fn append_monologue(client: &reqwest::Client, base: &str, token: &str, sid
         .map_err(|e| warn!("moshi: append_monologue failed: {e}"));
 }
 
-async fn close_capture_session(client: &reqwest::Client, base: &str, token: &str, sid: &str, reason: &str) {
+async fn close_capture_session(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    sid: &str,
+    reason: &str,
+) {
     let url = format!(
         "{}/api/exocortex/v1/capture/sessions/{}/events",
         base.trim_end_matches('/'),
