@@ -84,7 +84,7 @@ struct BeagleSurface: View {
             // Chat-first companion surface: the conversation is the hero, full-height
             // over the living mesh. (The exocortex home card is retired from this surface
             // — it can return as a collapsible header or a separate view later.)
-            ChatScreen(store: conversation)
+            ChatScreen(store: conversation, breathRate: physio.cognitivePosture.respiratoryRate)
         }
     }
 

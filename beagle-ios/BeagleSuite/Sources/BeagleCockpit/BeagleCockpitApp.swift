@@ -246,6 +246,10 @@ struct RootView: View {
     ///  4. start WeatherKit + barometric/location streaming (temp, pressure, …).
     /// Idempotent by HKObject.uuid — safe to run on every launch.
     private func startPhysiomeRealtimeSync() {
+        // Demo/screenshot mode: never trigger the system HealthKit auth sheet — it would
+        // cover the chat UI being previewed. Real launches authorize as normal.
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--demo") || args.contains("--demo-chat") { return }
         Task.detached(priority: .utility) {
             let uploader = PhysiomeUploader.shared
             await uploader.recoverAndFlush()

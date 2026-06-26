@@ -14,20 +14,22 @@ import BeagleCore
 
 public struct ChatScreen: View {
     let store: ConversationStore   // @Observable — SwiftUI tracks property reads in body
+    /// User's real respiratory rate (breaths/min, from PhysioStore/HealthKit) so the companion
+    /// breathes at the user's pace; nil → calm resting default.
+    let breathRate: Double?
     @State private var draft = ""
     @State private var appeared = false
 
-    public init(store: ConversationStore) {
+    public init(store: ConversationStore, breathRate: Double? = nil) {
         self.store = store
+        self.breathRate = breathRate
     }
 
     public var body: some View {
         ZStack(alignment: .bottom) {
             hearth
-            if store.messages.isEmpty {
-                opening
-            } else {
-                presenceLayer
+            companion                       // one stable splat instance — behind the conversation, never reloads
+            if !store.messages.isEmpty {
                 conversation
             }
             composer
@@ -46,29 +48,44 @@ public struct ChatScreen: View {
         }
     }
 
-    // The opening moment — the companion present and breathing, greeting you. No forms,
-    // no dashboard; just presence (Gaggioli: continuous emotionally-available presence).
-    private var opening: some View {
-        VStack(spacing: BeagleSpacing.lg) {
-            Spacer()
-            CompanionPresence(state: store.flowState).frame(height: 210)
-            greeting
-            Spacer()
-            Spacer()
+    // The companion's presence — vector beagle by default; the photoreal Gaussian-splat
+    // beagle behind the --beagle-splat flag (de-risk; falls back to vector if it can't load).
+    @ViewBuilder private var presence: some View {
+        #if os(iOS) || os(macOS)
+        if ProcessInfo.processInfo.arguments.contains("--beagle-splat") {
+            BeagleSplatView(motion: CompanionMotion(flowState: store.flowState, listening: store.isStreaming, breathRate: breathRate))
+        } else {
+            BeagleFigure(state: store.flowState, listening: store.isStreaming, breathRate: breathRate)
         }
-        .padding(.bottom, 64)
+        #else
+        BeagleFigure(state: store.flowState, listening: store.isStreaming, breathRate: breathRate)
+        #endif
     }
 
-    // The companion's continuous presence — breathes in the upper space where dead void
-    // used to be. Ambient; carries a faint hue of the current state.
-    private var presenceLayer: some View {
-        VStack {
-            CompanionPresence(state: store.flowState)
-                .frame(height: 240)
-                .padding(.top, 28)
-            Spacer()
+    // ONE stable companion slot — the splat (or vector fallback) lives here for the screen's
+    // whole life so the MTKView/ply (24MB) never tears down between the opening and the
+    // conversation. `presence` is a SINGLE non-conditional node (stable SwiftUI identity); only
+    // its frame/position/opacity animate with state: a 240pt greeter when the space is empty, a
+    // 132pt ambient header once the conversation fills in below it.
+    private var companion: some View {
+        let empty = store.messages.isEmpty
+        return VStack(spacing: BeagleSpacing.lg) {
+            if empty { Spacer() }
+            presence                                    // single instance — never recreated
+                .frame(height: empty ? 240 : 132)
+                .padding(.top, empty ? 0 : 18)
+                .opacity(empty ? 1 : 0.92)
+            if empty {
+                greeting
+                Spacer()
+                Spacer()
+            } else {
+                Spacer()
+            }
         }
+        .padding(.bottom, empty ? 64 : 0)
         .allowsHitTesting(false)
+        .animation(.easeInOut(duration: 0.45), value: empty)
     }
 
     // A warm glow rising from where the conversation lives — turns the dead black
