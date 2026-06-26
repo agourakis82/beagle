@@ -25,7 +25,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: core-server
-          image: 192.168.3.207:5003/beagle-core-exocortex:modernization-601b8e31
+          image: 192.168.3.207:5003/beagle-core-exocortex:reconcile-e752c9b4
           imagePullPolicy: Always
           ports:
             - name: http
@@ -77,7 +77,11 @@ spec:
             # Fleet default = fast non-reasoning workhorse for draft-gen + utilities
             # (reasoning models truncate at low max_tokens; draft-gen uses complete()/2048):
             - name: BEAGLE_LLM_FLEET_MODEL
-              value: deepseek-chat
+              # Was deepseek-chat, but that provider ran out of API balance (402
+              # Insufficient Balance) — breaking every LocalFleet call (recall,
+              # deep-think, capture/refine). grok is the configured primary and is
+              # healthy; repointed here so the fleet default has a working backend.
+              value: grok
             # Triad AGENTS (ATHENA/HERMES/ARGOS/Judge) explicitly use a robust reasoning model
             # (beagle-triad calls them with max_tokens=8000 so reasoning_content has headroom):
             - name: BEAGLE_TRIAD_AGENT_MODEL
