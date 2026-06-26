@@ -1815,3 +1815,61 @@ export function registerAuthBridgeRoutes(app) {
     res.status(result.status).json(result.payload);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Exocortex RAG grounding (ported from fix/mobile-summary-timeout)
+// ---------------------------------------------------------------------------
+export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000 } = {}) {
+  const q = cleanString(query);
+  if (!q) return "";
+  try {
+    // beagle-core's /api/memory routes accept the operator token from
+    // beagle-core-tokens (injected here as env via secretKeyRef). The shared
+    // fetchOperatorToken() reads beagle-core-secrets, whose token beagle-core
+    // rejects with 401. Prefer the explicit env token; fall back to the shared.
+    let token = cleanString(process.env.BEAGLE_MEMORY_API_TOKEN);
+    if (!token) {
+      const tokenResult = await fetchOperatorToken();
+      token = tokenResult?.token || "";
+    }
+    if (!token) return "";
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let res;
+    try {
+      res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "content-type": "application/json",
+          "X-Beagle-Consumer": "beagle-operator",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ query: q }),
+        signal: ctrl.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) return "";
+    const payload = parseJsonResponse(await res.text());
+    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
+    const lines = highlights
+      .slice(0, limit)
+      .map((h) => {
+        const snippet = cleanString(h?.snippet).replace(/\s+/g, " ").slice(0, 300);
+        if (!snippet) return null;
+        const date = cleanString(h?.date).slice(0, 10);
+        return `- ${date ? `[${date}] ` : ""}${snippet}`;
+      })
+      .filter(Boolean);
+    if (lines.length === 0) return "";
+    return [
+      "## Exocortex memory — the user's own recorded context",
+      "Ground your answer in the facts below. Do NOT ask the user for information that is already present here; treat it as known. Cite or build on it where relevant.",
+      ...lines
+    ].join("\n");
+  } catch {
+    return "";
+  }
+}
