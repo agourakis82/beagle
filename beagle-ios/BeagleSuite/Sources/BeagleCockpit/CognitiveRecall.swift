@@ -6,13 +6,15 @@
 //   • Recall  — composed, cited recall (POST /api/recall/answer → beagle-core native synthesis)
 //   • Next    — the fleet proposes next steps (POST /api/propose), accept logs to the board
 //
-//  Visual identity ported from the cockpit-web surfaces (/recall, /next): plum canvas, amber/turquoise
-//  accents, project-colored scope dots, confidence ring, tappable [n] citations that scroll+flash the
+//  Visual identity follows the shared BeagleTheme (neutral plaster / deep navy surfaces) with the
+//  cockpit-web amber/turquoise accents, project-colored scope dots, confidence ring, tappable [n]
+//  citations that scroll+flash the
 //  source, and a vertical source timeline. The app is just another client of the cockpit-web API over
 //  the tailnet — no token in the app (cockpit/coord-mcp hold the operator token).
 //
 
 import SwiftUI
+import BeagleCore
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
@@ -135,18 +137,20 @@ struct CognitiveAPI: Sendable {
 // MARK: - Cockpit visual identity (ported from cockpit-web CSS vars)
 
 private enum CK {
-    // Adaptive: light value first (legible on white), dark value = original purple world.
-    static let bg      = Color(lightHex: 0xF6F4FA, darkHex: 0x1b1426)
-    static let bg2     = Color(lightHex: 0xEFEBF5, darkHex: 0x21192d)
-    static let panel   = Color(lightHex: 0xFFFFFF, darkHex: 0x271e36)
-    static let card    = Color(lightHex: 0xF7F4FB, darkHex: 0x2a2038)
-    static let card2   = Color(lightHex: 0xEEE9F4, darkHex: 0x352947)
-    static let line    = Color(lightHex: 0xE3DDEC, darkHex: 0x3c2f50)
-    static let line2   = Color(lightHex: 0xD0C7DE, darkHex: 0x54426b)
-    static let fg      = Color(lightHex: 0x1B1426, darkHex: 0xfbf5ef)
-    static let txt     = Color(lightHex: 0x2C2638, darkHex: 0xddd2e0)
-    static let dim     = Color(lightHex: 0x6E6579, darkHex: 0xa596ad)
-    static let faint   = Color(lightHex: 0x9990A4, darkHex: 0x7a6a82)
+    // Surfaces & text defer to the shared BeagleTheme so Recall matches the rest of the
+    // app (neutral plaster / deep navy) instead of its old plum canvas. The warm semantic
+    // accents below (amber/turquoise/scope dots) are kept — they were never the problem.
+    static let bg      = BeagleTheme.surface0
+    static let bg2     = BeagleTheme.surface1
+    static let panel   = BeagleTheme.surface1
+    static let card    = BeagleTheme.surface2
+    static let card2   = BeagleTheme.surface3
+    static let line    = BeagleTheme.hairline
+    static let line2   = Color(light: .black.opacity(0.16), dark: .white.opacity(0.16))
+    static let fg      = BeagleTheme.textPrimary
+    static let txt     = BeagleTheme.textData
+    static let dim     = BeagleTheme.textSecondary
+    static let faint   = BeagleTheme.textTertiary
     static let accent  = Color(lightHex: 0xA8620A, darkHex: 0xffc24d)
     static let accent2 = Color(lightHex: 0xCC4E28, darkHex: 0xff7a4c)
     static let turq    = Color(lightHex: 0x0E9886, darkHex: 0x2dd4bf)
