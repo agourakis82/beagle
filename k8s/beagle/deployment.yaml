@@ -70,27 +70,28 @@ spec:
               value: http://sounio-inference.beagle.svc.cluster.local:80
             - name: XAI_BASE_URL
               value: http://router.llm-router.svc.cluster.local:4000/v1/chat/completions
-            # 2026-06-26 model allocation (deepseek-chat died: 402 Insufficient Balance).
-            # Two paid coding plans split by workload:
-            #   • DEEP REASONING → glm-5.2 (Z.ai coding plan, ZAI_API_KEY) — ~16s, strongest.
-            #   • FAST WORKHORSE → minimax-m3 (MiniMax coding plan, MINIMAX_API_KEY) — ~2-5s,
-            #     clean content (its inline <think> is stripped to reasoning_content by the
-            #     LiteLLM router, so beagle reads clean text). minimax-m2.7 also routed as a spare.
-            # Escalation/heavy (GrokClient) + Triad debate stay on glm-5.2:
+            # 2026-06-26 SOVEREIGNTY-FIRST model allocation. Sensitive paths that touch the
+            # user's memory/biography/raw thoughts route to the SELF-HOSTED DGX Spark (data
+            # never leaves the cluster); only non-sensitive deep reasoning uses paid SaaS plans.
+            #   • SOVEREIGN  → qwen2.5-14b = Spark Ollama (192.168.3.24:11434, qwen2.5:14b pinned
+            #                  warm via OLLAMA_KEEP_ALIVE=-1, ~1.3s). Sole user of the infra, so
+            #                  the in-cluster endpoint needs no auth.
+            #   • SaaS deep  → glm-5.2 (Z.ai coding plan, ZAI_API_KEY) — non-sensitive reasoning.
+            # Escalation/heavy (GrokClient) + Triad debate = non-sensitive reasoning → glm-5.2:
             - name: BEAGLE_GROK_MODEL
               value: glm-5.2
             - name: BEAGLE_GROK_HEAVY_MODEL
               value: glm-5.2
-            # Fleet default drives capture/refine + recall synthesis + draft-gen — latency-
-            # sensitive, so minimax-m3 (≈7× faster than glm-5.2 here: capture/refine 2.4s vs 16s):
+            # Fleet default drives recall SYNTHESIS (reads memory atoms) + capture/refine (raw
+            # personal thoughts) — SENSITIVE, so routed to the sovereign Spark, NOT external SaaS:
             - name: BEAGLE_LLM_FLEET_MODEL
-              value: minimax-m3
+              value: qwen2.5-14b
             # Triad AGENTS (ATHENA/HERMES/ARGOS/Judge), called with max_tokens=8000 → glm-5.2:
             - name: BEAGLE_TRIAD_AGENT_MODEL
               value: glm-5.2
-            # smt.check claim-extraction (fast structured JSON for QF_LIA constraints) → minimax-m3:
+            # smt.check claim-extraction reads draft claims (may be memory-derived) → sovereign Spark:
             - name: BEAGLE_TRIAD_EXTRACTION_MODEL
-              value: minimax-m3
+              value: qwen2.5-14b
           volumeMounts:
             - name: beagle-data
               mountPath: /var/lib/beagle
