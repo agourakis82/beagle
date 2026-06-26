@@ -1,0 +1,219 @@
+model_list:
+- model_name: qwen2.5-14b
+  litellm_params:
+    model: openai/qwen2.5-14b
+    api_base: http://vllm.vllm-r770-eagle3.svc.cluster.local:8000/v1
+    api_key: noauth
+    rpm: 600
+- model_name: qwen2.5-coder-32b
+  litellm_params:
+    model: openai/qwen2.5-coder-32b
+    api_base: http://vllm.vllm-coder-rtx8000.svc.cluster.local:8000/v1
+    api_key: noauth
+    rpm: 400
+- model_name: chat-fast
+  litellm_params:
+    model: openai/qwen2.5-14b
+    api_base: http://vllm.vllm-r770-eagle3.svc.cluster.local:8000/v1
+    api_key: noauth
+- model_name: code
+  litellm_params:
+    model: openai/qwen2.5-coder-32b
+    api_base: http://vllm.vllm-coder-rtx8000.svc.cluster.local:8000/v1
+    api_key: noauth
+- model_name: phi4-reasoning
+  litellm_params:
+    model: openai/phi4-reasoning
+    api_base: http://vllm.vllm-phi4-rtx8000.svc.cluster.local:8000/v1
+    api_key: noauth
+- model_name: science
+  litellm_params:
+    model: openai/phi4-reasoning
+    api_base: http://vllm.vllm-phi4-rtx8000.svc.cluster.local:8000/v1
+    api_key: noauth
+- model_name: r1-distill-70b
+  litellm_params:
+    model: openai/r1-distill-70b
+    api_base: http://vllm.vllm-r1-rtx8000.svc.cluster.local:8000/v1
+    api_key: noauth
+- model_name: olmo3-think
+  litellm_params:
+    model: openai/olmo3-think
+    api_base: http://vllm.vllm-olmo3-rtx8000.svc.cluster.local:8000/v1
+    api_key: noauth
+- model_name: hermes-4
+  litellm_params:
+    model: openai/hermes-4
+    api_base: http://vllm.vllm-hermes-rtx8000.svc.cluster.local:8000/v1
+    api_key: noauth
+    rpm: 200
+- model_name: mind
+  litellm_params:
+    model: openai/hermes-4
+    api_base: http://vllm.vllm-hermes-rtx8000.svc.cluster.local:8000/v1
+    api_key: noauth
+- model_name: hunyuan-7b
+  litellm_params:
+    model: openai/hunyuan-7b
+    api_base: http://vllm.vllm-hunyuan-a5000.svc.cluster.local:8000/v1
+    api_key: noauth
+    rpm: 300
+- model_name: baichuan-m2-med
+  litellm_params:
+    model: openai/baichuan-m2-med
+    api_base: http://vllm.vllm-baichuan-rtx8000.svc.cluster.local:8000/v1
+    api_key: noauth
+    rpm: 200
+- model_name: med
+  litellm_params:
+    model: openai/baichuan-m2-med
+    api_base: http://vllm.vllm-baichuan-rtx8000.svc.cluster.local:8000/v1
+    api_key: noauth
+- model_name: bge-m3
+  litellm_params:
+    model: openai/bge-m3
+    api_base: http://beagle-sovereign-embeddings.beagle.svc.cluster.local:80
+    api_key: noauth
+- model_name: embed
+  litellm_params:
+    model: openai/bge-m3
+    api_base: http://beagle-sovereign-embeddings.beagle.svc.cluster.local:80
+    api_key: noauth
+- model_name: dynamo-qwen3
+  litellm_params:
+    model: openai/qwen3-0.6b
+    api_base: http://sglang-agg-poc-frontend.beagle.svc.cluster.local:8000/v1
+    api_key: sk-noauth
+- model_name: deepseek-chat
+  litellm_params:
+    model: deepseek/deepseek-chat
+    api_key: os.environ/DEEPSEEK_API_KEY
+    rpm: 500
+- model_name: deepseek-reasoner
+  litellm_params:
+    model: deepseek/deepseek-reasoner
+    api_key: os.environ/DEEPSEEK_API_KEY
+    rpm: 300
+- model_name: minimax-m3
+  litellm_params:
+    model: openai/MiniMax-M3
+    api_base: https://api.minimax.io/v1
+    api_key: os.environ/MINIMAX_API_KEY
+    rpm: 200
+- model_name: kimi-k2
+  litellm_params:
+    model: openrouter/moonshotai/kimi-k2
+    api_key: os.environ/OPENROUTER_API_KEY
+    rpm: 200
+- model_name: grok
+  litellm_params:
+    model: xai/grok-4.3
+    api_key: os.environ/XAI_API_KEY
+    rpm: 200
+- model_name: groq-llama
+  litellm_params:
+    model: groq/llama-3.3-70b-versatile
+    api_key: os.environ/GROQ_API_KEY
+    rpm: 300
+- model_name: chat
+  litellm_params:
+    model: deepseek/deepseek-chat
+    api_key: os.environ/DEEPSEEK_API_KEY
+- model_name: kimi-k2.7
+  litellm_params:
+    model: openai/kimi-for-coding
+    api_base: http://kimi-proxy.llm-router.svc.cluster.local:8000/v1
+    api_key: noauth
+    rpm: 200
+- model_name: kimi-k2.6
+  litellm_params:
+    model: openai/kimi-for-coding
+    api_base: http://kimi-proxy.llm-router.svc.cluster.local:8000/v1
+    api_key: noauth
+- model_name: glm-5.2
+  litellm_params:
+    model: openai/glm-5.2
+    api_base: https://api.z.ai/api/coding/paas/v4
+    api_key: os.environ/ZAI_API_KEY
+    rpm: 300
+- model_name: glm-5.1
+  litellm_params:
+    model: openai/glm-5.1
+    api_base: https://api.z.ai/api/coding/paas/v4
+    api_key: os.environ/ZAI_API_KEY
+    rpm: 300
+- model_name: glm-4.7
+  litellm_params:
+    model: openai/glm-4.7
+    api_base: https://api.z.ai/api/coding/paas/v4
+    api_key: os.environ/ZAI_API_KEY
+    rpm: 300
+- model_name: glm
+  litellm_params:
+    model: openai/glm-4.7
+    api_base: https://api.z.ai/api/coding/paas/v4
+    api_key: os.environ/ZAI_API_KEY
+    rpm: 300
+- model_name: falcon-mamba-7b
+  litellm_params:
+    model: openai/falcon-mamba-7b
+    api_base: http://discussion-lab-falcon-mamba.beagle.svc.cluster.local:8000/v1
+    api_key: noauth
+    rpm: 100
+- model_name: internlm2.5-7b
+  litellm_params:
+    model: openai/internlm2.5-7b
+    api_base: http://discussion-lab-internlm.beagle.svc.cluster.local:8000/v1
+    api_key: noauth
+    rpm: 100
+router_settings:
+  routing_strategy: latency-based-routing
+  retry_after: 5
+  num_retries: 2
+  timeout: 600
+  allowed_fails: 3
+  cooldown_time: 30
+  fallbacks:
+  - qwen2.5-14b:
+    - deepseek-chat
+  - chat-fast:
+    - deepseek-chat
+  - code:
+    - deepseek-chat
+  - qwen2.5-coder-32b:
+    - deepseek-chat
+  - hermes-4:
+    - deepseek-chat
+  - mind:
+    - deepseek-chat
+  - hunyuan-7b:
+    - deepseek-chat
+  - phi4-reasoning:
+    - deepseek-reasoner
+  - science:
+    - deepseek-reasoner
+  - r1-distill-70b:
+    - deepseek-reasoner
+  - olmo3-think:
+    - deepseek-reasoner
+  - med:
+    - minimax-m3
+  - baichuan-m2-med:
+    - minimax-m3
+  - kimi-k2.7:
+    - deepseek-chat
+  - kimi-k2.6:
+    - deepseek-chat
+  - glm-5.2:
+    - glm-4.7
+  - glm-5.1:
+    - deepseek-chat
+  - glm-4.7:
+    - deepseek-chat
+  - glm:
+    - deepseek-chat
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  json_logs: true
+general_settings: null

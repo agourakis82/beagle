@@ -71,24 +71,24 @@ spec:
             - name: XAI_BASE_URL
               value: http://router.llm-router.svc.cluster.local:4000/v1/chat/completions
             - name: BEAGLE_GROK_MODEL
-              value: deepseek-chat
+              value: glm-5.2
             - name: BEAGLE_GROK_HEAVY_MODEL
-              value: deepseek-chat
-            # Fleet default = fast non-reasoning workhorse for draft-gen + utilities
-            # (reasoning models truncate at low max_tokens; draft-gen uses complete()/2048):
+              value: glm-5.2
+            # All model slots repointed to glm-5.2 (Z.ai coding plan, ZAI_API_KEY) on
+            # 2026-06-26: deepseek-chat ran out of API balance (402 Insufficient Balance),
+            # breaking every LocalFleet call AND the deepseek-rooted fallback net. grok was
+            # a brief stopgap. NOTE: glm-5.2 is a REASONING model (~16s vs grok ~6s) — for
+            # the fast-path slots (fleet draft-gen at complete()/2048, smt.check JSON
+            # extraction) glm-4.7 is the lighter same-plan option if truncation/latency bites.
             - name: BEAGLE_LLM_FLEET_MODEL
-              # Was deepseek-chat, but that provider ran out of API balance (402
-              # Insufficient Balance) — breaking every LocalFleet call (recall,
-              # deep-think, capture/refine). grok is the configured primary and is
-              # healthy; repointed here so the fleet default has a working backend.
-              value: grok
-            # Triad AGENTS (ATHENA/HERMES/ARGOS/Judge) explicitly use a robust reasoning model
+              value: glm-5.2
+            # Triad AGENTS (ATHENA/HERMES/ARGOS/Judge) — robust reasoning model
             # (beagle-triad calls them with max_tokens=8000 so reasoning_content has headroom):
             - name: BEAGLE_TRIAD_AGENT_MODEL
-              value: glm-5.1
-            # smt.check claim-extraction pinned to a fast structured-JSON model:
+              value: glm-5.2
+            # smt.check claim-extraction (structured JSON for QF_LIA constraints):
             - name: BEAGLE_TRIAD_EXTRACTION_MODEL
-              value: deepseek-chat
+              value: glm-5.2
           volumeMounts:
             - name: beagle-data
               mountPath: /var/lib/beagle
