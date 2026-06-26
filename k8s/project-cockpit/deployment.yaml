@@ -23,10 +23,11 @@ spec:
     matchLabels:
       app.kubernetes.io/name: project-cockpit
   strategy:
-    rollingUpdate:
-      maxSurge: 25%
-      maxUnavailable: 25%
-    type: RollingUpdate
+    # Recreate, not RollingUpdate: the pod mounts a RWO PVC (/var/lib/cockpit).
+    # RollingUpdate's surge starts the new pod before the old releases the volume;
+    # if it lands on another node → Multi-Attach deadlock. Recreate deletes the old
+    # pod first (releasing the PVC), then starts the new one. ~30-60s downtime, 1 replica.
+    type: Recreate
   template:
     metadata:
       labels:
@@ -87,7 +88,7 @@ spec:
           value: workspace-agent
         - name: PROJECT_COCKPIT_WORKSPACE_AGENT_TIMEOUT_MS
           value: '12000'
-        image: 192.168.3.207:5003/project-cockpit:durable-6c44977
+        image: 192.168.3.207:5003/project-cockpit:reconcile-25d45f4e
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:
