@@ -288,19 +288,17 @@ struct RootView: View {
                         }
                 }
             }
-            Tab("Work", systemImage: "apple.terminal", value: 3) {
+            // Work (the agent deck) and Fleet (live sessions) are two views of the same
+            // thing — the cluster agents — so they share one tab on phone, where the tab
+            // bar can't afford a "More" overflow that buries them.
+            Tab("Agents", systemImage: "apple.terminal", value: 3) {
                 NavigationStack {
-                    WorkView(bootError: $bootError)
+                    AgentsTabView(bootError: $bootError)
                 }
             }
             Tab("Recall", systemImage: "sparkle.magnifyingglass", value: 4) {
                 NavigationStack {
                     CognitiveRecallView()
-                }
-            }
-            Tab("Fleet", systemImage: "terminal", value: 5) {
-                NavigationStack {
-                    FleetTerminalsView()
                 }
             }
         }
@@ -447,7 +445,7 @@ struct RootView: View {
         case 0:  return "Mind"
         case 1:  return "Capture"
         case 2:  return "Deep"
-        case 3:  return "Work"
+        case 3:  return "Agents"
         default: return "Mind"
         }
     }
@@ -554,6 +552,32 @@ struct RootView: View {
         }
     }
 
+}
+
+/// Work (the agent deck) and Fleet (live sessions) share one phone tab — they are two
+/// views of the same domain (the cluster agents). A segmented control swaps between them
+/// so neither gets buried in a "More" overflow.
+private struct AgentsTabView: View {
+    @Binding var bootError: String?
+    @State private var mode = 0   // 0 = Deck, 1 = Sessions
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Agents", selection: $mode) {
+                Text("Deck").tag(0)
+                Text("Sessions").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+
+            if mode == 0 {
+                WorkView(bootError: $bootError)
+            } else {
+                FleetTerminalsView()
+            }
+        }
+    }
 }
 
 struct LaunchOverrides {
