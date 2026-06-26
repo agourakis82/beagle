@@ -20,8 +20,10 @@ import {
   proxyDiscussionLabCompletion,
   fetchBiographyDigest,
   fetchPhysiomeDigest,
+  fetchRecentMemories,
   runMuseVoiceEnsemble
 } from "./auth-bridge.mjs";
+import { buildTemporalContext, formatTempoAgora, stampMemories } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
 function cleanString(value) {
@@ -716,11 +718,20 @@ async function completeChatRequest(req, deps, options = {}) {
   if (chatSpace === "personal") {
     // Persona first (who you are) — always present, even if grounding fails.
     // Then the grounding (what you know about him): physiome + living biography.
+    const clientTime = cleanString(req.body?.clientTime);
+    const tz = cleanString(req.body?.timezone) || "UTC";
+    const lastContactRaw = cleanString(req.body?.lastContactAt);
+    const now = clientTime && !Number.isNaN(Date.parse(clientTime)) ? new Date(clientTime) : new Date();
+    const lastContactAt = lastContactRaw && !Number.isNaN(Date.parse(lastContactRaw)) ? new Date(lastContactRaw) : null;
+    const tempoAgora = formatTempoAgora(buildTemporalContext({ now, timezone: tz, lastContactAt }));
     const sections = [PERSONAL_PERSONA];
+    if (tempoAgora) sections.push(tempoAgora);
     try {
-      const [bioResult, physioResult] = await Promise.all([
+      const userText = cleanString(req.body?.prompt);
+      const [bioResult, physioResult, memoryResults] = await Promise.all([
         fetchBiographyDigest(),
-        fetchPhysiomeDigest()
+        fetchPhysiomeDigest(),
+        fetchRecentMemories(userText)
       ]);
       biographyDigest = cleanString(bioResult?.digest);
       physiomeDigest = cleanString(physioResult?.digest);
@@ -731,6 +742,13 @@ async function completeChatRequest(req, deps, options = {}) {
         sections.push(
           "## Quem é Demetrios (biografia viva — fale como quem o conhece de verdade, sem genéricos)",
           biographyDigest
+        );
+      }
+      const stamped = stampMemories(memoryResults, now, tz);
+      if (stamped.length) {
+        sections.push(
+          "## O que ele já te contou (memórias — situe no tempo quando ajudar)",
+          stamped.join("\n")
         );
       }
     } catch {
