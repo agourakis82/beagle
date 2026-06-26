@@ -618,6 +618,36 @@ public actor CockpitClient {
         )
     }
 
+    /// Persist a lane's provider credentials server-side so the readiness probe
+    /// flips needs_setup -> ready and the agent launch can inject them. The API
+    /// key is sent once over the zero-trust Tailnet path and is NEVER returned;
+    /// the masked acknowledgement only reports `apiKeyConfigured`.
+    public func setProviderConfig(
+        slug: String,
+        role: String,
+        slot: String? = nil,
+        baseURL: String,
+        apiKey: String,
+        model: String? = nil
+    ) async -> Truthful<AgentProviderConfigResponse> {
+        var body: [String: any Sendable] = [
+            "base_url": baseURL,
+            "api_key": apiKey
+        ]
+        if let slot, !slot.isEmpty {
+            body["slot"] = slot
+        }
+        if let model, !model.isEmpty {
+            body["model"] = model
+        }
+        return await post(
+            AgentProviderConfigResponse.self,
+            path: "/api/workspaces/\(slug)/agents/\(role)/provider-config",
+            body: body,
+            timeout: 30
+        )
+    }
+
     public func createWorkspacePane(
         slug: String,
         sessionId: String,

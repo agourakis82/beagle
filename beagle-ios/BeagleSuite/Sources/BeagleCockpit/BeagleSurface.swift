@@ -69,6 +69,7 @@ struct BeagleSurface: View {
     }
 
     private var livingBackground: some View {
+        // Living mesh restored (dark-only — the light-mode legibility reason is gone).
         ShellPresenceGradient(
             presence: shellPresence,
             cognitivePosture: physio.cognitivePosture
@@ -830,7 +831,11 @@ struct BeagleSurface: View {
         wireConversation()
         exocortex.modelContext = modelContext
         exocortex.loadCachedHome()
+        // Cold-start: refresh the project catalog so slugs/projects survive a fresh launch
+        // (previously catalog only refreshed from the error-banner retry).
+        async let catalogTask: () = catalog.refresh()
         await refreshLivingHome()
+        _ = await catalogTask
     }
 
     private func performNextMove(_ move: HomeNextMove) {
@@ -3715,38 +3720,49 @@ private struct ProofSheet: View {
     }
 }
 
-// MARK: - Simplified background
+// MARK: - Living shell background
 
 private struct ShellPresenceGradient: View {
     let presence: BeaglePresenceState
     let cognitivePosture: CognitivePosture
+    @State private var phase: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         MeshGradient(
-            width: 3,
-            height: 3,
-            points: [
-                SIMD2(0, 0), SIMD2(0.5, 0), SIMD2(1, 0),
-                SIMD2(0, 0.5), SIMD2(0.5, 0.5), SIMD2(1, 0.5),
-                SIMD2(0, 1), SIMD2(0.5, 1), SIMD2(1, 1)
-            ],
+            width: 3, height: 3,
+            points: animatedPoints,
             colors: gradientColors
         )
         .ignoresSafeArea()
-        .overlay {
-            Color.black.opacity(0.75)
-                .ignoresSafeArea()
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 9).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
         }
     }
 
-    private var gradientColors: [Color] {
-        let glow = presence.glow
-        let tint = presence.tint
-        let base = Color(red: 0.02, green: 0.03, blue: 0.06)
+    private var animatedPoints: [SIMD2<Float>] {
+        let d: Float = reduceMotion ? 0 : Float(phase) * 0.07
         return [
-            glow.opacity(0.15), tint.opacity(0.06), base,
-            tint.opacity(0.08), base, glow.opacity(0.08),
-            base, base, base
+            SIMD2(0,     0),       SIMD2(0.5,     0),        SIMD2(1,     0),
+            SIMD2(0+d,   0.5-d),   SIMD2(0.5+d,   0.5+d),    SIMD2(1-d,   0.5+d),
+            SIMD2(0,     1),       SIMD2(0.5,     1),        SIMD2(1,     1)
+        ]
+    }
+
+    // Dark-only living shell: deep void base with a state-tinted glow at the top.
+    // No black overlay (the old one muted it to death); `.glow` is now `.clear`
+    // post-redesign, so the presence color comes from `.tint`.
+    private var gradientColors: [Color] {
+        let tint = presence.tint
+        let deep = Color(red: 0.02, green: 0.03, blue: 0.07)
+        return [
+            tint.opacity(0.28), tint.opacity(0.10), Color(white: 0.045),
+            tint.opacity(0.12), Color(white: 0.035), tint.opacity(0.14),
+            deep,               deep,                Color(white: 0.03)
         ]
     }
 }
+

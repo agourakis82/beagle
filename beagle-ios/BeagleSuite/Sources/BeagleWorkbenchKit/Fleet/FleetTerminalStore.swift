@@ -12,6 +12,8 @@ public final class FleetTerminalStore {
     public private(set) var clients: [String: PTYClient] = [:]
     public var activeAgent: String { didSet { persistActive() } }
     public private(set) var opened: [String] = []
+    /// Per-agent activity counter last "seen" (when it was active) — drives unread badges.
+    private var seen: [String: Int] = [:]
     private let endpoint: FleetEndpoint
     private static let lastAgentKey = "fleetLastAgent"
 
@@ -35,13 +37,28 @@ public final class FleetTerminalStore {
 
     public func open(_ agent: String) {
         guard FleetEndpoint.isKnownAgent(agent) else { return }
-        _ = client(for: agent)
+        let c = client(for: agent)
+        seen[agent] = c.activity        // opening = caught up (clears unread)
         activeAgent = agent
+    }
+
+    /// Switch to the next/previous agent in the roster (for swipe).
+    public func cycle(_ delta: Int) {
+        let list = FleetEndpoint.agents
+        guard let i = list.firstIndex(of: activeAgent) else { return }
+        let n = ((i + delta) % list.count + list.count) % list.count
+        open(list[n])
     }
 
     /// Connection state for an agent WITHOUT creating/opening it (idle if never opened).
     public func state(for agent: String) -> PTYClient.State {
         clients[agent]?.state ?? .idle
+    }
+
+    /// True when a non-active, opened agent produced output since it was last active.
+    public func hasUnread(_ agent: String) -> Bool {
+        guard agent != activeAgent, let c = clients[agent] else { return false }
+        return c.activity > (seen[agent] ?? 0)
     }
 
     /// Reconnect any dropped sessions (call on foreground).

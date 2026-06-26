@@ -39,7 +39,12 @@ struct TriadReviewView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
                 inputSection
-                if cognitive.isReviewingTriad { agentProgressSection }
+                if cognitive.isReviewingTriad {
+                    agentProgressSection
+                    if !cognitive.triadStreamText.isEmpty {
+                        liveTranscriptCard
+                    }
+                }
                 if let result { resultsSection(result) }
             }
             .padding(.horizontal, BeagleSpacing.lg)
@@ -114,6 +119,30 @@ struct TriadReviewView: View {
             }
         }
         .transition(.asymmetric(insertion: .push(from: .bottom).combined(with: .opacity), removal: .opacity))
+    }
+
+    // MARK: - Live transcript (SSE stream)
+
+    private var liveTranscriptCard: some View {
+        GlassPanel(elevation: .raised) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .font(.system(size: 12))
+                        .foregroundStyle(BeagleTheme.truthRemembered)
+                        .symbolEffect(.pulse, isActive: true)
+                    sectionLabel("Live debate")
+                }
+                Text(cognitive.triadStreamText)
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .textSelection(.enabled)
+                    .lineSpacing(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .animation(BeagleMotion.normal, value: cognitive.triadStreamText)
+            }
+        }
+        .transition(.opacity)
     }
 
     // MARK: - Results
@@ -393,7 +422,8 @@ struct TriadReviewView: View {
         draftFocused = false
         result = nil
         feedbackSubmitted = false
-        let triad = await cognitive.submitForTriadReview(draft: draftText)
+        // Stream the debate transcript live, then resolve the final structured result.
+        let triad = await cognitive.streamTriadReview(draft: draftText)
         withAnimation(BeagleMotion.slow) { result = triad }
     }
 

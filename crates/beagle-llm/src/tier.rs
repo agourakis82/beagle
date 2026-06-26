@@ -22,7 +22,7 @@ impl Tier {
     pub fn as_str(&self) -> &'static str {
         match self {
             Tier::CloudGrokMain => "grok-3",
-            Tier::CloudMath => "deepseek-math",
+            Tier::CloudMath => "deepseek-v4-pro",
             Tier::LocalFallback => "gemma-9b-local",
         }
     }

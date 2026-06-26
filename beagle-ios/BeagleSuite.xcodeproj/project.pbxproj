@@ -30,6 +30,8 @@
 		5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 287C64605E5D53C799744EFA /* AgentSessionView.swift */; };
 		5F331BD1E2ED5220BA6CD405 /* SpatialControlRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3FB27D4E37CE6A23B06B09 /* SpatialControlRoomView.swift */; };
 		6DDB4BC3B8EB67E8090EE6BF /* BeagleInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96E1A662D877979794235C0 /* BeagleInputBar.swift */; };
+		6E6000A0EF68CA72D9A9871D /* AgentsHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE7F03E4222B36E554BD2414 /* AgentsHubView.swift */; };
+		E060595801EE412366A26306 /* ProviderSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F0EC4F2F9CD3E16E598B606 /* ProviderSetupView.swift */; };
 		8003CBD314227378F652535A /* BeagleSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F68F6456B64893491C1B93 /* BeagleSurface.swift */; };
 		8074F587452ECB33D0DAEA08 /* LorenzAttractorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2CE724AEFED517CAC6C94C0 /* LorenzAttractorView.swift */; };
 		88A28D4391FECECF547F0F1F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
@@ -65,6 +67,7 @@
 		E90459441F120031896D82A3 /* SpatialTriadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81EA117A445504E0B157182 /* SpatialTriadView.swift */; };
 		EB384F03246A4789BF44FDA1 /* BeagleWorkbenchKit in Frameworks */ = {isa = PBXBuildFile; productRef = 19404BEBA13FB54406BE5069 /* BeagleWorkbenchKit */; };
 		EFC226181CCAC66E7086F83E /* ScienceJobsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77EBB6E9F932B4C6400037BD /* ScienceJobsView.swift */; };
+		F4A9D3BD3D143BA532ECB4FD /* CognitiveRecall.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71A04851C759B0560E826ED /* CognitiveRecall.swift */; };
 		FB770F638C6B2329AB979A4F /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 85AA837F77CBB98A5A3D1297 /* BeagleCore */; };
 		FD773EBDECB3C46EB77F7469 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */; };
 /* End PBXBuildFile section */
@@ -156,7 +159,10 @@
 		EC6B7360324065FECF7F1A2F /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		EECE76875D595132E400D65E /* HeatmapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeatmapView.swift; sourceTree = "<group>"; };
 		F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoDeepButton.swift; sourceTree = "<group>"; };
+		F71A04851C759B0560E826ED /* CognitiveRecall.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CognitiveRecall.swift; sourceTree = "<group>"; };
 		F96E1A662D877979794235C0 /* BeagleInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleInputBar.swift; sourceTree = "<group>"; };
+		FE7F03E4222B36E554BD2414 /* AgentsHubView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentsHubView.swift; sourceTree = "<group>"; };
+		3F0EC4F2F9CD3E16E598B606 /* ProviderSetupView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProviderSetupView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -247,6 +253,9 @@
 				180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */,
 				58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */,
 				3133A19FD4CA197756C9D57A /* WorkView.swift */,
+				FE7F03E4222B36E554BD2414 /* AgentsHubView.swift */,
+				3F0EC4F2F9CD3E16E598B606 /* ProviderSetupView.swift */,
+				F71A04851C759B0560E826ED /* CognitiveRecall.swift */,
 			);
 			name = BeagleCockpit;
 			path = BeagleSuite/Sources/BeagleCockpit;
@@ -478,6 +487,7 @@
 				35F7C86608C913E447504907 /* XCLocalSwiftPackageReference "BeagleSuite" */,
 			);
 			preferredProjectObjectVersion = 77;
+			productRefGroup = CDE6F5BE0BAAA3685433587F /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -569,6 +579,9 @@
 				DBDE230C56BD951ED91BCF5C /* ThoughtCaptureView.swift in Sources */,
 				A3ED060D3B5CB1EB7489B82E /* TriadReviewView.swift in Sources */,
 				C4F95F143E38413D13ABCBF1 /* WorkView.swift in Sources */,
+				6E6000A0EF68CA72D9A9871D /* AgentsHubView.swift in Sources */,
+				E060595801EE412366A26306 /* ProviderSetupView.swift in Sources */,
+				F4A9D3BD3D143BA532ECB4FD /* CognitiveRecall.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -740,7 +753,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 28;
+				CURRENT_PROJECT_VERSION = 29;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -810,7 +823,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 28;
+				CURRENT_PROJECT_VERSION = 29;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

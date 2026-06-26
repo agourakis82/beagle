@@ -1291,6 +1291,57 @@ public struct AgentProviderSlot: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
+/// Masked acknowledgement returned by the cockpit after writing a lane's
+/// provider configuration server-side. The raw API key is NEVER echoed; only
+/// `apiKeyConfigured` reflects whether a secret is now stored on the workspace.
+public struct AgentProviderConfigResponse: Codable, Sendable, Equatable {
+    public let projectSlug: String?
+    public let role: String?
+    public let slot: String?
+    public let status: String?
+    public let readiness: AgentReadinessState?
+    public let providerConfig: Masked?
+
+    /// The masked view of the stored slot — safe to render in the UI.
+    public struct Masked: Codable, Sendable, Equatable {
+        public let slot: String?
+        public let baseUrl: String?
+        public let model: String?
+        public let apiKeyConfigured: Bool?
+        public let updatedAt: String?
+
+        public init(
+            slot: String? = nil,
+            baseUrl: String? = nil,
+            model: String? = nil,
+            apiKeyConfigured: Bool? = nil,
+            updatedAt: String? = nil
+        ) {
+            self.slot = slot
+            self.baseUrl = baseUrl
+            self.model = model
+            self.apiKeyConfigured = apiKeyConfigured
+            self.updatedAt = updatedAt
+        }
+    }
+
+    public init(
+        projectSlug: String? = nil,
+        role: String? = nil,
+        slot: String? = nil,
+        status: String? = nil,
+        readiness: AgentReadinessState? = nil,
+        providerConfig: Masked? = nil
+    ) {
+        self.projectSlug = projectSlug
+        self.role = role
+        self.slot = slot
+        self.status = status
+        self.readiness = readiness
+        self.providerConfig = providerConfig
+    }
+}
+
 public struct AgentReadinessState: Codable, Sendable, Equatable {
     public let status: String
     public let reason: String?
@@ -2295,12 +2346,17 @@ public struct ScienceJob: Codable, Sendable, Identifiable {
 // MARK: - Triad (ATHENA / HERMES / ARGOS / Judge)
 
 public struct TriadResult: Codable, Sendable {
+    public let runId: String?
     public let athena: TriadAgentOpinion?
     public let hermes: TriadAgentOpinion?
     public let argos: TriadAgentOpinion?
     public let judge: TriadAgentOpinion?
     public let consensus: String?
     public let scores: TriadScores?
+    enum CodingKeys: String, CodingKey {
+        case runId = "run_id"
+        case athena, hermes, argos, judge, consensus, scores
+    }
 }
 
 public struct TriadAgentOpinion: Codable, Sendable {

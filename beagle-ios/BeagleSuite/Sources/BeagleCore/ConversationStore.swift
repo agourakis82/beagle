@@ -34,6 +34,8 @@ public struct ChatMessage: Identifiable, Sendable {
     public var podName: String?
     /// Round Table: voice identity (e.g. "consciousness", "paradox", "quantum")
     public var voiceName: String?
+    /// True once this exchange has been auto-imported into the cluster exocortex memory.
+    public var savedToMemory: Bool = false
 
     public init(
         id: UUID = UUID(),
@@ -152,29 +154,17 @@ public final class ConversationStore {
     /// STRESS → Foundation Models (fast, don't overwhelm)
     public func sendMessage(_ text: String) async {
         // Light, casual messages → instant on-device Apple Intelligence (when available).
-        // Deep messages → cluster for best reasoning. (Hybrid architecture.)
         if isLight(text), fastAvailable, fastResponder != nil {
             await sendMessageFast(text)
             return
         }
-        switch flowState {
-        case "FLOW":
-            // Deep focus → use cloud for best reasoning
+        // Honor an explicitly loaded on-device model: a loaded model is an explicit user
+        // choice, so route to it. `flowState` still travels in the cloud request body for
+        // server-side routing when no local model is ready.
+        if llm.isReady {
+            await sendMessageLocal(text)
+        } else {
             await sendMessageCloud(text)
-        case "STRESS":
-            // Stressed → quick local response
-            if llm.isReady {
-                await sendMessageLocal(text)
-            } else {
-                await sendMessageCloud(text)
-            }
-        default:
-            // NORMAL or unknown → prefer local if available
-            if preferLocal && llm.isReady {
-                await sendMessageLocal(text)
-            } else {
-                await sendMessageCloud(text)
-            }
         }
     }
 
@@ -242,6 +232,22 @@ public final class ConversationStore {
             .joined(separator: "\n") + "\n" + text
     }
 
+    /// Strip chain-of-thought blocks emitted by reasoning models (hunyuan, phi4-reasoning,
+    /// r1, olmo3-think, …) so the chat bubble shows only the answer, not the raw reasoning.
+    /// Removes `<think>…</think>` pairs; if a block is left open (truncated), drops from the
+    /// last `<think>` onward.
+    private func stripReasoning(_ text: String) -> String {
+        var s = text
+        if let regex = try? NSRegularExpression(pattern: "<think>[\\s\\S]*?</think>", options: [.caseInsensitive]) {
+            s = regex.stringByReplacingMatches(in: s, options: [], range: NSRange(s.startIndex..., in: s), withTemplate: "")
+        }
+        // Handle an unclosed <think> (model still reasoning / output truncated).
+        if let open = s.range(of: "<think>", options: .caseInsensitive), !s.localizedCaseInsensitiveContains("</think>") {
+            s = String(s[..<open.lowerBound])
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - Send via on-device LLM
 
     /// Send using the on-device MLX model (streaming).
@@ -282,6 +288,7 @@ public final class ConversationStore {
         }
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+            messages[idx].content = stripReasoning(messages[idx].content)
             messages[idx].isStreaming = false
             persist(message: messages[idx])
             await autoImportExchange(
@@ -333,7 +340,7 @@ public final class ConversationStore {
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
             if let response = result.value {
-                let fullText = response.response ?? ""
+                let fullText = stripReasoning(response.response ?? "")
                 messages[idx].model = response.model
                 messages[idx].tokensUsed = response.tokensUsed
                 messages[idx].source = response.source
@@ -590,6 +597,10 @@ public final class ConversationStore {
         }
         let atoms = importResult.projection?.atomsCreated ?? 0
         let episodes = importResult.projection?.episodesCreated ?? 0
+        // Mark the assistant bubble so the UI can show "✓ Memory" — the idea is now recallable.
+        if let i = messages.firstIndex(where: { $0.id == assistant.id }) {
+            messages[i].savedToMemory = true
+        }
         autoImportState = ConversationAutoImportState(
             status: "imported",
             sessionId: importResult.sessionId,
