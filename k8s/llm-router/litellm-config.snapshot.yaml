@@ -1,8 +1,8 @@
 model_list:
 - model_name: qwen2.5-14b
   litellm_params:
-    model: openai/qwen2.5-14b
-    api_base: http://vllm.vllm-r770-eagle3.svc.cluster.local:8000/v1
+    model: openai/qwen2.5:14b
+    api_base: http://192.168.3.24:11434/v1
     api_key: noauth
     rpm: 600
 - model_name: qwen2.5-coder-32b
@@ -13,8 +13,8 @@ model_list:
     rpm: 400
 - model_name: chat-fast
   litellm_params:
-    model: openai/qwen2.5-14b
-    api_base: http://vllm.vllm-r770-eagle3.svc.cluster.local:8000/v1
+    model: openai/qwen2.5:14b
+    api_base: http://192.168.3.24:11434/v1
     api_key: noauth
 - model_name: code
   litellm_params:
