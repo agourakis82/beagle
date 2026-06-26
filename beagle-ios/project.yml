@@ -23,6 +23,9 @@ settings:
 packages:
   BeagleSuite:
     path: BeagleSuite
+  MetalSplatter:
+    url: https://github.com/scier/MetalSplatter
+    branch: main
 
 targets:
 
@@ -38,6 +41,12 @@ targets:
         product: BeagleCore
       - package: BeagleSuite
         product: BeagleWorkbenchKit
+      - package: MetalSplatter
+        product: MetalSplatter
+      - package: MetalSplatter
+        product: SplatIO
+      - package: MetalSplatter
+        product: SampleBoxRenderer
       - target: BeagleWidgets
         platformFilter: iOS
       - target: BeagleShare
