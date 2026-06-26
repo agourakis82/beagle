@@ -70,25 +70,27 @@ spec:
               value: http://sounio-inference.beagle.svc.cluster.local:80
             - name: XAI_BASE_URL
               value: http://router.llm-router.svc.cluster.local:4000/v1/chat/completions
+            # 2026-06-26 model allocation (deepseek-chat died: 402 Insufficient Balance).
+            # Two paid coding plans split by workload:
+            #   • DEEP REASONING → glm-5.2 (Z.ai coding plan, ZAI_API_KEY) — ~16s, strongest.
+            #   • FAST WORKHORSE → minimax-m3 (MiniMax coding plan, MINIMAX_API_KEY) — ~2-5s,
+            #     clean content (its inline <think> is stripped to reasoning_content by the
+            #     LiteLLM router, so beagle reads clean text). minimax-m2.7 also routed as a spare.
+            # Escalation/heavy (GrokClient) + Triad debate stay on glm-5.2:
             - name: BEAGLE_GROK_MODEL
               value: glm-5.2
             - name: BEAGLE_GROK_HEAVY_MODEL
               value: glm-5.2
-            # All model slots repointed to glm-5.2 (Z.ai coding plan, ZAI_API_KEY) on
-            # 2026-06-26: deepseek-chat ran out of API balance (402 Insufficient Balance),
-            # breaking every LocalFleet call AND the deepseek-rooted fallback net. grok was
-            # a brief stopgap. NOTE: glm-5.2 is a REASONING model (~16s vs grok ~6s) — for
-            # the fast-path slots (fleet draft-gen at complete()/2048, smt.check JSON
-            # extraction) glm-4.7 is the lighter same-plan option if truncation/latency bites.
+            # Fleet default drives capture/refine + recall synthesis + draft-gen — latency-
+            # sensitive, so minimax-m3 (≈7× faster than glm-5.2 here: capture/refine 2.4s vs 16s):
             - name: BEAGLE_LLM_FLEET_MODEL
-              value: glm-5.2
-            # Triad AGENTS (ATHENA/HERMES/ARGOS/Judge) — robust reasoning model
-            # (beagle-triad calls them with max_tokens=8000 so reasoning_content has headroom):
+              value: minimax-m3
+            # Triad AGENTS (ATHENA/HERMES/ARGOS/Judge), called with max_tokens=8000 → glm-5.2:
             - name: BEAGLE_TRIAD_AGENT_MODEL
               value: glm-5.2
-            # smt.check claim-extraction (structured JSON for QF_LIA constraints):
+            # smt.check claim-extraction (fast structured JSON for QF_LIA constraints) → minimax-m3:
             - name: BEAGLE_TRIAD_EXTRACTION_MODEL
-              value: glm-5.2
+              value: minimax-m3
           volumeMounts:
             - name: beagle-data
               mountPath: /var/lib/beagle
