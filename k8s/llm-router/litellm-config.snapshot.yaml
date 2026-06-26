@@ -1,4 +1,9 @@
 model_list:
+- model_name: glm-4.5-air
+  litellm_params:
+    model: openai/MichelRosselli/GLM-4.5-Air:Q4_K_M
+    api_base: http://192.168.3.24:11434/v1
+    api_key: noauth
 - model_name: qwq
   litellm_params:
     model: openai/qwq:32b
@@ -228,6 +233,8 @@ router_settings:
   - deepseek-reasoner:
     - glm-5.2
   - qwq:
+    - glm-5.2
+  - glm-4.5-air:
     - glm-5.2
 litellm_settings:
   drop_params: true
