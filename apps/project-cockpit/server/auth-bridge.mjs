@@ -785,6 +785,41 @@ export async function fetchPhysiomeDigest({ timeoutMs = 8000 } = {}) {
   }
 }
 
+/**
+ * Best-effort episodic recall from memory-pg /query. Returns the raw results
+ * array ([{ text, occurred_at, ... }]) or [] on any failure — never throws, so
+ * the chat is never blocked. fetchImpl is injectable for tests.
+ */
+export async function fetchRecentMemories(query, {
+  baseUrl = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local",
+  token = process.env.MEMORY_PG_QUERY_TOKEN || "",
+  k = 6,
+  timeoutMs = 6000,
+  fetchImpl = fetch,
+} = {}) {
+  const q = typeof query === "string" ? query.trim() : "";
+  if (!q) return [];
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const headers = { "content-type": "application/json" };
+    if (token) headers.authorization = `Bearer ${token}`;
+    const res = await fetchImpl(`${baseUrl}/query`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query: q, k }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return [];
+    const j = await res.json();
+    return Array.isArray(j?.results) ? j.results : [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function extractRouterCompletionText(payload = {}) {
   return cleanString(
     payload?.choices?.[0]?.message?.content ||

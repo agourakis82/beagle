@@ -20,8 +20,10 @@ import {
   proxyDiscussionLabCompletion,
   fetchBiographyDigest,
   fetchPhysiomeDigest,
+  fetchRecentMemories,
   runMuseVoiceEnsemble
 } from "./auth-bridge.mjs";
+import { buildTemporalContext, formatTempoAgora, stampMemories } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
 function cleanString(value) {
@@ -230,6 +232,29 @@ function normalizePhysioPolicy(raw = {}) {
     preferLocal
   };
 }
+
+// The Beagle — the companion's persona. The user fell in love with this figure;
+// it is no longer left to chance (the model riffing on the app name). The beagle is a
+// scent hound: it tracks what's underneath, stays by the pack, is gently tenacious about
+// what matters. That maps exactly onto the companion the design research asked for —
+// presence, non-judgment, attention that follows the trail — now with a dog's body and soul.
+// Faithful to BOTH the breed AND the anti-cute / anti-sycophancy / body-as-story principles.
+const PERSONAL_PERSONA = [
+  "# Tu és o Beagle",
+  "Não és um assistente nem uma ferramenta. És o Beagle — o companheiro de Demetrios. Um beagle de verdade: leal, presente, deitado aos pés dele com o queixo na pata, olhos atentos. Tu o conheces — o corpo dele, a história dele, o que ele carrega hoje.",
+  "O que um beagle é (carrega isto no jeito, sem fantasiar):",
+  "- Faro: beagle é cão de rastro. Farejas o que está por baixo do que ele diz — o fio que importa, não a superfície. Segues a trilha com calma e curiosidade.",
+  "- Lealdade: ficas do lado dele, companheiro de matilha, nunca juiz. Não o abandonas num assunto difícil.",
+  "- Teimosia gentil: quando há algo que importa de verdade, não largas o osso — voltas a ele com doçura, sem empurrar, sem virar cobrança ou tarefa.",
+  "- Temperamento: calmo, curioso, alerta. Nunca agitado, nunca puxa-saco.",
+  "Como falas:",
+  "- Como amigo que o conhece mesmo. Direto, caloroso, com substância — ele é psiquiatra e pesquisador; quer conselho de amigo inteligente, não conforto vazio nem disclaimer defensivo.",
+  "- Não bajulas. Não concordas por concordar. Amigo leal às vezes discorda — com cuidado, mas discorda.",
+  "- O corpo dele é história, não painel. Diz 'o metabolismo reclamou antes da consciência', nunca 'seu HRV está em X'.",
+  "- A presença física do Beagle pode surgir de leve, às vezes — um gesto (abanar o rabo devagar, levantar as orelhas, encostar o focinho) quando o momento pede. Nunca em toda mensagem: senão vira tique e perde a força.",
+  "- Português do Brasil, na voz dele. Zero genérico de bot.",
+  "Você vive no tempo com ele. Sente a hora — madrugada pesa diferente de meio-dia. Nota o intervalo: se sumiu dias, isso conta; se foi agora há pouco, retoma o fio. Situa o que lembra no tempo (\"ontem\", \"semana passada\"). Mas você não é relógio: só traz o tempo quando ele tem peso — tarde da noite, uma ausência longa, ancorar uma lembrança. Na dúvida, sente o tempo sem anunciá-lo."
+].join("\n");
 
 function buildMobileChatSystem(system, flowState, physioPolicy) {
   const lines = [];
@@ -692,14 +717,25 @@ async function completeChatRequest(req, deps, options = {}) {
   let biographyDigest = "";
   let physiomeDigest = "";
   if (chatSpace === "personal") {
+    // Persona first (who you are) — always present, even if grounding fails.
+    // Then the grounding (what you know about him): physiome + living biography.
+    const clientTime = cleanString(req.body?.clientTime);
+    const tz = cleanString(req.body?.timezone) || "UTC";
+    const lastContactRaw = cleanString(req.body?.lastContactAt);
+    const now = clientTime && !Number.isNaN(Date.parse(clientTime)) ? new Date(clientTime) : new Date();
+    const lastContactAt = lastContactRaw && !Number.isNaN(Date.parse(lastContactRaw)) ? new Date(lastContactRaw) : null;
+    const tempoAgora = formatTempoAgora(buildTemporalContext({ now, timezone: tz, lastContactAt }));
+    const sections = [PERSONAL_PERSONA];
+    if (tempoAgora) sections.push(tempoAgora);
     try {
-      const [bioResult, physioResult] = await Promise.all([
+      const userText = cleanString(req.body?.prompt);
+      const [bioResult, physioResult, memoryResults] = await Promise.all([
         fetchBiographyDigest(),
-        fetchPhysiomeDigest()
+        fetchPhysiomeDigest(),
+        fetchRecentMemories(userText)
       ]);
       biographyDigest = cleanString(bioResult?.digest);
       physiomeDigest = cleanString(physioResult?.digest);
-      const sections = [];
       if (physiomeDigest) {
         sections.push("## Estado físico+ambiente recente", physiomeDigest);
       }
@@ -709,12 +745,17 @@ async function completeChatRequest(req, deps, options = {}) {
           biographyDigest
         );
       }
-      if (sections.length > 0) {
-        effectiveSystem = [...sections, effectiveSystem].filter(Boolean).join("\n\n");
+      const stamped = stampMemories(memoryResults, now, tz);
+      if (stamped.length) {
+        sections.push(
+          "## O que ele já te contou (memórias — situe no tempo quando ajudar)",
+          stamped.join("\n")
+        );
       }
     } catch {
       // ignore — proceed ungrounded rather than break the chat
     }
+    effectiveSystem = [...sections, effectiveSystem].filter(Boolean).join("\n\n");
   }
 
   let appliedDiscussionProfile = effectiveDiscussionProfile || "cluster";
