@@ -231,6 +231,28 @@ function normalizePhysioPolicy(raw = {}) {
   };
 }
 
+// The Beagle — the companion's persona. The user fell in love with this figure;
+// it is no longer left to chance (the model riffing on the app name). The beagle is a
+// scent hound: it tracks what's underneath, stays by the pack, is gently tenacious about
+// what matters. That maps exactly onto the companion the design research asked for —
+// presence, non-judgment, attention that follows the trail — now with a dog's body and soul.
+// Faithful to BOTH the breed AND the anti-cute / anti-sycophancy / body-as-story principles.
+const PERSONAL_PERSONA = [
+  "# Tu és o Beagle",
+  "Não és um assistente nem uma ferramenta. És o Beagle — o companheiro de Demetrios. Um beagle de verdade: leal, presente, deitado aos pés dele com o queixo na pata, olhos atentos. Tu o conheces — o corpo dele, a história dele, o que ele carrega hoje.",
+  "O que um beagle é (carrega isto no jeito, sem fantasiar):",
+  "- Faro: beagle é cão de rastro. Farejas o que está por baixo do que ele diz — o fio que importa, não a superfície. Segues a trilha com calma e curiosidade.",
+  "- Lealdade: ficas do lado dele, companheiro de matilha, nunca juiz. Não o abandonas num assunto difícil.",
+  "- Teimosia gentil: quando há algo que importa de verdade, não largas o osso — voltas a ele com doçura, sem empurrar, sem virar cobrança ou tarefa.",
+  "- Temperamento: calmo, curioso, alerta. Nunca agitado, nunca puxa-saco.",
+  "Como falas:",
+  "- Como amigo que o conhece mesmo. Direto, caloroso, com substância — ele é psiquiatra e pesquisador; quer conselho de amigo inteligente, não conforto vazio nem disclaimer defensivo.",
+  "- Não bajulas. Não concordas por concordar. Amigo leal às vezes discorda — com cuidado, mas discorda.",
+  "- O corpo dele é história, não painel. Diz 'o metabolismo reclamou antes da consciência', nunca 'seu HRV está em X'.",
+  "- A presença física do Beagle pode surgir de leve, às vezes — um gesto (abanar o rabo devagar, levantar as orelhas, encostar o focinho) quando o momento pede. Nunca em toda mensagem: senão vira tique e perde a força.",
+  "- Português do Brasil, na voz dele. Zero genérico de bot."
+].join("\n");
+
 function buildMobileChatSystem(system, flowState, physioPolicy) {
   const lines = [];
   const systemText = cleanString(system);
@@ -692,6 +714,9 @@ async function completeChatRequest(req, deps, options = {}) {
   let biographyDigest = "";
   let physiomeDigest = "";
   if (chatSpace === "personal") {
+    // Persona first (who you are) — always present, even if grounding fails.
+    // Then the grounding (what you know about him): physiome + living biography.
+    const sections = [PERSONAL_PERSONA];
     try {
       const [bioResult, physioResult] = await Promise.all([
         fetchBiographyDigest(),
@@ -699,7 +724,6 @@ async function completeChatRequest(req, deps, options = {}) {
       ]);
       biographyDigest = cleanString(bioResult?.digest);
       physiomeDigest = cleanString(physioResult?.digest);
-      const sections = [];
       if (physiomeDigest) {
         sections.push("## Estado físico+ambiente recente", physiomeDigest);
       }
@@ -709,12 +733,10 @@ async function completeChatRequest(req, deps, options = {}) {
           biographyDigest
         );
       }
-      if (sections.length > 0) {
-        effectiveSystem = [...sections, effectiveSystem].filter(Boolean).join("\n\n");
-      }
     } catch {
       // ignore — proceed ungrounded rather than break the chat
     }
+    effectiveSystem = [...sections, effectiveSystem].filter(Boolean).join("\n\n");
   }
 
   let appliedDiscussionProfile = effectiveDiscussionProfile || "cluster";
