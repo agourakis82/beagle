@@ -931,6 +931,19 @@ public actor BeagleClient {
         )
     }
 
+    /// Flush one queued offline companion turn to the cockpit's memory-spine ingest endpoint.
+    /// Mirrors assistedImportBatch — postEncoded handles base URLs + auth + the {data} envelope.
+    public func ingestTurn(
+        _ request: IngestTurnRequest
+    ) async -> Truthful<IngestTurnResult> {
+        await postEncoded(
+            IngestTurnResult.self,
+            path: "/api/mobile/v1/ingest",
+            body: request,
+            timeout: 30
+        )
+    }
+
     public func captureSessionStart(
         _ request: CaptureSessionStartRequest
     ) async -> Truthful<CaptureSession> {

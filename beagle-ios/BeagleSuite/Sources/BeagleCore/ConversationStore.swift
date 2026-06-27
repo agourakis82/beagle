@@ -108,6 +108,10 @@ public final class ConversationStore {
         self.projectSlug = projectSlug
         self.projectFamily = projectFamily
         self.publicationScope = publicationScope
+        // Drain the offline outbox to the memory spine the moment connectivity returns.
+        NetworkMonitor.shared.onReconnect = { [weak self] in
+            Task { @MainActor in await self?.flushOutbox() }
+        }
     }
 
     public var persistenceConversationId: String {
@@ -158,13 +162,43 @@ public final class ConversationStore {
             await sendMessageFast(text)
             return
         }
-        // Honor an explicitly loaded on-device model: a loaded model is an explicit user
-        // choice, so route to it. `flowState` still travels in the cloud request body for
-        // server-side routing when no local model is ready.
-        if llm.isReady {
+        // Companion: cloud (rich, grounded, server-side memory ingest) when online; the on-device
+        // MLX model when offline — and enqueue the offline turn so the memory spine receives it
+        // once connectivity returns. `flowState` still travels in the cloud request body.
+        if NetworkMonitor.shared.isOnline {
+            await sendMessageCloud(text)
+        } else if llm.isReady {
             await sendMessageLocal(text)
+            enqueueOffline(userText: text)
         } else {
             await sendMessageCloud(text)
+        }
+    }
+
+    /// Queue an offline personal turn for later sync to the memory spine (online turns are
+    /// ingested server-side during the chat, so only offline ones land here).
+    private func enqueueOffline(userText: String) {
+        guard let ctx = modelContext else { return }
+        let assistant = messages.last(where: { $0.role == .assistant })?.content ?? ""
+        OutboxStore(context: ctx).enqueue(
+            sessionId: persistenceConversationId,
+            userText: userText,
+            assistantText: assistant,
+            clientTime: ISO8601DateFormatter().string(from: Date()),
+            timezone: TimeZone.current.identifier
+        )
+    }
+
+    /// Drain the offline outbox to the cockpit. Idempotent server-side (content_hash), so a
+    /// failed item simply stays queued for the next attempt.
+    public func flushOutbox() async {
+        guard let ctx = modelContext else { return }
+        let store = OutboxStore(context: ctx)
+        for item in store.pending() {
+            let result = await client.ingestTurn(IngestTurnRequest(
+                session_id: item.sessionId, userText: item.userText, assistantText: item.assistantText,
+                clientTime: item.clientTime, timezone: item.timezone))
+            if result.value != nil { store.delete(item) }
         }
     }
 
