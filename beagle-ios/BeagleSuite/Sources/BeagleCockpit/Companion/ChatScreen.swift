@@ -48,14 +48,16 @@ public struct ChatScreen: View {
         }
     }
 
-    // The companion's presence — vector beagle by default; the photoreal Gaussian-splat
-    // beagle behind the --beagle-splat flag (de-risk; falls back to vector if it can't load).
+    // The companion's presence — the photoreal Gaussian-splat beagle is now the DEFAULT on
+    // iOS/macOS (the trained doodle .ply ships in the bundle; BeagleSplatView falls back to
+    // the vector face on its own if the asset can't load or Metal is unavailable). Pass
+    // --beagle-no-splat to force the vector face (de-risk / low-power).
     @ViewBuilder private var presence: some View {
         #if os(iOS) || os(macOS)
-        if ProcessInfo.processInfo.arguments.contains("--beagle-splat") {
-            BeagleSplatView(motion: CompanionMotion(flowState: store.flowState, listening: store.isStreaming, breathRate: breathRate))
-        } else {
+        if ProcessInfo.processInfo.arguments.contains("--beagle-no-splat") {
             BeagleFigure(state: store.flowState, listening: store.isStreaming, breathRate: breathRate)
+        } else {
+            BeagleSplatView(motion: CompanionMotion(flowState: store.flowState, listening: store.isStreaming, breathRate: breathRate))
         }
         #else
         BeagleFigure(state: store.flowState, listening: store.isStreaming, breathRate: breathRate)
