@@ -16,22 +16,35 @@ before(async () => { await ensureSchema(pool); });
 beforeEach(async () => { await pool.query("TRUNCATE records CASCADE"); });
 after(async () => { await pool.end(); });
 
-async function actorOf(id) {
-  return (await pool.query("SELECT prov_actor FROM records WHERE id = $1", [id])).rows[0].prov_actor;
+async function rowOf(id) {
+  return (await pool.query("SELECT prov_actor, prov_orphan FROM records WHERE id = $1", [id])).rows[0];
 }
 
-test("MemoryAtom → model_distilled, MemoryEpisode → external_import, Passage stays default", async () => {
+test("MemoryAtom → model_distilled + orphan; Episode/Passage stay conservative (no trust granted)", async () => {
   const atom = await captureRecord(pool, { source_type: "MemoryAtom", content: "atom one" });
   const epi = await captureRecord(pool, { source_type: "MemoryEpisode", content: "episode one" });
   const pass = await captureRecord(pool, { source_type: "ConversationPassage", content: "passage one" });
 
   const res = await backfillProvenance(pool);
 
-  assert.equal(await actorOf(atom.id), "model_distilled");
-  assert.equal(await actorOf(epi.id), "external_import");
-  assert.equal(await actorOf(pass.id), "model_generated");
+  const atomRow = await rowOf(atom.id);
+  assert.equal(atomRow.prov_actor, "model_distilled");
+  assert.equal(atomRow.prov_orphan, true); // untraced historical atom → orphan (untrusted)
+  // No blind trust elevation: imports/passages stay at the conservative default.
+  assert.equal((await rowOf(epi.id)).prov_actor, "model_generated");
+  assert.equal((await rowOf(pass.id)).prov_actor, "model_generated");
   assert.equal(res.distilled, 1);
-  assert.equal(res.imported, 1);
+});
+
+test("the backfill NEVER grants a trusted actor (user_stated/external_import) to bulk", async () => {
+  await captureRecord(pool, { source_type: "MemoryAtom", content: "a" });
+  await captureRecord(pool, { source_type: "MemoryEpisode", content: "b" });
+  await captureRecord(pool, { source_type: "ConversationPassage", content: "c" });
+  await backfillProvenance(pool);
+  const trusted = (await pool.query(
+    "SELECT count(*) FROM records WHERE prov_actor IN ('user_stated', 'external_import')",
+  )).rows[0].count;
+  assert.equal(trusted, "0");
 });
 
 test("backfill never overwrites a forward-path user_stated tag and is idempotent", async () => {
@@ -40,8 +53,7 @@ test("backfill never overwrites a forward-path user_stated tag and is idempotent
   });
   const first = await backfillProvenance(pool);
   const second = await backfillProvenance(pool);
-  assert.equal(await actorOf(u.id), "user_stated"); // untouched (not at default)
+  assert.equal((await rowOf(u.id)).prov_actor, "user_stated"); // untouched (not at default)
   assert.equal(second.distilled, 0); // nothing left at default to change
-  assert.equal(second.imported, 0);
   assert.equal(typeof first.distilled, "number");
 });
