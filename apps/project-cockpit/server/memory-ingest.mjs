@@ -61,6 +61,36 @@ export async function ingestVerbatim(payload, { baseUrl, fetchImpl = fetch, toke
   }
 }
 
+/**
+ * POST one provenance-tagged record to memory-pg-serve /capture_turn. Best-effort:
+ * returns the {id, created} JSON, or null on any error/non-2xx (never throws — ingestion
+ * must never affect the chat).
+ * @param {{source_type:string, content:string, prov_actor?:string, prov_surface?:string,
+ *          prov_derived_from?:string[], prov_confidence?:number, occurred_at?:string|null,
+ *          metadata?:object}} rec
+ */
+export async function captureProvenanced(rec, { memoryPgUrl, fetchImpl = fetch, ingestToken, timeoutMs = 8000 } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${memoryPgUrl}/capture_turn`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(ingestToken ? { authorization: `Bearer ${ingestToken}` } : {}),
+      },
+      body: JSON.stringify(rec),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const MAX_ATOMS = 4;
 
 /** Selective extraction prompt. The model returns [] for smalltalk (the common case). */
