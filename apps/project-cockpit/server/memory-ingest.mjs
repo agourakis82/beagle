@@ -164,15 +164,20 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
     baseUrl = process.env.BEAGLE_INTERNAL_URL || "http://beagle-core.beagle.svc.cluster.local:8080",
     routerUrl = process.env.PROJECT_COCKPIT_LITELLM_ROUTER_URL || "http://router.llm-router.svc.cluster.local:4000",
     model = process.env.PROJECT_COCKPIT_DISTILL_MODEL || "qwen2.5-14b",
+    memoryPgUrl = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local",
+    ingestToken = process.env.MEMORY_PG_INGEST_TOKEN,
     fetchImpl = fetch,
     tokenFn,
+    distillFn = distillSalient,
+    captureFn = captureProvenanced,
   } = deps;
   try {
     const verbatim = buildVerbatimPayload({ sessionId, userText, assistantText, clientTime, timezone });
     if (!verbatim) return;
+    // Existing path: verbatim transcript to beagle-core (feeds the Claude Desktop bridge).
     await ingestVerbatim(verbatim, { baseUrl, fetchImpl, tokenFn });
 
-    const atoms = await distillSalient({ userText, assistantText }, { routerUrl, model, fetchImpl });
+    const atoms = await distillFn({ userText, assistantText }, { routerUrl, model, fetchImpl });
     if (atoms.length) {
       await ingestVerbatim({
         source: "companion-personal",
@@ -181,6 +186,41 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
         tags: ["companion", "personal", "distill"],
         metadata: { space: "personal", client_time: clean(clientTime), timezone: clean(timezone) },
       }, { baseUrl, fetchImpl, tokenFn });
+    }
+
+    // Provenance-tagged write to the canonical store (memory-pg). The user turn is
+    // user_stated; the assistant turn model_generated; each atom is model_distilled linked
+    // to the user turn — so an atom with no real user source is flagged orphan (P1) and
+    // never laundered into biography.
+    const capDeps = { memoryPgUrl, fetchImpl, ingestToken };
+    const u = clean(userText), a = clean(assistantText);
+    const sid = verbatim.session_id;
+    let userId = null;
+    if (u) {
+      const r = await captureFn(
+        { source_type: "ConversationPassage", content: u, prov_actor: "user_stated",
+          prov_surface: "companion-ios", prov_confidence: 1.0,
+          metadata: { space: "personal", session_id: sid, role: "user" } },
+        capDeps,
+      );
+      userId = r && r.id ? r.id : null;
+    }
+    if (a) {
+      await captureFn(
+        { source_type: "ConversationPassage", content: a, prov_actor: "model_generated",
+          prov_surface: "companion-ios",
+          metadata: { space: "personal", session_id: sid, role: "assistant" } },
+        capDeps,
+      );
+    }
+    for (const atom of atoms) {
+      await captureFn(
+        { source_type: "MemoryAtom", content: atom, prov_actor: "model_distilled",
+          prov_surface: "companion-ios",
+          prov_derived_from: userId ? [userId] : [],
+          metadata: { space: "personal", session_id: sid, kind: "distill" } },
+        capDeps,
+      );
     }
   } catch {
     // fail-soft — ingestion must never affect the chat
