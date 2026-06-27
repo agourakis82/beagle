@@ -110,6 +110,40 @@ Distill runs on the sovereign Spark; verbatim + atoms land only in the canonical
 store (memory-pg / beagle-core). Personal conversation content never touches external SaaS.
 The user is the sole operator → no extra auth on the in-cluster hops beyond the operator token.
 
+## Offline resilience & sync (added 2026-06-27)
+The companion must never go mute when Wi-Fi/5G drops, and nothing said offline may be lost.
+Most of the infra already exists; this adds two seams.
+
+**Network-aware routing (online → cloud, offline → on-device).** `ConversationStore` already
+has the seam: `LocalLLMEngine` (on-device MLX, Tier 0.5, 8-30 tok/s, kept warm) + `sendMessageLocal`
++ `sendMessageCloud`. Today it prefers local when `llm.isReady`; refine so the **personal
+companion prefers the cloud** (rich sovereign cluster model + RAG grounding) **when online**, and
+**falls back to the on-device model when offline** — including a graceful mid-request fallback if
+the cloud call fails on a dropped connection. A network monitor (`NWPathMonitor`) drives the
+choice. Tradeoff (surfaced to the user): offline answers come from the lighter on-device model;
+full quality + memory grounding resume online. The on-device path is also the *most* sovereign —
+nothing leaves the phone.
+
+**Durability:** conversation turns are *already* persisted locally via SwiftData
+(`persist(message:)` on every message), so a disconnect or app-kill loses nothing.
+
+**Ingestion outbox (the new piece):** ingestion becomes an **outbox**, not a live call. Each
+turn's pending ingestion (verbatim payload + a `content_hash`) is enqueued to a local store
+(SwiftData). A sync worker flushes the outbox to beagle-core `/api/memory/ingest_chat` whenever
+connectivity returns (and on app foreground). The server's `content_hash` dedup makes replays
+harmless, so the worker can retry freely. **Distill defers to sync:** the sovereign Spark distill
+runs server-side when the verbatim arrives — so offline turns are captured locally now and
+distilled into "falinhas" the moment they sync. (An optional on-device light-distill is possible
+later, but deferring keeps quality + sovereignty consistent.)
+
+Flow with connectivity awareness:
+```
+turn → persist locally (SwiftData)              [always; never lost]
+     → reply: online ? cloud(grounded) : on-device MLX   [never mute]
+     → enqueue ingestion to outbox
+outbox worker (on reconnect / foreground): flush → /api/memory/ingest_chat (idempotent) → spine
+```
+
 ## Testing
 - **Unit (cockpit):** after a personal reply, the ingest call is issued with the right payload
   (mock the fetch; assert source/session_id/turns/tags). A thrown ingest does not affect the
@@ -118,6 +152,11 @@ The user is the sole operator → no extra auth on the in-cluster hops beyond th
   → ≥1 atom; malformed model output → `[]` (no crash).
 - **Integration:** ingest a turn with a distinct fact → a later `fetchRecentMemories` for that
   topic surfaces it. Idempotent re-ingest does not duplicate.
+- **Offline (iOS):** with the network down, a sent message still gets a reply (on-device path)
+  and is persisted; its ingestion lands in the outbox. On reconnect, the outbox worker flushes
+  it to `/api/memory/ingest_chat`. A double-flush (worker retry) does not duplicate (content_hash).
+- **Mid-request drop:** a cloud send whose connection dies falls back to the on-device model
+  rather than erroring; the turn is still persisted + enqueued.
 
 ## Roadmap (after the loop — separate specs)
 - **Sessions UI:** the visible thread shows the current session; past sessions are out of the
@@ -134,3 +173,8 @@ The user is the sole operator → no extra auth on the in-cluster hops beyond th
    client knows the real "visit" boundaries; server-derive is a fallback).
 4. **Distill noise guard:** the `[]`-by-default prompt is the main guard; consider a per-day
    atom cap to bound growth.
+5. **Online routing preference (companion):** prefer cloud-when-online (rich + grounded) and
+   fall back to on-device-when-offline (proposed) — vs the current "prefer local when ready".
+   The companion wants the cluster model + memory grounding when it can reach them.
+6. **Ingestion as outbox** (vs live call): always outbox + sync worker, so online and offline
+   share one durable path (proposed).
