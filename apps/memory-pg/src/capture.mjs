@@ -72,7 +72,19 @@ export async function captureRecord(pool, rec) {
     occurred_at = null,
     privacy_class = "sensitive",
     decay_class = "identity",
+    prov_actor = "model_generated",
+    prov_surface = null,
+    prov_derived_from = [],
+    prov_confidence = null,
+    prov_asserted_at = null,
   } = rec;
+
+  const VALID_ACTORS = new Set([
+    "user_stated", "model_generated", "model_distilled", "external_import", "system",
+  ]);
+  if (!VALID_ACTORS.has(prov_actor)) {
+    throw new Error(`captureRecord: invalid prov_actor ${prov_actor}`);
+  }
 
   if (!source_type) throw new Error("captureRecord: source_type is required");
   if (typeof content !== "string" || content.length === 0) {
@@ -92,8 +104,9 @@ export async function captureRecord(pool, rec) {
     // Insert the record; on duplicate content_sha256 do nothing.
     const ins = await client.query(
       `INSERT INTO records
-         (source_type, content, metadata, occurred_at, content_sha256, privacy_class, decay_class)
-       VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
+         (source_type, content, metadata, occurred_at, content_sha256, privacy_class, decay_class,
+          prov_actor, prov_surface, prov_derived_from, prov_confidence, prov_asserted_at)
+       VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10::uuid[], $11, $12)
        ON CONFLICT (content_sha256) DO NOTHING
        RETURNING id`,
       [
@@ -104,6 +117,11 @@ export async function captureRecord(pool, rec) {
         content_sha256,
         privacy_class,
         decay_class,
+        prov_actor,
+        prov_surface,
+        prov_derived_from,
+        prov_confidence,
+        prov_asserted_at,
       ],
     );
 
