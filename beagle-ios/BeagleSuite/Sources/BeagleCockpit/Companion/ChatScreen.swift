@@ -28,9 +28,13 @@ public struct ChatScreen: View {
     public var body: some View {
         ZStack(alignment: .bottom) {
             hearth
-            companion                       // one stable splat instance — behind the conversation, never reloads
-            if !store.messages.isEmpty {
-                conversation
+            // Hearth-on-top: the companion lives in a dedicated zone at the TOP (a tall greeter
+            // when empty → a compact, reacting header once you start talking), and the
+            // conversation scrolls in the space BELOW it — never behind it. One stable `presence`
+            // node spans both states so the splat/MTKView (24MB ply) never tears down.
+            VStack(spacing: 0) {
+                companionZone
+                if !store.messages.isEmpty { conversation }
             }
             composer
         }
@@ -48,16 +52,17 @@ public struct ChatScreen: View {
         }
     }
 
-    // The companion's presence — the photoreal Gaussian-splat beagle is now the DEFAULT on
-    // iOS/macOS (the trained doodle .ply ships in the bundle; BeagleSplatView falls back to
-    // the vector face on its own if the asset can't load or Metal is unavailable). Pass
-    // --beagle-no-splat to force the vector face (de-risk / low-power).
+    // The companion's presence — the lightweight VECTOR beagle is the default (it's reactive via
+    // CompanionMotion — breathes, ears, tail — and cheap, so it never fights the keyboard). The
+    // photoreal Gaussian-splat beagle (354k splats @ 60fps + per-frame deform) is genuinely heavy
+    // on a phone and contended the main thread → typing lag, so it's opt-in behind --beagle-splat
+    // until it has a worthy asset AND is throttled/paused while the composer is focused.
     @ViewBuilder private var presence: some View {
         #if os(iOS) || os(macOS)
-        if ProcessInfo.processInfo.arguments.contains("--beagle-no-splat") {
-            BeagleFigure(state: store.flowState, listening: store.isStreaming, breathRate: breathRate)
-        } else {
+        if ProcessInfo.processInfo.arguments.contains("--beagle-splat") {
             BeagleSplatView(motion: CompanionMotion(flowState: store.flowState, listening: store.isStreaming, breathRate: breathRate))
+        } else {
+            BeagleFigure(state: store.flowState, listening: store.isStreaming, breathRate: breathRate)
         }
         #else
         BeagleFigure(state: store.flowState, listening: store.isStreaming, breathRate: breathRate)
@@ -69,22 +74,24 @@ public struct ChatScreen: View {
     // conversation. `presence` is a SINGLE non-conditional node (stable SwiftUI identity); only
     // its frame/position/opacity animate with state: a 240pt greeter when the space is empty, a
     // 132pt ambient header once the conversation fills in below it.
-    private var companion: some View {
+    private var companionZone: some View {
         let empty = store.messages.isEmpty
         return VStack(spacing: BeagleSpacing.lg) {
-            if empty { Spacer() }
+            if empty { Spacer(minLength: 0) }
             presence                                    // single instance — never recreated
                 .frame(height: empty ? 240 : 132)
-                .padding(.top, empty ? 0 : 18)
-                .opacity(empty ? 1 : 0.92)
+                .padding(.top, empty ? 0 : 12)
+                .opacity(empty ? 1 : 0.95)
             if empty {
                 greeting
-                Spacer()
-                Spacer()
-            } else {
-                Spacer()
+                Spacer(minLength: 0)
+                Spacer(minLength: 0)
             }
         }
+        .frame(maxWidth: .infinity)
+        // Empty → the greeter fills the whole screen. Chatting → the zone collapses to just the
+        // header's height, so the conversation VStack sibling below takes the remaining space.
+        .frame(maxHeight: empty ? .infinity : nil)
         .padding(.bottom, empty ? 64 : 0)
         .allowsHitTesting(false)
         .animation(.easeInOut(duration: 0.45), value: empty)
