@@ -186,6 +186,35 @@ export function createApp(deps) {
     }
   });
 
+  // Provenance-aware single-record capture. Unlike /capture (export-shaped), this takes
+  // one clean record with explicit provenance and routes it straight through captureRecord
+  // (which validates the actor + computes the orphan flag). Used by the companion to tag
+  // its turns at the source: user_stated / model_generated / model_distilled(+derived_from).
+  app.post("/capture_turn", async (req, res) => {
+    if (!ingestAuthed(req)) return res.status(401).json({ error: "unauthorized" });
+    const b = req.body || {};
+    if (typeof b.source_type !== "string" || !b.source_type ||
+        typeof b.content !== "string" || !b.content) {
+      return res.status(400).json({ error: "source_type (string) and content (string) required" });
+    }
+    try {
+      const rec = {
+        source_type: b.source_type,
+        content: b.content,
+        occurred_at: b.occurred_at ?? null,
+        metadata: (b.metadata && typeof b.metadata === "object") ? b.metadata : {},
+        prov_actor: b.prov_actor ?? "model_generated",
+        prov_surface: b.prov_surface ?? null,
+        prov_derived_from: Array.isArray(b.prov_derived_from) ? b.prov_derived_from : [],
+        prov_confidence: typeof b.prov_confidence === "number" ? b.prov_confidence : null,
+      };
+      const [out] = await captureFn([rec]);
+      res.json({ id: out.id, created: out.created });
+    } catch (e) {
+      res.status(500).json({ error: String(e?.message || e) });
+    }
+  });
+
   return app;
 }
 
