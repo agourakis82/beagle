@@ -174,24 +174,15 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
   try {
     const verbatim = buildVerbatimPayload({ sessionId, userText, assistantText, clientTime, timezone });
     if (!verbatim) return;
-    // Existing path: verbatim transcript to beagle-core (feeds the Claude Desktop bridge).
-    await ingestVerbatim(verbatim, { baseUrl, fetchImpl, tokenFn });
 
     const atoms = await distillFn({ userText, assistantText }, { routerUrl, model, fetchImpl });
-    if (atoms.length) {
-      await ingestVerbatim({
-        source: "companion-personal",
-        session_id: verbatim.session_id,
-        turns: atoms.map((a) => ({ role: "assistant", content: a })),
-        tags: ["companion", "personal", "distill"],
-        metadata: { space: "personal", client_time: clean(clientTime), timezone: clean(timezone) },
-      }, { baseUrl, fetchImpl, tokenFn });
-    }
 
-    // Provenance-tagged write to the canonical store (memory-pg). The user turn is
-    // user_stated; the assistant turn model_generated; each atom is model_distilled linked
-    // to the user turn — so an atom with no real user source is flagged orphan (P1) and
-    // never laundered into biography.
+    // PROVENANCE FIRST. The user/assistant turns are written to the canonical store
+    // (memory-pg) with provenance BEFORE the beagle-core path, which (synchronously)
+    // dual-writes the same content as untagged model_generated. captureRecord dedups on
+    // content hash with ON CONFLICT DO NOTHING — it cannot UPGRADE provenance — so whoever
+    // writes first wins. Writing the tagged version first makes the user turn authoritative
+    // as user_stated, so the distilled atoms that link to it are NOT orphaned.
     const capDeps = { memoryPgUrl, fetchImpl, ingestToken };
     const u = clean(userText), a = clean(assistantText);
     const sid = verbatim.session_id;
@@ -221,6 +212,19 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
           metadata: { space: "personal", session_id: sid, kind: "distill" } },
         capDeps,
       );
+    }
+
+    // THEN the beagle-core path (feeds the Claude Desktop bridge). Its memory-pg
+    // dual-write now dedups against the already-provenance-tagged records above.
+    await ingestVerbatim(verbatim, { baseUrl, fetchImpl, tokenFn });
+    if (atoms.length) {
+      await ingestVerbatim({
+        source: "companion-personal",
+        session_id: verbatim.session_id,
+        turns: atoms.map((aa) => ({ role: "assistant", content: aa })),
+        tags: ["companion", "personal", "distill"],
+        metadata: { space: "personal", client_time: clean(clientTime), timezone: clean(timezone) },
+      }, { baseUrl, fetchImpl, tokenFn });
     }
   } catch {
     // fail-soft — ingestion must never affect the chat
