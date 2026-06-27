@@ -156,3 +156,20 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
     // fail-soft — ingestion must never affect the chat
   }
 }
+
+/**
+ * Handler core for POST /api/mobile/v1/ingest — flushes one queued offline turn into the spine.
+ * Returns {status, body}. ingestPersonalTurn is fire-and-forget; we ack 202 immediately.
+ */
+export async function handleIngestRequest(body = {}, { ingestFn = ingestPersonalTurn, tokenFn } = {}) {
+  const userText = clean(body.userText || body.user_text);
+  const assistantText = clean(body.assistantText || body.assistant_text);
+  if (!userText || !assistantText) return { status: 400, body: { error: "userText and assistantText required" } };
+  ingestFn({
+    sessionId: clean(body.session_id || body.sessionId),
+    userText, assistantText,
+    clientTime: clean(body.clientTime || body.client_time),
+    timezone: clean(body.timezone),
+  }, { tokenFn }).catch(() => {});
+  return { status: 202, body: { status: "accepted" } };
+}

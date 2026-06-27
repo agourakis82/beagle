@@ -25,7 +25,7 @@ import {
   fetchExocortexContext,
   fetchOperatorToken
 } from "./auth-bridge.mjs";
-import { ingestPersonalTurn } from "./memory-ingest.mjs";
+import { ingestPersonalTurn, handleIngestRequest } from "./memory-ingest.mjs";
 import { buildTemporalContext, formatTempoAgora, stampMemories } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
@@ -1589,6 +1589,17 @@ export function registerMobileRoutes(app, deps) {
       } catch (error) {
         rethrowAsContract(error, "agent session stop failed");
       }
+    })
+  );
+
+  // Offline outbox flush: the iOS app drains its locally-queued offline turns here once
+  // connectivity returns. Reuses the same ingestPersonalTurn as the online chat path
+  // (verbatim + sovereign distill); idempotent server-side via content_hash.
+  app.post(
+    "/api/mobile/v1/ingest",
+    withEnvelope(async (req) => {
+      const out = await handleIngestRequest(req.body || {}, { tokenFn: fetchOperatorToken });
+      return out.body;
     })
   );
 
