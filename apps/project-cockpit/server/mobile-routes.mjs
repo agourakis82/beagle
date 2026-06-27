@@ -22,8 +22,10 @@ import {
   fetchPhysiomeDigest,
   fetchRecentMemories,
   runMuseVoiceEnsemble,
-  fetchExocortexContext
+  fetchExocortexContext,
+  fetchOperatorToken
 } from "./auth-bridge.mjs";
+import { ingestPersonalTurn } from "./memory-ingest.mjs";
 import { buildTemporalContext, formatTempoAgora, stampMemories } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
@@ -786,6 +788,15 @@ async function completeChatRequest(req, deps, options = {}) {
         || "glm-5.1",
       onToken
     });
+    // Memory spine: capture this exchange into the exocortex. Fire-and-forget — the reply
+    // is already on its way to the user; ingestion must never block or fail the chat.
+    ingestPersonalTurn({
+      sessionId: cleanString(req.body?.session_id || req.body?.sessionId),
+      userText: prompt,
+      assistantText: cleanString(result?.payload?.text || result?.payload?.answer || result?.payload?.response),
+      clientTime: cleanString(req.body?.clientTime),
+      timezone: cleanString(req.body?.timezone),
+    }, { tokenFn: fetchOperatorToken }).catch(() => {});
   } else {
   const subscriptionProfile = normalizeSubscriptionDiscussionProfile(effectiveDiscussionProfile);
   const cheapProviderProfile = normalizeCheapDiscussionProfile(effectiveDiscussionProfile);
