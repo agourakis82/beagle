@@ -338,12 +338,14 @@ public final class ConversationStore {
 
     /// Send using the cloud backend (beagle-core /api/v1/chat).
     public func sendMessageCloud(_ text: String) async {
-        // Build history BEFORE appending new user message to avoid duplication
-        let history = messages
+        // Build history BEFORE appending new user message — pass as STRUCTURED
+        // turn-based messages (role+content), NOT a "User: ... Assistant: ..."
+        // concatenated string. Smart models (Grok) read concatenated transcripts
+        // as text-to-continue and hallucinate the next user line.
+        let history: [[String: String]] = messages
             .suffix(10)
-            .map { "\($0.role == .user ? "User" : "Assistant"): \($0.content)" }
-            .joined(separator: "\n")
-        let contextualPrompt = history.isEmpty ? text : "\(history)\nUser: \(text)"
+            .map { ["role": $0.role == .user ? "user" : "assistant", "content": $0.content] }
+        let contextualPrompt = text
 
         let userMessage = ChatMessage(role: .user, content: text)
         messages.append(userMessage)
@@ -373,7 +375,8 @@ public final class ConversationStore {
             discussionProfile: discussionProfile,
             flowState: flowState,
             physioPolicy: physioPolicy,
-            lastContactAt: previousContact
+            lastContactAt: previousContact,
+            history: history
         )
 
         var streamedText = ""
@@ -416,7 +419,8 @@ public final class ConversationStore {
             discussionProfile: discussionProfile,
             flowState: flowState,
             physioPolicy: physioPolicy,
-            lastContactAt: previousContact
+            lastContactAt: previousContact,
+            history: history
         )
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {

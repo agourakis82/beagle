@@ -1232,7 +1232,8 @@ public actor BeagleClient {
         discussionProfile: DiscussionProfile = .cluster,
         flowState: String? = nil,
         physioPolicy: PhysioConversationPolicy? = nil,
-        lastContactAt: Date? = nil
+        lastContactAt: Date? = nil,
+        history: [[String: String]] = []
     ) async -> Truthful<ChatResponse> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1270,6 +1271,9 @@ public actor BeagleClient {
         }
         if let physioPolicy {
             body["physio_policy"] = physioPolicy.requestBody
+        }
+        if !history.isEmpty {
+            body["history"] = history
         }
 
         let mobileResult = await postPublicMobileChat(body: body)
@@ -1386,7 +1390,8 @@ public actor BeagleClient {
         discussionProfile: DiscussionProfile = .cluster,
         flowState: String? = nil,
         physioPolicy: PhysioConversationPolicy? = nil,
-        lastContactAt: Date? = nil
+        lastContactAt: Date? = nil,
+        history: [[String: String]] = []
     ) async -> Truthful<ChatResponse> {
         await llmComplete(
             prompt: prompt,
@@ -1397,7 +1402,8 @@ public actor BeagleClient {
             discussionProfile: discussionProfile,
             flowState: flowState,
             physioPolicy: physioPolicy,
-            lastContactAt: lastContactAt
+            lastContactAt: lastContactAt,
+            history: history
         )
     }
 
@@ -1484,7 +1490,8 @@ public actor BeagleClient {
         discussionProfile: DiscussionProfile = .cluster,
         flowState: String? = nil,
         physioPolicy: PhysioConversationPolicy? = nil,
-        lastContactAt: Date? = nil
+        lastContactAt: Date? = nil,
+        history: [[String: String]] = []
     ) -> AsyncThrowingStream<String, Error> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1512,6 +1519,9 @@ public actor BeagleClient {
         }
         if let physioPolicy {
             body["physio_policy"] = physioPolicy.requestBody
+        }
+        if !history.isEmpty {
+            body["history"] = history
         }
 
         let cockpitURLs: [URL] = [
