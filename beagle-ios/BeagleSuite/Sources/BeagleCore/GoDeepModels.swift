@@ -110,7 +110,10 @@ public enum GoDeepResult: Sendable {
         switch self {
         case .deepResearch(let t):
             guard let v = t.value else { return t.error ?? "No result" }
-            return v.bestHypothesis ?? "Tree: \(v.treeSize ?? 0) nodes, \(v.iterations ?? 0) iterations"
+            if let best = v.bestHypothesis?.trimmedNonEmpty {
+                return best
+            }
+            return "Deep research completed, but did not return a readable hypothesis."
         case .quantum(let t):
             guard let v = t.value else { return t.error ?? "No result" }
             if let h = v.selectedHypothesis, let p = v.probability {
@@ -119,20 +122,33 @@ public enum GoDeepResult: Sendable {
             return "\(v.rankedHypotheses?.count ?? 0) hypotheses ranked"
         case .swarm(let t):
             guard let v = t.value else { return t.error ?? "No result" }
-            return "\(v.consensus?.count ?? 0) consensus points from \(v.nAgents ?? 0) agents"
+            if let first = v.consensus?.first?.trimmedNonEmpty {
+                return first
+            }
+            return "Swarm completed, but did not return consensus points."
         case .causal(let t):
             guard let v = t.value else { return t.error ?? "No result" }
+            if let summary = v.summary?.trimmedNonEmpty {
+                return summary
+            }
             return "\(v.nodes?.count ?? 0) nodes, \(v.edges?.count ?? 0) edges"
         case .temporal(let t):
-            return t.value?.summary ?? t.error ?? "No result"
+            return t.value?.summary?.trimmedNonEmpty ?? t.error ?? "No result"
         case .neurosymbolic(let t):
-            return t.value?.summary ?? t.error ?? "No result"
+            return t.value?.summary?.trimmedNonEmpty ?? t.error ?? "No result"
         case .adversarial(let t):
             guard let v = t.value else { return t.error ?? "No result" }
             return v.winner ?? "\(v.rounds ?? 0) rounds"
         case .serendipity(let t):
-            return t.value?.summary ?? t.error ?? "No result"
+            return t.value?.summary?.trimmedNonEmpty ?? t.error ?? "No result"
         }
+    }
+}
+
+private extension String {
+    var trimmedNonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
@@ -223,6 +239,22 @@ public struct SwarmResult: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case consensus, iterations
         case nAgents = "n_agents"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let points = try? container.decodeIfPresent([String].self, forKey: .consensus) {
+            consensus = points
+        } else if let point = try? container.decodeIfPresent(String.self, forKey: .consensus) {
+            consensus = point
+                .split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "-*• "))) }
+                .filter { !$0.isEmpty }
+        } else {
+            consensus = nil
+        }
+        iterations = try container.decodeIfPresent(Int.self, forKey: .iterations)
+        nAgents = try container.decodeIfPresent(Int.self, forKey: .nAgents)
     }
 }
 

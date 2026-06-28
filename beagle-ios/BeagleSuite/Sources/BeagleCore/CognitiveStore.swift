@@ -10,7 +10,7 @@
 import Foundation
 import Observation
 import SwiftData
-#if canImport(CoreSpotlight) && !os(watchOS)
+#if canImport(CoreSpotlight)
 import CoreSpotlight
 #endif
 
@@ -19,6 +19,7 @@ import CoreSpotlight
 public final class CognitiveStore {
 
     private static let isoFormatter = ISO8601DateFormatter()
+    private let assistedImportEncoder = JSONEncoder()
 
     public var state: Truthful<CognitiveState> = .declared(
         CognitiveState(hrv: nil, recentDrafts: nil, triadLatest: nil, agentSessions: nil, recentVoidJourneys: nil, recentFractalTrees: nil, recentPhiMeasurements: nil)
@@ -33,6 +34,9 @@ public final class CognitiveStore {
     public var isLoading = false
     public var isCapturing = false
     public var isReviewingTriad = false
+
+    /// Live, incrementally-streamed debate transcript (SSE). Cleared on each new review.
+    public var triadStreamText = ""
 
     /// Whether beagle-server is reachable.
     public var serverReachable = false
@@ -81,6 +85,24 @@ public final class CognitiveStore {
         }
     }
 
+    /// Drain the Share Extension's transient handoff queue into cluster memory.
+    /// The queue is only a local bridge; successful captures are removed.
+    public func drainSharedThoughtQueue(appGroupId: String = "group.dev.sounio.cockpit") async {
+        guard let defaults = UserDefaults(suiteName: appGroupId) else { return }
+        let pending = defaults.array(forKey: "pendingSharedThoughts") as? [[String: String]] ?? []
+        guard !pending.isEmpty else { return }
+
+        var retry: [[String: String]] = []
+        for item in pending {
+            let content = item["content"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !content.isEmpty else { continue }
+            if await captureThought(text: content, source: item["source"] ?? "share-extension") == nil {
+                retry.append(item)
+            }
+        }
+        defaults.set(retry, forKey: "pendingSharedThoughts")
+    }
+
     // MARK: - Refresh cognitive state
 
     public func refresh() async {
@@ -95,55 +117,86 @@ public final class CognitiveStore {
 
     // MARK: - Thought capture
 
-    /// Capture a thought → HERMES refinement → returns refined text.
-    /// Falls back to Foundation Models on-device if server unreachable.
+    /// Capture a thought into cluster-canonical GraphRAG++ memory.
+    /// SwiftData is only cache/outbox; canonical memory lives on the cluster.
     public func captureThought(text: String, source: String = "ios-keyboard") async -> ThoughtCapture? {
         isCapturing = true
         defer { isCapturing = false }
 
-        let result = await BeagleClient.shared.captureThought(text: text, source: source)
-
         let projectSlug = activeProjectSlug ?? "sounio"
-        let projectFamily = ProjectFamily.fromProjectSlug(projectSlug)
-        let publicationScope = PublicationScope.forProjectFamily(projectFamily)
+        let bodySummary = physioStore?.summary.detailLine
+        let request = AssistedImportRequestFactory.capture(
+            text: text,
+            source: source,
+            projectRef: projectSlug,
+            bodySummary: bodySummary,
+            metadata: [
+                "project_slug": .string(projectSlug)
+            ]
+        )
         var thought: ThoughtCapture
         let persisted = PersistedThought(rawText: text, source: source)
 
-        if let response = result.value, let refined = response.response {
-            let saveResult = await CockpitClient.shared.saveIdea(
-                slug: projectSlug,
-                text: text,
-                source: source,
-                refinedText: refined,
-                projectFamily: projectFamily,
-                publicationScope: publicationScope
-            )
-            let syncState =
-                saveResult.value?.syncState
-                ?? (saveResult.error == nil ? .synced : .localOnly)
-            thought = ThoughtCapture(
-                nodeId: saveResult.value?.nodeId,
-                refinedText: refined,
-                rawText: text,
-                source: source,
-                createdAt: Self.isoFormatter.string(from: .now),
-                syncedToServer: syncState.isClusterResident,
-                syncState: syncState
-            )
-            persisted.refinedText = refined
-            persisted.nodeId = saveResult.value?.nodeId
-            persisted.syncedToServer = syncState.isClusterResident
-        } else {
-            // Fallback: store raw thought locally
+        if request.privacyClass == "restricted" {
+            enqueueAssistedImportOutbox(request, reason: "restricted_privacy_guard")
             thought = ThoughtCapture(
                 nodeId: nil,
-                refinedText: nil,
+                refinedText: "Restricted content held locally for explicit review.",
                 rawText: text,
-                source: "\(source)-offline",
+                source: "\(source)-restricted",
                 createdAt: Self.isoFormatter.string(from: .now),
                 syncedToServer: false,
-                syncState: .localOnly
+                syncState: .queued
             )
+            persisted.refinedText = thought.refinedText
+            persisted.syncedToServer = false
+        } else {
+            let result = await BeagleClient.shared.assistedImportBatch(request)
+            if let importResult = result.value, importResult.status == "imported" {
+                let atoms = importResult.projection?.atomsCreated ?? 0
+                let episodes = importResult.projection?.episodesCreated ?? 0
+                // Real HERMES refinement of the thought (Wave 2); falls back to the
+                // import-accounting line if the refine endpoint/provider is unavailable.
+                // Detect the source language up-front and pass it as a preserve-language
+                // hint so Portuguese thoughts stay in Portuguese after refinement.
+                let sourceLanguageHint = TranslationEngine.shared.detectLanguage(text)
+                let refined = await BeagleClient.shared.refineThought(
+                    text: text,
+                    projectSlug: projectSlug,
+                    source: source,
+                    languageHint: sourceLanguageHint
+                ).value?.refinedText
+                    ?? "Captured into cluster GraphRAG++ memory (\(episodes) episode, \(atoms) atoms)."
+                let nodeId = importResult.omnimemory?.id
+                    ?? importResult.memoryEvent?.id
+                    ?? importResult.auditEvent?.id
+                    ?? importResult.sessionId
+                thought = ThoughtCapture(
+                    nodeId: nodeId,
+                    refinedText: refined,
+                    rawText: text,
+                    source: source,
+                    createdAt: Self.isoFormatter.string(from: .now),
+                    syncedToServer: true,
+                    syncState: .synced
+                )
+                persisted.refinedText = refined
+                persisted.nodeId = nodeId
+                persisted.syncedToServer = true
+            } else {
+                enqueueAssistedImportOutbox(request, reason: result.error ?? result.value?.reason ?? "cluster_import_failed")
+                thought = ThoughtCapture(
+                    nodeId: nil,
+                    refinedText: result.error ?? "Queued for cluster GraphRAG++ import.",
+                    rawText: text,
+                    source: "\(source)-queued",
+                    createdAt: Self.isoFormatter.string(from: .now),
+                    syncedToServer: false,
+                    syncState: .queued
+                )
+                persisted.refinedText = thought.refinedText
+                persisted.syncedToServer = false
+            }
         }
 
         // Bilingual processing: detect language and enqueue translation if Portuguese
@@ -168,11 +221,10 @@ public final class CognitiveStore {
         if let physio = physioStore {
             let snapshot = SomaticSnapshot(from: physio.cognitivePosture)
             somaticSnapshots.append(snapshot)
-            // Keep snapshots bounded
             if somaticSnapshots.count > 200 { somaticSnapshots.removeFirst() }
         }
 
-        // Persist to SwiftData
+        // Persist to SwiftData as cache/outbox-visible local recall.
         modelContext?.insert(persisted)
         try? modelContext?.save()
 
@@ -180,6 +232,62 @@ public final class CognitiveStore {
         indexToSpotlight(thought)
 
         return thought
+    }
+
+    /// Drain queued assisted-import requests back to the cluster when connectivity
+    /// returns. Restricted-privacy items are held until explicit review. Successful
+    /// imports are removed; failures stay queued with an incremented attempt count.
+    /// Returns the number of queued items successfully imported.
+    @discardableResult
+    public func drainAssistedImportOutbox() async -> Int {
+        guard let modelContext else { return 0 }
+        let descriptor = FetchDescriptor<PersistedAssistedImportOutbox>(
+            predicate: #Predicate<PersistedAssistedImportOutbox> { item in
+                item.privacyClass != "restricted"
+            },
+            sortBy: [SortDescriptor(\.createdAt, order: .forward)]
+        )
+        guard let pending = try? modelContext.fetch(descriptor), !pending.isEmpty else { return 0 }
+
+        let decoder = JSONDecoder()
+        var drained = 0
+        for item in pending {
+            guard
+                let data = item.payload.data(using: .utf8),
+                let request = try? decoder.decode(AssistedImportBatchRequest.self, from: data)
+            else {
+                // Undecodable payload — drop it so it can't wedge the queue forever.
+                modelContext.delete(item)
+                continue
+            }
+            let result = await BeagleClient.shared.assistedImportBatch(request)
+            if result.value?.status == "imported" {
+                modelContext.delete(item)
+                drained += 1
+            } else {
+                item.attemptCount += 1
+                item.lastAttemptAt = .now
+            }
+        }
+        try? modelContext.save()
+        return drained
+    }
+
+    private func enqueueAssistedImportOutbox(_ request: AssistedImportBatchRequest, reason: String) {
+        guard
+            let modelContext,
+            let data = try? assistedImportEncoder.encode(request),
+            let payload = String(data: data, encoding: .utf8)
+        else {
+            return
+        }
+        modelContext.insert(PersistedAssistedImportOutbox(
+            payload: payload,
+            reason: reason,
+            privacyClass: request.privacyClass,
+            sourceSurface: request.sourceSurface
+        ))
+        try? modelContext.save()
     }
 
     // MARK: - Bilingual translation callback
@@ -212,6 +320,46 @@ public final class CognitiveStore {
         isReviewingTriad = true
         defer { isReviewingTriad = false }
 
+        let result = await BeagleClient.shared.runTriad(prompt: draft)
+        lastTriad = result
+        if let triadResult = result.value {
+            lastConsciousnessScore = ConsciousnessMetrics.shared.computePCI(from: triadResult)
+        }
+        return result.value
+    }
+
+    /// Streaming adversarial review: renders the debate transcript incrementally
+    /// via SSE, then returns the final consolidated TriadResult when it arrives.
+    public func streamTriadReview(draft: String) async -> TriadResult? {
+        isReviewingTriad = true
+        triadStreamText = ""
+        defer { isReviewingTriad = false }
+
+        var finalResult: TriadResult?
+        for await event in BeagleClient.shared.streamTriad(prompt: draft) {
+            switch event {
+            case .delta(let agent, let text):
+                if let agent, !agent.isEmpty {
+                    triadStreamText += "\n[\(agent)] \(text)"
+                } else {
+                    triadStreamText += text
+                }
+            case .final(let result):
+                finalResult = result
+            case .error(let message):
+                if triadStreamText.isEmpty {
+                    triadStreamText = message
+                }
+            }
+        }
+
+        if let finalResult {
+            lastTriad = .observed(finalResult, source: "dev-debate-stream")
+            lastConsciousnessScore = ConsciousnessMetrics.shared.computePCI(from: finalResult)
+            return finalResult
+        }
+        // Stream produced text but no structured final frame — fall back to the
+        // non-streaming endpoint so the scores/opinions UI still resolves.
         let result = await BeagleClient.shared.runTriad(prompt: draft)
         lastTriad = result
         if let triadResult = result.value {
@@ -305,8 +453,8 @@ public final class CognitiveStore {
 
     // MARK: - Spotlight indexing
 
+    #if canImport(CoreSpotlight)
     private func indexToSpotlight(_ thought: ThoughtCapture) {
-        #if canImport(CoreSpotlight) && !os(watchOS)
         let title = thought.refinedText ?? thought.rawText ?? ""
         guard !title.isEmpty else { return }
 
@@ -325,8 +473,10 @@ public final class CognitiveStore {
         CSSearchableIndex.default().indexSearchableItems([item]) { error in
             if let error { print("[Spotlight] indexing failed: \(error)") }
         }
-        #endif
     }
+    #else
+    private func indexToSpotlight(_ thought: ThoughtCapture) {}
+    #endif
 
     private func extractKeywords(from text: String) -> [String] {
         let stopWords: Set<String> = ["the", "a", "an", "is", "are", "was", "were", "be", "been",

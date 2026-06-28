@@ -30,7 +30,7 @@ struct JournalingSuggestionsCard: View {
 
                 JournalingSuggestionsPicker("Capture a moment") { suggestion in
                     Task {
-                        let title = suggestion.title
+                        let title = suggestion.title ?? "a moment"
                         let text = "Inspired by: \(title)"
                         _ = await cognitive.captureThought(text: text, source: "journaling-suggestion")
                     }

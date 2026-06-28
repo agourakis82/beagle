@@ -2,9 +2,8 @@
 //  Persistence.swift
 //  BeagleCore
 //
-//  SwiftData models — the exocortex's long-term memory.
-//  Everything captured survives app restarts, device reboots,
-//  and time. The whole point: nothing is lost.
+//  SwiftData models for local cache and transient outbox.
+//  Canonical exocortex memory lives on the cluster GraphRAG++ append-only logs.
 //
 //  Models:
 //   - PersistedThought: raw + refined text, source, timestamps
@@ -112,6 +111,53 @@ public final class PersistedDeepSession {
     public var isComplete: Bool { completedAt != nil }
 }
 
+// MARK: - Persisted Exocortex Home Snapshot Cache
+
+@Model
+public final class PersistedExocortexHomeSnapshot {
+    public var payload: String
+    public var capturedAt: Date
+
+    public init(payload: String, capturedAt: Date = .now) {
+        self.payload = payload
+        self.capturedAt = capturedAt
+    }
+}
+
+// MARK: - Assisted Import Outbox
+
+@Model
+public final class PersistedAssistedImportOutbox {
+    public var id: String
+    public var payload: String
+    public var reason: String
+    public var privacyClass: String
+    public var sourceSurface: String
+    public var createdAt: Date
+    public var lastAttemptAt: Date?
+    public var attemptCount: Int
+
+    public init(
+        id: String = UUID().uuidString,
+        payload: String,
+        reason: String,
+        privacyClass: String,
+        sourceSurface: String,
+        createdAt: Date = .now,
+        lastAttemptAt: Date? = nil,
+        attemptCount: Int = 0
+    ) {
+        self.id = id
+        self.payload = payload
+        self.reason = reason
+        self.privacyClass = privacyClass
+        self.sourceSurface = sourceSurface
+        self.createdAt = createdAt
+        self.lastAttemptAt = lastAttemptAt
+        self.attemptCount = attemptCount
+    }
+}
+
 // MARK: - Container Configuration
 
 public enum PersistenceConfig {
@@ -120,6 +166,8 @@ public enum PersistenceConfig {
             PersistedThought.self,
             PersistedMessage.self,
             PersistedDeepSession.self,
+            PersistedExocortexHomeSnapshot.self,
+            PersistedAssistedImportOutbox.self,
         ])
         let config = ModelConfiguration(
             "BeagleExocortex",

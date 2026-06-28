@@ -8,6 +8,7 @@
 //  Two endpoints:
 //   - Agent terminal: /ws/projects/:slug/agent/:kind
 //   - Workspace terminal: /ws/terminal?project=slug&sessionId=x
+//   - Notebook terminal pane: /ws/workspaces/:slug/sessions/:sessionId/panes/:paneId
 //
 
 import Foundation
@@ -63,20 +64,53 @@ public actor WebSocketClient {
         return connect(path: path)
     }
 
+    /// Connect to /ws/workspaces/:slug/sessions/:sessionId/panes/:paneId.
+    public func connectWorkspacePane(slug: String, sessionId: String, paneId: String) -> AsyncStream<TerminalMessage> {
+        let path = "/ws/workspaces/\(slug)/sessions/\(sessionId)/panes/\(paneId)"
+        return connect(path: path)
+    }
+
     // MARK: - Send
 
     public func sendInput(_ text: String) {
-        guard let task, state.isConnected else { return }
-        guard let data = try? JSONSerialization.data(withJSONObject: ["type": "input", "data": text]),
-              let json = String(data: data, encoding: .utf8) else { return }
-        task.send(.string(json)) { error in
-            if let error { print("[WS] send error: \(error.localizedDescription)") }
-        }
+        sendMessage(["type": "input", "data": text])
     }
 
     public func sendResize(cols: Int, rows: Int) {
+        sendMessage(["type": "resize", "cols": cols, "rows": rows])
+    }
+
+    public func sendPaste(_ text: String) {
+        sendMessage(["type": "paste", "data": text])
+    }
+
+    public func sendSignal(_ signal: String = "SIGINT") {
+        sendMessage(["type": "signal", "signal": signal])
+    }
+
+    public func sendFocus() {
+        sendMessage(["type": "focus"])
+    }
+
+    public func stopProcess() {
+        sendMessage(["type": "stop_process"])
+    }
+
+    public func startProcess(_ command: String) {
+        sendMessage(["type": "start_process", "command": command])
+    }
+
+    public func approve(_ text: String = "y\n") {
+        sendMessage(["type": "approve", "data": text])
+    }
+
+    public func attachBlockToMemory(blockId: String) {
+        sendMessage(["type": "attach_block_to_memory", "blockId": blockId])
+    }
+
+    private func sendMessage(_ payload: [String: any Sendable]) {
         guard let task, state.isConnected else { return }
-        guard let data = try? JSONSerialization.data(withJSONObject: ["type": "resize", "cols": cols, "rows": rows]),
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: data, encoding: .utf8) else { return }
         task.send(.string(json)) { error in
             if let error { print("[WS] send error: \(error.localizedDescription)") }
@@ -309,6 +343,10 @@ public actor WebSocketClient {
             if let payload = json["data"] as? String {
                 continuation?.yield(.data(payload))
             }
+        case "raw_output":
+            if let event = parseWorkbenchEvent(json) {
+                continuation?.yield(.workbenchEvent(event))
+            }
         case "stderr":
             if let payload = json["data"] as? String {
                 continuation?.yield(.stderr(payload))
@@ -316,10 +354,31 @@ public actor WebSocketClient {
         case "ready":
             let slug = (json["data"] as? [String: Any])?["projectSlug"] as? String ?? ""
             continuation?.yield(.ready(projectSlug: slug))
+            if let event = parseWorkbenchEvent(json) {
+                continuation?.yield(.workbenchEvent(event))
+            }
         case "exit":
             let detail = json["data"] as? String
             let code = json["code"] as? Int ?? parseExitCode(from: detail) ?? 0
             continuation?.yield(.exit(code: code, detail: detail))
+        case "block_started",
+             "block_output",
+             "block_finished",
+             "agent_state",
+             "approval_requested",
+             "memory_imported",
+             "secret_redacted",
+             "warp_bridge_event":
+            if let event = parseWorkbenchEvent(json) {
+                continuation?.yield(.workbenchEvent(event))
+            }
+        case "error":
+            if let payload = json["data"] as? String {
+                continuation?.yield(.stderr(payload))
+            }
+            if let event = parseWorkbenchEvent(json) {
+                continuation?.yield(.workbenchEvent(event))
+            }
         default:
             if let payload = json["data"] as? String {
                 continuation?.yield(.data(payload))
@@ -354,6 +413,67 @@ public actor WebSocketClient {
             return nil
         }
         return Int(detail[matchRange])
+    }
+
+    private func parseWorkbenchEvent(_ json: [String: Any]) -> WorkbenchLiveEvent? {
+        guard let type = json["type"] as? String else { return nil }
+        let readyData = json["data"] as? [String: Any]
+        return WorkbenchLiveEvent(
+            type: type,
+            sessionId: stringValue(json["sessionId"]),
+            paneId: stringValue(json["paneId"]),
+            blockId: stringValue(json["blockId"]),
+            at: stringValue(json["at"]),
+            data: stringValue(json["data"]),
+            status: stringValue(json["status"]),
+            state: stringValue(json["state"]),
+            command: stringValue(json["command"]),
+            title: stringValue(json["title"]),
+            kind: stringValue(json["kind"]),
+            privacyClass: stringValue(json["privacyClass"]),
+            memoryEventId: stringValue(json["memoryEventId"]),
+            auditEventId: stringValue(json["auditEventId"]),
+            exitCode: intValue(json["exitCode"]),
+            durationMs: intValue(json["durationMs"]),
+            trigger: stringValue(json["trigger"]),
+            reason: stringValue(json["reason"]),
+            error: stringValue(json["error"]),
+            authority: stringValue(json["authority"]),
+            sourceModel: stringValue(json["sourceModel"]),
+            bridgeVersion: stringValue(json["bridgeVersion"]),
+            reconnectState: stringValue(json["reconnectState"]) ?? stringValue(readyData?["reconnectState"]),
+            tags: json["tags"] as? [String],
+            blockHash: stringValue(json["blockHash"]),
+            sessionHash: stringValue(json["sessionHash"]),
+            rendererHint: stringValue(json["rendererHint"]),
+            startedAt: stringValue(json["startedAt"]),
+            finishedAt: stringValue(json["finishedAt"]),
+            event: stringValue(json["event"])
+        )
+    }
+
+    private func stringValue(_ value: Any?) -> String? {
+        switch value {
+        case let string as String:
+            return string
+        case let number as NSNumber:
+            return number.stringValue
+        default:
+            return nil
+        }
+    }
+
+    private func intValue(_ value: Any?) -> Int? {
+        switch value {
+        case let int as Int:
+            return int
+        case let number as NSNumber:
+            return number.intValue
+        case let string as String:
+            return Int(string)
+        default:
+            return nil
+        }
     }
 }
 

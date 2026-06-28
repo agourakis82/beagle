@@ -151,8 +151,9 @@ struct DeepExplorationView: View {
 
     private func historyCard(_ session: PersistedDeepSession) -> some View {
         Button {
-            // Reopen this exploration
+            // Reopen this exploration; refresh its persisted results on completion.
             store = GoDeepStore()
+            persistResults(into: session, from: store)
             showActiveSession = true
             store.goDeeper(prompt: session.prompt)
         } label: {
@@ -245,15 +246,31 @@ struct DeepExplorationView: View {
             isEnabled: !store.isRunning,
             onSubmit: { text in
                 store = GoDeepStore()
-                store.goDeeper(prompt: text)
-                showActiveSession = true
 
-                // Persist session
+                // Persist the session shell now; fill in results on completion.
                 let persisted = PersistedDeepSession(prompt: text, modalityCount: store.totalCount)
                 modelContext.insert(persisted)
                 try? modelContext.save()
+                persistResults(into: persisted, from: store)
+
+                store.goDeeper(prompt: text)
+                showActiveSession = true
             }
         )
+    }
+
+    // MARK: - Persistence
+
+    /// Wire the store so the full session result (synthesis + per-modality
+    /// summaries) is written back into the SwiftData row when it completes.
+    private func persistResults(into session: PersistedDeepSession, from store: GoDeepStore) {
+        store.onSessionComplete = { payload in
+            session.synthesisText = payload.synthesis
+            session.modalityResults = payload.modalityResultsJSON
+            session.modalityCount = payload.modalityCount
+            session.completedAt = payload.completedAt
+            try? modelContext.save()
+        }
     }
 }
 

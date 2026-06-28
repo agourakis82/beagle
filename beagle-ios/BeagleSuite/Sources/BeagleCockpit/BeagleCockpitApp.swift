@@ -13,9 +13,15 @@
 import SwiftUI
 import SwiftData
 import BeagleCore
+import BeagleWorkbenchKit
 #if os(iOS)
 import UIKit
+import BackgroundTasks
 #endif
+
+/// Identifier for the overnight dream-consolidation background task.
+/// Must match the `BGTaskSchedulerPermittedIdentifiers` Info.plist entry.
+let beagleDreamTaskIdentifier = "dev.sounio.cockpit.dream"
 
 @main
 struct BeagleCockpitApp: App {
@@ -42,7 +48,13 @@ struct BeagleCockpitApp: App {
                 .environment(cognitive)
                 .environment(physio)
                 .environment(hpc)
-                .modelContainer(for: [PersistedThought.self, PersistedMessage.self, PersistedDeepSession.self])
+                .modelContainer(for: [
+                    PersistedThought.self,
+                    PersistedMessage.self,
+                    PersistedDeepSession.self,
+                    PersistedExocortexHomeSnapshot.self,
+                    PersistedAssistedImportOutbox.self,
+                ])
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }
@@ -63,6 +75,12 @@ struct BeagleCockpitApp: App {
                     .preferredColorScheme(.dark)
             }
         }
+        #if os(iOS)
+        .backgroundTask(.appRefresh(beagleDreamTaskIdentifier)) {
+            await runDreamConsolidation()
+            await scheduleDreamConsolidation()
+        }
+        #endif
         #if os(macOS)
         .windowStyle(.automatic)
         .commands {
@@ -83,6 +101,36 @@ struct BeagleCockpitApp: App {
         .menuBarExtraStyle(.window)
         #endif
     }
+
+    // MARK: - Dream consolidation (BGTask)
+
+    #if os(iOS)
+    /// Run an overnight dream-synthesis pass from the background task.
+    /// Reads the latest thoughts/posture from the app stores (MainActor) and
+    /// recombines them via the DreamSynthesisEngine.
+    @MainActor
+    private func runDreamConsolidation() async {
+        guard DreamSynthesisEngine.shared.shouldDreamAgain else { return }
+        await cognitive.refresh()
+        await physio.refresh()
+        await DreamSynthesisEngine.shared.synthesize(
+            thoughts: cognitive.recentThoughts,
+            cognitivePosture: physio.cognitivePosture
+        )
+    }
+
+    /// Submit the next dream-consolidation background refresh request.
+    /// Earliest fire ~8h out so it lands during an overnight/idle window.
+    private func scheduleDreamConsolidation() async {
+        let request = BGAppRefreshTaskRequest(identifier: beagleDreamTaskIdentifier)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 8 * 3600)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            print("[BeagleCockpit] dream BGTask submit failed: \(error)")
+        }
+    }
+    #endif
 
     // MARK: - Deep link handling
 
@@ -167,6 +215,7 @@ struct RootView: View {
     @State private var showCognitiveState = false
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -177,8 +226,41 @@ struct RootView: View {
             }
         }
         .task {
+            initializeTabSelectionIfNeeded()
             await bootstrap()
         }
+        .onChange(of: selectedTab) { _, newValue in
+            persistedSelectedTab = newValue
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .active:
+                // Returning to foreground (connectivity likely restored):
+                // re-fetch credentials and auto-drain any queued captures/messages.
+                Task {
+                    _ = await BeagleClient.shared.ensureAuth()
+                    await cognitive.drainSharedThoughtQueue()
+                    await cognitive.drainAssistedImportOutbox()
+                }
+            case .background:
+                // Queue the overnight dream-consolidation background task.
+                #if os(iOS)
+                let request = BGAppRefreshTaskRequest(identifier: beagleDreamTaskIdentifier)
+                request.earliestBeginDate = Date(timeIntervalSinceNow: 8 * 3600)
+                try? BGTaskScheduler.shared.submit(request)
+                #endif
+            default:
+                break
+            }
+        }
+    }
+
+    // MARK: - Tab selection (launch override > persisted > default)
+
+    private func initializeTabSelectionIfNeeded() {
+        guard !hasInitializedTabSelection else { return }
+        hasInitializedTabSelection = true
+        selectedTab = launchOverrides.selectedTab ?? persistedSelectedTab
     }
 
     // MARK: - Bootstrap (runs inside model container scope)
@@ -186,6 +268,9 @@ struct RootView: View {
     private func bootstrap() async {
         cognitive.modelContext = modelContext
         cognitive.physioStore = physio
+        #if canImport(WatchConnectivity)
+        WatchExocortexBridge.shared.activate()
+        #endif
         SemanticSearchEngine.shared.warmup()
         cognitive.loadPersistedThoughts()
         DreamSynthesisEngine.shared.loadPersistedInsights()
@@ -195,8 +280,10 @@ struct RootView: View {
         async let catalogTask: () = catalog.refresh()
         async let cognitiveTask: () = cognitive.refresh()
         async let physioTask: () = physio.refresh()
+        async let sharedQueueTask: () = cognitive.drainSharedThoughtQueue()
+        async let outboxDrainTask: Int = cognitive.drainAssistedImportOutbox()
         async let warmTask: () = FoundationModelsAgent.shared.prewarm()
-        _ = await (catalogTask, cognitiveTask, physioTask, warmTask)
+        _ = await (catalogTask, cognitiveTask, physioTask, sharedQueueTask, outboxDrainTask, warmTask)
         cognitive.activeProjectSlug =
             launchOverrides.projectSlug
             ?? cognitive.activeProjectSlug
@@ -219,6 +306,11 @@ struct RootView: View {
             Tab("Mind", systemImage: "brain.head.profile", value: 0) {
                 BeagleSurface(bootError: $bootError)
             }
+            Tab("Fleet", systemImage: "terminal", value: 5) {
+                NavigationStack {
+                    FleetTerminalsView()
+                }
+            }
             Tab("Capture", systemImage: "mic.fill", value: 1) {
                 NavigationStack {
                     ThoughtCaptureView()
@@ -237,6 +329,11 @@ struct RootView: View {
                     WorkView(bootError: $bootError)
                 }
             }
+            Tab("Recall", systemImage: "sparkle.magnifyingglass", value: 4) {
+                NavigationStack {
+                    CognitiveRecallView()
+                }
+            }
         }
         .tint(BeagleTheme.truthObserved)
     }
@@ -245,9 +342,11 @@ struct RootView: View {
 
     enum SidebarItem: String, CaseIterable, Identifiable {
         case mind     = "Mind"
+        case fleet    = "Fleet"
         case capture  = "Capture"
         case deep     = "Go Deep"
         case work     = "Work"
+        case recall   = "Recall"
         case settings = "Settings"
 
         var id: String { rawValue }
@@ -258,6 +357,8 @@ struct RootView: View {
             case .capture:  return "mic.fill"
             case .deep:     return "sparkles"
             case .work:     return "apple.terminal"
+            case .recall:   return "sparkle.magnifyingglass"
+            case .fleet:    return "terminal"
             case .settings: return "gearshape"
             }
         }
@@ -278,7 +379,7 @@ struct RootView: View {
                 Group {
                     switch sidebarSelection {
                     case .mind:
-                        BeagleSurface(bootError: $bootError)
+                        SpatialDeskMissionControlView()
                     case .capture:
                         ThoughtCaptureView()
                     case .deep:
@@ -288,10 +389,14 @@ struct RootView: View {
                             }
                     case .work:
                         WorkView(bootError: $bootError)
+                    case .recall:
+                        CognitiveRecallView()
+                    case .fleet:
+                        FleetTerminalsView()
                     case .settings:
                         ModelSettingsView()
                     case nil:
-                        BeagleSurface(bootError: $bootError)
+                        SpatialDeskMissionControlView()
                     }
                 }
             }

@@ -109,8 +109,7 @@ public final class TranslationEngine {
             target: Locale.Language(identifier: "en")
         )
         #else
-        // TranslationSession is currently unavailable on visionOS. Keep the
-        // pending items queued so another Apple surface can translate them.
+        isTranslating = false
         #endif
     }
 

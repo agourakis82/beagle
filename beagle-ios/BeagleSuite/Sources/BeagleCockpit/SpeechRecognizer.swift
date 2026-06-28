@@ -15,9 +15,8 @@
 
 import SwiftUI
 import BeagleCore
-import Speech
+@preconcurrency import Speech
 @preconcurrency import AVFoundation
-@preconcurrency import AVFAudio
 
 @Observable
 @MainActor

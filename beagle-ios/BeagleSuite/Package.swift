@@ -19,13 +19,21 @@ let package = Package(
         .library(
             name: "BeagleCore",
             targets: ["BeagleCore"]
+        ),
+        .library(
+            name: "BeagleWorkbenchKit",
+            targets: ["BeagleWorkbenchKit"]
         )
     ],
     dependencies: [
         // On-device LLM inference via Apple MLX
         .package(url: "https://github.com/ml-explore/mlx-swift-lm", branch: "main"),
         // HuggingFace Hub client for model downloads + tokenizers
-        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "1.2.0")),
+        .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "1.1.0")),
+        // On-device Whisper speech-to-text
+        .package(url: "https://github.com/argmaxinc/WhisperKit", from: "0.18.0"),
+        // VT100/xterm terminal emulator for the native fleet terminal (iOS/macOS only)
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.0.0"),
     ],
     targets: [
         // Shared core: API client, truth system, models, Tailnet resolver,
@@ -38,8 +46,22 @@ let package = Package(
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
                 .product(name: "Hub", package: "swift-transformers", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
                 .product(name: "Tokenizers", package: "swift-transformers", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
+                .product(name: "WhisperKit", package: "WhisperKit", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
             ],
             path: "Sources/BeagleCore",
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .target(
+            name: "BeagleWorkbenchKit",
+            dependencies: [
+                "BeagleCore",
+                .product(name: "SwiftTerm", package: "SwiftTerm", condition: .when(platforms: [.iOS, .macOS])),
+            ],
+            path: "Sources/BeagleWorkbenchKit",
+            exclude: ["LICENSE-AGPL-NOTICE.md"],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
                 .swiftLanguageMode(.v6)
@@ -49,6 +71,11 @@ let package = Package(
             name: "BeagleCoreTests",
             dependencies: ["BeagleCore"],
             path: "Tests/BeagleCoreTests"
+        ),
+        .testTarget(
+            name: "BeagleWorkbenchKitTests",
+            dependencies: ["BeagleWorkbenchKit", "BeagleCore"],
+            path: "Tests/BeagleWorkbenchKitTests"
         )
     ]
 )

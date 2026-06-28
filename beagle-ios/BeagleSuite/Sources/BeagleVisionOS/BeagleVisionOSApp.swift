@@ -65,6 +65,38 @@ struct BeagleVisionOSApp: App {
         }
         .immersionStyle(selection: .constant(.mixed), in: .mixed)
 
+        // MARK: - Beagle Spatial Control Room
+
+        WindowGroup("Spatial Control Room", id: "spatial-control-room") {
+            NavigationStack {
+                SpatialControlRoomView()
+            }
+            .preferredColorScheme(.dark)
+            .tint(BeagleTheme.truthObserved)
+        }
+        .defaultSize(width: 1100, height: 760)
+
+        ImmersiveSpace(id: "beagle-control-room") {
+            SpatialControlRoomImmersiveView()
+        }
+        .immersionStyle(selection: .constant(.mixed), in: .mixed)
+
+        // MARK: - Beagle Mind Palace / Spatial Desk
+
+        WindowGroup("Mind Palace", id: "mind-palace") {
+            NavigationStack {
+                MindPalaceSpatialDeskView()
+            }
+            .preferredColorScheme(.dark)
+            .tint(BeagleTheme.truthObserved)
+        }
+        .defaultSize(width: 1180, height: 800)
+
+        ImmersiveSpace(id: "beagle-mind-palace") {
+            MindPalaceImmersiveView()
+        }
+        .immersionStyle(selection: .constant(.mixed), in: .mixed)
+
         // MARK: - Cluster Volume (retained from v1)
 
         WindowGroup("Cluster Volume", id: "cluster-volume") {
@@ -126,32 +158,22 @@ struct SpatialMindView: View {
 
     var body: some View {
         NavigationSplitView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(SpatialSection.allCases) { section in
-                        Button {
-                            selectedSection = section
-                        } label: {
-                            Label(section.rawValue, systemImage: section.icon)
-                                .font(BeagleTheme.uiFont(size: 15, weight: .medium))
-                                .foregroundStyle(BeagleTheme.textPrimary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 10)
-                                .background {
-                                    if selectedSection == section {
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .fill(BeagleTheme.truthObserved.opacity(0.18))
-                                    }
-                                }
-                        }
-                        .buttonStyle(.plain)
-                    }
+            List(SpatialSection.allCases) { section in
+                Button {
+                    selectedSection = section
+                } label: {
+                    Label(section.rawValue, systemImage: section.icon)
+                        .font(BeagleTheme.uiFont(size: 15, weight: .medium))
+                        .foregroundStyle(
+                            selectedSection == section
+                            ? BeagleTheme.truthObserved
+                            : BeagleTheme.textPrimary
+                        )
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
+                .buttonStyle(.plain)
             }
             .navigationTitle("Beagle")
+            .listStyle(.sidebar)
 
             // Spatial controls at bottom of sidebar
             VStack(spacing: 12) {
@@ -204,6 +226,23 @@ struct SpatialMindView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
+
+                Button {
+                    openWindow(id: "spatial-control-room")
+                } label: {
+                    Label("Spatial Control Room", systemImage: "visionpro")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    openWindow(id: "mind-palace")
+                } label: {
+                    Label("Mind Palace", systemImage: "rectangle.3.group.bubble.left")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(BeagleTheme.truthObserved)
             }
             .padding(.horizontal)
             .padding(.bottom)
@@ -234,6 +273,7 @@ struct SpatialMindDashboard: View {
     @Environment(CatalogStore.self) private var catalog
     @Environment(CognitiveStore.self) private var cognitive
     @Environment(PhysioStore.self) private var physio
+    @State private var exocortex = ExocortexStore()
 
     var body: some View {
         ScrollView {
@@ -242,6 +282,9 @@ struct SpatialMindDashboard: View {
                 // Cognitive posture header
                 cognitiveHeader
                     .padding(.top)
+
+                exocortexSpatialCard
+                    .padding(.horizontal)
 
                 // Always-on projects grid
                 if !catalog.alwaysOnProjects.isEmpty {
@@ -263,26 +306,24 @@ struct SpatialMindDashboard: View {
                     .padding(.horizontal)
                 }
 
-                // Recent thoughts
-                if !cognitive.recentThoughts.isEmpty {
+                // Projected GraphRAG++ memory from the cluster canonical store
+                if let atoms = exocortex.recentGraph?.value?.atoms, !atoms.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("RECENT THOUGHTS")
+                        Text("PROJECTED MEMORY")
                             .font(BeagleTheme.uiFont(size: 11, weight: .semibold))
                             .tracking(1.2)
                             .foregroundStyle(BeagleTheme.textTertiary)
 
-                        ForEach(cognitive.recentThoughts.prefix(5)) { thought in
+                        ForEach(atoms.prefix(5)) { atom in
                             GlassPanel(truth: .observed) {
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Text(thought.refinedText ?? thought.rawText ?? "")
+                                    Text(atom.text)
                                         .font(BeagleTheme.uiFont(size: 14))
                                         .foregroundStyle(BeagleTheme.textPrimary)
                                         .lineLimit(3)
-                                    if let ts = thought.createdAt {
-                                        Text(ts)
-                                            .font(BeagleTheme.dataFont(size: 11))
-                                            .foregroundStyle(BeagleTheme.textTertiary)
-                                    }
+                                    Text("\(atom.atomType) · \(atom.privacyClass)")
+                                        .font(BeagleTheme.dataFont(size: 11))
+                                        .foregroundStyle(BeagleTheme.textTertiary)
                                 }
                             }
                         }
@@ -324,6 +365,66 @@ struct SpatialMindDashboard: View {
             SpatialProjectView(slug: project.projectSlug)
         }
         .background(.regularMaterial)
+        .task {
+            async let homeRefresh: Void = exocortex.refresh(
+                activeProjectSlug: catalog.primaryProject?.projectSlug ?? cognitive.activeProjectSlug,
+                platform: "visionOS"
+            )
+            async let graphRefresh: Void = exocortex.refreshRecentGraph(limit: 18)
+            _ = await (homeRefresh, graphRefresh)
+        }
+    }
+
+    private var exocortexSpatialCard: some View {
+        let snapshot = exocortex.home.value ?? .bootstrap
+        return GlassPanel(elevated: true, truth: exocortex.home.mode) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(BeagleTheme.color(for: exocortex.home.mode))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("CHRONOSELF")
+                            .font(BeagleTheme.uiFont(size: 11, weight: .semibold))
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                        Text(snapshot.currentSelf.label)
+                            .font(BeagleTheme.uiFont(size: 17, weight: .semibold))
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                    }
+                    Spacer()
+                    TruthBadge(exocortex.home.mode, compact: true)
+                }
+
+                Text(snapshot.todayBrief)
+                    .font(BeagleTheme.uiFont(size: 14))
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineLimit(3)
+
+                HStack(alignment: .top, spacing: 18) {
+                    spatialHomeSignal("phase", snapshot.temporalPhase ?? snapshot.omnimemoryStatus)
+                    spatialHomeSignal("trust", snapshot.trustContext?.mcpStatus ?? snapshot.clusterTruth)
+                    spatialHomeSignal("next", snapshot.recommendedNextAction)
+                }
+
+                if let agent = snapshot.agentContext,
+                   let last = agent.lastAgentWrite {
+                    spatialHomeSignal("agent write", "\(agent.mcpStatus) · \(last)")
+                }
+            }
+        }
+    }
+
+    private func spatialHomeSignal(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased())
+                .font(BeagleTheme.uiFont(size: 10, weight: .semibold))
+                .foregroundStyle(BeagleTheme.textTertiary)
+            Text(value)
+                .font(BeagleTheme.uiFont(size: 13))
+                .foregroundStyle(BeagleTheme.textSecondary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var cognitiveHeader: some View {

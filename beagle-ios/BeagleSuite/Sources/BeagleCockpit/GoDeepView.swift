@@ -28,12 +28,13 @@ struct GoDeepView: View {
     @State private var quickTake: String?
     @State private var savedToExocortex = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(CognitiveStore.self) private var cognitive
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: BeagleSpacing.lg) {
+                VStack(alignment: .leading, spacing: pageSpacing) {
                     promptHeader
                         .padding(.top, BeagleSpacing.sm)
 
@@ -50,7 +51,7 @@ struct GoDeepView: View {
                         synthesisCard
                     }
                 }
-                .padding(.horizontal, BeagleSpacing.lg)
+                .padding(.horizontal, pageHorizontalPadding)
                 .padding(.bottom, BeagleSpacing.jumbo + 20)
             }
             .background { depthGradient }
@@ -86,6 +87,18 @@ struct GoDeepView: View {
                 }
             }
         }
+    }
+
+    private var isCompactWidth: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    private var pageHorizontalPadding: CGFloat {
+        isCompactWidth ? BeagleSpacing.md : BeagleSpacing.lg
+    }
+
+    private var pageSpacing: CGFloat {
+        isCompactWidth ? BeagleSpacing.md : BeagleSpacing.lg
     }
 
     // MARK: - Toolbar
@@ -215,7 +228,7 @@ struct GoDeepView: View {
     // MARK: - Synthesis Card
 
     private var synthesisCard: some View {
-        GlassPanel(elevation: .floating, truth: store.synthesis != nil ? .observed : nil) {
+        GlassPanel(elevation: .raised, truth: store.synthesis != nil ? .observed : nil) {
             VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
                 HStack(spacing: BeagleSpacing.xs) {
                     Image(systemName: "brain.head.profile.fill")
@@ -253,6 +266,7 @@ struct GoDeepView: View {
                         .foregroundStyle(BeagleTheme.textPrimary)
                         .textSelection(.enabled)
                         .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     // Save to Exocortex
                     HStack(spacing: BeagleSpacing.sm) {
@@ -529,40 +543,36 @@ private struct ModalitySlot: View {
     // MARK: - Compact (journey compressed)
 
     private func compactSlot(_ result: GoDeepResult) -> some View {
-        HStack(spacing: BeagleSpacing.sm) {
+        HStack(alignment: .top, spacing: BeagleSpacing.sm) {
             Image(systemName: state.modality.icon)
                 .font(.system(size: 12))
                 .foregroundStyle(state.modality.themeColor)
                 .frame(width: 20)
+                .padding(.top, 2)
 
-            Text(state.modality.displayName)
-                .font(BeagleFont.caption.font)
-                .fontWeight(.medium)
-                .foregroundStyle(BeagleTheme.textSecondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(state.modality.displayName)
+                    .font(BeagleFont.caption.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(BeagleTheme.textSecondary)
 
-            Text("·")
-                .foregroundStyle(BeagleTheme.textTertiary)
-
-            Text(result.summary)
-                .font(BeagleFont.caption.font)
-                .foregroundStyle(BeagleTheme.textTertiary)
-                .lineLimit(1)
+                Text(result.summary)
+                    .font(BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
 
             Spacer()
 
-            if let ms = state.durationMs {
-                Text("\(ms)ms")
-                    .font(BeagleFont.caption2.font)
-                    .foregroundStyle(BeagleTheme.textTertiary)
-            }
-
             TruthBadge(result.truthMode, compact: true)
+                .padding(.top, 1)
         }
         .padding(.horizontal, BeagleSpacing.md)
-        .padding(.vertical, BeagleSpacing.xs + 2)
+        .padding(.vertical, BeagleSpacing.sm)
         .background(
             RoundedRectangle(cornerRadius: BeagleRadius.md)
-                .fill(BeagleTheme.surface1.opacity(0.3))
+                .fill(BeagleTheme.surface1.opacity(0.55))
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
@@ -654,10 +664,11 @@ private struct ModalitySlot: View {
                     Text(state.modality.displayName)
                         .font(BeagleFont.headline.font)
                         .foregroundStyle(BeagleTheme.textPrimary)
+                        .lineLimit(1)
 
                     Spacer()
 
-                    if let ms = state.durationMs {
+                    if isExpanded, let ms = state.durationMs {
                         Text("\(ms)ms")
                             .font(BeagleFont.dataSmall.font)
                             .foregroundStyle(BeagleTheme.textTertiary)
@@ -678,6 +689,7 @@ private struct ModalitySlot: View {
                     .foregroundStyle(BeagleTheme.textSecondary)
                     .lineLimit(isExpanded ? nil : 2)
                     .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 // Expanded detail
                 if isExpanded {
