@@ -749,16 +749,18 @@ async function completeChatRequest(req, deps, options = {}) {
     const now = clientTime && !Number.isNaN(Date.parse(clientTime)) ? new Date(clientTime) : new Date();
     const lastContactAt = lastContactRaw && !Number.isNaN(Date.parse(lastContactRaw)) ? new Date(lastContactRaw) : null;
     const tempoAgora = formatTempoAgora(buildTemporalContext({ now, timezone: tz, lastContactAt }));
-    const sections = [PERSONAL_PERSONA];
-    if (tempoAgora) sections.push(tempoAgora);
-    sections.push("## Trabalho central — Sounio", SOUNIO_WORK_SECTION);
+    // PROMPT ORDER MATTERS for prompt-cache hits (xAI auto-caches identical
+    // prefixes at $0.20/M vs $1.25/M full). Put STATIC stuff first (persona,
+    // Sounio, biography, physiome — physio+bio change only on the 5-min cockpit
+    // cache TTL), DYNAMIC stuff last (tempoAgora changes every minute; recall
+    // memories vary per query). This way the long stable prefix is one cache key.
+    const sections = [PERSONAL_PERSONA, "## Trabalho central — Sounio", SOUNIO_WORK_SECTION];
+    let dynamicSections = [];
     try {
       const userText = cleanString(req.body?.prompt);
-      // Grounding context is the dominant cost of the companion turn — it becomes
-      // the voice model's system prompt, and prefill of a long grounded prompt on
-      // the 106B costs ~6s per ~3k tokens. So bound each piece: cap the digests and
-      // inject only the few most-relevant memories. The persona + the salient
-      // grounding stay; only the excess that bloats prefill is trimmed.
+      // Grounding context is the dominant cost of the companion turn — bounded
+      // and cached at the cockpit (bio+physio 5min TTL) AND at the model (xAI
+      // prompt cache, automatic on identical prefixes).
       const [bioResult, physioResult, memoryResults] = await Promise.all([
         fetchBiographyDigest(),
         fetchPhysiomeDigest(),
@@ -766,6 +768,7 @@ async function completeChatRequest(req, deps, options = {}) {
       ]);
       biographyDigest = cleanString(bioResult?.digest).slice(0, 1800);
       physiomeDigest = cleanString(physioResult?.digest).slice(0, 600);
+      // STATIC (cacheable) section: physiome + biography (change on TTL, not per turn)
       if (physiomeDigest) {
         sections.push("## Estado físico+ambiente recente", physiomeDigest);
       }
@@ -775,9 +778,11 @@ async function completeChatRequest(req, deps, options = {}) {
           biographyDigest
         );
       }
+      // DYNAMIC (per-turn) section: temporal awareness + episodic recall.
+      // Kept at the END so the static prefix stays a stable cache key.
       const stamped = stampMemories(filterTrustedMemories(memoryResults), now, tz).slice(0, 4);
       if (stamped.length) {
-        sections.push(
+        dynamicSections.push(
           "## O que ele já te contou (memórias — situe no tempo quando ajudar)",
           stamped.join("\n")
         );
@@ -785,7 +790,8 @@ async function completeChatRequest(req, deps, options = {}) {
     } catch {
       // ignore — proceed ungrounded rather than break the chat
     }
-    effectiveSystem = [...sections, effectiveSystem].filter(Boolean).join("\n\n");
+    if (tempoAgora) dynamicSections.push(tempoAgora);
+    effectiveSystem = [...sections, ...dynamicSections, effectiveSystem].filter(Boolean).join("\n\n");
   }
 
   let appliedDiscussionProfile = effectiveDiscussionProfile || "cluster";
