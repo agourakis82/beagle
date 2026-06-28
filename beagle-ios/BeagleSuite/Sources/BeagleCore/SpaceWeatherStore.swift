@@ -53,7 +53,8 @@ public final class SpaceWeatherStore {
 
     /// Start polling on app foreground. Idempotent.
     public func start() {
-        guard pollTask == nil else { return }
+        guard pollTask == nil else { print("[SpaceWeather] start: already running"); return }
+        print("[SpaceWeather] start: launching poll loop")
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
@@ -70,7 +71,12 @@ public final class SpaceWeatherStore {
 
     /// Manual one-shot refresh.
     public func refresh() async {
-        guard let snap = await client.fetchLatestSpaceWeather() else { return }
+        print("[SpaceWeather] refresh: fetching latest")
+        guard let snap = await client.fetchLatestSpaceWeather() else {
+            print("[SpaceWeather] refresh: ❌ fetch returned nil")
+            return
+        }
+        print("[SpaceWeather] refresh: ✅ kp=\(snap.kp) wind=\(snap.solarWindSpeed) bz=\(snap.bz)")
         self.latest = snap
     }
 }

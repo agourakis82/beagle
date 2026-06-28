@@ -1604,7 +1604,9 @@ public actor BeagleClient {
             URL(string: "https://beagle.chiuratto.ai")!,
             URL(string: "http://physiome-ingest.beagle.svc.cluster.local:8080")!
         ]
-        _ = await ensureAuth()
+        print("[SpaceWeather/Client] ensureAuth…")
+        let authed = await ensureAuth()
+        print("[SpaceWeather/Client] auth=\(authed) trying \(bases.count) bases")
         var request = URLRequest(url: bases[0])
         for base in bases {
             guard let url = URL(string: "/api/physiome/space-weather/latest", relativeTo: base) else { continue }
@@ -1615,14 +1617,19 @@ public actor BeagleClient {
             applyAuth(&request)
             do {
                 let (data, response) = try await session.data(for: request)
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { continue }
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                print("[SpaceWeather/Client] \(base.host ?? "?") → HTTP \(code) (\(data.count)B)")
+                guard (200..<300).contains(code) else { continue }
                 struct Resp: Decodable { let ok: Bool; let latest: Latest? ; struct Latest: Decodable { let ts: String; let kp: Double; let f107: Double; let solar_wind_speed: Double; let bz: Double; let source: String } }
                 let resp = try decoder.decode(Resp.self, from: data)
                 guard let l = resp.latest else { return nil }
                 let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
                 let ts = f.date(from: l.ts) ?? ISO8601DateFormatter().date(from: l.ts) ?? Date()
                 return SpaceWeatherStore.Snapshot(ts: ts, kp: l.kp, f107: l.f107, solarWindSpeed: l.solar_wind_speed, bz: l.bz, source: l.source)
-            } catch { continue }
+            } catch {
+                print("[SpaceWeather/Client] \(base.host ?? "?") error: \(error.localizedDescription)")
+                continue
+            }
         }
         return nil
     }
