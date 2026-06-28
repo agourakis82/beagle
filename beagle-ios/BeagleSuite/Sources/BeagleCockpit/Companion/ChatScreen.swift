@@ -74,27 +74,25 @@ public struct ChatScreen: View {
     // conversation. `presence` is a SINGLE non-conditional node (stable SwiftUI identity); only
     // its frame/position/opacity animate with state: a 240pt greeter when the space is empty, a
     // 132pt ambient header once the conversation fills in below it.
+    // Text-first pass (2026-06-28): mascote OFF. The vector/splat figure ate
+    // ~132pt at the top of every turn — text had to fight for breathing room.
+    // Per user: "só o texto por enquanto". Empty state keeps the warm greeting
+    // (BodyStory) but no figure. Chatting state collapses this zone to zero so
+    // the conversation eats the full height above the composer.
     private var companionZone: some View {
         let empty = store.messages.isEmpty
         return VStack(spacing: BeagleSpacing.lg) {
-            if empty { Spacer(minLength: 0) }
-            presence                                    // single instance — never recreated
-                .frame(height: empty ? 240 : 132)
-                .padding(.top, empty ? 0 : 12)
-                .opacity(empty ? 1 : 0.95)
             if empty {
-                greeting
                 Spacer(minLength: 0)
+                greeting
                 Spacer(minLength: 0)
             }
         }
         .frame(maxWidth: .infinity)
-        // Empty → the greeter fills the whole screen. Chatting → the zone collapses to just the
-        // header's height, so the conversation VStack sibling below takes the remaining space.
-        .frame(maxHeight: empty ? .infinity : nil)
+        .frame(maxHeight: empty ? .infinity : 0)
         .padding(.bottom, empty ? 64 : 0)
         .allowsHitTesting(false)
-        .animation(.easeInOut(duration: 0.45), value: empty)
+        .animation(.easeOut(duration: 0.35), value: empty)
     }
 
     // A warm glow rising from where the conversation lives — turns the dead black

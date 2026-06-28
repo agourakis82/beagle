@@ -21,7 +21,10 @@ struct MessageBubble: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            if isUser { Spacer(minLength: BeagleSpacing.xxl) }
+            // Text-first (2026-06-28): tighter side margin (md, was xxl) so long
+            // Opus replies have room to breathe — user opted for max text width
+            // over a "Messages-app" hard side gutter.
+            if isUser { Spacer(minLength: BeagleSpacing.md) }
 
             VStack(alignment: isUser ? .trailing : .leading, spacing: BeagleSpacing.xxs) {
                 bubble
@@ -33,7 +36,7 @@ struct MessageBubble: View {
                 }
             }
 
-            if !isUser { Spacer(minLength: BeagleSpacing.xxl) }
+            if !isUser { Spacer(minLength: BeagleSpacing.md) }
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
