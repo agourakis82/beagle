@@ -1022,6 +1022,7 @@ export async function runMuseVoiceEnsemble({
   prompt,
   system = "",
   voiceModel = PERSONAL_VOICE_MODEL,
+  history = [],
   onToken
 }) {
   const promptText = cleanString(prompt);
@@ -1072,11 +1073,25 @@ export async function runMuseVoiceEnsemble({
   }
   const voiceSystem = voiceSystemParts.filter(Boolean).join("\n\n");
 
+  // History is the prior turns of THIS conversation, passed as proper turn-based
+  // messages (NOT concatenated into the user text — smart models like Grok will
+  // otherwise "continue the transcript" and hallucinate the user's next line).
+  const sanitizedHistory = Array.isArray(history)
+    ? history
+        .filter((m) => m && typeof m.content === "string" && m.content.trim())
+        .map((m) => ({
+          role: m.role === "assistant" ? "assistant" : "user",
+          content: m.content.trim()
+        }))
+        .slice(-20)
+    : [];
+
   try {
     const voiceResult = await streamChatViaRouter({
       model: cleanString(voiceModel) || PERSONAL_VOICE_MODEL,
       messages: [
         { role: "system", content: voiceSystem },
+        ...sanitizedHistory,
         { role: "user", content: promptText }
       ],
       temperature: 0.8,

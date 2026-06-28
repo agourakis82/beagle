@@ -805,6 +805,10 @@ async function completeChatRequest(req, deps, options = {}) {
       voiceModel: cleanString(req.body?.voiceModel || req.body?.voice_model)
         || cleanString(process.env.PROJECT_COCKPIT_PERSONAL_VOICE_MODEL)
         || "glm-5.1",
+      // Prior turns of THIS conversation, sent as proper turn-based messages so
+      // smart models (Grok) don't treat the prompt as a free-form transcript and
+      // hallucinate the user's next line. Client passes [{role,content},...].
+      history: Array.isArray(req.body?.history) ? req.body.history : [],
       onToken
     });
     // Memory spine: capture this exchange into the exocortex. Fire-and-forget — the reply
