@@ -42,7 +42,7 @@ struct ConversationView: View {
                 }
 
                 BeagleInputBar(
-                    text: ,
+                    text: $inputText,
                     placeholder: "Talk to Beagle...",
                     mode: .chat,
                     isEnabled: !conversation.isStreaming,

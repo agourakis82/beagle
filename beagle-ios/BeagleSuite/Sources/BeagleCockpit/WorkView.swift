@@ -1041,7 +1041,6 @@ private struct ScoutLaneDrawer: View {
                         AgentLaneCard(
                             lane: lane,
                             onOpen: { onOpenLane(lane.id) },
-                            onStart: { onStartLane(lane.id) }
                             onStart: { onStartLane(lane.id) },
                             onSetUp: { onSetUpLane(lane.id) }
                         )
@@ -1208,7 +1207,6 @@ private struct AgentConsoleView: View {
                     AgentLaneCard(
                         lane: lane,
                         onOpen: { onOpenLane(lane.id) },
-                        onStart: { onStartLane(lane.id) }
                         onStart: { onStartLane(lane.id) },
                         onSetUp: { onSetUpLane(lane.id) }
                     )
@@ -1651,7 +1649,6 @@ private struct VisualAgentLaneBoard: View {
                             lane: lane,
                             onOpen: { onOpenLane(lane) },
                             onStart: { onStartLane(lane) },
-                            onRuntime: { onRuntime(lane) }
                             onRuntime: { onRuntime(lane) },
                             onSetUp: { onSetUpLane(lane) }
                         )
