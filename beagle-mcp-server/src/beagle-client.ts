@@ -244,11 +244,67 @@ export class BeagleClient {
         }>;
         links: unknown[];
     }> {
+        // Trust-aware recall (provenance design §4): when MEMORY_PG_QUERY_URL is set, recall
+        // from the canonical, tier-bearing memory-pg store and EXCLUDE `unverified` hits, so
+        // a fabricated/orphaned memory is never surfaced to Claude Desktop as the user's truth.
+        // Falls back to beagle-core when unset (e.g. the local stdio runtime that cannot reach
+        // the in-cluster memory-pg service).
+        const pgUrl = (process.env.MEMORY_PG_QUERY_URL || "").replace(/\/$/, "");
+        if (pgUrl) {
+            return this.memoryQueryPg(pgUrl, query, maxItems);
+        }
         return this.request("POST", "/api/memory/query", {
             query,
             scope,
             max_items: maxItems,
         });
+    }
+
+    /**
+     * Recall from memory-pg /query and drop `unverified` hits, adapting the canonical
+     * store's result shape to the highlights shape callers expect. Best-effort.
+     */
+    private async memoryQueryPg(
+        pgUrl: string,
+        query: string,
+        k: number,
+    ): Promise<{
+        summary: string;
+        highlights: Array<{ source: string; date?: string; snippet: string; relevance: number }>;
+        links: unknown[];
+    }> {
+        const token = process.env.MEMORY_PG_QUERY_TOKEN || "";
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        let results: Array<Record<string, unknown>> = [];
+        try {
+            const res = await fetch(`${pgUrl}/query`, {
+                method: "POST",
+                headers,
+                body: JSON.stringify({ query, k }),
+            });
+            if (res.ok) {
+                const j = (await res.json()) as { results?: Array<Record<string, unknown>> };
+                results = Array.isArray(j?.results) ? j.results : [];
+            }
+        } catch {
+            /* best-effort: fall through to an empty result */
+        }
+        const trusted = results.filter((r) => r?.["trust_tier"] !== "unverified");
+        const excluded = results.length - trusted.length;
+        return {
+            summary:
+                `Found ${trusted.length} trusted memor${trusted.length === 1 ? "y" : "ies"}` +
+                (excluded ? ` (excluded ${excluded} unverified)` : "") +
+                ".",
+            highlights: trusted.map((r) => ({
+                source: typeof r["source"] === "string" ? (r["source"] as string) : "memory-pg",
+                date: typeof r["occurred_at"] === "string" ? (r["occurred_at"] as string) : undefined,
+                snippet: typeof r["text"] === "string" ? (r["text"] as string) : "",
+                relevance: typeof r["rerank_score"] === "number" ? (r["rerank_score"] as number) : 0,
+            })),
+            links: [],
+        };
     }
 
     async memoryIngestChat(
