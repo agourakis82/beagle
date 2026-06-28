@@ -54,11 +54,13 @@ test("fact_supports table + trust_tier columns exist with the tier CHECK", async
       WHERE column_name = 'trust_tier' AND table_name IN ('facts','records')`);
   const tabs = cols.rows.map((r) => r.table_name).sort();
   assert.deepEqual(tabs, ["facts", "records"]);
-  // tier CHECK rejects a bad value on facts
-  await ensureSchema(pool);
+  // tier CHECK rejects a bad value. Use an INSERT (always writes a row -> always fires
+  // the CHECK); an UPDATE on an empty table touches zero rows and never validates.
   await assert.rejects(
-    pool.query("UPDATE facts SET trust_tier = 'famous' WHERE false OR true"),
-    /facts_trust_tier_chk|check constraint/i,
+    pool.query(
+      `INSERT INTO records (source_type, content, content_sha256, trust_tier)
+       VALUES ('T', 'x', 'sha-' || gen_random_uuid()::text, 'famous')`),
+    /records_trust_tier_chk|check constraint/i,
   );
 });
 
