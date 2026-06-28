@@ -25,11 +25,6 @@ struct ConversationView: View {
         self.onRefresh = onRefresh
     }
 
-    init(conversation: ConversationStore, onRefresh: (() async -> Void)? = nil) {
-        self.conversation = conversation
-        self.onRefresh = onRefresh
-    }
-
     var body: some View {
         ZStack(alignment: .topTrailing) {
             VStack(spacing: 0) {
