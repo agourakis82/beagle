@@ -99,7 +99,7 @@ spec:
         # voice could stream. Set to 'on' to restore the seed pass.
         - name: PROJECT_COCKPIT_PERSONAL_MUSE
           value: 'off'
-        image: 192.168.3.207:5003/project-cockpit:reconcile-04dbe63c
+        image: 192.168.3.207:5003/project-cockpit:reconcile-bfcb72fc
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:
