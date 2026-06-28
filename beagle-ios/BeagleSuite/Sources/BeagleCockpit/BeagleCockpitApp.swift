@@ -370,11 +370,6 @@ struct RootView: View {
                     CognitiveRecallView()
                 }
             }
-            Tab("Recall", systemImage: "sparkle.magnifyingglass", value: 4) {
-                NavigationStack {
-                    CognitiveRecallView()
-                }
-            }
         }
         .tint(BeagleTheme.truthObserved)
     }
