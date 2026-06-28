@@ -62,11 +62,8 @@ struct BeagleSurface: View {
     }
 
     private var surfaceRoot: some View {
-        ZStack {
-            livingBackground
-            surfaceForeground
-            bootErrorOverlay
-        }
+        // DIAG (2026-06-28): surfaceRoot stubbed to bisect cycle origin.
+        Color.black.ignoresSafeArea()
     }
 
     private var livingBackground: some View {
