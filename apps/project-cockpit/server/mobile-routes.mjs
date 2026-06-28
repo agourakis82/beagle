@@ -26,7 +26,7 @@ import {
   fetchOperatorToken
 } from "./auth-bridge.mjs";
 import { ingestPersonalTurn, handleIngestRequest } from "./memory-ingest.mjs";
-import { buildTemporalContext, formatTempoAgora, stampMemories } from "./temporal-context.mjs";
+import { buildTemporalContext, formatTempoAgora, stampMemories, filterTrustedMemories } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
 function cleanString(value) {
@@ -764,7 +764,7 @@ async function completeChatRequest(req, deps, options = {}) {
           biographyDigest
         );
       }
-      const stamped = stampMemories(memoryResults, now, tz).slice(0, 4);
+      const stamped = stampMemories(filterTrustedMemories(memoryResults), now, tz).slice(0, 4);
       if (stamped.length) {
         sections.push(
           "## O que ele já te contou (memórias — situe no tempo quando ajudar)",
