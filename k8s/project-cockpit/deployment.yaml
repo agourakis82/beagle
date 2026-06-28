@@ -88,7 +88,7 @@ spec:
           value: workspace-agent
         - name: PROJECT_COCKPIT_WORKSPACE_AGENT_TIMEOUT_MS
           value: '12000'
-        image: 192.168.3.207:5003/project-cockpit:reconcile-25d45f4e
+        image: 192.168.3.207:5003/project-cockpit:reconcile-d3138dc3
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:
