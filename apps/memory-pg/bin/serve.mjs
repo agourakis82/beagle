@@ -151,6 +151,7 @@ export function createApp(deps) {
         rerank_score: c.rerank_score,
         occurred_at: c.occurred_at ?? null,
         source: c.source ?? "chunk",
+        trust_tier: c.trust_tier ?? null,
       }));
       res.json({ ok: true, results });
     } catch (e) {
