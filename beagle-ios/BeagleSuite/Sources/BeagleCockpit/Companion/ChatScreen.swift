@@ -20,23 +20,48 @@ public struct ChatScreen: View {
     /// Live geomagnetic snapshot for AuroraPresence. nil → calm placeholder; the
     /// store keeps refreshing in the background so this updates naturally.
     let weather: SpaceWeatherStore.Snapshot?
+    /// Live body snapshot (HRV, breath, wrist temp, sleep) for the body strip
+    /// above the composer. nil → strip is hidden.
+    let posture: CognitivePosture?
     @State private var draft = ""
     @State private var appeared = false
 
-    public init(store: ConversationStore, breathRate: Double? = nil, weather: SpaceWeatherStore.Snapshot? = nil) {
+    public init(store: ConversationStore,
+                breathRate: Double? = nil,
+                weather: SpaceWeatherStore.Snapshot? = nil,
+                posture: CognitivePosture? = nil) {
         self.store = store
         self.breathRate = breathRate
         self.weather = weather
+        self.posture = posture
     }
 
     public var body: some View {
         ZStack(alignment: .bottom) {
+            // Layer 1: hearth glow rising from bottom
             hearth
+            // Layer 2: aurora orb sitting BEHIND the conversation (per user 2026-06-28:
+            // "deixar o orb no mesmo plano que a conversa, ou atrás dela, pra ampliar
+            // a visualização do chat"). Large + faint; the chat reads OVER it.
+            presenceBackground
+            // Layer 3: chat content fills the screen — empty state greeting OR conversation
             VStack(spacing: 0) {
-                companionZone
-                if !store.messages.isEmpty { conversation }
+                if store.messages.isEmpty {
+                    Spacer(minLength: 0)
+                    greeting
+                    Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                } else {
+                    conversation
+                }
             }
-            composer
+            // Layer 4: floating top-right "new conversation" button (only when there's history)
+            if !store.messages.isEmpty { newConversationButton }
+            // Layer 5: body strip + composer, both pinned to the bottom
+            VStack(spacing: BeagleSpacing.xs) {
+                bodyStrip
+                composer
+            }
         }
         // Entry ceremony — the space materializes with a breath instead of snapping in
         // (Gaggioli: ceremony over frictionless).
@@ -52,37 +77,82 @@ public struct ChatScreen: View {
         }
     }
 
-    // Aurora pivot (2026-06-28): the presence is the SKY, not a mascot. AuroraPresence
-    // is pure SwiftUI radial gradients — no MTKView, no splat, no main-thread contention.
-    // Cheap enough to live in the chat header without fighting the keyboard. Modulated
-    // by breathRate (user's HRV) + hour-of-day (hue) + Kp (saturation + pulse speed).
-    @ViewBuilder private var presence: some View {
-        AuroraPresence(breathRate: breathRate, weather: weather,
-                       size: store.messages.isEmpty ? .greeter : .header)
+    // Aurora orb sitting BEHIND the conversation. Empty state: bigger and slightly
+    // higher (greeter feel). Chatting: large + faint, drifts to upper third, NEVER
+    // takes layout space. allowsHitTesting=false so taps go through to the chat.
+    private var presenceBackground: some View {
+        let empty = store.messages.isEmpty
+        return AuroraPresence(breathRate: breathRate, weather: weather, size: .greeter)
+            .scaleEffect(empty ? 1.0 : 0.95)
+            .opacity(empty ? 0.85 : 0.28)
+            .offset(y: empty ? -120 : -260)
+            .allowsHitTesting(false)
+            .animation(.easeOut(duration: 0.35), value: empty)
     }
 
-    // Empty state: the AuroraPresence fills the upper third (greeter), greeting below.
-    // Chatting state: the presence shrinks to a compact header (~120pt overall),
-    // conversation takes the rest of the space above the composer.
-    private var companionZone: some View {
-        let empty = store.messages.isEmpty
-        return VStack(spacing: BeagleSpacing.lg) {
-            if empty { Spacer(minLength: 0) }
-            presence
-                .frame(height: empty ? 280 : 120)
-                .padding(.top, empty ? 0 : 8)
-                .opacity(empty ? 1 : 0.95)
-            if empty {
-                greeting
-                Spacer(minLength: 0)
-                Spacer(minLength: 0)
+    // Top-right "novo" button — clears the conversation thread. Floats over the
+    // chat so it doesn't steal layout space. Glass capsule + hairline.
+    private var newConversationButton: some View {
+        VStack {
+            HStack {
+                Spacer()
+                Button {
+                    #if canImport(UIKit)
+                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                    #endif
+                    withAnimation(.easeOut(duration: 0.25)) { store.clear() }
+                } label: {
+                    Label("novo", systemImage: "square.and.pencil")
+                        .font(BeagleFont.caption.font.weight(.medium))
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.85))
+                        .padding(.horizontal, BeagleSpacing.sm)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75))
+                .padding(.trailing, BeagleSpacing.md)
+                .padding(.top, BeagleSpacing.sm)
             }
+            Spacer()
         }
-        .frame(maxWidth: .infinity)
-        .frame(maxHeight: empty ? .infinity : nil)
-        .padding(.bottom, empty ? 64 : 0)
-        .allowsHitTesting(false)
-        .animation(.easeOut(duration: 0.35), value: empty)
+    }
+
+    // Live body strip — HRV / breath / wrist temp / sleep — pulled from PhysioStore.
+    // Renders only when at least one signal is available; chips collapse otherwise.
+    @ViewBuilder
+    private var bodyStrip: some View {
+        if let p = posture, hasAnyBodySignal(p) {
+            HStack(spacing: BeagleSpacing.sm) {
+                if let h = p.hrv { bodyChip("\(Int(h)) ms", system: "waveform.path.ecg") }
+                if let r = p.respiratoryRate { bodyChip("\(Int(r.rounded())) bpm", system: "wind") }
+                if let s = p.sleepQuality { bodyChip("\(Int((s * 100).rounded()))% sono", system: "moon.zzz") }
+                if let t = p.wristTemperature {
+                    let sign = t >= 0 ? "+" : ""
+                    bodyChip("\(sign)\(String(format: "%.1f", t))°", system: "thermometer.medium")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, BeagleSpacing.md)
+        }
+    }
+
+    private func hasAnyBodySignal(_ p: CognitivePosture) -> Bool {
+        p.hrv != nil || p.respiratoryRate != nil || p.sleepQuality != nil || p.wristTemperature != nil
+    }
+
+    private func bodyChip(_ text: String, system: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: system)
+                .font(.system(size: 10, weight: .medium))
+            Text(text)
+                .font(BeagleFont.caption2.font.weight(.medium))
+        }
+        .foregroundStyle(BeagleTheme.companionInk.opacity(0.75))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .glassEffect(.regular, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
     }
 
     // Aurora glow rising from the composer — geomagnetic dawn.

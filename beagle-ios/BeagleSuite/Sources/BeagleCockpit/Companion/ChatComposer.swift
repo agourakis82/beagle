@@ -33,14 +33,10 @@ struct ChatComposer: View {
             if attachedData != nil { attachmentChip }
 
             HStack(alignment: .bottom, spacing: BeagleSpacing.xs) {
-                PhotosPicker(selection: $pickedItem, matching: .images, photoLibrary: .shared()) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(BeagleTheme.textSecondary)
-                        .frame(width: 30, height: 30)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Anexar foto")
+                // 2026-06-28 polish: "+" PhotosPicker removed — it picked an image but
+                // NEVER sent it (Foundation Models multimodal wiring pending). A button
+                // that does nothing breaks trust. Restore once iOS 27 multimodal path
+                // is real end-to-end.
 
                 TextField("Fala comigo…", text: $text, axis: .vertical)
                     .font(BeagleFont.body.font)
