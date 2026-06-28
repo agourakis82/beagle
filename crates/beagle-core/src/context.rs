@@ -36,6 +36,47 @@ pub struct BeagleContext {
     // estar dentro do contexto.
 }
 
+/// Thin facade over the optional `MemoryEngine` held by `BeagleContext`.
+///
+/// Obtained via [`BeagleContext::memory`]. It moves the memory query/ingest
+/// logic out of the `BeagleContext` god-object while preserving the exact
+/// "MemoryEngine not initialized" error contract that HTTP fallback paths
+/// depend on (see `is_memory_engine_unavailable`).
+#[cfg(feature = "memory")]
+pub struct MemoryFacade<'a> {
+    engine: Option<&'a Arc<beagle_memory::MemoryEngine>>,
+}
+
+#[cfg(feature = "memory")]
+impl MemoryFacade<'_> {
+    /// True when a backing `MemoryEngine` is available.
+    pub fn is_available(&self) -> bool {
+        self.engine.is_some()
+    }
+
+    /// Ingest a chat session into the memory engine.
+    pub async fn ingest_session(
+        &self,
+        session: beagle_memory::ChatSession,
+    ) -> anyhow::Result<beagle_memory::IngestStats> {
+        match self.engine {
+            Some(engine) => engine.ingest_chat(session).await,
+            None => anyhow::bail!("MemoryEngine not initialized"),
+        }
+    }
+
+    /// Query the memory engine.
+    pub async fn query(
+        &self,
+        q: beagle_memory::MemoryQuery,
+    ) -> anyhow::Result<beagle_memory::MemoryResult> {
+        match self.engine {
+            Some(engine) => engine.query(q).await,
+            None => anyhow::bail!("MemoryEngine not initialized"),
+        }
+    }
+}
+
 impl BeagleContext {
     /// Cria novo contexto a partir de configuração
     ///
@@ -153,6 +194,9 @@ impl BeagleContext {
         // Darwin é inicializado no beagle-monorepo com with_context()
         // para evitar dependência circular
 
+        // #12 / ADR 0001 Stage 0: log the resolved store roles so advertising matches execution.
+        crate::store_inventory::BeagleStoreInventory::resolve(&cfg).log();
+
         Ok(Self {
             cfg,
             router,
@@ -189,30 +233,42 @@ impl BeagleContext {
         Ok(Self::new_with_mocks(cfg))
     }
 
-    /// Helper para ingerir sessão de chat na memória
+    /// Facade accessor for memory operations.
+    ///
+    /// Replaces the old god-object `memory_*` passthroughs. Callers use
+    /// `ctx.memory().query(..)` / `ctx.memory().ingest_session(..)` instead of
+    /// forwarding methods bolted onto `BeagleContext` itself. This keeps the
+    /// memory engine behind a thin DI seam while removing storage/query logic
+    /// from the context god-object.
     #[cfg(feature = "memory")]
+    pub fn memory(&self) -> MemoryFacade<'_> {
+        MemoryFacade {
+            engine: self.memory.as_ref(),
+        }
+    }
+
+    /// Helper para ingerir sessão de chat na memória
+    ///
+    /// Deprecated: use `ctx.memory().ingest_session(..)`.
+    #[cfg(feature = "memory")]
+    #[deprecated(note = "use ctx.memory().ingest_session(..) facade instead")]
     pub async fn memory_ingest_session(
         &self,
         session: beagle_memory::ChatSession,
     ) -> anyhow::Result<beagle_memory::IngestStats> {
-        if let Some(ref memory) = self.memory {
-            memory.ingest_chat(session).await
-        } else {
-            anyhow::bail!("MemoryEngine not initialized")
-        }
+        self.memory().ingest_session(session).await
     }
 
     /// Helper para consultar memória
+    ///
+    /// Deprecated: use `ctx.memory().query(..)`.
     #[cfg(feature = "memory")]
+    #[deprecated(note = "use ctx.memory().query(..) facade instead")]
     pub async fn memory_query(
         &self,
         q: beagle_memory::MemoryQuery,
     ) -> anyhow::Result<beagle_memory::MemoryResult> {
-        if let Some(ref memory) = self.memory {
-            memory.query(q).await
-        } else {
-            anyhow::bail!("MemoryEngine not initialized")
-        }
+        self.memory().query(q).await
     }
 
     /// GraphRAG: Retrieve knowledge snippets from graph store

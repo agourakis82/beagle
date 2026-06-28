@@ -158,6 +158,29 @@ public final class PersistedAssistedImportOutbox {
     }
 }
 
+/// A personal-space companion turn captured offline, awaiting sync to the memory spine.
+@Model
+public final class PendingIngest {
+    @Attribute(.unique) public var id: UUID
+    public var sessionId: String
+    public var userText: String
+    public var assistantText: String
+    public var clientTime: String
+    public var timezone: String
+    public var createdAt: Date
+
+    public init(id: UUID = UUID(), sessionId: String, userText: String, assistantText: String,
+                clientTime: String, timezone: String, createdAt: Date = Date()) {
+        self.id = id
+        self.sessionId = sessionId
+        self.userText = userText
+        self.assistantText = assistantText
+        self.clientTime = clientTime
+        self.timezone = timezone
+        self.createdAt = createdAt
+    }
+}
+
 // MARK: - Container Configuration
 
 public enum PersistenceConfig {
@@ -168,6 +191,7 @@ public enum PersistenceConfig {
             PersistedDeepSession.self,
             PersistedExocortexHomeSnapshot.self,
             PersistedAssistedImportOutbox.self,
+            PendingIngest.self,
         ])
         let config = ModelConfiguration(
             "BeagleExocortex",

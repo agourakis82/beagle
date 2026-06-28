@@ -29,10 +29,7 @@ pub trait TracedQuery {
         T: for<'r> sqlx::FromRow<'r, DB::Row>,
         Self: Sized + sqlx::Execute<'q, DB>;
 
-    async fn fetch_one_traced<'q, DB, T>(
-        self,
-        pool: &sqlx::Pool<DB>,
-    ) -> Result<T, sqlx::Error>
+    async fn fetch_one_traced<'q, DB, T>(self, pool: &sqlx::Pool<DB>) -> Result<T, sqlx::Error>
     where
         DB: Database,
         T: for<'r> sqlx::FromRow<'r, DB::Row>,
@@ -85,10 +82,7 @@ impl<'q> TracedQuery for sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::
         .await
     }
 
-    async fn fetch_all_traced<'a, DB, T>(
-        self,
-        pool: &sqlx::Pool<DB>,
-    ) -> Result<Vec<T>, sqlx::Error>
+    async fn fetch_all_traced<'a, DB, T>(self, pool: &sqlx::Pool<DB>) -> Result<Vec<T>, sqlx::Error>
     where
         DB: Database,
         T: for<'r> sqlx::FromRow<'r, DB::Row>,
@@ -122,10 +116,7 @@ impl<'q> TracedQuery for sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::
         .await
     }
 
-    async fn fetch_one_traced<'a, DB, T>(
-        self,
-        pool: &sqlx::Pool<DB>,
-    ) -> Result<T, sqlx::Error>
+    async fn fetch_one_traced<'a, DB, T>(self, pool: &sqlx::Pool<DB>) -> Result<T, sqlx::Error>
     where
         DB: Database,
         T: for<'r> sqlx::FromRow<'r, DB::Row>,
@@ -209,7 +200,11 @@ pub async fn trace_transaction<'a, F, R>(
     func: F,
 ) -> Result<R, sqlx::Error>
 where
-    F: FnOnce(&mut sqlx::Transaction<'a, sqlx::Postgres>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<R, sqlx::Error>> + Send + 'a>>,
+    F: FnOnce(
+        &mut sqlx::Transaction<'a, sqlx::Postgres>,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<R, sqlx::Error>> + Send + 'a>,
+    >,
 {
     let span = tracing::info_span!(
         "database_transaction",

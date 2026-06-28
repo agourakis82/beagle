@@ -1,0 +1,54 @@
+# Beagle Postgres (system-of-record) daily snapshot — ADR 0001 §4.1.
+#
+# STATUS: NOT YET APPLIED. This is version-controlled IaC, ready for the Stage-3 rollout.
+# Preconditions before `kubectl apply`:
+#   - Secret `beagle-postgres-secret` with key `password` exists in ns `beagle`.
+#   - PVC `beagle-db-snapshots-pvc` (Ceph RBD, >= 20Gi) exists.
+#   - Confirm the Postgres Service DNS (`postgres.beagle.svc`) and user (`beagle`).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: beagle-db-snapshot
+  namespace: beagle
+spec:
+  schedule: "0 3 * * *" # 03:00 UTC daily
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          annotations:
+            container.apparmor.security.beta.kubernetes.io/pg-dump: unconfined
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+          containers:
+            - name: pg-dump
+              image: postgres:16-alpine
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: beagle-postgres-secret
+                      key: password
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  DATE=$(date +%Y%m%d_%H%M%S)
+                  pg_dump -h postgres.beagle.svc -U beagle -F c beagle \
+                    > /snapshots/beagle_${DATE}.dump
+                  # Prune snapshots older than 14 days
+                  find /snapshots -name "beagle_*.dump" -mtime +14 -delete
+              volumeMounts:
+                - name: snapshots
+                  mountPath: /snapshots
+          volumes:
+            - name: snapshots
+              persistentVolumeClaim:
+                claimName: beagle-db-snapshots-pvc

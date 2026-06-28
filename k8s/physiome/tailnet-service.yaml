@@ -1,0 +1,23 @@
+# Expose physiome-ingest on the tailnet (token-free; the iOS app reaches it like beagle-core).
+# Tailnet-only (NO funnel) — health data stays private to the tailnet. Add funnel:true or a CF
+# route later if background-off-VPN uploads are needed.
+apiVersion: v1
+kind: Service
+metadata:
+  name: physiome-ingest-tailnet
+  namespace: beagle
+  labels: { app: physiome-ingest, surface: tailnet }
+  annotations:
+    tailscale.com/hostname: "physiome"
+    tailscale.com/proxy-group: "sounio-workspace-ingress"
+    tailscale.com/https: "true"
+    tailscale.com/tags: "tag:k8s,tag:sounio-workspace"
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  selector: { app: physiome-ingest }
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8090

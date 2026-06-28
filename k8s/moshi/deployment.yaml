@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: moshi-server
+  namespace: moshi
+  labels:
+    app.kubernetes.io/name: moshi-server
+    app.kubernetes.io/part-of: beagle
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: moshi-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: moshi-server
+        app.kubernetes.io/part-of: beagle
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: r740-proxmox
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      containers:
+        - name: moshi
+          image: 192.168.3.207:5003/moshi-server:2026-06-18-gcc
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            # Hardened posture, bisected empirically (2026-06-19): the CUDA
+            # error-304 crash was caused ONLY by the default AppArmor profile,
+            # NOT by dropping capabilities. So we keep the strong controls and
+            # relax only AppArmor:
+            allowPrivilegeEscalation: false
+            # seccomp Unconfined: cluster doctrine — Python asyncio socketpair(2)
+            # is blocked by the RuntimeDefault profile (asyncio crash).
+            seccompProfile:
+              type: Unconfined
+            # appArmor Unconfined is REQUIRED: the host-default AppArmor profile
+            # blocks an op CUDA needs -> cudaErrorOperatingSystem (304). Verified
+            # by bisect (drop:ALL works fine *with* appArmor Unconfined).
+            appArmorProfile:
+              type: Unconfined
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - IPC_LOCK
+          env:
+            - name: HF_HOME
+              value: /var/cache/huggingface
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            # Pin to the r740 A5000 (24 GiB) by GPU UUID. r740 is time-sliced
+            # across an RTX 8000 + this A5000; the device plugin honors an
+            # explicit UUID to select the physical card (same recipe qwen-vl used).
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: GPU-5618b771-c8f2-16a6-b94e-0ba3537c47db
+            # HF_TOKEN is mounted as a file (not env) to keep it out of
+            # /proc/<pid>/environ. Read by huggingface_hub via HF_TOKEN_PATH.
+            - name: HF_TOKEN_PATH
+              value: /run/secrets/hf-token
+          ports:
+            - name: ws
+              containerPort: 8998
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: ws
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            tcpSocket:
+              port: ws
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
+          livenessProbe:
+            tcpSocket:
+              port: ws
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "4"
+              memory: 18Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8"
+              memory: 22Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /var/cache/huggingface
+            - name: hf-token
+              mountPath: /run/secrets/hf-token
+              subPath: HF_TOKEN
+              readOnly: true
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim:
+            claimName: moshi-hf-cache
+        - name: hf-token
+          secret:
+            secretName: moshi-secrets
+            defaultMode: 0400

@@ -1,0 +1,94 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sounio-inference
+  namespace: beagle
+  labels:
+    app: sounio-inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sounio-inference
+  template:
+    metadata:
+      labels:
+        app: sounio-inference
+    spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      nodeSelector:
+        sounio.dev/runtime-role: cluster-core
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - r770-proxmox
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      containers:
+        - name: sounio-inference
+          image: 192.168.3.207:5003/sounio-inference:v4
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8799
+          env:
+            - name: SOUNIO_VERB_CACHE
+              value: /tmp/sounio-verb-cache
+          securityContext:
+            allowPrivilegeEscalation: false
+            appArmorProfile:
+              type: Unconfined
+            seccompProfile:
+              type: Unconfined
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8799
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8799
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sounio-inference
+  namespace: beagle
+  labels:
+    app: sounio-inference
+spec:
+  type: ClusterIP
+  selector:
+    app: sounio-inference
+  ports:
+    - port: 80
+      targetPort: 8799
+      protocol: TCP

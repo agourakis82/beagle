@@ -1,0 +1,181 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beagle-mcp-server
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: beagle-mcp-server
+    app.kubernetes.io/part-of: beagle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beagle-mcp-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: beagle-mcp-server
+        app.kubernetes.io/part-of: beagle
+    spec:
+      nodeSelector:
+        sounio.dev/runtime-role: cluster-core
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      containers:
+        - name: beagle-mcp-server
+          image: 192.168.3.207:5003/beagle-mcp-server:sounio-workday-mvp-c63a309
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: MCP_TRANSPORT
+              value: http
+            - name: MCP_HTTP_PORT
+              value: "3000"
+            - name: MCP_REQUIRE_AUTH
+              value: "true"
+            - name: MCP_PUBLIC_BASE_URL
+              value: https://mcp.agourakis.com
+            - name: MCP_RESOURCE_IDENTIFIER
+              value: https://mcp.agourakis.com/mcp
+            - name: MCP_RESOURCE_DOCUMENTATION_URL
+              value: https://mcp.agourakis.com/connector
+            - name: MCP_PUBLIC_DISCOVERY
+              value: "true"
+            - name: MCP_TOOL_SURFACE
+              value: trusted_full
+            - name: MCP_ALLOW_LEGACY_BEARER
+              value: "false"
+            - name: BEAGLE_CORE_URL
+              value: http://beagle-core.beagle.svc.cluster.local:8080
+            - name: BEAGLE_COCKPIT_URL
+              value: http://project-cockpit.beagle.svc.cluster.local
+            - name: BEAGLE_MEMORY_ENGINE_URL
+              value: http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090
+            - name: BEAGLE_MEMORY_HOT_PATH
+              value: hypermemory_multivector
+            - name: BEAGLE_MEMORY_RANKING_POLICY
+              value: strict_recent_guarded
+            - name: BEAGLE_RETRIEVAL_AGENT
+              value: canary
+            - name: BEAGLE_RETRIEVAL_PLANNER
+              value: hybrid
+            - name: BEAGLE_CONTEXT_COMPILER
+              value: shadow
+            - name: BEAGLE_MEMORY_POLICY
+              value: observe
+            - name: BEAGLE_DREAMCYCLE
+              value: manual
+            - name: BEAGLE_CORE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: beagle-core-secrets
+                  key: BEAGLE_API_TOKEN
+                  optional: true
+            - name: MCP_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: beagle-core-secrets
+                  key: MCP_AUTH_TOKEN
+                  optional: true
+            - name: MCP_AUTHORIZATION_SERVER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: beagle-mcp-oauth
+                  key: authorization_server_url
+                  optional: true
+            - name: MCP_OAUTH_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: beagle-mcp-oauth
+                  key: issuer
+                  optional: true
+            - name: MCP_OAUTH_JWKS_URI
+              valueFrom:
+                secretKeyRef:
+                  name: beagle-mcp-oauth
+                  key: jwks_uri
+                  optional: true
+            - name: MCP_OAUTH_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: beagle-mcp-oauth
+                  key: audience
+                  optional: true
+            - name: LOG_LEVEL
+              value: info
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: beagle-mcp-server
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: beagle-mcp-server
+    app.kubernetes.io/part-of: beagle
+spec:
+  selector:
+    app.kubernetes.io/name: beagle-mcp-server
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: beagle-mcp-tailnet-http
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: beagle-mcp-server
+    app.kubernetes.io/part-of: beagle
+  annotations:
+    tailscale.com/hostname: beagle-mcp
+    tailscale.com/proxy-class: sounio-workspace-proxy
+    tailscale.com/tags: tag:k8s
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  selector:
+    app.kubernetes.io/name: beagle-mcp-server
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

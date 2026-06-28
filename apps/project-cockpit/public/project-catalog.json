@@ -14,8 +14,11 @@
       "sshHost": "sounio-workspace",
       "tmuxSession": "sounio-dev",
       "workspaceRoot": "/workspace/sounio",
-      "workspacePod": "sounio-workspace-habitat-0",
+      "workspacePod": "sounio-workspace-control-0",
       "workspaceContainer": "workspace-ide",
+      "workspaceAgentService": "sounio-workspace-control",
+      "workspaceAgentPort": 4371,
+      "workbenchAuthority": "workspace-agent",
       "preferredPrBase": "integration/sounio-dev-ready-base",
       "workstreamId": "sounio-lang-main",
       "envFile": "/home/devsounio/beagle/k8s/workspace-platform/catalog/always-on/sounio.env",
@@ -30,7 +33,10 @@
         },
         "desktop": {
           "status": "planned",
-          "shells": ["windows", "macos"],
+          "shells": [
+            "windows",
+            "macos"
+          ],
           "rendering": "webgpu-target"
         },
         "ios": {
@@ -128,25 +134,25 @@
                 "runtime": "needs-lmdeploy-or-vllm-stack",
                 "recommendedNode": "r740-proxmox"
               },
-        {
-          "id": "qwen3b",
-          "model": "Qwen/Qwen2.5-3B-Instruct",
-          "runtimeModelId": "qwen2.5-3b-instruct",
-          "family": "cheap-daily",
-          "status": "available",
-          "endpoint": "http://discussion-lab-serving.beagle.svc.cluster.local:8000",
+              {
+                "id": "qwen3b",
+                "model": "Qwen/Qwen2.5-3B-Instruct",
+                "runtimeModelId": "qwen2.5-3b-instruct",
+                "family": "cheap-daily",
+                "status": "available",
+                "endpoint": "http://discussion-lab-serving.beagle.svc.cluster.local:8000",
                 "node": "5860-proxmox",
                 "gpu": "RTX Pro 4000 Ada",
                 "runtime": "vllm-openai",
                 "notes": "runs with hostUsers plus privileged GPU pod posture on 5860 after relocating containerd onto a dedicated thin-LV runtime tier because the default isolated runtime still blocks socketpair() and CUDA initialization inside standard pods"
               },
-        {
-          "id": "yi6b",
-          "model": "01-ai/Yi-6B-Chat",
-          "runtimeModelId": "yi-6b-chat",
-          "family": "bilingual-creative",
-          "status": "available",
-          "endpoint": "http://discussion-lab-yi-serving.beagle.svc.cluster.local:8000",
+              {
+                "id": "yi6b",
+                "model": "01-ai/Yi-6B-Chat",
+                "runtimeModelId": "yi-6b-chat",
+                "family": "bilingual-creative",
+                "status": "available",
+                "endpoint": "http://discussion-lab-yi-serving.beagle.svc.cluster.local:8000",
                 "node": "r770-proxmox",
                 "gpu": "L4",
                 "runtime": "vllm-openai",
@@ -160,6 +166,24 @@
                 "endpoint": "http://discussion-lab-zamba2-serving.beagle.svc.cluster.local:8000",
                 "node": "r740-proxmox",
                 "gpu": "A5000"
+              },
+              {
+                "id": "falcon-mamba",
+                "model": "falcon-mamba-7b",
+                "family": "pure-ssm-no-attention",
+                "status": "available",
+                "endpoint": "http://discussion-lab-falcon-mamba.beagle.svc.cluster.local:8000",
+                "node": "r770-proxmox",
+                "gpu": "L4"
+              },
+              {
+                "id": "internlm25",
+                "model": "internlm2.5-7b",
+                "family": "chinese-reasoning",
+                "status": "available",
+                "endpoint": "http://discussion-lab-internlm.beagle.svc.cluster.local:8000",
+                "node": "r740-proxmox",
+                "gpu": "RTX 8000"
               }
             ]
           }
@@ -224,7 +248,8 @@
         "laneLayout": "viewer-first",
         "defaultChannel": "signal",
         "defaultScale": "auto"
-      }
+      },
+      "workspaceService": "sounio-workspace-control"
     },
     {
       "mode": "cold",

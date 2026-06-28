@@ -36,6 +36,9 @@ const DARWIN_HPC_GATEWAY_URL =
 const HPC_SUBMIT_TIMEOUT_MS = Number(process.env.PROJECT_COCKPIT_HPC_SUBMIT_TIMEOUT_MS || 120000);
 const HPC_READ_TIMEOUT_MS = Number(process.env.PROJECT_COCKPIT_HPC_READ_TIMEOUT_MS || 15000);
 const HPC_OBJECT_TIMEOUT_MS = Number(process.env.PROJECT_COCKPIT_HPC_OBJECT_TIMEOUT_MS || 60000);
+const SOUNIO_INFERENCE_URL =
+  process.env.SOUNIO_INFERENCE_URL || "http://sounio-inference.beagle.svc.cluster.local:80";
+const SOUNIO_INFERENCE_TIMEOUT_MS = Number(process.env.SOUNIO_INFERENCE_TIMEOUT_MS || 90000);
 const HPC_ALLOWED_PROFILES = new Set(["cpu-short-v1", "cpu-batch-v1", "gpu-single-v1"]);
 const HPC_LEGACY_KIND_MAP = Object.freeze({
   cpu: "cpu-short-v1",
@@ -863,6 +866,48 @@ export async function cancelJob(slug, jobId) {
 
 // ─── Route registration ─────────────────────────────────────────────
 
+// ─── Sounio Inference proxy ──────────────────────────────────────────────
+// Thin HTTP proxy to the namespace-local sounio-inference service. FastAPI/Pydantic
+// does its own schema validation; we forward the body and re-wrap errors in the
+// contract's ErrorCode taxonomy. Pure computation → no idempotency wrapper needed.
+async function proxySounioVerb(verb, body) {
+  const url = `${SOUNIO_INFERENCE_URL}/v1/${verb}`;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), SOUNIO_INFERENCE_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+      signal: ac.signal
+    });
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw contractFailure(ErrorCode.TIMEOUT, `sounio-inference timed out for ${verb}`);
+    }
+    throw contractFailure(ErrorCode.RUNTIME_UNAVAILABLE, `sounio-inference unreachable: ${err.message}`);
+  } finally {
+    clearTimeout(timer);
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw contractFailure(ErrorCode.INTERNAL, `sounio-inference returned non-JSON for ${verb}`);
+  }
+  if (response.status === 422) {
+    throw contractFailure(ErrorCode.BAD_REQUEST, payload?.detail?.[0]?.msg || "validation error");
+  }
+  if (response.status === 502 || response.status === 503) {
+    throw contractFailure(ErrorCode.RUNTIME_UNAVAILABLE, `sounio verb ${verb} failed`);
+  }
+  if (!response.ok) {
+    throw contractFailure(ErrorCode.INTERNAL, `sounio-inference ${verb} HTTP ${response.status}`);
+  }
+  return payload;
+}
+
 export function registerJobRoutes(app) {
   app.get(
     "/api/projects/:slug/hpc/profiles",
@@ -1044,4 +1089,18 @@ export function registerJobRoutes(app) {
       res.status(500).json({ error: e.message, truthMode: "stale" });
     }
   });
+
+  // ─── Sounio Inference verbs (namespace-local; no slug / project context) ───
+  app.post(
+    "/api/sounio/smt/check",
+    withEnvelope(async (req) => ({ data: await proxySounioVerb("smt/check", req.body) }))
+  );
+  app.post(
+    "/api/sounio/gum/propagate",
+    withEnvelope(async (req) => ({ data: await proxySounioVerb("gum/propagate", req.body) }))
+  );
+  app.post(
+    "/api/sounio/causal/dsep",
+    withEnvelope(async (req) => ({ data: await proxySounioVerb("causal/dsep", req.body) }))
+  );
 }

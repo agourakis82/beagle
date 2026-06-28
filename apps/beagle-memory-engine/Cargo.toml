@@ -1,0 +1,24 @@
+[package]
+name = "beagle-memory-engine"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dr. Demetrios Agourakis <contact@darwin-cluster.ai>"]
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "beagle-memory-engine"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+axum = { workspace = true, features = ["macros"] }
+chrono.workspace = true
+reqwest.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.10"
+tokio.workspace = true
+tower-http = { workspace = true, features = ["cors", "trace"] }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+uuid = { workspace = true, features = ["v4", "serde"] }

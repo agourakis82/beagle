@@ -209,6 +209,51 @@ pub struct QdrantVectorStore {
         std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, Vec<f64>>>>,
 }
 
+/// Deterministic, model-free sparse encoder (hash-TF). Inlined copy of
+/// `beagle_rag_update::qdrant::sparse_from_text` with the SAME algorithm so the
+/// index-time and query-time sparse spaces agree. Kept local to avoid adding a
+/// cross-crate dependency on `beagle-rag-update` (which would pull sqlx/clap/etc.
+/// and risk a dependency cycle through beagle-search).
+fn sparse_from_text(text: &str) -> (Vec<u32>, Vec<f32>) {
+    use std::collections::HashMap;
+
+    let mut order: Vec<String> = Vec::new();
+    let mut counts: HashMap<String, f32> = HashMap::new();
+
+    let lowered = text.to_lowercase();
+    for token in lowered.split(|c: char| !c.is_alphanumeric()) {
+        if token.chars().count() < 2 {
+            continue;
+        }
+        let entry = counts.entry(token.to_string()).or_insert_with(|| {
+            order.push(token.to_string());
+            0.0
+        });
+        *entry += 1.0;
+    }
+
+    let mut indices = Vec::with_capacity(order.len());
+    let mut values = Vec::with_capacity(order.len());
+    for token in &order {
+        let hash = blake3::hash(token.as_bytes());
+        let idx = u32::from_le_bytes(hash.as_bytes()[0..4].try_into().unwrap());
+        indices.push(idx);
+        values.push(counts[token]);
+    }
+    (indices, values)
+}
+
+fn hybrid_retrieval_enabled() -> bool {
+    std::env::var("BEAGLE_HYBRID_RETRIEVAL")
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 impl QdrantVectorStore {
     pub fn new(
         qdrant_url: String,
@@ -274,6 +319,94 @@ impl VectorStore for QdrantVectorStore {
 
         // 2. Converte para f32 (Qdrant usa f32)
         let query_vector: Vec<f32> = query_embedding.iter().map(|&x| x as f32).collect();
+
+        // 2b. Opt-in: hybrid dense+sparse retrieval fused server-side via RRF.
+        if hybrid_retrieval_enabled() {
+            let (sparse_indices, sparse_values) = sparse_from_text(text);
+            let query_url = format!(
+                "{}/collections/{}/points/query",
+                self.base_url, self.collection
+            );
+            let query_request = json!({
+                "prefetch": [
+                    { "query": query_vector, "using": "dense", "limit": top_k * 2 },
+                    {
+                        "query": { "indices": sparse_indices, "values": sparse_values },
+                        "using": "text",
+                        "limit": top_k * 2
+                    }
+                ],
+                "query": { "fusion": "rrf" },
+                "limit": top_k,
+                "with_payload": true,
+                "with_vector": false
+            });
+
+            let response = self
+                .client
+                .post(&query_url)
+                .json(&query_request)
+                .send()
+                .await?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let error_text = response.text().await.unwrap_or_default();
+                warn!("Qdrant hybrid query error {}: {}", status, error_text);
+                // Fallback para mock se Qdrant não disponível
+                return Ok((0..top_k.min(5))
+                    .map(|i| VectorHit {
+                        id: format!("qdrant_fallback_{}", i),
+                        score: 0.9 - (i as f32 * 0.1),
+                        metadata: json!({
+                            "text": format!("Fallback result {} for: {}", i, text),
+                            "error": error_text,
+                        }),
+                    })
+                    .collect());
+            }
+
+            let query_response: serde_json::Value = response.json().await?;
+
+            // /points/query retorna {"result":{"points":[...]}} (com fallback p/ result:[...])
+            let points = query_response
+                .get("result")
+                .and_then(|r| r.get("points"))
+                .and_then(|p| p.as_array())
+                .cloned()
+                .or_else(|| {
+                    query_response
+                        .get("result")
+                        .and_then(|r| r.as_array())
+                        .cloned()
+                })
+                .unwrap_or_default();
+
+            let mut hits = Vec::new();
+            for result in &points {
+                let id = result
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let score = result
+                    .get("score")
+                    .and_then(|v| v.as_f64())
+                    .map(|s| s as f32)
+                    .unwrap_or(0.0);
+                let payload = result.get("payload").cloned().unwrap_or_else(|| json!({}));
+                hits.push(VectorHit {
+                    id,
+                    score,
+                    metadata: payload,
+                });
+            }
+
+            if hits.is_empty() {
+                warn!("Qdrant hybrid retornou resultados vazios para: {}", text);
+            }
+            return Ok(hits);
+        }
 
         // 3. Faz busca no Qdrant
         let search_url = format!(

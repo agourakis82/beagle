@@ -23,25 +23,32 @@ function formatMessage(level: LogLevel, message: string, meta?: unknown): string
   return `[${timestamp}] [${level.toUpperCase()}] ${message}${metaStr}`;
 }
 
+// The stdio MCP transport reserves stdout exclusively for JSON-RPC frames; any stray
+// stdout (console.log/info/debug) corrupts the stream and the client throws
+// "Expected ',' or ']' ... in JSON" on the log line. Route ALL log levels to stderr.
+function emit(line: string): void {
+  process.stderr.write(line + '\n');
+}
+
 export const logger = {
   debug: (message: string, meta?: unknown) => {
     if (shouldLog('debug')) {
-      console.debug(formatMessage('debug', message, meta));
+      emit(formatMessage('debug', message, meta));
     }
   },
   info: (message: string, meta?: unknown) => {
     if (shouldLog('info')) {
-      console.info(formatMessage('info', message, meta));
+      emit(formatMessage('info', message, meta));
     }
   },
   warn: (message: string, meta?: unknown) => {
     if (shouldLog('warn')) {
-      console.warn(formatMessage('warn', message, meta));
+      emit(formatMessage('warn', message, meta));
     }
   },
   error: (message: string, meta?: unknown) => {
     if (shouldLog('error')) {
-      console.error(formatMessage('error', message, meta));
+      emit(formatMessage('error', message, meta));
     }
   },
 };

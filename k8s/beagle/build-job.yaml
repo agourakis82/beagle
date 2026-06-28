@@ -23,8 +23,15 @@ spec:
       initContainers:
         - name: clone
           image: alpine/git:latest
-          command: ["git", "clone", "--depth=1", "--branch=feat/ios-terminal-quality-pass",
-                    "https://github.com/agourakis82/beagle.git", "/workspace"]
+          env:
+            - name: BEAGLE_GIT_BRANCH
+              value: main
+            - name: BEAGLE_GIT_REF
+              value: main
+          command:
+            - /bin/sh
+            - -lc
+            - git clone --depth=50 --branch="${BEAGLE_GIT_BRANCH:-main}" https://github.com/agourakis82/beagle.git /workspace && cd /workspace && git checkout "${BEAGLE_GIT_REF:-main}"
           volumeMounts:
             - name: workspace
               mountPath: /workspace
@@ -36,10 +43,14 @@ spec:
       containers:
         - name: kaniko
           image: gcr.io/kaniko-project/executor:latest
+          env:
+            - name: BEAGLE_IMAGE_TAG
+              value: moshi-voice-44e49930
           args:
             - "--dockerfile=/workspace/apps/beagle-monorepo/Dockerfile.core_server"
             - "--context=dir:///workspace"
-            - "--destination=ttl.sh/beagle-core-roundtable:24h"
+            - "--destination=192.168.3.207:5003/beagle-core-exocortex:$(BEAGLE_IMAGE_TAG)"
+            - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"
             - "--verbosity=info"
@@ -50,9 +61,16 @@ spec:
             requests:
               cpu: "4"
               memory: 8Gi
+              # kaniko unpacks the large Rust build image into ephemeral scratch
+              # (--snapshot-mode=redo). Reserve so the scheduler won't co-locate
+              # two heavy builds that would together overflow the node.
+              ephemeral-storage: 8Gi
             limits:
               cpu: "8"
               memory: 16Gi
+              # Bound scratch so an overrun evicts only THIS build pod, not the
+              # node (which previously tripped DiskPressure and evicted others).
+              ephemeral-storage: 20Gi
       volumes:
         - name: workspace
           emptyDir:

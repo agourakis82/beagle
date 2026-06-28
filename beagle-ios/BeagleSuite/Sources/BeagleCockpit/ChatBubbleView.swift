@@ -159,17 +159,7 @@ struct ChatBubbleView: View {
 
     @ViewBuilder
     private var renderedContent: some View {
-        if let attributed = try? AttributedString(markdown: message.content, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
-            Text(attributed)
-                .font(BeagleFont.body.font)
-                .foregroundStyle(BeagleTheme.textPrimary)
-                .textSelection(.enabled)
-        } else {
-            Text(message.content)
-                .font(BeagleFont.body.font)
-                .foregroundStyle(BeagleTheme.textPrimary)
-                .textSelection(.enabled)
-        }
+        MarkdownMessage(content: message.content)
 
         if message.isStreaming {
             streamingCursor
@@ -223,6 +213,14 @@ struct ChatBubbleView: View {
                 Text("\(tokens) tok")
                     .font(BeagleFont.caption2.font)
                     .foregroundStyle(BeagleTheme.textTertiary)
+            }
+
+            if message.role == .assistant && message.savedToMemory {
+                PresencePill(
+                    label: "Memory",
+                    systemImage: "checkmark.circle.fill",
+                    tint: BeagleTheme.truthObserved
+                )
             }
         }
     }
@@ -342,5 +340,109 @@ private struct ThinkingIndicator: View {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
+}
+
+// MARK: - Markdown message renderer
+
+/// Renders LLM markdown block-aware: fenced ``` code blocks become monospace
+/// cards (so code stops collapsing into a wall of text), prose uses full
+/// markdown (lists, headers, emphasis) instead of inline-only.
+private struct MarkdownMessage: View {
+    let content: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, seg in
+                switch seg {
+                case .prose(let s):
+                    Text(prose(s))
+                        .font(BeagleFont.body.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                case .code(let lang, let code):
+                    codeCard(lang: lang, code: code)
+                }
+            }
+        }
+    }
+
+    private func prose(_ s: String) -> AttributedString {
+        (try? AttributedString(
+            markdown: s,
+            options: .init(
+                interpretedSyntax: .full,
+                failurePolicy: .returnPartiallyParsedIfPossible
+            )
+        )) ?? AttributedString(s)
+    }
+
+    private func codeCard(lang: String?, code: String) -> some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+            if let lang, !lang.isEmpty {
+                Text(lang)
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .textCase(.uppercase)
+                    .tracking(0.6)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(code)
+                    .font(BeagleFont.data.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(BeagleSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: BeagleRadius.md).fill(BeagleTheme.surface0))
+        .overlay(
+            RoundedRectangle(cornerRadius: BeagleRadius.md)
+                .strokeBorder(BeagleTheme.hairline, lineWidth: 1)
+        )
+    }
+
+    private enum Segment {
+        case prose(String)
+        case code(String?, String)
+    }
+
+    /// Split on ``` fences into prose and code segments.
+    private var segments: [Segment] {
+        var result: [Segment] = []
+        var inCode = false
+        var lang: String?
+        var buf: [String] = []
+
+        func flush(asCode: Bool) {
+            let joined = buf.joined(separator: "\n")
+            if asCode {
+                result.append(.code(lang, joined))
+            } else if !joined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                result.append(.prose(joined))
+            }
+            buf = []
+        }
+
+        for line in content.components(separatedBy: "\n") {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                if inCode {
+                    flush(asCode: true)
+                    inCode = false
+                    lang = nil
+                } else {
+                    flush(asCode: false)
+                    inCode = true
+                    let fence = line.trimmingCharacters(in: .whitespaces)
+                    let l = String(fence.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                    lang = l.isEmpty ? nil : l
+                }
+            } else {
+                buf.append(line)
+            }
+        }
+        flush(asCode: inCode)
+        return result
     }
 }

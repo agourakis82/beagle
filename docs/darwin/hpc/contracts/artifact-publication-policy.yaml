@@ -1,0 +1,52 @@
+schema_version: 1
+phase: B10
+phase_status: STAGED
+objective: publish approved HPC artifacts into the internal object result plane without reopening generic shared storage
+
+source_plane:
+  gateway_namespace: darwin-platform
+  gateway_service: darwin-hpc-gateway
+  gateway_visibility: ClusterIP
+  adapter_boundary_host: t560
+  source_of_truth: gateway artifact manifest
+
+allowed_source_profiles:
+  - cpu-short-v1
+  - cpu-batch-v1
+  - gpu-single-v1
+
+publication_targets:
+  - id: research-results-v1
+    kind: object
+    exposure: internal
+    bucket_ref: darwin-research-results
+    prefix_template: hpc/{profile_id}/{job_id}/
+    manifest_format: publication-manifest-v1
+    allowed_callers:
+      - namespace: darwin-platform
+        service_account: darwin-hpc-publisher
+
+allowed_request_fields:
+  - job_id
+  - profile_id
+  - publication_target_id
+  - publication_label
+
+restrictions:
+  allow_client_bucket_selection: false
+  allow_client_endpoint_override: false
+  allow_client_object_key_override: false
+  allow_raw_file_upload: false
+  allow_shared_filesystem_mounts: false
+  allow_public_bucket_exposure: false
+  allow_direct_research_credentials: false
+  allow_ingress_or_edge_exposure: false
+
+workflow:
+  publication_mode: publisher-push
+  credential_owner: platform
+  publication_record: deterministic object manifest
+
+dependencies:
+  - B9.6 research-facing controlled admission = GO
+  - internal object-plane foundations from B8 are assumed available

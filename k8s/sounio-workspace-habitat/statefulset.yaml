@@ -1,3 +1,43 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sounio-workspace-habitat
+  namespace: beagle
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sounio-workspace-habitat
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: ssh
+      port: 2222
+      targetPort: ssh
+    - name: workbench
+      port: 4371
+      targetPort: workbench
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sounio-workspace-habitat-internal
+  namespace: beagle
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: sounio-workspace-habitat
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: ssh
+      port: 2222
+      targetPort: ssh
+    - name: workbench
+      port: 4371
+      targetPort: workbench
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -7,6 +47,10 @@ spec:
   serviceName: sounio-workspace-habitat-internal
   replicas: 1
   podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0
   persistentVolumeClaimRetentionPolicy:
     whenDeleted: Retain
     whenScaled: Retain
@@ -65,7 +109,7 @@ spec:
           effect: NoSchedule
       initContainers:
         - name: normalize-permissions
-          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260406213306-743727:stable
+          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260425-zellij1:stable
           imagePullPolicy: Always
           command:
             - /bin/bash
@@ -76,7 +120,7 @@ spec:
               mountPath: /workspace
       containers:
         - name: workspace-ide
-          image: 192.168.3.207:5003/sounio-lab-sounio-workspace-ide-20260406213306-743727:stable
+          image: 192.168.3.207:5003/sounio-lab-sounio-workspace-ide-20260424070010-slurmnative6:stable
           imagePullPolicy: Always
           securityContext:
             appArmorProfile:
@@ -143,7 +187,7 @@ spec:
               cpu: "6"
               memory: 12Gi
         - name: workspace-ssh
-          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260406213306-743727:stable
+          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260425-zellij1:stable
           imagePullPolicy: Always
           securityContext:
             appArmorProfile:
@@ -203,6 +247,116 @@ spec:
             limits:
               cpu: "2"
               memory: 3Gi
+        - name: beagle-pty-supervisor
+          image: 192.168.3.207:5003/beagle-workspace-agent:sounio-workday-mvp-c63a309
+          imagePullPolicy: Always
+          securityContext:
+            appArmorProfile:
+              type: Unconfined
+          command:
+            - node
+            - /app/src/pty-supervisor.mjs
+          env:
+            - name: BEAGLE_WORKSPACE_SLUG
+              value: sounio
+            - name: PROJECT_SLUG
+              value: sounio
+            - name: BEAGLE_WORKSPACE_ROOT
+              value: /workspace/sounio
+            - name: PROJECT_WORKSPACE_ROOT
+              value: /workspace/sounio
+            - name: BEAGLE_PTY_SUPERVISOR_HOST
+              value: 127.0.0.1
+            - name: BEAGLE_PTY_SUPERVISOR_PORT
+              value: "4372"
+            - name: SHELL
+              value: /bin/bash
+          volumeMounts:
+            - name: workspace-data
+              mountPath: /workspace
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -lc
+                - curl -fsS http://127.0.0.1:4372/v1/health >/dev/null
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -lc
+                - curl -fsS http://127.0.0.1:4372/v1/health >/dev/null
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+        - name: beagle-workspace-agent
+          image: 192.168.3.207:5003/beagle-workspace-agent:sounio-workday-mvp-c63a309
+          imagePullPolicy: Always
+          command:
+            - node
+            - /app/src/server.mjs
+          env:
+            - name: BEAGLE_WORKSPACE_SLUG
+              value: sounio
+            - name: PROJECT_SLUG
+              value: sounio
+            - name: BEAGLE_WORKSPACE_ROOT
+              value: /workspace/sounio
+            - name: PROJECT_WORKSPACE_ROOT
+              value: /workspace/sounio
+            - name: BEAGLE_WORKBENCH_DIR
+              value: /workspace/.beagle/workbench
+            - name: BEAGLE_WORKSPACE_AGENT_PORT
+              value: "4371"
+            - name: BEAGLE_PTY_SUPERVISOR_URL
+              value: http://127.0.0.1:4372
+            - name: BEAGLE_CORE_URL
+              value: http://beagle-core.beagle.svc.cluster.local:8080
+          envFrom:
+            - secretRef:
+                name: beagle-core-secrets
+                optional: true
+          ports:
+            - name: workbench
+              containerPort: 4371
+          volumeMounts:
+            - name: workspace-data
+              mountPath: /workspace
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -lc
+                - curl -fsS http://127.0.0.1:4371/v1/ready >/dev/null
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -lc
+                - curl -fsS http://127.0.0.1:4371/v1/health >/dev/null
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
       volumes:
         - name: workspace-config
           configMap:

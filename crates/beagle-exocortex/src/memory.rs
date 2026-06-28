@@ -1,11 +1,17 @@
-//! Memory Bridge - Unified semantic/episodic memory with consciousness tagging
+//! Memory Bridge - Unified semantic/episodic memory with salience tagging
 //!
-//! Bridges the Memory system with consciousness states, providing:
+//! Bridges the Memory system with salience/awareness states, providing:
 //! - Episodic memory with emotional salience
 //! - Semantic memory with knowledge graphs
 //! - Working memory with attention spotlight
 //! - Memory consolidation during "rest" states
 //! - Optional integration with beagle-memory for persistent storage
+//!
+//! HONESTY NOTE (2026 modernization, rank #11): fields named `phi_at_encoding`,
+//! `current_phi`, and `min_phi` are kept for API/serialization stability. They
+//! store the **heuristic salience score** from `BrainConnector` (0..1 float),
+//! NOT a real Integrated Information Theory Φ. The research-grade IIT calculator
+//! is `beagle-transcend::IIT4Calculator` and is not on the live encoding path.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -64,7 +70,9 @@ pub struct EpisodicMemory {
     pub content: String,
     /// Emotional context during encoding
     pub emotional_context: EmotionalValence,
-    /// Consciousness level during encoding (Phi value)
+    /// Heuristic salience score at encoding time (field kept as `phi_at_encoding`
+    /// for serialization stability). This is the 0..1 value from `BrainConnector`,
+    /// NOT a real IIT Φ — see the module note.
     pub phi_at_encoding: f32,
     /// Attention focus during encoding
     pub attention_focus: Vec<String>,
@@ -284,7 +292,9 @@ pub struct MemoryBridge {
     /// Current emotional state for encoding
     current_emotion: Arc<RwLock<EmotionalValence>>,
 
-    /// Current consciousness level (Phi)
+    /// Current heuristic salience level (field kept as `current_phi` for
+    /// internal stability). Stores the 0..1 value from `BrainConnector`,
+    /// NOT a real IIT Φ — see the module note.
     current_phi: Arc<RwLock<f32>>,
 
     /// Real memory engine for persistent storage (optional)
@@ -346,7 +356,9 @@ impl MemoryBridge {
         *self.current_emotion.write().await = emotion;
     }
 
-    /// Update current consciousness level
+    /// Update the current heuristic salience level used for memory encoding.
+    /// The parameter is named `phi` for API stability; it accepts the 0..1
+    /// salience score from `BrainConnector`, NOT a real IIT Φ.
     pub async fn set_consciousness_level(&self, phi: f32) {
         *self.current_phi.write().await = phi;
     }
@@ -471,7 +483,7 @@ impl MemoryBridge {
                             timestamp: highlight.date.unwrap_or_else(chrono::Utc::now),
                             content: highlight.snippet,
                             emotional_context: EmotionalValence::default(),
-                            phi_at_encoding: 0.5, // Unknown from persistent storage
+                            phi_at_encoding: 0.5, // Default salience placeholder; not a real IIT Φ
                             attention_focus: vec![],
                             semantic_links: vec![highlight.source.clone()],
                             access_count: 1,
@@ -595,11 +607,13 @@ pub struct MemoryStats {
 // Memory-Consciousness Integration
 // ============================================================================
 
-/// Consciousness-tagged memory query
+/// Salience-filtered memory query (formerly "consciousness-tagged").
 pub struct ConsciousMemoryQuery {
     /// Text query
     pub query: String,
-    /// Minimum consciousness level for retrieval
+    /// Minimum heuristic salience score for retrieval (field kept as `min_phi`
+    /// for API stability; it is a 0..1 threshold on the `BrainConnector`
+    /// salience, NOT an IIT Φ cutoff — see the module note).
     pub min_phi: f32,
     /// Emotional filter (if any)
     pub emotional_filter: Option<EmotionalValence>,
@@ -615,7 +629,7 @@ impl MemoryBridge {
         episodes
             .iter()
             .filter(|e| {
-                // Phi filter
+                // Salience filter (field named phi_at_encoding for compat; not real IIT Φ)
                 if e.phi_at_encoding < query.min_phi {
                     return false;
                 }

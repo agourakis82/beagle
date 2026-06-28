@@ -1,0 +1,137 @@
+#!/usr/bin/env node
+// Repo-level promise ledger smoke for the long Beagle planning thread.
+// This checks artifacts and safety boundaries; cluster/private acceptance still
+// needs the dedicated cluster smokes and physical Apple-device passes.
+
+const fs = require("node:fs");
+const path = require("node:path");
+
+const root = path.resolve(__dirname, "..");
+
+function exists(rel) {
+  return fs.existsSync(path.join(root, rel));
+}
+
+function read(rel) {
+  return fs.readFileSync(path.join(root, rel), "utf8");
+}
+
+function has(rel, pattern) {
+  if (!exists(rel)) return false;
+  return pattern.test(read(rel));
+}
+
+const checks = [
+  {
+    id: "work-memory-capture",
+    label: "Work memory capture scripts exist",
+    status: exists("scripts/beagle-work-memory-capture") && exists("scripts/beagle-work-memory-daemon"),
+    evidence: "scripts/beagle-work-memory-capture + scripts/beagle-work-memory-daemon",
+  },
+  {
+    id: "memory-bench-context-dreamcycle",
+    label: "Memory bench/context/dreamcycle APIs are present",
+    status:
+      has("apps/beagle-memory-engine/src/main.rs", /memoryarena/i) &&
+      has("apps/beagle-memory-engine/src/main.rs", /ContextPack/) &&
+      has("apps/beagle-memory-engine/src/main.rs", /dreamcycle/i),
+    evidence: "apps/beagle-memory-engine/src/main.rs",
+  },
+  {
+    id: "truthsets-hypermemory",
+    label: "Truthset and hypermemory multivector scaffolds are present",
+    status:
+      has("apps/beagle-memory-engine/src/main.rs", /truthsets\/draft/) &&
+      has("apps/beagle-memory-engine/src/main.rs", /hypermemory_multivector/),
+    evidence: "apps/beagle-memory-engine/src/main.rs",
+  },
+  {
+    id: "sounio-moments-paperrun-claims",
+    label: "Sounio moments, PaperRun, and claim graph scaffolds are present",
+    status:
+      has("apps/beagle-monorepo/src/http_exocortex.rs", /SounioMoment/) &&
+      has("apps/beagle-monorepo/src/http_exocortex.rs", /PaperRun/) &&
+      has("apps/beagle-monorepo/src/http_exocortex.rs", /SounioClaim/),
+    evidence: "apps/beagle-monorepo/src/http_exocortex.rs",
+  },
+  {
+    id: "workspace-agent",
+    label: "Workspace-agent and role registry are present",
+    status:
+      exists("apps/beagle-workspace-agent/src/server.mjs") &&
+      has("apps/beagle-workspace-agent/src/workbench-core.mjs", /beagle-agent-ecology-v3\.5/) &&
+      has("apps/beagle-workspace-agent/src/workbench-core.mjs", /primary_builder/),
+    evidence: "apps/beagle-workspace-agent",
+  },
+  {
+    id: "mvp-smoke",
+    label: "Sounio Workday MVP smoke exists",
+    status: exists("scripts/sounio-workday-mvp-smoke"),
+    evidence: "scripts/sounio-workday-mvp-smoke",
+  },
+  {
+    id: "spatial-mind-palace",
+    label: "Spatial/Mind Palace APIs are present",
+    status:
+      exists("apps/world-console/src/server.mjs") &&
+      has("apps/beagle-monorepo/src/http_exocortex.rs", /spatial\/worlds\/marble/) &&
+      has("apps/beagle-monorepo/src/http_exocortex.rs", /mind-palace/),
+    evidence: "apps/world-console + apps/beagle-monorepo/src/http_exocortex.rs",
+  },
+  {
+    id: "warp-agpl-boundary",
+    label: "Warp AGPL boundary is isolated",
+    status:
+      exists("apps/warp-workbench/vendor/warp") &&
+      has("apps/warp-workbench/package.json", /AGPL-3\.0-only/) &&
+      has("apps/warp-workbench/test/license-boundary.test.mjs", /must not import the AGPL renderer probe/),
+    evidence: "apps/warp-workbench",
+  },
+  {
+    id: "warp-renderer-probe",
+    label: "Warp renderer probe and Workbench block helper are present",
+    status:
+      has("apps/warp-workbench/package.json", /renderer:probe:block/) &&
+      exists("apps/warp-workbench/renderer/warp-metal-probe.mjs") &&
+      exists("apps/warp-workbench/renderer/probe-workbench-block.mjs"),
+    evidence: "apps/warp-workbench/renderer",
+  },
+  {
+    id: "apple-renderer-bakeoff",
+    label: "Apple Workbench renderer bake-off models/UI are present",
+    status:
+      exists("beagle-ios/BeagleSuite/Sources/BeagleWorkbenchKit/RendererBakeOff.swift") &&
+      has("beagle-ios/BeagleSuite/Sources/BeagleCockpit/WorkView.swift", /RendererBakeOffSheet/),
+    evidence: "beagle-ios/BeagleSuite/Sources",
+  },
+  {
+    id: "restricted-redaction",
+    label: "Restricted redaction is covered in Warp probe tests",
+    status: has("apps/warp-workbench/test/warp-metal-probe.test.mjs", /restricted_local_only/) &&
+      has("apps/warp-workbench/test/warp-metal-probe.test.mjs", /doesNotMatch/),
+    evidence: "apps/warp-workbench/test/warp-metal-probe.test.mjs",
+  },
+  {
+    id: "promise-ledger-doc",
+    label: "Thread promise ledger is documented",
+    status: exists("docs/BEAGLE_THREAD_PROMISE_LEDGER.md"),
+    evidence: "docs/BEAGLE_THREAD_PROMISE_LEDGER.md",
+  },
+];
+
+let failed = 0;
+for (const check of checks) {
+  const mark = check.status ? "OK" : "MISSING";
+  if (!check.status) failed += 1;
+  console.log(`${mark}\t${check.id}\t${check.label}\t${check.evidence}`);
+}
+
+console.log(JSON.stringify({
+  schema: "beagle-thread-promise-ledger-v1",
+  total: checks.length,
+  ok: checks.length - failed,
+  missing: failed,
+  note: "Repo-level artifact check only; cluster/private/device acceptance remains separate.",
+}, null, 2));
+
+process.exit(failed ? 1 : 0);

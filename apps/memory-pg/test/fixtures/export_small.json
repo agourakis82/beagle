@@ -1,0 +1,16 @@
+{
+  "episodes": [
+    {"id": "ep1", "summary": "first episode summary", "privacy_class": "sensitive", "occurred_at": "2026-01-01"}
+  ],
+  "atoms": [
+    {"id": "at1", "text": "an atom of meaning", "content_hash": "h-at1", "privacy_class": "sensitive"},
+    {"id": "at2", "normalized_text": "restricted atom", "privacy_class": "restricted"}
+  ],
+  "worlds": [
+    {"id": "w1", "label": "World One", "summary": "a world", "project_slug": "p", "merkle_root": "m", "privacy_class": "sensitive"}
+  ],
+  "passages": [
+    {"id": "pa1", "privacy_class": "sensitive", "occurred_at": "2026-02-02", "session_id": "s1", "source_platform": "claude",
+     "turns": [{"content": "hello world this is a turn long enough to chunk"}, {"content": ""}]}
+  ]
+}

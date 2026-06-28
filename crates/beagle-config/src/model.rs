@@ -12,7 +12,14 @@ pub struct LlmConfig {
     pub xai_api_key: Option<String>,
     pub anthropic_api_key: Option<String>,
     pub openai_api_key: Option<String>,
+    pub deepseek_api_key: Option<String>,
+    pub zai_api_key: Option<String>,
+    pub minimax_api_key: Option<String>,
     pub vllm_url: Option<String>,
+    pub deepseek_base_url: Option<String>,
+    pub zai_base_url: Option<String>,
+    pub xai_base_url: Option<String>,
+    pub minimax_base_url: Option<String>,
     /// Modelo Grok padrão (default: "grok-3")
     #[serde(default = "default_grok_model")]
     pub grok_model: String,
@@ -132,7 +139,14 @@ impl Default for LlmConfig {
             xai_api_key: None,
             anthropic_api_key: None,
             openai_api_key: None,
+            deepseek_api_key: None,
+            zai_api_key: None,
+            minimax_api_key: None,
             vllm_url: None,
+            deepseek_base_url: None,
+            zai_base_url: None,
+            xai_base_url: None,
+            minimax_base_url: None,
             grok_model: default_grok_model(),
             routing: LlmRoutingConfig::default(),
         }
@@ -208,6 +222,10 @@ fn default_false() -> bool {
     false
 }
 
+fn default_true() -> bool {
+    true
+}
+
 impl Default for AdvancedModulesConfig {
     fn default() -> Self {
         Self {
@@ -215,6 +233,81 @@ impl Default for AdvancedModulesConfig {
             serendipity_in_triad: false,
             void_enabled: false,
             memory_retrieval_enabled: false,
+        }
+    }
+}
+
+/// Configuração mínima da bridge de tools/providers do Beagle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolBridgeConfig {
+    #[serde(default = "default_bridge_timeout_seconds")]
+    pub default_timeout_seconds: u64,
+    #[serde(default = "default_true")]
+    pub ledger_enabled: bool,
+    #[serde(default = "default_false")]
+    pub dry_run: bool,
+}
+
+const fn default_bridge_timeout_seconds() -> u64 {
+    60
+}
+
+impl Default for ToolBridgeConfig {
+    fn default() -> Self {
+        Self {
+            default_timeout_seconds: default_bridge_timeout_seconds(),
+            ledger_enabled: true,
+            dry_run: false,
+        }
+    }
+}
+
+/// Configuração mínima da workspace plane do Beagle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspacePlaneConfig {
+    pub canonical_workspace_id: String,
+    pub canonical_repo: String,
+    pub canonical_branch: String,
+    pub canonical_track: String,
+    pub operator_name: Option<String>,
+    pub default_dev_plane: String,
+    pub vm_fallback_role: String,
+    pub promotion_scope: String,
+    #[serde(default = "default_true")]
+    pub bootstrap_enabled: bool,
+}
+
+impl Default for WorkspacePlaneConfig {
+    fn default() -> Self {
+        Self {
+            canonical_workspace_id: "beagle-cluster-pilot".to_string(),
+            canonical_repo: "agourakis82/beagle".to_string(),
+            canonical_branch: "main".to_string(),
+            canonical_track: "darwin-hpc".to_string(),
+            operator_name: None,
+            default_dev_plane: "beagle-cluster".to_string(),
+            vm_fallback_role: "fallback-only".to_string(),
+            promotion_scope: "beagle-darwin-hpc-small-medium".to_string(),
+            bootstrap_enabled: true,
+        }
+    }
+}
+
+/// Configuração mínima da política de consumers do plano Darwin/HPC.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsumerAccessConfig {
+    #[serde(default = "default_false")]
+    pub policy_enabled: bool,
+    pub operator_token: Option<String>,
+    pub research_token: Option<String>,
+}
+
+impl Default for ConsumerAccessConfig {
+    fn default() -> Self {
+        Self {
+            policy_enabled: false,
+            operator_token: None,
+            research_token: None,
         }
     }
 }
@@ -443,6 +536,12 @@ pub struct BeagleConfig {
     pub graph: GraphConfig,
     pub hermes: HermesConfig,
     #[serde(default)]
+    pub tool_bridge: ToolBridgeConfig,
+    #[serde(default)]
+    pub workspace: WorkspacePlaneConfig,
+    #[serde(default)]
+    pub consumers: ConsumerAccessConfig,
+    #[serde(default)]
     pub advanced: AdvancedModulesConfig,
     #[serde(default)]
     pub observer: ObserverThresholds,
@@ -458,6 +557,9 @@ impl BeagleConfig {
         self.llm.xai_api_key.is_some()
             || self.llm.anthropic_api_key.is_some()
             || self.llm.openai_api_key.is_some()
+            || self.llm.deepseek_api_key.is_some()
+            || self.llm.zai_api_key.is_some()
+            || self.llm.minimax_api_key.is_some()
             || self.llm.vllm_url.is_some()
     }
 

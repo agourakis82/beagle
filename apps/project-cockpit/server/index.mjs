@@ -3,7 +3,7 @@ import http from "node:http";
 import https from "node:https";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
@@ -14,10 +14,14 @@ import {
   registerAgentRoutes,
   registerAgentWebSocket as attachAgentWebSocket,
 } from "./agent-routes.mjs";
+import {
+  registerWorkspaceRoutes,
+  registerWorkspaceWebSocket as attachWorkspaceWebSocket,
+} from "./workspace-routes.mjs";
 import { registerScratchpadRoutes } from "./scratchpad-routes.mjs";
 import { registerJobRoutes } from "./job-routes.mjs";
 import { registerQueueRoutes } from "./queue-routes.mjs";
-import { registerAuthBridgeRoutes } from "./auth-bridge.mjs";
+import { registerAuthBridgeRoutes, fetchOperatorToken } from "./auth-bridge.mjs";
 import { startJobReconciler } from "./job-reconciler.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1933,6 +1937,25 @@ async function writeScientificWorkflowRun(projectSlug, value) {
 
 function cleanValue(value) {
   return String(value || "").trim();
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return char;
+    }
+  });
 }
 
 function previewOutput(value, maxLines = 12) {
@@ -10213,6 +10236,10 @@ app.use((req, res, next) => {
   }
   next();
 });
+// Physiome HealthKit/WeatherKit uploads arrive in multi-MB 5000-sample chunks;
+// give that path a large body limit BEFORE the default 100kb json parser (which
+// would 413 the upload). express.json() skips bodies already parsed (req._body).
+app.use("/api/physiome", express.json({ limit: "25mb" }));
 app.use(express.json());
 
 // ─── Security middleware ────────────────────────────────────────────
@@ -11399,6 +11426,3484 @@ app.post(
   })
 );
 
+function renderProjectLaunchPage(project) {
+  const slug = cleanValue(project.projectSlug || "sounio");
+  const title = `${slug} Workday`;
+  const workspaceRoot = cleanValue(project.workspaceRoot || "");
+  const authority = cleanValue(project.workbenchAuthority || process.env.PROJECT_COCKPIT_WORKBENCH_AUTHORITY || "workspace-agent");
+  const namespace = cleanValue(project.namespace || "beagle");
+  const wsBase = `/ws/workspaces/${encodeURIComponent(slug)}`;
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Beagle ${escapeHtml(title)}</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080a0f;
+      --panel: rgba(255, 255, 255, 0.075);
+      --panel-strong: rgba(255, 255, 255, 0.12);
+      --text: #f6f7fb;
+      --muted: #a9b0c2;
+      --line: rgba(255, 255, 255, 0.16);
+      --accent: #79f2c0;
+      --warn: #f6c76f;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top left, rgba(70, 135, 255, 0.14), transparent 32rem), var(--bg);
+      color: var(--text);
+    }
+    main {
+      width: min(1120px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+    header {
+      display: grid;
+      gap: 12px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      margin: 0;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(32px, 7vw, 62px);
+      line-height: 0.95;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      max-width: 720px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.5;
+      margin: 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+      gap: 18px;
+      margin-top: 22px;
+    }
+    section, .panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 18px;
+      backdrop-filter: blur(18px);
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 9px;
+      color: var(--muted);
+      background: rgba(0, 0, 0, 0.18);
+      font-size: 12px;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    button, a.button {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font: inherit;
+      font-weight: 650;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    button.primary {
+      color: #05120d;
+      background: var(--accent);
+      border-color: transparent;
+    }
+    button:disabled {
+      opacity: 0.55;
+      cursor: wait;
+    }
+    .status {
+      display: grid;
+      gap: 10px;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .row strong {
+      color: var(--text);
+      overflow-wrap: anywhere;
+      text-align: right;
+    }
+    pre {
+      min-height: 170px;
+      max-height: 360px;
+      overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin: 0;
+      color: #d7deeb;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    input.command-input {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px 12px;
+      background: rgba(0, 0, 0, 0.28);
+      color: var(--text);
+      font: inherit;
+    }
+    .terminal-output {
+      min-height: 320px;
+      max-height: 46vh;
+      background: rgba(0, 0, 0, 0.34);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .command-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .lane-list {
+      display: grid;
+      gap: 8px;
+    }
+    .lane {
+      display: grid;
+      gap: 4px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.16);
+    }
+    .lane strong, .lane span { overflow-wrap: anywhere; }
+    .lane span { color: var(--muted); font-size: 13px; }
+    .warn { color: var(--warn); }
+    @media (max-width: 760px) {
+      main { width: min(100vw - 22px, 1120px); padding-top: 22px; }
+      .grid { grid-template-columns: 1fr; }
+      h1 { font-size: clamp(30px, 12vw, 46px); }
+      button, a.button { width: 100%; text-align: center; }
+      .command-row { grid-template-columns: 1fr; }
+      .row { display: grid; }
+      .row strong { text-align: left; }
+    }
+    /* ── Fleet Terminal (xterm.js) ───────────────────────────────────────── */
+    .fleet-terminal-wrap {
+      height: 420px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0d1117;
+      border: 1px solid var(--line);
+    }
+    #fleet-terminal {
+      height: 100%;
+      width: 100%;
+    }
+    .fleet-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .fleet-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: var(--muted);
+      background: rgba(0, 0, 0, 0.18);
+    }
+    .fleet-pill .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    .fleet-pill.connected .dot  { background: var(--accent); }
+    .fleet-pill.connected       { color: var(--accent); }
+    .fleet-pill.disconnected .dot { background: #ff5f5f; }
+    .fleet-pill.disconnected    { color: #ff8a8a; }
+    #fleet-reconnect { margin-left: auto; }
+    @media (max-width: 760px) {
+      .fleet-header { flex-wrap: wrap; }
+      #fleet-reconnect { margin-left: 0; width: 100%; }
+      .fleet-terminal-wrap { height: 300px; }
+    }
+  </style>
+  <!-- xterm.js Fleet Terminal — loaded from CDN (unpkg).                     -->
+  <!-- SRI hashes pinned to @xterm/xterm@5.x and @xterm/addon-fit@0.10.x.    -->
+  <!-- TODO air-gap hardening: vendor these files under                        -->
+  <!--      apps/project-cockpit/public/ and serve them as static assets.      -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/@xterm/xterm@5/css/xterm.css"
+        integrity="sha384-8Xk9wy/gzEDUKrXtrmCFa2bBuK3BpjpDuL/p0SeKQX19Khl/M+lHOgD/CyYf7efP"
+        crossorigin="anonymous" />
+  <script src="https://unpkg.com/@xterm/xterm@5/lib/xterm.js"
+          integrity="sha384-M169f14mRZOXm3hD/v2Ti0ThIT/RnAQagXA9nlE15yHAtrW19gdePJh/HaTzUOe/"
+          crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@xterm/addon-fit@0.10/lib/addon-fit.js"
+          integrity="sha384-iF+jqbuti4XlB64clWgFWYEscb+UnSRv3VgVikGYZu+otNFnSHr7y7NcKfBnGizn"
+          crossorigin="anonymous"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Beagle Sounio Workday MVP</p>
+      <h1>${escapeHtml(title)}</h1>
+      <p class="subtitle">Fallback launch pad for the live Workbench. It talks to the cluster Project Cockpit and workspace-agent; canonical memory remains in Beagle Core on the cluster.</p>
+      <div class="meta">
+        <span class="pill">authority: ${escapeHtml(authority)}</span>
+        <span class="pill">namespace: ${escapeHtml(namespace)}</span>
+        <span class="pill">workspace: ${escapeHtml(workspaceRoot || "declared")}</span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section>
+        <h2>Agent Fabric</h2>
+        <div id="lanes" class="lane-list"><span class="pill">Loading lanes...</span></div>
+        <div class="actions">
+          <button class="primary" id="start-session">Start Shell Session</button>
+          <button id="refresh">Refresh</button>
+          <a class="button" href="/projects/${encodeURIComponent(slug)}/workbench-v2">Visual Workbench v2</a>
+          <a class="button" href="/projects/${encodeURIComponent(slug)}/warp">Warp Bridge Lab</a>
+          <a class="button" href="/api/workspaces/${encodeURIComponent(slug)}/agents/registry">Registry JSON</a>
+          <a class="button" href="/api/workspaces/${encodeURIComponent(slug)}/sessions">Sessions JSON</a>
+        </div>
+      </section>
+
+      <section class="status">
+        <h2>Live State</h2>
+        <div class="row"><span>Project</span><strong>${escapeHtml(slug)}</strong></div>
+        <div class="row"><span>WebSocket base</span><strong>${escapeHtml(wsBase)}/...</strong></div>
+        <div class="row"><span>Latest session</span><strong id="latest-session">Loading...</strong></div>
+        <div class="row"><span>Warp bridge</span><strong id="warp-bridge">Loading...</strong></div>
+        <div class="row"><span>Truth mode</span><strong id="truth-mode">Loading...</strong></div>
+      </section>
+    </div>
+
+    <section style="margin-top: 18px;">
+      <h2>Shell Lane</h2>
+      <pre id="terminal-output" class="terminal-output">No shell attached yet. Start or refresh a session, then connect.</pre>
+      <form id="terminal-form" class="command-row">
+        <input id="terminal-input" class="command-input" autocomplete="off" spellcheck="false" placeholder="Type a command for /workspace/sounio" />
+        <button class="primary" type="submit">Send</button>
+      </form>
+      <div class="actions">
+        <button id="connect-terminal" type="button">Connect Latest Shell</button>
+        <button id="interrupt-terminal" type="button">Interrupt</button>
+        <button id="remember-block" type="button">Remember Last Block</button>
+      </div>
+    </section>
+
+    <section style="margin-top: 18px;">
+      <div class="fleet-header">
+        <h2 style="margin:0;">Fleet Terminal</h2>
+        <span id="fleet-pill" class="fleet-pill"><span class="dot"></span><span id="fleet-pill-text">connecting…</span></span>
+        <button id="fleet-reconnect" type="button">Reconnect</button>
+      </div>
+      <div class="fleet-terminal-wrap">
+        <div id="fleet-terminal"></div>
+      </div>
+    </section>
+
+    <section style="margin-top: 18px;">
+      <h2>Response</h2>
+      <pre id="output">Opening Beagle Workbench...</pre>
+    </section>
+  </main>
+
+  <script>
+    const slug = ${JSON.stringify(slug)};
+    const output = document.getElementById("output");
+    const lanes = document.getElementById("lanes");
+    const latestSession = document.getElementById("latest-session");
+    const warpBridge = document.getElementById("warp-bridge");
+    const truthMode = document.getElementById("truth-mode");
+    const startButton = document.getElementById("start-session");
+    const refreshButton = document.getElementById("refresh");
+    const terminalOutput = document.getElementById("terminal-output");
+    const terminalForm = document.getElementById("terminal-form");
+    const terminalInput = document.getElementById("terminal-input");
+    const connectTerminalButton = document.getElementById("connect-terminal");
+    const interruptTerminalButton = document.getElementById("interrupt-terminal");
+    const rememberBlockButton = document.getElementById("remember-block");
+    let currentSessions = [];
+    let currentSessionId = "";
+    let currentPaneId = "";
+    let terminalWs = null;
+    let terminalConnectedKey = "";
+    let lastBlockId = "";
+    let currentRegistry = null;
+
+    function show(payload) {
+      output.textContent = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+    }
+
+    function stripOscSequences(value) {
+      const ESC = String.fromCharCode(27);
+      const BEL = String.fromCharCode(7);
+      let result = String(value || "");
+      let start = result.indexOf(ESC + "]");
+      while (start !== -1) {
+        const belEnd = result.indexOf(BEL, start + 2);
+        const stEnd = result.indexOf(ESC + "\\\\", start + 2);
+        let end = -1;
+        let endLength = 1;
+        if (belEnd !== -1 && (stEnd === -1 || belEnd < stEnd)) {
+          end = belEnd;
+          endLength = 1;
+        } else if (stEnd !== -1) {
+          end = stEnd;
+          endLength = 2;
+        }
+        if (end === -1) {
+          result = result.slice(0, start);
+          break;
+        }
+        result = result.slice(0, start) + result.slice(end + endLength);
+        start = result.indexOf(ESC + "]");
+      }
+      return result;
+    }
+
+    function stripBareOscFragments(value) {
+      return String(value || "")
+        .split("\\n")
+        .map((line) => {
+          for (const marker of ["]0;", "]2;"]) {
+            let start = line.indexOf(marker);
+            while (start !== -1) {
+              const promptStart = line.indexOf("node@", start + marker.length);
+              if (promptStart === -1) {
+                line = line.slice(0, start);
+                break;
+              }
+              line = line.slice(0, start) + line.slice(promptStart);
+              start = line.indexOf(marker);
+            }
+          }
+          return line;
+        })
+        .join("\\n");
+    }
+
+    function appendTerminal(text) {
+      const ESC = String.fromCharCode(27);
+      const cleaned = stripBareOscFragments(stripOscSequences(text))
+        .replace(new RegExp(ESC + "\\\\[[0-?]*[ -/]*[@-~]", "g"), "")
+        .replace(new RegExp(ESC + "[>=]", "g"), "")
+        .split("\\r\\n").join("\\n")
+        .split("\\r").join("\\n");
+      terminalOutput.textContent = (terminalOutput.textContent + cleaned).slice(-50000);
+      terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    }
+
+    async function apiJson(path, options = {}) {
+      const response = await fetch(path, {
+        ...options,
+        headers: {
+          "content-type": "application/json",
+          ...(options.headers || {})
+        }
+      });
+      const text = await response.text();
+      let payload;
+      try {
+        payload = text ? JSON.parse(text) : {};
+      } catch (_error) {
+        payload = { raw: text };
+      }
+      if (!response.ok) {
+        throw new Error(payload.error || payload.raw || response.statusText);
+      }
+      return payload;
+    }
+
+    function roleName(role) {
+      if (typeof role === "string") return role;
+      return role.title || role.label || role.displayName || role.display_name || role.role || role.id || role.kind || "agent";
+    }
+
+    function roleDetail(role) {
+      if (typeof role === "string") return "provider slot pending";
+      const slots = role.providerSlots || role.provider_slots || role.slots || [];
+      const enabled = Array.isArray(slots) ? slots.find((slot) => slot.enabled !== false) || slots[0] : null;
+      const readiness = role.readiness && typeof role.readiness === "object" ? role.readiness : {};
+      const provider = enabled ? enabled.title || enabled.model_id || enabled.modelId || enabled.command || enabled.provider || "" : "";
+      const status = readiness.status || role.status || enabled?.status || "";
+      let reason = readiness.reason || role.subtitle || "";
+      const command = role.launchCommand || enabled?.command || "";
+      if (status === "ready" && !command && enabled?.runtime) {
+        reason = "provider slot ready; interactive adapter pending";
+      }
+      return [provider, status, reason].filter(Boolean).join(" - ") || "provider slot pending";
+    }
+
+    function renderLanes(registry) {
+      const allRoles = Array.isArray(registry.roles) ? registry.roles : [];
+      const byRole = new Map(allRoles.map((role) => [role.role || role.id || role.kind, role]));
+      const visibleRefs = registry.visibleRoles || registry.visible_roles || [];
+      const selected = (Array.isArray(visibleRefs) && visibleRefs.length > 0
+        ? visibleRefs.map((entry) => typeof entry === "string" ? byRole.get(entry) || entry : entry)
+        : allRoles.filter((role) => role.visible !== false)
+      ).filter(Boolean).slice(0, 8);
+      if (selected.length === 0) {
+        lanes.innerHTML = '<span class="pill warn">No role lanes reported by workspace-agent yet.</span>';
+        return;
+      }
+      lanes.innerHTML = selected.map((role) =>
+        '<div class="lane"><strong>' + roleName(role) + '</strong><span>' + roleDetail(role) + '</span></div>'
+      ).join("");
+    }
+
+    function agentSetupGuard(command) {
+      const value = String(command || "").trim();
+      if (!value) return null;
+      const token = value.split(" ").filter(Boolean)[0] || "";
+      const lookup = token === "cursor" ? "cursor-agent" : token;
+      const roles = Array.isArray(currentRegistry?.roles) ? currentRegistry.roles : [];
+      for (const role of roles) {
+        const slots = Array.isArray(role.providerSlots || role.provider_slots) ? role.providerSlots || role.provider_slots : [];
+        const commands = [role.launchCommand, role.readiness?.command, ...slots.map((slot) => slot.command)].filter(Boolean);
+        if (!commands.includes(token) && !commands.includes(lookup)) continue;
+        const readiness = role.readiness || {};
+        if (readiness.status === "needs_setup") {
+          const reason = readiness.command === token || readiness.command === lookup
+            ? readiness.reason
+            : lookup + " is not on PATH in the workspace";
+          return {
+            token,
+            role: roleName(role),
+            reason: reason || "agent lane needs setup",
+          };
+        }
+      }
+      return null;
+    }
+
+    function summarizeRefresh(registry, sessions) {
+      const list = sessions.sessions || [];
+      const selected = selectDefaultSession(list);
+      return {
+        registryVersion: registry.registryVersion || registry.registry_version || "unknown",
+        authority: registry.authority?.authority || sessions.authority?.authority || "unknown",
+        supervisor: registry.authority?.supervisor?.status || sessions.authority?.supervisor?.status || "unknown",
+        visibleRoles: registry.visibleRoles || registry.visible_roles || [],
+        selectedSession: selected ? {
+          id: selected.id || selected.session_id,
+          title: selected.title,
+          reason: isOperatorSession(selected) ? "operator" : "fallback"
+        } : null,
+        warpBridge: registry.authority?.bridgeVersion || sessions.authority?.bridgeVersion || selected?.bridgeVersion || "not_reported",
+        warpBoundary: "apps/warp-workbench -> vendor/warp@805b3e2",
+        latestSessions: list.slice(0, 5).map((session) => ({
+          id: session.id || session.session_id,
+          title: session.title,
+          panes: Array.isArray(session.panes) ? session.panes.length : 0,
+          memory: session.lastMemoryStatus?.status || "none"
+        }))
+      };
+    }
+
+    function isOperatorSession(session) {
+      const title = String(session?.title || "").toLowerCase();
+      return !(
+        title.includes("smoke") ||
+        title.includes("probe") ||
+        title.includes("isolation")
+      );
+    }
+
+    function selectDefaultSession(list) {
+      return list.find(isOperatorSession) || list[0] || null;
+    }
+
+    function selectShellPane(session) {
+      const panes = Array.isArray(session?.panes) ? session.panes : [];
+      return panes.find((pane) => pane.kind === "human" || pane.kind === "shell") || panes[0] || null;
+    }
+
+    function closeTerminal() {
+      if (terminalWs) {
+        terminalWs.close();
+        terminalWs = null;
+      }
+      terminalConnectedKey = "";
+    }
+
+    function connectTerminal(session = null) {
+      const targetSession = session || selectDefaultSession(currentSessions);
+      const pane = selectShellPane(targetSession);
+      if (!targetSession?.id || !pane?.id) {
+        appendTerminal("\\n[beagle] no shell pane available yet\\n");
+        return;
+      }
+      const key = targetSession.id + ":" + pane.id;
+      if (terminalWs && terminalConnectedKey === key && terminalWs.readyState === WebSocket.OPEN) {
+        return;
+      }
+      closeTerminal();
+      currentSessionId = targetSession.id;
+      currentPaneId = pane.id;
+      terminalConnectedKey = key;
+      terminalOutput.textContent = "[beagle] connecting " + key + "...\\n";
+      const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+      const url = scheme + "//" + location.host + "/ws/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(currentSessionId) + "/panes/" + encodeURIComponent(currentPaneId);
+      terminalWs = new WebSocket(url);
+      terminalWs.addEventListener("open", () => {
+        appendTerminal("[beagle] connected to Shell lane\\n");
+        terminalWs.send(JSON.stringify({ type: "resize", cols: 120, rows: 34 }));
+      });
+      terminalWs.addEventListener("message", (event) => {
+        let message = {};
+        try {
+          message = JSON.parse(String(event.data));
+        } catch (_error) {
+          appendTerminal(String(event.data));
+          return;
+        }
+        if (message.type === "data") {
+          appendTerminal(String(message.data || ""));
+          return;
+        }
+        if (message.type === "raw_output") return;
+        if (message.type === "ready") {
+          appendTerminal("\\n[beagle] ready: " + JSON.stringify(message.data || {}) + "\\n");
+          return;
+        }
+        if (message.type === "block_started") {
+          lastBlockId = message.blockId || message.block_id || "";
+          appendTerminal("\\n[block started] " + (message.title || lastBlockId || "command") + "\\n");
+          return;
+        }
+        if (message.type === "block_finished") {
+          lastBlockId = message.blockId || message.block_id || lastBlockId;
+          appendTerminal("\\n[block finished] " + (message.status || "finished") + " " + (lastBlockId || "") + "\\n");
+          refresh().catch(() => {});
+          return;
+        }
+        if (message.type === "memory_imported") {
+          appendTerminal("\\n[memory] " + (message.status || "updated") + " " + (message.blockId || "") + "\\n");
+          refresh().catch(() => {});
+          return;
+        }
+        if (message.type === "secret_redacted") {
+          appendTerminal("\\n[restricted] secret redacted; block will not be canonical memory\\n");
+          return;
+        }
+        if (message.type === "agent_state") {
+          appendTerminal("\\n[agent] " + (message.state || "updated") + "\\n");
+          return;
+        }
+        if (message.type === "exit" || message.type === "error") {
+          appendTerminal("\\n[" + message.type + "] " + (message.data || message.error || "") + "\\n");
+          return;
+        }
+      });
+      terminalWs.addEventListener("close", () => {
+        appendTerminal("\\n[beagle] shell disconnected\\n");
+      });
+      terminalWs.addEventListener("error", () => {
+        appendTerminal("\\n[beagle] shell websocket error\\n");
+      });
+    }
+
+    async function refresh() {
+      refreshButton.disabled = true;
+      try {
+        const registry = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/agents/registry");
+        const sessions = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions");
+        currentRegistry = registry;
+        renderLanes(registry);
+        const list = sessions.sessions || [];
+        currentSessions = list;
+        const selected = selectDefaultSession(list);
+        latestSession.textContent = selected ? selected.id || selected.session_id || "active" : "none";
+        warpBridge.textContent = registry.authority?.bridgeVersion || sessions.authority?.bridgeVersion || selected?.bridgeVersion || "not reported";
+        truthMode.textContent = registry.truthMode || registry.truth_mode || sessions.truthMode || sessions.truth_mode || "observed";
+        show(summarizeRefresh(registry, sessions));
+        if (!terminalWs && selected) connectTerminal(selected);
+      } catch (error) {
+        lanes.innerHTML = '<span class="pill warn">Workbench unavailable: ' + error.message + '</span>';
+        truthMode.textContent = "stale";
+        show(String(error.stack || error.message || error));
+      } finally {
+        refreshButton.disabled = false;
+      }
+    }
+
+    async function startSession() {
+      startButton.disabled = true;
+      try {
+        const created = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions", {
+          method: "POST",
+          body: JSON.stringify({
+            title: "Sounio Workday MVP",
+            layout: "notebook",
+            sourceModel: "beagle"
+          })
+        });
+        const session = created.session || created;
+        const sessionId = session.id || session.sessionId || session.session_id;
+        const panes = Array.isArray(session.panes) ? session.panes : [];
+        if (sessionId && panes.length === 0) {
+          await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(sessionId) + "/panes", {
+            method: "POST",
+            body: JSON.stringify({ kind: "human", title: "Shell" })
+          });
+        }
+        await refresh();
+        const refreshed = currentSessions.find((entry) => entry.id === sessionId || entry.session_id === sessionId);
+        if (refreshed) connectTerminal(refreshed);
+      } catch (error) {
+        show(String(error.stack || error.message || error));
+      } finally {
+        startButton.disabled = false;
+      }
+    }
+
+    refreshButton.addEventListener("click", refresh);
+    startButton.addEventListener("click", startSession);
+    connectTerminalButton.addEventListener("click", () => connectTerminal());
+    interruptTerminalButton.addEventListener("click", () => {
+      if (terminalWs && terminalWs.readyState === WebSocket.OPEN) {
+        terminalWs.send(JSON.stringify({ type: "signal", signal: "SIGINT" }));
+      }
+    });
+    rememberBlockButton.addEventListener("click", async () => {
+      if (!currentSessionId || !lastBlockId) {
+        appendTerminal("\\n[beagle] no finished block to remember yet\\n");
+        return;
+      }
+      try {
+        const remembered = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(currentSessionId) + "/blocks/" + encodeURIComponent(lastBlockId) + "/remember", {
+          method: "POST",
+          body: JSON.stringify({ confirmed: true, summary: "Manual Workbench remember from Project Cockpit launch pad." })
+        });
+        appendTerminal("\\n[memory] " + JSON.stringify(remembered.memory || remembered) + "\\n");
+        await refresh();
+      } catch (error) {
+        appendTerminal("\\n[memory error] " + (error.message || error) + "\\n");
+      }
+    });
+    terminalForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const command = terminalInput.value;
+      if (!command.trim()) return;
+      const setupGap = agentSetupGuard(command);
+      if (setupGap) {
+        appendTerminal("\\n[setup] " + setupGap.role + " is not ready: " + setupGap.reason + ". Command not sent to the PTY. Configure the CLI/provider in the workspace image or use an available lane.\\n");
+        terminalInput.value = "";
+        terminalInput.focus();
+        return;
+      }
+      if (!terminalWs || terminalWs.readyState !== WebSocket.OPEN) {
+        connectTerminal();
+        setTimeout(() => {
+          if (terminalWs && terminalWs.readyState === WebSocket.OPEN) {
+            terminalWs.send(JSON.stringify({ type: "input", data: command + "\\n" }));
+          }
+        }, 450);
+      } else {
+        terminalWs.send(JSON.stringify({ type: "input", data: command + "\\n" }));
+      }
+      terminalInput.value = "";
+      terminalInput.focus();
+    });
+    refresh();
+
+    // ── Fleet Terminal (xterm.js → /ws/terminal PTY) ─────────────────────────
+    // Connects to the shared interactive PTY for pod sounio-workspace-control-0.
+    // Auth uses the tailscale-user-login header the browser already sends on the
+    // upgrade request (same gate as the page) — NOT a token in the URL, which
+    // would leak into cloudflared/proxy access logs. The old Shell Lane <pre>
+    // above is intentionally kept; both coexist.
+    (function () {
+      const fleetPillEl      = document.getElementById("fleet-pill");
+      const fleetPillText    = document.getElementById("fleet-pill-text");
+      const fleetReconnectBtn = document.getElementById("fleet-reconnect");
+
+      let fleetWs        = null;
+      let fleetTerm      = null;
+      let fleetFit       = null;
+      let fleetResizeObs = null;
+
+      function fleetSetPill(state, label) {
+        fleetPillEl.className = "fleet-pill" + (state ? " " + state : "");
+        fleetPillText.textContent = label;
+      }
+
+      function fleetConnect() {
+        if (fleetWs) {
+          try { fleetWs.close(); } catch (_) {}
+          fleetWs = null;
+        }
+        fleetSetPill("", "connecting\\u2026");
+        const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+        const params = new URLSearchParams({ project: slug });
+        const url = scheme + "//" + location.host + "/ws/terminal?" + params.toString();
+        fleetWs = new WebSocket(url);
+
+        fleetWs.addEventListener("open", () => {
+          if (fleetTerm && fleetFit) {
+            try { fleetFit.fit(); } catch (_) {}
+            fleetWs.send(JSON.stringify({ type: "resize", cols: fleetTerm.cols, rows: fleetTerm.rows }));
+          }
+        });
+
+        fleetWs.addEventListener("message", (event) => {
+          let msg = {};
+          try { msg = JSON.parse(String(event.data)); } catch (_) {
+            fleetTerm && fleetTerm.write(String(event.data));
+            return;
+          }
+          if (msg.type === "data")  { fleetTerm && fleetTerm.write(msg.data); return; }
+          if (msg.type === "ready") {
+            fleetSetPill("connected", "connected \\u00b7 " + (msg.data && msg.data.projectSlug ? msg.data.projectSlug : slug));
+            return;
+          }
+          if (msg.type === "exit")  {
+            fleetSetPill("disconnected", "exited \\u00b7 " + (msg.data || ""));
+            return;
+          }
+          if (msg.type === "error") {
+            fleetSetPill("disconnected", "error \\u00b7 " + (msg.data || msg.error || ""));
+            return;
+          }
+        });
+
+        fleetWs.addEventListener("close", () => fleetSetPill("disconnected", "disconnected"));
+        fleetWs.addEventListener("error", () => fleetSetPill("disconnected", "ws error"));
+      }
+
+      function fleetInit() {
+        const container = document.getElementById("fleet-terminal");
+        if (!container) return;
+
+        // Dispose previous instance if reconnecting
+        if (fleetResizeObs) { try { fleetResizeObs.disconnect(); } catch (_) {} fleetResizeObs = null; }
+        if (fleetTerm)      { try { fleetTerm.dispose(); }          catch (_) {} fleetTerm = null; }
+
+        fleetTerm = new Terminal({
+          cursorBlink: true,
+          theme: {
+            background:          "#0d1117",
+            foreground:          "#f6f7fb",
+            cursor:              "#79f2c0",
+            selectionBackground: "rgba(121, 242, 192, 0.25)"
+          },
+          fontFamily: '"SF Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace',
+          fontSize: 13,
+          lineHeight: 1.35,
+          scrollback: 5000,
+          allowTransparency: false
+        });
+
+        fleetFit = new FitAddon.FitAddon();
+        fleetTerm.loadAddon(fleetFit);
+        fleetTerm.open(container);
+        try { fleetFit.fit(); } catch (_) {}
+
+        // Relay user keystrokes / paste to the PTY
+        fleetTerm.onData((d) => {
+          if (fleetWs && fleetWs.readyState === WebSocket.OPEN) {
+            fleetWs.send(JSON.stringify({ type: "input", data: d }));
+          }
+        });
+
+        // Track container resizes and notify the server PTY
+        fleetResizeObs = new ResizeObserver(() => {
+          try { fleetFit && fleetFit.fit(); } catch (_) {}
+          if (fleetWs && fleetWs.readyState === WebSocket.OPEN && fleetTerm) {
+            fleetWs.send(JSON.stringify({ type: "resize", cols: fleetTerm.cols, rows: fleetTerm.rows }));
+          }
+        });
+        fleetResizeObs.observe(container);
+
+        fleetConnect();
+      }
+
+      fleetReconnectBtn.addEventListener("click", () => {
+        // Full re-init so the terminal canvas is fresh after a reconnect
+        fleetInit();
+      });
+
+      // xterm.js scripts are synchronous in <head>; Terminal is defined by now.
+      // Fallback to window load if a browser extension somehow defers them.
+      if (typeof Terminal !== "undefined" && typeof FitAddon !== "undefined") {
+        fleetInit();
+      } else {
+        window.addEventListener("load", fleetInit);
+      }
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+function renderVisualWorkbenchPrototypePage(project) {
+  const slug = cleanValue(project.projectSlug || "sounio");
+  const title = `${slug} Agent Deck`;
+  const workspaceRoot = cleanValue(project.workspaceRoot || "");
+  const authority = cleanValue(project.workbenchAuthority || process.env.PROJECT_COCKPIT_WORKBENCH_AUTHORITY || "workspace-agent");
+  const namespace = cleanValue(project.namespace || "beagle");
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Beagle ${escapeHtml(title)}</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080b0f;
+      --surface: rgba(15, 19, 24, 0.92);
+      --surface-2: rgba(255, 255, 255, 0.072);
+      --surface-3: rgba(255, 255, 255, 0.12);
+      --line: rgba(255, 255, 255, 0.15);
+      --line-strong: rgba(255, 255, 255, 0.25);
+      --text: #f5f7fb;
+      --muted: #a8b1be;
+      --dim: #737f90;
+      --green: #7df0bd;
+      --blue: #7fb6ff;
+      --amber: #f2c36b;
+      --red: #ff8a8a;
+      --violet: #c5a8ff;
+      --shadow: 0 18px 56px rgba(0, 0, 0, 0.38);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(145deg, rgba(9, 12, 17, 0.92), rgba(9, 13, 15, 0.98)),
+        radial-gradient(circle at 12% 12%, rgba(125, 240, 189, 0.12), transparent 34rem),
+        radial-gradient(circle at 88% 20%, rgba(127, 182, 255, 0.10), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+    }
+    main {
+      width: min(1440px, calc(100vw - 28px));
+      margin: 0 auto;
+      padding: 24px 0 32px;
+    }
+    header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 20px;
+      padding: 18px 0 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      margin: 0 0 7px;
+      color: var(--green);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+      font-weight: 750;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(34px, 6vw, 76px);
+      line-height: 0.92;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      max-width: 840px;
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.45;
+    }
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .pill, .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 9px;
+      color: var(--muted);
+      background: rgba(0, 0, 0, 0.22);
+      font-size: 12px;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+    .badge.ready { color: var(--green); border-color: rgba(125, 240, 189, 0.38); }
+    .badge.warn { color: var(--amber); border-color: rgba(242, 195, 107, 0.36); }
+    .badge.blocked { color: var(--red); border-color: rgba(255, 138, 138, 0.36); }
+    .header-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    button, a.button {
+      appearance: none;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px 12px;
+      min-height: 40px;
+      font: inherit;
+      font-weight: 680;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    button.primary, a.button.primary {
+      color: #06120d;
+      background: var(--green);
+      border-color: transparent;
+    }
+    button.ghost { color: var(--muted); }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    .mission-strip {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.055);
+    }
+    .mission-cell {
+      min-height: 62px;
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.14);
+      padding: 9px;
+      display: grid;
+      gap: 4px;
+      align-content: start;
+    }
+    .mission-cell span {
+      color: var(--dim);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 760;
+    }
+    .mission-cell strong {
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .quick-intents {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-content: start;
+    }
+    .quick-intents button {
+      min-height: 28px;
+      padding: 5px 8px;
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .stage {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.78fr) minmax(420px, 1.32fr) minmax(300px, 0.86fr);
+      gap: 14px;
+      margin-top: 18px;
+      min-height: calc(100vh - 178px);
+    }
+    .panel {
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(22px);
+      min-width: 0;
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 15px;
+      border-bottom: 1px solid var(--line);
+    }
+    .panel-title {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+    h2, h3, p { letter-spacing: 0; }
+    h2 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+    .caption {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+    .lane-board {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      max-height: calc(100vh - 260px);
+      overflow: auto;
+    }
+    .lane-card {
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.18);
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .lane-card.selected {
+      border-color: rgba(125, 240, 189, 0.55);
+      background: rgba(125, 240, 189, 0.085);
+    }
+    .lane-top {
+      display: grid;
+      grid-template-columns: 36px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+    }
+    .lane-icon {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--green);
+      font-weight: 800;
+    }
+    .lane-name, .artifact-title, .memory-title {
+      font-weight: 760;
+      overflow-wrap: anywhere;
+    }
+    .lane-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .lane-task {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+    .canvas {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-height: 0;
+    }
+    .active-work {
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .work-hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    .work-hero h2 {
+      font-size: clamp(26px, 3.6vw, 42px);
+      line-height: 1.02;
+      max-width: 760px;
+    }
+    .next-move {
+      border: 1px solid rgba(125, 240, 189, 0.32);
+      background: rgba(125, 240, 189, 0.09);
+      border-radius: 8px;
+      padding: 12px;
+      width: min(100%, 560px);
+    }
+    .next-move strong { display: block; margin-bottom: 5px; }
+    .mission-composer {
+      border: 1px solid rgba(127, 182, 255, 0.28);
+      background: rgba(127, 182, 255, 0.07);
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .mission-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: stretch;
+    }
+    .intent-input {
+      width: 100%;
+      min-height: 76px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px 12px;
+      background: rgba(0, 0, 0, 0.24);
+      color: var(--text);
+      font: inherit;
+      line-height: 1.35;
+    }
+    .composer-actions {
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+    .route-decision {
+      display: none;
+      border: 1px solid rgba(125, 240, 189, 0.26);
+      background: rgba(125, 240, 189, 0.07);
+      border-radius: 8px;
+      padding: 12px;
+      gap: 10px;
+    }
+    .route-decision.visible { display: grid; }
+    .workflow-steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .workflow-step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.16);
+      padding: 9px;
+      min-height: 64px;
+    }
+    .workflow-step strong {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .workflow-step span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.28;
+    }
+    .artifact-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .artifact {
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.18);
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      min-height: 108px;
+    }
+    .artifact-body, .memory-body {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.38;
+      overflow-wrap: anywhere;
+    }
+    .evidence-frontier {
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+      overflow: auto;
+      min-height: 0;
+    }
+    .evidence-item, .memory-item {
+      border: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.18);
+      border-radius: 8px;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .evidence-item.selected {
+      border-color: rgba(127, 182, 255, 0.48);
+      background: rgba(127, 182, 255, 0.08);
+    }
+    .inspector-body {
+      display: grid;
+      gap: 12px;
+      padding: 12px;
+      max-height: calc(100vh - 252px);
+      overflow: auto;
+    }
+    .memory-item { cursor: default; }
+    .spatial-preview {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border-top: 1px solid var(--line);
+    }
+    .spatial-zones {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .spatial-zone {
+      min-height: 68px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.16);
+      padding: 10px;
+      display: grid;
+      gap: 4px;
+    }
+    .spatial-zone strong {
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .spatial-zone span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+    .portal-preview {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border-top: 1px solid var(--line);
+    }
+    .portal-grid {
+      display: grid;
+      gap: 8px;
+    }
+    .portal-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.16);
+      padding: 10px;
+      display: grid;
+      gap: 5px;
+    }
+    .portal-card strong {
+      overflow-wrap: anywhere;
+    }
+    .portal-card span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.3;
+    }
+    .fixture-ribbon {
+      display: none;
+      margin-top: 12px;
+      border: 1px solid rgba(242, 195, 107, 0.36);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--amber);
+      background: rgba(242, 195, 107, 0.08);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .fixture-ribbon.visible { display: block; }
+    .kv {
+      display: grid;
+      grid-template-columns: 108px minmax(0, 1fr);
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .kv strong {
+      color: var(--text);
+      font-weight: 650;
+      overflow-wrap: anywhere;
+    }
+    .dock {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px;
+      border-top: 1px solid var(--line);
+      background: rgba(0, 0, 0, 0.16);
+    }
+    .runtime {
+      position: fixed;
+      inset: auto 18px 18px auto;
+      width: min(780px, calc(100vw - 36px));
+      max-height: min(620px, calc(100vh - 36px));
+      display: none;
+      grid-template-rows: auto minmax(0, 1fr);
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: rgba(8, 11, 15, 0.98);
+      box-shadow: 0 24px 90px rgba(0, 0, 0, 0.56);
+      z-index: 10;
+      overflow: hidden;
+    }
+    .runtime.open { display: grid; }
+    pre {
+      margin: 0;
+      padding: 14px;
+      min-height: 240px;
+      overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: #d7deeb;
+      font-size: 12px;
+      line-height: 1.45;
+      background: rgba(0, 0, 0, 0.28);
+    }
+    .empty {
+      color: var(--muted);
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      line-height: 1.45;
+    }
+    @media (max-width: 1080px) {
+      header { grid-template-columns: 1fr; align-items: start; }
+      .header-actions { justify-content: flex-start; }
+      .stage { grid-template-columns: 1fr; min-height: auto; }
+      .mission-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .lane-board, .inspector-body { max-height: none; }
+      .artifact-strip { grid-template-columns: 1fr; }
+      .work-hero { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 680px) {
+      main { width: min(100vw - 18px, 1440px); padding-top: 12px; }
+      h1 { font-size: clamp(34px, 14vw, 54px); }
+      button, a.button { width: 100%; justify-content: center; text-align: center; }
+      .lane-top { grid-template-columns: 32px minmax(0, 1fr); }
+      .lane-top .badge { grid-column: 1 / -1; width: fit-content; }
+      .kv { grid-template-columns: 1fr; }
+      .mission-strip { grid-template-columns: 1fr; }
+      .mission-row, .spatial-zones, .workflow-steps { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">Beagle v4 visual-first prototype</p>
+        <h1>${escapeHtml(title)}</h1>
+        <p class="subtitle">A web-first workbench for validating the actual experience: visual agent lanes, active work canvas, memory/proof inspector, and runtime logs only on demand.</p>
+        <div class="pills">
+          <span class="pill">project: ${escapeHtml(slug)}</span>
+          <span class="pill">authority: ${escapeHtml(authority)}</span>
+          <span class="pill">namespace: ${escapeHtml(namespace)}</span>
+          <span class="pill">workspace: ${escapeHtml(workspaceRoot || "declared")}</span>
+          <span class="pill">runtime=hidden</span>
+          <span class="pill">canonical_memory=cluster-only</span>
+        </div>
+        <div id="fixture-ribbon" class="fixture-ribbon">Design fixture active: visual-only sample data. No canonical memory, private artifact, or workspace command is being written from this page.</div>
+      </div>
+      <div class="header-actions">
+        <a class="button primary" href="/projects/${encodeURIComponent(slug)}/workbench-v2">Agent Deck</a>
+        <a class="button" href="/projects/${encodeURIComponent(slug)}">Runtime Launchpad</a>
+        <a class="button" href="/projects/${encodeURIComponent(slug)}/warp">Warp Lab</a>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <section class="mission-strip" aria-label="Mission status">
+      <div class="mission-cell"><span>Mission</span><strong id="mission-now">Sounio Workday</strong></div>
+      <div class="mission-cell"><span>Route</span><strong id="mission-route">Primary builder lane</strong></div>
+      <div class="mission-cell"><span>Evidence</span><strong id="mission-evidence">Waiting for block</strong></div>
+      <div class="mission-cell"><span>Safety</span><strong id="mission-safety">Cluster-only memory</strong></div>
+      <div class="mission-cell">
+        <span>Quick intents</span>
+        <div class="quick-intents">
+          <button type="button" data-quick-intent="Analyze Sounio Claim<T> semantics and list proof needs.">Semantics</button>
+          <button type="button" data-quick-intent="Refactor the Sounio compiler tests and summarize expected diff.">Refactor tests</button>
+          <button type="button" data-quick-intent="Inspect a Kubernetes deploy incident and prepare an approval-gated runbook.">Incident</button>
+          <button type="button" data-quick-intent="Promote a selected Claude or ChatGPT clip after redaction and provenance review.">Promote clip</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="stage" aria-label="Visual Workbench">
+      <aside class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>Agent Lanes</h2>
+            <span class="caption">Role-first, provider second. Missing tools become setup gaps.</span>
+          </div>
+          <span id="lane-count" class="badge">loading</span>
+        </div>
+        <div id="lane-board" class="lane-board">
+          <div class="empty">Loading agent ecology from the workspace registry...</div>
+        </div>
+      </aside>
+
+      <section class="panel canvas">
+        <div class="active-work">
+          <div class="work-hero">
+            <div>
+              <span id="selected-kind" class="badge ready">visual-first</span>
+              <h2 id="work-title">Sounio work, without staring at a terminal.</h2>
+              <p id="work-summary" class="subtitle">The terminal still runs underneath Beagle Terminal Protocol v1, but the default surface is a lab bench: lanes, artifacts, memory, proof, and approvals.</p>
+            </div>
+            <div class="next-move">
+              <strong>Next gesture</strong>
+              <span id="next-gesture" class="caption">Pick a lane or evidence object.</span>
+            </div>
+          </div>
+          <div class="mission-composer" aria-label="Visual intent composer">
+            <div class="panel-title">
+              <h2>Visual Intent Composer</h2>
+              <span class="caption">Draft an intention. This prototype routes it visually without executing commands or writing canonical memory.</span>
+            </div>
+            <div class="mission-row">
+              <textarea id="intent-input" class="intent-input" spellcheck="true" placeholder="Example: ask Kimi to analyze Sounio Claim<T> semantics, then have MiniMax sketch compiler tests."></textarea>
+              <div class="composer-actions">
+                <button id="draft-intent-action" class="primary" type="button">Draft Intent</button>
+                <button id="route-intent-action" type="button">Route Only</button>
+              </div>
+            </div>
+          </div>
+          <div id="route-decision" class="route-decision" aria-label="Route decision"></div>
+          <div id="artifact-strip" class="artifact-strip"></div>
+        </div>
+
+        <div id="evidence-frontier" class="evidence-frontier">
+          <div class="empty">Evidence objects will appear from real Workbench blocks, with restricted output redacted.</div>
+        </div>
+
+        <div class="dock">
+          <button id="focus-action" class="primary" type="button">Focus</button>
+          <button id="scout-action" type="button">Scout</button>
+          <button id="compare-action" type="button">Compare</button>
+          <button id="remember-action" type="button">Remember</button>
+          <button id="approve-action" type="button">Approve</button>
+          <button id="interrupt-action" type="button">Interrupt</button>
+          <button id="runtime-action" class="ghost" type="button">Show Runtime Log</button>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>Memory & Proof</h2>
+            <span class="caption">What this block became, why it matters, and whether it is safe to remember.</span>
+          </div>
+          <span id="memory-badge" class="badge">not_saved</span>
+        </div>
+        <div id="inspector" class="inspector-body"></div>
+        <div id="spatial-deck" class="spatial-preview"></div>
+        <div id="portal-deck" class="portal-preview"></div>
+      </aside>
+    </section>
+  </main>
+
+  <section id="runtime-panel" class="runtime" aria-label="Runtime Log">
+    <div class="panel-header">
+      <div class="panel-title">
+        <h2>Runtime Log</h2>
+        <span id="runtime-subtitle" class="caption">Hidden by default. Opened only when you ask.</span>
+      </div>
+      <button id="close-runtime" type="button">Close</button>
+    </div>
+    <pre id="runtime-output">No runtime block selected.</pre>
+  </section>
+
+  <script>
+    const slug = ${JSON.stringify(slug)};
+    const seededRoles = [
+      { role: "primary_builder", kind: "codex", title: "Claude / Codex", subtitle: "High-stakes implementation", readiness: { status: "needs_setup", reason: "codex/claude CLI not confirmed in this workspace" } },
+      { role: "code_worker", kind: "minimax", title: "MiniMax Worker", subtitle: "Refactors, tests, compiler bugs", readiness: { status: "ready", reason: "provider slot can be configured independently" } },
+      { role: "long_thought_architect", kind: "kimi", title: "Kimi Architect", subtitle: "Deep Sounio semantics", readiness: { status: "needs_setup", reason: "kimi CLI/provider not confirmed in this workspace" } },
+      { role: "maintenance_agent", kind: "qwen-coder", title: "Qwen Maintainer", subtitle: "Cheap lint and repair loops", readiness: { status: "needs_setup", reason: "Qwen provider not confirmed in this workspace" } },
+      { role: "platform_operator", kind: "glm-air", title: "GLM Operator", subtitle: "Kubernetes and incidents", readiness: { status: "needs_setup", reason: "GLM provider not confirmed in this workspace" } },
+      { role: "shell", kind: "human", title: "Shell Runtime", subtitle: "Human fallback lane", readiness: { status: "ready", reason: "builtin workspace lane" } }
+    ];
+    const state = {
+      registry: null,
+      sessions: [],
+      blocks: [],
+      roles: seededRoles,
+      selectedRole: "primary_builder",
+      selectedBlockId: "",
+      routeDecision: null,
+      loading: true,
+      loadError: ""
+    };
+
+    const laneBoard = document.getElementById("lane-board");
+    const laneCount = document.getElementById("lane-count");
+    const artifactStrip = document.getElementById("artifact-strip");
+    const evidenceFrontier = document.getElementById("evidence-frontier");
+    const inspector = document.getElementById("inspector");
+    const selectedKind = document.getElementById("selected-kind");
+    const workTitle = document.getElementById("work-title");
+    const workSummary = document.getElementById("work-summary");
+    const nextGesture = document.getElementById("next-gesture");
+    const memoryBadge = document.getElementById("memory-badge");
+    const runtimePanel = document.getElementById("runtime-panel");
+    const runtimeOutput = document.getElementById("runtime-output");
+    const runtimeSubtitle = document.getElementById("runtime-subtitle");
+    const fixtureRibbon = document.getElementById("fixture-ribbon");
+    const intentInput = document.getElementById("intent-input");
+    const spatialDeck = document.getElementById("spatial-deck");
+    const routeDecisionPanel = document.getElementById("route-decision");
+    const portalDeck = document.getElementById("portal-deck");
+    const missionNow = document.getElementById("mission-now");
+    const missionRoute = document.getElementById("mission-route");
+    const missionEvidence = document.getElementById("mission-evidence");
+    const missionSafety = document.getElementById("mission-safety");
+    const fixtureSession = {
+      id: "fixture-sounio-workday",
+      status: "design_fixture",
+      panes: [{ id: "pane-agent-deck", kind: "fixture" }]
+    };
+    const fixtureBlocks = [
+      {
+        id: "fixture-codex-decision",
+        sessionId: "fixture-sounio-workday",
+        paneId: "codex-lane",
+        title: "Decision: visual-first Workbench",
+        command: "codex summary",
+        outputPreview: "Decision: Beagle Workbench should open as visual agent lanes, active work canvas, and proof inspector. Runtime logs stay behind an explicit action.",
+        privacyClass: "sensitive",
+        memoryStatus: "remembered",
+        blockHash: "sha256:fixture-visual-workbench-decision",
+        bridgeVersion: "beagle-terminal-v1",
+        tags: ["design-fixture", "workbench", "agent:codex"]
+      },
+      {
+        id: "fixture-minimax-worker",
+        sessionId: "fixture-sounio-workday",
+        paneId: "minimax-lane",
+        title: "MiniMax worker patch queue",
+        command: "minimax refactor",
+        outputPreview: "Planned bounded patch: extract VisualAgentLaneSnapshot, classify block signals, and keep restricted output redacted before any memory import.",
+        privacyClass: "sensitive",
+        memoryStatus: "queued",
+        blockHash: "sha256:fixture-minimax-worker",
+        bridgeVersion: "beagle-terminal-v1",
+        tags: ["design-fixture", "workbench", "agent:minimax"]
+      },
+      {
+        id: "fixture-kimi-semantics",
+        sessionId: "fixture-sounio-workday",
+        paneId: "kimi-lane",
+        title: "Kimi semantic note",
+        command: "kimi sounio semantics",
+        outputPreview: "Sounio types the work product: intentions, claims, evidence, decisions, and next actions. Beagle observes and preserves provenance.",
+        privacyClass: "sensitive",
+        memoryStatus: "manual",
+        blockHash: "sha256:fixture-kimi-semantics",
+        bridgeVersion: "beagle-terminal-v1",
+        tags: ["design-fixture", "sounio", "agent:kimi"]
+      },
+      {
+        id: "fixture-test-pass",
+        sessionId: "fixture-sounio-workday",
+        paneId: "shell-lane",
+        title: "Project Cockpit check",
+        command: "npm --prefix apps/project-cockpit run check",
+        outputPreview: "All Project Cockpit server modules passed node --check. Visual prototype route is syntactically valid.",
+        privacyClass: "sensitive",
+        memoryStatus: "remembered",
+        blockHash: "sha256:fixture-project-cockpit-check",
+        bridgeVersion: "beagle-terminal-v1",
+        tags: ["design-fixture", "test", "project:sounio"]
+      },
+      {
+        id: "fixture-restricted-redacted",
+        sessionId: "fixture-sounio-workday",
+        paneId: "shell-lane",
+        title: "Restricted block example",
+        command: "[redacted]",
+        outputPreview: "This should never be visible.",
+        privacyClass: "restricted_local_only",
+        memoryStatus: "blocked",
+        restricted: true,
+        blockHash: "sha256:fixture-restricted",
+        bridgeVersion: "beagle-terminal-v1",
+        tags: ["design-fixture", "restricted"]
+      }
+    ];
+
+    function activateFixture(reason) {
+      state.loadError = reason || "";
+      state.sessions = [fixtureSession];
+      state.blocks = fixtureBlocks;
+      state.selectedBlockId = state.selectedBlockId || fixtureBlocks[0].id;
+      fixtureRibbon.classList.add("visible");
+    }
+
+    function escapeHtmlClient(value) {
+      return String(value == null ? "" : value).replace(/[&<>"']/g, function(char) {
+        if (char === "&") return "&amp;";
+        if (char === "<") return "&lt;";
+        if (char === ">") return "&gt;";
+        if (char === '"') return "&quot;";
+        if (char === "'") return "&#39;";
+        return char;
+      });
+    }
+
+    function asArray(value) {
+      return Array.isArray(value) ? value : [];
+    }
+
+    function normalizeStatus(value) {
+      const status = String(value || "unknown");
+      if (status === "ready" || status === "remembered") return "ready";
+      if (status === "blocked" || status === "restricted_local_only") return "blocked";
+      if (status === "needs_setup" || status === "failed" || status === "queued") return "warn";
+      return "";
+    }
+
+    function roleInitial(role) {
+      const source = String(role.title || role.role || "?").trim();
+      return source ? source.slice(0, 1).toUpperCase() : "?";
+    }
+
+    function roleTask(role) {
+      const readiness = role.readiness || {};
+      const reason = readiness.reason || role.roleSummary || role.subtitle || "Ready for focused work.";
+      if (readiness.status === "needs_setup") return "Setup gap: " + reason;
+      if (role.role === "shell") return "Runtime available, but kept behind the visual bench.";
+      if (role.role === "code_worker") return "Best for compiler bugs, tests, refactors, and bounded edits.";
+      if (role.role === "long_thought_architect") return "Best for Sounio semantics, Claim<T>, and language architecture.";
+      if (role.role === "platform_operator") return "Best for cluster health, runbooks, incidents, and deploy recovery.";
+      if (role.role === "maintenance_agent") return "Best for low-risk patches, lint, and repair loops.";
+      return reason;
+    }
+
+    function roleHeadline(role) {
+      const headlines = {
+        primary_builder: "Primary builder lane",
+        code_worker: "Code worker lane",
+        long_thought_architect: "Semantic architecture lane",
+        maintenance_agent: "Maintenance lane",
+        platform_operator: "Platform operator lane",
+        shell: "Runtime lane"
+      };
+      return headlines[role.role] || ((role.title || "Agent") + " lane");
+    }
+
+    function routeIntentToRole(intent) {
+      return routeIntentDetails(intent).role;
+    }
+
+    function routeIntentDetails(intent) {
+      const text = String(intent || "").toLowerCase();
+      if (text.includes("claim") || text.includes("type") || text.includes("semantic") || text.includes("sounio")) {
+        return {
+          role: "long_thought_architect",
+          reason: "Semantic or Sounio-language work needs long thought before edits.",
+          arousal: "tonic_explore",
+          expected: ["semantic note", "claim seeds", "open questions", "proof needs"]
+        };
+      }
+      if (text.includes("test") || text.includes("refactor") || text.includes("compiler") || text.includes("bug")) {
+        return {
+          role: "code_worker",
+          reason: "Bounded code/test work should go to a worker lane with visible artifacts.",
+          arousal: "phasic_focus",
+          expected: ["patch sketch", "test command", "diff summary", "memory candidate"]
+        };
+      }
+      if (text.includes("k8s") || text.includes("kubectl") || text.includes("deploy") || text.includes("pod") || text.includes("incident")) {
+        return {
+          role: "platform_operator",
+          reason: "Infrastructure intent needs operator context, approvals, and incident provenance.",
+          arousal: "recovering",
+          expected: ["runbook step", "cluster check", "approval gate", "incident note"]
+        };
+      }
+      if (text.includes("lint") || text.includes("small patch") || text.includes("maintenance")) {
+        return {
+          role: "maintenance_agent",
+          reason: "Low-risk repair loop can be routed to a maintenance lane.",
+          arousal: "phasic_focus",
+          expected: ["lint result", "small diff", "test loop", "memory summary"]
+        };
+      }
+      if (text.includes("shell") || text.includes("runtime") || text.includes("log")) {
+        return {
+          role: "shell",
+          reason: "Runtime inspection stays available, but it is no longer the primary surface.",
+          arousal: "phasic_focus",
+          expected: ["runtime log", "redaction check", "proof link", "manual decision"]
+        };
+      }
+      if (text.includes("promote") || text.includes("portal") || text.includes("chatgpt") || text.includes("claude") || text.includes("grok")) {
+        return {
+          role: "primary_builder",
+          reason: "Conversation clips need a human-selected Portal + Promote path before memory.",
+          arousal: "recovering",
+          expected: ["selected clip", "redaction", "provenance", "assisted import draft"]
+        };
+      }
+      return {
+        role: "primary_builder",
+        reason: "High-level or ambiguous work starts with the primary builder lane.",
+        arousal: "phasic_focus",
+        expected: ["plan", "decision", "diff/test summary", "next action"]
+      };
+    }
+
+    function laneLabel(roleName) {
+      const role = state.roles.find(function(item) { return item.role === roleName; }) || seededRoles.find(function(item) { return item.role === roleName; }) || {};
+      return role.title || roleName || "Agent lane";
+    }
+
+    function isRestricted(block) {
+      const privacy = String(block && block.privacyClass || "").toLowerCase();
+      return privacy === "restricted" || privacy === "restricted_local_only" || block && block.restricted === true;
+    }
+
+    function blockPreview(block) {
+      if (!block) return "";
+      if (isRestricted(block)) return "Restricted output redacted. Provenance remains visible.";
+      const text = String(block.outputPreview || block.command || block.title || "");
+      return text.replace(/\\u001b\\[[0-9;?]*[A-Za-z]/g, "").replace(/[\\r\\n]+/g, " ").trim().slice(0, 360);
+    }
+
+    function blockKind(block) {
+      const command = String(block && block.command || block && block.title || "").toLowerCase();
+      if (command.includes("test") || command.includes("pytest") || command.includes("swift test") || command.includes("cargo test")) return "test";
+      if (command.includes("git diff") || command.includes("diff")) return "diff";
+      if (command.includes("codex") || command.includes("claude") || command.includes("kimi")) return "agent";
+      if (command.includes("kubectl")) return "ops";
+      return "command";
+    }
+
+    function memoryStatus(block) {
+      if (!block) return "not_saved";
+      if (block.lastMemoryStatus && block.lastMemoryStatus.status) return block.lastMemoryStatus.status;
+      return block.memoryStatus || "not_saved";
+    }
+
+    function latestSession() {
+      return state.sessions[0] || null;
+    }
+
+    function selectedRole() {
+      return state.roles.find(function(role) { return role.role === state.selectedRole; }) || state.roles[0] || seededRoles[0];
+    }
+
+    function selectedBlock() {
+      return state.blocks.find(function(block) { return block.id === state.selectedBlockId; }) || state.blocks[0] || null;
+    }
+
+    function renderLaneBoard() {
+      const visible = state.roles.filter(function(role) { return role.visible !== false; });
+      laneCount.textContent = String(visible.length) + " lanes";
+      laneBoard.innerHTML = visible.map(function(role) {
+        const readiness = role.readiness || {};
+        const readinessStatus = readiness.status || "unknown";
+        const selected = role.role === state.selectedRole ? " selected" : "";
+        const badgeClass = normalizeStatus(readinessStatus);
+        const provider = asArray(role.providerSlots)[0] || {};
+        const providerLabel = provider.title || role.kind || role.role;
+        return '<button class="lane-card' + selected + '" type="button" data-role="' + escapeHtmlClient(role.role) + '">' +
+          '<div class="lane-top">' +
+            '<div class="lane-icon">' + escapeHtmlClient(roleInitial(role)) + '</div>' +
+            '<div><div class="lane-name">' + escapeHtmlClient(role.title || role.role) + '</div><div class="caption">' + escapeHtmlClient(providerLabel) + '</div></div>' +
+            '<span class="badge ' + badgeClass + '">' + escapeHtmlClient(readinessStatus) + '</span>' +
+          '</div>' +
+          '<div class="lane-task">' + escapeHtmlClient(roleTask(role)) + '</div>' +
+          '<div class="lane-meta">' +
+            '<span class="pill">' + escapeHtmlClient(role.arousalRole || "phasic_focus") + '</span>' +
+            '<span class="pill">' + escapeHtmlClient(role.memoryPolicy || "curated") + '</span>' +
+          '</div>' +
+        '</button>';
+      }).join("");
+      laneBoard.querySelectorAll("[data-role]").forEach(function(button) {
+        button.addEventListener("click", function() {
+          state.selectedRole = button.getAttribute("data-role") || state.selectedRole;
+          renderAll();
+        });
+      });
+    }
+
+    function renderArtifacts() {
+      const block = selectedBlock();
+      const role = selectedRole();
+      const session = latestSession();
+      const artifacts = [
+        {
+          title: "Active task",
+          badge: role.readiness && role.readiness.status || "observed",
+          body: roleTask(role)
+        },
+        {
+          title: "Latest evidence",
+          badge: block ? blockKind(block) : "waiting",
+          body: block ? blockPreview(block) : "No Workbench block selected yet."
+        },
+        {
+          title: "Workspace continuity",
+          badge: session ? session.status || "active" : "offline",
+          body: session ? "Session " + session.id + " has " + asArray(session.panes).length + " pane(s)." : "No session loaded from Project Cockpit."
+        }
+      ];
+      artifactStrip.innerHTML = artifacts.map(function(item) {
+        return '<article class="artifact">' +
+          '<span class="badge">' + escapeHtmlClient(item.badge) + '</span>' +
+          '<div class="artifact-title">' + escapeHtmlClient(item.title) + '</div>' +
+          '<div class="artifact-body">' + escapeHtmlClient(item.body) + '</div>' +
+        '</article>';
+      }).join("");
+    }
+
+    function renderEvidence() {
+      if (!state.blocks.length) {
+        evidenceFrontier.innerHTML = '<div class="empty">No blocks found yet. Start work in the existing runtime launchpad, then return here for the visual bench.</div>';
+        return;
+      }
+      evidenceFrontier.innerHTML = state.blocks.slice(0, 12).map(function(block) {
+        const selected = block.id === state.selectedBlockId ? " selected" : "";
+        const restricted = isRestricted(block);
+        const badgeClass = restricted ? "blocked" : normalizeStatus(memoryStatus(block));
+        return '<button class="evidence-item' + selected + '" type="button" data-block="' + escapeHtmlClient(block.id || "") + '">' +
+          '<div class="lane-meta">' +
+            '<span class="badge ' + badgeClass + '">' + escapeHtmlClient(memoryStatus(block)) + '</span>' +
+            '<span class="pill">' + escapeHtmlClient(blockKind(block)) + '</span>' +
+            '<span class="pill">' + escapeHtmlClient(block.privacyClass || "sensitive") + '</span>' +
+          '</div>' +
+          '<div class="artifact-title">' + escapeHtmlClient(block.title || block.command || block.id || "Workbench block") + '</div>' +
+          '<div class="artifact-body">' + escapeHtmlClient(blockPreview(block)) + '</div>' +
+        '</button>';
+      }).join("");
+      evidenceFrontier.querySelectorAll("[data-block]").forEach(function(button) {
+        button.addEventListener("click", function() {
+          state.selectedBlockId = button.getAttribute("data-block") || state.selectedBlockId;
+          renderAll();
+        });
+      });
+    }
+
+    function renderCanvas() {
+      const role = selectedRole();
+      const block = selectedBlock();
+      selectedKind.textContent = role.title || role.role || "Agent lane";
+      const status = role.readiness && role.readiness.status || "unknown";
+      selectedKind.className = "badge " + normalizeStatus(status);
+      workTitle.textContent = roleHeadline(role);
+      workSummary.textContent = roleTask(role);
+      if (block) {
+        nextGesture.textContent = memoryStatus(block) === "remembered" ? "Open proof or compare provenance." : "Review evidence, then remember only if useful.";
+      } else if (state.loadError) {
+        nextGesture.textContent = "Live fetch degraded; use this as the visual contract, then reconnect to cluster.";
+      } else {
+        nextGesture.textContent = status === "needs_setup" ? "Keep lane visible as a setup gap; do not auto-install." : "Choose evidence or start a focused work block.";
+      }
+    }
+
+    function renderInspector() {
+      const block = selectedBlock();
+      const role = selectedRole();
+      const status = memoryStatus(block);
+      memoryBadge.textContent = status;
+      memoryBadge.className = "badge " + normalizeStatus(status);
+      if (!block) {
+        inspector.innerHTML = '<div class="empty">' + escapeHtmlClient(state.loadError || "Select a block to inspect memory status, provenance, privacy, and runtime linkage.") + '</div>';
+        return;
+      }
+      const restricted = isRestricted(block);
+      inspector.innerHTML =
+        '<article class="memory-item">' +
+          '<span class="badge ' + (restricted ? "blocked" : normalizeStatus(status)) + '">' + escapeHtmlClient(restricted ? "restricted redacted" : status) + '</span>' +
+          '<div class="memory-title">' + escapeHtmlClient(block.title || block.command || block.id || "Workbench block") + '</div>' +
+          '<div class="memory-body">' + escapeHtmlClient(blockPreview(block)) + '</div>' +
+        '</article>' +
+        '<article class="memory-item">' +
+          '<div class="memory-title">Sounio typing candidate</div>' +
+          '<div class="memory-body">' + escapeHtmlClient(restricted ? "Blocked from automatic typing. Requires explicit review." : "Candidate SounioMoment only. Claims remain belief/contest until evidence and provenance support promotion.") + '</div>' +
+        '</article>' +
+        '<article class="memory-item">' +
+          '<div class="memory-title">Provenance</div>' +
+          '<div class="kv"><span>role</span><strong>' + escapeHtmlClient(role.role || "") + '</strong></div>' +
+          '<div class="kv"><span>session</span><strong>' + escapeHtmlClient(block.sessionId || "") + '</strong></div>' +
+          '<div class="kv"><span>pane</span><strong>' + escapeHtmlClient(block.paneId || "") + '</strong></div>' +
+          '<div class="kv"><span>block</span><strong>' + escapeHtmlClient(block.id || "") + '</strong></div>' +
+          '<div class="kv"><span>hash</span><strong>' + escapeHtmlClient(block.blockHash || "pending") + '</strong></div>' +
+          '<div class="kv"><span>bridge</span><strong>' + escapeHtmlClient(block.bridgeVersion || "beagle-terminal-v1") + '</strong></div>' +
+          '<div class="kv"><span>source</span><strong>' + escapeHtmlClient(block.id && block.id.startsWith("fixture-") ? "visual fixture, not canonical" : "live workspace") + '</strong></div>' +
+        '</article>';
+    }
+
+    function renderSpatialDeck() {
+      const role = selectedRole();
+      const block = selectedBlock();
+      const blockLabel = block ? block.title || block.command || block.id : "No selected evidence";
+      spatialDeck.innerHTML =
+        '<div class="panel-title">' +
+          '<h2>visionOS Agent Deck preview</h2>' +
+          '<span class="caption">Same state, mapped to spatial instruments later. No Marble dependency for this acceptance slice.</span>' +
+        '</div>' +
+        '<div class="spatial-zones">' +
+          '<div class="spatial-zone"><strong>Central desk</strong><span>' + escapeHtmlClient(roleHeadline(role)) + '</span></div>' +
+          '<div class="spatial-zone"><strong>Agent rail</strong><span>' + escapeHtmlClient(laneLabel(role.role)) + '</span></div>' +
+          '<div class="spatial-zone"><strong>Evidence wall</strong><span>' + escapeHtmlClient(blockLabel) + '</span></div>' +
+          '<div class="spatial-zone"><strong>Runtime corridor</strong><span>Collapsed until explicitly opened.</span></div>' +
+        '</div>';
+    }
+
+    function renderRouteDecision() {
+      const decision = state.routeDecision;
+      if (!decision) {
+        routeDecisionPanel.classList.remove("visible");
+        routeDecisionPanel.innerHTML = "";
+        return;
+      }
+      const expected = decision.expected || [];
+      routeDecisionPanel.classList.add("visible");
+      routeDecisionPanel.innerHTML =
+        '<div class="panel-title">' +
+          '<h2>Route decision</h2>' +
+          '<span class="caption">' + escapeHtmlClient(decision.reason || "") + '</span>' +
+        '</div>' +
+        '<div class="lane-meta">' +
+          '<span class="badge ready">' + escapeHtmlClient(laneLabel(decision.role)) + '</span>' +
+          '<span class="pill">' + escapeHtmlClient(decision.arousal || "phasic_focus") + '</span>' +
+          '<span class="pill">privacy: sensitive review</span>' +
+          '<span class="pill">no command execution</span>' +
+        '</div>' +
+        '<div class="workflow-steps">' +
+          expected.map(function(item, index) {
+            return '<div class="workflow-step"><strong>' + escapeHtmlClient("artifact " + (index + 1)) + '</strong><span>' + escapeHtmlClient(item) + '</span></div>';
+          }).join("") +
+        '</div>';
+    }
+
+    function renderPortals() {
+      const portals = [
+        { title: "Claude / Claude Code", mode: "Portal + Promote", detail: "Reference conversation or coding run; promote selected clip only after redaction." },
+        { title: "ChatGPT", mode: "Portal + Promote", detail: "No invisible scraping. Import selected exchange/export with provenance." },
+        { title: "Grok / other chats", mode: "Manual import", detail: "Conversation stays outside Beagle until explicitly promoted." }
+      ];
+      portalDeck.innerHTML =
+        '<div class="panel-title">' +
+          '<h2>Conversation portals</h2>' +
+          '<span class="caption">Separate from terminal. External chats become memory only by Promote.</span>' +
+        '</div>' +
+        '<div class="portal-grid">' +
+          portals.map(function(portal) {
+            return '<div class="portal-card">' +
+              '<div class="lane-meta"><span class="badge">' + escapeHtmlClient(portal.mode) + '</span></div>' +
+              '<strong>' + escapeHtmlClient(portal.title) + '</strong>' +
+              '<span>' + escapeHtmlClient(portal.detail) + '</span>' +
+            '</div>';
+          }).join("") +
+        '</div>';
+    }
+
+    function renderMissionStrip() {
+      const role = selectedRole();
+      const block = selectedBlock();
+      const decision = state.routeDecision;
+      missionNow.textContent = decision ? "Intent drafted" : "Sounio Workday";
+      missionRoute.textContent = decision ? laneLabel(decision.role) + " / " + (decision.arousal || "phasic_focus") : roleHeadline(role);
+      missionEvidence.textContent = block ? (block.title || block.command || block.id || "Selected block") : "Waiting for block";
+      if (block && isRestricted(block)) {
+        missionSafety.textContent = "Restricted redacted";
+      } else if (block && block.id && block.id.startsWith("fixture-")) {
+        missionSafety.textContent = "Visual fixture, not canonical";
+      } else {
+        missionSafety.textContent = "Cluster-only memory";
+      }
+    }
+
+    function renderRuntime() {
+      const block = selectedBlock();
+      if (!block) {
+        runtimeSubtitle.textContent = "No runtime block selected.";
+        runtimeOutput.textContent = "No runtime block selected.";
+        return;
+      }
+      runtimeSubtitle.textContent = (block.sessionId || "session") + " / " + (block.paneId || "pane") + " / " + (block.id || "block");
+      runtimeOutput.textContent = isRestricted(block) ? "Restricted output redacted. Runtime content is intentionally hidden." : String(block.outputPreview || block.command || "No runtime output preview available.");
+    }
+
+    function renderAll() {
+      renderLaneBoard();
+      renderArtifacts();
+      renderEvidence();
+      renderCanvas();
+      renderInspector();
+      renderRuntime();
+      renderSpatialDeck();
+      renderRouteDecision();
+      renderPortals();
+      renderMissionStrip();
+    }
+
+    function draftIntent(shouldCreateBlock) {
+      const intent = String(intentInput.value || "").trim() || "Plan the next Sounio workday step visually, then preserve proof and memory only after review.";
+      const decision = routeIntentDetails(intent);
+      const targetRole = decision.role;
+      state.routeDecision = decision;
+      state.selectedRole = targetRole;
+      nextGesture.textContent = "Routed to " + laneLabel(targetRole) + ".";
+      if (shouldCreateBlock) {
+        const id = "fixture-intent-" + Date.now();
+        state.blocks.unshift({
+          id,
+          sessionId: "fixture-sounio-workday",
+          paneId: targetRole + "-lane",
+          title: "Operator visual intent",
+          command: "visual intent",
+          outputPreview: intent,
+          privacyClass: "sensitive",
+          memoryStatus: "manual",
+          blockHash: "sha256:" + id,
+          bridgeVersion: "beagle-visual-workbench-v2",
+          tags: ["design-fixture", "operator-intent", "role:" + targetRole]
+        });
+        state.sessions = state.sessions.length ? state.sessions : [fixtureSession];
+        state.selectedBlockId = id;
+        fixtureRibbon.classList.add("visible");
+      }
+      renderAll();
+    }
+
+    async function getJson(url) {
+      const response = await fetch(url, { headers: { accept: "application/json" } });
+      if (!response.ok) throw new Error(url + " returned " + response.status);
+      return response.json();
+    }
+
+    async function refresh() {
+      document.getElementById("refresh").disabled = true;
+      try {
+        state.loadError = "";
+        fixtureRibbon.classList.remove("visible");
+        const registry = await getJson("/api/workspaces/" + encodeURIComponent(slug) + "/agents/registry");
+        state.registry = registry;
+        const visibleRoles = asArray(registry.roles).filter(function(role) {
+          return role.visible !== false || asArray(registry.visibleRoles).includes(role.role);
+        });
+        state.roles = visibleRoles.length ? visibleRoles : seededRoles;
+
+        const sessionsPayload = await getJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions");
+        state.sessions = asArray(sessionsPayload.sessions);
+        const session = latestSession();
+        if (session) {
+          const blocksPayload = await getJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(session.id) + "/blocks");
+          state.blocks = asArray(blocksPayload.blocks);
+          state.selectedBlockId = state.selectedBlockId || (state.blocks[0] && state.blocks[0].id) || "";
+        }
+        renderAll();
+      } catch (error) {
+        state.roles = seededRoles;
+        activateFixture("Could not load live workspace data: " + String(error.message || error));
+        renderAll();
+      } finally {
+        document.getElementById("refresh").disabled = false;
+      }
+    }
+
+    document.getElementById("runtime-action").addEventListener("click", function() {
+      runtimePanel.classList.add("open");
+      renderRuntime();
+    });
+    document.getElementById("close-runtime").addEventListener("click", function() {
+      runtimePanel.classList.remove("open");
+    });
+    document.getElementById("focus-action").addEventListener("click", function() {
+      nextGesture.textContent = "Focused on " + (selectedRole().title || selectedRole().role || "lane") + ". Runtime stays hidden until requested.";
+    });
+    document.getElementById("scout-action").addEventListener("click", function() {
+      nextGesture.textContent = "Scout mode: compare a thought lane before touching runtime.";
+    });
+    document.getElementById("compare-action").addEventListener("click", function() {
+      window.location.href = "/projects/" + encodeURIComponent(slug) + "/warp";
+    });
+    document.getElementById("remember-action").addEventListener("click", function() {
+      nextGesture.textContent = "Use existing remember endpoint from the runtime launchpad for this prototype; this view stays read-only.";
+    });
+    document.getElementById("approve-action").addEventListener("click", function() {
+      nextGesture.textContent = "Approval is represented visually here; destructive/runtime approval remains gated by workspace-agent.";
+    });
+    document.getElementById("interrupt-action").addEventListener("click", function() {
+      nextGesture.textContent = "Interrupt is intentionally not sent from this read-only visual prototype.";
+    });
+    document.getElementById("draft-intent-action").addEventListener("click", function() {
+      draftIntent(true);
+    });
+    document.getElementById("route-intent-action").addEventListener("click", function() {
+      draftIntent(false);
+    });
+    document.querySelectorAll("[data-quick-intent]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        intentInput.value = button.getAttribute("data-quick-intent") || "";
+        draftIntent(false);
+      });
+    });
+    document.getElementById("refresh").addEventListener("click", refresh);
+    renderAll();
+    refresh();
+  </script>
+</body>
+</html>`;
+}
+
+function readRendererProbeResults(projectSlug) {
+  const candidateDirs = [
+    cleanValue(process.env.PROJECT_COCKPIT_RENDERER_PROBE_DIR),
+    path.join("/workspace/.beagle/workbench/renderer-probes", projectSlug),
+    path.join("/workspace/.beagle/workbench/renderer-probes"),
+    path.resolve(rootDir, "..", "warp-workbench", "renderer", "results", projectSlug),
+    path.resolve(rootDir, "..", "warp-workbench", "renderer", "results"),
+  ].filter(Boolean);
+  const seen = new Set();
+  const files = [];
+  for (const dir of candidateDirs) {
+    if (!existsSync(dir) || seen.has(dir)) continue;
+    seen.add(dir);
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+        const file = path.join(dir, entry.name);
+        const stat = statSync(file);
+        files.push({ file, mtimeMs: stat.mtimeMs });
+      }
+    } catch (_error) {
+      // Probe results are optional and derived; unreadable paths degrade to not_measured.
+    }
+  }
+  files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const results = [];
+  for (const item of files.slice(0, 8)) {
+    try {
+      const payload = JSON.parse(readFileSync(item.file, "utf8"));
+      const notes = Array.isArray(payload.fidelity_notes)
+        ? payload.fidelity_notes.slice(0, 4).map((note) => String(note).slice(0, 260))
+        : [];
+      results.push({
+        file: path.basename(item.file),
+        updatedAt: new Date(item.mtimeMs).toISOString(),
+        schemaVersion: payload.schema_version || "unknown",
+        status: payload.status || "unknown",
+        platform: payload.platform || "unknown",
+        arch: payload.arch || "unknown",
+        renderer: payload.renderer?.name || "warp-metal-probe",
+        promoted: Boolean(payload.renderer?.promoted),
+        hotPath: payload.renderer?.hot_path || "beagle-terminal-v1",
+        bridgeVersion: payload.bridge?.version || "beagle-warp-bridge-v0.2",
+        vendorCommit: payload.bridge?.vendor_commit || "805b3e2a576e689a1e414f01ed3fc51e9e704d69",
+        fixture: payload.fixture
+          ? {
+              blockId: payload.fixture.block_id || "",
+              privacyClass: payload.fixture.privacy_class || "",
+              restrictedRedacted: Boolean(payload.fixture.restricted_redacted),
+              outputPreviewBytes: payload.fixture.output_preview_bytes ?? null,
+            }
+          : null,
+        timingMs: payload.timing_ms?.total ?? null,
+        vtFidelity: payload.vt_fidelity
+          ? {
+              status: payload.vt_fidelity.status || "unknown",
+              mode: payload.vt_fidelity.mode || "unknown",
+              ratios: payload.vt_fidelity.ratios || {},
+              expected: payload.vt_fidelity.expected || {},
+              observed: payload.vt_fidelity.observed || {},
+              notes: Array.isArray(payload.vt_fidelity.notes)
+                ? payload.vt_fidelity.notes.slice(0, 4).map((note) => String(note).slice(0, 260))
+                : [],
+            }
+          : null,
+        latencyBudget: payload.latency_budget
+          ? {
+              status: payload.latency_budget.status || "unknown",
+              totalMs: payload.latency_budget.total_ms ?? null,
+              thresholdMs: payload.latency_budget.threshold_ms ?? null,
+              scope: payload.latency_budget.scope || "unknown",
+              note: payload.latency_budget.note || "",
+            }
+          : null,
+        fidelityNotes: notes,
+        artifact: payload.artifact_path ? path.basename(String(payload.artifact_path)) : null,
+      });
+    } catch (_error) {
+      results.push({
+        file: path.basename(item.file),
+        updatedAt: new Date(item.mtimeMs).toISOString(),
+        schemaVersion: "unknown",
+        status: "unreadable",
+        platform: "unknown",
+        arch: "unknown",
+        renderer: "unknown",
+        promoted: false,
+        hotPath: "beagle-terminal-v1",
+        bridgeVersion: "beagle-warp-bridge-v0.2",
+        vendorCommit: "805b3e2a576e689a1e414f01ed3fc51e9e704d69",
+        fixture: null,
+        timingMs: null,
+        fidelityNotes: ["Probe result JSON could not be parsed."],
+        artifact: null,
+      });
+    }
+  }
+  return {
+    state: results.length ? "measured" : "not_measured",
+    searchedDirs: Array.from(seen).map((dir) => path.basename(dir)),
+    latest: results[0] || null,
+    results,
+  };
+}
+
+function safeArtifactPart(value) {
+  return String(value || "sample")
+    .replace(/[^a-zA-Z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96) || "sample";
+}
+
+function restrictedLookingText(value) {
+  const text = String(value || "").toLowerCase();
+  return (
+    text.includes("client_secret") ||
+    text.includes("refresh_token") ||
+    text.includes("private key") ||
+    text.includes("-----begin") ||
+    text.includes("bearer ") ||
+    text.includes("api_key") ||
+    text.includes("password:") ||
+    text.includes("passwd") ||
+    /\bsk-[a-z0-9]{20,}/i.test(text) ||
+    /\bghp_[a-z0-9_]{20,}/i.test(text)
+  );
+}
+
+function appleDevicePassDirs(projectSlug) {
+  const base = cleanValue(process.env.PROJECT_COCKPIT_APPLE_DEVICE_PASS_DIR)
+    || (cleanValue(process.env.PROJECT_COCKPIT_RENDERER_PROBE_DIR)
+      ? path.join(cleanValue(process.env.PROJECT_COCKPIT_RENDERER_PROBE_DIR), "apple-device-pass")
+      : path.join("/tmp", "project-cockpit", "apple-device-pass"));
+  return [
+    path.join(base, projectSlug),
+    base,
+    path.join("/workspace/.beagle/workbench/apple-device-pass", projectSlug),
+    path.join("/workspace/.beagle/workbench/apple-device-pass"),
+    path.resolve(rootDir, "apple-device-pass", projectSlug),
+    path.resolve(rootDir, "apple-device-pass"),
+  ].filter(Boolean);
+}
+
+function normalizeAppleDevicePass(projectSlug, body = {}) {
+  const notes = cleanValue(body.notes).slice(0, 600);
+  if (restrictedLookingText(notes)) {
+    const error = new Error("device pass notes look restricted; redact before upload");
+    error.statusCode = 400;
+    throw error;
+  }
+  const humanScoreRaw = Number(body.human_score ?? body.humanScore ?? 0);
+  const humanScore = Number.isFinite(humanScoreRaw)
+    ? Math.max(1, Math.min(5, Math.round(humanScoreRaw)))
+    : null;
+  const viewportWidth = Number(body.viewport_width ?? body.viewportWidth ?? 0);
+  const inputToPaintMs = Number(body.input_to_paint_ms ?? body.inputToPaintMs ?? 0);
+  const dynamicTypeReady = body.dynamic_type_ready ?? body.dynamicTypeReady ?? true;
+  const touchTargetReady = body.touch_target_ready ?? body.touchTargetReady ?? true;
+  const restrictedLeakCheck = cleanValue(body.restricted_leak_check || body.restrictedLeakCheck || "passed:no_restricted_output");
+  const vtFidelityStatus = cleanValue(body.vt_fidelity_status || body.vtFidelityStatus || "not_measured");
+  const latencyStatus = cleanValue(body.latency_status || body.latencyStatus || "not_measured");
+  const blockers = Array.isArray(body.blockers)
+    ? body.blockers.map((item) => cleanValue(item).slice(0, 160)).filter(Boolean).slice(0, 12)
+    : [];
+  const computedBlockers = [...blockers];
+  if (!humanScore || humanScore < 4) computedBlockers.push("human device score below 4");
+  if (restrictedLeakCheck !== "passed:no_restricted_output") computedBlockers.push("restricted leak check failed");
+  if (vtFidelityStatus !== "pass") computedBlockers.push("VT fidelity not passed");
+  if (latencyStatus !== "pass") computedBlockers.push("latency budget not passed");
+  if (!dynamicTypeReady) computedBlockers.push("large Dynamic Type not verified");
+  if (!touchTargetReady) computedBlockers.push("touch targets below 44pt");
+
+  const gateStatus = computedBlockers.length ? "needs_human_device_pass" : "device_pass";
+  return {
+    schema_version: "beagle-apple-device-pass-v0.1",
+    project_slug: projectSlug,
+    sample_id: cleanValue(body.sample_id || body.sampleId || ""),
+    session_id: cleanValue(body.session_id || body.sessionId || ""),
+    block_id: cleanValue(body.block_id || body.blockId || ""),
+    selected_candidate: cleanValue(body.selected_candidate || body.selectedCandidate || "beagle-terminal-v1"),
+    device: {
+      platform: cleanValue(body.device?.platform || body.platform || "apple"),
+      form_factor: cleanValue(body.device?.form_factor || body.form_factor || body.formFactor || "unknown"),
+      os_version: cleanValue(body.device?.os_version || body.os_version || body.osVersion || ""),
+      build: cleanValue(body.device?.build || body.build || ""),
+    },
+    gate_status: gateStatus,
+    viewport_width: Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : null,
+    dynamic_type_ready: Boolean(dynamicTypeReady),
+    touch_target_ready: Boolean(touchTargetReady),
+    input_to_paint_ms: Number.isFinite(inputToPaintMs) && inputToPaintMs > 0 ? Math.round(inputToPaintMs * 100) / 100 : null,
+    human_score: humanScore,
+    restricted_leak_check: restrictedLeakCheck,
+    vt_fidelity_status: vtFidelityStatus,
+    latency_status: latencyStatus,
+    blockers: Array.from(new Set(computedBlockers)).slice(0, 12),
+    notes,
+    promotion_allowed: false,
+    canonical_memory_written: false,
+    created_at: cleanValue(body.created_at || body.createdAt) || new Date().toISOString(),
+  };
+}
+
+function readAppleDevicePassResults(projectSlug) {
+  const seen = new Set();
+  const files = [];
+  for (const dir of appleDevicePassDirs(projectSlug)) {
+    if (!existsSync(dir) || seen.has(dir)) continue;
+    seen.add(dir);
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+        const file = path.join(dir, entry.name);
+        const stat = statSync(file);
+        files.push({ file, mtimeMs: stat.mtimeMs });
+      }
+    } catch (_error) {
+      // Device pass evidence is optional and derived.
+    }
+  }
+  files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const results = [];
+  for (const item of files.slice(0, 8)) {
+    try {
+      const payload = JSON.parse(readFileSync(item.file, "utf8"));
+      results.push({
+        file: path.basename(item.file),
+        updatedAt: new Date(item.mtimeMs).toISOString(),
+        schemaVersion: payload.schema_version || "unknown",
+        status: payload.gate_status || payload.status || "unknown",
+        sampleId: payload.sample_id || "",
+        sessionId: payload.session_id || "",
+        blockId: payload.block_id || "",
+        selectedCandidate: payload.selected_candidate || "",
+        device: payload.device || {},
+        viewportWidth: payload.viewport_width ?? null,
+        inputToPaintMs: payload.input_to_paint_ms ?? null,
+        humanScore: payload.human_score ?? null,
+        restrictedLeakCheck: payload.restricted_leak_check || "unknown",
+        vtFidelityStatus: payload.vt_fidelity_status || "unknown",
+        latencyStatus: payload.latency_status || "unknown",
+        blockers: Array.isArray(payload.blockers) ? payload.blockers.slice(0, 12) : [],
+        promotionAllowed: Boolean(payload.promotion_allowed),
+        canonicalMemoryWritten: Boolean(payload.canonical_memory_written),
+        notes: cleanValue(payload.notes).slice(0, 600),
+      });
+    } catch (_error) {
+      results.push({
+        file: path.basename(item.file),
+        updatedAt: new Date(item.mtimeMs).toISOString(),
+        schemaVersion: "unknown",
+        status: "unreadable",
+        sampleId: "",
+        sessionId: "",
+        blockId: "",
+        selectedCandidate: "",
+        device: {},
+        viewportWidth: null,
+        inputToPaintMs: null,
+        humanScore: null,
+        restrictedLeakCheck: "unknown",
+        vtFidelityStatus: "unknown",
+        latencyStatus: "unknown",
+        blockers: ["device pass result JSON could not be parsed"],
+        promotionAllowed: false,
+        canonicalMemoryWritten: false,
+        notes: "",
+      });
+    }
+  }
+  return {
+    state: results.length ? "measured" : "not_measured",
+    searchedDirs: Array.from(seen).map((dir) => path.basename(dir)),
+    latest: results[0] || null,
+    results,
+  };
+}
+
+async function writeAppleDevicePassResult(projectSlug, body) {
+  const payload = normalizeAppleDevicePass(projectSlug, body);
+  const dir = appleDevicePassDirs(projectSlug)[0];
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  const stem = safeArtifactPart(payload.sample_id || payload.block_id || "device-pass");
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = path.join(dir, `${timestamp}-${stem}.json`);
+  await fs.writeFile(file, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
+  return {
+    status: "recorded",
+    file: path.basename(file),
+    result: payload,
+    truthMode: "observed",
+  };
+}
+
+function renderWarpBridgeLabPage(project) {
+  const slug = project.projectSlug || project.slug || "sounio";
+  const title = `${project.title || slug} Warp Bridge Lab`;
+  const authority = project.workbench?.authority || project.workspace?.authority || "workspace-agent";
+  const namespace = project.namespace || "beagle";
+  const vendorCommit = "805b3e2a576e689a1e414f01ed3fc51e9e704d69";
+  const bridgeVersion = "beagle-warp-bridge-v0.2";
+  const rendererProbeResults = readRendererProbeResults(slug);
+  const appleDevicePassResults = readAppleDevicePassResults(slug);
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(title)}</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07090d;
+      --panel: rgba(255,255,255,0.07);
+      --panel2: rgba(255,255,255,0.045);
+      --line: rgba(255,255,255,0.16);
+      --text: #f4f7fb;
+      --muted: #a7b1c2;
+      --accent: #75d6ff;
+      --ok: #8df3b3;
+      --warn: #ffd580;
+      --danger: #ff9aa8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top left, rgba(117,214,255,0.16), transparent 34rem), var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(100vw - 32px, 1180px); margin: 0 auto; padding: 34px 0 42px; }
+    header, section {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: linear-gradient(180deg, var(--panel), var(--panel2));
+      padding: 18px;
+      backdrop-filter: blur(18px);
+    }
+    header { margin-bottom: 16px; }
+    .eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: .12em; font-size: 12px; margin: 0 0 8px; }
+    h1 { margin: 0; font-size: clamp(34px, 5vw, 64px); letter-spacing: 0; }
+    h2 { margin: 0 0 12px; font-size: 18px; }
+    p { color: var(--muted); line-height: 1.55; }
+    a { color: inherit; }
+    .meta, .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .pill, a.button, button {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 11px;
+      background: rgba(0,0,0,0.18);
+      color: var(--text);
+      text-decoration: none;
+      font: inherit;
+    }
+    button, a.button { cursor: pointer; }
+    button.primary, a.primary { background: rgba(117,214,255,0.18); border-color: rgba(117,214,255,0.42); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .compare-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .full { grid-column: 1 / -1; }
+    .select-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+      gap: 10px;
+      margin: 12px 0;
+    }
+    select {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 11px;
+      background: rgba(0,0,0,0.28);
+      color: var(--text);
+      font: inherit;
+    }
+    .row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 9px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .row:last-child { border-bottom: 0; }
+    .row span { color: var(--muted); }
+    .row strong { text-align: right; overflow-wrap: anywhere; }
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .danger { color: var(--danger); }
+    .column {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: rgba(0,0,0,0.18);
+      min-width: 0;
+    }
+    .column h3, .memo h3 { margin: 0 0 10px; font-size: 15px; }
+    .memo {
+      border: 1px solid rgba(117,214,255,0.25);
+      background: rgba(117,214,255,0.08);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .field-list {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .field {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      background: rgba(0,0,0,0.18);
+      overflow-wrap: anywhere;
+    }
+    .field strong { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .score-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .score-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(0,0,0,0.18);
+      min-height: 118px;
+      display: grid;
+      align-content: start;
+      gap: 6px;
+      overflow-wrap: anywhere;
+    }
+    .score-card strong { font-size: 13px; }
+    .score-card span { color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .score-pass { color: var(--ok); }
+    .score-pending { color: var(--warn); }
+    .score-fail { color: var(--danger); }
+    .probe-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .probe-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(0,0,0,0.18);
+    }
+    .probe-item h3 { margin: 0 0 8px; font-size: 14px; }
+    .probe-item p { margin: 6px 0 0; font-size: 13px; }
+    .memo-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr);
+      gap: 12px;
+      align-items: stretch;
+    }
+    pre {
+      margin: 0;
+      min-height: 220px;
+      max-height: 50vh;
+      overflow: auto;
+      white-space: pre-wrap;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0,0,0,0.34);
+      padding: 12px;
+      color: #eaf2ff;
+    }
+    @media (max-width: 760px) {
+      main { width: min(100vw - 22px, 1180px); padding-top: 22px; }
+      .grid { grid-template-columns: 1fr; }
+      .compare-grid { grid-template-columns: 1fr; }
+      .select-row { grid-template-columns: 1fr; }
+      .field-list { grid-template-columns: 1fr; }
+      .score-grid, .memo-grid { grid-template-columns: 1fr; }
+      h1 { font-size: clamp(30px, 12vw, 46px); }
+      .row { display: grid; }
+      .row strong { text-align: left; }
+      button, a.button { width: 100%; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Beagle Workbench AGPL Showcase</p>
+      <h1>${escapeHtml(title)}</h1>
+      <p>This is the visible bridge surface for the Warp-derived Workbench spike. The hot path remains Beagle Terminal Protocol v1; Warp-derived concepts are evaluated through a dual bridge before any renderer authority switch.</p>
+      <div class="meta">
+        <span class="pill">authority: ${escapeHtml(authority)}</span>
+        <span class="pill">namespace: ${escapeHtml(namespace)}</span>
+        <span class="pill">bridge: ${escapeHtml(bridgeVersion)}</span>
+        <span class="pill">vendor: warp@${escapeHtml(vendorCommit.slice(0, 7))}</span>
+        <span class="pill">hot_path=beagle-terminal-v1</span>
+        <span class="pill">warp_renderer=not_promoted</span>
+        <span class="pill">canonical_memory=cluster-only</span>
+      </div>
+      <div class="actions">
+        <a class="button primary" href="/projects/${encodeURIComponent(slug)}">Open Beagle Workbench</a>
+        <a class="button" href="/api/workspaces/${encodeURIComponent(slug)}/sessions">Sessions JSON</a>
+        <a class="button" href="/api/workspaces/${encodeURIComponent(slug)}/agents/registry">Agent Registry</a>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section>
+        <h2>Boundary</h2>
+        <div class="row"><span>Warp source</span><strong>apps/warp-workbench/vendor/warp</strong></div>
+        <div class="row"><span>Vendor commit</span><strong>${escapeHtml(vendorCommit)}</strong></div>
+        <div class="row"><span>License boundary</span><strong>AGPL-3.0-only</strong></div>
+        <div class="row"><span>Core dependency</span><strong class="ok">protocol-only</strong></div>
+        <div class="row"><span>Private data</span><strong class="ok">cluster-only</strong></div>
+      </section>
+
+      <section>
+        <h2>Runtime</h2>
+        <div class="row"><span>Workspace authority</span><strong id="authority">Loading...</strong></div>
+        <div class="row"><span>Supervisor</span><strong id="supervisor">Loading...</strong></div>
+        <div class="row"><span>Sessions</span><strong id="sessions-count">Loading...</strong></div>
+        <div class="row"><span>Selected session</span><strong id="selected-session">Loading...</strong></div>
+        <div class="row"><span>Selected block</span><strong id="selected-block">Loading...</strong></div>
+        <div class="row"><span>Bridge mode</span><strong>dual bridge bake-off</strong></div>
+      </section>
+
+      <section class="full">
+        <h2>Live Block Selection</h2>
+        <div class="select-row">
+          <select id="session-select" aria-label="Workbench session"></select>
+          <select id="block-select" aria-label="Terminal block"></select>
+          <button id="refresh" type="button">Refresh</button>
+        </div>
+        <div id="privacy-note" class="pill">Loading privacy status...</div>
+        <div class="actions">
+          <button id="download-fixture" type="button">Download Fixture JSON</button>
+          <button id="copy-probe-command" type="button">Copy Probe Command</button>
+          <span id="probe-action-note" class="pill">fixture=not_ready</span>
+        </div>
+      </section>
+
+      <section class="full">
+        <h2>Beagle vs Warp-Derived</h2>
+        <div class="compare-grid">
+          <div class="column">
+            <h3>Beagle TerminalBlock</h3>
+            <pre id="beagle-preview">Loading...</pre>
+          </div>
+          <div class="column">
+            <h3>WarpBlock Preview</h3>
+            <pre id="warp-preview">Loading...</pre>
+          </div>
+        </div>
+        <div id="field-diff" class="field-list"></div>
+      </section>
+
+      <section class="full">
+        <h2>Bake-off Scorecard</h2>
+        <div id="promotion-gate" class="pill">Loading promotion gate...</div>
+        <div id="scorecard" class="score-grid"></div>
+      </section>
+
+      <section class="full">
+        <h2>Renderer Probe Results</h2>
+        <div id="renderer-probe-state" class="pill">Loading renderer probe...</div>
+        <div id="renderer-probe-results" class="probe-list"></div>
+      </section>
+
+      <section class="full">
+        <h2>Apple Device Pass Results</h2>
+        <div id="apple-device-pass-state" class="pill">Loading Apple device pass...</div>
+        <div id="apple-device-pass-results" class="probe-list"></div>
+      </section>
+
+      <section class="full">
+        <h2>Decision Memo</h2>
+        <div class="memo-grid">
+          <div id="decision-memo" class="memo">Loading decision memo...</div>
+          <pre id="decision-json">Loading decision JSON...</pre>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const slug = ${JSON.stringify(slug)};
+    const bridgeVersion = ${JSON.stringify(bridgeVersion)};
+    const vendorCommit = ${JSON.stringify(vendorCommit)};
+    const rendererProbe = ${JSON.stringify(rendererProbeResults)};
+    const appleDevicePass = ${JSON.stringify(appleDevicePassResults)};
+    const authority = document.getElementById("authority");
+    const supervisor = document.getElementById("supervisor");
+    const sessionsCount = document.getElementById("sessions-count");
+    const selectedSession = document.getElementById("selected-session");
+    const selectedBlock = document.getElementById("selected-block");
+    const sessionSelect = document.getElementById("session-select");
+    const blockSelect = document.getElementById("block-select");
+    const refreshButton = document.getElementById("refresh");
+    const downloadFixtureButton = document.getElementById("download-fixture");
+    const copyProbeCommandButton = document.getElementById("copy-probe-command");
+    const probeActionNote = document.getElementById("probe-action-note");
+    const privacyNote = document.getElementById("privacy-note");
+    const beaglePreview = document.getElementById("beagle-preview");
+    const warpPreview = document.getElementById("warp-preview");
+    const fieldDiff = document.getElementById("field-diff");
+    const promotionGate = document.getElementById("promotion-gate");
+    const scorecard = document.getElementById("scorecard");
+    const rendererProbeState = document.getElementById("renderer-probe-state");
+    const rendererProbeResults = document.getElementById("renderer-probe-results");
+    const appleDevicePassState = document.getElementById("apple-device-pass-state");
+    const appleDevicePassResults = document.getElementById("apple-device-pass-results");
+    const decisionMemo = document.getElementById("decision-memo");
+    const decisionJson = document.getElementById("decision-json");
+    let state = {
+      sessions: [],
+      blocksBySession: new Map(),
+      selectedSessionId: "",
+      selectedBlockId: "",
+      currentBeagleBlock: null,
+      restrictedAudit: null
+    };
+
+    async function apiJson(path) {
+      const response = await fetch(path, { headers: { "accept": "application/json" } });
+      const text = await response.text();
+      let payload;
+      try {
+        payload = text ? JSON.parse(text) : {};
+      } catch (_error) {
+        payload = { raw: text };
+      }
+      if (!response.ok) throw new Error(payload.error || payload.raw || response.statusText);
+      return payload;
+    }
+
+    function isOperatorSession(session) {
+      const title = String(session?.title || "").toLowerCase();
+      return !(title.includes("smoke") || title.includes("probe") || title.includes("isolation"));
+    }
+
+    function selectSession(list) {
+      return list.find(isOperatorSession) || list[0] || null;
+    }
+
+    function escapeHtmlClient(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function normalizeMemoryStatus(value) {
+      const status = String(value || "not_saved");
+      if (status === "saved") return "remembered";
+      return status;
+    }
+
+    function blockPrivacy(block) {
+      return String(block?.privacyClass || block?.privacy_class || "sensitive");
+    }
+
+    function isRestrictedPrivacy(privacyClass) {
+      return privacyClass === "restricted_local_only" || privacyClass === "restricted";
+    }
+
+    function sanitizeBlock(block) {
+      const privacyClass = blockPrivacy(block);
+      const restricted = isRestrictedPrivacy(privacyClass);
+      return {
+        id: block?.id || "no-live-block-yet",
+        sessionId: block?.sessionId || block?.session_id || "",
+        paneId: block?.paneId || block?.pane_id || "pane-main",
+        kind: block?.kind || "command",
+        title: block?.title || block?.command || "Terminal block",
+        command: restricted ? "[restricted command redacted]" : (block?.command || ""),
+        outputPreview: restricted ? "[restricted output redacted]" : (block?.outputPreview || block?.output_preview || ""),
+        outputByteCount: restricted ? null : (block?.outputByteCount || block?.output_byte_count || null),
+        startedAt: block?.startedAt || block?.started_at || "",
+        finishedAt: block?.finishedAt || block?.finished_at || "",
+        durationMs: block?.durationMs ?? block?.duration_ms ?? null,
+        exitCode: block?.exitCode ?? block?.exit_code ?? null,
+        status: block?.status || "pending",
+        privacyClass,
+        memoryStatus: normalizeMemoryStatus(block?.memoryStatus || block?.memory_status),
+        tags: Array.isArray(block?.tags) ? block.tags : [],
+        sourceModel: block?.sourceModel || block?.source_model || "beagle",
+        bridgeVersion: block?.bridgeVersion || block?.bridge_version || bridgeVersion,
+        blockHash: block?.blockHash || block?.block_hash || null,
+        sessionHash: block?.sessionHash || block?.session_hash || null,
+        rendererHint: block?.rendererHint || block?.renderer_hint || "beagle-terminal-v1",
+        restricted
+      };
+    }
+
+    function terminalBlockToWarpBlock(block) {
+      return {
+        id: block.id,
+        sessionId: block.sessionId,
+        paneId: block.paneId,
+        type: block.kind || "command",
+        title: block.title || block.command || "Terminal block",
+        command: block.command || "",
+        outputPreview: block.outputPreview || "",
+        status: block.status || "finished",
+        memoryStatus: block.memoryStatus || "not_saved",
+        provenance: {
+          source_model: "beagle",
+          bridge_version: bridgeVersion,
+          renderer_hint: "warp-derived-preview",
+          vendor_commit: vendorCommit,
+          block_hash: block.blockHash || null,
+          privacy_class: block.privacyClass,
+          restricted_redacted: Boolean(block.restricted)
+        }
+      };
+    }
+
+    function warpBlockToTerminalBlock(warpBlock) {
+      return {
+        id: warpBlock.id,
+        sessionId: warpBlock.sessionId,
+        paneId: warpBlock.paneId,
+        kind: warpBlock.type,
+        title: warpBlock.title,
+        command: warpBlock.command,
+        outputPreview: warpBlock.outputPreview,
+        status: warpBlock.status,
+        memoryStatus: normalizeMemoryStatus(warpBlock.memoryStatus),
+        sourceModel: "warp",
+        bridgeVersion,
+        rendererHint: "warp-block",
+        blockHash: warpBlock.provenance?.block_hash || null
+      };
+    }
+
+    function preservedFields(beagleBlock, warpBlock, roundTripBlock) {
+      const checks = [
+        ["id", beagleBlock.id, warpBlock.id, roundTripBlock.id],
+        ["session", beagleBlock.sessionId, warpBlock.sessionId, roundTripBlock.sessionId],
+        ["pane", beagleBlock.paneId, warpBlock.paneId, roundTripBlock.paneId],
+        ["command", beagleBlock.command, warpBlock.command, roundTripBlock.command],
+        ["status", beagleBlock.status, warpBlock.status, roundTripBlock.status],
+        ["memoryStatus", beagleBlock.memoryStatus, warpBlock.memoryStatus, roundTripBlock.memoryStatus],
+        ["provenance", beagleBlock.blockHash || "", warpBlock.provenance?.block_hash || "", roundTripBlock.blockHash || ""],
+        ["blockHash", beagleBlock.blockHash || "", warpBlock.provenance?.block_hash || "", roundTripBlock.blockHash || ""]
+      ];
+      return checks.map(([field, beagle, warp, roundTrip]) => ({
+        field,
+        beagle,
+        warp,
+        roundTrip,
+        preserved: String(beagle || "") === String(warp || "") && String(warp || "") === String(roundTrip || "")
+      }));
+    }
+
+    function renderFieldDiff(fields) {
+      fieldDiff.innerHTML = fields.map((entry) => (
+        '<div class="field">' +
+          '<strong>' + escapeHtmlClient(entry.field) + '</strong>' +
+          '<span class="' + (entry.preserved ? 'ok' : 'warn') + '">' + (entry.preserved ? 'preserved' : 'changed') + '</span>' +
+        '</div>'
+      )).join("");
+    }
+
+    function metricClass(status) {
+      if (status === "pass") return "score-pass";
+      if (status === "fail") return "score-fail";
+      return "score-pending";
+    }
+
+    function buildBakeOffMetrics(beagleBlock, fields) {
+      const preservedCount = fields.filter((entry) => entry.preserved).length;
+      const hasLiveBlock = beagleBlock.id !== "no-live-block-yet";
+      const restrictedSafe = !beagleBlock.restricted || beagleBlock.outputPreview === "[restricted output redacted]";
+      const hasProvenance = Boolean(beagleBlock.blockHash || beagleBlock.sessionHash || beagleBlock.bridgeVersion);
+      const latestProbe = rendererProbe.latest;
+      const probeMeasured = Boolean(latestProbe);
+      const vtFidelity = latestProbe?.vtFidelity || null;
+      const latencyBudget = latestProbe?.latencyBudget || null;
+      const latestDevicePass = appleDevicePass.latest;
+      const devicePassMeasured = Boolean(latestDevicePass);
+      const secretAudit = state.restrictedAudit || { status: "pending", blockId: "" };
+      const secretAuditPass = secretAudit.status === "pass" && secretAudit.outputExposed === false && secretAudit.redacted === true;
+      return [
+        {
+          key: "live_block",
+          label: "Live block",
+          status: hasLiveBlock ? "pass" : "pending",
+          evidence: hasLiveBlock ? "Workbench block selected from cluster replay." : "Run a command, refresh, then select a real block."
+        },
+        {
+          key: "bridge_round_trip",
+          label: "Bridge round-trip",
+          status: preservedCount === fields.length ? "pass" : "pending",
+          evidence: preservedCount + "/" + fields.length + " tracked fields preserved."
+        },
+        {
+          key: "provenance",
+          label: "Provenance",
+          status: hasProvenance ? "pass" : "pending",
+          evidence: hasProvenance ? "Bridge version/hash metadata is present." : "No block/session hash available yet."
+        },
+        {
+          key: "restricted_safety",
+          label: "Restricted safety",
+          status: restrictedSafe ? "pass" : "fail",
+          evidence: beagleBlock.restricted ? "Restricted output redacted before preview." : "Selected block is not restricted."
+        },
+        {
+          key: "memory_authority",
+          label: "Memory authority",
+          status: "pass",
+          evidence: "Bake-off route is read-only; canonical memory remains cluster-only."
+        },
+        {
+          key: "license_boundary",
+          label: "AGPL boundary",
+          status: "pass",
+          evidence: "Project Cockpit consumes protocol previews and does not import Warp-derived code."
+        },
+        {
+          key: "vt_fidelity",
+          label: "VT fidelity",
+          status: vtFidelity?.status === "pass" ? "pass" : "pending",
+          evidence: vtFidelity
+            ? "Probe VT audit=" + vtFidelity.status + " mode=" + vtFidelity.mode + "."
+            : "Renderer escape-sequence fidelity has not been measured yet."
+        },
+        {
+          key: "renderer_probe",
+          label: "Renderer probe",
+          status: "pending",
+          evidence: probeMeasured
+            ? "Latest probe returned " + latestProbe.status + " on " + latestProbe.platform + "/" + latestProbe.arch + "."
+            : "No renderer probe result JSON found yet."
+        },
+        {
+          key: "renderer_latency",
+          label: "Renderer latency",
+          status: latencyBudget?.status === "pass" ? "pass" : "pending",
+          evidence: latencyBudget
+            ? "Probe conversion latency " + latencyBudget.totalMs + "ms under " + latencyBudget.thresholdMs + "ms; input-to-paint still needs device pass."
+            : "Input-to-paint latency still needs iPad/iPhone/macOS measurement."
+        },
+        {
+          key: "apple_usability",
+          label: "Apple usability",
+          status: latestDevicePass?.status === "device_pass" ? "pass" : "pending",
+          evidence: devicePassMeasured
+            ? "Latest Apple device pass=" + latestDevicePass.status + " score=" + (latestDevicePass.humanScore || "pending") + " form=" + (latestDevicePass.device?.form_factor || "unknown") + "."
+            : "Dynamic Type, small iPhone width, keyboard shortcuts, and touch ergonomics need device pass."
+        },
+        {
+          key: "secret_scan_audit",
+          label: "Secret-scan audit",
+          status: secretAuditPass ? "pass" : "pending",
+          evidence: secretAuditPass
+            ? "Restricted block " + secretAudit.blockId + " is blocked/redacted in Workbench replay; output is not exposed in bake-off."
+            : "No restricted_local_only replay block found yet for this page-level audit."
+        }
+      ];
+    }
+
+    function buildPromotionGate(metrics) {
+      const passCount = metrics.filter((metric) => metric.status === "pass").length;
+      const pending = metrics.filter((metric) => metric.status === "pending");
+      const failed = metrics.filter((metric) => metric.status === "fail");
+      const verdict = failed.length
+        ? "block Warp renderer promotion"
+        : "continue dual bridge; do not promote Warp renderer yet";
+      const reason = failed.length
+        ? failed.map((metric) => metric.label).join(", ") + " failed."
+        : pending.length
+          ? pending.map((metric) => metric.label).join(", ") + " still pending."
+          : "All tracked metrics pass; a human promotion memo is still required.";
+      return {
+        eligible: false,
+        state: failed.length ? "blocked" : "not_promoted",
+        verdict,
+        reason,
+        passCount,
+        pendingCount: pending.length,
+        failCount: failed.length,
+        requiredBeforePromotion: pending.map((metric) => metric.key)
+      };
+    }
+
+    function renderScorecard(metrics, promotion) {
+      promotionGate.textContent = "promotion_gate=" + promotion.state + ": " + promotion.verdict;
+      promotionGate.className = promotion.failCount ? "pill danger" : "pill warn";
+      scorecard.innerHTML = metrics.map((metric) => (
+        '<div class="score-card">' +
+          '<strong>' + escapeHtmlClient(metric.label) + '</strong>' +
+          '<b class="' + metricClass(metric.status) + '">' + escapeHtmlClient(metric.status) + '</b>' +
+          '<span>' + escapeHtmlClient(metric.evidence) + '</span>' +
+        '</div>'
+      )).join("");
+    }
+
+    function renderRendererProbeResults() {
+      rendererProbeState.textContent = "renderer_probe=" + rendererProbe.state;
+      rendererProbeState.className = rendererProbe.state === "measured" ? "pill warn" : "pill";
+      if (!rendererProbe.results.length) {
+        rendererProbeResults.innerHTML = '<div class="probe-item"><h3>not_measured</h3><p>No probe JSON found. Run the isolated AGPL probe and place its JSON in the configured renderer-probe directory.</p></div>';
+        return;
+      }
+      rendererProbeResults.innerHTML = rendererProbe.results.map((result) => {
+        const fixture = result.fixture
+          ? 'fixture=' + escapeHtmlClient(result.fixture.blockId || "unknown") + ' · privacy=' + escapeHtmlClient(result.fixture.privacyClass || "unknown") + ' · redacted=' + escapeHtmlClient(String(result.fixture.restrictedRedacted))
+          : 'fixture=none';
+        const notes = (result.fidelityNotes || []).map((note) => '<p>' + escapeHtmlClient(note) + '</p>').join("");
+        const vt = result.vtFidelity
+          ? '<div class="row"><span>VT fidelity</span><strong>' + escapeHtmlClient(result.vtFidelity.status + ' / ' + result.vtFidelity.mode) + '</strong></div>'
+          : "";
+        const latency = result.latencyBudget
+          ? '<div class="row"><span>Latency budget</span><strong>' + escapeHtmlClient(result.latencyBudget.status + ' · ' + result.latencyBudget.totalMs + 'ms/' + result.latencyBudget.thresholdMs + 'ms') + '</strong></div>'
+          : "";
+        return (
+          '<div class="probe-item">' +
+            '<h3>' + escapeHtmlClient(result.status) + ' · ' + escapeHtmlClient(result.platform) + '/' + escapeHtmlClient(result.arch) + '</h3>' +
+            '<div class="row"><span>File</span><strong>' + escapeHtmlClient(result.file) + '</strong></div>' +
+            '<div class="row"><span>Renderer</span><strong>' + escapeHtmlClient(result.renderer) + '</strong></div>' +
+            '<div class="row"><span>Hot path</span><strong>' + escapeHtmlClient(result.hotPath) + '</strong></div>' +
+            '<div class="row"><span>Timing</span><strong>' + escapeHtmlClient(result.timingMs == null ? "not_reported" : result.timingMs + "ms") + '</strong></div>' +
+            vt +
+            latency +
+            '<p>' + fixture + '</p>' +
+            notes +
+          '</div>'
+        );
+      }).join("");
+    }
+
+    function renderAppleDevicePassResults() {
+      appleDevicePassState.textContent = "apple_device_pass=" + appleDevicePass.state;
+      appleDevicePassState.className = appleDevicePass.latest?.status === "device_pass" ? "pill ok" : "pill warn";
+      if (!appleDevicePass.results.length) {
+        appleDevicePassResults.innerHTML = '<div class="probe-item"><h3>not_measured</h3><p>No sanitized Apple device pass JSON has been recorded yet. Record one from the Workbench after a real device session.</p></div>';
+        return;
+      }
+      appleDevicePassResults.innerHTML = appleDevicePass.results.map((result) => {
+        const device = result.device || {};
+        const blockers = (result.blockers || []).map((blocker) => '<p>' + escapeHtmlClient(blocker) + '</p>').join("");
+        return (
+          '<div class="probe-item">' +
+            '<h3>' + escapeHtmlClient(result.status) + ' · ' + escapeHtmlClient(device.form_factor || "unknown") + '</h3>' +
+            '<div class="row"><span>File</span><strong>' + escapeHtmlClient(result.file) + '</strong></div>' +
+            '<div class="row"><span>Block</span><strong>' + escapeHtmlClient(result.blockId || "unknown") + '</strong></div>' +
+            '<div class="row"><span>Candidate</span><strong>' + escapeHtmlClient(result.selectedCandidate || "unknown") + '</strong></div>' +
+            '<div class="row"><span>Score</span><strong>' + escapeHtmlClient(result.humanScore == null ? "pending" : result.humanScore + "/5") + '</strong></div>' +
+            '<div class="row"><span>Input-to-paint</span><strong>' + escapeHtmlClient(result.inputToPaintMs == null ? "not_reported" : result.inputToPaintMs + "ms") + '</strong></div>' +
+            '<div class="row"><span>Leak check</span><strong>' + escapeHtmlClient(result.restrictedLeakCheck) + '</strong></div>' +
+            '<div class="row"><span>Canonical memory</span><strong>' + escapeHtmlClient(result.canonicalMemoryWritten ? "unexpected" : "not_written") + '</strong></div>' +
+            (result.notes ? '<p>' + escapeHtmlClient(result.notes) + '</p>' : '') +
+            blockers +
+          '</div>'
+        );
+      }).join("");
+    }
+
+    function selectedFixtureJson() {
+      const block = state.currentBeagleBlock || emptyBlock(state.selectedSessionId);
+      return JSON.stringify({
+        id: block.id,
+        sessionId: block.sessionId,
+        paneId: block.paneId,
+        kind: block.kind,
+        title: block.title,
+        command: block.command,
+        outputPreview: block.outputPreview,
+        outputByteCount: block.outputByteCount,
+        startedAt: block.startedAt,
+        finishedAt: block.finishedAt,
+        durationMs: block.durationMs,
+        exitCode: block.exitCode,
+        status: block.status,
+        privacyClass: block.privacyClass,
+        memoryStatus: block.memoryStatus,
+        tags: block.tags,
+        sourceModel: block.sourceModel,
+        bridgeVersion: block.bridgeVersion,
+        blockHash: block.blockHash,
+        sessionHash: block.sessionHash,
+        rendererHint: block.rendererHint
+      }, null, 2);
+    }
+
+    function fixtureFileName() {
+      const block = state.currentBeagleBlock || {};
+      const safe = String(block.id || "no-live-block-yet").replace(/[^a-zA-Z0-9_.-]+/g, "-").slice(0, 96);
+      return slug + "-" + safe + "-warp-fixture.json";
+    }
+
+    function probeCommand() {
+      const fixture = fixtureFileName();
+      return [
+        "npm --silent --prefix apps/warp-workbench run renderer:probe:block --",
+        "--base-url",
+        "http://127.0.0.1:4370",
+        "--project",
+        slug,
+        "--session-id",
+        state.currentBeagleBlock?.sessionId || state.selectedSessionId || "",
+        "--block-id",
+        state.currentBeagleBlock?.id || "no-live-block-yet",
+        "--out-dir",
+        "/workspace/.beagle/workbench/renderer-probes/" + slug,
+        "  # fixture download: " + fixture
+      ].join(" ");
+    }
+
+    function downloadSelectedFixture() {
+      const blob = new Blob([selectedFixtureJson() + "\\n"], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fixtureFileName();
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      probeActionNote.textContent = "fixture_downloaded=" + fixtureFileName();
+      probeActionNote.className = "pill";
+    }
+
+    async function copySelectedProbeCommand() {
+      const command = probeCommand();
+      try {
+        await navigator.clipboard.writeText(command);
+        probeActionNote.textContent = "probe_command_copied";
+        probeActionNote.className = "pill ok";
+      } catch (_error) {
+        probeActionNote.textContent = command;
+        probeActionNote.className = "pill warn";
+      }
+    }
+
+    function renderDecisionMemo(beagleBlock, fields, metrics, promotion) {
+      const preservedCount = fields.filter((entry) => entry.preserved).length;
+      const restricted = beagleBlock.restricted;
+      const secretAuditPass = state.restrictedAudit?.status === "pass";
+      decisionMemo.innerHTML = [
+        '<h3>Verdict</h3>',
+        '<p><strong>' + escapeHtmlClient(promotion.verdict) + '</strong></p>',
+        '<p>Bridge conversion is inspectable and preserves ' + preservedCount + '/' + fields.length + ' tracked fields for the selected block. The current gate has ' + promotion.passCount + ' passing, ' + promotion.pendingCount + ' pending, and ' + promotion.failCount + ' failing checks.</p>',
+        '<p class="' + (restricted ? 'warn' : 'ok') + '">' + (restricted ? 'Selected block is restricted; output is intentionally hidden.' : 'Selected block is safe for outputPreview-level comparison.') + '</p>',
+        secretAuditPass
+          ? '<p class="ok">Secret-scan audit found restricted block ' + escapeHtmlClient(state.restrictedAudit.blockId) + ' and keeps output hidden in the bake-off.</p>'
+          : '<p class="warn">Secret-scan audit still needs a restricted replay block to be measured on this page.</p>',
+        '<p>Renderer promotion remains blocked until VT fidelity, latency, iPad/iPhone/macOS usability, and secret-scan behavior are measured against the Beagle Notebook Terminal.</p>',
+        '<p>Next: live block selection, isolated renderer spike, Apple-device latency pass' + (secretAuditPass ? '.' : ', and secret-scan audit.') + '</p>'
+      ].join("");
+      decisionJson.textContent = JSON.stringify({
+        vendorCommit,
+        bridgeVersion,
+        selectedBlock: {
+          id: beagleBlock.id,
+          sessionId: beagleBlock.sessionId,
+          privacyClass: beagleBlock.privacyClass,
+          memoryStatus: beagleBlock.memoryStatus,
+          blockHash: beagleBlock.blockHash,
+          restrictedRedacted: Boolean(beagleBlock.restricted)
+        },
+        rendererProbe: {
+          state: rendererProbe.state,
+          latest: rendererProbe.latest
+            ? {
+                status: rendererProbe.latest.status,
+                platform: rendererProbe.latest.platform,
+                arch: rendererProbe.latest.arch,
+                timingMs: rendererProbe.latest.timingMs,
+                promoted: rendererProbe.latest.promoted,
+                vtFidelity: rendererProbe.latest.vtFidelity,
+                latencyBudget: rendererProbe.latest.latencyBudget
+              }
+            : null
+        },
+        appleDevicePass: {
+          state: appleDevicePass.state,
+          latest: appleDevicePass.latest
+        },
+        restrictedAudit: state.restrictedAudit,
+        fieldPreservation: fields.map((entry) => ({
+          field: entry.field,
+          preserved: entry.preserved
+        })),
+        metrics,
+        promotionGate: promotion
+      }, null, 2);
+    }
+
+    function populateSessionSelect(list) {
+      sessionSelect.innerHTML = list.map((session) => {
+        const id = session.id || session.session_id;
+        const label = (session.title || "Workbench session") + " - " + id;
+        return '<option value="' + escapeHtmlClient(id) + '">' + escapeHtmlClient(label) + '</option>';
+      }).join("");
+      sessionSelect.value = state.selectedSessionId;
+    }
+
+    function populateBlockSelect(blocks) {
+      if (!blocks.length) {
+        blockSelect.innerHTML = '<option value="no-live-block-yet">No finished block yet</option>';
+        blockSelect.value = "no-live-block-yet";
+        return;
+      }
+      blockSelect.innerHTML = blocks.map((block) => {
+        const label = (block.title || block.command || block.id || "block").slice(0, 96);
+        return '<option value="' + escapeHtmlClient(block.id) + '">' + escapeHtmlClient(label) + '</option>';
+      }).join("");
+      blockSelect.value = state.selectedBlockId || blocks[0].id;
+    }
+
+    async function loadBlocksForSession(sessionId) {
+      if (!sessionId) return [];
+      if (state.blocksBySession.has(sessionId)) return state.blocksBySession.get(sessionId);
+      const blockResponse = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions/" + encodeURIComponent(sessionId) + "/blocks");
+      const blocks = blockResponse.blocks || [];
+      state.blocksBySession.set(sessionId, blocks);
+      return blocks;
+    }
+
+    async function findRestrictedAudit(list) {
+      const existing = list.find((session) => {
+        const privacy = String(session?.lastMemoryStatus?.privacyClass || session?.lastMemoryStatus?.privacy_class || "");
+        return isRestrictedPrivacy(privacy);
+      });
+      if (existing) {
+        const memory = existing.lastMemoryStatus || {};
+        return {
+          status: "pass",
+          source: "session_last_memory_status",
+          sessionId: existing.id || existing.session_id || "",
+          blockId: memory.blockId || memory.block_id || "unknown",
+          privacyClass: memory.privacyClass || memory.privacy_class || "restricted_local_only",
+          memoryStatus: memory.status || "blocked",
+          outputExposed: false,
+          redacted: true
+        };
+      }
+
+      for (const session of list.slice(0, 40)) {
+        const sessionId = session.id || session.session_id || "";
+        if (!sessionId) continue;
+        const blocks = await loadBlocksForSession(sessionId);
+        const block = blocks.find((candidate) => isRestrictedPrivacy(blockPrivacy(candidate)));
+        if (!block) continue;
+        return {
+          status: "pass",
+          source: "block_replay",
+          sessionId,
+          blockId: block.id || "unknown",
+          privacyClass: blockPrivacy(block),
+          memoryStatus: normalizeMemoryStatus(block.memoryStatus || block.memory_status || "blocked"),
+          outputExposed: false,
+          redacted: true
+        };
+      }
+
+      return {
+        status: "pending",
+        source: "not_found",
+        sessionId: "",
+        blockId: "",
+        privacyClass: "",
+        memoryStatus: "",
+        outputExposed: false,
+        redacted: false
+      };
+    }
+
+    function emptyBlock(sessionId) {
+      return {
+        id: "no-live-block-yet",
+        sessionId,
+        paneId: "pane-main",
+        kind: "command",
+        title: "No finished block yet",
+        command: "",
+        outputPreview: "Run a command in the Beagle Workbench, then refresh this lab.",
+        status: "pending",
+        memoryStatus: "not_saved",
+        privacyClass: "sensitive",
+        blockHash: null,
+        tags: []
+      };
+    }
+
+    async function renderSelectedBlock() {
+      const blocks = await loadBlocksForSession(state.selectedSessionId);
+      populateBlockSelect(blocks);
+      const rawBlock = blocks.find((block) => block.id === (state.selectedBlockId || blockSelect.value)) || blocks[0] || emptyBlock(state.selectedSessionId);
+      state.selectedBlockId = rawBlock.id;
+      blockSelect.value = rawBlock.id;
+      selectedBlock.textContent = rawBlock.id;
+
+      const beagleBlock = sanitizeBlock(rawBlock);
+      state.currentBeagleBlock = beagleBlock;
+      const warpBlock = terminalBlockToWarpBlock(beagleBlock);
+      const roundTripBlock = warpBlockToTerminalBlock(warpBlock);
+      const fields = preservedFields(beagleBlock, warpBlock, roundTripBlock);
+      const metrics = buildBakeOffMetrics(beagleBlock, fields);
+      const promotion = buildPromotionGate(metrics);
+      privacyNote.textContent = beagleBlock.restricted
+        ? "restricted_local_only: outputPreview hidden; no memory write occurs here"
+        : "outputPreview only: derived preview; no memory write occurs here";
+      privacyNote.className = beagleBlock.restricted ? "pill warn" : "pill";
+      probeActionNote.textContent = "fixture=" + fixtureFileName();
+      probeActionNote.className = beagleBlock.restricted ? "pill warn" : "pill";
+      beaglePreview.textContent = JSON.stringify(beagleBlock, null, 2);
+      warpPreview.textContent = JSON.stringify(warpBlock, null, 2);
+      renderFieldDiff(fields);
+      renderScorecard(metrics, promotion);
+      renderRendererProbeResults();
+      renderAppleDevicePassResults();
+      renderDecisionMemo(beagleBlock, fields, metrics, promotion);
+    }
+
+    async function refresh() {
+      try {
+        const registry = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/agents/registry");
+        const sessions = await apiJson("/api/workspaces/" + encodeURIComponent(slug) + "/sessions");
+        const list = sessions.sessions || [];
+        const selected = selectSession(list);
+        state.sessions = list;
+        state.blocksBySession = new Map();
+        state.selectedSessionId = state.selectedSessionId || selected?.id || selected?.session_id || "";
+        state.restrictedAudit = await findRestrictedAudit(list);
+        authority.textContent = registry.authority?.authority || sessions.authority?.authority || "unknown";
+        supervisor.textContent = registry.authority?.supervisor?.status || sessions.authority?.supervisor?.status || "unknown";
+        sessionsCount.textContent = String(list.length);
+        selectedSession.textContent = state.selectedSessionId || "none";
+        populateSessionSelect(list);
+        await renderSelectedBlock();
+      } catch (error) {
+        authority.textContent = "degraded";
+        supervisor.textContent = "unknown";
+        promotionGate.textContent = "promotion_gate=degraded";
+        promotionGate.className = "pill danger";
+        scorecard.innerHTML = "";
+        decisionJson.textContent = "{}";
+        decisionMemo.textContent = String(error.stack || error.message || error);
+      }
+    }
+
+    sessionSelect.addEventListener("change", async () => {
+      state.selectedSessionId = sessionSelect.value;
+      state.selectedBlockId = "";
+      selectedSession.textContent = state.selectedSessionId || "none";
+      await renderSelectedBlock();
+    });
+    blockSelect.addEventListener("change", async () => {
+      state.selectedBlockId = blockSelect.value;
+      await renderSelectedBlock();
+    });
+    downloadFixtureButton.addEventListener("click", downloadSelectedFixture);
+    copyProbeCommandButton.addEventListener("click", copySelectedProbeCommand);
+    refreshButton.addEventListener("click", refresh);
+    refresh();
+  </script>
+</body>
+</html>`;
+}
+
+app.get("/api/workspaces/:slug/warp/device-pass", jsonResponse(async (req) => {
+  return readAppleDevicePassResults(req.params.slug);
+}));
+
+app.post("/api/workspaces/:slug/warp/device-pass", jsonResponse(async (req) => {
+  return writeAppleDevicePassResult(req.params.slug, req.body || {});
+}));
+
+if (!existsSync(distDir)) {
+  app.get("/projects/:slug/workbench-v2", async (req, res) => {
+    try {
+      const project = await getProjectOrThrow(req.params.slug);
+      res.type("html").send(renderVisualWorkbenchPrototypePage(project));
+    } catch (error) {
+      res.status(error.statusCode || 500).type("text/plain").send(error.message || "project unavailable");
+    }
+  });
+
+  app.get("/projects/:slug/warp", async (req, res) => {
+    try {
+      const project = await getProjectOrThrow(req.params.slug);
+      res.type("html").send(renderWarpBridgeLabPage(project));
+    } catch (error) {
+      res.status(error.statusCode || 500).type("text/plain").send(error.message || "project unavailable");
+    }
+  });
+
+  app.get(["/projects/:slug", "/projects/:slug/viewer"], async (req, res) => {
+    try {
+      const project = await getProjectOrThrow(req.params.slug);
+      res.type("html").send(renderProjectLaunchPage(project));
+    } catch (error) {
+      res.status(error.statusCode || 500).type("text/plain").send(error.message || "project unavailable");
+    }
+  });
+}
+
 if (existsSync(distDir)) {
   app.use(express.static(distDir));
 
@@ -11446,6 +14951,12 @@ registerMobileRoutes(app, {
 // ─── Agent routes (persistent agent pods — Claude Code, Codex, etc.) ────
 registerAgentRoutes(app);
 
+// ─── Notebook terminal workspace routes — Sounio Workbench v1 ──────────
+registerWorkspaceRoutes(app, {
+  getProjectOrThrow,
+  readCatalog: loadCatalog,
+});
+
 // ─── Agent scratchpad — shared notepad between agent + iOS ──────────────
 registerScratchpadRoutes(app);
 
@@ -11457,6 +14968,93 @@ registerQueueRoutes(app);
 
 // ─── Auth bridge to beagle-server (iOS gets token via cockpit) ──────────
 registerAuthBridgeRoutes(app);
+
+// ─── Physiome ingest proxy — /api/physiome/* → physiome-ingest ──────────
+// The iOS Physiome uploader (PhysiomeUploader.swift) posts HealthKit and
+// WeatherKit samples to beagle.chiuratto.ai/api/physiome/ingest (this cockpit,
+// behind the cloudflared tunnel). The cockpit gate validates the operator Bearer;
+// this handler substitutes the physiome-specific ingest token (physiome-secrets)
+// before forwarding to the in-cluster ingest service.
+//   Service:  physiome-ingest.beagle.svc.cluster.local:8080
+//   Endpoint: POST /api/physiome/ingest
+(function registerPhysiomeProxyRoutes() {
+  const PHYSIOME_INGEST_INTERNAL_URL =
+    process.env.PROJECT_COCKPIT_PHYSIOME_INGEST_URL ||
+    "http://physiome-ingest.beagle.svc.cluster.local:8080";
+  const PHYSIOME_SECRET = "physiome-secrets";
+  const PHYSIOME_TOKEN_KEY = "PHYSIOME_INGEST_TOKEN";
+  const PHYSIOME_TOKEN_TTL_MS = 5 * 60 * 1000; // 5-minute cache
+
+  let physiomeTokenCache = null;
+  let physiomeTokenCachedAt = 0;
+
+  async function fetchPhysiomeToken() {
+    const now = Date.now();
+    if (physiomeTokenCache && (now - physiomeTokenCachedAt) < PHYSIOME_TOKEN_TTL_MS) {
+      return physiomeTokenCache;
+    }
+    try {
+      const { stdout } = await runKubectl(
+        ["-n", "beagle", "get", "secret", PHYSIOME_SECRET,
+         "-o", `jsonpath={.data.${PHYSIOME_TOKEN_KEY}}`],
+        { timeoutMs: 5000 }
+      );
+      const decoded = Buffer.from(String(stdout || "").trim(), "base64").toString("utf8").trim();
+      if (decoded) {
+        physiomeTokenCache = decoded;
+        physiomeTokenCachedAt = now;
+        return decoded;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  app.post("/api/physiome/*", async (req, res) => {
+    // Validate the incoming operator token against the known beagle token so this
+    // endpoint cannot be abused by any bearer that merely passed the cockpit gate.
+    const incoming = (req.headers["authorization"] || "").replace(/^Bearer\s+/i, "").trim();
+    const tokenResult = await fetchOperatorToken();
+    if (tokenResult.error || !tokenResult.token || incoming !== tokenResult.token) {
+      return res.status(401).json({ ok: false, error: "invalid operator token for physiome ingest" });
+    }
+
+    // Fetch the physiome-ingest-specific token (a different secret).
+    const physToken = await fetchPhysiomeToken();
+    if (!physToken) {
+      return res.status(503).json({ ok: false, error: "physiome-ingest token unavailable (check physiome-secrets)" });
+    }
+
+    // Strip the /api/physiome prefix and forward to the ingest service.
+    const tail = req.originalUrl.replace(/^\/api\/physiome/, "") || "/";
+    const target = `${PHYSIOME_INGEST_INTERNAL_URL}/api/physiome${tail}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60_000);
+    try {
+      const upstream = await fetch(target, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${physToken}`,
+          "X-Beagle-Consumer": "beagle-operator"
+        },
+        body: JSON.stringify(req.body ?? {}),
+        signal: ctrl.signal
+      });
+      const text = await upstream.text();
+      res
+        .status(upstream.status)
+        .set("Content-Type", upstream.headers.get("content-type") || "application/json")
+        .send(text);
+    } catch (err) {
+      res.status(503).json({
+        ok: false,
+        error: err.name === "AbortError" ? "physiome-ingest timeout (60s)" : err.message
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+})();
 
 const server = http.createServer(app);
 
@@ -11475,7 +15073,9 @@ if (Number.isFinite(keepAliveTimeoutMs) && keepAliveTimeoutMs > 0) {
 // Both WSS use noServer: true and we route via a single upgrade handler.
 const wss = new WebSocketServer({ noServer: true });
 const agentWss = new WebSocketServer({ noServer: true });
+const workspaceWss = new WebSocketServer({ noServer: true });
 attachAgentWebSocket(agentWss);
+attachWorkspaceWebSocket(workspaceWss, { getProjectOrThrow });
 
 server.on("upgrade", (req, socket, head) => {
   // Auth check for WebSocket upgrades
@@ -11503,6 +15103,13 @@ server.on("upgrade", (req, socket, head) => {
     const validKinds = ["claude-code", "codex", "local-sglang", "custom"];
     if (!validKinds.includes(wsKind)) { socket.destroy(); return; }
     agentWss.handleUpgrade(req, socket, head, (ws) => agentWss.emit("connection", ws, req));
+    return;
+  }
+  const workspaceMatch = urlPath.match(/^\/ws\/workspaces\/([^/]+)\/sessions\/([^/]+)\/panes\/([^/]+)$/);
+  if (workspaceMatch) {
+    const [, wsSlug] = workspaceMatch;
+    if (!VALID_SLUG.test(wsSlug)) { socket.destroy(); return; }
+    workspaceWss.handleUpgrade(req, socket, head, (ws) => workspaceWss.emit("connection", ws, req));
     return;
   }
   socket.destroy();

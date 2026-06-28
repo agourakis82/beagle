@@ -107,16 +107,21 @@ impl Default for IdentityConfig {
 /// Brain connector (consciousness) configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrainConfig {
-    /// Phi (Φ) threshold for deep reasoning escalation
+    /// Salience threshold for deep-reasoning escalation. (Field name kept as
+    /// `phi_threshold` for config compatibility; it is a heuristic salience
+    /// cutoff, NOT a real IIT Φ — see beagle-exocortex::brain and the real
+    /// IIT calculator in beagle-transcend.)
     pub phi_threshold: f64,
 
-    /// Enable IIT 4.0 consciousness calculation
+    /// Enable the salience score (name kept for config compatibility; does NOT
+    /// run an IIT computation).
     pub enable_iit: bool,
 
-    /// Enable Global Workspace Theory attention spotlight
+    /// Enable attention-spotlight tracking (name kept for config compatibility;
+    /// a bounded recency list, not Global Workspace Theory).
     pub enable_gwt: bool,
 
-    /// Ignition threshold for GWT
+    /// Ignition threshold for the attention spotlight.
     pub gwt_ignition_threshold: f64,
 
     /// Maximum attention span (items in working memory)
@@ -239,7 +244,9 @@ impl Default for MemoryConfig {
 /// Feature flags for optional components
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureFlags {
-    /// Enable consciousness substrate (IIT/GWT)
+    /// Enable salience/awareness heuristic (field name kept for compat; formerly
+    /// branded "consciousness substrate (IIT/GWT)" — NOT a real IIT computation,
+    /// see `beagle-exocortex::brain` module note).
     pub enable_consciousness: bool,
 
     /// Enable personality system integration

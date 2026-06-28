@@ -711,6 +711,7 @@ impl DeadlockDetector {
             critical_section: true,
             requires_math: true,
             offline_required: false,
+            ..Default::default()
         };
 
         let stats = self.context.get_current_stats().await;

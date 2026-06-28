@@ -11,7 +11,7 @@ use crate::{LlmClient, RequestMeta};
 use beagle_config::BeagleConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Tier de provider LLM
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,8 +45,8 @@ impl ProviderTier {
             ProviderTier::ClaudeDirect => "claude-direct",
             ProviderTier::Grok3 => "grok-3",
             ProviderTier::Grok4Heavy => "grok-4-heavy",
-            ProviderTier::DeepSeekMath => "deepseek-math",
-            ProviderTier::CloudMath => "deepseek-math", // legacy alias
+            ProviderTier::DeepSeekMath => "deepseek-v4-pro",
+            ProviderTier::CloudMath => "deepseek-v4-pro", // legacy alias
             ProviderTier::LocalFallback => "local-fallback",
         }
     }
@@ -63,6 +63,21 @@ impl ProviderTier {
             ProviderTier::DeepSeekMath => 14.0, // ~$14/M tokens
             ProviderTier::CloudMath => 14.0,    // alias
             ProviderTier::LocalFallback => 0.0, // Local compute only
+        }
+    }
+
+    /// Estimated USD cost of a request of `approx_tokens` at this tier's price.
+    /// (#13) Used to enforce `RequestMeta::max_cost_usd`.
+    pub fn estimated_cost_usd(&self, approx_tokens: usize) -> f64 {
+        self.cost_per_million_tokens() * (approx_tokens as f64 / 1_000_000.0)
+    }
+
+    /// (#13) True if this tier's estimated cost for `approx_tokens` is within `max_cost_usd`.
+    /// `None` ceiling always passes; free tiers (cost 0) always pass.
+    pub fn within_budget(&self, approx_tokens: usize, max_cost_usd: Option<f64>) -> bool {
+        match max_cost_usd {
+            Some(ceiling) => self.estimated_cost_usd(approx_tokens) <= ceiling,
+            None => true,
         }
     }
 
@@ -202,6 +217,19 @@ pub struct TieredRouter {
     pub grok4_heavy: Option<Arc<dyn LlmClient>>,
     pub math: Option<Arc<dyn LlmClient>>,
     pub local: Option<Arc<dyn LlmClient>>,
+    /// In-cluster local LLM fleet (LiteLLM/vLLM, OpenAI-compatible). When present this is the
+    /// default workhorse tier instead of Grok — see `LocalFleetClient::from_env`.
+    pub fleet: Option<Arc<dyn LlmClient>>,
+    /// Per-tier circuit breaker (#13): a tier that fails repeatedly is skipped for a cooldown so a
+    /// dead provider isn't retried on every request.
+    pub breaker: Arc<crate::resilience::CircuitBreaker>,
+    /// Per-identity token-bucket rate limiter (#13): one noisy consumer can't starve the fleet.
+    /// Keyed by `RequestMeta::identity` (or "anon"). Disabled (always allow) when capacity ≤ 0,
+    /// which is the default unless `BEAGLE_LLM_RATE_CAPACITY` is set.
+    pub limiter: Arc<crate::resilience::RateLimit>,
+    /// Gateway exact-match response cache (#14): opt-in bounded LRU+TTL cache checked before
+    /// calling any provider. Disabled when capacity=0 (default unless BEAGLE_CACHE_SIZE is set).
+    pub cache: Arc<crate::cache::ResponseCache>,
     pub cfg: LlmRoutingConfig,
 }
 
@@ -218,6 +246,16 @@ impl TieredRouter {
             grok4_heavy: Some(MockLlmClient::new()),
             math: None,
             local: Some(MockLlmClient::new()),
+            fleet: None,
+            breaker: Arc::new(crate::resilience::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(30),
+            )),
+            limiter: Arc::new(crate::resilience::RateLimit::disabled()),
+            cache: Arc::new(crate::cache::ResponseCache::new(
+                0,
+                std::time::Duration::from_secs(300),
+            )),
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -292,9 +330,21 @@ impl TieredRouter {
 
         let grok3: Arc<dyn LlmClient> = Arc::new(crate::clients::grok::GrokClient::new());
 
-        // Grok 4 Heavy usa o mesmo client, mas com modelo diferente
-        // Por enquanto, usamos o mesmo client (GrokClient escolhe modelo dinamicamente)
-        let grok4_heavy: Option<Arc<dyn LlmClient>> = Some(grok3.clone());
+        // Escalation / "Heavy" tier — a genuinely STRONGER model, not a Grok-3 clone.
+        // Priority:
+        //   1. Claude (strong non-Grok) when available — best cross-model anti-bias guarantee.
+        //   2. A dedicated GrokClient whose `choose_model` will always select "grok-4-heavy"
+        //      (because `complete_chosen` passes model="grok-4-heavy" for Grok4Heavy tier).
+        //      This is distinct from the grok3 workhorse client; do NOT clone it.
+        let grok4_heavy: Option<Arc<dyn LlmClient>> = if let Some(ref c) = claude {
+            info!("Heavy/escalation tier → Claude (strong non-Grok model)");
+            Some(c.clone())
+        } else {
+            // Construct a fresh GrokClient so it is a distinct instance from grok3.
+            // complete_chosen() will pass model="grok-4-heavy" which choose_model() honours.
+            info!("Heavy/escalation tier → GrokClient (grok-4-heavy model via complete_chosen)");
+            Some(Arc::new(crate::clients::grok::GrokClient::new()))
+        };
 
         // DeepSeek Math client (se API key disponível)
         let math: Option<Arc<dyn LlmClient>> = if std::env::var("DEEPSEEK_API_KEY").is_ok() {
@@ -322,6 +372,17 @@ impl TieredRouter {
             None
         };
 
+        // Local LLM fleet (LiteLLM/vLLM, OpenAI-compatible) — first-class default workhorse
+        // when configured, so the router is not hard-wired to Grok.
+        let fleet: Option<Arc<dyn LlmClient>> =
+            match crate::clients::local_fleet::LocalFleetClient::from_env() {
+                Some(client) => {
+                    info!("LocalFleet habilitado (default workhorse: LiteLLM/vLLM fleet)");
+                    Some(Arc::new(client))
+                }
+                None => None,
+            };
+
         Ok(Self {
             claude_cli,
             copilot,
@@ -331,6 +392,13 @@ impl TieredRouter {
             grok4_heavy,
             math,
             local,
+            fleet,
+            breaker: Arc::new(crate::resilience::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(30),
+            )),
+            limiter: Arc::new(crate::resilience::RateLimit::from_env()),
+            cache: Arc::new(crate::cache::ResponseCache::from_env()),
             cfg: LlmRoutingConfig::default(),
         })
     }
@@ -361,6 +429,17 @@ impl TieredRouter {
         meta: &RequestMeta,
         stats: &crate::stats::LlmCallsStats,
     ) -> (Arc<dyn LlmClient>, ProviderTier) {
+        // 0) Explicit tier hint (#13) wins on the metered path too (parity with `choose`),
+        //    so an HrvTierHint isn't overridden by capability routing. Offline still wins.
+        if !meta.offline_required {
+            if let Some(hint) = meta.tier_hint {
+                if let Some(client) = self.client_for_tier(hint) {
+                    info!("Router(limits) → {:?} (explicit tier_hint)", hint);
+                    return (client, hint);
+                }
+            }
+        }
+
         // 1) Math specialist - DeepSeek Math (Tier 2b) - check BEFORE Heavy
         if meta.requires_math && self.cfg.enable_deepseek_math {
             if stats.deepseek_calls < self.cfg.deepseek_max_calls_per_run
@@ -420,9 +499,40 @@ impl TieredRouter {
         self.choose(meta)
     }
 
+    /// Resolve the client backing a specific tier, if that tier is currently available.
+    /// (#13) Backs `tier_hint` resolution and is reusable by callers wanting a named tier.
+    pub fn client_for_tier(&self, tier: ProviderTier) -> Option<Arc<dyn LlmClient>> {
+        match tier {
+            ProviderTier::ClaudeCli => self.claude_cli.clone(),
+            ProviderTier::Copilot => self.copilot.clone(),
+            ProviderTier::Cursor => self.cursor.clone(),
+            ProviderTier::ClaudeDirect => self.claude.clone(),
+            ProviderTier::Grok3 => Some(self.grok3.clone()),
+            ProviderTier::Grok4Heavy => self.grok4_heavy.clone(),
+            ProviderTier::DeepSeekMath | ProviderTier::CloudMath => self.math.clone(),
+            // LocalFallback names two possible backends; prefer the in-cluster fleet, then offline local.
+            ProviderTier::LocalFallback => self.fleet.clone().or_else(|| self.local.clone()),
+        }
+    }
+
     /// Escolhe cliente baseado em metadados
     /// Retorna (client, tier) para logging
     pub fn choose(&self, meta: &RequestMeta) -> (Arc<dyn LlmClient>, ProviderTier) {
+        // 0) Explicit tier hint (#13): honor an external routing preference (e.g. HrvTierHint)
+        //    when that tier is available. Offline still wins over a hint below if required.
+        if !meta.offline_required {
+            if let Some(hint) = meta.tier_hint {
+                if let Some(client) = self.client_for_tier(hint) {
+                    info!("Router → {:?} (explicit tier_hint)", hint);
+                    return (client, hint);
+                }
+                debug!(
+                    "Router: tier_hint {:?} unavailable, falling back to capability routing",
+                    hint
+                );
+            }
+        }
+
         // 1) Offline sempre força local
         if meta.offline_required {
             if let Some(ref local) = self.local {
@@ -498,20 +608,40 @@ impl TieredRouter {
             }
         }
 
-        // 5) Default absoluto: Grok 3 (unlimited, fast)
+        // 5) Default workhorse: the in-cluster local fleet (LiteLLM/vLLM) when configured —
+        //    keeps the router from being hard-wired to Grok. Falls back to Grok 3 otherwise.
+        if let Some(ref fleet) = self.fleet {
+            info!("Router → LocalFleet (default workhorse: LiteLLM/vLLM)");
+            return (fleet.clone(), ProviderTier::LocalFallback);
+        }
+
         info!("Router → Grok3 (default)");
         (self.grok3.clone(), ProviderTier::Grok3)
     }
 
-    /// Completa prompt usando router inteligente
+    /// Completa prompt usando router inteligente.
+    /// NOTE: this convenience path uses the non-limit-aware `choose()`. On the hot HTTP
+    /// path use `choose_with_limits()` then `complete_chosen()` so per-run budgets are enforced.
     pub async fn complete(&self, prompt: &str) -> anyhow::Result<String> {
         let meta = RequestMeta::from_prompt(prompt);
         let (client, tier) = self.choose(&meta);
+        self.complete_chosen(&client, tier, prompt).await
+    }
 
-        // Se Heavy foi escolhido, passa flag para o client
-        if tier == ProviderTier::Grok4Heavy {
-            // GrokClient detecta automaticamente via choose_model
-            // Por enquanto, passamos via LlmRequest
+    /// Complete using an ALREADY-CHOSEN (limit-aware) client+tier — does NOT re-route,
+    /// so the per-run Heavy/token budgets from `choose_with_limits` are actually enforced.
+    /// (P0 #2: the HTTP handler previously chose a limit-aware client then discarded it by
+    /// calling `complete()`, which re-ran `choose()` uncapped and re-derived meta from text.)
+    pub async fn complete_chosen(
+        &self,
+        client: &Arc<dyn LlmClient>,
+        tier: ProviderTier,
+        prompt: &str,
+    ) -> anyhow::Result<String> {
+        // Only the actual Grok client needs the explicit "grok-4-heavy" model nudge. When the
+        // escalation tier is a non-Grok strong model (Claude, or the local fleet), use its normal
+        // completion path — otherwise we'd send a Grok model id to a non-Grok backend.
+        if tier == ProviderTier::Grok4Heavy && client.name() == "grok" {
             use crate::{ChatMessage, LlmRequest};
             let req = LlmRequest {
                 model: "grok-4-heavy".to_string(),
@@ -524,10 +654,390 @@ impl TieredRouter {
             client.complete(prompt).await.map(|o| o.text)
         }
     }
+
+    /// Like `complete_chosen` but returns `(String, TokenUsage)` so callers can record MEASURED
+    /// token counts rather than estimating via chars/4.
+    ///
+    /// For the Grok client (normal tier) the real usage is captured via its `complete()` override.
+    /// For the Grok4Heavy path we call `chat()` (which cannot easily surface usage from the trait)
+    /// and fall back to a chars/4 estimate with `measured=false`.
+    /// For all other clients we call `complete()` which returns the `LlmOutput` with usage.
+    pub async fn complete_chosen_metered(
+        &self,
+        client: &Arc<dyn LlmClient>,
+        tier: ProviderTier,
+        prompt: &str,
+    ) -> anyhow::Result<(String, crate::output::TokenUsage)> {
+        if tier == ProviderTier::Grok4Heavy && client.name() == "grok" {
+            // Grok heavy path: the trait `chat()` returns String only. Estimate usage.
+            use crate::{ChatMessage, LlmRequest};
+            let req = LlmRequest {
+                model: "grok-4-heavy".to_string(),
+                messages: vec![ChatMessage::user(prompt)],
+                temperature: Some(0.7),
+                max_tokens: Some(8192),
+            };
+            let text = client.chat(req).await?;
+            let usage = crate::output::TokenUsage::estimated(prompt.len(), text.len());
+            Ok((text, usage))
+        } else {
+            // All other clients: `complete()` returns `LlmOutput` which carries usage.
+            // GrokClient overrides `complete()` to capture real measured usage from the API.
+            let output = client.complete(prompt).await?;
+            Ok((output.text, output.usage))
+        }
+    }
+
+    /// Single-brain robust completion: pick the best tier for `meta`, try it, and on failure
+    /// fall back across the remaining tiers (local fleet → Grok 3 → offline local) with bounded
+    /// jittered backoff between attempts. Returns the text, or an error string if everything
+    /// fails. This is the unified replacement for beagle-smart-router's parallel cascade —
+    /// one routing algorithm, fleet-first.
+    pub async fn complete_robust(&self, prompt: &str, meta: &RequestMeta) -> String {
+        self.complete_robust_params(prompt, meta, None, None).await
+    }
+
+    /// Like [`complete_robust`] but honors per-call sampling. NOTE: the `LlmClient` trait does not
+    /// carry `top_p`, so only `temperature`/`max_tokens` are propagated (callers passing top_p have
+    /// it dropped — was previously only honored by the now-removed direct grok-api/vLLM clients).
+    pub async fn complete_robust_params(
+        &self,
+        prompt: &str,
+        meta: &RequestMeta,
+        temperature: Option<f32>,
+        max_tokens: Option<i32>,
+    ) -> String {
+        use crate::{ChatMessage, LlmRequest};
+
+        // ── #14 Cache check ─────────────────────────────────────────────────────────
+        // Primary tier drives the key so different tier choices for the same prompt are
+        // cached independently (they may return different outputs).
+        let (pc, pt) = self.choose(meta);
+        let cache_key =
+            crate::cache::ResponseCache::make_key(pt.as_str(), prompt, temperature, max_tokens);
+        if let Some(cached) = self.cache.get(cache_key) {
+            debug!(
+                "Router: cache hit for tier={} prompt_len={}",
+                pt.as_str(),
+                prompt.len()
+            );
+            return cached;
+        }
+
+        // ── #13 per-identity rate limit ─────────────────────────────────────────────
+        // Applied only on cache miss (real provider work). Disabled by default, so this is a
+        // no-op unless BEAGLE_LLM_RATE_CAPACITY is set. Keyed by the caller identity so one
+        // noisy consumer can't starve the shared fleet.
+        let identity = meta.identity.as_deref().unwrap_or("anon");
+        if !self.limiter.allow(identity) {
+            warn!("Router: rate limit hit for identity={}", identity);
+            return format!(
+                "ERRO: limite de taxa atingido para identidade '{}' (token bucket esgotado)",
+                identity
+            );
+        }
+
+        // Ordered attempt chain: the meta-chosen primary, then the standard fallbacks. Dedup so
+        // we never retry the identical client instance back-to-back.
+        let mut chain: Vec<(Arc<dyn LlmClient>, ProviderTier)> = vec![(pc, pt)];
+        if let Some(ref f) = self.fleet {
+            chain.push((f.clone(), ProviderTier::LocalFallback));
+        }
+        chain.push((self.grok3.clone(), ProviderTier::Grok3));
+        if let Some(ref l) = self.local {
+            chain.push((l.clone(), ProviderTier::LocalFallback));
+        }
+
+        // #13 max_cost: estimate tokens for the budget check. The caller's `approximate_tokens`
+        // is authoritative when set, but `RequestMeta::default()` leaves it 0 — which would make
+        // every tier look free and silently void the ceiling. The router holds the prompt, so fall
+        // back to a chars/4 estimate rather than letting an unset field defeat enforcement.
+        let approx_tokens = if meta.approximate_tokens > 0 {
+            meta.approximate_tokens
+        } else {
+            prompt.len() / 4
+        };
+
+        let mut last_err = String::new();
+        let mut budget_skipped = false;
+        let mut breaker_skipped = false;
+        for (i, (client, tier)) in chain.iter().enumerate() {
+            // #13 max_cost: skip any tier whose estimated cost exceeds the request's ceiling.
+            if !tier.within_budget(approx_tokens, meta.max_cost_usd) {
+                budget_skipped = true;
+                warn!(
+                    "Router robust: tier {:?} skipped (est ${:.4} > max_cost ${:.4})",
+                    tier,
+                    tier.estimated_cost_usd(approx_tokens),
+                    meta.max_cost_usd.unwrap_or(f64::INFINITY)
+                );
+                continue;
+            }
+
+            // #13 circuit breaker: skip a tier that recently failed repeatedly (cooldown).
+            let bkey = tier.as_str();
+            if !self.breaker.allow(bkey) {
+                breaker_skipped = true;
+                warn!("Router robust: tier {:?} skipped (circuit open)", tier);
+                continue;
+            }
+            if i > 0 {
+                if Arc::ptr_eq(client, &chain[0].0) {
+                    continue; // same instance as the primary we already tried
+                }
+                // #13 bounded jittered exponential backoff via resilience helper (base 250ms, cap 30s)
+                let delay = crate::resilience::backoff_duration(i as u32, 250, 30_000);
+                tokio::time::sleep(delay).await;
+            }
+
+            let res = if temperature.is_some() || max_tokens.is_some() {
+                let model = if *tier == ProviderTier::Grok4Heavy && client.name() == "grok" {
+                    "grok-4-heavy".to_string()
+                } else {
+                    "default".to_string()
+                };
+                client
+                    .chat(LlmRequest {
+                        model,
+                        messages: vec![ChatMessage::user(prompt)],
+                        temperature,
+                        max_tokens,
+                    })
+                    .await
+            } else {
+                self.complete_chosen(client, *tier, prompt).await
+            };
+
+            match res {
+                Ok(t) => {
+                    self.breaker.record_success(bkey);
+                    // #14 Populate cache on success.
+                    self.cache.insert(cache_key, t.clone());
+                    return t;
+                }
+                Err(e) => {
+                    self.breaker.record_failure(bkey);
+                    warn!("Router robust: tier {:?} failed: {}", tier, e);
+                    last_err = e.to_string();
+                }
+            }
+        }
+        // If a backend actually ran and failed, report that. Otherwise nothing executed — explain
+        // *why* honestly (budget ceiling and/or open circuit) instead of implying a provider outage.
+        if last_err.is_empty() {
+            let mut reasons: Vec<String> = Vec::new();
+            if budget_skipped {
+                reasons.push(format!(
+                    "acima do limite de custo (max_cost_usd={:?}, ~{} tokens)",
+                    meta.max_cost_usd, approx_tokens
+                ));
+            }
+            if breaker_skipped {
+                reasons.push("circuito aberto (falhas recentes)".to_string());
+            }
+            if reasons.is_empty() {
+                reasons.push("nenhum backend disponível".to_string());
+            }
+            return format!("ERRO: nenhum backend executado: {}", reasons.join(" / "));
+        }
+        format!(
+            "ERRO: todos os backends LLM falharam. Último erro: {}",
+            last_err
+        )
+    }
+
+    /// Per-request model override (#13): route to the default workhorse client but force an explicit
+    /// model id (e.g. a caller picking a specific fleet/provider model), bypassing tier model logic.
+    pub async fn complete_with_model(&self, prompt: &str, model: &str) -> anyhow::Result<String> {
+        use crate::{ChatMessage, LlmRequest};
+        let meta = RequestMeta::from_prompt(prompt);
+        let (client, _tier) = self.choose(&meta);
+        client
+            .chat(LlmRequest {
+                model: model.to_string(),
+                messages: vec![ChatMessage::user(prompt)],
+                temperature: Some(0.7),
+                max_tokens: Some(2048),
+            })
+            .await
+    }
 }
 
 impl Default for TieredRouter {
     fn default() -> Self {
         Self::new().expect("Falha ao criar TieredRouter")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::RequestMeta;
+
+    fn meta() -> RequestMeta {
+        RequestMeta::default()
+    }
+
+    // ── #13: tier_hint (HrvTierHint socket) ────────────────────────────────────────
+    #[test]
+    fn tier_hint_is_honored_when_available() {
+        let r = TieredRouter::new_with_mocks().unwrap();
+        let mut m = meta();
+        // new_with_mocks has grok4_heavy = Some(mock); hint must win over default Grok3.
+        m.tier_hint = Some(ProviderTier::Grok4Heavy);
+        let (_c, tier) = r.choose(&m);
+        assert_eq!(
+            tier,
+            ProviderTier::Grok4Heavy,
+            "explicit tier_hint should select that tier"
+        );
+    }
+
+    #[test]
+    fn tier_hint_ignored_when_tier_unavailable() {
+        let r = TieredRouter::new_with_mocks().unwrap();
+        let mut m = meta();
+        // No Copilot client is configured in mocks → hint must be ignored, fall back to default.
+        m.tier_hint = Some(ProviderTier::Copilot);
+        let (_c, tier) = r.choose(&m);
+        assert_ne!(
+            tier,
+            ProviderTier::Copilot,
+            "unavailable hint must not be used"
+        );
+        assert_eq!(tier, ProviderTier::Grok3, "falls back to default workhorse");
+    }
+
+    #[test]
+    fn tier_hint_yields_to_offline_requirement() {
+        let r = TieredRouter::new_with_mocks().unwrap();
+        let mut m = meta();
+        m.offline_required = true;
+        m.tier_hint = Some(ProviderTier::Grok4Heavy);
+        let (_c, tier) = r.choose(&m);
+        assert_eq!(
+            tier,
+            ProviderTier::LocalFallback,
+            "offline must win over a tier hint"
+        );
+    }
+
+    #[test]
+    fn tier_hint_honored_on_metered_path_too() {
+        let r = TieredRouter::new_with_mocks().unwrap();
+        let stats = crate::stats::LlmCallsStats::new();
+        let mut m = meta();
+        // requires_math would normally route to a math/heavy tier on the metered path;
+        // an explicit hint must still win.
+        m.requires_math = true;
+        m.tier_hint = Some(ProviderTier::Grok4Heavy);
+        let (_c, tier) = r.choose_with_limits(&m, &stats);
+        assert_eq!(
+            tier,
+            ProviderTier::Grok4Heavy,
+            "tier_hint must win on choose_with_limits"
+        );
+    }
+
+    // ── #13: max_cost budget helper ────────────────────────────────────────────────
+    #[test]
+    fn within_budget_enforces_ceiling() {
+        // Grok3 = $5/Mtok → 1M tokens ≈ $5.00
+        assert!(
+            !ProviderTier::Grok3.within_budget(1_000_000, Some(1.0)),
+            "over a $1 ceiling"
+        );
+        assert!(
+            ProviderTier::Grok3.within_budget(1_000_000, Some(10.0)),
+            "under a $10 ceiling"
+        );
+        assert!(
+            ProviderTier::Grok3.within_budget(1_000_000, None),
+            "no ceiling always passes"
+        );
+        // Free tiers always pass any ceiling.
+        assert!(ProviderTier::LocalFallback.within_budget(1_000_000, Some(0.0)));
+    }
+
+    // ── #13: max_cost actually skips over-budget tiers in the robust chain ──────────
+    #[tokio::test]
+    async fn robust_skips_over_budget_tiers_and_uses_free_fallback() {
+        let r = TieredRouter::new_with_mocks().unwrap();
+        let mut m = meta();
+        m.approximate_tokens = 1000;
+        m.max_cost_usd = Some(0.0); // forbids every paid tier; only free LocalFallback survives
+        let out = r.complete_robust("hello", &m).await;
+        assert!(
+            out.contains("MOCK_ANSWER"),
+            "should fall through to the free tier, got: {out}"
+        );
+        assert!(
+            !out.starts_with("ERRO"),
+            "a free tier exists, so it must not error: {out}"
+        );
+    }
+
+    #[tokio::test]
+    async fn robust_reports_budget_exhaustion_distinctly() {
+        let mut r = TieredRouter::new_with_mocks().unwrap();
+        // Remove every free tier so a $0 ceiling leaves nothing affordable.
+        r.local = None;
+        r.fleet = None;
+        let mut m = meta();
+        m.approximate_tokens = 1000;
+        m.max_cost_usd = Some(0.0);
+        let out = r.complete_robust("hello", &m).await;
+        assert!(
+            out.contains("limite de custo"),
+            "should report budget exhaustion, got: {out}"
+        );
+    }
+
+    #[tokio::test]
+    async fn robust_enforces_budget_even_with_default_tokens() {
+        // Regression: RequestMeta::default() leaves approximate_tokens=0, which would make every
+        // tier look free and void max_cost_usd. The router must estimate from the prompt instead.
+        let mut r = TieredRouter::new_with_mocks().unwrap();
+        r.local = None;
+        r.fleet = None;
+        let mut m = meta();
+        assert_eq!(m.approximate_tokens, 0, "default leaves tokens unset");
+        m.max_cost_usd = Some(0.0); // any paid tier must be skipped
+        let out = r
+            .complete_robust(
+                "a reasonably long prompt that yields nonzero token estimate",
+                &m,
+            )
+            .await;
+        assert!(
+            out.contains("limite de custo"),
+            "budget must still bind with default tokens: {out}"
+        );
+    }
+
+    // ── #13: per-identity token-bucket rate limit wired into the live path ──────────
+    #[tokio::test]
+    async fn robust_rate_limits_per_identity() {
+        let mut r = TieredRouter::new_with_mocks().unwrap();
+        r.limiter = Arc::new(crate::resilience::RateLimit::enabled(1.0, 0.0)); // 1 token, no refill
+        let mut alice = meta();
+        alice.identity = Some("alice".to_string());
+
+        let first = r.complete_robust("q1", &alice).await;
+        assert!(first.contains("MOCK_ANSWER"), "first call allowed: {first}");
+        let second = r.complete_robust("q2", &alice).await;
+        assert!(
+            second.contains("limite de taxa"),
+            "second call for alice throttled: {second}"
+        );
+
+        // Bob has an independent bucket.
+        let mut bob = meta();
+        bob.identity = Some("bob".to_string());
+        let bob_out = r.complete_robust("q3", &bob).await;
+        assert!(
+            bob_out.contains("MOCK_ANSWER"),
+            "bob unaffected by alice's limit: {bob_out}"
+        );
     }
 }

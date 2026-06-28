@@ -34,6 +34,7 @@ struct HomeView: View {
     @State private var workLanes: [ProjectLaneState] = []
     @State private var inputFocusRequest = 0
     @State private var metacognitive = MetacognitiveDialogue.shared
+    @State private var showModelManager = false
     #if os(iOS)
     @State private var speechRecognizer = SpeechRecognizer()
     #endif
@@ -44,53 +45,35 @@ struct HomeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
-
-                    // ── Zone 1: Presence ─────────────────────────────
-                    // One warm line. Not a card. Just presence.
-                    greetingSection
-
-                    // Dream insights float above everything — they're magic, not data
-                    if DreamSynthesisEngine.shared.hasUnreadInsights {
-                        overnightInsightsCard
-                    }
-
-                    // ── Zone 2: Thinking ─────────────────────────────
-                    // The invitation to think. Always visible.
-                    discussionFieldCard
-
-                    // One provocation — the best one, not all of them
-                    if let chaos = chaosProvocation, currentIntensity != .minimal {
-                        chaosSerendipityCard(chaos)
-                    } else if showProvocations, !provocations.isEmpty {
-                        provocationsSection
-                    }
-
-                    // ── Zone 3: Context (collapsible) ────────────────
-                    // Only what's operationally relevant right now
-                    if showWarmthCard {
-                        warmthCard
-                    }
-
-                    if homeLeadsWithReturnedWork {
-                        myWorkCard
-                    }
-
-                    if runningAgentsExist {
-                        activeAgentsStrip
-                    }
-
-                    // Recent thoughts — the memory stream
-                    recentThoughtsSection
+            // Clarity pass: Home IS the thinking/chat surface.
+            // Empty conversation = a clean launchpad — the invitation sits just above the
+            // input (no greeting hero, no void). Active conversation = the thread scrolls.
+            if conversation.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    Spacer(minLength: BeagleSpacing.xl)
+                    homeInvitation
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, BeagleSpacing.lg)
-                .padding(.top, BeagleSpacing.xl)
-                .padding(.bottom, BeagleSpacing.jumbo)
-                .scrollTargetLayout()
+            } else {
+                ScrollView {
+                    conversationSection
+                        .padding(.horizontal, BeagleSpacing.lg)
+                        .padding(.top, BeagleSpacing.xl)
+                        .padding(.bottom, BeagleSpacing.jumbo)
+                        .scrollTargetLayout()
+                }
             }
 
-            exocortexInput
+            // Single prominent input anchored at the bottom, route picker just above it.
+            VStack(spacing: BeagleSpacing.xs) {
+                discussionProfileStrip
+                exocortexInput
+            }
+            .padding(.horizontal, BeagleSpacing.lg)
+            .padding(.top, BeagleSpacing.sm)
+            .padding(.bottom, BeagleSpacing.sm)
+            .background(.background.secondary.opacity(0.6))
         }
         .background { HomeGradient(thoughtCount: cognitive.recentThoughts.count, hasJobs: !cognitive.activeJobs.isEmpty) }
         .navigationTitle("Beagle")
@@ -132,6 +115,11 @@ struct HomeView: View {
         }
         .task {
             await bootstrap()
+        }
+        .sheet(isPresented: $showModelManager) {
+            NavigationStack {
+                ModelSettingsView()
+            }
         }
         .refreshable {
             async let c: () = catalog.refresh()
@@ -246,12 +234,7 @@ struct HomeView: View {
             TypewriterText(
                 greeting,
                 font: BeagleFont.largeTitle.font,
-                foregroundStyle: AnyShapeStyle(
-                    LinearGradient(
-                        colors: circadianGradientColors,
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                ),
+                foregroundStyle: AnyShapeStyle(BeagleTheme.accent),
                 speed: 24
             )
             .opacity(hasAppeared ? 1 : 0)
@@ -260,7 +243,7 @@ struct HomeView: View {
 
             Text(contextLine)
                 .font(BeagleFont.body.font)
-                .foregroundStyle(BeagleTheme.textSecondary)
+                .foregroundStyle(Color.primary.opacity(0.72))
                 .lineSpacing(3)
                 .opacity(hasAppeared ? 1 : 0)
                 .offset(y: hasAppeared ? 0 : 8)
@@ -420,7 +403,7 @@ struct HomeView: View {
         if hour >= 0 && hour < 5 {
             return "Late night thinking? Start privately on device, then decide what deserves the larger mind."
         }
-        return "Beagle is here. Start with a thought, then let the command room deepen it."
+        return "Start with a thought."
     }
 
     private var shellPresenceState: BeaglePresenceState {
@@ -737,6 +720,22 @@ struct HomeView: View {
 
     // MARK: - Conversation (inline, not separate tab)
 
+    /// Clean empty-state invitation — replaces the old prompt-card scaffolding.
+    /// The input bar below is where you actually type; this is just the prompt.
+    private var homeInvitation: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            Text("What are you working on?")
+                .font(BeagleFont.title2.font)
+                .fontWeight(.semibold)
+                .foregroundStyle(BeagleTheme.textPrimary)
+            Text("Type a thought below — Beagle stays with it.")
+                .font(BeagleFont.subheadline.font)
+                .foregroundStyle(BeagleTheme.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, BeagleSpacing.md)
+    }
+
     private var discussionFieldCard: some View {
         GlassPanel(elevation: .floating, truth: discussionTruth) {
             VStack(alignment: .leading, spacing: BeagleSpacing.md) {
@@ -748,7 +747,7 @@ struct HomeView: View {
                             .foregroundStyle(BeagleTheme.truthObserved)
                             .textCase(.uppercase)
                             .tracking(0.8)
-                        Text(conversation.isEmpty ? "Bring one living idea into the room" : "Stay with the thread until it turns into something real")
+                        Text(conversation.isEmpty ? "What are you working on?" : "Continue the thread")
                             .font(BeagleFont.title3.font)
                             .fontWeight(.semibold)
                             .foregroundStyle(BeagleTheme.textPrimary)
@@ -765,8 +764,6 @@ struct HomeView: View {
                     .font(BeagleFont.footnote.font)
                     .foregroundStyle(BeagleTheme.textSecondary)
                     .lineSpacing(2)
-
-                companionSignalStrip
 
                 if let pinnedQuestion = pinnedQuestionForCurrentLane {
                     pinnedQuestionCard(pinnedQuestion)
@@ -823,7 +820,7 @@ struct HomeView: View {
                 )
             }
 
-            Text("Type below or start with one of these living prompts.")
+            Text("Or start with a prompt:")
                 .font(BeagleFont.footnote.font)
                 .foregroundStyle(BeagleTheme.textSecondary)
 
@@ -865,20 +862,44 @@ struct HomeView: View {
         }
     }
 
+    /// The single "who answers" control. The leading pill reflects the *active engine*
+    /// — an explicitly loaded on-device model takes precedence over the cloud route
+    /// (matching `ConversationStore.sendMessage`). The menu unifies both: pick an
+    /// on-device model (loads it → routes local) or a cloud/cluster route (unloads
+    /// local → routes cloud).
     private var discussionProfileStrip: some View {
         HStack(spacing: BeagleSpacing.sm) {
             PresencePill(
-                label: "\(conversation.discussionProfile.label) route",
-                systemImage: conversation.discussionProfile.iconName,
-                tint: BeagleTheme.truthRemembered
+                label: activeRoutePill.label,
+                systemImage: activeRoutePill.icon,
+                tint: activeRoutePill.tint
             )
 
             Menu {
-                ForEach(DiscussionProfile.allCases) { profile in
-                    Button {
-                        conversation.discussionProfile = profile
-                    } label: {
-                        Label("\(profile.label) · \(profile.subtitle)", systemImage: profile.iconName)
+                if LocalLLMEngine.shared.isAvailable {
+                    Section("On device") {
+                        ForEach(homeLocalModels) { model in
+                            Button {
+                                Task { await LocalLLMEngine.shared.load(model) }
+                            } label: {
+                                Label(homeLocalModelLabel(model), systemImage: localModelIsActive(model) ? "checkmark" : "brain")
+                            }
+                        }
+                        Button {
+                            showModelManager = true
+                        } label: {
+                            Label("Manage models…", systemImage: "slider.horizontal.3")
+                        }
+                    }
+                }
+
+                Section("Cloud / cluster") {
+                    ForEach(DiscussionProfile.allCases) { profile in
+                        Button {
+                            selectCloudRoute(profile)
+                        } label: {
+                            Label("\(profile.label) · \(profile.subtitle)", systemImage: profile.iconName)
+                        }
                     }
                 }
             } label: {
@@ -895,6 +916,53 @@ struct HomeView: View {
             }
             Spacer()
         }
+    }
+
+    /// What the leading route pill should say, based on the live engine state.
+    private var activeRoutePill: (label: String, icon: String, tint: Color) {
+        let llm = LocalLLMEngine.shared
+        switch llm.loadState {
+        case .ready:
+            return ("On-device · \(llm.currentModel?.displayName ?? "local")", "brain", BeagleTheme.truthObserved)
+        case .downloading(let progress):
+            return ("Downloading · \(Int(progress * 100))%", "arrow.down.circle", BeagleTheme.postureWarm)
+        case .loading:
+            return ("Waking device mind…", "hourglass", BeagleTheme.postureWarm)
+        case .error, .idle:
+            return ("\(conversation.discussionProfile.label) route", conversation.discussionProfile.iconName, BeagleTheme.truthRemembered)
+        }
+    }
+
+    /// A short, curated set of on-device models for the Home menu: whatever is loaded,
+    /// the recommended default, and the last one the user picked — deduped, fits-only,
+    /// capped. The full catalog (download/manage) lives behind "Manage models…".
+    private var homeLocalModels: [OnDeviceModel] {
+        let llm = LocalLLMEngine.shared
+        var picks: [OnDeviceModel] = []
+        if let current = llm.currentModel { picks.append(current) }
+        let recommended = OnDeviceModel.recommended
+        if !picks.contains(recommended) { picks.append(recommended) }
+        if let last = llm.lastSelectedModel, !picks.contains(last) { picks.append(last) }
+        return Array(picks.filter { $0.fitsOnThisDevice }.prefix(3))
+    }
+
+    private func homeLocalModelLabel(_ model: OnDeviceModel) -> String {
+        if localModelIsActive(model) { return "\(model.displayName) · loaded" }
+        return "\(model.displayName) · \(model.sizeDescription)"
+    }
+
+    private func localModelIsActive(_ model: OnDeviceModel) -> Bool {
+        LocalLLMEngine.shared.currentModel == model && LocalLLMEngine.shared.isReady
+    }
+
+    /// Selecting a cloud/cluster route is an explicit choice to leave the device mind:
+    /// unload any local model so `sendMessage` routes to the cloud, then set the route.
+    private func selectCloudRoute(_ profile: DiscussionProfile) {
+        let llm = LocalLLMEngine.shared
+        if llm.isReady || llm.loadState == .loading {
+            llm.unload()
+        }
+        conversation.discussionProfile = profile
     }
 
     private var companionSignalStrip: some View {
@@ -2628,20 +2696,20 @@ struct HomeView: View {
            !latestThought.isEmpty,
            conversation.isEmpty {
             let snippet = latestThought.count > 88 ? String(latestThought.prefix(88)) + "..." : latestThought
-            return "Start from the raw living thread in \(laneName). Beagle should help you think like a real companion, carry notes forward, and adapt the pressure of the conversation to your state. The latest thought still hanging in the air is: “\(snippet)”"
+            return "Last thread in \(laneName): “\(snippet)”"
         }
 
         if conversation.isEmpty {
-            return "This should feel like a real exocortex room for \(laneName), not a dead input bar. Beagle should act like a trusted companion here: carry the question, take notes seriously, and meet you at your current body-state instead of forcing one fixed style of intelligence."
+            return "A place to think in \(laneName). Type a thought — Beagle stays with it."
         }
 
-        return "Keep the thread alive here. Push on the idea, challenge it, or ask Beagle to make the next leap without losing the lane context, the note trail, or the body-state shaping today’s cognition."
+        return "Keep going — push the idea, challenge it, or ask for the next leap."
     }
 
     private var discussionStarters: [String] {
         let laneName = focusedLane.map { projectDisplayName($0.project.projectSlug) } ?? "this project"
         var starters: [String] = [
-            "Stay with me like a real companion in \(laneName). Help me think, take notes on the live idea, and keep only the most important thread alive.",
+            "What should I focus on in \(laneName) right now?",
             "Help me think through \(laneName) from first principles. What is the real problem underneath it?",
             "What is the next concrete move for \(laneName), and why is it the right move now?",
             "Challenge my current direction in \(laneName). What am I probably missing?"

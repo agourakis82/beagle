@@ -1,0 +1,120 @@
+# Beagle Physiome — sovereign body+environment ingestion (ns: beagle, next to beagle-pg/beagle-core).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: physiome-secrets
+  namespace: beagle
+type: Opaque
+stringData:
+  # Bearer token the iOS app presents on /api/physiome/ingest. Rotate as needed.
+  PHYSIOME_INGEST_TOKEN: "REPLACE_ME_PHYSIOME_INGEST_TOKEN"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: physiome-ingest
+  namespace: beagle
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: physiome-ingest }
+  template:
+    metadata:
+      labels: { app: physiome-ingest }
+    spec:
+      tolerations:
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      containers:
+        - name: physiome-ingest
+          image: 192.168.3.207:5003/physiome:0.1.0
+          command: ["node", "bin/serve.mjs"]
+          ports:
+            - containerPort: 8090
+          env:
+            - name: PORT
+              value: "8090"
+            - name: PHYSIOME_PG_DSN
+              valueFrom: { secretKeyRef: { name: beagle-pg, key: DATABASE_URL } }
+            - name: PHYSIOME_INGEST_TOKEN
+              valueFrom: { secretKeyRef: { name: physiome-secrets, key: PHYSIOME_INGEST_TOKEN } }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8090 }
+            initialDelaySeconds: 3
+          resources:
+            requests: { cpu: "50m", memory: "128Mi" }
+            limits: { cpu: "1", memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: physiome-ingest
+  namespace: beagle
+spec:
+  selector: { app: physiome-ingest }
+  ports:
+    - port: 8080
+      targetPort: 8090
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: physiome-space-weather
+  namespace: beagle
+spec:
+  schedule: "17 */2 * * *" # every 2h
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          tolerations:
+            - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+            - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+          securityContext:
+            seccompProfile: { type: Unconfined }
+          containers:
+            - name: poller
+              image: 192.168.3.207:5003/physiome:0.1.0
+              command: ["node", "bin/run-poller.mjs"]
+              env:
+                - name: PHYSIOME_PG_DSN
+                  valueFrom: { secretKeyRef: { name: beagle-pg, key: DATABASE_URL } }
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: physiome-digest
+  namespace: beagle
+spec:
+  schedule: "40 23 * * *" # daily 23:40 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          tolerations:
+            - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+            - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+          securityContext:
+            seccompProfile: { type: Unconfined }
+          containers:
+            - name: digest
+              image: 192.168.3.207:5003/physiome:0.1.0
+              command: ["sh", "-c", "node bin/run-digest.mjs $(date -u +%F)"]
+              env:
+                - name: PHYSIOME_PG_DSN
+                  valueFrom: { secretKeyRef: { name: beagle-pg, key: DATABASE_URL } }
+                - name: BEAGLE_INTERNAL_URL
+                  value: "http://beagle-core.beagle.svc.cluster.local:8080"
+                - name: BEAGLE_OPERATOR_API_TOKEN
+                  valueFrom: { secretKeyRef: { name: beagle-core-tokens, key: operator-token } }

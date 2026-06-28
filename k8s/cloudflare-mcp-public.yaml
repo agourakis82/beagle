@@ -1,0 +1,159 @@
+# Minimal Cloudflare Tunnel deployment for the public Beagle MCP connector.
+#
+# This intentionally exposes only mcp.agourakis.com for the Claude-first public
+# rollout. Keep broader api/ws/tracing/dashboard/root routing in a later, audited
+# Cloudflare config after each backend service is revalidated.
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudflare-system
+  labels:
+    name: cloudflare-system
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflare-mcp-config
+  namespace: cloudflare-system
+data:
+  config.yaml: |
+    tunnel: beagle-production
+    credentials-file: /etc/cloudflared/creds/credentials.json
+    metrics: 0.0.0.0:2000
+    protocol: http2
+
+    ingress:
+      - hostname: mcp.agourakis.com
+        service: http://beagle-mcp-server.beagle:3000
+        originRequest:
+          connectTimeout: 30s
+          tcpKeepAlive: 30s
+          keepAliveConnections: 100
+          keepAliveTimeout: 90s
+          httpHostHeader: mcp.agourakis.com
+
+      - service: http_status:404
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-mcp
+  namespace: cloudflare-system
+  labels:
+    app.kubernetes.io/name: cloudflared-mcp
+    app.kubernetes.io/part-of: beagle
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared-mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cloudflared-mcp
+        app.kubernetes.io/part-of: beagle
+    spec:
+      tolerations:
+        - effect: NoSchedule
+          key: sounio.dev/compute
+          operator: Exists
+        - effect: NoSchedule
+          key: sounio.dev/pool
+          operator: Exists
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2026.3.0
+          args:
+            - tunnel
+            - --config
+            - /etc/cloudflared/config/config.yaml
+            - --no-autoupdate
+            - run
+          ports:
+            - name: metrics
+              containerPort: 2000
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            failureThreshold: 6
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared/config
+              readOnly: true
+            - name: creds
+              mountPath: /etc/cloudflared/creds
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: cloudflare-mcp-config
+        - name: creds
+          secret:
+            secretName: cloudflared-credentials
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: cloudflared-mcp-hpa
+  namespace: cloudflare-system
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: cloudflared-mcp
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudflared-mcp-metrics
+  namespace: cloudflare-system
+  labels:
+    app.kubernetes.io/name: cloudflared-mcp
+    app.kubernetes.io/part-of: beagle
+spec:
+  selector:
+    app.kubernetes.io/name: cloudflared-mcp
+  ports:
+    - name: metrics
+      port: 2000
+      targetPort: metrics

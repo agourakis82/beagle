@@ -1,0 +1,131 @@
+# Footprint de pesquisa do Demetrios — harvest p/ darwin-papers (embedder bge-m3, keyless+email).
+# backends: pubmed|arxiv|openalex|crossref|europepmc (vazio=all). max_results por query por backend.
+topics:
+  - name: comp-psychiatry-hrv
+    backends: [pubmed, europepmc, openalex]
+    max_results: 12
+    tags: [psychiatry, hrv, autonomic]
+    queries:
+      - "heart rate variability cognition computational psychiatry"
+      - "autonomic nervous system biomarker mental disorder"
+
+  - name: psychopharmacology
+    backends: [pubmed, europepmc]
+    max_results: 12
+    tags: [psychopharmacology, neuropsychopharmacology]
+    queries:
+      - "psychopharmacology mechanism antidepressant receptor"
+      - "neuropsychopharmacology dosing response psychiatric"
+
+  - name: heliobiology
+    backends: [pubmed, europepmc, openalex]
+    max_results: 12
+    tags: [heliobiology, space-weather]
+    queries:
+      - "heliobiology geomagnetic activity human physiology"
+      - "solar activity cardiovascular autonomic effects"
+
+  - name: pbpk-pharmacokinetics
+    backends: [pubmed, europepmc]
+    max_results: 12
+    tags: [pbpk, pharmacokinetics]
+    queries:
+      - "physiologically based pharmacokinetic PBPK modeling"
+
+  - name: hsn-geometry
+    backends: [arxiv, openalex]
+    max_results: 15
+    tags: [hsn, geometry, hyperbolic]
+    queries:
+      - "hyperbolic geometry neural representations embeddings"
+      - "curvature functional connectivity brain network"
+      - "fractal dynamics brain criticality"
+
+  - name: hypercomplex-algebra
+    backends: [arxiv, openalex]
+    max_results: 12
+    tags: [octonions, sedenions, hypercomplex]
+    queries:
+      - "octonions division algebra applications physics"
+      - "sedenions non-associative algebra neural networks"
+      - "non-commutative geometry quantum"
+
+  - name: ml-dl
+    backends: [arxiv, openalex]
+    max_results: 15
+    tags: [ml, deep-learning]
+    queries:
+      - "deep learning representation geometry manifold"
+      - "transformer large language model architecture"
+
+  - name: compilers
+    backends: [arxiv, openalex]
+    max_results: 12
+    tags: [compilers, codegen, ptx]
+    queries:
+      - "compiler code generation SSA optimization"
+      - "GPU PTX kernel code generation MLIR"
+
+  - name: gpu-computing
+    backends: [arxiv, openalex]
+    max_results: 12
+    tags: [gpu, cuda, hpc]
+    queries:
+      - "GPU CUDA kernel performance tensor core"
+      - "GPU parallel search combinatorial"
+
+  - name: entropy-consciousness
+    backends: [arxiv, openalex, pubmed]
+    max_results: 12
+    tags: [entropy, kec, consciousness]
+    queries:
+      - "integrated information theory consciousness phi"
+      - "entropy brain criticality information geometry"
+
+  - name: information-geometry
+    backends: [arxiv, openalex]
+    max_results: 15
+    tags: [information-geometry, fisher, manifold]
+    queries:
+      - "information geometry statistical manifold Fisher metric"
+      - "natural gradient information geometry machine learning"
+
+  - name: category-theory
+    backends: [arxiv, openalex]
+    max_results: 15
+    tags: [category-theory, compositional, semantics]
+    queries:
+      - "category theory compositional semantics functor"
+      - "applied category theory monad program semantics"
+
+  - name: psychiatry-clinical
+    backends: [pubmed, europepmc, openalex]
+    max_results: 12
+    tags: [psychiatry, clinical, nosology]
+    queries:
+      - "psychiatry diagnosis treatment clinical outcomes"
+      - "psychiatric nosology RDoC transdiagnostic framework"
+
+  - name: psychopathology
+    backends: [pubmed, europepmc, openalex]
+    max_results: 12
+    tags: [psychopathology, symptoms]
+    queries:
+      - "computational psychopathology symptom dimensions"
+      - "network theory mental disorders symptom"
+
+  - name: phenomenology
+    backends: [pubmed, openalex]
+    max_results: 12
+    tags: [phenomenology, consciousness, philosophy]
+    queries:
+      - "phenomenological psychiatry lived experience psychopathology"
+      - "phenomenology consciousness subjective experience"
+
+  - name: connectomics
+    backends: [pubmed, europepmc, arxiv, openalex]
+    max_results: 12
+    tags: [connectomics, brain-network]
+    queries:
+      - "connectomics brain network mapping functional"
+      - "functional connectome graph analysis topology"

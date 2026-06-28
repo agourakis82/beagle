@@ -471,10 +471,18 @@ impl PublishPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use tempfile::tempdir;
+
+    // Tests mutate the shared BEAGLE_DATA_DIR env var; cargo runs them in parallel in one process,
+    // so serialize the env-touching ones to avoid a flaky race (test_beagle_data_dir vs
+    // test_data_dir_env_override).
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_beagle_data_dir() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        env::remove_var("BEAGLE_DATA_DIR"); // test the default, robust to a polluted/CI env
         let dir = beagle_data_dir();
         assert!(dir.to_string_lossy().contains("beagle-data"));
     }
@@ -506,6 +514,7 @@ mod tests {
 
     #[test]
     fn test_data_dir_env_override() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let tmp = tempdir().unwrap();
         env::set_var("BEAGLE_DATA_DIR", tmp.path().to_str().unwrap());
         assert_eq!(beagle_data_dir(), tmp.path());
@@ -612,8 +621,23 @@ pub fn load() -> BeagleConfig {
             xai_api_key: env::var("XAI_API_KEY").ok(),
             anthropic_api_key: env::var("ANTHROPIC_API_KEY").ok(),
             openai_api_key: env::var("OPENAI_API_KEY").ok(),
+            deepseek_api_key: env::var("DEEPSEEK_API_KEY").ok(),
+            zai_api_key: env::var("ZAI_API_KEY").ok(),
+            minimax_api_key: env::var("MINIMAX_API_KEY").ok(),
             vllm_url: env::var("VLLM_URL")
                 .or_else(|_| env::var("BEAGLE_VLLM_URL"))
+                .ok(),
+            deepseek_base_url: env::var("BEAGLE_DEEPSEEK_BASE_URL")
+                .or_else(|_| env::var("DEEPSEEK_BASE_URL"))
+                .ok(),
+            zai_base_url: env::var("BEAGLE_ZAI_BASE_URL")
+                .or_else(|_| env::var("ZAI_BASE_URL"))
+                .ok(),
+            xai_base_url: env::var("BEAGLE_XAI_BASE_URL")
+                .or_else(|_| env::var("XAI_BASE_URL"))
+                .ok(),
+            minimax_base_url: env::var("BEAGLE_MINIMAX_BASE_URL")
+                .or_else(|_| env::var("MINIMAX_BASE_URL"))
                 .ok(),
             grok_model: env::var("BEAGLE_GROK_MODEL").unwrap_or_else(|_| "grok-3".to_string()),
             routing: model::LlmRoutingConfig::from_env(profile_enum),
@@ -630,6 +654,39 @@ pub fn load() -> BeagleConfig {
         hermes: HermesConfig {
             database_url: env::var("DATABASE_URL").ok(),
             redis_url: env::var("REDIS_URL").ok(),
+        },
+        tool_bridge: model::ToolBridgeConfig {
+            default_timeout_seconds: env::var("BEAGLE_TOOL_BRIDGE_TIMEOUT_SECONDS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(60),
+            ledger_enabled: bool_env("BEAGLE_TOOL_BRIDGE_LEDGER_ENABLED", true),
+            dry_run: bool_env("BEAGLE_TOOL_BRIDGE_DRY_RUN", false),
+        },
+        workspace: model::WorkspacePlaneConfig {
+            canonical_workspace_id: env::var("BEAGLE_WORKSPACE_CANONICAL_ID")
+                .unwrap_or_else(|_| "beagle-cluster-pilot".to_string()),
+            canonical_repo: env::var("BEAGLE_WORKSPACE_CANONICAL_REPO")
+                .unwrap_or_else(|_| "agourakis82/beagle".to_string()),
+            canonical_branch: env::var("BEAGLE_WORKSPACE_CANONICAL_BRANCH")
+                .unwrap_or_else(|_| "main".to_string()),
+            canonical_track: env::var("BEAGLE_WORKSPACE_CANONICAL_TRACK")
+                .unwrap_or_else(|_| "darwin-hpc".to_string()),
+            operator_name: env::var("BEAGLE_WORKSPACE_OPERATOR").ok(),
+            default_dev_plane: env::var("BEAGLE_WORKSPACE_DEFAULT_DEV_PLANE")
+                .unwrap_or_else(|_| "beagle-cluster".to_string()),
+            vm_fallback_role: env::var("BEAGLE_WORKSPACE_VM_FALLBACK_ROLE")
+                .unwrap_or_else(|_| "fallback-only".to_string()),
+            promotion_scope: env::var("BEAGLE_WORKSPACE_PROMOTION_SCOPE")
+                .unwrap_or_else(|_| "beagle-darwin-hpc-small-medium".to_string()),
+            bootstrap_enabled: bool_env("BEAGLE_WORKSPACE_BOOTSTRAP_ENABLED", true),
+        },
+        consumers: model::ConsumerAccessConfig {
+            policy_enabled: bool_env("BEAGLE_CONSUMER_POLICY_ENABLED", false),
+            operator_token: env::var("BEAGLE_OPERATOR_API_TOKEN")
+                .ok()
+                .or_else(|| env::var("BEAGLE_API_TOKEN").ok()),
+            research_token: env::var("BEAGLE_RESEARCH_API_TOKEN").ok(),
         },
         advanced: AdvancedModulesConfig {
             serendipity_enabled: bool_env("BEAGLE_SERENDIPITY", false),
@@ -659,57 +716,68 @@ pub fn load() -> BeagleConfig {
 
 // default_data_dir removido - agora usa beagle_data_dir() diretamente
 
-///// Merge de configurações: `base` é mantido, `override_cfg` sobrepõe apenas campos Some
+/// Merge de configurações via Figment com semântica env-wins.
+///
+/// Layering order (lowest → highest priority):
+///   1. `override_cfg` (file/base layer — fallback values)
+///   2. `base` with null/None fields stripped (env layer — wins when set)
+///
+/// Provenance: Option fields present in `base` (i.e., set from env) override
+/// those in `override_cfg` (i.e., from file). Option fields absent in `base`
+/// (env var not set → serialised as JSON null) fall through to `override_cfg`.
+///
+/// KNOWN LIMITATION (review #17B): non-Option scalar fields — notably `bool`
+/// flags like `safe_mode`/`serendipity_enabled` — are never JSON-null, so the
+/// env layer always wins for them, INCLUDING when the env var was unset and the
+/// field carries its `Default` value. Net effect: a `beagle.toml` cannot enable
+/// a bool flag that the env layer leaves at its default. This deployment is
+/// env-driven (no beagle.toml on the live path), so the file-merge path is
+/// effectively unused; env-wins is the intended semantic. A precise fix
+/// (Option<bool> or per-field env-presence detection so unset-env falls through
+/// to file) is a follow-up — see docs/MODERNIZATION_PLAN_2026.md §17.
 fn merge_config(base: BeagleConfig, override_cfg: BeagleConfig) -> BeagleConfig {
-    use model::AdvancedModulesConfig;
+    use figment::{providers::Serialized, Figment};
 
-    BeagleConfig {
-        profile: override_cfg.profile.clone(),
-        safe_mode: override_cfg.safe_mode,
-        api_token: override_cfg.api_token.or(base.api_token),
-        llm: LlmConfig {
-            xai_api_key: override_cfg.llm.xai_api_key.or(base.llm.xai_api_key),
-            anthropic_api_key: override_cfg
-                .llm
-                .anthropic_api_key
-                .or(base.llm.anthropic_api_key),
-            openai_api_key: override_cfg.llm.openai_api_key.or(base.llm.openai_api_key),
-            vllm_url: override_cfg.llm.vllm_url.or(base.llm.vllm_url),
-            grok_model: if override_cfg.llm.grok_model != default_grok_model() {
-                override_cfg.llm.grok_model
-            } else {
-                base.llm.grok_model
-            },
-            routing: override_cfg.llm.routing.clone(),
-        },
-        storage: StorageConfig {
-            data_dir: override_cfg.storage.data_dir.clone(),
-        },
-        graph: GraphConfig {
-            neo4j_uri: override_cfg.graph.neo4j_uri.or(base.graph.neo4j_uri),
-            neo4j_user: override_cfg.graph.neo4j_user.or(base.graph.neo4j_user),
-            neo4j_password: override_cfg
-                .graph
-                .neo4j_password
-                .or(base.graph.neo4j_password),
-            qdrant_url: override_cfg.graph.qdrant_url.or(base.graph.qdrant_url),
-        },
-        hermes: HermesConfig {
-            database_url: override_cfg
-                .hermes
-                .database_url
-                .or(base.hermes.database_url),
-            redis_url: override_cfg.hermes.redis_url.or(base.hermes.redis_url),
-        },
-        advanced: AdvancedModulesConfig {
-            serendipity_enabled: override_cfg.advanced.serendipity_enabled
-                || base.advanced.serendipity_enabled,
-            serendipity_in_triad: override_cfg.advanced.serendipity_in_triad
-                || base.advanced.serendipity_in_triad,
-            void_enabled: override_cfg.advanced.void_enabled || base.advanced.void_enabled,
-            memory_retrieval_enabled: override_cfg.advanced.memory_retrieval_enabled
-                || base.advanced.memory_retrieval_enabled,
-        },
-        observer: override_cfg.observer.clone(),
+    // Serialize the env-loaded config to a JSON Value so we can strip nulls.
+    // Null/missing values must NOT mask values provided by the file layer.
+    let base_val = serde_json::to_value(&base).unwrap_or(serde_json::Value::Null);
+    let base_non_null = strip_json_nulls(base_val);
+
+    let result = Figment::new()
+        // Layer 1 (lowest): file-provided values as defaults
+        .merge(Serialized::defaults(&override_cfg))
+        // Layer 2 (highest): env-provided values (nulls already removed so
+        // they do not shadow file values)
+        .merge(Serialized::globals(base_non_null));
+
+    // Do not silently swallow extraction errors (review P1): log + fall back.
+    result.extract::<BeagleConfig>().unwrap_or_else(|e| {
+        tracing::warn!("config merge extract failed ({e}); using env-loaded config");
+        base
+    })
+}
+
+/// Recursively removes JSON null values and empty-null Option fields from a
+/// `serde_json::Value` so that absent env vars do not override file-provided
+/// values in the Figment merge.
+fn strip_json_nulls(val: serde_json::Value) -> serde_json::Value {
+    match val {
+        serde_json::Value::Object(map) => {
+            let filtered = map
+                .into_iter()
+                .filter_map(|(k, v)| {
+                    if v.is_null() {
+                        None
+                    } else {
+                        Some((k, strip_json_nulls(v)))
+                    }
+                })
+                .collect();
+            serde_json::Value::Object(filtered)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(strip_json_nulls).collect())
+        }
+        other => other,
     }
 }

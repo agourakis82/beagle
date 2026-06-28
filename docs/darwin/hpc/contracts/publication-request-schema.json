@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://darwin.local/phase-b10/publication-request-schema.json",
+  "title": "B10 Artifact Publication Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "job_id",
+    "profile_id",
+    "publication_target_id"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "profile_id": {
+      "type": "string",
+      "enum": [
+        "cpu-short-v1",
+        "cpu-batch-v1",
+        "gpu-single-v1"
+      ]
+    },
+    "publication_target_id": {
+      "type": "string",
+      "enum": [
+        "research-results-v1"
+      ]
+    },
+    "publication_label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    }
+  }
+}

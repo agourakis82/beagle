@@ -262,10 +262,7 @@ pub fn dev_routes() -> Router<AppState> {
             post(metacognitive_endpoint::analyze_failures),
         )
         // Round Table — exotic model debate
-        .route(
-            "/api/v1/round-table",
-            post(round_table::round_table),
-        )
+        .route("/api/v1/round-table", post(round_table::round_table))
 }
 
 fn parse_domain_override(raw: &str) -> Option<Domain> {

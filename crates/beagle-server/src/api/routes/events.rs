@@ -40,11 +40,21 @@ async fn publish_event(
     let event = serde_json::from_value::<BeagleEvent>(payload.event)
         .map_err(|e| ApiError::BadRequest(format!("Invalid event: {}", e)))?;
 
-    let mut publisher = state.event_publisher.lock().await;
-    publisher
-        .publish(&event)
-        .await
-        .map_err(|e| ApiError::Internal(format!("Failed to publish: {}", e)))?;
+    match state.event_publisher.as_ref() {
+        Some(publisher) => {
+            publisher
+                .lock()
+                .await
+                .publish(&event)
+                .await
+                .map_err(|e| ApiError::Internal(format!("Failed to publish: {}", e)))?;
+        }
+        None => {
+            return Err(ApiError::Internal(
+                "Pulsar not available (BEAGLE_PULSAR_ENABLED=false or unreachable)".to_string(),
+            ));
+        }
+    }
 
     Ok(Json(PublishResponse {
         event_id: event.metadata.event_id.to_string(),
@@ -54,9 +64,8 @@ async fn publish_event(
 
 /// Health check
 #[axum::debug_handler]
-async fn health_check(State(_state): State<AppState>) -> Json<HealthResponse> {
-    // TODO: implement real check when available
-    let connected = true;
+async fn health_check(State(state): State<AppState>) -> Json<HealthResponse> {
+    let connected = state.event_publisher.is_some();
     Json(HealthResponse {
         status: if connected {
             "healthy".into()

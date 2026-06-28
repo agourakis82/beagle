@@ -45,12 +45,14 @@ fn main() -> anyhow::Result<()> {
     let mut runs: HashMap<String, RunSummary> = HashMap::new();
 
     for event in events {
-        let entry = runs.entry(event.run_id.clone()).or_insert_with(|| RunSummary {
-            run_id: event.run_id.clone(),
-            timestamp: Some(event.timestamp),
-            question: event.question.clone(),
-            ..Default::default()
-        });
+        let entry = runs
+            .entry(event.run_id.clone())
+            .or_insert_with(|| RunSummary {
+                run_id: event.run_id.clone(),
+                timestamp: Some(event.timestamp),
+                question: event.question.clone(),
+                ..Default::default()
+            });
 
         // Update timestamp to earliest
         if let Some(ts) = entry.timestamp {
@@ -152,7 +154,10 @@ fn main() -> anyhow::Result<()> {
     let total_triad = run_list.iter().filter(|r| r.has_triad).count();
     let total_feedback = run_list.iter().filter(|r| r.has_feedback).count();
     let total_accepted = run_list.iter().filter(|r| r.accepted == Some(true)).count();
-    let total_rejected = run_list.iter().filter(|r| r.accepted == Some(false)).count();
+    let total_rejected = run_list
+        .iter()
+        .filter(|r| r.accepted == Some(false))
+        .count();
 
     println!("=== SUMMARY ===");
     println!("Pipeline runs:     {}", total_pipeline);

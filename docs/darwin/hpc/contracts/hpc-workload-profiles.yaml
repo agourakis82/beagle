@@ -1,0 +1,141 @@
+apiVersion: darwin.platform/v1alpha1
+kind: HpcWorkloadProfileCatalog
+metadata:
+  name: darwin-hpc-workload-profiles
+  phase: B9.5
+  title: Workload Class Expansion over the Same Service Layer
+spec:
+  purpose: >
+    Expand the internal HPC gateway from a single canary workflow into a
+    controlled multi-profile service layer without reopening storage, ingress,
+    HA, or topology.
+  design_rules:
+    - Named workload profiles only.
+    - No raw scheduler payload passthrough.
+    - No arbitrary scripts or script bodies from clients.
+    - Keep the Slurm trust boundary outside Kubernetes.
+    - Keep the gateway internal-only and stateless.
+  api_surface:
+    - method: GET
+      path: /profiles
+      purpose: List enabled workload profiles and their public contract.
+    - method: POST
+      path: /jobs/submit
+      purpose: Submit one approved workload profile with approved parameters only.
+    - method: GET
+      path: /jobs/{job_id}
+      purpose: Return normalized job status.
+    - method: GET
+      path: /jobs/{job_id}/artifact-manifest
+      purpose: Return normalized artifact metadata for the completed run.
+    - method: GET
+      path: /jobs/{job_id}/stdout
+      purpose: Return captured stdout stream.
+    - method: GET
+      path: /jobs/{job_id}/stderr
+      purpose: Return captured stderr stream.
+  submit_contract:
+    allowed_top_level_fields:
+      - profile_id
+      - parameters
+    rejected_fields:
+      - scheduler_payload
+      - script
+      - script_body
+      - partition
+      - qos
+      - account
+      - nodes
+      - ntasks
+      - cpus_per_task
+      - gres
+      - time
+  profiles:
+    - id: cpu-short-v1
+      description: Current canary-class CPU workload promoted into a named profile.
+      kind: cpu
+      single_node: true
+      gpu: false
+      max_walltime: "00:02:00"
+      artifact_mode: deterministic-small
+      execution_constraints:
+        nodes: 1
+        ntasks: 1
+        cpus_per_task: 1
+        memory: 1Gi
+      scheduler_template:
+        template_id: cpu-short-v1
+        partition: cpu-short
+      allowed_parameters:
+        run_label:
+          type: string
+          min_length: 3
+          max_length: 40
+          pattern: "^[a-z0-9][a-z0-9-]{2,39}$"
+          description: Human-readable label propagated into logs and result metadata.
+      artifact_contract:
+        required_files:
+          - manifest.json
+          - result.json
+          - stdout.txt
+          - stderr.txt
+    - id: cpu-batch-v1
+      description: Slightly longer-running CPU batch class with a richer deterministic bundle.
+      kind: cpu
+      single_node: true
+      gpu: false
+      max_walltime: "00:10:00"
+      artifact_mode: deterministic-medium
+      execution_constraints:
+        nodes: 1
+        ntasks: 1
+        cpus_per_task: 2
+        memory: 2Gi
+      scheduler_template:
+        template_id: cpu-batch-v1
+        partition: cpu-batch
+      allowed_parameters:
+        run_label:
+          type: string
+          min_length: 3
+          max_length: 40
+          pattern: "^[a-z0-9][a-z0-9-]{2,39}$"
+          description: Human-readable label propagated into logs and result metadata.
+      artifact_contract:
+        required_files:
+          - manifest.json
+          - result.json
+          - metrics.json
+          - stdout.txt
+          - stderr.txt
+    - id: gpu-single-v1
+      description: First GPU-backed single-node workload carried through the same internal gateway.
+      kind: gpu
+      single_node: true
+      gpu: true
+      max_walltime: "00:05:00"
+      artifact_mode: deterministic-small
+      execution_constraints:
+        nodes: 1
+        ntasks: 1
+        cpus_per_task: 4
+        memory: 8Gi
+        gpus: 1
+      scheduler_template:
+        template_id: gpu-single-v1
+        partition: gpu-single
+        gres: gpu:1
+      allowed_parameters:
+        run_label:
+          type: string
+          min_length: 3
+          max_length: 40
+          pattern: "^[a-z0-9][a-z0-9-]{2,39}$"
+          description: Human-readable label propagated into logs and result metadata.
+      artifact_contract:
+        required_files:
+          - manifest.json
+          - result.json
+          - gpu-info.json
+          - stdout.txt
+          - stderr.txt

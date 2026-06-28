@@ -2,6 +2,49 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Beagle Work Memory Autopilot
+
+Beagle is the cluster-canonical exocortex. Local files, Claude Code, Codex, and
+Apple clients are only surfaces; canonical memory lives in the cluster
+GraphRAG++/JSONL/Merkle/Chronoself store.
+
+When working with Claude Code, preserve work memory at session start, after a
+real plan, after important decisions, after meaningful diffs/tests, and at final
+summary/next action.
+
+Preferred wrapper:
+
+```bash
+scripts/beagle-agent-session --agent claude-code -- claude
+```
+
+Manual capture:
+
+```bash
+scripts/beagle-work-memory-capture \
+  --agent claude-code \
+  --phase summary \
+  --summary "What changed and why" \
+  --test "command that passed or failed" \
+  --next-action "What the next agent should do"
+```
+
+If `claude` is not on PATH, do not install it automatically. Surface the missing
+CLI clearly. The scripts must never print tokens and must never store canonical
+memory on the workstation.
+
+Optional project-file daemon:
+
+```bash
+scripts/beagle-work-memory-daemon --agent claude-code --once --dry-run
+scripts/beagle-work-memory-daemon --agent claude-code
+```
+
+The daemon is project-scoped: branch, commit, changed files, diffstat and
+work-memory metadata only. It must not observe clipboard, screenshots, browser
+state or the full computer. Any local outbox is transient, `0600`, and never
+canonical.
+
 ## Quick Start Commands
 
 ### Environment Setup
@@ -81,7 +124,7 @@ cargo run --bin migrate
 ### Working Directory (beagle-remote v0.10.0)
 This is the primary development version with all recent features:
 - 60+ specialized Rust crates in `crates/`
-- Main binaries in `apps/beagle-monorepo/`
+- Main binaries in `crates/beagle-monorepo/` (also mirrored under `apps/beagle-monorepo/` for workspace tooling)
 - TypeScript MCP server in `beagle-mcp-server/`
 - Julia integration in `beagle-julia/`
 - Comprehensive documentation in `docs/`
@@ -140,15 +183,17 @@ Scientific Pipelines (Julia: PBPK, Heliobiology, symbolic reasoning)
    - Local LLM or cached responses
    - When internet unavailable or API limits hit
 
-**Routing Decision Logic**:
+**Routing Decision Logic** (`crates/beagle-llm/src/meta.rs`):
 ```rust
 RequestMeta {
-    requires_math: bool,
-    requires_high_quality: bool,
-    requires_phd_level_reasoning: bool,
-    high_bias_risk: bool,
-    critical_section: bool,
     offline_required: bool,
+    requires_math: bool,
+    requires_vision: bool,
+    approximate_tokens: usize,
+    requires_high_quality: bool,
+    high_bias_risk: bool,
+    requires_phd_level_reasoning: bool,
+    critical_section: bool,
 }
 ```
 
@@ -234,11 +279,13 @@ Central container holding all major services. Pass this to functions instead of 
 
 ```rust
 pub struct BeagleContext {
-    config: BeagleConfig,
-    router: Arc<TieredRouter>,
-    storage: Arc<dyn HypergraphStorage>,
-    agents: HashMap<String, Arc<dyn Agent>>,
-    // ... more services
+    pub cfg: BeagleConfig,
+    pub router: TieredRouter,
+    pub llm: Arc<dyn LlmClient>,
+    pub vector: Arc<dyn VectorStore>,
+    pub graph: Arc<dyn GraphStore>,
+    pub llm_stats: Arc<LlmStatsRegistry>,
+    // Optional: memory (feature "memory"), worldmodel (feature "worldmodel")
 }
 ```
 

@@ -272,6 +272,20 @@ pub struct UniversalObserver {
 }
 
 impl UniversalObserver {
+    /// Create new universal observer using the current async runtime.
+    pub async fn new_async() -> Result<Self> {
+        let inner = SystemObserver::new(ObserverConfig::default()).await?;
+
+        Ok(Self {
+            inner,
+            user_context: Arc::new(RwLock::new(UserContext::default())),
+            timeline: Arc::new(RwLock::new(Vec::new())),
+            physio_events: Arc::new(RwLock::new(Vec::new())),
+            env_events: Arc::new(RwLock::new(Vec::new())),
+            space_weather_events: Arc::new(RwLock::new(Vec::new())),
+        })
+    }
+
     /// Create new universal observer
     pub async fn new() -> Result<Self> {
         let inner = SystemObserver::new(ObserverConfig::default()).await?;

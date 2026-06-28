@@ -66,10 +66,15 @@ const SGLANG_MODEL =
   process.env.PROJECT_COCKPIT_SGLANG_MODEL ||
   process.env.BEAGLE_SGLANG_MODEL ||
   DYNAMO_MODEL;
+const LITELLM_ROUTER_URL =
+  process.env.PROJECT_COCKPIT_LITELLM_ROUTER_URL ||
+  "http://router.llm-router.svc.cluster.local:4000";
 const BEAGLE_ALLOWED_PROXY_PREFIXES = [
   "/api/v1/cognitive/",
+  "/api/cognitive/deep-think",
   "/api/exocortex/process",
   "/api/fractal/recurse",
+  "/api/hyperedges",
   "/api/deep_think"
 ];
 
@@ -110,6 +115,17 @@ export async function fetchOperatorToken() {
 }
 
 async function _fetchOperatorTokenImpl() {
+  const envToken = cleanString(
+    process.env.BEAGLE_MEMORY_API_TOKEN ||
+    process.env.BEAGLE_OPERATOR_API_TOKEN ||
+    process.env.BEAGLE_API_TOKEN
+  );
+  if (envToken) {
+    tokenCache = envToken;
+    tokenCachedAt = Date.now();
+    return { token: envToken, source: "env", key: "BEAGLE_MEMORY_API_TOKEN" };
+  }
+
   const secretResult = await fetchSecretValue([
     "BEAGLE_OPERATOR_API_TOKEN",
     "BEAGLE_API_TOKEN",
@@ -678,6 +694,407 @@ async function proxyBeagleRequest(method, req) {
     };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// In-memory cache for the biography digest. It is "pinned" and changes slowly
+// (the user re-distills it occasionally), so re-fetching it on every companion
+// turn just adds a ~3s memory/query to the personal-chat latency for no benefit.
+// 5-minute TTL keeps it fresh enough without that cost on each message.
+let _bioDigestCache = { digest: "", at: 0 };
+const BIO_DIGEST_TTL_MS = 5 * 60 * 1000;
+
+// Fetch the latest pinned biography digest from beagle-core memory.
+// Used by the Personal space to ground the companion in who the user actually is.
+// Best-effort: returns { digest: "" } on any failure so chat is never blocked.
+// Caches a successful digest for BIO_DIGEST_TTL_MS to keep personal chat snappy.
+export async function fetchBiographyDigest({ timeoutMs = 8000 } = {}) {
+  if (_bioDigestCache.digest && Date.now() - _bioDigestCache.at < BIO_DIGEST_TTL_MS) {
+    return { digest: _bioDigestCache.digest, cached: true };
+  }
+  const tokenResult = await fetchOperatorToken();
+  if (tokenResult.error || !tokenResult.token) {
+    return { digest: "", error: tokenResult.error || "beagle token unavailable" };
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "content-type": "application/json",
+        "X-Beagle-Consumer": "beagle-operator",
+        Authorization: `Bearer ${tokenResult.token}`
+      },
+      // Tag-filtered query reliably surfaces the pinned digest (see docs/exocortex/CONTRACTS.md).
+      body: JSON.stringify({
+        query: "biografia viva Demetrios quem ele é trabalho recente",
+        k: 5,
+        tags: ["biography-digest"],
+        scope: "biography_digest"
+      }),
+      signal: ctrl.signal
+    });
+    if (!res.ok) {
+      return { digest: "", error: `memory/query ${res.status}` };
+    }
+    const payload = parseJsonResponse(await res.text());
+    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
+    const sorted = highlights
+      .filter((h) => cleanString(h?.snippet))
+      .sort((a, b) => cleanString(b?.date).localeCompare(cleanString(a?.date)));
+    const digest = cleanString(sorted[0]?.snippet);
+    if (digest) _bioDigestCache = { digest, at: Date.now() };
+    return { digest };
+  } catch (err) {
+    return { digest: "", error: err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Fetch the latest physiome digest from beagle-core memory.
+// Used by the Personal space to ground the companion in the user's current
+// body state and environment (HRV, sleep, ambient readings, etc.).
+// Best-effort: returns { digest: "" } on any failure so chat is never blocked.
+export async function fetchPhysiomeDigest({ timeoutMs = 8000 } = {}) {
+  const tokenResult = await fetchOperatorToken();
+  if (tokenResult.error || !tokenResult.token) {
+    return { digest: "", error: tokenResult.error || "beagle token unavailable" };
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "content-type": "application/json",
+        "X-Beagle-Consumer": "beagle-operator",
+        Authorization: `Bearer ${tokenResult.token}`
+      },
+      // Tag-filtered query reliably surfaces the pinned physiome digest.
+      body: JSON.stringify({
+        query: "estado físico corpo ambiente HRV sono energia recente",
+        k: 3,
+        tags: ["physiome-digest"]
+      }),
+      signal: ctrl.signal
+    });
+    if (!res.ok) {
+      return { digest: "", error: `memory/query ${res.status}` };
+    }
+    const payload = parseJsonResponse(await res.text());
+    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
+    const sorted = highlights
+      .filter((h) => cleanString(h?.snippet))
+      .sort((a, b) => cleanString(b?.date).localeCompare(cleanString(a?.date)));
+    return { digest: cleanString(sorted[0]?.snippet) };
+  } catch (err) {
+    return { digest: "", error: err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Best-effort episodic recall from memory-pg /query. Returns the raw results
+ * array ([{ text, occurred_at, ... }]) or [] on any failure — never throws, so
+ * the chat is never blocked. fetchImpl is injectable for tests.
+ */
+export async function fetchRecentMemories(query, {
+  baseUrl = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local",
+  token = process.env.MEMORY_PG_QUERY_TOKEN || "",
+  k = 6,
+  timeoutMs = 6000,
+  fetchImpl = fetch,
+} = {}) {
+  const q = typeof query === "string" ? query.trim() : "";
+  if (!q) return [];
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const headers = { "content-type": "application/json" };
+    if (token) headers.authorization = `Bearer ${token}`;
+    const res = await fetchImpl(`${baseUrl}/query`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query: q, k }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return [];
+    const j = await res.json();
+    return Array.isArray(j?.results) ? j.results : [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function extractRouterCompletionText(payload = {}) {
+  return cleanString(
+    payload?.choices?.[0]?.message?.content ||
+      payload?.choices?.[0]?.text ||
+      payload?.output_text ||
+      payload?.text ||
+      payload?.response
+  );
+}
+
+async function routerChat({
+  model,
+  messages,
+  temperature = 0.8,
+  stream = false,
+  timeoutMs = 120000
+}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${LITELLM_ROUTER_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "content-type": "application/json",
+        Authorization: "Bearer noauth"
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature,
+        stream
+      }),
+      signal: ctrl.signal
+    });
+    const raw = await res.text();
+    const payload = parseJsonResponse(raw);
+    if (!res.ok) {
+      throw new Error(
+        cleanString(payload?.error?.message || payload?.error || payload?.message) ||
+          `router chat failed with HTTP ${res.status}`
+      );
+    }
+    if (stream) {
+      throw new Error("routerChat(stream=true) is not supported; use streamChatViaRouter");
+    }
+    const text = extractRouterCompletionText(payload);
+    if (!text) {
+      throw new Error(`router returned empty completion for model ${model}`);
+    }
+    return { text, payload, model: cleanObjectString(payload?.model, model) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function streamChatViaRouter({
+  model,
+  messages,
+  temperature = 0.8,
+  onToken,
+  timeoutMs = 180000
+}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  let fullText = "";
+  try {
+    const res = await fetch(`${LITELLM_ROUTER_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        Accept: "text/event-stream, application/json",
+        "content-type": "application/json",
+        Authorization: "Bearer noauth"
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature,
+        stream: true
+      }),
+      signal: ctrl.signal
+    });
+
+    if (!res.ok) {
+      const payload = parseJsonResponse(await res.text());
+      throw new Error(
+        cleanString(payload?.error?.message || payload?.error || payload?.message) ||
+          `router stream failed with HTTP ${res.status}`
+      );
+    }
+
+    const contentType = cleanString(res.headers.get("content-type")).toLowerCase();
+    if (!contentType.includes("text/event-stream") || !res.body) {
+      const payload = parseJsonResponse(await res.text());
+      const text = extractRouterCompletionText(payload);
+      if (text) {
+        fullText = text;
+        if (typeof onToken === "function") {
+          onToken(text);
+        }
+        return {
+          text: fullText,
+          model: cleanObjectString(payload?.model, model),
+          usage: payload?.usage || null,
+          source: "cluster"
+        };
+      }
+      throw new Error("router stream response was not SSE and had no completion text");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let resolvedModel = model;
+    let usage = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) {
+          continue;
+        }
+        const data = trimmed.slice(5).trim();
+        if (!data || data === "[DONE]") {
+          continue;
+        }
+        const payload = parseJsonResponse(data);
+        resolvedModel = cleanObjectString(payload?.model, resolvedModel);
+        if (payload?.usage) {
+          usage = payload.usage;
+        }
+        // Use the RAW token content — cleanString() trims each delta, which eats the
+        // leading spaces streamed with most tokens and collapses the reply into one
+        // run-on word. Preserve spaces verbatim.
+        const deltaRaw = payload?.choices?.[0]?.delta?.content;
+        const textRaw = payload?.choices?.[0]?.text;
+        const delta = typeof deltaRaw === "string" && deltaRaw.length > 0
+          ? deltaRaw
+          : (typeof textRaw === "string" ? textRaw : "");
+        if (delta) {
+          fullText += delta;
+          if (typeof onToken === "function") {
+            onToken(delta);
+          }
+        }
+      }
+    }
+
+    if (!fullText) {
+      throw new Error(`router stream returned empty completion for model ${model}`);
+    }
+
+    return {
+      text: fullText,
+      model: resolvedModel,
+      usage,
+      source: "cluster"
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const MUSE_MODEL = process.env.PROJECT_COCKPIT_PERSONAL_MUSE_MODEL || "hunyuan-7b";
+const PERSONAL_VOICE_MODEL =
+  process.env.PROJECT_COCKPIT_PERSONAL_VOICE_MODEL || "hermes-4";
+
+export async function runMuseVoiceEnsemble({
+  prompt,
+  system = "",
+  voiceModel = PERSONAL_VOICE_MODEL,
+  onToken
+}) {
+  const promptText = cleanString(prompt);
+  const systemText = cleanString(system);
+  if (!promptText) {
+    return {
+      status: 400,
+      payload: {
+        error: "prompt is required",
+        truthMode: "declared",
+        source: "cluster"
+      }
+    };
+  }
+
+  const museSystem =
+    "Gere 3-5 sementes criativas, provocativas e concretas em pt-BR. " +
+    "Não escreva resposta final ao usuário. Apenas bullets curtos com ângulos inesperados.";
+  let museSeeds = "";
+  try {
+    const museResult = await routerChat({
+      model: MUSE_MODEL,
+      messages: [
+        { role: "system", content: museSystem },
+        { role: "user", content: promptText }
+      ],
+      temperature: 0.95,
+      stream: false,
+      timeoutMs: 90000
+    });
+    museSeeds = museResult.text;
+  } catch (err) {
+    museSeeds = "";
+  }
+
+  const voiceSystemParts = [systemText];
+  if (museSeeds) {
+    voiceSystemParts.push(
+      "## Sementes internas (integrar sem mencionar, sem listar)",
+      museSeeds
+    );
+  }
+  const voiceSystem = voiceSystemParts.filter(Boolean).join("\n\n");
+
+  try {
+    const voiceResult = await streamChatViaRouter({
+      model: cleanString(voiceModel) || PERSONAL_VOICE_MODEL,
+      messages: [
+        { role: "system", content: voiceSystem },
+        { role: "user", content: promptText }
+      ],
+      temperature: 0.8,
+      onToken
+    });
+
+    return {
+      status: 200,
+      payload: {
+        text: voiceResult.text,
+        response: voiceResult.text,
+        model: voiceResult.model,
+        provider: voiceResult.model,
+        tier: voiceResult.model,
+        source: voiceResult.source || "cluster",
+        usage: voiceResult.usage || null,
+        muse_model: MUSE_MODEL,
+        voice_model: cleanString(voiceModel) || PERSONAL_VOICE_MODEL,
+        truthMode: "observed",
+        beagle_url: `${LITELLM_ROUTER_URL}/v1/chat/completions`
+      },
+      beagleUrl: LITELLM_ROUTER_URL
+    };
+  } catch (err) {
+    return {
+      status: 503,
+      payload: {
+        error: err.message,
+        truthMode: "stale",
+        source: "cluster",
+        beagle_url: LITELLM_ROUTER_URL
+      },
+      beagleUrl: LITELLM_ROUTER_URL
+    };
   }
 }
 
@@ -1410,4 +1827,62 @@ export function registerAuthBridgeRoutes(app) {
     const result = await proxyBeagleRequest("POST", req);
     res.status(result.status).json(result.payload);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Exocortex RAG grounding (ported from fix/mobile-summary-timeout)
+// ---------------------------------------------------------------------------
+export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000 } = {}) {
+  const q = cleanString(query);
+  if (!q) return "";
+  try {
+    // beagle-core's /api/memory routes accept the operator token from
+    // beagle-core-tokens (injected here as env via secretKeyRef). The shared
+    // fetchOperatorToken() reads beagle-core-secrets, whose token beagle-core
+    // rejects with 401. Prefer the explicit env token; fall back to the shared.
+    let token = cleanString(process.env.BEAGLE_MEMORY_API_TOKEN);
+    if (!token) {
+      const tokenResult = await fetchOperatorToken();
+      token = tokenResult?.token || "";
+    }
+    if (!token) return "";
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let res;
+    try {
+      res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "content-type": "application/json",
+          "X-Beagle-Consumer": "beagle-operator",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ query: q }),
+        signal: ctrl.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) return "";
+    const payload = parseJsonResponse(await res.text());
+    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
+    const lines = highlights
+      .slice(0, limit)
+      .map((h) => {
+        const snippet = cleanString(h?.snippet).replace(/\s+/g, " ").slice(0, 300);
+        if (!snippet) return null;
+        const date = cleanString(h?.date).slice(0, 10);
+        return `- ${date ? `[${date}] ` : ""}${snippet}`;
+      })
+      .filter(Boolean);
+    if (lines.length === 0) return "";
+    return [
+      "## Exocortex memory — the user's own recorded context",
+      "Ground your answer in the facts below. Do NOT ask the user for information that is already present here; treat it as known. Cite or build on it where relevant.",
+      ...lines
+    ].join("\n");
+  } catch {
+    return "";
+  }
 }

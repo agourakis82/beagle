@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Beagle Exocortex</title>
+  <desc id="desc">A minimal mark showing a memory node and orbital exocortex paths.</desc>
+  <rect width="512" height="512" rx="96" fill="#10131a"/>
+  <circle cx="256" cy="256" r="74" fill="#f4f0e8"/>
+  <circle cx="256" cy="256" r="28" fill="#10131a"/>
+  <path d="M110 266c58-90 143-132 255-126" fill="none" stroke="#6fd0ff" stroke-width="22" stroke-linecap="round"/>
+  <path d="M402 246c-58 90-143 132-255 126" fill="none" stroke="#f2b84b" stroke-width="22" stroke-linecap="round"/>
+  <circle cx="370" cy="141" r="24" fill="#6fd0ff"/>
+  <circle cx="141" cy="371" r="24" fill="#f2b84b"/>
+  <path d="M210 180c26-22 66-22 92 0" fill="none" stroke="#10131a" stroke-width="16" stroke-linecap="round"/>
+</svg>

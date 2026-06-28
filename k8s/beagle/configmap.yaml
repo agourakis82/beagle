@@ -2,6 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: beagle-core-config
+  namespace: beagle
 data:
   # Runtime authority for the cluster MVP:
   # - binary: core_server
@@ -58,6 +59,11 @@ data:
   BEAGLE_GROQ_BASE_URL: https://api.groq.com/openai/v1
   BEAGLE_XAI_BASE_URL: https://api.x.ai/v1
   BEAGLE_GROK_MODEL: grok-4-1-fast-reasoning
+  # Fleet-first routing: TieredRouter default workhorse is the in-cluster LiteLLM/vLLM fleet
+  # (Grok/Claude kept as complete_robust escalation/fallback). qwen2.5-14b ≈ chat-fast (~50 tok/s).
+  BEAGLE_LLM_FLEET_ENABLE: "1"
+  BEAGLE_LLM_FLEET_MODEL: qwen2.5-14b
+  BEAGLE_LLM_FLEET_URL: http://router.llm-router.svc.cluster.local:4000/v1
   BEAGLE_KIMI_MODEL: moonshotai/kimi-k2-instruct-0905
   BEAGLE_MINIMAX_BASE_URL: https://api.minimax.io/anthropic
   BEAGLE_DARWIN_HPC_GATEWAY_BASE_URL: http://darwin-hpc-gateway.darwin-platform.svc.cluster.local
@@ -75,5 +81,27 @@ data:
   BEAGLE_MEMORY_SOVEREIGN_EMBEDDING_MODEL: BAAI/bge-m3
   BEAGLE_MEMORY_SOVEREIGN_RERANKING_URL: http://beagle-sovereign-reranker.beagle.svc.cluster.local
   BEAGLE_MEMORY_SOVEREIGN_RERANKING_MODEL: Alibaba-NLP/gte-reranker-modernbert-base
+  BEAGLE_MEMORY_HOT_PATH: hypermemory_multivector
+  BEAGLE_MEMORY_RANKING_POLICY: strict_recent_guarded
+  BEAGLE_MVP_PROFILE: sounio-workday-daily-driver
+  BEAGLE_RETRIEVAL_AGENT: canary
+  BEAGLE_RETRIEVAL_PLANNER: hybrid
+  BEAGLE_CONTEXT_COMPILER: shadow
+  BEAGLE_MEMORY_POLICY: observe
+  BEAGLE_DREAMCYCLE: manual
+  BEAGLE_MEMORY_COLBERT_MODEL: jinaai/jina-colbert-v2
+  BEAGLE_GRAPHRAG_RUNTIME: federated-living-memory-mesh
+  BEAGLE_MEMORY_ENGINE_RUNTIME: federated-living-memory-mesh
+  BEAGLE_MEMORY_ENGINE_URL: http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090
+  BEAGLE_FALKORDB_URL: redis://beagle-falkordb.beagle.svc.cluster.local:6379
+  BEAGLE_MEMGRAPH_URL: bolt://beagle-memgraph.beagle.svc.cluster.local:7687
+  BEAGLE_SURREALDB_URL: http://beagle-surrealdb.beagle.svc.cluster.local:8000
+  BEAGLE_ARANGODB_URL: http://beagle-arangodb.beagle-memory-lab.svc.cluster.local:8529
+  BEAGLE_ARCADEDB_URL: http://beagle-arcadedb.beagle-memory-lab.svc.cluster.local:2480
+  BEAGLE_KUZU_PATH: /orangefs/beagle-memory-lab/kuzu
+  BEAGLE_LANCEDB_PATH: /orangefs/beagle-memory-lab/lancedb
+  BEAGLE_DUCKDB_VSS_PATH: /orangefs/beagle-memory-lab/beagle-memory.duckdb
+  BEAGLE_POSTGRES_VECTOR_URL: postgres://beagle-vector.beagle-memory-lab.svc.cluster.local:5432/beagle
+  BEAGLE_TYPEDB_URL: http://beagle-typedb.beagle-memory-lab.svc.cluster.local:1729
   RUST_LOG: beagle=info,beagle_monorepo=info,beagle_core=info,tower_http=info
   RUST_LOG_JSON: "1"

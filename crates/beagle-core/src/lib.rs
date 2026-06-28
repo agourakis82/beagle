@@ -7,9 +7,11 @@
 pub mod context;
 pub mod implementations;
 pub mod stats;
+pub mod store_inventory;
 pub mod traits;
 
 pub use stats::LlmStatsRegistry;
+pub use store_inventory::{BeagleStoreInventory, StoreRole, StoreStatus};
 
 pub use context::*;
 pub use implementations::*;

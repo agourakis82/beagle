@@ -1,0 +1,61 @@
+# DICE Task 5 — Axolotl DPO config template for rounds N >= 1 on DGX Spark.
+# Rendered by slurm_dpo_spark.sh with ROUND and PREV_ADAPTER substituted.
+#
+# Differences from round0:
+#   - base_model is the previous round's merged adapter (iterative refinement)
+#   - load_in_4bit: false (Spark 128GB unified memory, full bf16)
+#   - micro_batch_size: 8 (Spark NVLink 900GB/s BW, no PCIe bottleneck)
+#   - flash_attention: true (sm_120 Blackwell supports FA3 via mma.sync)
+
+base_model: "{{PREV_ADAPTER}}"
+model_type: AutoModelForCausalLM
+tokenizer_type: AutoTokenizer
+
+rl: dpo
+dpo_beta: 0.1
+
+datasets:
+  - path: "${BEAGLE_DATA_DIR}/dice/preference_pairs_round{{ROUND}}.jsonl"
+    type: sharegpt
+    conversation: chatml
+
+sequence_len: 4096
+sample_packing: false
+
+# Full-param fine-tuning on Spark (128GB unified memory handles 7B fully)
+# Uncomment to switch to LoRA if using multiple adapters simultaneously:
+# adapter: lora
+# lora_r: 64
+# lora_alpha: 128
+# lora_dropout: 0.05
+# lora_target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+num_epochs: 2
+micro_batch_size: 8
+gradient_accumulation_steps: 2
+learning_rate: 2.0e-5
+optimizer: adamw_bnb_8bit
+lr_scheduler: cosine
+warmup_ratio: 0.03
+weight_decay: 0.01
+max_grad_norm: 1.0
+
+bf16: true
+fp16: false
+tf32: true
+
+# Spark GB10 sm_120: target mma.sync (NOT tcgen05 which is consumer BW-gated)
+# Flash Attention 3 is available on Blackwell via torch >= 2.6.
+flash_attention: true
+
+# No 4-bit needed on Spark (128GB unified memory)
+load_in_4bit: false
+
+output_dir: "${BEAGLE_DATA_DIR}/dice/qwen25-7b-dpo-round{{ROUND}}"
+saves_per_epoch: 1
+logging_steps: 10
+eval_steps: 100
+eval_sample_packing: false
+
+# wandb_project: beagle-dice
+# wandb_run_id: "dice-round{{ROUND}}"

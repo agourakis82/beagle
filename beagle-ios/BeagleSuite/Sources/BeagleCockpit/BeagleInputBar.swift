@@ -193,7 +193,7 @@ struct BeagleInputBar: View {
             .scrollContentBackground(.hidden)
             .focused($isFocused)
             .disabled(!isEnabled)
-            .frame(minHeight: 22, maxHeight: max(22, min(132, textHeight)))
+            .frame(minHeight: 40, maxHeight: max(40, min(168, textHeight)))
             .overlay(alignment: .topLeading) {
                 if text.isEmpty {
                     placeholderLabel

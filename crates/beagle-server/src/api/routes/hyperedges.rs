@@ -98,7 +98,7 @@ pub fn router() -> Router<AppState> {
             post(create_hyperedge).get(list_hyperedges),
         )
         .route(
-            "/api/v1/hyperedges/:id",
+            "/api/v1/hyperedges/{id}",
             get(get_hyperedge)
                 .put(update_hyperedge)
                 .delete(delete_hyperedge),

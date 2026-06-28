@@ -17,19 +17,20 @@
 //!    ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
 //!    │ Identity │ │  Brain   │ │ Context  │ │  Agent   │ │ Memory   │
 //!    │  System  │ │Connector │ │ Manager  │ │  Mesh    │ │ Bridge   │
-//!    │          │ │(IIT/GWT) │ │(WorldMdl)│ │ (Tasks)  │ │ (RAG)    │
+//!    │          │ │(salience)│ │(WorldMdl)│ │ (Tasks)  │ │ (RAG)    │
 //!    └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘
-//!        USER        CONSCIOUS    SITUATION    EXECUTION   RETRIEVAL
-//!       PROFILE      SUBSTRATE     AWARENESS    LAYER       LAYER
+//!        USER        SALIENCE     SITUATION    EXECUTION   RETRIEVAL
+//!       PROFILE     HEURISTIC     AWARENESS    LAYER       LAYER
 //! ```
 //!
 //! # Core Concepts
 //!
 //! - **Identity System**: Persistent user profile, preferences, expertise levels
-//! - **Brain Connector**: IIT consciousness substrate + Global Workspace attention
+//! - **Brain Connector**: Salience/escalation heuristic (formerly branded "IIT/GWT";
+//!   NOT a real IIT computation — see `brain` module note and `beagle-transcend::IIT4Calculator`)
 //! - **Context Manager**: World model integration for situational awareness
 //! - **Agent Mesh**: Coordinated agent team with specialization learning
-//! - **Memory Bridge**: Unified semantic + episodic memory with consciousness tagging
+//! - **Memory Bridge**: Unified semantic + episodic memory with salience tagging
 //!
 //! # Usage
 //!
@@ -62,7 +63,10 @@ pub mod orchestrator;
 pub mod workflow;
 
 pub use agents::{AgentCapability, AgentMesh, AgentMeshConfig, AgentTeam, TaskContext};
-pub use brain::{AwarenessLevel, BrainConnector, BrainConnectorConfig, ConsciousnessState};
+pub use brain::{
+    escalation_decision, recommended_tier_for_state, AwarenessLevel, BrainConnector,
+    BrainConnectorConfig, ConsciousnessState,
+};
 pub use config::ExocortexConfig;
 pub use context::{ContextAdaptations, ContextManager, ContextManagerConfig, SituationalContext};
 pub use error::{ExocortexError, ExocortexResult};

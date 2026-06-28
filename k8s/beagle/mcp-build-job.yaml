@@ -1,0 +1,70 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: beagle-mcp-server-build
+  namespace: beagle
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      nodeSelector:
+        sounio.dev/runtime-role: cluster-core
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      restartPolicy: Never
+      initContainers:
+        - name: clone
+          image: alpine/git:latest
+          env:
+            - name: BEAGLE_GIT_BRANCH
+              value: main
+            - name: BEAGLE_GIT_REF
+              value: main
+          command:
+            - /bin/sh
+            - -lc
+            - git clone --depth=50 --branch="${BEAGLE_GIT_BRANCH:-main}" https://github.com/agourakis82/beagle.git /workspace && cd /workspace && git checkout "${BEAGLE_GIT_REF:-main}"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:latest
+          env:
+            - name: BEAGLE_IMAGE_TAG
+              value: sounio-workday-mvp-c63a309
+          args:
+            - "--dockerfile=/workspace/beagle-mcp-server/Dockerfile"
+            - "--context=dir:///workspace"
+            - "--destination=192.168.3.207:5003/beagle-mcp-server:$(BEAGLE_IMAGE_TAG)"
+            - "--insecure-registry=192.168.3.207:5003"
+            - "--cache=false"
+            - "--snapshot-mode=redo"
+            - "--verbosity=info"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 2Gi

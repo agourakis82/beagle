@@ -1,0 +1,38 @@
+phase: B11.1
+mode: object-backed-retrieval
+status: active
+last_validated_run: 20260319-183834
+
+gateway:
+  namespace: darwin-platform
+  service: darwin-hpc-gateway
+  adapter_host: t560-proxmox
+  adapter_bind: 192.168.3.169:6830
+
+artifact_source:
+  primary: object-plane
+  fallback: host-side-explicit
+  bucket: darwin-hpc-artifacts
+  key_prefix_family: hpc/
+  publication_contract: darwin-b101-object-artifact-v1
+
+profiles:
+  - cpu-short-v1
+  - cpu-batch-v1
+  - gpu-single-v1
+
+stable_endpoints:
+  - /jobs/{job_id}
+  - /jobs/{job_id}/artifact-manifest
+  - /jobs/{job_id}/artifact
+  - /jobs/{job_id}/stdout
+  - /jobs/{job_id}/stderr
+
+constraints:
+  no_pvc_pv_reopen: true
+  no_ingress_edge_reopen: true
+  no_ha_reopen: true
+  no_topology_change: true
+  no_slurm_in_kubernetes: true
+  no_object_contract_redesign: true
+  no_broader_admission: true

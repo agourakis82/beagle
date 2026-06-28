@@ -311,6 +311,17 @@ public final class GoDeepStore {
     private func animateThinkingStatuses() async {
         var messageIndex = 0
         while !Task.isCancelled {
+            // Defense in depth: stop the moment no modality is still waiting/thinking.
+            // The animation must never outlive the work, even if `thinkingTask.cancel()`
+            // is missed (e.g. the task group stays open on a stalled modality).
+            let stillWorking = modalityStates.contains { state in
+                switch state.phase {
+                case .waiting, .thinking: return true
+                default: return false
+                }
+            }
+            guard stillWorking else { return }
+
             for i in modalityStates.indices {
                 guard case .waiting = modalityStates[i].phase else { continue }
                 let messages = Self.thinkingMessages[modalityStates[i].modality] ?? ["Processing..."]

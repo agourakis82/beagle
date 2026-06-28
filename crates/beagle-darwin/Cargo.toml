@@ -13,6 +13,7 @@ serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
 anyhow.workspace = true
+chrono.workspace = true
 
 # Dependências internas do BEAGLE
 beagle-grok-api = { path = "../beagle-grok-api" }
@@ -20,4 +21,10 @@ beagle-smart-router = { path = "../beagle-smart-router" }
 beagle-agents = { path = "../beagle-agents" }
 beagle-llm = { path = "../beagle-llm" }
 beagle-core = { path = "../beagle-core" }
-beagle-config = { path = "../beagle-config" }
+beagle-config = { workspace = true }
+
+[dev-dependencies]
+# Used by examples/darwin_cycle.rs (tracing_subscriber::fmt) — was missing, so `cargo test`
+# (which builds examples) failed once the fmt/build gates were fixed and exposed it.
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

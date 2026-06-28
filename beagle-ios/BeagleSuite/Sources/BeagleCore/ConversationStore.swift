@@ -34,6 +34,8 @@ public struct ChatMessage: Identifiable, Sendable {
     public var podName: String?
     /// Round Table: voice identity (e.g. "consciousness", "paradox", "quantum")
     public var voiceName: String?
+    /// True once this exchange has been auto-imported into the cluster exocortex memory.
+    public var savedToMemory: Bool = false
 
     public init(
         id: UUID = UUID(),
@@ -76,6 +78,10 @@ public final class ConversationStore {
     public private(set) var isStreaming: Bool = false
     public private(set) var autoImportState: ConversationAutoImportState = .idle
 
+    /// When the user last sent a cloud message — the client owns the thread, so it sends
+    /// this so the companion knows how long since they last talked (temporal awareness).
+    private var lastContactAt: Date?
+
     /// Whether to prefer on-device model when available.
     public var preferLocal: Bool = true
     public var autoImportsConversationMemory: Bool = true
@@ -102,6 +108,10 @@ public final class ConversationStore {
         self.projectSlug = projectSlug
         self.projectFamily = projectFamily
         self.publicationScope = publicationScope
+        // Drain the offline outbox to the memory spine the moment connectivity returns.
+        NetworkMonitor.shared.onReconnect = { [weak self] in
+            Task { @MainActor in await self?.flushOutbox() }
+        }
     }
 
     public var persistenceConversationId: String {
@@ -112,36 +122,129 @@ public final class ConversationStore {
 
     /// HRV-aware flow state for routing decisions.
     public var flowState: String? = nil
+    /// Last night's sleep quality, 0–1 (deep+REM ratio). Feeds the attuned body-as-story greeting.
+    public var sleepQuality01: Double? = nil
     public var physioContext: String? = nil
     public var companionContext: String? = nil
     public var behaviorContext: String? = nil
     public var noteTakingContext: String? = nil
     public var physioPolicy: PhysioConversationPolicy? = nil
 
+    /// Fast on-device responder (Apple Foundation Models), injected by the app layer
+    /// (BeagleCore can't reach BeagleCockpit). Light/casual messages route here for an
+    /// instant reply; deep ones go to the cloud. Hybrid: on-device for light, cluster for deep.
+    public var fastResponder: ((String, [String]) async -> String?)? = nil
+    public var fastAvailable: Bool = false
+
+    /// Demo seed for screenshots/previews — a warm, attuned sample exchange. No-op if the
+    /// conversation already has messages.
+    public func seedDemoConversation() {
+        guard messages.isEmpty else { return }
+        messages = [
+            ChatMessage(role: .user, content: "Acordei meio pra baixo hoje, não sei bem por quê."),
+            ChatMessage(role: .assistant,
+                content: "Faz sentido. Você dormiu leve e o coração andou tenso essa noite — às vezes o corpo sente antes da gente entender. Quer me contar como foi a noite?",
+                source: "physiome"),
+            ChatMessage(role: .user, content: "Acho que foi a apresentação de amanhã martelando na cabeça."),
+            ChatMessage(role: .assistant,
+                content: "A gente já passou por isso antes — e você costuma chegar mais inteiro do que imagina. Quer ensaiar o começo comigo agora, ou prefere só descarregar um pouco?",
+                source: "exocortex"),
+        ]
+    }
+
     /// Send a message with HRV-gated routing:
     /// FLOW → cloud (deep reasoning worth the latency)
     /// NORMAL → local MLX (balanced)
     /// STRESS → Foundation Models (fast, don't overwhelm)
     public func sendMessage(_ text: String) async {
-        switch flowState {
-        case "FLOW":
-            // Deep focus → use cloud for best reasoning
+        // Light, casual messages → instant on-device Apple Intelligence (when available).
+        if isLight(text), fastAvailable, fastResponder != nil {
+            await sendMessageFast(text)
+            return
+        }
+        // Companion: cloud (rich, grounded, server-side memory ingest) when online; the on-device
+        // MLX model when offline — and enqueue the offline turn so the memory spine receives it
+        // once connectivity returns. `flowState` still travels in the cloud request body.
+        if NetworkMonitor.shared.isOnline {
             await sendMessageCloud(text)
-        case "STRESS":
-            // Stressed → quick local response
-            if llm.isReady {
-                await sendMessageLocal(text)
+        } else if llm.isReady {
+            await sendMessageLocal(text)
+            enqueueOffline(userText: text)
+        } else {
+            await sendMessageCloud(text)
+        }
+    }
+
+    /// Queue an offline personal turn for later sync to the memory spine (online turns are
+    /// ingested server-side during the chat, so only offline ones land here).
+    private func enqueueOffline(userText: String) {
+        guard let ctx = modelContext else { return }
+        let assistant = messages.last(where: { $0.role == .assistant })?.content ?? ""
+        OutboxStore(context: ctx).enqueue(
+            sessionId: persistenceConversationId,
+            userText: userText,
+            assistantText: assistant,
+            clientTime: ISO8601DateFormatter().string(from: Date()),
+            timezone: TimeZone.current.identifier
+        )
+    }
+
+    /// Drain the offline outbox to the cockpit. Idempotent server-side (content_hash), so a
+    /// failed item simply stays queued for the next attempt.
+    public func flushOutbox() async {
+        guard let ctx = modelContext else { return }
+        let store = OutboxStore(context: ctx)
+        for item in store.pending() {
+            let result = await client.ingestTurn(IngestTurnRequest(
+                session_id: item.sessionId, userText: item.userText, assistantText: item.assistantText,
+                clientTime: item.clientTime, timezone: item.timezone))
+            if result.value != nil { store.delete(item) }
+        }
+    }
+
+    /// A short, casual message worth answering instantly on-device.
+    private func isLight(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).count <= 140
+    }
+
+    /// Instant on-device reply via the injected fast responder (Apple Foundation Models).
+    public func sendMessageFast(_ text: String) async {
+        let history = messages.suffix(8).map { "\($0.role == .user ? "User" : "Assistant"): \($0.content)" }
+        let userMessage = ChatMessage(role: .user, content: text)
+        messages.append(userMessage)
+        persist(message: userMessage)
+
+        let assistantId = UUID()
+        messages.append(ChatMessage(id: assistantId, role: .assistant, content: "", isStreaming: true))
+        isStreaming = true
+
+        let reply = await fastResponder?(text, history) ?? nil
+
+        if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+            if let reply, !reply.isEmpty {
+                messages[idx].model = "apple-intelligence"
+                messages[idx].isLocal = true
+                await revealText(reply, for: assistantId)
+                messages[idx].isStreaming = false
+                persist(message: messages[idx])
             } else {
-                await sendMessageCloud(text)
-            }
-        default:
-            // NORMAL or unknown → prefer local if available
-            if preferLocal && llm.isReady {
-                await sendMessageLocal(text)
-            } else {
-                await sendMessageCloud(text)
+                // On-device came back empty → hand this turn to the cloud on the same bubble.
+                let history2 = messages.dropLast().suffix(10)
+                    .map { "\($0.role == .user ? "User" : "Assistant"): \($0.content)" }
+                    .joined(separator: "\n")
+                let prompt = history2.isEmpty ? text : "\(history2)\nUser: \(text)"
+                let result = await client.chat(prompt: prompt, system: activeSystemInstruction,
+                    projectSlug: projectSlug, projectFamily: projectFamily,
+                    publicationScope: publicationScope, discussionProfile: discussionProfile,
+                    flowState: flowState, physioPolicy: physioPolicy)
+                let full = result.value?.response ?? "Tô meio devagar agora — me dá um instante e tenta de novo?"
+                messages[idx].source = result.value?.source
+                await revealText(full, for: assistantId)
+                messages[idx].isStreaming = false
+                persist(message: messages[idx])
             }
         }
+        isStreaming = false
     }
 
     private var activeSystemInstruction: String? {
@@ -161,6 +264,22 @@ public final class ConversationStore {
             .split(separator: "\n")
             .map { "[\($0)]" }
             .joined(separator: "\n") + "\n" + text
+    }
+
+    /// Strip chain-of-thought blocks emitted by reasoning models (hunyuan, phi4-reasoning,
+    /// r1, olmo3-think, …) so the chat bubble shows only the answer, not the raw reasoning.
+    /// Removes `<think>…</think>` pairs; if a block is left open (truncated), drops from the
+    /// last `<think>` onward.
+    private func stripReasoning(_ text: String) -> String {
+        var s = text
+        if let regex = try? NSRegularExpression(pattern: "<think>[\\s\\S]*?</think>", options: [.caseInsensitive]) {
+            s = regex.stringByReplacingMatches(in: s, options: [], range: NSRange(s.startIndex..., in: s), withTemplate: "")
+        }
+        // Handle an unclosed <think> (model still reasoning / output truncated).
+        if let open = s.range(of: "<think>", options: .caseInsensitive), !s.localizedCaseInsensitiveContains("</think>") {
+            s = String(s[..<open.lowerBound])
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Send via on-device LLM
@@ -203,6 +322,7 @@ public final class ConversationStore {
         }
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+            messages[idx].content = stripReasoning(messages[idx].content)
             messages[idx].isStreaming = false
             persist(message: messages[idx])
             await autoImportExchange(
@@ -234,6 +354,12 @@ public final class ConversationStore {
         messages.append(placeholder)
         isStreaming = true
 
+        // Temporal awareness: send the previous contact time (the client owns the thread),
+        // then stamp this exchange as the new "last contact" for the next turn. First send →
+        // previousContact == nil → the server frames it as a first contact.
+        let previousContact = lastContactAt
+        lastContactAt = Date()
+
         let result = await client.chat(
             prompt: contextualPrompt,
             system: activeSystemInstruction,
@@ -242,12 +368,13 @@ public final class ConversationStore {
             publicationScope: publicationScope,
             discussionProfile: discussionProfile,
             flowState: flowState,
-            physioPolicy: physioPolicy
+            physioPolicy: physioPolicy,
+            lastContactAt: previousContact
         )
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
             if let response = result.value {
-                let fullText = response.response ?? ""
+                let fullText = stripReasoning(response.response ?? "")
                 messages[idx].model = response.model
                 messages[idx].tokensUsed = response.tokensUsed
                 messages[idx].source = response.source
@@ -504,6 +631,10 @@ public final class ConversationStore {
         }
         let atoms = importResult.projection?.atomsCreated ?? 0
         let episodes = importResult.projection?.episodesCreated ?? 0
+        // Mark the assistant bubble so the UI can show "✓ Memory" — the idea is now recallable.
+        if let i = messages.firstIndex(where: { $0.id == assistant.id }) {
+            messages[i].savedToMemory = true
+        }
         autoImportState = ConversationAutoImportState(
             status: "imported",
             sessionId: importResult.sessionId,

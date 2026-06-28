@@ -1,0 +1,1365 @@
+# Domain golden over the harvested darwin-papers corpus (title -> paper retrieval).
+# One query per research cluster; query = a real paper title prefix, expect = its doc_id.
+# A domain-relevance regression baseline (gates #12 migration); refine queries by hand anytime.
+collections:
+  - darwin-papers
+
+k: 10
+
+tests:
+  - name: 2019-20 coronavirus outbreak
+    query: "Multidisciplinary research priorities for the COVID-19 pandemic: a call for action for mental health"
+    expect_doc_ids:
+      - "openalex:W3015197879"
+  - name: Abnormality
+    query: "Perceiving is believing: a Bayesian approach to explaining the positive symptoms of schizophrenia"
+    expect_doc_ids:
+      - "openalex:W2070461647"
+  - name: Abstract machine
+    query: "Classical logic, continuation semantics and abstract machines"
+    expect_doc_ids:
+      - "openalex:W2047559554"
+  - name: Abstraction
+    query: "Practical probabilistic programming with monads"
+    expect_doc_ids:
+      - "openalex:W2030213839"
+  - name: Action (physics)
+    query: "On finite 4D quantum field theory in non-commutative geometry"
+    expect_doc_ids:
+      - "openalex:W2088474879"
+  - name: Action semantics
+    query: "Theory and Practice of Action Semantics"
+    expect_doc_ids:
+      - "openalex:W2343157681"
+  - name: Adaptation (eye)
+    query: "LoRA: Low-Rank Adaptation of Large Language Models"
+    expect_doc_ids:
+      - "openalex:W3168867926"
+  - name: Addiction
+    query: "A transdiagnostic dimensional approach towards a neuropsychological assessment for addiction: an international Delphi consensus"
+    expect_doc_ids:
+      - "openalex:W2897215479"
+  - name: Adverse effect
+    query: "Solar radiation and human health"
+    expect_doc_ids:
+      - "openalex:W2000632749"
+  - name: Aerobic exercise
+    query: "Physical activity and exercise: Strategies to manage frailty"
+    expect_doc_ids:
+      - "openalex:W3011192505"
+  - name: Aesthetics
+    query: "Heart Rate Variability in the Perinatal Period: A Critical and Conceptual Review"
+    expect_doc_ids:
+      - "openalex:W3087892934"
+  - name: Affect (linguistics)
+    query: "Environmental Determinants of Cardiovascular Disease"
+    expect_doc_ids:
+      - "openalex:W2732255066"
+  - name: Age of onset
+    query: "Age at onset of mental disorders worldwide: large-scale meta-analysis of 192 epidemiological studies"
+    expect_doc_ids:
+      - "openalex:W3164324796"
+  - name: Air pollution
+    query: "Particulate matter air pollution and cardiovascular disease: An update to the scientific statement from"
+    expect_doc_ids:
+      - "openalex:W4299882700"
+  - name: Algebra over a field
+    query: "Control categories and duality: on the categorical semantics of the lambda-mu calculus"
+    expect_doc_ids:
+      - "openalex:W2152013675"
+  - name: Algebraic expression
+    query: "Computational Characterization of the Multiplication Operation of Octonions via Algebraic Approaches"
+    expect_doc_ids:
+      - "openalex:W4395010964"
+  - name: Algebraic number
+    query: "Super Yang-Mills, division algebras and triality"
+    expect_doc_ids:
+      - "openalex:W2155858858"
+  - name: Algorithm
+    query: "Advanced Lattice Sieving on GPUs, with Tensor Cores"
+    expect_doc_ids:
+      - "openalex:W3149570512"
+  - name: Alpha (finance)
+    query: "The Brain Matures with Stronger Functional Connectivity and Decreased Randomness of Its Network"
+    expect_doc_ids:
+      - "openalex:W2071705943"
+  - name: Altitude (triangle)
+    query: "Impact of High Altitude on Cardiovascular Health: Current Perspectives"
+    expect_doc_ids:
+      - "openalex:W3169414291"
+  - name: Alzheimer's disease
+    query: "The neuropathological diagnosis of Alzheimer’s disease"
+    expect_doc_ids:
+      - "openalex:W2965717703"
+  - name: Amplitude
+    query: "Long-Range Temporal Correlations and Scaling Behavior in Human Brain Oscillations"
+    expect_doc_ids:
+      - "openalex:W2139852582"
+  - name: Amygdala
+    query: "Brain structural and functional abnormalities in mood disorders: implications for neurocircuitry models of depression"
+    expect_doc_ids:
+      - "openalex:W2133371501"
+  - name: Analogy
+    query: "The psychiatric interview: validity, structure, and subjectivity"
+    expect_doc_ids:
+      - "openalex:W2031619926"
+  - name: Analytic philosophy
+    query: "Ideas: General Introduction to Pure Phenomenology."
+    expect_doc_ids:
+      - "openalex:W1536888678"
+  - name: Ancient history
+    query: "Properties of Generalized Bronze Fibonacci Sequences and Their Hyperbolic Quaternions"
+    expect_doc_ids:
+      - "openalex:W4405921023"
+  - name: Anhedonia
+    query: "The current conceptualization of negative symptoms in schizophrenia"
+    expect_doc_ids:
+      - "openalex:W2580975499"
+  - name: Anomaly (physics)
+    query: "Quantum theory of geometry: III. Non-commutativity of Riemannian structures"
+    expect_doc_ids:
+      - "openalex:W2087855902"
+  - name: Anovulation
+    query: "Diagnosis and Treatment of Polycystic Ovary Syndrome: An Endocrine Society Clinical Practice Guideline"
+    expect_doc_ids:
+      - "openalex:W2120973019"
+  - name: Ant colony optimization algorithms
+    query: "Implementing a GPU-based parallel MAX–MIN Ant System"
+    expect_doc_ids:
+      - "openalex:W3000154880"
+  - name: Anxiety
+    query: "Beyond Feeling: Chronic Pain Hurts the Brain, Disrupting the Default-Mode Network Dynamics"
+    expect_doc_ids:
+      - "openalex:W2072579585"
+  - name: Approximate entropy
+    query: "State Anxiety and Nonlinear Dynamics of Heart Rate Variability in Students"
+    expect_doc_ids:
+      - "openalex:W2259600703"
+  - name: Archaeology
+    query: "LLaMA: Open and Efficient Foundation Language Models"
+    expect_doc_ids:
+      - "openalex:W4322718191"
+  - name: Architecture
+    query: "PointNet: Deep Learning on Point Sets for 3D Classification and Segmentation"
+    expect_doc_ids:
+      - "openalex:W2950642167"
+  - name: Arithmetic
+    query: "On the Role of Division, Jordan and Related Algebras in Particle Physics"
+    expect_doc_ids:
+      - "openalex:W611859696"
+  - name: Array data structure
+    query: "Array SSA form and its use in parallelization"
+    expect_doc_ids:
+      - "openalex:W2078738604"
+  - name: Art
+    query: "Subjectivity and selfhood: investigating the first-person perspective"
+    expect_doc_ids:
+      - "openalex:W1590546115"
+  - name: Artificial intelligence
+    query: "Restormer: Efficient Transformer for High-Resolution Image Restoration"
+    expect_doc_ids:
+      - "openalex:W4225672218"
+  - name: Artificial neural network
+    query: "Direction-of-Arrival Estimation Based on Deep Neural Networks With Robustness to Array Imperfections"
+    expect_doc_ids:
+      - "openalex:W2897361856"
+  - name: Association (psychology)
+    query: "Genome-wide association studies of brain imaging phenotypes in UK Biobank"
+    expect_doc_ids:
+      - "openalex:W2895693082"
+  - name: Associative property
+    query: "Introduction to Octonion and Other Non-Associative Algebras in Physics"
+    expect_doc_ids:
+      - "openalex:W1598507070"
+  - name: Astrobiology
+    query: "Potential effects of solar and geomagnetic variability on terrestrial biological systems"
+    expect_doc_ids:
+      - "openalex:W3011440913"
+  - name: Astronomy
+    query: "Geomagnetic and Cosmic Ray Activity Effect on Heart Rate during the Solar Cycle 24"
+    expect_doc_ids:
+      - "openalex:W4391217506"
+  - name: Asymmetry
+    query: "Geometrical Applications of Split Octonions"
+    expect_doc_ids:
+      - "openalex:W2139697016"
+  - name: At risk mental state
+    query: "Beyond the “at risk mental state” concept: transitioning to transdiagnostic psychiatry"
+    expect_doc_ids:
+      - "openalex:W2806195288"
+  - name: Atlas (anatomy)
+    query: "A Four-Dimensional Probabilistic Atlas of the Human Brain"
+    expect_doc_ids:
+      - "openalex:W2171191802"
+  - name: Atmospheric sciences
+    query: "Bioefficacy of Geomagnetic Activity in the Period of the COVID-19 Pandemic"
+    expect_doc_ids:
+      - "openalex:W4206042396"
+  - name: Atrophy
+    query: "The Movement Disorder Society Criteria for the Diagnosis of Multiple System Atrophy"
+    expect_doc_ids:
+      - "openalex:W4224213495"
+  - name: Autism
+    query: "Atypical functional connectome hierarchy in autism"
+    expect_doc_ids:
+      - "openalex:W2797702265"
+  - name: Autism spectrum disorder
+    query: "Classification and Prediction of Brain Disorders Using Functional Connectivity: Promising but Challenging"
+    expect_doc_ids:
+      - "openalex:W2884781986"
+  - name: Automatic differentiation
+    query: "Automatic differentiation in machine learning: a survey"
+    expect_doc_ids:
+      - "openalex:W2962727772"
+  - name: Autonomic nervous system
+    query: "The Investigation of the Cardiovascular and Sudomotor Autonomic Nervous System—A Review"
+    expect_doc_ids:
+      - "openalex:W2912140669"
+  - name: Autopoiesis
+    query: "Mind in life: biology, phenomenology, and the sciences of mind"
+    expect_doc_ids:
+      - "openalex:W1729777349"
+  - name: Average path length
+    query: "A Resilient, Low-Frequency, Small-World Human Brain Functional Network with Highly Connected Association Cortical Hubs"
+    expect_doc_ids:
+      - "openalex:W1987924998"
+  - name: Axiom
+    query: "Phi Without Phenomenology: The Compositional Failures of Integrated Information Theory (of 'Consciousness')"
+    expect_doc_ids:
+      - "openalex:W7159840517"
+  - name: Axiomatic system
+    query: "The Phi measure of integrated information is not well-defined for general physical systems"
+    expect_doc_ids:
+      - "openalex:W2912623250"
+  - name: BETA (programming language)
+    query: "The International Classification of Headache Disorders, 3rd edition (beta version)"
+    expect_doc_ids:
+      - "openalex:W2769724041"
+  - name: Bacterial circadian rhythms
+    query: "The Effects of Light at Night on Circadian Clocks and Metabolism"
+    expect_doc_ids:
+      - "openalex:W2154741089"
+  - name: Bayesian network
+    query: "Can network analysis transform psychopathology?"
+    expect_doc_ids:
+      - "openalex:W2469324137"
+  - name: Bayesian probability
+    query: "An Introduction to MCMC for Machine Learning"
+    expect_doc_ids:
+      - "openalex:W2135194391"
+  - name: Benchmark (surveying)
+    query: "Domain Adaptation on the Statistical Manifold"
+    expect_doc_ids:
+      - "openalex:W2171370495"
+  - name: Betweenness centrality
+    query: "Mapping the Structural Core of Human Cerebral Cortex"
+    expect_doc_ids:
+      - "openalex:W2159929956"
+  - name: Big data
+    query: "Machine Learning: Algorithms, Real-World Applications and Research Directions"
+    expect_doc_ids:
+      - "openalex:W3135028703"
+  - name: Biobank
+    query: "An open resource for transdiagnostic research in pediatric mental health and learning disorders"
+    expect_doc_ids:
+      - "openalex:W2780601052"
+  - name: Biochemistry
+    query: "A Method for the Design of Bicomplex Orthogonal DSP Algorithms for Applications in Intelligent"
+    expect_doc_ids:
+      - "openalex:W4220930120"
+  - name: Biology
+    query: "Neurotransmitters—Key Factors in Neurological and Neurodegenerative Disorders of the Central Nervous System"
+    expect_doc_ids:
+      - "openalex:W4281553262"
+  - name: Biomedical text mining
+    query: "BioBERT: a pre-trained biomedical language representation model for biomedical text mining"
+    expect_doc_ids:
+      - "openalex:W2911489562"
+  - name: Biopsychosocial model
+    query: "Transdiagnostic approaches to mental health problems: Current status and future directions."
+    expect_doc_ids:
+      - "openalex:W2996486460"
+  - name: Bipolar disorder
+    query: "Preventive psychiatry: a blueprint for improving the mental health of young people"
+    expect_doc_ids:
+      - "openalex:W3134541358"
+  - name: Bisimulation
+    query: "Interaction trees: representing recursive and impure programs in Coq"
+    expect_doc_ids:
+      - "openalex:W2995075587"
+  - name: Blood pressure
+    query: "Circadian misalignment increases cardiovascular disease risk factors in humans"
+    expect_doc_ids:
+      - "openalex:W2259214365"
+  - name: Blood–brain barrier
+    query: "Blood-Brain Barrier: From Physiology to Disease and Back"
+    expect_doc_ids:
+      - "openalex:W2895430781"
+  - name: Brain Structure and Function
+    query: "A probabilistic atlas and reference system for the human brain: International Consortium for Brain"
+    expect_doc_ids:
+      - "openalex:W2143895814"
+  - name: Brain activity and meditation
+    query: "The dynamic functional connectome: State-of-the-art and perspectives"
+    expect_doc_ids:
+      - "openalex:W2563279629"
+  - name: Brain mapping
+    query: "The Brain Activity Map Project and the Challenge of Functional Connectomics"
+    expect_doc_ids:
+      - "openalex:W2061744336"
+  - name: Brain research
+    query: "Progress in Brain Computer Interface: Challenges and Opportunities"
+    expect_doc_ids:
+      - "openalex:W2910098374"
+  - name: Brain stimulation
+    query: "Stimulation mapping of white matter tracts to study brain functional connectivity"
+    expect_doc_ids:
+      - "openalex:W2075437393"
+  - name: Brain tumor
+    query: "The Multimodal Brain Tumor Image Segmentation Benchmark (BRATS)"
+    expect_doc_ids:
+      - "openalex:W1641498739"
+  - name: Brain–computer interface
+    query: "EEG-Neurofeedback as a Tool to Modulate Cognition and Behavior: A Review Tutorial"
+    expect_doc_ids:
+      - "openalex:W2580351144"
+  - name: Branching (polymer chemistry)
+    query: "Generic Trace Semantics via Coinduction"
+    expect_doc_ids:
+      - "openalex:W2135346163"
+  - name: Bregman divergence
+    query: "Information geometry of divergence functions"
+    expect_doc_ids:
+      - "openalex:W2074269613"
+  - name: Brownian motion
+    query: "Fractional Brownian Motions, Fractional Noises and Applications"
+    expect_doc_ids:
+      - "openalex:W2031753087"
+  - name: Burnout
+    query: "Understanding the burnout experience: recent research and its implications for psychiatry"
+    expect_doc_ids:
+      - "openalex:W2488757378"
+  - name: COSMIC cancer database
+    query: "Space weather hazards and their impact on human cardio-health state parameters on Earth"
+    expect_doc_ids:
+      - "openalex:W2160855466"
+  - name: CUDA
+    query: "Torch7: A Matlab-like Environment for Machine Learning"
+    expect_doc_ids:
+      - "openalex:W753012316"
+  - name: Capital asset pricing model
+    query: "Empirical Asset Pricing via Machine Learning"
+    expect_doc_ids:
+      - "openalex:W4205539948"
+  - name: Cardiac imaging
+    query: "Deep Learning for Cardiac Image Segmentation: A Review"
+    expect_doc_ids:
+      - "openalex:W3009563704"
+  - name: Cardiology
+    query: "Linkages Between Geomagnetic Activity and Blood Pressure"
+    expect_doc_ids:
+      - "openalex:W4386881249"
+  - name: Cartesian closed category
+    query: "A convenient category for higher-order probability theory"
+    expect_doc_ids:
+      - "openalex:W2949151551"
+  - name: Categorical variable
+    query: "A Hierarchical Taxonomy of Psychopathology Can Transform Mental Health Research"
+    expect_doc_ids:
+      - "openalex:W2922020216"
+  - name: Categorization
+    query: "A Survey on Knowledge Graphs: Representation, Acquisition, and Applications"
+    expect_doc_ids:
+      - "openalex:W3003265726"
+  - name: Category theory
+    query: "Categorial Compositionality: A Category Theory Explanation for the Systematicity of Human Cognition"
+    expect_doc_ids:
+      - "openalex:W2009745850"
+  - name: Cell biology
+    query: "Mechanisms of Geomagnetic Field Influence on Gene Expression Using Influenza as a Model System:"
+    expect_doc_ids:
+      - "openalex:W2080595462"
+  - name: Cellular automaton
+    query: "On the Entropy Geometry of Cellular Automata."
+    expect_doc_ids:
+      - "openalex:W28620451"
+  - name: Center (category theory)
+    query: "Gated SSA-based demand-driven symbolic analysis for parallelizing compilers"
+    expect_doc_ids:
+      - "openalex:W2089294198"
+  - name: Central nervous system
+    query: "Impact of microbiota on central nervous system and neurological diseases: the gut-brain axis"
+    expect_doc_ids:
+      - "openalex:W2929404193"
+  - name: Cerebral cortex
+    query: "A Weighted and Directed Interareal Connectivity Matrix for Macaque Cerebral Cortex"
+    expect_doc_ids:
+      - "openalex:W2112151839"
+  - name: Checklist
+    query: "Guidelines for Reporting Articles on Psychiatry and Heart rate variability (GRAPH): recommendations to advance"
+    expect_doc_ids:
+      - "openalex:W2347552741"
+  - name: Cheminformatics
+    query: "Graph neural networks for materials science and chemistry"
+    expect_doc_ids:
+      - "openalex:W4310273071"
+  - name: Childhood absence epilepsy
+    query: "ILAE Official Report: A practical clinical definition of epilepsy"
+    expect_doc_ids:
+      - "openalex:W1978437325"
+  - name: Chromatin
+    query: "Dictionary learning for integrative, multimodal and scalable single-cell analysis"
+    expect_doc_ids:
+      - "openalex:W4378212544"
+  - name: Chronobiology
+    query: "Long-Term Study of Heart Rate Variability Responses to Changes in the Solar and Geomagnetic"
+    expect_doc_ids:
+      - "openalex:W2802390840"
+  - name: Classification of mental disorders
+    query: "Clashing Diagnostic Approaches: DSM-ICD Versus RDoC"
+    expect_doc_ids:
+      - "openalex:W1897268783"
+  - name: Clifford algebra
+    query: "Octonion Internal Space Algebra for the Standard Model"
+    expect_doc_ids:
+      - "openalex:W4287115978"
+  - name: Clinical Practice
+    query: "The Diagnosis of Cushing's Syndrome: An Endocrine Society Clinical Practice Guideline"
+    expect_doc_ids:
+      - "openalex:W1990995386"
+  - name: Clinical psychiatry
+    query: "Philosophy of psychiatry: theoretical advances and clinical implications"
+    expect_doc_ids:
+      - "openalex:W4396801369"
+  - name: Clinical psychology
+    query: "Schizophrenic Delusions: A Phenomenological Approach"
+    expect_doc_ids:
+      - "openalex:W2110550201"
+  - name: Clinical trial
+    query: "Current Concepts in Mild Cognitive Impairment"
+    expect_doc_ids:
+      - "openalex:W2113708991"
+  - name: Cloud computing
+    query: "Performance Analysis of Google Colaboratory as a Tool for Accelerating Deep Learning Applications"
+    expect_doc_ids:
+      - "openalex:W2897722020"
+  - name: Cluster analysis
+    query: "FINE: Fisher Information Nonparametric Embedding"
+    expect_doc_ids:
+      - "openalex:W2142011304"
+  - name: Coalgebra
+    query: "Bicrossproduct structure of κ-Poincare group and non-commutative geometry"
+    expect_doc_ids:
+      - "openalex:W1992287845"
+  - name: Code (set theory)
+    query: "Experiences Building an MLIR-based SYCL Compiler"
+    expect_doc_ids:
+      - "openalex:W4390092842"
+  - name: Code generation
+    query: "Beehive SPIR-V Toolkit: A Composable and Functional API for Runtime SPIR-V Code Generation"
+    expect_doc_ids:
+      - "openalex:W4386552390"
+  - name: Coding (social sciences)
+    query: "OpenMM 7: Rapid development of high performance algorithms for molecular dynamics"
+    expect_doc_ids:
+      - "openalex:W2949223833"
+  - name: Cognition
+    query: "Annual Research Review: The transdiagnostic revolution in neurodevelopmental disorders"
+    expect_doc_ids:
+      - "openalex:W3183871338"
+  - name: Cognitive architecture
+    query: "Information decomposition and the informational architecture of the brain"
+    expect_doc_ids:
+      - "openalex:W4390729136"
+  - name: Cognitive neuroscience
+    query: "A deep learning framework for neuroscience"
+    expect_doc_ids:
+      - "openalex:W2978368159"
+  - name: Cognitive psychology
+    query: "How to Link Brain and Experience? Spatiotemporal Psychopathology of the Lived Body"
+    expect_doc_ids:
+      - "openalex:W2345034445"
+  - name: Cognitive science
+    query: "Are There Levels of Consciousness?"
+    expect_doc_ids:
+      - "openalex:W2336630210"
+  - name: Collocation (remote sensing)
+    query: "Scientific Machine Learning Through Physics–Informed Neural Networks: Where we are and What’s Next"
+    expect_doc_ids:
+      - "openalex:W4288039037"
+  - name: Combinatorial search
+    query: "Gene regulatory networks inference using a multi-GPU exhaustive search algorithm"
+    expect_doc_ids:
+      - "openalex:W2119669591"
+  - name: Combinatorics
+    query: "A Novel SPN based Multiple RGB Images Security over the Residue Classes of Quaternion"
+    expect_doc_ids:
+      - "openalex:W4410004989"
+  - name: Combinatory logic
+    query: "VDM semantics of programming languages: combinators and monads"
+    expect_doc_ids:
+      - "openalex:W2147822230"
+  - name: Commission
+    query: "The Lancet Commission on global mental health and sustainable development"
+    expect_doc_ids:
+      - "openalex:W2897623369"
+  - name: Commit
+    query: "The WPA- Lancet Psychiatry Commission on the Future of Psychiatry"
+    expect_doc_ids:
+      - "openalex:W2756529428"
+  - name: Commonsense reasoning
+    query: "ViLBERT: Pretraining Task-Agnostic Visiolinguistic Representations for Vision-and-Language Tasks"
+    expect_doc_ids:
+      - "openalex:W2966715458"
+  - name: Communication
+    query: "Precision Functional Mapping of Individual Human Brains"
+    expect_doc_ids:
+      - "openalex:W2741941708"
+  - name: Commutative property
+    query: "Quantum theory of geometry III: Non-commutativity of Riemannian structures"
+    expect_doc_ids:
+      - "openalex:W3102178308"
+  - name: Comorbidity
+    query: "The Hierarchical Taxonomy of Psychopathology (HiTOP): A Quantitative Nosology Based on Consensus of Evidence"
+    expect_doc_ids:
+      - "openalex:W3127024923"
+  - name: Compact quantum group
+    query: "Quantum Group of isometries in Classical and Non Commutative Geometry"
+    expect_doc_ids:
+      - "openalex:W3101132503"
+  - name: Compiler
+    query: "A Survey on Compiler Autotuning using Machine Learning"
+    expect_doc_ids:
+      - "openalex:W2783614532"
+  - name: Compiler construction
+    query: "Modern Compiler Implementation in Java"
+    expect_doc_ids:
+      - "openalex:W3145846323"
+  - name: Compiler correctness
+    query: "Design of the Java HotSpot™ client compiler for Java 6"
+    expect_doc_ids:
+      - "openalex:W2057651724"
+  - name: Complex network
+    query: "Graph theoretical analysis of complex networks in the brain"
+    expect_doc_ids:
+      - "openalex:W2026384313"
+  - name: Computation
+    query: "Efficient tensor core-based GPU kernels for structured sparsity under reduced precision"
+    expect_doc_ids:
+      - "openalex:W3208099998"
+  - name: Computational logic
+    query: "Institutions: abstract model theory for specification and programming"
+    expect_doc_ids:
+      - "openalex:W2010883554"
+  - name: Computational model
+    query: "The Dynamic Brain: From Spiking Neurons to Neural Masses and Cortical Fields"
+    expect_doc_ids:
+      - "openalex:W1985983039"
+  - name: Computational science
+    query: "High-performance Tensor Contractions for GPUs"
+    expect_doc_ids:
+      - "openalex:W2268122618"
+  - name: Computer graphics
+    query: "Dynamic Graph CNN for Learning on Point Clouds"
+    expect_doc_ids:
+      - "openalex:W2979750740"
+  - name: Computer graphics (images)
+    query: "CuPBoP: Making CUDA a Portable Language"
+    expect_doc_ids:
+      - "openalex:W4395038396"
+  - name: Computer science
+    query: "Image Classification with the Fisher Vector: Theory and Practice"
+    expect_doc_ids:
+      - "openalex:W1966385142"
+  - name: Computer vision
+    query: "Rethinking Semantic Segmentation from a Sequence-to-Sequence Perspective with Transformers"
+    expect_doc_ids:
+      - "openalex:W3170841864"
+  - name: Conceptual framework
+    query: "Outcomes for Implementation Research: Conceptual Distinctions, Measurement Challenges, and Research Agenda"
+    expect_doc_ids:
+      - "openalex:W2140092196"
+  - name: Confidence interval
+    query: "Effect of Treatment of Gestational Diabetes Mellitus on Pregnancy Outcomes"
+    expect_doc_ids:
+      - "openalex:W2074307717"
+  - name: Confounding
+    query: "Geomagnetic disturbances driven by solar activity enhance total and cardiovascular mortality risk in 263"
+    expect_doc_ids:
+      - "openalex:W2973145811"
+  - name: Connection (principal bundle)
+    query: "The Human Connectome: A Structural Description of the Human Brain"
+    expect_doc_ids:
+      - "openalex:W2146693559"
+  - name: Connectome
+    query: "Rich-Club Organization of the Human Connectome"
+    expect_doc_ids:
+      - "openalex:W2012559638"
+  - name: Connectomics
+    query: "Diffusion MRI fiber tractography of the brain"
+    expect_doc_ids:
+      - "openalex:W2758113150"
+  - name: Consciousness
+    query: "The Science of Mind Wandering: Empirically Navigating the Stream of Consciousness"
+    expect_doc_ids:
+      - "openalex:W2117194251"
+  - name: Construct (python library)
+    query: "The integrated information theory of consciousness: A case of mistaken identity"
+    expect_doc_ids:
+      - "openalex:W3161159592"
+  - name: Context (archaeology)
+    query: "Deep neural networks in psychiatry"
+    expect_doc_ids:
+      - "openalex:W2912501419"
+  - name: Control reconfiguration
+    query: "Adaptive reconfiguration of fractal small-world human brain functional networks"
+    expect_doc_ids:
+      - "openalex:W2125757815"
+  - name: Convergence (economics)
+    query: "Adam: A Method for Stochastic Optimization"
+    expect_doc_ids:
+      - "openalex:W1522301498"
+  - name: Convolutional neural network
+    query: "Review of deep learning: concepts, CNN architectures, challenges, applications, future directions"
+    expect_doc_ids:
+      - "openalex:W3140854437"
+  - name: Coprocessor
+    query: "A Highly-Parallel TSP Solver for a GPU Computing Platform"
+    expect_doc_ids:
+      - "openalex:W1480464059"
+  - name: Correlation
+    query: "Exploratory graph analysis: A new approach for estimating the number of dimensions in psychological"
+    expect_doc_ids:
+      - "openalex:W2391304757"
+  - name: Cortex (anatomy)
+    query: "Analysis of connectivity in the cat cerebral cortex"
+    expect_doc_ids:
+      - "openalex:W2138996400"
+  - name: Cosmic ray
+    query: "Geomagnetic Disturbances and Cosmic Ray Variations in Relation to Human Cardio-health State: A Wide"
+    expect_doc_ids:
+      - "openalex:W2336000372"
+  - name: Critical point (mathematics)
+    query: "Griffiths phases and the stretching of criticality in brain networks"
+    expect_doc_ids:
+      - "openalex:W2088492885"
+  - name: Criticality
+    query: "Broadband Criticality of Human Brain Network Synchronization"
+    expect_doc_ids:
+      - "openalex:W2115990221"
+  - name: Current (fluid)
+    query: "Machine Learning for Fluid Mechanics"
+    expect_doc_ids:
+      - "openalex:W2973119841"
+  - name: Curriculum
+    query: "ChatGPT for good? On opportunities and challenges of large language models for education"
+    expect_doc_ids:
+      - "openalex:W4323655724"
+  - name: Curvature
+    query: "Hyperbolic Graph Convolutional Neural Networks"
+    expect_doc_ids:
+      - "openalex:W2982490267"
+  - name: Cytokine
+    query: "The Immune System, Cytokines, and Biomarkers in Autism Spectrum Disorder"
+    expect_doc_ids:
+      - "openalex:W2590554940"
+  - name: Dapagliflozin
+    query: "Dapagliflozin and Cardiovascular Outcomes in Type 2 Diabetes"
+    expect_doc_ids:
+      - "openalex:W2900413769"
+  - name: Data mining
+    query: "Machine Learning and Data Mining Methods in Diabetes Research"
+    expect_doc_ids:
+      - "openalex:W2569214105"
+  - name: Data parallelism
+    query: "A Survey on Parallel Computing and Its Applications in Data-Parallel Problems Using GPU Architectures"
+    expect_doc_ids:
+      - "openalex:W2050883661"
+  - name: Data science
+    query: "An exhaustive review of the metaheuristic algorithms for search and optimization: taxonomy, applications, and"
+    expect_doc_ids:
+      - "openalex:W4362724099"
+  - name: Dataflow
+    query: "Compositional relational semantics for indeterminate dataflow networks"
+    expect_doc_ids:
+      - "openalex:W2099361053"
+  - name: De facto
+    query: "SciPy 1.0: fundamental algorithms for scientific computing in Python"
+    expect_doc_ids:
+      - "openalex:W3003257820"
+  - name: Dead code elimination
+    query: "Optimizing for reduced code space using genetic algorithms"
+    expect_doc_ids:
+      - "openalex:W2005985523"
+  - name: Decoding methods
+    query: "Decoding the Role of the Insula in Human Cognition: Functional Parcellation and Large-Scale Reverse"
+    expect_doc_ids:
+      - "openalex:W2102139723"
+  - name: Deep learning
+    query: "Deep learning modelling techniques: current progress, applications, advantages, and challenges"
+    expect_doc_ids:
+      - "openalex:W4366091323"
+  - name: Default mode network
+    query: "Abnormal Structural Networks Characterize Major Depressive Disorder: A Connectome Analysis"
+    expect_doc_ids:
+      - "openalex:W2168489054"
+  - name: Dementia
+    query: "Diagnosis and management of dementia with Lewy bodies"
+    expect_doc_ids:
+      - "openalex:W2623521763"
+  - name: Denotational semantics
+    query: "Functional Operational Semantics and its Denotational Dual"
+    expect_doc_ids:
+      - "openalex:W2106530373"
+  - name: Dentate gyrus
+    query: "Regulation and Function of Adult Neurogenesis: From Genes to Cognition"
+    expect_doc_ids:
+      - "openalex:W2149901479"
+  - name: Dependency (UML)
+    query: "Informer: Beyond Efficient Transformer for Long Sequence Time-Series Forecasting"
+    expect_doc_ids:
+      - "openalex:W3177318507"
+  - name: Depression (economics)
+    query: "Factors Associated With Mental Health Outcomes Among Health Care Workers Exposed to Coronavirus Disease"
+    expect_doc_ids:
+      - "openalex:W3012832369"
+  - name: Developmental psychology
+    query: "A Phenomenological Variant of Ecological Systems Theory (PVEST): A self-organizationperspective in context"
+    expect_doc_ids:
+      - "openalex:W2131950297"
+  - name: Diagonal
+    query: "The geometry of correlation fields with an application to functional connectivity of the brain"
+    expect_doc_ids:
+      - "openalex:W2044970534"
+  - name: Dialectic
+    query: "New Perspectives in Phenomenological Psychopathology: Its Use in Psychiatric Treatment"
+    expect_doc_ids:
+      - "openalex:W2894534845"
+  - name: Diastole
+    query: "Possible influence of solar extreme events and related geomagnetic disturbances on human cardio-vascular state:"
+    expect_doc_ids:
+      - "openalex:W1963649939"
+  - name: Diffeomorphism
+    query: "Gravity coupled with matter and the foundation of non-commutative geometry"
+    expect_doc_ids:
+      - "openalex:W2086216948"
+  - name: Differential algebra
+    query: "Differential calculus on compact matrix pseudogroups (quantum groups)"
+    expect_doc_ids:
+      - "openalex:W1979411774"
+  - name: Differential geometry
+    query: "Geometry of Matrix Decompositions Seen Through Optimal Transport and Information Geometry"
+    expect_doc_ids:
+      - "openalex:W3098958569"
+  - name: Diffusion MRI
+    query: "White-Matter Connectivity between Face-Responsive Regions in the Human Brain"
+    expect_doc_ids:
+      - "openalex:W2106068049"
+  - name: Dimension (graph theory)
+    query: "On the High Dimentional Information Processing in Quaternionic Domain and its Applications"
+    expect_doc_ids:
+      - "openalex:W2944658661"
+  - name: Dipole
+    query: "CUDA programs for solving the time-dependent dipolar Gross–Pitaevskii equation in an anisotropic trap"
+    expect_doc_ids:
+      - "openalex:W2208560416"
+  - name: Direct and indirect realism
+    query: "Phenomenal consciousness a naturalistic theory"
+    expect_doc_ids:
+      - "openalex:W1593075131"
+  - name: Directive
+    query: "ACC Saturator: Automatic Kernel Optimization for Directive-Based GPU Code"
+    expect_doc_ids:
+      - "openalex:W4381797920"
+  - name: Disease
+    query: "JCS/JACR 2021 Guideline on Rehabilitation in Patients With Cardiovascular Disease"
+    expect_doc_ids:
+      - "openalex:W4311200103"
+  - name: Dissociation (chemistry)
+    query: "Knowing your own heart: Distinguishing interoceptive accuracy from interoceptive awareness"
+    expect_doc_ids:
+      - "openalex:W2042169526"
+  - name: Distributed computing
+    query: "Modular and Hierarchically Modular Organization of Brain Networks"
+    expect_doc_ids:
+      - "openalex:W2021947606"
+  - name: Distributional semantics
+    query: "Frege in Space: A Program for Compositional Distributional Semantics"
+    expect_doc_ids:
+      - "openalex:W2200913422"
+  - name: Disturbance (geology)
+    query: "The Effects of Solar Activity and Geomagnetic Disturbance on Human Health"
+    expect_doc_ids:
+      - "openalex:W3122780230"
+  - name: Division (mathematics)
+    query: "Division algebras and supersymmetry II"
+    expect_doc_ids:
+      - "openalex:W2964101878"
+  - name: Domain (mathematical analysis)
+    query: "Domain-Specific Multi-Level IR Rewriting for GPU: The Open Earth Compiler for GPU-accelerated Climate Simulation"
+    expect_doc_ids:
+      - "openalex:W3196320218"
+  - name: Domain-specific language
+    query: "Domain-Specific Multi-Level IR Rewriting for GPU"
+    expect_doc_ids:
+      - "openalex:W3031192821"
+  - name: Dopamine
+    query: "Efficiency and Cost of Economical Brain Functional Networks"
+    expect_doc_ids:
+      - "openalex:W1974764791"
+  - name: Dopamine hypothesis of schizophrenia
+    query: "Schizophrenia, Dopamine and the Striatum: From Biology to Symptoms"
+    expect_doc_ids:
+      - "openalex:W2906768105"
+  - name: Drug
+    query: "Drug delivery to the central nervous system"
+    expect_doc_ids:
+      - "openalex:W4205567487"
+  - name: Dynamic functional connectivity
+    query: "Tracking Whole-Brain Connectivity Dynamics in the Resting State"
+    expect_doc_ids:
+      - "openalex:W2170702893"
+  - name: Dynamics (music)
+    query: "The Virtual Brain: a simulator of primate brain network dynamics"
+    expect_doc_ids:
+      - "openalex:W2145749918"
+  - name: Earth's magnetic field
+    query: "Days of “Zero” level geomagnetic activity accompanied by the high neutron activity and dynamics"
+    expect_doc_ids:
+      - "openalex:W2008973641"
+  - name: Eating disorders
+    query: "Virtual reality in the assessment, understanding, and treatment of mental health disorders"
+    expect_doc_ids:
+      - "openalex:W2598210266"
+  - name: Economics
+    query: "Psychiatric Symptom Dimensions Are Associated With Dissociable Shifts in Metacognition but Not Task Performance"
+    expect_doc_ids:
+      - "openalex:W2783564726"
+  - name: Eigenvalues and eigenvectors
+    query: "Mathematics of the brain: generalization from Eigen vectors to eigen functions."
+    expect_doc_ids:
+      - "openalex:W2735028832"
+  - name: Electroencephalography
+    query: "Stress Analysis Based on Simultaneous Heart Rate Variability and EEG Monitoring"
+    expect_doc_ids:
+      - "openalex:W3195539947"
+  - name: Electromagnetic theories of consciousness
+    query: "Consciousness as Integrated Information: a Provisional Manifesto"
+    expect_doc_ids:
+      - "openalex:W2158935941"
+  - name: Electronic structure
+    query: "CP2K: An electronic structure and molecular dynamics software package - Quickstep: Efficient and accurate"
+    expect_doc_ids:
+      - "openalex:W3027308092"
+  - name: Embedding
+    query: "Hyperbolic Heterogeneous Information Network Embedding"
+    expect_doc_ids:
+      - "openalex:W2904510605"
+  - name: Empirical research
+    query: "The network approach to psychopathology: a review of the literature 2008–2018 and an agenda"
+    expect_doc_ids:
+      - "openalex:W2998636967"
+  - name: Encryption
+    query: "High-Performance FV Somewhat Homomorphic Encryption on GPUs: An Implementation using CUDA"
+    expect_doc_ids:
+      - "openalex:W4236580217"
+  - name: Endocrine system
+    query: "Diagnosis and Treatment of Hyperprolactinemia: An Endocrine Society Clinical Practice Guideline"
+    expect_doc_ids:
+      - "openalex:W2019055295"
+  - name: Endocrinology
+    query: "Human Leptin Deficiency Caused by a Missense Mutation: Multiple Endocrine Defects, Decreased Sympathetic Tone,"
+    expect_doc_ids:
+      - "openalex:W2059063316"
+  - name: Endophenotype
+    query: "Resting vagal activity in schizophrenia: Meta-analysis of heart rate variability as a potential endophenotype"
+    expect_doc_ids:
+      - "openalex:W2236535974"
+  - name: Energy (signal processing)
+    query: "Energy-aware operation of HPC systems in Germany"
+    expect_doc_ids:
+      - "openalex:W4407719684"
+  - name: Engineering
+    query: "Quaternion Convolutional Neural Networks: Current Advances and Future Directions"
+    expect_doc_ids:
+      - "openalex:W4401978285"
+  - name: Entorhinal cortex
+    query: "Perineuronal nets stabilize the grid cell network"
+    expect_doc_ids:
+      - "openalex:W3120392574"
+  - name: Environmental health
+    query: "Social Determinants of Health and Disparities in Hypertension and Cardiovascular Diseases"
+    expect_doc_ids:
+      - "openalex:W4390344607"
+  - name: Environmental science
+    query: "FlashInfer: Efficient and Customizable Attention Engine for LLM Inference Serving"
+    expect_doc_ids:
+      - "openalex:W4406032994"
+  - name: Epidemiology
+    query: "Mental disorders as networks of problems: a review of recent insights"
+    expect_doc_ids:
+      - "openalex:W2559883979"
+  - name: Epistemology
+    query: "Using category theory to design implicit conversions and generic operators"
+    expect_doc_ids:
+      - "openalex:W1519382205"
+  - name: Equivalence (formal languages)
+    query: "Some Equivalence Relations and Results over the Commutative Quaternions and Their Matrices"
+    expect_doc_ids:
+      - "openalex:W2801553267"
+  - name: Ethnic group
+    query: "Mental Health: Culture, Race, and Ethnicity—A Supplement to Mental Health: A Report of the"
+    expect_doc_ids:
+      - "openalex:W1480134138"
+  - name: Euclidean geometry
+    query: "Neural Embeddings of Graphs in Hyperbolic Space"
+    expect_doc_ids:
+      - "openalex:W2617943363"
+  - name: Euclidean space
+    query: "Geometry Interaction Knowledge Graph Embeddings"
+    expect_doc_ids:
+      - "openalex:W4283688275"
+  - name: Exploit
+    query: "Neural Embeddings of Graphs in Hyperbolic Space"
+    expect_doc_ids:
+      - "openalex:W4297731700"
+  - name: Fault (geology)
+    query: "Deep Learning Algorithms for Bearing Fault Diagnostics—A Comprehensive Review"
+    expect_doc_ids:
+      - "openalex:W2912412749"
+  - name: Feature (linguistics)
+    query: "A survey of transfer learning"
+    expect_doc_ids:
+      - "openalex:W2395579298"
+  - name: Feeling
+    query: "The lived experience of psychosis: a bottom‐up review co‐written by experts by experience and"
+    expect_doc_ids:
+      - "openalex:W4229070589"
+  - name: Fidelity
+    query: "Hyperbolic Deep Neural Networks: A Survey"
+    expect_doc_ids:
+      - "openalex:W4205175531"
+  - name: Field (mathematics)
+    query: "Moving Forward: Challenges and Directions for Psychopathological Network Theory and Methodology"
+    expect_doc_ids:
+      - "openalex:W2601774270"
+  - name: Focus (optics)
+    query: "The Surface-Compositional Semantics of English Intonation"
+    expect_doc_ids:
+      - "openalex:W1990332175"
+  - name: Fourth Dimension
+    query: "All for One and One for All: Mental Disorders in One Dimension"
+    expect_doc_ids:
+      - "openalex:W2795870103"
+  - name: Fractal
+    query: "Gait dynamics in Parkinson’s disease: Common and distinct behavior among stride length, gait variability,"
+    expect_doc_ids:
+      - "openalex:W2018727741"
+  - name: Function (biology)
+    query: "Integrated Information in Discrete Dynamical Systems: Motivation and Theoretical Framework"
+    expect_doc_ids:
+      - "openalex:W2108714018"
+  - name: Functional connectivity
+    query: "Discrete Ricci curvatures capture age-related changes in human brain functional connectivity networks"
+    expect_doc_ids:
+      - "openalex:W4378072413"
+  - name: Functional magnetic resonance imaging
+    query: "Criticality in Large-Scale Brain fMRI Dynamics Unveiled by a Novel Point Process Analysis"
+    expect_doc_ids:
+      - "openalex:W2149013149"
+  - name: Functor
+    query: "Monads Need Not Be Endofunctors"
+    expect_doc_ids:
+      - "openalex:W2161616972"
+  - name: GPU cluster
+    query: "Large-Scale Parallel Monte Carlo Tree Search on GPU"
+    expect_doc_ids:
+      - "openalex:W2148036086"
+  - name: General-purpose computing on graphics processing units
+    query: "GPU Computing for Parallel Local Search Metaheuristic Algorithms"
+    expect_doc_ids:
+      - "openalex:W2090156293"
+  - name: Generalization
+    query: "Monads need not be endofunctors"
+    expect_doc_ids:
+      - "openalex:W2402322558"
+  - name: Generative model
+    query: "Hierarchical Models in the Brain"
+    expect_doc_ids:
+      - "openalex:W1977628053"
+  - name: Geodesic
+    query: "A Computational Approach to Fisher Information Geometry with Applications to Image Analysis"
+    expect_doc_ids:
+      - "openalex:W1770450209"
+  - name: Geography
+    query: "The Possible Effect of Space Weather Factors on Various Physiological Systems of the Human"
+    expect_doc_ids:
+      - "openalex:W3135245352"
+  - name: Geology
+    query: "A type theory for synthetic ∞-categories"
+    expect_doc_ids:
+      - "openalex:W2883252932"
+  - name: Geometric mechanics
+    query: "Dissipation in many-body systems: A geometric approach based on information theory"
+    expect_doc_ids:
+      - "openalex:W2034356011"
+  - name: Geometry
+    query: "Quantum groups and non-commutative geometry"
+    expect_doc_ids:
+      - "openalex:W2160671804"
+  - name: Gold standard (test)
+    query: "Transdiagnostic psychiatry: a systematic review"
+    expect_doc_ids:
+      - "openalex:W2944431228"
+  - name: Graph
+    query: "Knowledge Association with Hyperbolic Knowledge Graph Embeddings"
+    expect_doc_ids:
+      - "openalex:W3102952580"
+  - name: Graph drawing
+    query: "BrainNet Viewer: A Network Visualization Tool for Human Brain Connectomics"
+    expect_doc_ids:
+      - "openalex:W2005821483"
+  - name: Graph theory
+    query: "Connectome: Graph theory application in functional brain network architecture"
+    expect_doc_ids:
+      - "openalex:W2766070454"
+  - name: Graphics
+    query: "Accelerating a three-dimensional finite-difference wave propagation code using GPU graphics cards"
+    expect_doc_ids:
+      - "openalex:W2160943542"
+  - name: Graphics processing unit
+    query: "Accelerating Fibre Orientation Estimation from Diffusion Weighted Magnetic Resonance Imaging Using GPUs"
+    expect_doc_ids:
+      - "openalex:W4246298021"
+  - name: Grid
+    query: "NekRS, a GPU-accelerated spectral element Navier–Stokes solver"
+    expect_doc_ids:
+      - "openalex:W3155036733"
+  - name: Guided Local Search
+    query: "Exploring parallel multi-GPU local search strategies in a metaheuristic framework"
+    expect_doc_ids:
+      - "openalex:W2737253174"
+  - name: Gut flora
+    query: "Vagus Nerve as Modulator of the Brain–Gut Axis in Psychiatric and Inflammatory Disorders"
+    expect_doc_ids:
+      - "openalex:W2790416725"
+  - name: Handwriting recognition
+    query: "Gradient-based learning applied to document recognition"
+    expect_doc_ids:
+      - "openalex:W2112796928"
+  - name: Heart rate
+    query: "Autonomic dysfunction in posttraumatic stress disorder indexed by heart rate variability: a meta-analysis"
+    expect_doc_ids:
+      - "openalex:W3082061616"
+  - name: Hermitian matrix
+    query: "Riemannian metrics on positive definite matrices related to means"
+    expect_doc_ids:
+      - "openalex:W2029258199"
+  - name: Heuristic
+    query: "Milepost GCC: Machine Learning Enabled Self-tuning Compiler"
+    expect_doc_ids:
+      - "openalex:W2156560068"
+  - name: Hierarchy
+    query: "Separability and geometry of object manifolds in deep neural networks"
+    expect_doc_ids:
+      - "openalex:W3004639598"
+  - name: Hilbert space
+    query: "Kernel methods in machine learning"
+    expect_doc_ids:
+      - "openalex:W2168029744"
+  - name: Human Connectome Project
+    query: "Graph analysis of the human connectome: Promise, progress, and pitfalls"
+    expect_doc_ids:
+      - "openalex:W2146406922"
+  - name: Human brain
+    query: "Graph-based network analysis of resting-state functional MRI"
+    expect_doc_ids:
+      - "openalex:W2057504626"
+  - name: Human factors and ergonomics
+    query: "Objective and subjective experiences of child maltreatment and their relationships with psychopathology"
+    expect_doc_ids:
+      - "openalex:W3024217604"
+  - name: Human–computer interaction
+    query: "New dimensions and new tools to realize the potential of RDoC: digital phenotyping via"
+    expect_doc_ids:
+      - "openalex:W2592797645"
+  - name: Hyperbolic space
+    query: "Hyperbolic Graph Convolutional Neural Networks."
+    expect_doc_ids:
+      - "openalex:W2970757764"
+  - name: Hyperparameter
+    query: "Transformer-XL: Attentive Language Models beyond a Fixed-Length Context"
+    expect_doc_ids:
+      - "openalex:W2964110616"
+  - name: Identifiability
+    query: "Tensor Decomposition for Signal Processing and Machine Learning"
+    expect_doc_ids:
+      - "openalex:W2469230926"
+  - name: Image segmentation
+    query: "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows"
+    expect_doc_ids:
+      - "openalex:W3138516171"
+  - name: Inference
+    query: "An Active Inference Approach to Interoceptive Psychopathology"
+    expect_doc_ids:
+      - "openalex:W2944456797"
+  - name: Information geometry
+    query: "Diffusion Kernels on Statistical Manifolds"
+    expect_doc_ids:
+      - "openalex:W2097973429"
+  - name: Insomnia
+    query: "Insomnia as a predictor of mental disorders: A systematic review and meta-analysis"
+    expect_doc_ids:
+      - "openalex:W2901538710"
+  - name: Integrated information theory
+    query: "From the Phenomenology to the Mechanisms of Consciousness: Integrated Information Theory 3.0"
+    expect_doc_ids:
+      - "openalex:W1969469858"
+  - name: Interface (matter)
+    query: "Linking RDoC and HiTOP: A new interface for advancing psychiatric nosology and neuroscience"
+    expect_doc_ids:
+      - "openalex:W3136402846"
+  - name: Interpretability
+    query: "Recent advances and applications of machine learning in solid-state materials science"
+    expect_doc_ids:
+      - "openalex:W2968923792"
+  - name: Language model
+    query: "A Survey of Large Language Models"
+    expect_doc_ids:
+      - "openalex:W4362515116"
+  - name: Lesion
+    query: "The hubs of the human connectome are generally implicated in the anatomy of brain"
+    expect_doc_ids:
+      - "openalex:W2161493176"
+  - name: Linguistics
+    query: "The geometry of sedenion zero divisors"
+    expect_doc_ids:
+      - "openalex:W4405029806"
+  - name: Machine learning
+    query: "A survey on semi-supervised learning"
+    expect_doc_ids:
+      - "openalex:W2984353870"
+  - name: Magnetic field
+    query: "Biological effects of the hypomagnetic field: An analytical review of experiments and theories"
+    expect_doc_ids:
+      - "openalex:W2732399094"
+  - name: Major depressive disorder
+    query: "Candidate biomarkers in psychiatric disorders: state of the field"
+    expect_doc_ids:
+      - "openalex:W4376108699"
+  - name: Manifold (fluid mechanics)
+    query: "An Information Geometry of Statistical Manifold Learning"
+    expect_doc_ids:
+      - "openalex:W2136739711"
+  - name: Massively parallel
+    query: "Massively Parallel A* Search on a GPU"
+    expect_doc_ids:
+      - "openalex:W2193780041"
+  - name: Materials science
+    query: "Information geometry in vapour–liquid equilibrium"
+    expect_doc_ids:
+      - "openalex:W2008249885"
+  - name: Mathematical analysis
+    query: "Large sample theory of intrinsic and extrinsic sample means on manifolds"
+    expect_doc_ids:
+      - "openalex:W2072931016"
+  - name: Mathematics
+    query: "Optimal quadratic binding for relational reasoning in vector symbolic neural architectures"
+    expect_doc_ids:
+      - "openalex:W4223904236"
+  - name: Measure (data warehouse)
+    query: "Ricci curvature for metric-measure spaces via optimal transport"
+    expect_doc_ids:
+      - "openalex:W1968781546"
+  - name: Mechanism (biology)
+    query: "Overcoming the translational crisis of contemporary psychiatry – converging phenomenological and spatiotemporal psychopathology"
+    expect_doc_ids:
+      - "openalex:W4386711004"
+  - name: Medical education
+    query: "How phenomenology can help us learn from the experiences of others"
+    expect_doc_ids:
+      - "openalex:W2932631983"
+  - name: Medical imaging
+    query: "Deep learning in medical imaging and radiation therapy"
+    expect_doc_ids:
+      - "openalex:W2898197178"
+  - name: Medicine
+    query: "Being Critical of Criticality in the Brain"
+    expect_doc_ids:
+      - "openalex:W2142211992"
+  - name: Mental health
+    query: "A network theory of mental disorders"
+    expect_doc_ids:
+      - "openalex:W2582550385"
+  - name: Mentalization
+    query: "The Mentalizing Approach to Psychopathology: State of the Art and Future Directions"
+    expect_doc_ids:
+      - "openalex:W2994905377"
+  - name: Metacognition
+    query: "Metacognitive Sedenion-Valued Neural Network and its Learning Algorithm"
+    expect_doc_ids:
+      - "openalex:W3047888897"
+  - name: Model transformation
+    query: "Category Theory and Model-Driven Engineering: From Formal Semantics to Design Patterns and Beyond"
+    expect_doc_ids:
+      - "openalex:W1988555607"
+  - name: Modular design
+    query: "nelli: a lightweight frontend for MLIR"
+    expect_doc_ids:
+      - "openalex:W4385473805"
+  - name: Mood
+    query: "A Network Approach to Psychopathology: New Insights into Clinical Longitudinal Data"
+    expect_doc_ids:
+      - "openalex:W2097771779"
+  - name: Natural language processing
+    query: "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks"
+    expect_doc_ids:
+      - "openalex:W2970641574"
+  - name: Neuroimaging
+    query: "The autism brain imaging data exchange: towards a large-scale evaluation of the intrinsic brain"
+    expect_doc_ids:
+      - "openalex:W2167868121"
+  - name: Neuropsychology
+    query: "How Does it STAC Up? Revisiting the Scaffolding Theory of Aging and Cognition"
+    expect_doc_ids:
+      - "openalex:W2060523616"
+  - name: Neuroscience
+    query: "Consciousness: here, there and everywhere?"
+    expect_doc_ids:
+      - "openalex:W2170232314"
+  - name: Node (physics)
+    query: "Mapping Human Whole-Brain Structural Networks with Diffusion MRI"
+    expect_doc_ids:
+      - "openalex:W1972412818"
+  - name: Noncommutative geometry
+    query: "Supersymmetric Quantum Theory and Non-Commutative Geometry"
+    expect_doc_ids:
+      - "openalex:W2160886224"
+  - name: Open research
+    query: "A Review on Large Language Models: Architectures, Applications, Taxonomies, Open Issues and Challenges"
+    expect_doc_ids:
+      - "openalex:W4391855109"
+  - name: Optimizing compiler
+    query: "Code Instruction Selection Based on SSA-Graphs"
+    expect_doc_ids:
+      - "openalex:W1519472684"
+  - name: Overfitting
+    query: "A survey on Image Data Augmentation for Deep Learning"
+    expect_doc_ids:
+      - "openalex:W2954996726"
+  - name: Parallel computing
+    query: "Graphene: An IR for Optimized Tensor Computations on GPUs"
+    expect_doc_ids:
+      - "openalex:W4327930469"
+  - name: Parallelism (grammar)
+    query: "CUD@SAT: SAT solving on GPUs"
+    expect_doc_ids:
+      - "openalex:W2028695183"
+  - name: Parsing
+    query: "Modern Compiler Implementation in C"
+    expect_doc_ids:
+      - "openalex:W1494199306"
+  - name: Philosophy
+    query: "A compositional semantics for aktionsarten and NP reference in English"
+    expect_doc_ids:
+      - "openalex:W1564436905"
+  - name: Physics
+    query: "Clifford Algebras and their Applications in Mathematical Physics"
+    expect_doc_ids:
+      - "openalex:W2495540741"
+  - name: Power graph analysis
+    query: "GRETNA: a graph theoretical network analysis toolbox for imaging connectomics"
+    expect_doc_ids:
+      - "openalex:W1586771686"
+  - name: Predictability
+    query: "Brain entropy, fractal dimensions and predictability: A review of complexity measures for EEG in"
+    expect_doc_ids:
+      - "openalex:W4294021982"
+  - name: Prior probability
+    query: "REBUS and the Anarchic Brain: Toward a Unified Model of the Brain Action of"
+    expect_doc_ids:
+      - "openalex:W2949457836"
+  - name: Programming language
+    query: "Enhancing Code LLMs with Reinforcement Learning in Code Generation: A Survey"
+    expect_doc_ids:
+      - "openalex:W4405956164"
+  - name: Projection (relational algebra)
+    query: "A theory of category projection and its applications"
+    expect_doc_ids:
+      - "openalex:W1594897963"
+  - name: Psychiatry
+    query: "Transdiagnostic factors of mental disorders"
+    expect_doc_ids:
+      - "openalex:W2093407506"
+  - name: Psychology
+    query: "The Problem with Phi: A Critique of Integrated Information Theory"
+    expect_doc_ids:
+      - "openalex:W2193208712"
+  - name: Psychopathology
+    query: "Psychopathology of Lived Time: Abnormal Time Experience in Persons With Schizophrenia"
+    expect_doc_ids:
+      - "openalex:W2106545093"
+  - name: Pure mathematics
+    query: "Non-Associative Algebra and Its Applications"
+    expect_doc_ids:
+      - "openalex:W1591470961"
+  - name: Qualia
+    query: "Qualia: The Geometry of Integrated Information"
+    expect_doc_ids:
+      - "openalex:W2120745192"
+  - name: Quaternion
+    query: "Book Review: On quaternions and octonions: Their geometry, arithmetic, and symmetry"
+    expect_doc_ids:
+      - "openalex:W2012239776"
+  - name: Register allocation
+    query: "Modern Compiler Implementation in ML"
+    expect_doc_ids:
+      - "openalex:W4249245425"
+  - name: Research Domain Criteria
+    query: "Revisiting the seven pillars of RDoC"
+    expect_doc_ids:
+      - "openalex:W4283739351"
+  - name: Resting state fMRI
+    query: "Functional Connectivity and Brain Networks in Schizophrenia"
+    expect_doc_ids:
+      - "openalex:W2041951497"
+  - name: Robustness (evolution)
+    query: "Network curvature as a hallmark of brain structural connectivity"
+    expect_doc_ids:
+      - "openalex:W2982593650"
+  - name: Segmentation
+    query: "MRI Segmentation of the Human Brain: Challenges, Methods, and Applications"
+    expect_doc_ids:
+      - "openalex:W2028158228"
+  - name: State (computer science)
+    query: "Quaternion Convolutional Neural Networks: Current Advances and Future Directions"
+    expect_doc_ids:
+      - "openalex:W4384648593"
+  - name: autonomic
+    query: "Relationships between brain functional connectivity and resting cardiac autonomic profiles in functional neurological disorder:"
+    expect_doc_ids:
+      - "pubmed:unknown"
+  - name: brain-network
+    query: "Functional connectomics from resting-state fMRI"
+    expect_doc_ids:
+      - "openalex:W2124698428"
+  - name: consciousness
+    query: "The strength of weak integrated information theory"
+    expect_doc_ids:
+      - "openalex:W4281750406"
+  - name: deep-learning
+    query: "SciBERT: A Pretrained Language Model for Scientific Text"
+    expect_doc_ids:
+      - "openalex:W2970771982"
+  - name: entropy
+    query: "An information integration theory of consciousness"
+    expect_doc_ids:
+      - "openalex:W2114900706"
+  - name: geometry
+    query: "A review of convolutional neural networks in computer vision"
+    expect_doc_ids:
+      - "openalex:W4393115925"
+  - name: hypercomplex
+    query: "Jordan algebras and their applications"
+    expect_doc_ids:
+      - "openalex:W2069194229"

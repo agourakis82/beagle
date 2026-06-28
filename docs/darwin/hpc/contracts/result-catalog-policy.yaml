@@ -1,0 +1,50 @@
+phase: B11.2
+mode: result-catalog-query-semantics
+status: active
+last_validated_run: 20260319-185720
+
+source_of_truth:
+  type: object-plane
+  bucket: darwin-hpc-artifacts
+  manifest_format: darwin-b101-object-artifact-v1
+  publication_contract: /root/darwin-v2/phase-b10/contract/object-artifact-contract.json
+
+catalog:
+  format: darwin-b112-result-catalog-v1
+  materialization: host-side-json
+  file: /var/lib/darwin-hpc-gateway/result-catalog.json
+
+gateway:
+  namespace: darwin-platform
+  service: darwin-hpc-gateway
+  stable_endpoints:
+    - /results
+    - /results?profile_id=...
+    - /results?run_label=...
+    - /results/{job_id}
+    - /results/{job_id}/manifest
+
+query_fields:
+  - job_id
+  - profile_id
+  - run_label
+  - state
+  - node_list
+  - submit_time
+  - start_time
+  - end_time
+  - artifact_manifest_key
+
+minimum_filters:
+  - profile_id
+  - run_label
+  - job_id
+
+constraints:
+  no_pvc_pv_reopen: true
+  no_ingress_edge_reopen: true
+  no_ha_reopen: true
+  no_topology_change: true
+  no_slurm_in_kubernetes: true
+  no_public_consumer_expansion: true
+  no_heavy_database_first_pass: true

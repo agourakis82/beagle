@@ -20,6 +20,8 @@
 
 pub mod ab_testing;
 pub mod eval;
+pub mod eval_gate;
+pub mod graphrag_lane;
 pub mod tcr_qf;
 
 use std::collections::{HashMap, HashSet};
@@ -32,6 +34,9 @@ use thiserror::Error;
 use tracing::{instrument, warn};
 
 pub use eval::{GroundTruth, QueryResult, RetrievalEvaluator, RetrievalMetrics};
+pub use graphrag_lane::{
+    personalized_pagerank_retrieve, GraphRagLane, GraphRagResult, RetrievalLane, Seed,
+};
 pub use tcr_qf::{FusionWeights, TcrQfConfig, TripleContextScores};
 use uuid::Uuid;
 

@@ -6,13 +6,20 @@
 //   • Recall  — composed, cited recall (POST /api/recall/answer → beagle-core native synthesis)
 //   • Next    — the fleet proposes next steps (POST /api/propose), accept logs to the board
 //
-//  Visual identity ported from the cockpit-web surfaces (/recall, /next): plum canvas, amber/turquoise
-//  accents, project-colored scope dots, confidence ring, tappable [n] citations that scroll+flash the
+//  Visual identity follows the shared BeagleTheme (neutral plaster / deep navy surfaces) with the
+//  cockpit-web amber/turquoise accents, project-colored scope dots, confidence ring, tappable [n]
+//  citations that scroll+flash the
 //  source, and a vertical source timeline. The app is just another client of the cockpit-web API over
 //  the tailnet — no token in the app (cockpit/coord-mcp hold the operator token).
 //
 
 import SwiftUI
+import BeagleCore
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 // MARK: - Models (match the cockpit-web JSON)
 
@@ -130,27 +137,30 @@ struct CognitiveAPI: Sendable {
 // MARK: - Cockpit visual identity (ported from cockpit-web CSS vars)
 
 private enum CK {
-    static let bg      = Color(hex: 0x1b1426)
-    static let bg2     = Color(hex: 0x21192d)
-    static let panel   = Color(hex: 0x271e36)
-    static let card    = Color(hex: 0x2a2038)
-    static let card2   = Color(hex: 0x352947)
-    static let line    = Color(hex: 0x3c2f50)
-    static let line2   = Color(hex: 0x54426b)
-    static let fg      = Color(hex: 0xfbf5ef)
-    static let txt     = Color(hex: 0xddd2e0)
-    static let dim     = Color(hex: 0xa596ad)
-    static let faint   = Color(hex: 0x7a6a82)
-    static let accent  = Color(hex: 0xffc24d)
-    static let accent2 = Color(hex: 0xff7a4c)
-    static let turq    = Color(hex: 0x2dd4bf)
-    static let ink     = Color(hex: 0x2a1a06)   // text on amber
-    static let ok      = Color(hex: 0x56d6a0)
-    static let warn    = Color(hex: 0xffb454)
-    static let lo      = Color(hex: 0xff7a6b)
-    static let beagle  = Color(hex: 0xffc24d)
-    static let sounio  = Color(hex: 0x7c9cff)
-    static let darwin  = Color(hex: 0x56d6a0)
+    // Surfaces & text defer to the shared BeagleTheme so Recall matches the rest of the
+    // app (neutral plaster / deep navy) instead of its old plum canvas. The warm semantic
+    // accents below (amber/turquoise/scope dots) are kept — they were never the problem.
+    static let bg      = BeagleTheme.surface0
+    static let bg2     = BeagleTheme.surface1
+    static let panel   = BeagleTheme.surface1
+    static let card    = BeagleTheme.surface2
+    static let card2   = BeagleTheme.surface3
+    static let line    = BeagleTheme.hairline
+    static let line2   = Color(light: .black.opacity(0.16), dark: .white.opacity(0.16))
+    static let fg      = BeagleTheme.textPrimary
+    static let txt     = BeagleTheme.textData
+    static let dim     = BeagleTheme.textSecondary
+    static let faint   = BeagleTheme.textTertiary
+    static let accent  = Color(lightHex: 0xA8620A, darkHex: 0xffc24d)
+    static let accent2 = Color(lightHex: 0xCC4E28, darkHex: 0xff7a4c)
+    static let turq    = Color(lightHex: 0x0E9886, darkHex: 0x2dd4bf)
+    static let ink     = Color(hex: 0x2a1a06)   // text on amber (both modes)
+    static let ok      = Color(lightHex: 0x1B9D70, darkHex: 0x56d6a0)
+    static let warn    = Color(lightHex: 0xB9760A, darkHex: 0xffb454)
+    static let lo      = Color(lightHex: 0xCC4133, darkHex: 0xff7a6b)
+    static let beagle  = Color(lightHex: 0xA8620A, darkHex: 0xffc24d)
+    static let sounio  = Color(lightHex: 0x3A5BD0, darkHex: 0x7c9cff)
+    static let darwin  = Color(lightHex: 0x1B9D70, darkHex: 0x56d6a0)
 
     static func scopeColor(_ s: String) -> Color {
         switch s { case "beagle": return beagle; case "sounio": return sounio; case "darwin": return darwin; default: return fg }
@@ -175,6 +185,20 @@ extension Color {
                   green: Double((hex >> 8) & 0xff) / 255.0,
                   blue: Double(hex & 0xff) / 255.0,
                   opacity: 1)
+    }
+
+    /// Adaptive color from two hex values — light/dark aware, local to Recall
+    /// so its `CK` palette flips with the system appearance.
+    init(lightHex: UInt32, darkHex: UInt32) {
+        #if canImport(UIKit)
+        self.init(uiColor: UIColor { $0.userInterfaceStyle == .dark
+            ? UIColor(Color(hex: darkHex)) : UIColor(Color(hex: lightHex)) })
+        #elseif canImport(AppKit)
+        self.init(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(Color(hex: darkHex)) : NSColor(Color(hex: lightHex)) })
+        #else
+        self.init(hex: darkHex)
+        #endif
     }
 }
 

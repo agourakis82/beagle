@@ -2,7 +2,9 @@
 target/
 **/target/
 **/src-tauri/gen/
-Cargo.lock
+# Cargo.lock IS committed: this is an application/binary workspace, so the lock must be tracked for
+# reproducible CI builds. (It was ignored, which let CI resolve a broken pgvector/sqlx 0.8 combo —
+# pgvector::Vector not implementing sqlx 0.8 traits — that the committed lock pins away from.)
 **/*.rs.bk
 *.pdb
 
@@ -24,8 +26,12 @@ venv/
 .mypy_cache/
 .ipynb_checkpoints/
 
-# JavaScript
+# Node / frontend services
 node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Environment & Secrets
 .env
@@ -59,6 +65,7 @@ data/corpus/papers/*.pdf
 
 # Config file with data path
 .beagle-data-path
+.beagle/
 
 # Logs
 *.log
@@ -80,6 +87,9 @@ beagle-ios/exportOptions*.plist
 beagle-ios/*.mobileprovision
 beagle-ios/*.dSYM.zip
 
+# Derived Warp renderer probe outputs
+apps/warp-workbench/renderer/results/
+
 # Docker
 docker-compose.override.yml
 
@@ -97,3 +107,4 @@ tmp/
 *.tmp
 *.bak
 .envrc
+.artifacts/darwin-hpc/

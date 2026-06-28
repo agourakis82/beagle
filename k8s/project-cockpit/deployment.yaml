@@ -1,0 +1,168 @@
+# project-cockpit Deployment — reconciled from the live cluster state
+# (kubectl get deploy project-cockpit -n beagle), pinned to the durable image.
+# This is the authoritative IaC source: live == repo.
+# Notes:
+#  - imagePullPolicy IfNotPresent: in-cluster registry (192.168.3.207:5003) is
+#    plain-HTTP. Nodes honor it via /etc/containerd/certs.d once config_path is
+#    set under the containerd v2 key io.containerd.cri.v1.images.registry.
+#  - project-catalog.json ships baked into the image (single source of truth);
+#    the old catalog-override ConfigMap was retired.
+#  - project-cockpit-remembered ConfigMap holds runtime state (not in git;
+#    volume is optional).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: project-cockpit
+    app.kubernetes.io/part-of: beagle
+  name: project-cockpit
+  namespace: beagle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: project-cockpit
+  strategy:
+    # Recreate, not RollingUpdate: the pod mounts a RWO PVC (/var/lib/cockpit).
+    # RollingUpdate's surge starts the new pod before the old releases the volume;
+    # if it lands on another node → Multi-Attach deadlock. Recreate deletes the old
+    # pod first (releasing the PVC), then starts the new one. ~30-60s downtime, 1 replica.
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: project-cockpit
+        app.kubernetes.io/part-of: beagle
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - preference:
+              matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                - r770-proxmox
+            weight: 100
+      containers:
+      - env:
+        - name: PROJECT_COCKPIT_PORT
+          value: '4370'
+        - name: PROJECT_COCKPIT_ROOT
+          value: /app
+        - name: PROJECT_COCKPIT_KEEP_ALIVE_TIMEOUT_MS
+          value: '610000'
+        - name: PROJECT_COCKPIT_FAST_MEMORY_CACHE_TTL_MS
+          value: '15000'
+        - name: PROJECT_COCKPIT_MEMORY_WARM_INTERVAL_MS
+          value: '15000'
+        - name: PROJECT_COCKPIT_DISABLE_MEMORY_WARMERS
+          value: 'true'
+        - name: PROJECT_COCKPIT_REMEMBERED_STATE_CONFIGMAP
+          value: project-cockpit-remembered
+        - name: PROJECT_COCKPIT_REMEMBERED_STATE_DIR
+          value: /var/run/project-cockpit-remembered
+        - name: BEAGLE_DATA_DIR
+          value: /var/lib/cockpit
+        - name: WORKBENCH_CONTEXT_DATA_DIR
+          value: /var/lib/cockpit
+        - name: WORKBENCH_CONTEXT_HTTP_MCP_REQUIRE_AUTH
+          value: 'true'
+        - name: WORKBENCH_CONTEXT_WRITE_REQUIRE_AUTH
+          value: 'true'
+        - name: PROJECT_COCKPIT_SGLANG_ENDPOINT
+          value: http://sglang-serving.beagle.svc.cluster.local:30000
+        - name: PROJECT_COCKPIT_DYNAMO_ENDPOINT
+          value: http://dynamo-control-plane.beagle.svc.cluster.local:8000
+        - name: PROJECT_COCKPIT_PROMETHEUS_URL
+          value: http://darwin-observability-prometheus.darwin-platform.svc.cluster.local:9090
+        - name: PROJECT_COCKPIT_SOUNIO_FOUNDRY_ARTIFACT_ROOT
+          value: /orangefs/training/sounio-foundry/runs
+        - name: PROJECT_COCKPIT_AGENT_IMAGE
+          value: 192.168.3.207:5003/beagle-agent:claude-codex-model-registry-20260523T2301Z
+        - name: PROJECT_COCKPIT_KUBECTL
+          value: /usr/local/bin/kubectl
+        - name: GPU_LEASE_HOST_PROCESS_CHECK
+          value: '0'
+        - name: PROJECT_COCKPIT_WORKBENCH_AUTHORITY
+          value: workspace-agent
+        - name: PROJECT_COCKPIT_WORKSPACE_AGENT_TIMEOUT_MS
+          value: '12000'
+        image: 192.168.3.207:5003/project-cockpit:reconcile-04dbe63c
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -lc
+            - curl -fsS http://127.0.0.1:4370/livez >/dev/null
+          failureThreshold: 3
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: app
+        ports:
+        - containerPort: 4370
+          name: http
+          protocol: TCP
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -lc
+            - curl -fsS http://127.0.0.1:4370/healthz >/dev/null
+          failureThreshold: 3
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: '1'
+            memory: 4Gi
+          requests:
+            cpu: 150m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          appArmorProfile:
+            type: Unconfined
+          runAsGroup: 0
+          runAsUser: 0
+          seccompProfile:
+            type: Unconfined
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/run/project-cockpit-remembered
+          name: remembered-state
+          readOnly: true
+        - mountPath: /var/lib/cockpit
+          name: cockpit-data
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        kubernetes.io/hostname: r770-proxmox
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: project-cockpit
+      serviceAccountName: project-cockpit
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: sounio.dev/compute
+        operator: Equal
+        value: heavy
+      - effect: NoSchedule
+        key: sounio.dev/pool
+        operator: Equal
+        value: gpu-batch
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: project-cockpit-remembered
+        name: remembered-state
+      - name: cockpit-data
+        persistentVolumeClaim:
+          claimName: project-cockpit-data

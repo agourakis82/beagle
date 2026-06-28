@@ -1,0 +1,28 @@
+# Safety-net: periodically refresh the memory-engine semantic index. Primary trigger is
+# beagle-core's debounced post-ingest reindex; this catches anything missed (incremental => cheap).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: beagle-memory-reindex
+  namespace: beagle-memory-lab
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 1800
+      template:
+        spec:
+          restartPolicy: Never
+          tolerations:
+            - operator: Exists
+          containers:
+            - name: reindex
+              image: curlimages/curl:latest
+              command:
+                - sh
+                - -c
+                - "curl -s -m 600 -X POST http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090/v1/index/semantic/rebuild -H 'Content-Type: application/json' -d '{\"limit\":20000}'"

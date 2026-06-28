@@ -26,7 +26,7 @@ beagle-darwin = { path = "../../crates/beagle-darwin" }
 beagle-hermes = { path = "../../crates/beagle-hermes" }
 beagle-workspace = { path = "../../crates/beagle-workspace" }
 beagle-whisper = { path = "../../crates/beagle-whisper" }
-beagle-config = { path = "../../crates/beagle-config" }
+beagle-config = { workspace = true }
 beagle-health = { path = "../../crates/beagle-health" }
 beagle-observability = { path = "../../crates/beagle-observability" }
 anyhow = { workspace = true }
@@ -34,6 +34,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 chrono = { workspace = true }
 uuid = { version = "1.10", features = ["v4"] }
+sha2 = "0.10"
 clap = { version = "4.5", features = ["derive"] }
 reqwest = { workspace = true }
 beagle-core = { path = "../../crates/beagle-core" }
@@ -43,16 +44,24 @@ beagle-llm = { path = "../../crates/beagle-llm" }
 beagle-observer = { path = "../../crates/beagle-observer" }
 beagle-serendipity = { path = "../../crates/beagle-serendipity" }
 beagle-quantum = { path = "../../crates/beagle-quantum" }
+nalgebra = { version = "0.33", features = ["serde-serialize"] }
 beagle-memory = { path = "../../crates/beagle-memory" }
 beagle-search = { path = "../../crates/beagle-search" }
 beagle-latex = { path = "../../crates/beagle-latex" }
 beagle-exocortex = { path = "../../crates/beagle-exocortex" }
 beagle-checkpoint = { path = "../../crates/beagle-checkpoint" }
+beagle-agents = { path = "../../crates/beagle-agents" }
+beagle-worldmodel = { path = "../../crates/beagle-worldmodel" }
+beagle-hypergraph = { path = "../../crates/beagle-hypergraph" }
 # beagle-void e beagle-ontic comentados temporariamente (requerem dependências adicionais)
 # beagle-void = { path = "../../crates/beagle-void" }
 # beagle-ontic = { path = "../../crates/beagle-ontic" }
-axum = { version = "0.7", features = ["macros", "query"] }
+axum = { version = "0.8", features = ["macros", "query", "ws"] }
+tokio-tungstenite = { version = "0.23" }
+futures = { workspace = true }
+tower-http.workspace = true
 tempfile = "3.8"
+base64 = { workspace = true }
 
 [features]
 default = []
@@ -61,3 +70,4 @@ memory = ["beagle-core/memory"]
 [dev-dependencies]
 tempfile = "3.8"
 tokio-test = "0.4"
+tower = "0.5"

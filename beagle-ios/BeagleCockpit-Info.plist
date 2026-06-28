@@ -19,7 +19,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.01</string>
+	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -32,7 +32,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>32</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSAppTransportSecurity</key>
@@ -55,6 +55,10 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>O Beagle usa sua localização para contextualizar condições climáticas locais e enriquecer o perfil fisiológico do companheiro com dados ambientais relevantes.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>O Beagle usa sua localização em segundo plano para sincronizar condições climáticas com os dados de saúde, permitindo que o companheiro correlacione seu estado fisiológico com o ambiente ao longo do dia.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Beagle reads recovery signals like HRV, sleep, and workouts so the exocortex can adapt to your actual state.</string>
 	<key>NSHealthUpdateUsageDescription</key>

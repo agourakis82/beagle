@@ -69,6 +69,7 @@ struct BeagleSurface: View {
     }
 
     private var livingBackground: some View {
+        // Living mesh restored (dark-only — the light-mode legibility reason is gone).
         ShellPresenceGradient(
             presence: shellPresence,
             cognitivePosture: physio.cognitivePosture
@@ -81,11 +82,10 @@ struct BeagleSurface: View {
             metacognitiveNudgeLayer
             serendipityLayer
 
-            exocortexHomeCard
-                .padding(.horizontal, BeagleSpacing.lg)
-                .padding(.bottom, BeagleSpacing.sm)
-
-            ConversationView(conversation: conversation, onRefresh: refreshLivingHome)
+            // Chat-first companion surface: the conversation is the hero, full-height
+            // over the living mesh. (The exocortex home card is retired from this surface
+            // — it can return as a collapsible header or a separate view later.)
+            ChatScreen(store: conversation, breathRate: physio.cognitivePosture.respiratoryRate)
         }
     }
 
@@ -866,7 +866,7 @@ struct BeagleSurface: View {
                         .font(BeagleFont.caption.font)
                         .fontWeight(.medium)
                 }
-                .foregroundStyle(BeagleTheme.truthObserved)
+                .foregroundStyle(BeagleTheme.textTertiary)  // recede — the companion leads
             }
             .buttonStyle(.plain)
 
@@ -969,12 +969,22 @@ struct BeagleSurface: View {
             else if r < 0.3 { conversation.flowState = "STRESS" }
             else { conversation.flowState = "NORMAL" }
         }
+        // Real sleep → the attuned body-as-story greeting (no metrics surfaced).
+        conversation.sleepQuality01 = physio.cognitivePosture.sleepQuality
         conversation.loadPersistedConversation()
 
         // Configure Foundation Models with stores
         #if canImport(FoundationModels)
         if #available(iOS 26, macOS 26, visionOS 26, *) {
             FoundationModelsAgent.shared.configure(cognitive: cognitive, physio: physio)
+            // On-device Apple Intelligence (~3B) is too weak for the companion's voice —
+            // the richness IS the companion. Route EVERYTHING to the cluster (GLM). The
+            // ~14s latency is covered by the typing indicator. (Fast path kept for a future
+            // faster-but-capable model.)
+            conversation.fastAvailable = false
+            conversation.fastResponder = { prompt, history in
+                await FoundationModelsAgent.shared.respond(to: prompt, conversationHistory: history)
+            }
         }
         #endif
     }
@@ -3710,38 +3720,49 @@ private struct ProofSheet: View {
     }
 }
 
-// MARK: - Simplified background
+// MARK: - Living shell background
 
 private struct ShellPresenceGradient: View {
     let presence: BeaglePresenceState
     let cognitivePosture: CognitivePosture
+    @State private var phase: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         MeshGradient(
-            width: 3,
-            height: 3,
-            points: [
-                SIMD2(0, 0), SIMD2(0.5, 0), SIMD2(1, 0),
-                SIMD2(0, 0.5), SIMD2(0.5, 0.5), SIMD2(1, 0.5),
-                SIMD2(0, 1), SIMD2(0.5, 1), SIMD2(1, 1)
-            ],
+            width: 3, height: 3,
+            points: animatedPoints,
             colors: gradientColors
         )
         .ignoresSafeArea()
-        .overlay {
-            Color.black.opacity(0.75)
-                .ignoresSafeArea()
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 9).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
         }
     }
 
-    private var gradientColors: [Color] {
-        let glow = presence.glow
-        let tint = presence.tint
-        let base = Color(red: 0.02, green: 0.03, blue: 0.06)
+    private var animatedPoints: [SIMD2<Float>] {
+        let d: Float = reduceMotion ? 0 : Float(phase) * 0.07
         return [
-            glow.opacity(0.15), tint.opacity(0.06), base,
-            tint.opacity(0.08), base, glow.opacity(0.08),
-            base, base, base
+            SIMD2(0,     0),       SIMD2(0.5,     0),        SIMD2(1,     0),
+            SIMD2(0+d,   0.5-d),   SIMD2(0.5+d,   0.5+d),    SIMD2(1-d,   0.5+d),
+            SIMD2(0,     1),       SIMD2(0.5,     1),        SIMD2(1,     1)
+        ]
+    }
+
+    // Dark-only living shell: deep void base with a state-tinted glow at the top.
+    // No black overlay (the old one muted it to death); `.glow` is now `.clear`
+    // post-redesign, so the presence color comes from `.tint`.
+    private var gradientColors: [Color] {
+        let tint = presence.tint
+        let deep = Color(red: 0.02, green: 0.03, blue: 0.07)
+        return [
+            tint.opacity(0.28), tint.opacity(0.10), Color(white: 0.045),
+            tint.opacity(0.12), Color(white: 0.035), tint.opacity(0.14),
+            deep,               deep,                Color(white: 0.03)
         ]
     }
 }
+

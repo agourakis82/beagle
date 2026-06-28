@@ -1,3 +1,5 @@
+-- migrate:up
+
 -- ===========================================================================
 -- Beagle Hypergraph Initial Schema
 -- Defines core data structures, synchronization metadata, and helper routines

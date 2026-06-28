@@ -1,6 +1,6 @@
 //! Autenticação baseada em JWT com extração via Axum.
 
-use axum::{async_trait, extract::FromRequestParts, http::request::Parts, RequestPartsExt};
+use axum::{extract::FromRequestParts, http::request::Parts, RequestPartsExt};
 use axum_extra::{
     headers::{authorization::Bearer, Authorization},
     typed_header::TypedHeader,
@@ -56,7 +56,7 @@ impl Claims {
 }
 
 /// Extractor de JWT para handlers protegidos.
-#[async_trait]
+/// axum 0.8: FromRequestParts is a native async trait (RPITIT) — no #[async_trait].
 impl FromRequestParts<AppState> for Claims {
     type Rejection = ApiError;
 

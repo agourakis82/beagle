@@ -1,0 +1,6 @@
+{
+  "profile_id": "gpu-single-v1",
+  "parameters": {
+    "run_label": "b95-<run-id>-gpu-single"
+  }
+}

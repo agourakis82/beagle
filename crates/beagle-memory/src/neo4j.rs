@@ -12,6 +12,40 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
+/// Validate a Cypher label or relationship-type identifier before interpolating it
+/// into a query string.
+///
+/// Cypher identifiers must match `[A-Za-z_][A-Za-z0-9_]*`.  Accepting arbitrary
+/// caller-supplied strings without validation would allow Cypher-injection through
+/// untrusted label or relationship-type values.
+///
+/// Returns `Ok(())` when the identifier is safe or `Err(GraphError::InvalidQuery)`
+/// when it contains characters outside the allowed set.
+fn validate_cypher_identifier(ident: &str) -> Result<()> {
+    if ident.is_empty() {
+        return Err(GraphError::InvalidQuery(
+            "Cypher identifier must not be empty".into(),
+        ));
+    }
+    let mut chars = ident.chars();
+    let first = chars.next().unwrap();
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return Err(GraphError::InvalidQuery(format!(
+            "Cypher identifier {:?} must start with [A-Za-z_]",
+            ident
+        )));
+    }
+    for ch in chars {
+        if !ch.is_ascii_alphanumeric() && ch != '_' {
+            return Err(GraphError::InvalidQuery(format!(
+                "Cypher identifier {:?} contains invalid character {:?} (only [A-Za-z0-9_] allowed)",
+                ident, ch
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Neo4j-backed graph store
 pub struct Neo4jGraphStore {
     graph: Arc<Graph>,
@@ -186,6 +220,10 @@ impl GraphStore for Neo4jGraphStore {
         labels: Vec<String>,
         properties: HashMap<String, serde_json::Value>,
     ) -> Result<GraphNode> {
+        // Validate every label before interpolating into Cypher to prevent injection.
+        for label in &labels {
+            validate_cypher_identifier(label)?;
+        }
         let labels_str = labels.join(":");
 
         // Build Cypher CREATE statement
@@ -252,6 +290,9 @@ impl GraphStore for Neo4jGraphStore {
         rel_type: &str,
         properties: HashMap<String, serde_json::Value>,
     ) -> Result<GraphRelationship> {
+        // Validate rel_type before interpolating into Cypher to prevent injection.
+        validate_cypher_identifier(rel_type)?;
+
         let mut cypher = format!(
             "MATCH (a), (b) WHERE id(a) = $from_id AND id(b) = $to_id CREATE (a)-[r:{}",
             rel_type
@@ -325,6 +366,9 @@ impl GraphStore for Neo4jGraphStore {
         label: &str,
         filters: HashMap<String, serde_json::Value>,
     ) -> Result<Vec<GraphNode>> {
+        // Validate label before interpolating into Cypher to prevent injection.
+        validate_cypher_identifier(label)?;
+
         let mut cypher = format!("MATCH (n:{}) ", label);
         let mut q = query(&cypher);
 

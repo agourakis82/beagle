@@ -5,6 +5,7 @@
 
 [workspace]
 members = [
+    # Core platform crates
     "crates/beagle-common",
     "crates/beagle-agents",
     "crates/beagle-bio",
@@ -13,6 +14,7 @@ members = [
     "crates/beagle-hypergraph",
     "crates/beagle-llm",
     "crates/beagle-memory",
+    "crates/beagle-rag-update",
     "crates/beagle-personality",
     "crates/beagle-server",
     "crates/beagle-sync",
@@ -21,20 +23,116 @@ members = [
     "crates/beagle-neurosymbolic",
     "crates/beagle-hermes",
     "crates/beagle-quantum",
-    "crates/beagle-metacog",
     "crates/beagle-serendipity",
     "crates/beagle-worldmodel",
+    "beagle-bin",
+    "crates/beagle-grok-api",
+    "crates/beagle-grok-full",
+    "crates/beagle-smart-router",
+    "crates/beagle-config",
+    "crates/beagle-core",
+    "crates/beagle-health",
+    "crates/beagle-observability",
+    "crates/beagle-darwin",
+    "crates/beagle-darwin-core",
+    "crates/beagle-workspace",
+    "crates/beagle-hyperbolic",
+    "crates/beagle-lora-auto",
+    "crates/beagle-lora-voice-auto",
+    "crates/beagle-lora-voice",
+    "crates/beagle-bilingual",
+    "crates/beagle-nuclear",
+    "crates/beagle-stress-test",
+    "crates/beagle-whisper",
+    "crates/beagle-publish",
+    "crates/beagle-arxiv-validate",
+    "crates/beagle-twitter",
+    "crates/beagle-physio",
+    "apps/beagle-monorepo",
+    "apps/beagle-memory-engine",
+    "crates/beagle-neural-engine",
+    "crates/beagle-whisper-neural",
+    "crates/beagle-observer",
+    "crates/beagle-triad",
+    "crates/beagle-feedback",
+    "crates/beagle-symbolic",
+    "crates/beagle-experiments",
+    "crates/beagle-search",
+    "crates/beagle-exocortex",
+    "crates/beagle-tracing",
+    "crates/beagle-latex",
+    "crates/beagle-checkpoint",
+    "crates/beagle-signatures",
+    # Experimental / aspirational crates (workspace members but not built by default)
     "crates/beagle-consciousness",
+    "crates/beagle-metacog",
     "crates/beagle-fractal",
+    "crates/beagle-transcend",
     "crates/beagle-abyss",
     "crates/beagle-reality",
-    "crates/beagle-noetic", "crates/beagle-ontic", "crates/beagle-void", "crates/beagle-paradox", "crates/beagle-cosmo", "crates/beagle-transcend", "crates/beagle-eternity", "beagle-bin", "crates/beagle-grok-api", "crates/beagle-grok-full", "crates/beagle-smart-router", "crates/beagle-config", "crates/beagle-core", "crates/beagle-health", "crates/beagle-observability",     "crates/beagle-darwin", "crates/beagle-darwin-core", "crates/beagle-workspace",
-    "crates/beagle-hyperbolic", "crates/beagle-lora-auto", "crates/beagle-lora-voice-auto", "crates/beagle-lora-voice", "crates/beagle-bilingual", "crates/beagle-nuclear", "crates/beagle-stress-test",
-    "crates/beagle-whisper", "crates/beagle-publish", "crates/beagle-arxiv-validate",
-    "crates/beagle-twitter", "crates/beagle-physio",
-    "apps/beagle-monorepo", "crates/beagle-neural-engine", "crates/beagle-whisper-neural",
-    "crates/beagle-observer", "crates/beagle-stress-test", "crates/beagle-triad",
-    "crates/beagle-feedback", "crates/beagle-symbolic", "crates/beagle-experiments",
+    "crates/beagle-noetic",
+    "crates/beagle-ontic",
+    "crates/beagle-void",
+    "crates/beagle-paradox",
+    "crates/beagle-cosmo",
+    "crates/beagle-eternity",
+]
+
+# Aspirational/experimental crates are workspace members (so they can be built
+# explicitly) but excluded from the default build to keep `cargo check/build`
+# fast and free of speculative/theater code.
+default-members = [
+    "crates/beagle-common",
+    "crates/beagle-agents",
+    "crates/beagle-bio",
+    "crates/beagle-hrv-adaptive",
+    "crates/beagle-db",
+    "crates/beagle-hypergraph",
+    "crates/beagle-llm",
+    "crates/beagle-memory",
+    "crates/beagle-rag-update",
+    "crates/beagle-personality",
+    "crates/beagle-server",
+    "crates/beagle-sync",
+    "crates/beagle-events",
+    "crates/beagle-grpc",
+    "crates/beagle-neurosymbolic",
+    "crates/beagle-hermes",
+    "crates/beagle-quantum",
+    "crates/beagle-serendipity",
+    "crates/beagle-worldmodel",
+    "beagle-bin",
+    "crates/beagle-grok-api",
+    "crates/beagle-grok-full",
+    "crates/beagle-smart-router",
+    "crates/beagle-config",
+    "crates/beagle-core",
+    "crates/beagle-health",
+    "crates/beagle-observability",
+    "crates/beagle-darwin",
+    "crates/beagle-darwin-core",
+    "crates/beagle-workspace",
+    "crates/beagle-hyperbolic",
+    "crates/beagle-lora-auto",
+    "crates/beagle-lora-voice-auto",
+    "crates/beagle-lora-voice",
+    "crates/beagle-bilingual",
+    "crates/beagle-nuclear",
+    "crates/beagle-stress-test",
+    "crates/beagle-whisper",
+    "crates/beagle-publish",
+    "crates/beagle-arxiv-validate",
+    "crates/beagle-twitter",
+    "crates/beagle-physio",
+    "apps/beagle-monorepo",
+    "apps/beagle-memory-engine",
+    "crates/beagle-neural-engine",
+    "crates/beagle-whisper-neural",
+    "crates/beagle-observer",
+    "crates/beagle-triad",
+    "crates/beagle-feedback",
+    "crates/beagle-symbolic",
+    "crates/beagle-experiments",
     "crates/beagle-search",
     "crates/beagle-exocortex",
     "crates/beagle-tracing",
@@ -42,6 +140,7 @@ members = [
     "crates/beagle-checkpoint",
     "crates/beagle-signatures",
 ]
+
 resolver = "2"
 
 [workspace.package]
@@ -64,14 +163,15 @@ tokio-test = "0.4"
 futures = "0.3"
 
 # Internal crates
+beagle-config = { path = "crates/beagle-config" }
 beagle-memory = { path = "crates/beagle-memory" }
 beagle-personality = { path = "crates/beagle-personality" }
 
 # Web framework
-axum = { version = "0.7", features = ["macros"] }
-axum-extra = { version = "0.9", features = ["typed-header"] }
+axum = { version = "0.8", features = ["macros"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
 tower = "0.5"
-tower-http = { version = "0.5", features = ["compression-full", "cors", "trace"] }
+tower-http = { version = "0.6", features = ["compression-full", "cors", "trace"] }
 
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "chrono", "json"] }
@@ -84,7 +184,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # API docs
 utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "8.1", features = ["axum"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
 # Error handling
 anyhow = "1.0"
@@ -93,6 +193,7 @@ thiserror = "2.0"
 # Config & environment
 dotenvy = "0.15"
 config = "0.14"
+figment = { version = "0.10", features = ["json", "env"] }
 
 # Cloud
 gcp_auth = "0.10"

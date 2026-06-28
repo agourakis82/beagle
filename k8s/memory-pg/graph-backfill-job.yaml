@@ -1,0 +1,36 @@
+# Phase 4.5 tiered graph backfill — qwen2.5-14b over the historical corpus.
+# One-shot, resumable (status='done'), idempotent (facts dedup on content_sha256).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: memory-pg-graph-backfill
+  namespace: beagle
+  labels: { app: memory-pg, component: graph-backfill }
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: { app: memory-pg, component: graph-backfill }
+    spec:
+      tolerations:
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+        - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }
+      securityContext:
+        seccompProfile: { type: Unconfined }
+      restartPolicy: Never
+      containers:
+        - name: graph-backfill
+          image: 192.168.3.207:5003/memory-pg-embed-worker:v4
+          command: ["node", "bin/graph-backfill.mjs", "--concurrency", "32", "--model", "qwen2.5-14b"]
+          env:
+            - name: MEMORY_PG_DSN
+              valueFrom: { secretKeyRef: { name: memory-pg, key: DATABASE_URL } }
+            - name: GRAPH_LLM_URL
+              value: http://router.llm-router.svc.cluster.local:4000
+            - name: BEAGLE_TEI_EMBED_URL
+              value: http://192.168.3.43:8080/embed
+          resources:
+            requests: { cpu: "500m", memory: 512Mi }
+            limits: { cpu: "2", memory: 2Gi }

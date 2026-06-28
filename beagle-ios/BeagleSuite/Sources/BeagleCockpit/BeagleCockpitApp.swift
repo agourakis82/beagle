@@ -277,6 +277,7 @@ struct RootView: View {
         cognitive.activeProjectSlug = launchOverrides.projectSlug ?? cognitive.activeProjectSlug ?? "sounio"
 
         let authReady = await BeagleClient.shared.ensureAuth()
+        startPhysiomeRealtimeSync()
         async let catalogTask: () = catalog.refresh()
         async let cognitiveTask: () = cognitive.refresh()
         async let physioTask: () = physio.refresh()
@@ -296,6 +297,38 @@ struct RootView: View {
             } else {
                 bootError = "Could not reach cockpit over the public gateway or private fallback path."
             }
+        }
+    }
+
+    // MARK: - Physiome real-time ingest
+
+    /// Activate the sovereign real-time Physiome pipeline. Detached so HealthKit
+    /// authorization + background-delivery registration never block the cockpit boot.
+    ///  1. recover any samples queued (and persisted to disk) in a prior session,
+    ///  2. authorize + register HKObserverQuery/background-delivery for every type,
+    ///  3. catch up incrementally via persisted per-type anchors (no re-send, no loss),
+    ///  4. start WeatherKit + barometric/location streaming (temp, pressure, …).
+    /// Idempotent by HKObject.uuid — safe to run on every launch.
+    private func startPhysiomeRealtimeSync() {
+        // Demo/screenshot mode: never trigger the system HealthKit auth sheet — it would
+        // cover the chat UI being previewed. Real launches authorize as normal.
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--demo") || args.contains("--demo-chat") { return }
+        Task.detached(priority: .utility) {
+            let uploader = PhysiomeUploader.shared
+            await uploader.recoverAndFlush()
+            do {
+                try await HealthSyncEngine.shared.requestAuthorization()
+                await HealthSyncEngine.shared.enableBackgroundDelivery(uploader: uploader)
+                await HealthSyncEngine.shared.catchUp(uploader: uploader)
+            } catch {
+                print("[physiome] health sync init failed: \(error)")
+            }
+            await WeatherSyncEngine.shared.start(uploader: uploader)
+            #if os(iOS)
+            // Device barometer → exact local atmospheric pressure (indoor, no network).
+            await BaroSyncEngine.shared.start(uploader: uploader)
+            #endif
         }
     }
 
@@ -324,9 +357,17 @@ struct RootView: View {
                         }
                 }
             }
-            Tab("Work", systemImage: "apple.terminal", value: 3) {
+            // Work (the agent deck) and Fleet (live sessions) are two views of the same
+            // thing — the cluster agents — so they share one tab on phone, where the tab
+            // bar can't afford a "More" overflow that buries them.
+            Tab("Agents", systemImage: "apple.terminal", value: 3) {
                 NavigationStack {
-                    WorkView(bootError: $bootError)
+                    AgentsTabView(bootError: $bootError)
+                }
+            }
+            Tab("Recall", systemImage: "sparkle.magnifyingglass", value: 4) {
+                NavigationStack {
+                    CognitiveRecallView()
                 }
             }
             Tab("Recall", systemImage: "sparkle.magnifyingglass", value: 4) {
@@ -347,6 +388,7 @@ struct RootView: View {
         case deep     = "Go Deep"
         case work     = "Work"
         case recall   = "Recall"
+        case fleet    = "Fleet"
         case settings = "Settings"
 
         var id: String { rawValue }
@@ -478,7 +520,7 @@ struct RootView: View {
         case 0:  return "Mind"
         case 1:  return "Capture"
         case 2:  return "Deep"
-        case 3:  return "Work"
+        case 3:  return "Agents"
         default: return "Mind"
         }
     }
@@ -585,6 +627,32 @@ struct RootView: View {
         }
     }
 
+}
+
+/// Work (the agent deck) and Fleet (live sessions) share one phone tab — they are two
+/// views of the same domain (the cluster agents). A segmented control swaps between them
+/// so neither gets buried in a "More" overflow.
+private struct AgentsTabView: View {
+    @Binding var bootError: String?
+    @State private var mode = 0   // 0 = Deck, 1 = Sessions
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Agents", selection: $mode) {
+                Text("Deck").tag(0)
+                Text("Sessions").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+
+            if mode == 0 {
+                WorkView(bootError: $bootError)
+            } else {
+                FleetTerminalsView()
+            }
+        }
+    }
 }
 
 struct LaunchOverrides {

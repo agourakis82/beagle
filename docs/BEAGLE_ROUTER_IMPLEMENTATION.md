@@ -10,20 +10,24 @@ Implementação completa do sistema de roteamento inteligente de LLMs do BEAGLE,
 ## Arquitetura Implementada
 
 ```
-beagle-llm/
+crates/beagle-llm/
 ├── src/
 │   ├── lib.rs              ✅ Trait LlmClient + structs
-│   ├── router.rs           ✅ BeagleRouter com seleção inteligente
+│   ├── router.rs           ✅ BeagleRouter (legacy, simple routing)
+│   ├── router_tiered.rs    ✅ TieredRouter (canonical, multi-tier routing)
 │   ├── meta.rs             ✅ RequestMeta + detecção de viés (12 keywords)
+│   ├── routing_types.rs    ✅ ProviderTier, ProviderCapabilities, RouterStatistics
 │   └── clients/
 │       ├── mod.rs          ✅ Módulo de clients
 │       └── grok.rs         ✅ GrokClient (Grok 3 + Grok 4 Heavy dinâmico)
 
-beagle-core/
+crates/beagle-core/
 ├── src/
-│   ├── implementations.rs  ✅ GrokLlmClient usa BeagleRouter
+│   ├── context.rs          ✅ BeagleContext (DI container)
+│   ├── implementations.rs  ✅ GrokLlmClient usa TieredRouter
 │   └── bin/
-│       └── main.rs         ✅ Endpoint HTTP /api/llm/complete
+│       ├── main.rs         ✅ Endpoint HTTP /api/llm/complete
+│       └── api_server.rs   ✅ Full HTTP API server (Axum)
 ```
 
 ## Funcionalidades Implementadas

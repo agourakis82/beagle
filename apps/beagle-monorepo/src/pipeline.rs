@@ -74,7 +74,8 @@ pub async fn run_beagle_pipeline(
         if ctx.cfg.memory_retrieval_enabled() {
             info!("🧠 Fase 0: Memory RAG injection");
             if let Ok(mem_result) = ctx
-                .memory_query(beagle_memory::MemoryQuery {
+                .memory()
+                .query(beagle_memory::MemoryQuery {
                     query: question.to_string(),
                     scope: Some("scientific".to_string()),
                     max_items: Some(3),
@@ -140,15 +141,19 @@ pub async fn run_beagle_pipeline(
     if ctx.cfg.serendipity_enabled() {
         info!("🔮 Fase 1.5: Serendipity (descoberta de conexões)");
 
-        // Cria HypothesisSet a partir do contexto atual
-        // Nota: HypothesisSet::add() usa thread_rng() que não é Send
-        // Por enquanto, criamos um set mínimo sem usar add() diretamente
+        // Cria HypothesisSet a partir do contexto atual.
+        // HypothesisSet representa um conjunto de hipóteses candidatas com pesos (re, im)
+        // usados como escores de probabilidade normalizados — não há física quântica envolvida;
+        // é um amostrador estocástico documentado com pesos reais e imaginários como par de f64.
+        // Os pesos são fixos aqui (0.7, 0.1) para evitar rand::thread_rng() não-Send
+        // em contexto async; se geração aleatória for necessária, usar StdRng::from_entropy()
+        // com escopo local antes do ponto de await.
         let mut hyp_set = HypothesisSet::new();
         // Extrai hipóteses implícitas do contexto (simplificado)
         let context_chunks: Vec<&str> = context.split("\n\n").collect();
         for (i, chunk) in context_chunks.iter().take(5).enumerate() {
             if chunk.len() > 50 {
-                // Usa amplitude fixa para evitar thread_rng() não-Send
+                // Peso fixo (re=0.7, im=0.1) — escores iniciais arbitrários, normalizados a seguir
                 hyp_set.add(
                     format!(
                         "Hipótese {}: {}",
@@ -342,17 +347,17 @@ pub async fn run_beagle_pipeline(
                         info!(
                             confidence = output.confidence,
                             agents = ?output.agents_used,
-                            phi = output.consciousness_state.phi,
+                            salience = output.consciousness_state.salience,
                             processing_ms = output.metadata.processing_time_ms,
                             "Exocortex processing complete"
                         );
 
                         // Add exocortex insights to context for HERMES
                         context = format!(
-                            "{}\n\n=== Exocortex Insights ===\n{}\n\nConsciousness Φ: {:.3}\nConfidence: {:.2}\nAgents: {}\n",
+                            "{}\n\n=== Exocortex Insights ===\n{}\n\nSalience: {:.3}\nConfidence: {:.2}\nAgents: {}\n",
                             context,
                             output.response,
-                            output.consciousness_state.phi,
+                            output.consciousness_state.salience,
                             output.confidence,
                             output.agents_used.join(", ")
                         );
@@ -447,9 +452,13 @@ pub async fn run_beagle_pipeline(
     std::fs::write(&draft_md, &draft)?;
     info!("✅ Draft MD salvo: {}", draft_md.display());
 
-    // PDF (placeholder - implementar renderização real)
-    render_to_pdf(&draft, &draft_pdf).await?;
-    info!("✅ Draft PDF salvo: {}", draft_pdf.display());
+    // PDF é BEST-EFFORT: a renderização depende de Pandoc, que pode não estar na imagem
+    // de runtime. O pipeline NÃO deve falhar por causa do PDF — o draft.md (e a Triad, que
+    // só lê o .md) seguem normalmente.
+    match render_to_pdf(&draft, &draft_pdf).await {
+        Ok(()) => info!("✅ Draft PDF salvo: {}", draft_pdf.display()),
+        Err(e) => tracing::warn!("PDF não gerado (best-effort; segue com draft.md): {}", e),
+    }
 
     // 5) Run report (inclui science_job_ids e UserContext se fornecidos)
     let run_report = create_run_report(
@@ -812,6 +821,7 @@ async fn hermes_llm_synthesis(
         high_bias_risk: false,
         requires_phd_level_reasoning: true, // Síntese de paper requer raciocínio de alto nível
         critical_section: false,
+        ..Default::default()
     };
 
     call_llm_with_stats(ctx, run_id, &prompt, meta).await

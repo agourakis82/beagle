@@ -486,6 +486,80 @@ export const cockpitManifest = {
       method: "GET",
       path: "/api/auth/beagle-discover",
       description: "Full endpoint catalog of beagle-server (Rust). Use to wire up clients."
+    },
+    {
+      name: "sounio_smt_check",
+      method: "POST",
+      path: "/api/sounio/smt/check",
+      description:
+        "QF_LIA satisfiability via Sounio's theorem::smt DPLL(T) solver. Returns SAT/UNSAT/UNKNOWN " +
+        "for linear-integer constraints (sum coeffs[i]*x_i <= bound). Use to verify a claim-set is " +
+        "mutually consistent. UNSAT = constraints provably contradictory (not 'the draft is wrong').",
+      input_schema: {
+        type: "object",
+        required: ["constraints"],
+        properties: {
+          constraints: {
+            type: "array", minItems: 1, maxItems: 64,
+            items: {
+              type: "object", required: ["coeffs", "bound"],
+              properties: {
+                coeffs: { type: "array", items: { type: "integer" }, maxItems: 16 },
+                bound: { type: "integer" },
+                label: { type: "string" }
+              }
+            }
+          }
+        }
+      },
+      error_codes: ["BAD_REQUEST", "RUNTIME_UNAVAILABLE", "TIMEOUT", "INTERNAL"]
+    },
+    {
+      name: "sounio_gum_propagate",
+      method: "POST",
+      path: "/api/sounio/gum/propagate",
+      description:
+        "GUM (JCGM 100) uncertainty propagation via Sounio's epistemic::gum stdlib. Combines two measured " +
+        "quantities under add/sub/mul/div and returns combined standard uncertainty, coverage factor k95, " +
+        "expanded uncertainty U95, relative %, and the 95% interval.",
+      input_schema: {
+        type: "object",
+        required: ["inputs", "op"],
+        properties: {
+          inputs: {
+            type: "array", minItems: 2, maxItems: 2,
+            items: {
+              type: "object", required: ["value", "u"],
+              properties: {
+                value: { type: "number" }, u: { type: "number" }, label: { type: "string" }
+              }
+            }
+          },
+          op: { type: "string", enum: ["add", "sub", "mul", "div"] }
+        }
+      },
+      error_codes: ["BAD_REQUEST", "RUNTIME_UNAVAILABLE", "TIMEOUT", "INTERNAL"]
+    },
+    {
+      name: "sounio_causal_dsep",
+      method: "POST",
+      path: "/api/sounio/causal/dsep",
+      description:
+        "d-separation (conditional independence) via Sounio's causal::base Pearl Bayes-ball. Given a DAG, " +
+        "X, Y and an optional conditioning set Z, returns whether X _||_ Y | Z holds. Use before any causal " +
+        "inference step to confirm assumed independencies / check backdoor closure.",
+      input_schema: {
+        type: "object",
+        required: ["n", "edges", "x", "y"],
+        properties: {
+          n: { type: "integer", minimum: 1, maximum: 32 },
+          edges: { type: "array", items: { type: "array", items: { type: "integer" }, minItems: 2, maxItems: 2 } },
+          x: { type: "integer" },
+          y: { type: "integer" },
+          z: { type: "array", items: { type: "integer" }, maxItems: 32, default: [] }
+        }
+      },
+      error_codes: ["BAD_REQUEST", "RUNTIME_UNAVAILABLE", "TIMEOUT", "INTERNAL"]
     }
   ],
   retry_policy: {

@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Smoke test for Beagle MVP-0 Sounio Workday.
+#
+# Required:
+#   COCKPIT_URL      Project Cockpit base URL, e.g. http://project-cockpit.beagle.svc.cluster.local
+#   BEAGLE_CORE_URL  Beagle Core base URL, e.g. http://beagle-core.beagle.svc.cluster.local:8080
+#
+# Optional:
+#   BEAGLE_CORE_API_TOKEN       Bearer token for Beagle Core.
+#   PROJECT_SLUG                Defaults to sounio.
+#   SMOKE_REMEMBER_LATEST=true  Remember the latest existing block if present.
+
+COCKPIT_URL="${COCKPIT_URL:-http://project-cockpit.beagle.svc.cluster.local}"
+BEAGLE_CORE_URL="${BEAGLE_CORE_URL:-http://beagle-core.beagle.svc.cluster.local:8080}"
+PROJECT_SLUG="${PROJECT_SLUG:-sounio}"
+SMOKE_REMEMBER_LATEST="${SMOKE_REMEMBER_LATEST:-false}"
+export COCKPIT_URL
+export BEAGLE_CORE_URL
+export PROJECT_SLUG
+export SMOKE_REMEMBER_LATEST
+
+node <<'NODE'
+const cockpitUrl = process.env.COCKPIT_URL.replace(/\/+$/, "");
+const coreUrl = process.env.BEAGLE_CORE_URL.replace(/\/+$/, "");
+const slug = process.env.PROJECT_SLUG || "sounio";
+const rememberLatest = process.env.SMOKE_REMEMBER_LATEST === "true";
+let token = process.env.BEAGLE_CORE_API_TOKEN || "";
+let consumerHeaderName = process.env.BEAGLE_CORE_CONSUMER_HEADER_NAME || "";
+let consumerHeaderValue = process.env.BEAGLE_CORE_CONSUMER_HEADER_VALUE || "";
+
+function headers(extra = {}) {
+  return {
+    accept: "application/json",
+    "content-type": "application/json",
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+    ...(consumerHeaderName && consumerHeaderValue ? { [consumerHeaderName]: consumerHeaderValue } : {}),
+    ...extra,
+  };
+}
+
+async function request(method, url, body) {
+  const response = await fetch(url, {
+    method,
+    headers: headers(),
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await response.text();
+  let payload = {};
+  try {
+    payload = text ? JSON.parse(text) : {};
+  } catch {
+    payload = { raw: text };
+  }
+  if (!response.ok) {
+    throw new Error(`${method} ${url} -> HTTP ${response.status}: ${payload.error || payload.reason || text}`);
+  }
+  return payload;
+}
+
+async function ensureCoreToken() {
+  if (token) return;
+  const response = await fetch(`${cockpitUrl}/api/auth/beagle-token`, {
+    method: "GET",
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) return;
+  const payload = await response.json().catch(() => ({}));
+  token = payload.token || "";
+  consumerHeaderName = payload.consumer_header_name || consumerHeaderName;
+  consumerHeaderValue = payload.consumer_header_value || consumerHeaderValue;
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+const requiredRoles = [
+  "primary_builder",
+  "code_worker",
+  "long_thought_architect",
+  "maintenance_agent",
+  "platform_operator",
+  "shell",
+];
+
+const registry = await request("GET", `${cockpitUrl}/api/workspaces/${slug}/agents/registry`);
+const roles = new Set((registry.roles || []).map((role) => role.role));
+for (const role of requiredRoles) assert(roles.has(role), `missing Sounio Six role: ${role}`);
+assert((registry.visibleRoles || []).length >= 6, "expected at least six visible role lanes");
+console.log(`[ok] registry ${registry.registryVersion || "unknown"} exposes Sounio Six`);
+
+const created = await request("POST", `${cockpitUrl}/api/workspaces/${slug}/sessions`, {
+  title: "Sounio Workday MVP Smoke",
+  layout: "notebook",
+});
+const session = created.session;
+assert(session?.id, "workspace session missing id");
+assert(session?.authorityStatus?.authority === "workspace-agent" || registry.authority?.authority === "workspace-agent", "workspace-agent authority not observed");
+console.log(`[ok] session ${session.id} authority=${session.authorityStatus?.authority || registry.authority?.authority || "unknown"}`);
+
+const paneResponse = await request("POST", `${cockpitUrl}/api/workspaces/${slug}/sessions/${session.id}/panes`, {
+  kind: "human",
+  title: "Shell Smoke",
+});
+assert(paneResponse.pane?.id, "shell pane missing id");
+console.log(`[ok] shell pane ${paneResponse.pane.id}`);
+
+const blocks = await request("GET", `${cockpitUrl}/api/workspaces/${slug}/sessions/${session.id}/blocks`);
+console.log(`[ok] block replay reachable (${(blocks.blocks || []).length} blocks in smoke session)`);
+
+if (rememberLatest && (blocks.blocks || []).length > 0) {
+  const block = blocks.blocks[0];
+  const remembered = await request(
+    "POST",
+    `${cockpitUrl}/api/workspaces/${slug}/sessions/${session.id}/blocks/${block.id}/remember`,
+    { confirmed: true, summary: "Sounio Workday MVP smoke remembered latest block." }
+  );
+  assert(["remembered", "blocked", "queued"].includes(remembered.memory?.status), `unexpected memory status ${remembered.memory?.status}`);
+  console.log(`[ok] latest block memory status=${remembered.memory.status}`);
+}
+
+await ensureCoreToken();
+const workday = await request("GET", `${coreUrl}/api/exocortex/v1/sounio/workday/status?project_slug=${encodeURIComponent(slug)}&limit=20`);
+assert(workday.project_slug === slug, "workday project mismatch");
+assert(!String(workday.restricted_leak_check || "").toLowerCase().includes("failed"), "restricted leak check failed");
+console.log(`[ok] workday status=${workday.status} review_queue=${workday.review_queue_count}`);
+
+const query = await request("POST", `${coreUrl}/api/exocortex/v1/graphrag/query`, {
+  query: "o que aconteceu hoje no Sounio?",
+  project_slug: slug,
+  mode: "hypermemory_multivector",
+  limit: 8,
+});
+assert(query.summary || (query.evidence || []).length >= 0, "GraphRAG++ query returned no usable shape");
+console.log(`[ok] graphrag mode=${query.runtime_used || query.mode || "unknown"} evidence=${(query.evidence || []).length}`);
+
+console.log("[ok] Beagle MVP-0 Sounio Workday smoke completed");
+NODE

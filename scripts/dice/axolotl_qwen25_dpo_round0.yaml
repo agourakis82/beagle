@@ -1,0 +1,75 @@
+# DICE Task 2 — Axolotl DPO config for Qwen2.5-7B round 0.
+# Base: Qwen2.5-7B-Instruct (multilingual PT/EN, better for Beagle feedback data).
+# Method: DPO with β=0.1 (DICE default; produces implicit reward for round 1 scoring).
+# Hardware: r740 A5000 (24GB VRAM) via Slurm cpu-ops or all partition.
+#
+# Run via: sbatch scripts/dice/slurm_dpo_round0.sh
+# Or locally: axolotl train scripts/dice/axolotl_qwen25_dpo_round0.yaml
+
+base_model: Qwen/Qwen2.5-7B-Instruct
+model_type: AutoModelForCausalLM
+tokenizer_type: AutoTokenizer
+
+# Training objective
+rl: dpo
+dpo_beta: 0.1
+
+# Dataset — exported by export_preference_pairs.py
+datasets:
+  - path: "${BEAGLE_DATA_DIR}/dice/preference_pairs_round0.jsonl"
+    type: sharegpt
+    conversation: chatml
+
+# Sequence lengths
+sequence_len: 4096
+sample_packing: false
+
+# LoRA adapter (DICE uses PEFT — no full-param needed for iterative rounds)
+adapter: lora
+lora_r: 64
+lora_alpha: 128
+lora_dropout: 0.05
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+
+# Training
+num_epochs: 3
+micro_batch_size: 2
+gradient_accumulation_steps: 4
+learning_rate: 5.0e-5
+optimizer: adamw_bnb_8bit
+lr_scheduler: cosine
+warmup_ratio: 0.05
+weight_decay: 0.01
+max_grad_norm: 1.0
+
+# Precision
+bf16: true
+fp16: false
+tf32: true
+
+# Flash attention (A5000 sm_86 supports it)
+flash_attention: true
+
+# Output
+output_dir: "${BEAGLE_DATA_DIR}/dice/qwen25-7b-dpo-round0"
+saves_per_epoch: 1
+logging_steps: 10
+eval_steps: 50
+eval_sample_packing: false
+
+# Wandb (optional)
+# wandb_project: beagle-dice
+# wandb_run_id: "dice-round0"
+
+# Quantization (4-bit QLoRA to fit within A5000 24GB)
+load_in_4bit: true
+bnb_4bit_quant_type: nf4
+bnb_4bit_compute_dtype: bfloat16
+bnb_4bit_use_double_quant: false

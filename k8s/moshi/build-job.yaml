@@ -1,0 +1,69 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: moshi-server-build
+  namespace: moshi
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      nodeSelector:
+        sounio.dev/runtime-role: cluster-core
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      restartPolicy: Never
+      initContainers:
+        - name: clone
+          image: alpine/git:latest
+          command:
+            - /bin/sh
+            - -lc
+            - git clone --depth=10 --branch=main https://github.com/agourakis82/beagle.git /workspace
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - "--dockerfile=/workspace/k8s/moshi/Dockerfile"
+            - "--context=dir:///workspace/k8s/moshi"
+            - "--destination=192.168.3.207:5003/moshi-server:2026-06-18"
+            - "--insecure-registry=192.168.3.207:5003"
+            - "--cache=false"
+            - "--snapshot-mode=redo"
+            - "--verbosity=info"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests:
+              cpu: "4"
+              memory: 8Gi
+              # kaniko unpacks the ~5Gi torch image into ephemeral scratch
+              # (--snapshot-mode=redo). Reserve so the scheduler won't co-locate
+              # two heavy builds that would together overflow the node.
+              ephemeral-storage: 8Gi
+            limits:
+              cpu: "8"
+              memory: 16Gi
+              # Bound scratch so an overrun evicts only THIS build pod, not the
+              # node (which previously tripped DiskPressure and evicted others).
+              ephemeral-storage: 20Gi
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 2Gi

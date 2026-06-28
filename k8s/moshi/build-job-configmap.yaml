@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: moshi-server-build-gcc
+  namespace: moshi
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      nodeSelector:
+        sounio.dev/runtime-role: cluster-core
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      restartPolicy: Never
+      initContainers:
+        # Copy the Dockerfile out of the read-only ConfigMap mount into a clean
+        # writable context dir. The Dockerfile is self-contained (pip + apt,
+        # multi-stage), so no repo files are needed in the build context.
+        - name: stage-dockerfile
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -lc
+            - cp /config/Dockerfile /workspace/Dockerfile && ls -l /workspace
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: dockerfile
+              mountPath: /config
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - "--dockerfile=/workspace/Dockerfile"
+            - "--context=dir:///workspace"
+            - "--destination=192.168.3.207:5003/moshi-server:2026-06-18-gcc"
+            - "--insecure-registry=192.168.3.207:5003"
+            - "--cache=false"
+            - "--snapshot-mode=redo"
+            - "--verbosity=info"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests:
+              cpu: "4"
+              memory: 8Gi
+              # kaniko unpacks the ~5Gi torch image into ephemeral scratch
+              # (--snapshot-mode=redo). Reserve so the scheduler won't co-locate
+              # two heavy builds that would together overflow the node.
+              ephemeral-storage: 8Gi
+            limits:
+              cpu: "8"
+              memory: 16Gi
+              # Bound scratch so an overrun evicts only THIS build pod, not the
+              # node (which previously tripped DiskPressure and evicted others).
+              ephemeral-storage: 20Gi
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: dockerfile
+          configMap:
+            name: moshi-dockerfile

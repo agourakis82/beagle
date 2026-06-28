@@ -53,11 +53,9 @@ pub mod memory;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 
-#[cfg(feature = "redis")]
-pub mod redis_backend;
-
-#[cfg(feature = "encrypted")]
-pub mod encrypted;
+// NOTE: the `redis` (redis_backend) and `encrypted` feature modules were declared but their files
+// never existed — dangling `#[cfg(feature=...)] pub mod` declarations that broke `cargo fmt`/parse
+// (rustfmt resolves modules regardless of cfg). Removed until those backends are actually implemented.
 
 // Re-exports
 pub use checkpoint::{

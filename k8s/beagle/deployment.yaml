@@ -1,0 +1,133 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beagle-core
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beagle-core
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: beagle-core
+        app.kubernetes.io/part-of: beagle
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: t560-proxmox
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      securityContext:
+        fsGroup: 10001
+      containers:
+        - name: core-server
+          image: 192.168.3.207:5003/beagle-core-exocortex:reconcile-e752c9b4
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: beagle-core-config
+            - secretRef:
+                name: beagle-core-secrets
+                optional: true
+          # Inline overrides for the LLM-routing + Triad smt.check backstop.
+          # Grok/XAI is dead → every tier falls back to the in-cluster LocalFleet, so the
+          # fleet model IS the working model for the Triad agents (ATHENA/HERMES/ARGOS/Judge).
+          # glm-5.1 is a robust reasoning model; beagle-triad now calls agents with
+          # max_tokens=8000 so the reasoning_content budget doesn't starve the answer content.
+          # The smt.check claim-EXTRACTION step is pinned to deepseek-chat in code
+          # (call_llm_extraction, override via BEAGLE_TRIAD_EXTRACTION_MODEL): a fast,
+          # non-reasoning model gives reliable structured JSON for QF_LIA constraint extraction.
+          # BEAGLE_TRIAD_SMT_CHECK enables the Sounio smt.check backstop (gate accepts 1/true/yes/on).
+          env:
+            - name: BEAGLE_CONSUMER_POLICY_ENABLED
+              value: "false"
+            - name: EMBEDDING_URL
+              value: http://router.llm-router.svc.cluster.local:4000/v1
+            - name: BEAGLE_VLLM_URL
+              value: http://router.llm-router.svc.cluster.local:4000/v1
+            - name: BEAGLE_EMBEDDING_URL
+              value: http://router.llm-router.svc.cluster.local:4000/v1
+            - name: BEAGLE_EMBEDDING_MODEL
+              value: bge-m3
+            - name: OPENAI_API_KEY
+              value: noauth
+            - name: BEAGLE_DEEPSEEK_ENABLE
+              value: "false"
+            - name: BEAGLE_TRIAD_SMT_CHECK
+              value: "1"
+            # Second formal ARGOS check: Sounio causal.dsep (d-separation of an extracted DAG).
+            # Fires only when the solver proves d-separation while the draft claims dependence.
+            - name: BEAGLE_TRIAD_DSEP_CHECK
+              value: "1"
+            - name: SOUNIO_INFERENCE_URL
+              value: http://sounio-inference.beagle.svc.cluster.local:80
+            - name: XAI_BASE_URL
+              value: http://router.llm-router.svc.cluster.local:4000/v1/chat/completions
+            # 2026-06-26 SOVEREIGNTY-FIRST model allocation. Sensitive paths that touch the
+            # user's memory/biography/raw thoughts route to the SELF-HOSTED DGX Spark (data
+            # never leaves the cluster); only non-sensitive deep reasoning uses paid SaaS plans.
+            #   • SOVEREIGN  → qwen2.5-14b = Spark Ollama (192.168.3.24:11434, qwen2.5:14b pinned
+            #                  warm via OLLAMA_KEEP_ALIVE=-1, ~1.3s). Sole user of the infra, so
+            #                  the in-cluster endpoint needs no auth.
+            #   • SaaS deep  → glm-5.2 (Z.ai coding plan, ZAI_API_KEY) — non-sensitive reasoning.
+            # Escalation/heavy (GrokClient) + Triad debate = non-sensitive reasoning → glm-5.2:
+            - name: BEAGLE_GROK_MODEL
+              value: glm-5.2
+            - name: BEAGLE_GROK_HEAVY_MODEL
+              value: glm-5.2
+            # Fleet default drives recall SYNTHESIS (reads memory atoms) + capture/refine (raw
+            # personal thoughts) — SENSITIVE, so routed to the sovereign Spark, NOT external SaaS:
+            - name: BEAGLE_LLM_FLEET_MODEL
+              value: qwen2.5-14b
+            # Triad AGENTS (ATHENA/HERMES/ARGOS/Judge), called with max_tokens=8000 → glm-5.2:
+            - name: BEAGLE_TRIAD_AGENT_MODEL
+              value: glm-5.2
+            # smt.check claim-extraction reads draft claims (may be memory-derived) → sovereign Spark:
+            - name: BEAGLE_TRIAD_EXTRACTION_MODEL
+              value: qwen2.5-14b
+          volumeMounts:
+            - name: beagle-data
+              mountPath: /var/lib/beagle
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
+          # Relaxed so a heavy Triad run (long LocalFleet calls saturating the single
+          # event loop) cannot trip the liveness probe and SIGKILL the pod mid-run.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 30
+          resources:
+            requests:
+              cpu: "1"
+              memory: 512Mi
+            limits:
+              cpu: "4"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            appArmorProfile:
+              type: Unconfined
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+      volumes:
+        - name: beagle-data
+          persistentVolumeClaim:
+            claimName: beagle-data

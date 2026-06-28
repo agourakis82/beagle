@@ -918,7 +918,7 @@ impl KraskovEntropyEstimator {
         if x >= 6.0 {
             let inv_x = 1.0 / x;
             let inv_x2 = inv_x * inv_x;
-            return x.ln() - 0.5 * inv_x- inv_x2 / 12.0 + inv_x2 * inv_x2 / 120.0
+            return x.ln() - 0.5 * inv_x - inv_x2 / 12.0 + inv_x2 * inv_x2 / 120.0
                 - inv_x2 * inv_x2 * inv_x2 / 252.0;
         }
 
@@ -979,7 +979,7 @@ impl KraskovEntropyEstimator {
 
         // Kraskov estimator: H ≈ ψ(N) - ψ(k) + d * 〈ln(2ε)〉
         let entropy =
-            self.get_digamma(n)- self.get_digamma(self.k)+ (d as f64) * epsilon_sum / (n as f64);
+            self.get_digamma(n) - self.get_digamma(self.k) + (d as f64) * epsilon_sum / (n as f64);
 
         entropy.max(0.0)
     }

@@ -44,6 +44,21 @@ pub struct RequestMeta {
     pub requires_phd_level_reasoning: bool,
     /// Seção crítica (Methods, Results, Safety)
     pub critical_section: bool,
+
+    // ── #13 routing controls (per-call inputs into the single TieredRouter) ──────────
+    /// Caller/consumer identity used as the key for the router's per-identity token-bucket
+    /// rate limiter. `None` collapses to a shared "anon" bucket. Set this to the
+    /// `X-Beagle-Consumer`/run_id so one noisy consumer can't starve the fleet.
+    pub identity: Option<String>,
+    /// Maximum acceptable estimated cost for this request, in USD. When set, the router
+    /// skips any tier whose `cost_per_million_tokens × approximate_tokens` exceeds this
+    /// ceiling (falling through to a cheaper tier). `None` = no cost ceiling.
+    pub max_cost_usd: Option<f64>,
+    /// Explicit tier preference — the durable RequestMeta socket for an external routing
+    /// hint (e.g. an HRV-derived `HrvTierHint` from beagle-observer). When set and that
+    /// tier's client is available, the router tries it first; otherwise it is ignored and
+    /// normal capability-based selection applies.
+    pub tier_hint: Option<crate::router_tiered::ProviderTier>,
 }
 
 impl RequestMeta {
@@ -100,6 +115,9 @@ impl RequestMeta {
             high_bias_risk,
             requires_phd_level_reasoning,
             critical_section,
+            identity: None,
+            max_cost_usd: None,
+            tier_hint: None,
         }
     }
 
@@ -122,6 +140,9 @@ impl RequestMeta {
             high_bias_risk,
             requires_phd_level_reasoning,
             critical_section,
+            identity: None,
+            max_cost_usd: None,
+            tier_hint: None,
         }
     }
 }
@@ -137,6 +158,9 @@ impl Default for RequestMeta {
             high_bias_risk: false,
             requires_phd_level_reasoning: false,
             critical_section: false,
+            identity: None,
+            max_cost_usd: None,
+            tier_hint: None,
         }
     }
 }

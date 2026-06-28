@@ -1,0 +1,607 @@
+//! HTTP client wiring the Sounio Inference Service (`smt.check`) into beagle-triad.
+//!
+//! This calls the cluster service `sounio-inference` (Sounio's own `theorem::smt`
+//! DPLL(T) QF_LIA solver, served over HTTP) to decide whether a set of
+//! linear-integer constraints is mutually consistent.
+//!
+//! # Truth-mode boundary (read before using the result)
+//!
+//! The consistency check operates SOLELY over the constraint set beagle-triad
+//! hands it — typically extracted from a draft by an LLM, which is fallible (it
+//! may miss, hallucinate, or mis-parse constraints). Therefore:
+//!
+//! * [`Verdict::Unsat`] means *"the constraints extracted from this draft are
+//!   provably contradictory with one another"* — NOT "the draft is wrong".
+//! * [`Verdict::Sat`] means the extracted set is consistent, NOT that every
+//!   claim in the draft is correct.
+//! * [`Verdict::Unknown`] collapses every failure mode (service unreachable,
+//!   timeout, non-2xx, parse error, solver UNKNOWN). The triad MUST treat it as
+//!   a soft/absent signal, never as a hard block.
+//!
+//! The solver result is a *weak corroborating signal* for ARGOS, not an oracle.
+
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
+use tracing::{info, warn};
+
+/// One QF_LIA constraint: `Σ coeffs[i]·x_i <= bound`.
+#[derive(Debug, Clone, Serialize)]
+pub struct LiaConstraint {
+    pub coeffs: Vec<i64>,
+    pub bound: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// Wire payload POSTed to `/v1/smt/check`: serializes to `{"constraints":[...]}`.
+///
+/// Public so callers (e.g. beagle-triad's `VerdictRecord` fingerprinting) can hash
+/// the EXACT JSON sent on the wire instead of a bare `[...]` array.
+#[derive(Debug, Clone, Serialize)]
+pub struct SmtCheckRequest {
+    pub constraints: Vec<LiaConstraint>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SmtCheckResponse {
+    result: String,
+}
+
+/// Solver verdict over the supplied constraint set. See module-level truth-mode note.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    /// Constraints are mutually consistent (a satisfying assignment exists).
+    Sat,
+    /// Constraints are provably contradictory.
+    Unsat,
+    /// Undecided: service unreachable/timeout/parse error, or solver returned UNKNOWN.
+    Unknown,
+}
+
+/// Resolve the service base URL (cluster Service by default; override for local/dev).
+pub fn inference_base_url() -> String {
+    std::env::var("SOUNIO_INFERENCE_URL")
+        .unwrap_or_else(|_| "http://sounio-inference.beagle.svc.cluster.local:80".to_string())
+}
+
+/// POST the constraint set to `{base_url}/v1/smt/check` and map to a [`Verdict`].
+///
+/// Honest by construction: ANY error (build/connect/timeout/non-2xx/parse) yields
+/// [`Verdict::Unknown`] — never a fabricated SAT/UNSAT.
+pub async fn smt_check(base_url: &str, constraints: Vec<LiaConstraint>) -> Verdict {
+    if constraints.is_empty() {
+        return Verdict::Unknown;
+    }
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(error = %e, "smt_check: client build failed");
+            return Verdict::Unknown;
+        }
+    };
+    let url = format!("{}/v1/smt/check", base_url.trim_end_matches('/'));
+    let resp = match client
+        .post(&url)
+        .json(&SmtCheckRequest { constraints })
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, %url, "smt_check: request failed; treating as Unknown");
+            return Verdict::Unknown;
+        }
+    };
+    if !resp.status().is_success() {
+        warn!(status = %resp.status(), "smt_check: non-success; Unknown");
+        return Verdict::Unknown;
+    }
+    match resp.json::<SmtCheckResponse>().await {
+        Ok(body) => match body.result.as_str() {
+            "SAT" => Verdict::Sat,
+            "UNSAT" => {
+                info!("smt_check: solver proved the extracted constraint set UNSAT");
+                Verdict::Unsat
+            }
+            _ => Verdict::Unknown,
+        },
+        Err(e) => {
+            warn!(error = %e, "smt_check: parse failed; Unknown");
+            Verdict::Unknown
+        }
+    }
+}
+
+// ─────────────────────────── causal.dsep ──────────────────────────────────
+
+/// Request to `/v1/causal/dsep`.
+///
+/// `n` = number of nodes (1..32); `edges` = directed DAG edges as `[from, to]` pairs;
+/// `x`, `y` = query nodes (0-indexed); `z` = conditioning set (may be empty).
+#[derive(Debug, Clone, Serialize)]
+pub struct DsepRequest {
+    pub n: usize,
+    pub edges: Vec<[usize; 2]>,
+    pub x: usize,
+    pub y: usize,
+    pub z: Vec<usize>,
+}
+
+/// Response from `/v1/causal/dsep`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DsepResponse {
+    pub d_separated: bool,
+    pub meaning: String,
+}
+
+/// Result of a causal d-separation query. Mirrors [`Verdict`] philosophy: any
+/// HTTP/parse failure collapses to `Unknown`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DsepVerdict {
+    /// x ⊥ y | z (d-separated; Pearl Bayes-ball confirms blocked paths).
+    Separated,
+    /// x and y are d-connected (at least one active path given z).
+    Connected,
+    /// Service unreachable, timeout, non-2xx, or parse error.
+    Unknown,
+}
+
+/// POST `{base_url}/v1/causal/dsep` and map to a [`DsepVerdict`].
+///
+/// Honest by construction: ANY error yields [`DsepVerdict::Unknown`].
+pub async fn causal_dsep(base_url: &str, req: DsepRequest) -> DsepVerdict {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(error = %e, "causal_dsep: client build failed");
+            return DsepVerdict::Unknown;
+        }
+    };
+    let url = format!("{}/v1/causal/dsep", base_url.trim_end_matches('/'));
+    let resp = match client.post(&url).json(&req).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, %url, "causal_dsep: request failed; Unknown");
+            return DsepVerdict::Unknown;
+        }
+    };
+    if !resp.status().is_success() {
+        warn!(status = %resp.status(), "causal_dsep: non-success; Unknown");
+        return DsepVerdict::Unknown;
+    }
+    match resp.json::<DsepResponse>().await {
+        Ok(body) => {
+            if body.d_separated {
+                info!("causal_dsep: solver proved d-separation (Pearl Bayes-ball)");
+                DsepVerdict::Separated
+            } else {
+                DsepVerdict::Connected
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "causal_dsep: parse failed; Unknown");
+            DsepVerdict::Unknown
+        }
+    }
+}
+
+// ─────────────────────────── gum.propagate ────────────────────────────────
+
+/// One measured input to a GUM propagation: `value ± u`, where `u` is the
+/// standard (1σ) uncertainty of the input.
+#[derive(Debug, Clone, Serialize)]
+pub struct GumInput {
+    pub value: f64,
+    pub u: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// Request to `/v1/gum/propagate`: exactly two inputs combined by `op`
+/// (`add` | `sub` | `mul` | `div`). The v1 verb is the binary form only.
+#[derive(Debug, Clone, Serialize)]
+pub struct GumRequest {
+    pub inputs: Vec<GumInput>,
+    pub op: String,
+}
+
+/// Response from `/v1/gum/propagate`. Extra service fields (verb, op, eff_dof,
+/// engine, …) are ignored by serde.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GumResponse {
+    /// Propagated point value of the derived quantity.
+    pub value: f64,
+    /// Combined standard (1σ) uncertainty u_c (GUM JCGM 100).
+    pub combined_std_uncertainty: f64,
+    /// Expanded uncertainty at 95% (U_95 = k·u_c).
+    pub expanded_uncertainty_95: f64,
+    /// Coverage factor k for the 95% interval.
+    pub coverage_factor_k95: f64,
+    /// Relative uncertainty (%) of the derived quantity.
+    pub rel_uncertainty_pct: f64,
+    /// 95% coverage interval `[lo, hi]`.
+    pub interval_95: [f64; 2],
+}
+
+/// POST `{base_url}/v1/gum/propagate` and return the propagated uncertainty.
+///
+/// Honest by construction: a wrong input arity, or ANY error
+/// (build/connect/timeout/non-2xx/parse), yields `None` — treated as "Unknown",
+/// never a fabricated number. The result is a *weak corroborating signal*: it
+/// holds only for the inputs and operation handed to it (typically LLM-extracted,
+/// fallible) and assumes uncorrelated inputs.
+pub async fn gum_propagate(base_url: &str, req: GumRequest) -> Option<GumResponse> {
+    if req.inputs.len() != 2 {
+        return None; // v1 verb is the binary form only
+    }
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(error = %e, "gum_propagate: client build failed");
+            return None;
+        }
+    };
+    let url = format!("{}/v1/gum/propagate", base_url.trim_end_matches('/'));
+    let resp = match client.post(&url).json(&req).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, %url, "gum_propagate: request failed; None");
+            return None;
+        }
+    };
+    if !resp.status().is_success() {
+        warn!(status = %resp.status(), "gum_propagate: non-success; None");
+        return None;
+    }
+    match resp.json::<GumResponse>().await {
+        Ok(body) => {
+            info!(
+                value = body.value,
+                u_c = body.combined_std_uncertainty,
+                "gum_propagate: propagated combined standard uncertainty"
+            );
+            Some(body)
+        }
+        Err(e) => {
+            warn!(error = %e, "gum_propagate: parse failed; None");
+            None
+        }
+    }
+}
+
+// ─────────────────────────── theorem.prove ────────────────────────────────
+
+/// Request to `/v1/theorem/prove`.
+///
+/// `atoms` = named propositional atoms (1..32). `hypotheses` and `goal` are
+/// propositional expression trees, each a single-key JSON object: `{"atom":name}`,
+/// `{"not":expr}`, `{"and":[expr,expr]}`, `{"or":[expr,expr]}`, `{"implies":[expr,expr]}`.
+/// We forward them as raw `serde_json::Value` and let the service validate the
+/// structure (any malformed tree → non-2xx → [`ProofVerdict`] absent).
+#[derive(Debug, Clone, Serialize)]
+pub struct TheoremRequest {
+    pub atoms: Vec<String>,
+    pub hypotheses: Vec<serde_json::Value>,
+    pub goal: serde_json::Value,
+    pub depth: u32,
+}
+
+/// Response from `/v1/theorem/prove`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TheoremResponse {
+    pub result: String,
+}
+
+/// Result of a propositional proof attempt.
+///
+/// The service is SOUND by construction: only a real derivation counts as
+/// [`ProofVerdict::Proved`]; the `trusted`/truth-table fallback is rejected to
+/// [`ProofVerdict::Unknown`]. Crucially, **`Unknown` is NOT a refutation** — the
+/// prover is propositional and depth-bounded, so a sound argument resting on
+/// implicit/non-propositional premises also yields `Unknown`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProofVerdict {
+    /// Goal DERIVED from the hypotheses (real proof tree).
+    Proved,
+    /// No derivation found — NOT a refutation (incompleteness / bounded depth).
+    Unknown,
+    /// A proof tree was produced but failed verification.
+    Invalid,
+}
+
+/// POST `{base_url}/v1/theorem/prove`. Returns `Some(verdict)` only on a real
+/// solver verdict; ANY transport/parse failure (or an unrecognized result) yields
+/// `None` — so the caller never mistakes "service down" for "no derivation".
+pub async fn theorem_prove(base_url: &str, req: TheoremRequest) -> Option<ProofVerdict> {
+    if req.atoms.is_empty() || req.atoms.len() > 32 {
+        return None;
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .ok()?;
+    let url = format!("{}/v1/theorem/prove", base_url.trim_end_matches('/'));
+    let resp = match client.post(&url).json(&req).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, %url, "theorem_prove: request failed; None");
+            return None;
+        }
+    };
+    if !resp.status().is_success() {
+        warn!(status = %resp.status(), "theorem_prove: non-success; None");
+        return None;
+    }
+    match resp.json::<TheoremResponse>().await {
+        Ok(body) => match body.result.as_str() {
+            "PROVED" => Some(ProofVerdict::Proved),
+            "UNKNOWN" => Some(ProofVerdict::Unknown),
+            "INVALID" => Some(ProofVerdict::Invalid),
+            _ => None,
+        },
+        Err(e) => {
+            warn!(error = %e, "theorem_prove: parse failed; None");
+            None
+        }
+    }
+}
+
+// ─────────────────────────── fractal.recurse ──────────────────────────────
+
+/// Request to `/v1/fractal/recurse` — deterministic Sounio fractal-tree growth
+/// (the pure-Sounio replacement for the dead Julia `Fractal.jl` shell-out).
+#[derive(Debug, Clone, Serialize)]
+pub struct FractalRequest {
+    pub depth: u32,
+    pub branching: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<f64>,
+}
+
+/// Response from `/v1/fractal/recurse`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FractalResponse {
+    pub node_count: u64,
+    pub max_depth: u32,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+/// POST `{base_url}/v1/fractal/recurse`. Honest by construction: ANY error
+/// (build/connect/timeout/non-2xx/parse) yields `None`, never a fabricated tree.
+pub async fn fractal_recurse(base_url: &str, req: FractalRequest) -> Option<FractalResponse> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .ok()?;
+    let url = format!("{}/v1/fractal/recurse", base_url.trim_end_matches('/'));
+    let resp = match client.post(&url).json(&req).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, %url, "fractal_recurse: request failed; None");
+            return None;
+        }
+    };
+    if !resp.status().is_success() {
+        warn!(status = %resp.status(), "fractal_recurse: non-success; None");
+        return None;
+    }
+    match resp.json::<FractalResponse>().await {
+        Ok(body) => Some(body),
+        Err(e) => {
+            warn!(error = %e, "fractal_recurse: parse failed; None");
+            None
+        }
+    }
+}
+
+// ─────────────────────────── phi.compute ──────────────────────────────────
+
+/// Request to `/v1/phi/compute`: an n-node substrate with a row-major `n*n`
+/// connectivity matrix (weights >= 0). The service computes IIT-4 Φ + MIP in
+/// Sounio (ported from `beagle-transcend::IIT4Calculator`).
+#[derive(Debug, Clone, Serialize)]
+pub struct PhiRequest {
+    pub n: u32,
+    pub matrix: Vec<f64>,
+}
+
+/// Response from `/v1/phi/compute`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PhiResponse {
+    pub n: u32,
+    pub phi: f64,
+    /// Minimum-information-partition: two disjoint index groups over `0..n`.
+    pub mip_partition: Vec<Vec<usize>>,
+    #[serde(default)]
+    pub integrated: bool,
+}
+
+/// POST `{base_url}/v1/phi/compute`. Honest by construction: a malformed substrate
+/// (matrix length != n*n, or n out of 2..=8) or ANY error yields `None` — never a
+/// fabricated Φ. Φ here is a *measurement over the supplied substrate*, which the
+/// caller builds from real memory; it is not a claim about the query's "truth".
+pub async fn phi_compute(base_url: &str, req: PhiRequest) -> Option<PhiResponse> {
+    let n = req.n as usize;
+    if !(2..=8).contains(&n) || req.matrix.len() != n * n {
+        return None;
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .ok()?;
+    let url = format!("{}/v1/phi/compute", base_url.trim_end_matches('/'));
+    let resp = match client.post(&url).json(&req).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, %url, "phi_compute: request failed; None");
+            return None;
+        }
+    };
+    if !resp.status().is_success() {
+        warn!(status = %resp.status(), "phi_compute: non-success; None");
+        return None;
+    }
+    match resp.json::<PhiResponse>().await {
+        Ok(body) => {
+            info!(
+                phi = body.phi,
+                "phi_compute: integrated information over substrate"
+            );
+            Some(body)
+        }
+        Err(e) => {
+            warn!(error = %e, "phi_compute: parse failed; None");
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base_url_defaults_to_cluster_service() {
+        // Without the override, points at the in-cluster Service.
+        std::env::remove_var("SOUNIO_INFERENCE_URL");
+        assert!(inference_base_url().contains("sounio-inference.beagle.svc"));
+    }
+
+    #[tokio::test]
+    async fn unreachable_service_falls_back_to_unknown() {
+        // Honest fallback: a dead endpoint must yield Unknown, never a fabricated verdict.
+        let v = smt_check(
+            "http://127.0.0.1:1", // unbound port → connection refused
+            vec![LiaConstraint {
+                coeffs: vec![1],
+                bound: 3,
+                label: None,
+            }],
+        )
+        .await;
+        assert_eq!(v, Verdict::Unknown);
+    }
+
+    #[tokio::test]
+    async fn empty_constraints_is_unknown() {
+        assert_eq!(
+            smt_check("http://127.0.0.1:1", vec![]).await,
+            Verdict::Unknown
+        );
+    }
+
+    #[tokio::test]
+    async fn causal_dsep_unreachable_is_unknown() {
+        let req = DsepRequest {
+            n: 3,
+            edges: vec![[0, 1], [1, 2]],
+            x: 0,
+            y: 2,
+            z: vec![],
+        };
+        assert_eq!(
+            causal_dsep("http://127.0.0.1:1", req).await,
+            DsepVerdict::Unknown
+        );
+    }
+
+    #[tokio::test]
+    async fn theorem_prove_unreachable_is_none() {
+        // Honest: a dead endpoint must be None, never mistaken for "no derivation".
+        let req = TheoremRequest {
+            atoms: vec!["A".into(), "B".into()],
+            hypotheses: vec![serde_json::json!({"atom": "A"})],
+            goal: serde_json::json!({"atom": "B"}),
+            depth: 12,
+        };
+        assert!(theorem_prove("http://127.0.0.1:1", req).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn theorem_prove_empty_atoms_is_none() {
+        let req = TheoremRequest {
+            atoms: vec![],
+            hypotheses: vec![],
+            goal: serde_json::json!({"atom": "A"}),
+            depth: 12,
+        };
+        assert!(theorem_prove("http://127.0.0.1:1", req).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn fractal_recurse_unreachable_is_none() {
+        let req = FractalRequest {
+            depth: 3,
+            branching: 2,
+            budget: None,
+            seed: None,
+        };
+        assert!(fractal_recurse("http://127.0.0.1:1", req).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn phi_compute_malformed_substrate_is_none() {
+        // matrix length must equal n*n; a mismatch is rejected locally as None.
+        let bad = PhiRequest {
+            n: 3,
+            matrix: vec![0.0; 4],
+        };
+        assert!(phi_compute("http://127.0.0.1:1", bad).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn phi_compute_unreachable_is_none() {
+        let req = PhiRequest {
+            n: 2,
+            matrix: vec![0.0, 0.5, 0.5, 0.0],
+        };
+        assert!(phi_compute("http://127.0.0.1:1", req).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn gum_propagate_unreachable_is_none() {
+        // Honest fallback: a dead endpoint yields None (Unknown), never a fabricated number.
+        let req = GumRequest {
+            inputs: vec![
+                GumInput {
+                    value: 100.0,
+                    u: 2.0,
+                    label: None,
+                },
+                GumInput {
+                    value: 20.0,
+                    u: 0.8,
+                    label: None,
+                },
+            ],
+            op: "div".to_string(),
+        };
+        assert!(gum_propagate("http://127.0.0.1:1", req).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn gum_propagate_wrong_arity_is_none() {
+        // The v1 verb is binary-only: anything other than two inputs is rejected locally.
+        let req = GumRequest {
+            inputs: vec![GumInput {
+                value: 1.0,
+                u: 0.1,
+                label: None,
+            }],
+            op: "add".to_string(),
+        };
+        assert!(gum_propagate("http://127.0.0.1:1", req).await.is_none());
+    }
+}

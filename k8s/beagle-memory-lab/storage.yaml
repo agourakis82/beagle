@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: beagle-memory-engine-state
+  namespace: beagle-memory-lab
+  labels:
+    app.kubernetes.io/name: beagle-memory-engine
+    app.kubernetes.io/part-of: beagle
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: ceph-rbd-ssd
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: beagle-memory-lab-orangefs
+  labels:
+    app.kubernetes.io/name: beagle-memory-engine
+    app.kubernetes.io/part-of: beagle
+    beagle.dev/storage: orangefs
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes: ["ReadWriteMany"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: orangefs-memory-lab
+  hostPath:
+    path: /orangefs/beagle-memory-lab
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: beagle-memory-lab-orangefs
+  namespace: beagle-memory-lab
+  labels:
+    app.kubernetes.io/name: beagle-memory-engine
+    app.kubernetes.io/part-of: beagle
+    beagle.dev/storage: orangefs
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: orangefs-memory-lab
+  volumeName: beagle-memory-lab-orangefs
+  resources:
+    requests:
+      storage: 500Gi

@@ -1,0 +1,12 @@
+{
+  "name": "physiome",
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.22.2",
+    "pg": "^8.22.0"
+  }
+}
