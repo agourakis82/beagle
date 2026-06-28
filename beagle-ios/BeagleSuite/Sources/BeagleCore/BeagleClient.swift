@@ -1475,7 +1475,7 @@ public actor BeagleClient {
     // the companion typing live instead of a frozen 7-9s wait. Server writes
     // `data: {"token":"..."}\n\n` per token and a final `data: {"done":true,...}` event.
     // The returned AsyncThrowingStream yields one String per token.
-    public func chatStream(
+    public nonisolated func chatStream(
         prompt: String,
         system: String? = nil,
         projectSlug: String = "sounio",
@@ -1521,7 +1521,13 @@ public actor BeagleClient {
             URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
         ]
 
-        let session = self.session
+        // Use an ephemeral session for the stream (long-lived, SSE) — avoids needing
+        // to reach into actor-isolated self.session from this nonisolated method.
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 120
+        cfg.timeoutIntervalForResource = 600
+        cfg.httpAdditionalHeaders = ["User-Agent": "BeagleCockpit/1.0 (iOS exocortex stream)"]
+        let session = URLSession(configuration: cfg)
         let payload = (try? JSONSerialization.data(withJSONObject: body)) ?? Data()
 
         return AsyncThrowingStream { continuation in
