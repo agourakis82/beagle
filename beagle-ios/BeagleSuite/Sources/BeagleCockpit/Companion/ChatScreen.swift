@@ -17,12 +17,16 @@ public struct ChatScreen: View {
     /// User's real respiratory rate (breaths/min, from PhysioStore/HealthKit) so the companion
     /// breathes at the user's pace; nil → calm resting default.
     let breathRate: Double?
+    /// Live geomagnetic snapshot for AuroraPresence. nil → calm placeholder; the
+    /// store keeps refreshing in the background so this updates naturally.
+    let weather: SpaceWeatherStore.Snapshot?
     @State private var draft = ""
     @State private var appeared = false
 
-    public init(store: ConversationStore, breathRate: Double? = nil) {
+    public init(store: ConversationStore, breathRate: Double? = nil, weather: SpaceWeatherStore.Snapshot? = nil) {
         self.store = store
         self.breathRate = breathRate
+        self.weather = weather
     }
 
     public var body: some View {
@@ -52,61 +56,57 @@ public struct ChatScreen: View {
         }
     }
 
-    // The companion's presence — the lightweight VECTOR beagle is the default (it's reactive via
-    // CompanionMotion — breathes, ears, tail — and cheap, so it never fights the keyboard). The
-    // photoreal Gaussian-splat beagle (354k splats @ 60fps + per-frame deform) is genuinely heavy
-    // on a phone and contended the main thread → typing lag, so it's opt-in behind --beagle-splat
-    // until it has a worthy asset AND is throttled/paused while the composer is focused.
+    // Aurora pivot (2026-06-28): the presence is the SKY, not a mascot. AuroraPresence
+    // is pure SwiftUI radial gradients — no MTKView, no splat, no main-thread contention.
+    // Cheap enough to live in the chat header without fighting the keyboard. Modulated
+    // by breathRate (user's HRV) + hour-of-day (hue) + Kp (saturation + pulse speed).
     @ViewBuilder private var presence: some View {
-        #if os(iOS) || os(macOS)
-        if ProcessInfo.processInfo.arguments.contains("--beagle-splat") {
-            BeagleSplatView(motion: CompanionMotion(flowState: store.flowState, listening: store.isStreaming, breathRate: breathRate))
-        } else {
-            BeagleFigure(state: store.flowState, listening: store.isStreaming, breathRate: breathRate)
-        }
-        #else
-        BeagleFigure(state: store.flowState, listening: store.isStreaming, breathRate: breathRate)
-        #endif
+        AuroraPresence(breathRate: breathRate, weather: weather,
+                       size: store.messages.isEmpty ? .greeter : .header)
     }
 
-    // ONE stable companion slot — the splat (or vector fallback) lives here for the screen's
-    // whole life so the MTKView/ply (24MB) never tears down between the opening and the
-    // conversation. `presence` is a SINGLE non-conditional node (stable SwiftUI identity); only
-    // its frame/position/opacity animate with state: a 240pt greeter when the space is empty, a
-    // 132pt ambient header once the conversation fills in below it.
-    // Text-first pass (2026-06-28): mascote OFF. The vector/splat figure ate
-    // ~132pt at the top of every turn — text had to fight for breathing room.
-    // Per user: "só o texto por enquanto". Empty state keeps the warm greeting
-    // (BodyStory) but no figure. Chatting state collapses this zone to zero so
-    // the conversation eats the full height above the composer.
+    // Empty state: the AuroraPresence fills the upper third (greeter), greeting below.
+    // Chatting state: the presence shrinks to a compact header (~120pt overall),
+    // conversation takes the rest of the space above the composer.
     private var companionZone: some View {
         let empty = store.messages.isEmpty
         return VStack(spacing: BeagleSpacing.lg) {
+            if empty { Spacer(minLength: 0) }
+            presence
+                .frame(height: empty ? 280 : 120)
+                .padding(.top, empty ? 0 : 8)
+                .opacity(empty ? 1 : 0.95)
             if empty {
-                Spacer(minLength: 0)
                 greeting
+                Spacer(minLength: 0)
                 Spacer(minLength: 0)
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(maxHeight: empty ? .infinity : 0)
+        .frame(maxHeight: empty ? .infinity : nil)
         .padding(.bottom, empty ? 64 : 0)
         .allowsHitTesting(false)
         .animation(.easeOut(duration: 0.35), value: empty)
     }
 
-    // A warm glow rising from where the conversation lives — turns the dead black
-    // void into a hearth. Subtle; the living mesh (behind, in BeagleSurface) layers under.
+    // Aurora glow rising from where the conversation lives — the night sky breathing
+    // up from the composer. Was a warm brown "hearth"; the brown felt domestic. This
+    // is the geomagnetic dawn — green→teal→violet, anchored deep night above.
+    // Intensity rises slightly when Kp is active (storm = more present aurora).
     private var hearth: some View {
-        RadialGradient(
+        let kp = weather?.kp ?? 1.0
+        let stormBoost = min(0.25, max(0, (kp - 2) / 20))
+        return RadialGradient(
             colors: [
-                Color(red: 70/255, green: 46/255, blue: 40/255).opacity(0.45),
-                Color(red: 30/255, green: 24/255, blue: 34/255).opacity(0.25),
+                BeagleTheme.auroraGreen.opacity(0.18 + stormBoost),
+                BeagleTheme.auroraTeal.opacity(0.14 + stormBoost),
+                BeagleTheme.auroraViolet.opacity(0.10 + stormBoost),
+                BeagleTheme.auroraNight.opacity(0.55),
                 .clear
             ],
-            center: UnitPoint(x: 0.5, y: 0.92),
+            center: UnitPoint(x: 0.5, y: 0.95),
             startRadius: 0,
-            endRadius: 460
+            endRadius: 520
         )
         .ignoresSafeArea()
         .allowsHitTesting(false)

@@ -25,6 +25,7 @@ struct BeagleSurface: View {
 
     @State private var conversation = ConversationStore(preferLocal: false)
     @State private var exocortex = ExocortexStore()
+    @State private var spaceWeather = SpaceWeatherStore()
     @State private var activeSheet: SurfaceSheet?
     @State private var metacogNudge: MetacognitiveObservation?
     @State private var serendipityProvocation: SerendipityProvocation?
@@ -85,7 +86,11 @@ struct BeagleSurface: View {
             // Chat-first companion surface: the conversation is the hero, full-height
             // over the living mesh. (The exocortex home card is retired from this surface
             // — it can return as a collapsible header or a separate view later.)
-            ChatScreen(store: conversation, breathRate: physio.cognitivePosture.respiratoryRate)
+            ChatScreen(
+                store: conversation,
+                breathRate: physio.cognitivePosture.respiratoryRate,
+                weather: spaceWeather.latest
+            )
         }
     }
 
@@ -814,6 +819,9 @@ struct BeagleSurface: View {
         async let sounioWorkdayRefresh: Void = exocortex.refreshSounioWorkday(projectSlug: activeSlug, limit: 20)
         async let sounioMomentsRefresh: Void = exocortex.refreshRecentSounioMoments(projectSlug: activeSlug, limit: 20)
         async let bodyRefresh: Void = physio.refresh()
+        // Boot the geomagnetic poller once; it stays alive in background polling
+        // every 30min. Idempotent — calling start() again is a no-op.
+        spaceWeather.start()
         _ = await (
             homeRefresh,
             projectionRefresh,

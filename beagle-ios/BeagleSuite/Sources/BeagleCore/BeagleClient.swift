@@ -1594,6 +1594,39 @@ public actor BeagleClient {
         }
     }
 
+    // MARK: - Space weather (Kp/F10.7/solar wind for AuroraPresence)
+
+    /// Fetch the latest geomagnetic snapshot from physiome (NOAA SWPC poller writes
+    /// it every 2h). Returns nil on any failure — caller falls back to a calm default
+    /// so the aurora keeps breathing even when offline.
+    public func fetchLatestSpaceWeather() async -> SpaceWeatherStore.Snapshot? {
+        let bases: [URL] = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://physiome-ingest.beagle.svc.cluster.local:8080")!
+        ]
+        _ = await ensureAuth()
+        var request = URLRequest(url: bases[0])
+        for base in bases {
+            guard let url = URL(string: "/api/physiome/space-weather/latest", relativeTo: base) else { continue }
+            request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 15
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            applyAuth(&request)
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { continue }
+                struct Resp: Decodable { let ok: Bool; let latest: Latest? ; struct Latest: Decodable { let ts: String; let kp: Double; let f107: Double; let solar_wind_speed: Double; let bz: Double; let source: String } }
+                let resp = try decoder.decode(Resp.self, from: data)
+                guard let l = resp.latest else { return nil }
+                let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                let ts = f.date(from: l.ts) ?? ISO8601DateFormatter().date(from: l.ts) ?? Date()
+                return SpaceWeatherStore.Snapshot(ts: ts, kp: l.kp, f107: l.f107, solarWindSpeed: l.solar_wind_speed, bz: l.bz, source: l.source)
+            } catch { continue }
+        }
+        return nil
+    }
+
     // MARK: - Novelty Endpoints (Void, Fractal, Phi)
 
     public func startVoidJourney(prompt: String, maxDepth: Int = 3) async -> Truthful<VoidJourney> {
