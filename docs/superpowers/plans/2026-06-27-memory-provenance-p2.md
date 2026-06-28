@@ -153,7 +153,7 @@ async function rec({ actor = "user_stated", session = "s1", day = "2026-06-01", 
   const r = await pool.query(
     `INSERT INTO records (source_type, content, content_sha256, prov_actor, created_at, metadata)
      VALUES ('T', $1, 'sha-' || gen_random_uuid()::text, $2, $3::timestamptz,
-             jsonb_build_object('session_id', $4))
+             jsonb_build_object('session_id', $4::text))
      RETURNING id`,
     [content, actor, `${day}T12:00:00Z`, session],
   );
@@ -165,8 +165,8 @@ async function fact(predicate = "likes", literal = "green") {
     `INSERT INTO entities (name, norm_name, type, content_sha256)
      VALUES ('Demetrios','demetrios','person','e-'||gen_random_uuid()::text) RETURNING id`);
   const f = await pool.query(
-    `INSERT INTO facts (subject_id, predicate, object_literal, content_sha256)
-     VALUES ($1, $2, $3, 'f-'||gen_random_uuid()::text) RETURNING id`,
+    `INSERT INTO facts (subject_id, predicate, object_literal, statement, content_sha256)
+     VALUES ($1, $2, $3, $2 || ' ' || $3, 'f-'||gen_random_uuid()::text) RETURNING id`,
     [e.rows[0].id, predicate, literal]);
   return f.rows[0].id;
 }
