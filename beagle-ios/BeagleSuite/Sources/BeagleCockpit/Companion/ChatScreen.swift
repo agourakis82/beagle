@@ -89,27 +89,13 @@ public struct ChatScreen: View {
         .animation(.easeOut(duration: 0.35), value: empty)
     }
 
-    // Aurora glow rising from where the conversation lives — the night sky breathing
-    // up from the composer. Was a warm brown "hearth"; the brown felt domestic. This
-    // is the geomagnetic dawn — green→teal→violet, anchored deep night above.
-    // Intensity rises slightly when Kp is active (storm = more present aurora).
+    // DIAG STUB (2026-06-28): hearth temporarily flattened to solid color to
+    // bisect AttributeGraph cycle. Restore the aurora RadialGradient once we
+    // confirm the cycle isn't here.
     private var hearth: some View {
-        let kp = weather?.kp ?? 1.0
-        let stormBoost = min(0.25, max(0, (kp - 2) / 20))
-        return RadialGradient(
-            colors: [
-                BeagleTheme.auroraGreen.opacity(0.18 + stormBoost),
-                BeagleTheme.auroraTeal.opacity(0.14 + stormBoost),
-                BeagleTheme.auroraViolet.opacity(0.10 + stormBoost),
-                BeagleTheme.auroraNight.opacity(0.55),
-                .clear
-            ],
-            center: UnitPoint(x: 0.5, y: 0.95),
-            startRadius: 0,
-            endRadius: 520
-        )
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
+        BeagleTheme.auroraNight
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
     }
 
     // MARK: - Conversation (flat content above the mesh)
