@@ -30,18 +30,10 @@ public struct ChatScreen: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .bottom) {
-            hearth
-            // Hearth-on-top: the companion lives in a dedicated zone at the TOP (a tall greeter
-            // when empty → a compact, reacting header once you start talking), and the
-            // conversation scrolls in the space BELOW it — never behind it. One stable `presence`
-            // node spans both states so the splat/MTKView (24MB ply) never tears down.
-            VStack(spacing: 0) {
-                companionZone
-                if !store.messages.isEmpty { conversation }
-            }
-            composer
-        }
+        // DIAG (2026-06-28): body minimized to bare Color to isolate cycle origin.
+        // If cycles == 0 with this, the cycle is in companionZone/conversation/composer/hearth.
+        // If cycles > 0, the cycle lives ABOVE ChatScreen (BeagleSurface header / nudges).
+        Color.black.ignoresSafeArea()
         // Entry ceremony — the space materializes with a breath instead of snapping in
         // (Gaggioli: ceremony over frictionless).
         .opacity(appeared ? 1 : 0)
