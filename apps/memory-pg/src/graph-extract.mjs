@@ -213,6 +213,18 @@ export async function applyExtraction(pool, extraction, opts = {}) {
           f.confidence ?? 1.0, content_sha256,
         ],
       );
+      // Record the source→claim support for the quorum, even when the fact already
+      // existed (rowCount 0). This is the corroboration multiplicity the dedup discards.
+      const factId = ins.rowCount > 0
+        ? ins.rows[0].id
+        : (await client.query("SELECT id FROM facts WHERE content_sha256 = $1", [content_sha256])).rows[0]?.id;
+      if (factId && recordId) {
+        await client.query(
+          `INSERT INTO fact_supports (fact_id, source_record_id)
+           VALUES ($1, $2) ON CONFLICT (fact_id, source_record_id) DO NOTHING`,
+          [factId, recordId],
+        );
+      }
       await client.query("COMMIT");
       if (ins.rowCount > 0) factsInserted++;
     } catch (err) {
