@@ -89,7 +89,7 @@ struct BeagleSurface: View {
             ChatScreen(
                 store: conversation,
                 breathRate: physio.cognitivePosture.respiratoryRate,
-                weather: spaceWeather.latest
+                weather: nil   // DIAG: bypass spaceWeather.latest read
             )
         }
     }
