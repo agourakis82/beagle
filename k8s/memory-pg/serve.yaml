@@ -135,3 +135,33 @@ spec:
       port: 80
       targetPort: 8091
   type: ClusterIP
+---
+# Tailscale LoadBalancer — gives the Mac MCP runtime (and any Tailnet peer)
+# a stable DNS name `memory-pg-serve` without needing a kubectl port-forward.
+# The Tailscale operator must be installed in the cluster and its ServiceAccount
+# must have permission to create tailscale Devices. After `kubectl apply`:
+#   1. Confirm the device appears in the Tailscale admin console (Settings → Devices).
+#   2. On the Mac, set in ~/.beagle/mcp-runtime env:
+#        MEMORY_PG_QUERY_URL=http://memory-pg-serve:80
+#        MEMORY_PG_QUERY_TOKEN=<the QUERY_TOKEN value from the memory-pg secret>
+#   3. The MCP runtime resolves the hostname via the Tailscale DNS (100.100.100.100).
+apiVersion: v1
+kind: Service
+metadata:
+  name: memory-pg-serve-tailnet
+  namespace: beagle
+  labels:
+    app: memory-pg
+    component: serve
+  annotations:
+    tailscale.com/hostname: memory-pg-serve
+spec:
+  selector:
+    app: memory-pg
+    component: serve
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8091
+  type: LoadBalancer
+  loadBalancerClass: tailscale

@@ -221,26 +221,141 @@ public actor PhysiomeUploader {
 
     // MARK: - HTTP upload
 
+    /// Base URLs tried in order for /api/physiome/ingest.
+    ///  1. Public gateway (https://beagle.chiuratto.ai) — reachable from any device;
+    ///     routes to physiome-ingest.beagle.svc.cluster.local:8080 via cockpit proxy.
+    ///  2. Direct in-cluster path — used when the app runs inside the cluster network.
+    private let physiomeBaseURLs: [URL] = [
+        URL(string: "https://beagle.chiuratto.ai")!,
+        URL(string: "http://physiome-ingest.beagle.svc.cluster.local:8080")!
+    ]
+
+    /// Cockpit auth-bridge endpoints — same list as BeagleClient.ensureAuth().
+    private let physAuthBridgeURLs: [URL] = [
+        URL(string: "https://beagle.chiuratto.ai")!,
+        URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+        URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+    ]
+
+    /// Dedicated URLSession for physiome uploads (separate connection pool from
+    /// BeagleClient so token negotiation timeouts don't stall ongoing health-data drains).
+    private let physSession: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest = 30
+        cfg.waitsForConnectivity = true
+        return URLSession(configuration: cfg)
+    }()
+
+    /// Operator token cached locally for direct POST to physiome-ingest.
+    /// Re-fetched on nil or on 401 from the ingest service.
+    private var physToken: String?
+    private var physConsumerId: String = "beagle-operator"
+
+    /// Fetch the operator token from the cockpit auth bridge and cache it locally.
+    /// Mirrors the token-fetch logic in BeagleClient.ensureAuth() so the uploader
+    /// can attach the same Authorization header to the direct physiome-ingest POST.
+    private func refreshPhysiomeToken() async {
+        for base in physAuthBridgeURLs {
+            guard let url = URL(string: "/api/auth/beagle-token", relativeTo: base) else { continue }
+            guard let (data, resp) = try? await physSession.data(for: URLRequest(url: url)),
+                  let http = resp as? HTTPURLResponse, http.statusCode == 200 else { continue }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            let rawToken = json["token"] as? String
+            let authHeader = json["auth_header_value"] as? String
+            if let rawToken, !rawToken.isEmpty {
+                physToken = rawToken
+            } else if let authHeader, authHeader.hasPrefix("Bearer "),
+                      authHeader.count > "Bearer ".count {
+                physToken = String(authHeader.dropFirst("Bearer ".count))
+            }
+            if let cv = (json["consumer_header_value"] as? String ?? json["consumer"] as? String),
+               !cv.isEmpty {
+                physConsumerId = cv
+            }
+            if physToken != nil {
+                print("[PhysiomeUploader] refreshPhysiomeToken ✅ acquired via \(base.host ?? base.absoluteString)")
+                return
+            }
+        }
+        print("[PhysiomeUploader] refreshPhysiomeToken ⚠️  all auth-bridge endpoints failed")
+    }
+
     private func upload(batch: PhysiomeIngestRequest) async throws {
-        // Piggyback BeagleClient's auth token (shared actor, zero duplication).
+        // Step 1: Piggyback BeagleClient's auth bootstrap to confirm the auth bridge
+        // is reachable and the token is still valid (reuses the same accessor as before).
         let authReady = await BeagleClient.shared.ensureAuth()
         guard authReady else {
             throw PhysiomeUploaderError.authFailed
         }
 
-        let result = await BeagleClient.shared.postEncoded(
-            PhysiomeIngestResponse.self,
-            path: "/api/physiome/ingest",
-            body: batch,
-            timeout: 60
-        )
-
-        switch result.mode {
-        case .observed:
-            return // success
-        default:
-            throw PhysiomeUploaderError.uploadFailed(result.error ?? "unknown error")
+        // Step 2: Ensure we hold a local copy of the operator token for the direct POST.
+        // (BeagleClient caches the token internally in its actor; this uploader maintains
+        // its own copy so it can attach it to requests that bypass BeagleClient's URL list.)
+        if physToken == nil {
+            await refreshPhysiomeToken()
         }
+        guard let token = physToken else {
+            throw PhysiomeUploaderError.authFailed
+        }
+
+        // Step 3: Encode the ingest payload.
+        let payload: Data
+        do {
+            payload = try JSONEncoder().encode(batch)
+        } catch {
+            throw PhysiomeUploaderError.uploadFailed("encode: \(error.localizedDescription)")
+        }
+
+        // Step 4: POST directly to physiome-ingest, trying each base URL in order.
+        // The gateway at beagle.chiuratto.ai validates the operator token and forwards
+        // to physiome-ingest.beagle.svc.cluster.local:8080/api/physiome/ingest.
+        var lastError = "physiome-ingest unreachable on all endpoints"
+        for base in physiomeBaseURLs {
+            guard let url = URL(string: "/api/physiome/ingest", relativeTo: base) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue(physConsumerId, forHTTPHeaderField: "X-Beagle-Consumer")
+            request.timeoutInterval = 60
+            request.httpBody = payload
+            do {
+                let (data, response) = try await physSession.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    lastError = "non-HTTP response from \(base.host ?? base.absoluteString)"
+                    continue
+                }
+                if http.statusCode == 401 {
+                    // Token may be stale — refresh once and retry this same URL.
+                    physToken = nil
+                    await refreshPhysiomeToken()
+                    guard let refreshed = physToken else {
+                        throw PhysiomeUploaderError.authFailed
+                    }
+                    var retryReq = request
+                    retryReq.setValue("Bearer \(refreshed)", forHTTPHeaderField: "Authorization")
+                    let (_, retryResp) = try await physSession.data(for: retryReq)
+                    guard let retryHttp = retryResp as? HTTPURLResponse,
+                          (200..<300).contains(retryHttp.statusCode) else {
+                        lastError = "HTTP \((retryResp as? HTTPURLResponse)?.statusCode ?? 0) (post-refresh)"
+                        continue
+                    }
+                    print("[PhysiomeUploader] upload ✅ \(base.host ?? "") (after token refresh)")
+                    return
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    let bodyText = String(data: data, encoding: .utf8)?.prefix(200) ?? "<empty>"
+                    lastError = "HTTP \(http.statusCode) from \(base.host ?? ""): \(bodyText)"
+                    continue
+                }
+                print("[PhysiomeUploader] upload ✅ \(base.host ?? "")")
+                return
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+        throw PhysiomeUploaderError.uploadFailed(lastError)
     }
 
     // MARK: - Queue persistence

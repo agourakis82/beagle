@@ -11625,7 +11625,68 @@ function renderProjectLaunchPage(project) {
       .row { display: grid; }
       .row strong { text-align: left; }
     }
+    /* ── Fleet Terminal (xterm.js) ───────────────────────────────────────── */
+    .fleet-terminal-wrap {
+      height: 420px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0d1117;
+      border: 1px solid var(--line);
+    }
+    #fleet-terminal {
+      height: 100%;
+      width: 100%;
+    }
+    .fleet-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .fleet-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: var(--muted);
+      background: rgba(0, 0, 0, 0.18);
+    }
+    .fleet-pill .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    .fleet-pill.connected .dot  { background: var(--accent); }
+    .fleet-pill.connected       { color: var(--accent); }
+    .fleet-pill.disconnected .dot { background: #ff5f5f; }
+    .fleet-pill.disconnected    { color: #ff8a8a; }
+    #fleet-reconnect { margin-left: auto; }
+    @media (max-width: 760px) {
+      .fleet-header { flex-wrap: wrap; }
+      #fleet-reconnect { margin-left: 0; width: 100%; }
+      .fleet-terminal-wrap { height: 300px; }
+    }
   </style>
+  <!-- xterm.js Fleet Terminal — loaded from CDN (unpkg).                     -->
+  <!-- SRI hashes pinned to @xterm/xterm@5.x and @xterm/addon-fit@0.10.x.    -->
+  <!-- TODO air-gap hardening: vendor these files under                        -->
+  <!--      apps/project-cockpit/public/ and serve them as static assets.      -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/@xterm/xterm@5/css/xterm.css"
+        integrity="sha384-8Xk9wy/gzEDUKrXtrmCFa2bBuK3BpjpDuL/p0SeKQX19Khl/M+lHOgD/CyYf7efP"
+        crossorigin="anonymous" />
+  <script src="https://unpkg.com/@xterm/xterm@5/lib/xterm.js"
+          integrity="sha384-M169f14mRZOXm3hD/v2Ti0ThIT/RnAQagXA9nlE15yHAtrW19gdePJh/HaTzUOe/"
+          crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@xterm/addon-fit@0.10/lib/addon-fit.js"
+          integrity="sha384-iF+jqbuti4XlB64clWgFWYEscb+UnSRv3VgVikGYZu+otNFnSHr7y7NcKfBnGizn"
+          crossorigin="anonymous"></script>
 </head>
 <body>
   <main>
@@ -11675,6 +11736,17 @@ function renderProjectLaunchPage(project) {
         <button id="connect-terminal" type="button">Connect Latest Shell</button>
         <button id="interrupt-terminal" type="button">Interrupt</button>
         <button id="remember-block" type="button">Remember Last Block</button>
+      </div>
+    </section>
+
+    <section style="margin-top: 18px;">
+      <div class="fleet-header">
+        <h2 style="margin:0;">Fleet Terminal</h2>
+        <span id="fleet-pill" class="fleet-pill"><span class="dot"></span><span id="fleet-pill-text">connecting…</span></span>
+        <button id="fleet-reconnect" type="button">Reconnect</button>
+      </div>
+      <div class="fleet-terminal-wrap">
+        <div id="fleet-terminal"></div>
       </div>
     </section>
 
@@ -12083,6 +12155,131 @@ function renderProjectLaunchPage(project) {
       terminalInput.focus();
     });
     refresh();
+
+    // ── Fleet Terminal (xterm.js → /ws/terminal PTY) ─────────────────────────
+    // Connects to the shared interactive PTY for pod sounio-workspace-control-0.
+    // Token is injected server-side so the WebSocket auth gate accepts the upgrade.
+    // The old Shell Lane <pre> above is intentionally kept; both coexist.
+    (function () {
+      const _fleetToken = ${JSON.stringify(COCKPIT_AUTH_TOKEN || '')};
+      const fleetPillEl      = document.getElementById("fleet-pill");
+      const fleetPillText    = document.getElementById("fleet-pill-text");
+      const fleetReconnectBtn = document.getElementById("fleet-reconnect");
+
+      let fleetWs        = null;
+      let fleetTerm      = null;
+      let fleetFit       = null;
+      let fleetResizeObs = null;
+
+      function fleetSetPill(state, label) {
+        fleetPillEl.className = "fleet-pill" + (state ? " " + state : "");
+        fleetPillText.textContent = label;
+      }
+
+      function fleetConnect() {
+        if (fleetWs) {
+          try { fleetWs.close(); } catch (_) {}
+          fleetWs = null;
+        }
+        fleetSetPill("", "connecting\\u2026");
+        const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+        const params = new URLSearchParams({ project: slug });
+        if (_fleetToken) params.set("token", _fleetToken);
+        const url = scheme + "//" + location.host + "/ws/terminal?" + params.toString();
+        fleetWs = new WebSocket(url);
+
+        fleetWs.addEventListener("open", () => {
+          if (fleetTerm && fleetFit) {
+            try { fleetFit.fit(); } catch (_) {}
+            fleetWs.send(JSON.stringify({ type: "resize", cols: fleetTerm.cols, rows: fleetTerm.rows }));
+          }
+        });
+
+        fleetWs.addEventListener("message", (event) => {
+          let msg = {};
+          try { msg = JSON.parse(String(event.data)); } catch (_) {
+            fleetTerm && fleetTerm.write(String(event.data));
+            return;
+          }
+          if (msg.type === "data")  { fleetTerm && fleetTerm.write(msg.data); return; }
+          if (msg.type === "ready") {
+            fleetSetPill("connected", "connected \\u00b7 " + (msg.data && msg.data.projectSlug ? msg.data.projectSlug : slug));
+            return;
+          }
+          if (msg.type === "exit")  {
+            fleetSetPill("disconnected", "exited \\u00b7 " + (msg.data || ""));
+            return;
+          }
+          if (msg.type === "error") {
+            fleetSetPill("disconnected", "error \\u00b7 " + (msg.data || msg.error || ""));
+            return;
+          }
+        });
+
+        fleetWs.addEventListener("close", () => fleetSetPill("disconnected", "disconnected"));
+        fleetWs.addEventListener("error", () => fleetSetPill("disconnected", "ws error"));
+      }
+
+      function fleetInit() {
+        const container = document.getElementById("fleet-terminal");
+        if (!container) return;
+
+        // Dispose previous instance if reconnecting
+        if (fleetResizeObs) { try { fleetResizeObs.disconnect(); } catch (_) {} fleetResizeObs = null; }
+        if (fleetTerm)      { try { fleetTerm.dispose(); }          catch (_) {} fleetTerm = null; }
+
+        fleetTerm = new Terminal({
+          cursorBlink: true,
+          theme: {
+            background:          "#0d1117",
+            foreground:          "#f6f7fb",
+            cursor:              "#79f2c0",
+            selectionBackground: "rgba(121, 242, 192, 0.25)"
+          },
+          fontFamily: '"SF Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace',
+          fontSize: 13,
+          lineHeight: 1.35,
+          scrollback: 5000,
+          allowTransparency: false
+        });
+
+        fleetFit = new FitAddon.FitAddon();
+        fleetTerm.loadAddon(fleetFit);
+        fleetTerm.open(container);
+        try { fleetFit.fit(); } catch (_) {}
+
+        // Relay user keystrokes / paste to the PTY
+        fleetTerm.onData((d) => {
+          if (fleetWs && fleetWs.readyState === WebSocket.OPEN) {
+            fleetWs.send(JSON.stringify({ type: "input", data: d }));
+          }
+        });
+
+        // Track container resizes and notify the server PTY
+        fleetResizeObs = new ResizeObserver(() => {
+          try { fleetFit && fleetFit.fit(); } catch (_) {}
+          if (fleetWs && fleetWs.readyState === WebSocket.OPEN && fleetTerm) {
+            fleetWs.send(JSON.stringify({ type: "resize", cols: fleetTerm.cols, rows: fleetTerm.rows }));
+          }
+        });
+        fleetResizeObs.observe(container);
+
+        fleetConnect();
+      }
+
+      fleetReconnectBtn.addEventListener("click", () => {
+        // Full re-init so the terminal canvas is fresh after a reconnect
+        fleetInit();
+      });
+
+      // xterm.js scripts are synchronous in <head>; Terminal is defined by now.
+      // Fallback to window load if a browser extension somehow defers them.
+      if (typeof Terminal !== "undefined" && typeof FitAddon !== "undefined") {
+        fleetInit();
+      } else {
+        window.addEventListener("load", fleetInit);
+      }
+    })();
   </script>
 </body>
 </html>`;
