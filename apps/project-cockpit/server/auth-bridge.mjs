@@ -757,6 +757,53 @@ export async function fetchBiographyDigest({ timeoutMs = 8000 } = {}) {
 // Fetch the latest physiome digest from beagle-core memory.
 // Used by the Personal space to ground the companion in the user's current
 // body state and environment (HRV, sleep, ambient readings, etc.).
+// Recent Sounio work-events (commits, gates) — tagged `sounio-now` by the
+// sounio-now-poller (see [[project_sounio_now_poller]]). 5-min cache mirrors
+// bio/physio. Returns an array of {snippet, date} entries (newest first) or
+// [] on any failure — chat is never blocked.
+let _sounioNowCache = { items: [], at: 0 };
+const SOUNIO_NOW_TTL_MS = 5 * 60 * 1000;
+export async function fetchSounioNow({ limit = 6, timeoutMs = 8000 } = {}) {
+  if (_sounioNowCache.items.length && Date.now() - _sounioNowCache.at < SOUNIO_NOW_TTL_MS) {
+    return { items: _sounioNowCache.items, cached: true };
+  }
+  const tokenResult = await fetchOperatorToken();
+  if (tokenResult.error || !tokenResult.token) return { items: [], error: tokenResult.error || "no token" };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "content-type": "application/json",
+        "X-Beagle-Consumer": "beagle-operator",
+        Authorization: `Bearer ${tokenResult.token}`
+      },
+      body: JSON.stringify({
+        query: "Sounio commit branch trabalho recente compilador",
+        k: limit,
+        tags: ["sounio-now"]
+      }),
+      signal: ctrl.signal
+    });
+    if (!res.ok) return { items: [], error: `memory/query ${res.status}` };
+    const payload = parseJsonResponse(await res.text());
+    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
+    const items = highlights
+      .filter(h => cleanString(h?.snippet))
+      .sort((a, b) => cleanString(b?.date).localeCompare(cleanString(a?.date)))
+      .slice(0, limit)
+      .map(h => ({ snippet: cleanString(h.snippet), date: cleanString(h.date) }));
+    if (items.length) _sounioNowCache = { items, at: Date.now() };
+    return { items };
+  } catch (err) {
+    return { items: [], error: err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Best-effort: returns { digest: "" } on any failure so chat is never blocked.
 // Cache mirrors fetchBiographyDigest — physio digest is daily-distilled, so
 // re-fetching on every companion turn just costs ~4.7s of memory/query latency

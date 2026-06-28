@@ -20,6 +20,7 @@ import {
   proxyDiscussionLabCompletion,
   fetchBiographyDigest,
   fetchPhysiomeDigest,
+  fetchSounioNow,
   fetchRecentMemories,
   runMuseVoiceEnsemble,
   fetchExocortexContext,
@@ -761,9 +762,10 @@ async function completeChatRequest(req, deps, options = {}) {
       // Grounding context is the dominant cost of the companion turn — bounded
       // and cached at the cockpit (bio+physio 5min TTL) AND at the model (xAI
       // prompt cache, automatic on identical prefixes).
-      const [bioResult, physioResult, memoryResults] = await Promise.all([
+      const [bioResult, physioResult, sounioNowResult, memoryResults] = await Promise.all([
         fetchBiographyDigest(),
         fetchPhysiomeDigest(),
+        fetchSounioNow({ limit: 6 }),
         fetchRecentMemories(userText, { k: 4 })
       ]);
       biographyDigest = cleanString(bioResult?.digest).slice(0, 1800);
@@ -776,6 +778,20 @@ async function completeChatRequest(req, deps, options = {}) {
         sections.push(
           "## Quem é Demetrios (biografia viva — fale como quem o conhece de verdade, sem genéricos)",
           biographyDigest
+        );
+      }
+      // SOUNIO NOW: what he just commited to the language. Observed by the sounio-now-poller
+      // (system-actor atoms, not user_stated — facts about the WORLD not his testimony).
+      // Listed as bullets so the model reads them as events, not narrative biography.
+      const sounioItems = Array.isArray(sounioNowResult?.items) ? sounioNowResult.items : [];
+      if (sounioItems.length) {
+        const bullets = sounioItems
+          .slice(0, 6)
+          .map(it => `- ${it.snippet.replace(/\s+/g, " ").slice(0, 280)}`)
+          .join("\n");
+        sections.push(
+          "## Sounio acontecendo agora (commits recentes observados — use só se ele tocar no Sounio)",
+          bullets
         );
       }
       // DYNAMIC (per-turn) section: temporal awareness + episodic recall.
