@@ -1027,24 +1027,30 @@ export async function runMuseVoiceEnsemble({
     };
   }
 
+  // Muse pre-pass (creative seeds) is OFF by default: it adds a full non-streaming
+  // LLM call BEFORE the voice can stream, which kills the intimate-companion cadence
+  // ("quebra o clima"). Re-enable with PROJECT_COCKPIT_PERSONAL_MUSE=on for depth.
+  const museEnabled = cleanString(process.env.PROJECT_COCKPIT_PERSONAL_MUSE).toLowerCase() === "on";
   const museSystem =
-    "Gere 3-5 sementes criativas, provocativas e concretas em pt-BR. " +
+    "Gere 3-5 sementes criativas, provocativas e concretas, no idioma do usuário. " +
     "Não escreva resposta final ao usuário. Apenas bullets curtos com ângulos inesperados.";
   let museSeeds = "";
-  try {
-    const museResult = await routerChat({
-      model: MUSE_MODEL,
-      messages: [
-        { role: "system", content: museSystem },
-        { role: "user", content: promptText }
-      ],
-      temperature: 0.95,
-      stream: false,
-      timeoutMs: 90000
-    });
-    museSeeds = museResult.text;
-  } catch (err) {
-    museSeeds = "";
+  if (museEnabled) {
+    try {
+      const museResult = await routerChat({
+        model: MUSE_MODEL,
+        messages: [
+          { role: "system", content: museSystem },
+          { role: "user", content: promptText }
+        ],
+        temperature: 0.95,
+        stream: false,
+        timeoutMs: 90000
+      });
+      museSeeds = museResult.text;
+    } catch (err) {
+      museSeeds = "";
+    }
   }
 
   const voiceSystemParts = [systemText];
