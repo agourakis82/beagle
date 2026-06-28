@@ -21,7 +21,7 @@ rules:
     verbs: ["get", "list", "create", "update"]
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["beagle-core-secrets"]
+    resourceNames: ["beagle-core-secrets", "physiome-secrets"]
     verbs: ["get"]
   - apiGroups: [""]
     resources: ["pods/exec"]

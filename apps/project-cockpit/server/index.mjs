@@ -14994,12 +14994,12 @@ registerAuthBridgeRoutes(app);
       return physiomeTokenCache;
     }
     try {
-      const raw = await runKubectl(
+      const { stdout } = await runKubectl(
         ["-n", "beagle", "get", "secret", PHYSIOME_SECRET,
          "-o", `jsonpath={.data.${PHYSIOME_TOKEN_KEY}}`],
         { timeoutMs: 5000 }
       );
-      const decoded = Buffer.from(String(raw).trim(), "base64").toString("utf8").trim();
+      const decoded = Buffer.from(String(stdout || "").trim(), "base64").toString("utf8").trim();
       if (decoded) {
         physiomeTokenCache = decoded;
         physiomeTokenCachedAt = now;
