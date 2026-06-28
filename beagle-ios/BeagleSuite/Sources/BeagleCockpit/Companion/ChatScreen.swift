@@ -77,17 +77,21 @@ public struct ChatScreen: View {
         }
     }
 
-    // Aurora orb sitting BEHIND the conversation. Empty state: bigger and slightly
-    // higher (greeter feel). Chatting: large + faint, drifts to upper third, NEVER
-    // takes layout space. allowsHitTesting=false so taps go through to the chat.
+    // Aurora CURTAIN sitting BEHIND the conversation. Spans the full width;
+    // drifts horizontally, ripples vertically, hue cycles, brightens when the
+    // companion is streaming. Empty state: brighter and fills upper half.
+    // Chatting: dimmer and pulled to upper third so the conversation reads.
     private var presenceBackground: some View {
         let empty = store.messages.isEmpty
-        return AuroraPresence(breathRate: breathRate, weather: weather, size: .greeter)
-            .scaleEffect(empty ? 1.0 : 0.95)
-            .opacity(empty ? 0.85 : 0.28)
-            .offset(y: empty ? -120 : -260)
-            .allowsHitTesting(false)
-            .animation(.easeOut(duration: 0.35), value: empty)
+        return AuroraPresence(
+            breathRate: breathRate,
+            weather: weather,
+            isStreaming: store.isStreaming,
+            size: empty ? .greeter : .header
+        )
+        .opacity(empty ? 1.0 : 0.55)
+        .allowsHitTesting(false)
+        .animation(.easeOut(duration: 0.35), value: empty)
     }
 
     // Top-right "novo" button — clears the conversation thread. Floats over the
