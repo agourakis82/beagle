@@ -218,13 +218,8 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        Group {
-            if sizeClass == .regular {
-                iPadLayout
-            } else {
-                iPhoneLayout
-            }
-        }
+        // DIAG: body stubbed to Color to bisect cycle (above RootView entirely?).
+        Color.black.ignoresSafeArea()
         .task {
             initializeTabSelectionIfNeeded()
             await bootstrap()
