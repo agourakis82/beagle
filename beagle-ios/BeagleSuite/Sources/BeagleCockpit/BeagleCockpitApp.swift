@@ -388,7 +388,6 @@ struct RootView: View {
         case deep     = "Go Deep"
         case work     = "Work"
         case recall   = "Recall"
-        case fleet    = "Fleet"
         case settings = "Settings"
 
         var id: String { rawValue }
