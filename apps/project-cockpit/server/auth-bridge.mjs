@@ -758,7 +758,15 @@ export async function fetchBiographyDigest({ timeoutMs = 8000 } = {}) {
 // Used by the Personal space to ground the companion in the user's current
 // body state and environment (HRV, sleep, ambient readings, etc.).
 // Best-effort: returns { digest: "" } on any failure so chat is never blocked.
+// Cache mirrors fetchBiographyDigest — physio digest is daily-distilled, so
+// re-fetching on every companion turn just costs ~4.7s of memory/query latency
+// for no benefit. 5-minute TTL keeps it fresh without that cost per message.
+let _physioDigestCache = { digest: "", at: 0 };
+const PHYSIO_DIGEST_TTL_MS = 5 * 60 * 1000;
 export async function fetchPhysiomeDigest({ timeoutMs = 8000 } = {}) {
+  if (_physioDigestCache.digest && Date.now() - _physioDigestCache.at < PHYSIO_DIGEST_TTL_MS) {
+    return { digest: _physioDigestCache.digest, cached: true };
+  }
   const tokenResult = await fetchOperatorToken();
   if (tokenResult.error || !tokenResult.token) {
     return { digest: "", error: tokenResult.error || "beagle token unavailable" };
@@ -790,7 +798,9 @@ export async function fetchPhysiomeDigest({ timeoutMs = 8000 } = {}) {
     const sorted = highlights
       .filter((h) => cleanString(h?.snippet))
       .sort((a, b) => cleanString(b?.date).localeCompare(cleanString(a?.date)));
-    return { digest: cleanString(sorted[0]?.snippet) };
+    const digest = cleanString(sorted[0]?.snippet);
+    if (digest) _physioDigestCache = { digest, at: Date.now() };
+    return { digest };
   } catch (err) {
     return { digest: "", error: err.message };
   } finally {
