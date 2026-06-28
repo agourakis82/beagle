@@ -30,10 +30,14 @@ public struct ChatScreen: View {
     }
 
     public var body: some View {
-        // DIAG (2026-06-28): body minimized to bare Color to isolate cycle origin.
-        // If cycles == 0 with this, the cycle is in companionZone/conversation/composer/hearth.
-        // If cycles > 0, the cycle lives ABOVE ChatScreen (BeagleSurface header / nudges).
-        Color.black.ignoresSafeArea()
+        ZStack(alignment: .bottom) {
+            hearth
+            VStack(spacing: 0) {
+                companionZone
+                if !store.messages.isEmpty { conversation }
+            }
+            composer
+        }
         // Entry ceremony — the space materializes with a breath instead of snapping in
         // (Gaggioli: ceremony over frictionless).
         .opacity(appeared ? 1 : 0)
@@ -81,13 +85,24 @@ public struct ChatScreen: View {
         .animation(.easeOut(duration: 0.35), value: empty)
     }
 
-    // DIAG STUB (2026-06-28): hearth temporarily flattened to solid color to
-    // bisect AttributeGraph cycle. Restore the aurora RadialGradient once we
-    // confirm the cycle isn't here.
+    // Aurora glow rising from the composer — geomagnetic dawn.
     private var hearth: some View {
-        BeagleTheme.auroraNight
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
+        let kp = weather?.kp ?? 1.0
+        let stormBoost = min(0.25, max(0, (kp - 2) / 20))
+        return RadialGradient(
+            colors: [
+                BeagleTheme.auroraGreen.opacity(0.18 + stormBoost),
+                BeagleTheme.auroraTeal.opacity(0.14 + stormBoost),
+                BeagleTheme.auroraViolet.opacity(0.10 + stormBoost),
+                BeagleTheme.auroraNight.opacity(0.55),
+                .clear
+            ],
+            center: UnitPoint(x: 0.5, y: 0.95),
+            startRadius: 0,
+            endRadius: 520
+        )
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 
     // MARK: - Conversation (flat content above the mesh)

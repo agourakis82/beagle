@@ -25,7 +25,7 @@ struct BeagleSurface: View {
 
     @State private var conversation = ConversationStore(preferLocal: false)
     @State private var exocortex = ExocortexStore()
-    // DIAG: spaceWeather @State declaration removed to confirm cycle origin
+    @State private var spaceWeather = SpaceWeatherStore()
     @State private var activeSheet: SurfaceSheet?
     @State private var metacogNudge: MetacognitiveObservation?
     @State private var serendipityProvocation: SerendipityProvocation?
@@ -62,8 +62,11 @@ struct BeagleSurface: View {
     }
 
     private var surfaceRoot: some View {
-        // DIAG (2026-06-28): surfaceRoot stubbed to bisect cycle origin.
-        Color.black.ignoresSafeArea()
+        ZStack {
+            livingBackground
+            surfaceForeground
+            bootErrorOverlay
+        }
     }
 
     private var livingBackground: some View {
@@ -86,7 +89,7 @@ struct BeagleSurface: View {
             ChatScreen(
                 store: conversation,
                 breathRate: physio.cognitivePosture.respiratoryRate,
-                weather: nil   // DIAG: bypass spaceWeather.latest read
+                weather: spaceWeather.latest
             )
         }
     }
@@ -816,7 +819,8 @@ struct BeagleSurface: View {
         async let sounioWorkdayRefresh: Void = exocortex.refreshSounioWorkday(projectSlug: activeSlug, limit: 20)
         async let sounioMomentsRefresh: Void = exocortex.refreshRecentSounioMoments(projectSlug: activeSlug, limit: 20)
         async let bodyRefresh: Void = physio.refresh()
-        // DIAG: spaceWeather.start() removed alongside the @State declaration
+        // Boot the geomagnetic poller once; idempotent.
+        spaceWeather.start()
         _ = await (
             homeRefresh,
             projectionRefresh,

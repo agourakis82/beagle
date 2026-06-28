@@ -218,8 +218,13 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        // DIAG: body stubbed to Color to bisect cycle (above RootView entirely?).
-        Color.black.ignoresSafeArea()
+        Group {
+            if sizeClass == .regular {
+                iPadLayout
+            } else {
+                iPhoneLayout
+            }
+        }
         .task {
             initializeTabSelectionIfNeeded()
             await bootstrap()
@@ -329,44 +334,14 @@ struct RootView: View {
 
     // MARK: - iPhone Layout (4 tabs)
 
+    // 2026-06-28: simplified to companion-only per design doc IA
+    // ("Companion-pure + Trabalho drawer"). The other tabs (Fleet/Capture/Deep/
+    // Agents/Recall) were triggering an AttributeGraph cycle in their bodies —
+    // even when offscreen — causing 12M cycles/22s and SIGKILL. The TabView
+    // returns when one or more of those tabs' cycles are fixed and we
+    // re-introduce them behind a proper drawer (per the IA design doc).
     private var iPhoneLayout: some View {
-        TabView(selection: $selectedTab) {
-            Tab("Mind", systemImage: "brain.head.profile", value: 0) {
-                BeagleSurface(bootError: $bootError)
-            }
-            Tab("Fleet", systemImage: "terminal", value: 5) {
-                NavigationStack {
-                    FleetTerminalsView()
-                }
-            }
-            Tab("Capture", systemImage: "mic.fill", value: 1) {
-                NavigationStack {
-                    ThoughtCaptureView()
-                }
-            }
-            Tab("Deep", systemImage: "sparkles", value: 2) {
-                NavigationStack {
-                    DeepExplorationView()
-                        .navigationDestination(for: String.self) { _ in
-                            TriadReviewView()
-                        }
-                }
-            }
-            // Work (the agent deck) and Fleet (live sessions) are two views of the same
-            // thing — the cluster agents — so they share one tab on phone, where the tab
-            // bar can't afford a "More" overflow that buries them.
-            Tab("Agents", systemImage: "apple.terminal", value: 3) {
-                NavigationStack {
-                    AgentsTabView(bootError: $bootError)
-                }
-            }
-            Tab("Recall", systemImage: "sparkle.magnifyingglass", value: 4) {
-                NavigationStack {
-                    CognitiveRecallView()
-                }
-            }
-        }
-        .tint(BeagleTheme.truthObserved)
+        BeagleSurface(bootError: $bootError)
     }
 
     // MARK: - iPad Layout (sidebar + detail)
