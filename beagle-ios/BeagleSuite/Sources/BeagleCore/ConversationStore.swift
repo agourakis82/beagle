@@ -360,6 +360,53 @@ public final class ConversationStore {
         let previousContact = lastContactAt
         lastContactAt = Date()
 
+        // STREAM tokens live from /api/mobile/v1/chat/stream. The user sees the
+        // companion typing as the model emits — no more 7-9s frozen wait.
+        // Falls back to the buffered /chat endpoint on stream failure so the chat
+        // never goes completely dark.
+        let stream = client.chatStream(
+            prompt: contextualPrompt,
+            system: activeSystemInstruction,
+            projectSlug: projectSlug,
+            projectFamily: projectFamily,
+            publicationScope: publicationScope,
+            discussionProfile: discussionProfile,
+            flowState: flowState,
+            physioPolicy: physioPolicy,
+            lastContactAt: previousContact
+        )
+
+        var streamedText = ""
+        var streamErr: Error? = nil
+        do {
+            for try await token in stream {
+                streamedText += token
+                if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+                    messages[idx].content = stripReasoning(streamedText)
+                }
+            }
+        } catch {
+            streamErr = error
+        }
+
+        if !streamedText.isEmpty {
+            if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+                messages[idx].content = stripReasoning(streamedText)
+                messages[idx].isStreaming = false
+                messages[idx].source = "cloud-stream"
+                persist(message: messages[idx])
+                await autoImportExchange(
+                    user: userMessage,
+                    assistant: messages[idx],
+                    sourceSurface: "beagle-apple-cloud"
+                )
+            }
+            isStreaming = false
+            return
+        }
+
+        // Stream produced nothing (gateway hiccup or 5xx). Fall back to the
+        // buffered /chat endpoint so the user always gets a reply.
         let result = await client.chat(
             prompt: contextualPrompt,
             system: activeSystemInstruction,
@@ -381,8 +428,6 @@ public final class ConversationStore {
                 messages[idx].agentKind = response.agentKind
                 messages[idx].sessionId = response.sessionId
                 messages[idx].podName = response.podName
-
-                // Typing reveal for cloud responses
                 await revealText(fullText, for: assistantId)
                 messages[idx].isStreaming = false
                 persist(message: messages[idx])
@@ -392,7 +437,7 @@ public final class ConversationStore {
                     sourceSurface: "beagle-apple-cloud"
                 )
             } else {
-                messages[idx].content = result.error ?? "No response received."
+                messages[idx].content = result.error ?? streamErr?.localizedDescription ?? "No response received."
                 messages[idx].isStreaming = false
                 persist(message: messages[idx])
             }

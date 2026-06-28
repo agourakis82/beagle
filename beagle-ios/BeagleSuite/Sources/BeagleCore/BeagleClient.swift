@@ -1469,6 +1469,115 @@ public actor BeagleClient {
         return .staleError(lastError, source: "cockpit-mobile-gateway")
     }
 
+    // MARK: - Streaming chat (SSE: /api/mobile/v1/chat/stream)
+    //
+    // Streams tokens from the cockpit's SSE endpoint as they arrive — the user sees
+    // the companion typing live instead of a frozen 7-9s wait. Server writes
+    // `data: {"token":"..."}\n\n` per token and a final `data: {"done":true,...}` event.
+    // The returned AsyncThrowingStream yields one String per token.
+    public func chatStream(
+        prompt: String,
+        system: String? = nil,
+        projectSlug: String = "sounio",
+        projectFamily: ProjectFamily? = nil,
+        publicationScope: PublicationScope? = nil,
+        discussionProfile: DiscussionProfile = .cluster,
+        flowState: String? = nil,
+        physioPolicy: PhysioConversationPolicy? = nil,
+        lastContactAt: Date? = nil
+    ) -> AsyncThrowingStream<String, Error> {
+        let effectivePrompt: String
+        if let system, !system.isEmpty {
+            effectivePrompt = "System instruction:\n\(system)\n\nUser prompt:\n\(prompt)"
+        } else {
+            effectivePrompt = prompt
+        }
+        let family = projectFamily ?? .fromProjectSlug(projectSlug)
+        let scope = publicationScope ?? .forProjectFamily(family)
+        var body: [String: any Sendable] = [
+            "prompt": effectivePrompt,
+            "projectSlug": projectSlug,
+            "projectFamily": family.rawValue,
+            "publicationScope": scope.rawValue,
+            "discussionProfile": discussionProfile.rawValue,
+            "space": "personal",
+            "clientTime": ISO8601DateFormatter().string(from: Date()),
+            "timezone": TimeZone.current.identifier
+        ]
+        if let lastContactAt {
+            body["lastContactAt"] = ISO8601DateFormatter().string(from: lastContactAt)
+        }
+        if let flowState, !flowState.isEmpty {
+            body["flow_state"] = flowState
+        }
+        if let physioPolicy {
+            body["physio_policy"] = physioPolicy.requestBody
+        }
+
+        let cockpitURLs: [URL] = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+        ]
+
+        let session = self.session
+        let payload = (try? JSONSerialization.data(withJSONObject: body)) ?? Data()
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                var lastError: Error? = nil
+                for base in cockpitURLs {
+                    guard let url = URL(string: "/api/mobile/v1/chat/stream", relativeTo: base) else { continue }
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    request.timeoutInterval = 120
+                    request.httpBody = payload
+                    do {
+                        let (bytes, response) = try await session.bytes(for: request)
+                        guard let http = response as? HTTPURLResponse,
+                              (200..<300).contains(http.statusCode) else {
+                            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                            lastError = NSError(domain: "BeagleChatStream", code: status,
+                                userInfo: [NSLocalizedDescriptionKey: "HTTP \(status)"])
+                            continue
+                        }
+                        // Parse SSE: lines starting with "data: <json>", events split by blank line.
+                        for try await line in bytes.lines {
+                            if Task.isCancelled { break }
+                            guard line.hasPrefix("data:") else { continue }
+                            let json = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+                            guard let data = json.data(using: .utf8),
+                                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                                continue
+                            }
+                            if let token = obj["token"] as? String, !token.isEmpty {
+                                continuation.yield(token)
+                            } else if obj["done"] as? Bool == true {
+                                continuation.finish()
+                                return
+                            } else if let err = obj["error"] as? String {
+                                continuation.finish(throwing: NSError(domain: "BeagleChatStream", code: -1,
+                                    userInfo: [NSLocalizedDescriptionKey: err]))
+                                return
+                            }
+                        }
+                        continuation.finish()
+                        return
+                    } catch {
+                        lastError = error
+                        continue
+                    }
+                }
+                continuation.finish(throwing: lastError ?? NSError(domain: "BeagleChatStream", code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "all cockpit URLs failed"]))
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     // MARK: - Novelty Endpoints (Void, Fractal, Phi)
 
     public func startVoidJourney(prompt: String, maxDepth: Int = 3) async -> Truthful<VoidJourney> {
