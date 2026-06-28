@@ -21,7 +21,7 @@ import {
 import { registerScratchpadRoutes } from "./scratchpad-routes.mjs";
 import { registerJobRoutes } from "./job-routes.mjs";
 import { registerQueueRoutes } from "./queue-routes.mjs";
-import { registerAuthBridgeRoutes } from "./auth-bridge.mjs";
+import { registerAuthBridgeRoutes, fetchOperatorToken } from "./auth-bridge.mjs";
 import { startJobReconciler } from "./job-reconciler.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -10236,6 +10236,10 @@ app.use((req, res, next) => {
   }
   next();
 });
+// Physiome HealthKit/WeatherKit uploads arrive in multi-MB 5000-sample chunks;
+// give that path a large body limit BEFORE the default 100kb json parser (which
+// would 413 the upload). express.json() skips bodies already parsed (req._body).
+app.use("/api/physiome", express.json({ limit: "25mb" }));
 app.use(express.json());
 
 // ─── Security middleware ────────────────────────────────────────────
@@ -12158,10 +12162,11 @@ function renderProjectLaunchPage(project) {
 
     // ── Fleet Terminal (xterm.js → /ws/terminal PTY) ─────────────────────────
     // Connects to the shared interactive PTY for pod sounio-workspace-control-0.
-    // Token is injected server-side so the WebSocket auth gate accepts the upgrade.
-    // The old Shell Lane <pre> above is intentionally kept; both coexist.
+    // Auth uses the tailscale-user-login header the browser already sends on the
+    // upgrade request (same gate as the page) — NOT a token in the URL, which
+    // would leak into cloudflared/proxy access logs. The old Shell Lane <pre>
+    // above is intentionally kept; both coexist.
     (function () {
-      const _fleetToken = ${JSON.stringify(COCKPIT_AUTH_TOKEN || '')};
       const fleetPillEl      = document.getElementById("fleet-pill");
       const fleetPillText    = document.getElementById("fleet-pill-text");
       const fleetReconnectBtn = document.getElementById("fleet-reconnect");
@@ -12184,7 +12189,6 @@ function renderProjectLaunchPage(project) {
         fleetSetPill("", "connecting\\u2026");
         const scheme = location.protocol === "https:" ? "wss:" : "ws:";
         const params = new URLSearchParams({ project: slug });
-        if (_fleetToken) params.set("token", _fleetToken);
         const url = scheme + "//" + location.host + "/ws/terminal?" + params.toString();
         fleetWs = new WebSocket(url);
 
@@ -14964,6 +14968,93 @@ registerQueueRoutes(app);
 
 // ─── Auth bridge to beagle-server (iOS gets token via cockpit) ──────────
 registerAuthBridgeRoutes(app);
+
+// ─── Physiome ingest proxy — /api/physiome/* → physiome-ingest ──────────
+// The iOS Physiome uploader (PhysiomeUploader.swift) posts HealthKit and
+// WeatherKit samples to beagle.chiuratto.ai/api/physiome/ingest (this cockpit,
+// behind the cloudflared tunnel). The cockpit gate validates the operator Bearer;
+// this handler substitutes the physiome-specific ingest token (physiome-secrets)
+// before forwarding to the in-cluster ingest service.
+//   Service:  physiome-ingest.beagle.svc.cluster.local:8080
+//   Endpoint: POST /api/physiome/ingest
+(function registerPhysiomeProxyRoutes() {
+  const PHYSIOME_INGEST_INTERNAL_URL =
+    process.env.PROJECT_COCKPIT_PHYSIOME_INGEST_URL ||
+    "http://physiome-ingest.beagle.svc.cluster.local:8080";
+  const PHYSIOME_SECRET = "physiome-secrets";
+  const PHYSIOME_TOKEN_KEY = "PHYSIOME_INGEST_TOKEN";
+  const PHYSIOME_TOKEN_TTL_MS = 5 * 60 * 1000; // 5-minute cache
+
+  let physiomeTokenCache = null;
+  let physiomeTokenCachedAt = 0;
+
+  async function fetchPhysiomeToken() {
+    const now = Date.now();
+    if (physiomeTokenCache && (now - physiomeTokenCachedAt) < PHYSIOME_TOKEN_TTL_MS) {
+      return physiomeTokenCache;
+    }
+    try {
+      const raw = await runKubectl(
+        ["-n", "beagle", "get", "secret", PHYSIOME_SECRET,
+         "-o", `jsonpath={.data.${PHYSIOME_TOKEN_KEY}}`],
+        { timeoutMs: 5000 }
+      );
+      const decoded = Buffer.from(String(raw).trim(), "base64").toString("utf8").trim();
+      if (decoded) {
+        physiomeTokenCache = decoded;
+        physiomeTokenCachedAt = now;
+        return decoded;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  app.post("/api/physiome/*", async (req, res) => {
+    // Validate the incoming operator token against the known beagle token so this
+    // endpoint cannot be abused by any bearer that merely passed the cockpit gate.
+    const incoming = (req.headers["authorization"] || "").replace(/^Bearer\s+/i, "").trim();
+    const tokenResult = await fetchOperatorToken();
+    if (tokenResult.error || !tokenResult.token || incoming !== tokenResult.token) {
+      return res.status(401).json({ ok: false, error: "invalid operator token for physiome ingest" });
+    }
+
+    // Fetch the physiome-ingest-specific token (a different secret).
+    const physToken = await fetchPhysiomeToken();
+    if (!physToken) {
+      return res.status(503).json({ ok: false, error: "physiome-ingest token unavailable (check physiome-secrets)" });
+    }
+
+    // Strip the /api/physiome prefix and forward to the ingest service.
+    const tail = req.originalUrl.replace(/^\/api\/physiome/, "") || "/";
+    const target = `${PHYSIOME_INGEST_INTERNAL_URL}/api/physiome${tail}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60_000);
+    try {
+      const upstream = await fetch(target, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${physToken}`,
+          "X-Beagle-Consumer": "beagle-operator"
+        },
+        body: JSON.stringify(req.body ?? {}),
+        signal: ctrl.signal
+      });
+      const text = await upstream.text();
+      res
+        .status(upstream.status)
+        .set("Content-Type", upstream.headers.get("content-type") || "application/json")
+        .send(text);
+    } catch (err) {
+      res.status(503).json({
+        ok: false,
+        error: err.name === "AbortError" ? "physiome-ingest timeout (60s)" : err.message
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+})();
 
 const server = http.createServer(app);
 
