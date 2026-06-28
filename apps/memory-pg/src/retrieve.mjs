@@ -114,6 +114,7 @@ scored AS (
     f.dense_rank,
     f.bm25_rank,
     r.occurred_at,
+    r.trust_tier,
     (f.rrf / $5) AS rrf_norm,
     power(
       0.5,
@@ -126,7 +127,7 @@ scored AS (
   JOIN records r ON r.id = c.record_id
 )
 SELECT
-  chunk_id, record_id, text, dense_rank, bm25_rank, occurred_at,
+  chunk_id, record_id, text, dense_rank, bm25_rank, occurred_at, trust_tier,
   ($6::float * rrf_norm + (1 - $6::float) * recency) AS score
 FROM scored
 ORDER BY score DESC, chunk_id
@@ -157,6 +158,7 @@ LIMIT $9;
       dense_rank: row.dense_rank == null ? null : Number(row.dense_rank),
       bm25_rank: row.bm25_rank == null ? null : Number(row.bm25_rank),
       occurred_at: row.occurred_at,
+      trust_tier: row.trust_tier,
     }));
   } catch (err) {
     await client.query("ROLLBACK");
