@@ -25,6 +25,7 @@ public struct ChatScreen: View {
     let posture: CognitivePosture?
     @State private var draft = ""
     @State private var appeared = false
+    @State private var showAgora = false
 
     public init(store: ConversationStore,
                 breathRate: Double? = nil,
@@ -57,6 +58,8 @@ public struct ChatScreen: View {
             }
             // Layer 4: floating top-right "new conversation" button (only when there's history)
             if !store.messages.isEmpty { newConversationButton }
+            // Top-left "Agora" affordance → the weather-app-style sky/ambient/body detail.
+            agoraButton
             // Layer 5: body strip + composer, both pinned to the bottom
             VStack(spacing: BeagleSpacing.xs) {
                 bodyStrip
@@ -74,6 +77,42 @@ public struct ChatScreen: View {
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.55)) { appeared = true }
+        }
+        .sheet(isPresented: $showAgora) {
+            AgoraDetailView(sky: weather, summary: store.physioSummary ?? .empty)
+        }
+    }
+
+    // Top-left glass chip — opens the "Agora" detail (céu + ambiente + corpo, with trends).
+    private var agoraButton: some View {
+        VStack {
+            HStack {
+                Button {
+                    #if canImport(UIKit)
+                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                    #endif
+                    showAgora = true
+                } label: {
+                    Image(systemName: agoraGlyph)
+                        .font(BeagleFont.caption.font.weight(.semibold))
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.85))
+                        .padding(.horizontal, BeagleSpacing.sm)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: Capsule())
+                }
+                .padding(.leading, BeagleSpacing.md)
+                .padding(.top, BeagleSpacing.sm)
+                Spacer()
+            }
+            Spacer()
+        }
+    }
+
+    private var agoraGlyph: String {
+        switch SkyBand.from(kp: weather?.kp, dst: weather?.dst) {
+        case .calm:   return "moon.stars"
+        case .active: return "sparkles"
+        case .storm:  return "cloud.bolt"
         }
     }
 

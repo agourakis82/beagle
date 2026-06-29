@@ -129,6 +129,10 @@ public final class ConversationStore {
     public var behaviorContext: String? = nil
     public var noteTakingContext: String? = nil
     public var physioPolicy: PhysioConversationPolicy? = nil
+    /// Live body + sky, set by the view (same source as the aura/strip). Sent raw so the
+    /// server's `## Agora` block matches exactly what the screen shows.
+    public var physioSummary: PhysioSummary? = nil
+    public var currentSky: SpaceWeatherStore.Snapshot? = nil
 
     /// Fast on-device responder (Apple Foundation Models), injected by the app layer
     /// (BeagleCore can't reach BeagleCockpit). Light/casual messages route here for an
@@ -236,7 +240,11 @@ public final class ConversationStore {
                 let result = await client.chat(prompt: prompt, system: activeSystemInstruction,
                     projectSlug: projectSlug, projectFamily: projectFamily,
                     publicationScope: publicationScope, discussionProfile: discussionProfile,
-                    flowState: flowState, physioPolicy: physioPolicy)
+                    flowState: flowState, physioPolicy: physioPolicy,
+                    hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
+                    sleepHours: physioSummary?.sleepHours,
+                    kp: currentSky?.kp, dst: currentSky?.dst,
+                    solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz)
                 let full = result.value?.response ?? "Tô meio devagar agora — me dá um instante e tenta de novo?"
                 messages[idx].source = result.value?.source
                 await revealText(full, for: assistantId)
@@ -376,7 +384,11 @@ public final class ConversationStore {
             flowState: flowState,
             physioPolicy: physioPolicy,
             lastContactAt: previousContact,
-            history: history
+            history: history,
+            hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
+            sleepHours: physioSummary?.sleepHours,
+            kp: currentSky?.kp, dst: currentSky?.dst,
+            solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz
         )
 
         var streamedText = ""
@@ -420,7 +432,11 @@ public final class ConversationStore {
             flowState: flowState,
             physioPolicy: physioPolicy,
             lastContactAt: previousContact,
-            history: history
+            history: history,
+            hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
+            sleepHours: physioSummary?.sleepHours,
+            kp: currentSky?.kp, dst: currentSky?.dst,
+            solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz
         )
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {

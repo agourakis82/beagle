@@ -21,14 +21,17 @@ public final class SpaceWeatherStore {
     public struct Snapshot: Sendable, Equatable {
         public let ts: Date
         public let kp: Double           // 0–9, current 3-hourly index
+        public let dst: Double?         // Dst storm-time index, nT (more negative = deeper storm)
         public let f107: Double         // solar flux, sfu
         public let solarWindSpeed: Double  // km/s
         public let bz: Double           // IMF Bz, nT (negative = active)
         public let source: String
-        public init(ts: Date, kp: Double, f107: Double, solarWindSpeed: Double, bz: Double, source: String) {
-            self.ts = ts; self.kp = kp; self.f107 = f107
+        public init(ts: Date, kp: Double, dst: Double? = nil, f107: Double, solarWindSpeed: Double, bz: Double, source: String) {
+            self.ts = ts; self.kp = kp; self.dst = dst; self.f107 = f107
             self.solarWindSpeed = solarWindSpeed; self.bz = bz; self.source = source
         }
+        /// Named band — severity is the worst of Kp and Dst (Dst weighs as much as Kp).
+        public var band: SkyBand { SkyBand.from(kp: kp, dst: dst) }
     }
 
     /// The most recent observed snapshot. nil until the first successful fetch.
@@ -40,8 +43,16 @@ public final class SpaceWeatherStore {
         return max(0, min(1, (k - 2) / 4))
     }
 
-    /// Convenience: is geomagnetic storm in progress (G1+ = Kp ≥ 5).
-    public var isStorm: Bool { (latest?.kp ?? 0) >= 5 }
+    /// Convenience: is geomagnetic storm in progress — Kp ≥ 5 (G1+) OR Dst ≤ −50 nT.
+    public var isStorm: Bool {
+        guard let l = latest else { return false }
+        if l.kp >= 5 { return true }
+        if let d = l.dst, d <= -50 { return true }
+        return false
+    }
+
+    /// Current named band for surfaces that speak the sky (strip badge, detail screen).
+    public var band: SkyBand { latest?.band ?? .calm }
 
     private let client: BeagleClient
     private var pollTask: Task<Void, Never>?

@@ -79,7 +79,11 @@ public actor WeatherSyncEngine: NSObject {
     // MARK: - State
 
     private let service = WeatherService.shared
-    private let locationManager = CLLocationManager()
+    // Core Location must run on a thread with a run loop (the main thread). This actor's
+    // executor is a background thread with NO run loop, so a CLLocationManager owned here
+    // never delivers callbacks — which is exactly why weather never uploaded. The manager
+    // lives in a @MainActor provider instead.
+    private var locationProvider: WeatherLocationProvider?
     private var periodicTask: Task<Void, Never>?
     private var lastLocation: CLLocation?
     private var lastFetch: Date?
@@ -108,13 +112,15 @@ public actor WeatherSyncEngine: NSObject {
     /// Call from your SceneDelegate/App @main after location permission is granted.
     public func start(uploader: PhysiomeUploader) {
         currentUploader = uploader
-        locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyKilometer
-        // Use significant-change monitoring — battery-friendly, suitable for weather.
-        if CLLocationManager.significantLocationChangeMonitoringAvailable() {
-            locationManager.startMonitoringSignificantLocationChanges()
-        } else {
-            locationManager.startUpdatingLocation()
+        // Spin up the location provider on the main actor (where Core Location works) and
+        // feed fixes back into this actor.
+        Task { @MainActor in
+            let provider = WeatherLocationProvider()
+            provider.onLocation = { [weak self] loc in
+                Task { await self?.handleNewLocation(loc) }
+            }
+            provider.start()
+            await self.attach(provider)
         }
 
         // Kick off periodic timer.
@@ -122,18 +128,28 @@ public actor WeatherSyncEngine: NSObject {
         periodicTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
+                await self.seedLocationIfNeeded()
                 await self.fetchAndEnqueue(uploader: uploader)
                 try? await Task.sleep(for: .seconds(periodicInterval))
             }
         }
     }
 
+    private func attach(_ provider: WeatherLocationProvider) { locationProvider = provider }
+
+    /// If we still have no location (significant-change hasn't fired), request a one-shot fix
+    /// so the hourly fetch has somewhere to read weather for.
+    private func seedLocationIfNeeded() {
+        guard lastLocation == nil, let provider = locationProvider else { return }
+        Task { @MainActor in provider.requestOneShot() }
+    }
+
     /// Stop all fetching and monitoring. Safe to call multiple times.
     public func stop() {
         periodicTask?.cancel()
         periodicTask = nil
-        locationManager.stopMonitoringSignificantLocationChanges()
-        locationManager.stopUpdatingLocation()
+        let provider = locationProvider
+        Task { @MainActor in provider?.stop() }
     }
 
     // MARK: - Fetch
@@ -231,37 +247,9 @@ public actor WeatherSyncEngine: NSObject {
 
 /// The delegate is on the main thread (CLLocationManager requirement);
 /// we immediately dispatch into the actor.
-extension WeatherSyncEngine: CLLocationManagerDelegate {
+extension WeatherSyncEngine {
 
-    /// Called by CLLocationManager on the main thread. Stores the new location
-    /// and triggers a fetch using the uploader retained in `currentUploader`.
-    nonisolated public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
-        Task {
-            await self.handleNewLocation(location)
-        }
-    }
-
-    nonisolated public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        print("[WeatherSyncEngine] location error: \(error)")
-    }
-
-    nonisolated public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let status = manager.authorizationStatus
-        // `.authorizedWhenInUse` doesn't exist on macOS (it uses `.authorizedAlways`).
-        #if os(macOS)
-        let granted = (status == .authorizedAlways)
-        #else
-        let granted = (status == .authorizedAlways || status == .authorizedWhenInUse)
-        #endif
-        if granted {
-            if CLLocationManager.significantLocationChangeMonitoringAvailable() {
-                manager.startMonitoringSignificantLocationChanges()
-            }
-        }
-    }
-
-    private func handleNewLocation(_ location: CLLocation) async {
+    fileprivate func handleNewLocation(_ location: CLLocation) async {
         lastLocation = location
         #if os(iOS)
         // Geo-tag the device barometer with the same location stream.
@@ -272,6 +260,69 @@ extension WeatherSyncEngine: CLLocationManagerDelegate {
         #endif
         if let uploader = currentUploader {
             await fetchAndEnqueue(uploader: uploader)
+        }
+    }
+}
+
+// MARK: - Location provider (main-actor — Core Location needs a run loop)
+
+/// Owns the CLLocationManager on the main actor (so callbacks actually fire) and forwards
+/// each fix to `onLocation`. Requests permission + an immediate one-shot fix so weather
+/// starts flowing without waiting for the user to physically move ~500m.
+@MainActor
+final class WeatherLocationProvider: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    var onLocation: (@Sendable (CLLocation) -> Void)?
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyKilometer
+    }
+
+    func start() {
+        if manager.authorizationStatus == .notDetermined {
+            #if os(macOS)
+            manager.requestAlwaysAuthorization()
+            #else
+            manager.requestWhenInUseAuthorization()
+            #endif
+        }
+        if CLLocationManager.significantLocationChangeMonitoringAvailable() {
+            manager.startMonitoringSignificantLocationChanges()
+        } else {
+            manager.startUpdatingLocation()
+        }
+        manager.requestLocation()
+    }
+
+    func requestOneShot() { manager.requestLocation() }
+
+    func stop() {
+        manager.stopMonitoringSignificantLocationChanges()
+        manager.stopUpdatingLocation()
+    }
+
+    nonisolated func locationManager(_ m: CLLocationManager, didUpdateLocations locs: [CLLocation]) {
+        guard let loc = locs.last else { return }
+        Task { @MainActor in self.onLocation?(loc) }
+    }
+
+    nonisolated func locationManager(_ m: CLLocationManager, didFailWithError error: Error) {
+        print("[WeatherLocation] error: \(error.localizedDescription)")
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ m: CLLocationManager) {
+        // Don't capture the passed manager (non-Sendable) into the main-actor hop — read our
+        // own main-actor-isolated `manager`, which is the same object.
+        Task { @MainActor in
+            let s = self.manager.authorizationStatus
+            #if os(macOS)
+            let granted = (s == .authorizedAlways)
+            #else
+            let granted = (s == .authorizedAlways || s == .authorizedWhenInUse)
+            #endif
+            if granted { self.start() }
         }
     }
 }

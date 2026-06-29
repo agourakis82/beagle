@@ -1233,7 +1233,16 @@ public actor BeagleClient {
         flowState: String? = nil,
         physioPolicy: PhysioConversationPolicy? = nil,
         lastContactAt: Date? = nil,
-        history: [[String: String]] = []
+        history: [[String: String]] = [],
+        // Live body + sky for the server's `## Agora` block — the exact values the strip/aura
+        // show. All optional → backward compatible (older server just ignores them).
+        hrvMs: Double? = nil,
+        readiness: String? = nil,
+        sleepHours: Double? = nil,
+        kp: Double? = nil,
+        dst: Double? = nil,
+        solarWind: Double? = nil,
+        bz: Double? = nil
     ) async -> Truthful<ChatResponse> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1275,6 +1284,8 @@ public actor BeagleClient {
         if !history.isEmpty {
             body["history"] = history
         }
+        Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
+                            kp: kp, dst: dst, solarWind: solarWind, bz: bz)
 
         let mobileResult = await postPublicMobileChat(body: body)
         if mobileResult.value != nil {
@@ -1391,7 +1402,14 @@ public actor BeagleClient {
         flowState: String? = nil,
         physioPolicy: PhysioConversationPolicy? = nil,
         lastContactAt: Date? = nil,
-        history: [[String: String]] = []
+        history: [[String: String]] = [],
+        hrvMs: Double? = nil,
+        readiness: String? = nil,
+        sleepHours: Double? = nil,
+        kp: Double? = nil,
+        dst: Double? = nil,
+        solarWind: Double? = nil,
+        bz: Double? = nil
     ) async -> Truthful<ChatResponse> {
         await llmComplete(
             prompt: prompt,
@@ -1403,8 +1421,24 @@ public actor BeagleClient {
             flowState: flowState,
             physioPolicy: physioPolicy,
             lastContactAt: lastContactAt,
-            history: history
+            history: history,
+            hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
+            kp: kp, dst: dst, solarWind: solarWind, bz: bz
         )
+    }
+
+    /// Inject the live body + sky fields into a chat request body (shared by llmComplete +
+    /// the streaming path). Only present values are sent — the server's `## Agora` fills in
+    /// the rest from its own fetch.
+    static func addLiveContext(_ body: inout [String: any Sendable], hrvMs: Double?, readiness: String?,
+                               sleepHours: Double?, kp: Double?, dst: Double?, solarWind: Double?, bz: Double?) {
+        if let hrvMs { body["hrv_ms"] = hrvMs }
+        if let readiness, !readiness.isEmpty { body["readiness"] = readiness }
+        if let sleepHours { body["sleep_hours"] = sleepHours }
+        if let kp { body["kp"] = kp }
+        if let dst { body["dst"] = dst }
+        if let solarWind { body["solar_wind"] = solarWind }
+        if let bz { body["bz"] = bz }
     }
 
     private func postPublicMobileChat(body: [String: any Sendable]) async -> Truthful<ChatResponse> {
@@ -1491,7 +1525,14 @@ public actor BeagleClient {
         flowState: String? = nil,
         physioPolicy: PhysioConversationPolicy? = nil,
         lastContactAt: Date? = nil,
-        history: [[String: String]] = []
+        history: [[String: String]] = [],
+        hrvMs: Double? = nil,
+        readiness: String? = nil,
+        sleepHours: Double? = nil,
+        kp: Double? = nil,
+        dst: Double? = nil,
+        solarWind: Double? = nil,
+        bz: Double? = nil
     ) -> AsyncThrowingStream<String, Error> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1523,6 +1564,8 @@ public actor BeagleClient {
         if !history.isEmpty {
             body["history"] = history
         }
+        Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
+                            kp: kp, dst: dst, solarWind: solarWind, bz: bz)
 
         let cockpitURLs: [URL] = [
             URL(string: "https://beagle.chiuratto.ai")!,
@@ -1620,14 +1663,40 @@ public actor BeagleClient {
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                 print("[SpaceWeather/Client] \(base.host ?? "?") → HTTP \(code) (\(data.count)B)")
                 guard (200..<300).contains(code) else { continue }
-                struct Resp: Decodable { let ok: Bool; let latest: Latest? ; struct Latest: Decodable { let ts: String; let kp: Double; let f107: Double; let solar_wind_speed: Double; let bz: Double; let source: String } }
+                struct Resp: Decodable { let ok: Bool; let latest: Latest? ; struct Latest: Decodable { let ts: String; let kp: Double; let dst: Double?; let f107: Double; let solar_wind_speed: Double; let bz: Double; let source: String } }
                 let resp = try decoder.decode(Resp.self, from: data)
                 guard let l = resp.latest else { return nil }
                 let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
                 let ts = f.date(from: l.ts) ?? ISO8601DateFormatter().date(from: l.ts) ?? Date()
-                return SpaceWeatherStore.Snapshot(ts: ts, kp: l.kp, f107: l.f107, solarWindSpeed: l.solar_wind_speed, bz: l.bz, source: l.source)
+                return SpaceWeatherStore.Snapshot(ts: ts, kp: l.kp, dst: l.dst, f107: l.f107, solarWindSpeed: l.solar_wind_speed, bz: l.bz, source: l.source)
             } catch {
                 print("[SpaceWeather/Client] \(base.host ?? "?") error: \(error.localizedDescription)")
+                continue
+            }
+        }
+        return nil
+    }
+
+    /// Recent sky + ambient + HRV series for the Agora detail screen's trends. Cockpit route
+    /// (/api/mobile/v1/agora-history). Best-effort → nil on any failure.
+    public func agoraHistory(hours: Int = 48) async -> AgoraHistory? {
+        let cockpitURLs = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+        ]
+        for base in cockpitURLs {
+            guard let url = URL(string: "/api/mobile/v1/agora-history?hours=\(hours)", relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 20
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { continue }
+                return try decoder.decode(AgoraHistory.self, from: data)
+            } catch {
+                print("[AgoraHistory] \(base.host ?? "?") error: \(error.localizedDescription)")
                 continue
             }
         }
