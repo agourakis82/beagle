@@ -55,6 +55,10 @@ export function parseF107(json) {
   return seriesByHeader(json, ["flux", "f10.7", "f107", "observed_flux"]).map((r) => ({ ts: r.ts, f107: r.value }));
 }
 
+export function parseDst(json) {
+  return seriesByHeader(json, ["dst", "dst_index"]).map((r) => ({ ts: r.ts, dst: r.value }));
+}
+
 export function parseSolarWind(plasmaJson, magJson) {
   return {
     speed: seriesByHeader(plasmaJson, ["speed", "bulk_speed"]),
@@ -71,8 +75,8 @@ function latest(arr, key) {
 }
 
 // Collapse the latest reading of each series into one snapshot row for `space_weather`.
-export function mergeSpaceWeather({ kp = [], f107 = [], speed = [], bz = [] }) {
-  const lk = latest(kp, "kp"), lf = latest(f107, "f107"), ls = latest(speed), lb = latest(bz);
-  const ts = lk.ts || lf.ts || ls.ts || lb.ts || new Date().toISOString();
-  return { ts, kp: lk.v, f107: lf.v, solar_wind_speed: ls.v, bz: lb.v, source: "noaa-swpc" };
+export function mergeSpaceWeather({ kp = [], dst = [], f107 = [], speed = [], bz = [] }) {
+  const lk = latest(kp, "kp"), ld = latest(dst, "dst"), lf = latest(f107, "f107"), ls = latest(speed), lb = latest(bz);
+  const ts = lk.ts || ld.ts || lf.ts || ls.ts || lb.ts || new Date().toISOString();
+  return { ts, kp: lk.v, dst: ld.v, f107: lf.v, solar_wind_speed: ls.v, bz: lb.v, source: "noaa-swpc" };
 }

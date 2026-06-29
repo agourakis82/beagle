@@ -12,6 +12,7 @@
 // which we read via kubectl on demand (cached 5min).
 
 import { spawn } from "node:child_process";
+import { filterTrustedMemories } from "./temporal-context.mjs";
 
 const NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
 const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
@@ -804,6 +805,103 @@ export async function fetchSounioNow({ limit = 6, timeoutMs = 8000 } = {}) {
   }
 }
 
+// Sounio STATE digest — the observed shape of the work right now (active branch,
+// test posture, recent themes), emitted by the sounio-now-poller as `sounio-state`
+// atoms (the cockpit can't read the t560 git repo, so the signal flows through
+// memory). Mirrors fetchSounioNow (beagle-core tag query) but returns a single
+// digest string. 5-min cache; fail-soft to { digest: "" }. token/fetchImpl/cache
+// are injectable for tests.
+let _sounioStateCache = { digest: "", at: 0 };
+const SOUNIO_STATE_TTL_MS = 5 * 60 * 1000;
+export async function fetchSounioState({ limit = 1, timeoutMs = 8000, token = null, fetchImpl = fetch, cache = true } = {}) {
+  if (cache && _sounioStateCache.digest && Date.now() - _sounioStateCache.at < SOUNIO_STATE_TTL_MS) {
+    return { digest: _sounioStateCache.digest, cached: true };
+  }
+  let tok = token;
+  if (!tok) {
+    const tokenResult = await fetchOperatorToken();
+    if (tokenResult.error || !tokenResult.token) return { digest: "", error: tokenResult.error || "no token" };
+    tok = tokenResult.token;
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "content-type": "application/json",
+        "X-Beagle-Consumer": "beagle-operator",
+        Authorization: `Bearer ${tok}`
+      },
+      body: JSON.stringify({
+        query: "Sounio estado atual branch teste em progresso bloqueio",
+        k: Math.max(limit, 3),
+        tags: ["sounio-state"]
+      }),
+      signal: ctrl.signal
+    });
+    if (!res.ok) return { digest: "", error: `memory/query ${res.status}` };
+    const payload = parseJsonResponse(await res.text());
+    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
+    const digest = cleanString(
+      highlights
+        .filter(h => cleanString(h?.snippet))
+        .sort((a, b) => cleanString(b?.date).localeCompare(cleanString(a?.date)))[0]?.snippet
+    );
+    if (digest && cache) _sounioStateCache = { digest, at: Date.now() };
+    return { digest };
+  } catch (err) {
+    return { digest: "", error: err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Sounio RELATIONSHIP recall — Demetrios's OWN words about Sounio (what he wants
+// to build, what anguishes/proud him). Mirrors fetchRecentMemories (memory-pg
+// /query, trust_tier present) but with a fixed Sounio-emotional query, and gates
+// out `unverified` via filterTrustedMemories so only his grounded testimony is
+// injected — never model-fabricated affect (the Teobaldo lesson). 5-min cache
+// (fixed query → safe to cache, keeps the static prompt prefix stable).
+let _sounioRelCache = { results: [], at: 0 };
+const SOUNIO_REL_TTL_MS = 5 * 60 * 1000;
+const SOUNIO_REL_QUERY =
+  "Sounio o que quero construir o que me angustia frustra orgulha sinto sobre o compilador a linguagem";
+export async function fetchSounioRelationship({
+  baseUrl = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local",
+  token = process.env.MEMORY_PG_QUERY_TOKEN || "",
+  k = 4,
+  timeoutMs = 6000,
+  fetchImpl = fetch,
+  cache = true,
+} = {}) {
+  if (cache && _sounioRelCache.results.length && Date.now() - _sounioRelCache.at < SOUNIO_REL_TTL_MS) {
+    return _sounioRelCache.results;
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const headers = { "content-type": "application/json" };
+    if (token) headers.authorization = `Bearer ${token}`;
+    const res = await fetchImpl(`${baseUrl}/query`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ query: SOUNIO_REL_QUERY, k }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return [];
+    const j = await res.json();
+    const trusted = filterTrustedMemories(Array.isArray(j?.results) ? j.results : []);
+    if (trusted.length && cache) _sounioRelCache = { results: trusted, at: Date.now() };
+    return trusted;
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Best-effort: returns { digest: "" } on any failure so chat is never blocked.
 // Cache mirrors fetchBiographyDigest — physio digest is daily-distilled, so
 // re-fetching on every companion turn just costs ~4.7s of memory/query latency
@@ -850,6 +948,94 @@ export async function fetchPhysiomeDigest({ timeoutMs = 8000 } = {}) {
     return { digest };
   } catch (err) {
     return { digest: "", error: err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Latest space-weather snapshot (Kp/Dst/solar wind/Bz) from the physiome service.
+// This is the FALLBACK for the chat's `## Agora` block — the iOS app normally sends
+// the live values it's already showing (single source of truth), and this fills in
+// when an older build omits them. The physiome endpoint is PUBLIC (global NOAA data),
+// so no token is needed. Best-effort: returns null on any failure, never blocks chat.
+let _spaceWeatherCache = { snapshot: null, at: 0 };
+const SPACE_WEATHER_TTL_MS = 20 * 60 * 1000; // Kp/Dst update on ~hourly/3-hourly cadence
+const PHYSIOME_URL =
+  process.env.PHYSIOME_URL || "http://physiome-ingest.beagle.svc.cluster.local:8080";
+
+export async function fetchSpaceWeatherNow({
+  baseUrl = PHYSIOME_URL,
+  timeoutMs = 6000,
+  fetchImpl = fetch,
+  cache = true,
+} = {}) {
+  if (cache && _spaceWeatherCache.snapshot && Date.now() - _spaceWeatherCache.at < SPACE_WEATHER_TTL_MS) {
+    return _spaceWeatherCache.snapshot;
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${baseUrl}/api/physiome/space-weather/latest`, {
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const payload = parseJsonResponse(await res.text());
+    const latest = payload?.latest;
+    if (!latest || typeof latest !== "object") return null;
+    const snapshot = {
+      kp: latest.kp ?? null,
+      dst: latest.dst ?? null,
+      solarWind: latest.solar_wind_speed ?? null,
+      bz: latest.bz ?? null,
+      ts: cleanString(latest.ts),
+    };
+    if (cache) _spaceWeatherCache = { snapshot, at: Date.now() };
+    return snapshot;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// History series (sky + ambient + HRV) for the iOS "Agora" detail screen. The phone can't
+// reach physiome's ClusterIP, so it reads through the cockpit. Public endpoint (no token).
+// Best-effort → null on any failure. Short cache keyed by the hours window.
+let _agoraHistoryCache = new Map(); // hours → { data, at }
+const AGORA_HISTORY_TTL_MS = 10 * 60 * 1000;
+
+export async function fetchAgoraHistory({
+  hours = 48,
+  baseUrl = PHYSIOME_URL,
+  timeoutMs = 8000,
+  fetchImpl = fetch,
+  cache = true,
+} = {}) {
+  const cached = _agoraHistoryCache.get(hours);
+  if (cache && cached && Date.now() - cached.at < AGORA_HISTORY_TTL_MS) {
+    return cached.data;
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${baseUrl}/api/physiome/agora-history?hours=${encodeURIComponent(hours)}`, {
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const payload = parseJsonResponse(await res.text());
+    if (!payload || payload.ok === false) return null;
+    const data = {
+      hours: payload.hours ?? hours,
+      sky: Array.isArray(payload.sky) ? payload.sky : [],
+      weather: Array.isArray(payload.weather) ? payload.weather : [],
+      hrv: Array.isArray(payload.hrv) ? payload.hrv : [],
+    };
+    if (cache) _agoraHistoryCache.set(hours, { data, at: Date.now() });
+    return data;
+  } catch {
+    return null;
   } finally {
     clearTimeout(timer);
   }

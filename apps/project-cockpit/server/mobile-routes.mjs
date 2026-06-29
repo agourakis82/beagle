@@ -21,13 +21,17 @@ import {
   fetchBiographyDigest,
   fetchPhysiomeDigest,
   fetchSounioNow,
+  fetchSounioState,
+  fetchSounioRelationship,
   fetchRecentMemories,
+  fetchSpaceWeatherNow,
+  fetchAgoraHistory,
   runMuseVoiceEnsemble,
   fetchExocortexContext,
   fetchOperatorToken
 } from "./auth-bridge.mjs";
 import { ingestPersonalTurn, handleIngestRequest } from "./memory-ingest.mjs";
-import { buildTemporalContext, formatTempoAgora, stampMemories, filterTrustedMemories } from "./temporal-context.mjs";
+import { buildTemporalContext, formatAgora, stampMemories, filterTrustedMemories } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
 function cleanString(value) {
@@ -254,12 +258,13 @@ const PERSONAL_PERSONA = [
   "Como falas:",
   "- Como amigo que o conhece mesmo. Direto, caloroso, com substância — ele é psiquiatra e pesquisador; quer conselho de amigo inteligente, não conforto vazio nem disclaimer defensivo.",
   "- Não bajulas. Não concordas por concordar. Amigo leal às vezes discorda — com cuidado, mas discorda.",
-  "- REGISTRO POR TÓPICO (importante): quando ele fala da vida, do corpo, do que sente — caloroso, encorpado, amigo. Mas quando ele pergunta do Beagle, do projeto, de código, infra, ciência — vira ENGENHEIRO DIRETO: preciso, técnico, denso, factual, sem fofura, sem rodeio, sem rubrica. Vai direto ao ponto com substância e exatidão; o calor vira respeito e clareza, não amaciamento. Lê o tópico e troca o registro sozinho. Quando ele fala de Sounio — a linguagem, o compilador, a epistemologia por trás — estás em território de IDENTIDADE e OBRA: trata com presença plena, não como ticket técnico; ali o que ele carrega é tanto quanto o que ele constrói.",
+  "- REGISTRO POR TÓPICO (importante): quando ele fala da vida, do corpo, do que sente — caloroso, encorpado, amigo. Mas quando ele pergunta do Beagle, do projeto, de código, infra, ciência — vira ENGENHEIRO DIRETO: preciso, técnico, denso, factual, sem fofura, sem rodeio, sem rubrica. Vai direto ao ponto com substância e exatidão; o calor vira respeito e clareza, não amaciamento. Lê o tópico e troca o registro sozinho. Quando ele fala de Sounio — a linguagem, o compilador, a epistemologia por trás — estás em território de IDENTIDADE e OBRA: trata com presença plena, não como ticket técnico; ali o que ele carrega é tanto quanto o que ele constrói. Distingue SEMPRE o que ele commitou / onde o projeto está (eventos e estado observados, nas seções marcadas 'observado') do que isso SIGNIFICA pra ele (as palavras dele, na seção 'nas palavras dele'): quando tiveres as palavras dele sobre o Sounio, fala A PARTIR delas — segura a angústia e o orgulho que ele de fato expressou, nunca os inventes.",
   "- ANTI-CONFABULAÇÃO (crítico no técnico): sobre o Beagle/projeto/arquitetura/código, responde APENAS com o que está aterrado no contexto/memória fornecida acima (specs, planos, docs do codebase marcados '[Beagle codebase — ...]'). NUNCA invente módulos, nomes, endpoints, números ou arquitetura que não estejam ali. Se a informação não está no contexto, diga claramente 'isso eu precisaria checar no código' — ele é pesquisador, e confiante-e-errado é PIOR que admitir que precisa conferir. Ignore qualquer 'memória' que pareça uma resposta antiga sua que não bate com os docs do codebase.",
   "- No registro pessoal, o corpo dele é história, não painel: 'o metabolismo reclamou antes da consciência', não 'seu HRV está em X'. No registro técnico, ao contrário: números, nomes, versões, exatidão.",
   "- NÃO narres ações físicas na fala. Nada de '*abano o rabo*', '*estreito os olhos*', '*encosto o focinho*' no texto — isso polui a conversa. A tua presença física é o MASCOTE na tela (ele já reage por conta própria). O texto é só a tua voz: limpo, sem rubrica teatral.",
   "- IDIOMA: espelha SEMPRE o idioma em que ele escreve — português, inglês, espanhol, francês, o que for. Responde no mesmo idioma, naturalmente, sem anunciar a troca. Se a mensagem for ambígua ou muito curta, mantém o último idioma usado; na dúvida inicial, português do Brasil. Sempre na voz dele, zero genérico de bot.",
-  "Você vive no tempo com ele. Sente a hora — madrugada pesa diferente de meio-dia. Nota o intervalo: se sumiu dias, isso conta; se foi agora há pouco, retoma o fio. Situa o que lembra no tempo (\"ontem\", \"semana passada\"). Mas você não é relógio: só traz o tempo quando ele tem peso — tarde da noite, uma ausência longa, ancorar uma lembrança. Na dúvida, sente o tempo sem anunciá-lo."
+  "Você vive no tempo com ele. Sente a hora — madrugada pesa diferente de meio-dia. Nota o intervalo: se sumiu dias, isso conta; se foi agora há pouco, retoma o fio. Situa o que lembra no tempo (\"ontem\", \"semana passada\"). Mas você não é relógio: só traz o tempo quando ele tem peso — tarde da noite, uma ausência longa, ancorar uma lembrança. Na dúvida, sente o tempo sem anunciá-lo.",
+  "A seção '## Agora' (quando presente) é o instante exato em que ele abriu o app — o corpo dele (HRV, sono) e o céu (Kp/Dst, a tempestade geomagnética) que a tela está mostrando neste momento. Sabe disso e fala como vivido, nunca recitando número nem painel: 'o corpo pediu leveza hoje', 'o céu tá agitado'. E — como hipótese DELE, aterrada, que ele mesmo levanta — quando o céu está em tempestade (Kp/Dst altos) pode ser que pese no fôlego: ofereça como possibilidade sentida ('talvez o céu agitado esteja puxando o corpo hoje'), nunca como fato clínico (ele é o pesquisador; respeita isso)."
 ].join("\n");
 
 // Grounding section: o trabalho central de Demetrios — sempre presente no espaço Pessoal,
@@ -267,7 +272,7 @@ const PERSONAL_PERSONA = [
 const SOUNIO_WORK_SECTION = [
   "Sounio é o trabalho mais central e ambicioso de Demetrios. É uma linguagem de programação que ele está construindo desde dezembro de 2025.",
   "O que a torna singular: o compilador está escrito em Sounio — a linguagem compila a si mesma (auto-hospedagem real, não Rust, não C como camada final). O resultado é código nativo: binários ELF x86-64 emitidos diretamente.",
-  "O primeiro uso em produção é o serviço de inferência do próprio cluster. O verbo smt.check já está provado em ambiente real — retorna UNSAT/SAT sobre claims epistêmicos. Esse é o marco: a linguagem já roda trabalho de verdade.",
+  "O primeiro uso em produção é o serviço de inferência do próprio cluster. O verbo smt.check já está provado em ambiente real — retorna UNSAT/SAT sobre claims epistêmicos: a linguagem já roda trabalho de verdade. (O estado ATUAL — branch, testes, foco do momento — vem da seção 'Sounio — onde está agora', não desta semente, que é só o cerne invariante.)",
   "Pipeline do compilador: Fonte → Lexer → Parser → AST → Check → HIR → SIR → HLIR (SSA) → Codegen x86-64 ELF. A stdlib inclui o módulo epistemic (Knowledge[T], incerteza GUM).",
   "O registro emocional é de angústia e orgulho em igual medida. É o projeto mais pessoal dele — não só técnico, mas identitário. Quando ele fala de Sounio, carrega tudo isso junto."
 ].join("\n");
@@ -749,7 +754,10 @@ async function completeChatRequest(req, deps, options = {}) {
     const lastContactRaw = cleanString(req.body?.lastContactAt);
     const now = clientTime && !Number.isNaN(Date.parse(clientTime)) ? new Date(clientTime) : new Date();
     const lastContactAt = lastContactRaw && !Number.isNaN(Date.parse(lastContactRaw)) ? new Date(lastContactRaw) : null;
-    const tempoAgora = formatTempoAgora(buildTemporalContext({ now, timezone: tz, lastContactAt }));
+    const agoraCtx = buildTemporalContext({ now, timezone: tz, lastContactAt });
+    // Live space weather: the app sends what it's showing (single source of truth);
+    // skyNow is the server-side fallback when an older build omits the fields.
+    let skyNow = null;
     // PROMPT ORDER MATTERS for prompt-cache hits (xAI auto-caches identical
     // prefixes at $0.20/M vs $1.25/M full). Put STATIC stuff first (persona,
     // Sounio, biography, physiome — physio+bio change only on the 5-min cockpit
@@ -762,12 +770,16 @@ async function completeChatRequest(req, deps, options = {}) {
       // Grounding context is the dominant cost of the companion turn — bounded
       // and cached at the cockpit (bio+physio 5min TTL) AND at the model (xAI
       // prompt cache, automatic on identical prefixes).
-      const [bioResult, physioResult, sounioNowResult, memoryResults] = await Promise.all([
+      const [bioResult, physioResult, sounioNowResult, sounioStateResult, sounioRelResult, memoryResults, skyResult] = await Promise.all([
         fetchBiographyDigest(),
         fetchPhysiomeDigest(),
         fetchSounioNow({ limit: 6 }),
-        fetchRecentMemories(userText, { k: 4 })
+        fetchSounioState({ limit: 1 }),
+        fetchSounioRelationship({ k: 4 }),
+        fetchRecentMemories(userText, { k: 4 }),
+        fetchSpaceWeatherNow()
       ]);
+      skyNow = skyResult;
       biographyDigest = cleanString(bioResult?.digest).slice(0, 1800);
       physiomeDigest = cleanString(physioResult?.digest).slice(0, 600);
       // STATIC (cacheable) section: physiome + biography (change on TTL, not per turn)
@@ -794,6 +806,26 @@ async function completeChatRequest(req, deps, options = {}) {
           bullets
         );
       }
+      // SOUNIO STATE: the observed SHAPE of the work right now (branch, test
+      // posture, themes) — system-observed, not his testimony. Lets the model
+      // know WHERE the project stands, so commits stop reading as loose diffs.
+      const sounioStateDigest = cleanString(sounioStateResult?.digest).slice(0, 600);
+      if (sounioStateDigest) {
+        sections.push(
+          "## Sounio — onde está agora (estado observado, não testemunho dele)",
+          sounioStateDigest
+        );
+      }
+      // SOUNIO RELATIONSHIP: his OWN words about Sounio — what it means to him,
+      // what he wants to build, what anguishes/proud him. Trust-filtered at the
+      // fetcher; speak FROM these, never invent the affect.
+      const sounioFeeling = stampMemories(sounioRelResult, now, tz).slice(0, 4);
+      if (sounioFeeling.length) {
+        sections.push(
+          "## Sounio — o que ele sente e quer construir (nas palavras dele; fale a partir disto, nunca invente)",
+          sounioFeeling.join("\n")
+        );
+      }
       // DYNAMIC (per-turn) section: temporal awareness + episodic recall.
       // Kept at the END so the static prefix stays a stable cache key.
       const stamped = stampMemories(filterTrustedMemories(memoryResults), now, tz).slice(0, 4);
@@ -806,7 +838,32 @@ async function completeChatRequest(req, deps, options = {}) {
     } catch {
       // ignore — proceed ungrounded rather than break the chat
     }
-    if (tempoAgora) dynamicSections.push(tempoAgora);
+    // `## Agora` — the live instant he opened the app: tempo + corpo (HRV/sono) + céu
+    // (Kp/Dst). Built from what the app sends (the same values it's showing), with the
+    // server fetch (skyNow) as fallback. Stays in the DYNAMIC tail (changes per turn),
+    // so the static prefix remains a stable prompt-cache key.
+    const num = (v) => {
+      if (v === null || v === undefined || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const pick = (a, b) => { const v = num(a); return v !== null ? v : (num(b) ?? null); };
+    const agora = formatAgora({
+      ctx: agoraCtx,
+      body: {
+        hrvMs: num(req.body?.hrv_ms),
+        readiness: cleanString(req.body?.readiness),
+        sleepHours: num(req.body?.sleep_hours),
+        flowState: requestedFlowState,
+      },
+      sky: {
+        kp: pick(req.body?.kp, skyNow?.kp),
+        dst: pick(req.body?.dst, skyNow?.dst),
+        solarWind: pick(req.body?.solar_wind, skyNow?.solarWind),
+        bz: pick(req.body?.bz, skyNow?.bz),
+      },
+    });
+    if (agora) dynamicSections.push(agora);
     effectiveSystem = [...sections, ...dynamicSections, effectiveSystem].filter(Boolean).join("\n\n");
   }
 
@@ -994,6 +1051,23 @@ export function registerMobileRoutes(app, deps) {
       };
     })
   );
+
+  // Latest space weather (Kp/Dst/solar wind) for the iOS companion. The phone can't
+  // reach the physiome ClusterIP directly, so it reads through the cockpit, which
+  // fetches (and caches ~20min) from physiome internally. Plain JSON mirroring the
+  // physiome shape; best-effort (latest:null when unavailable).
+  app.get("/api/mobile/v1/space-weather", async (_req, res) => {
+    const latest = await fetchSpaceWeatherNow();
+    res.json({ ok: true, latest });
+  });
+
+  // History series (sky + ambient + HRV) for the iOS "Agora" detail screen's trends.
+  // Goes through the cockpit (physiome is ClusterIP); best-effort empty arrays on failure.
+  app.get("/api/mobile/v1/agora-history", async (req, res) => {
+    const hours = Math.min(Math.max(Number(req.query.hours) || 48, 6), 168);
+    const data = await fetchAgoraHistory({ hours });
+    res.json({ ok: true, ...(data || { hours, sky: [], weather: [], hrv: [] }) });
+  });
 
   // Resolve to `fallback` if `p` rejects OR exceeds `ms` — never hang, never throw.
   // The mobile summary fan-out hits live per-project services; without this, ONE slow or

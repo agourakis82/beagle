@@ -85,6 +85,120 @@ export function formatTempoAgora(ctx) {
   return lines.join("\n");
 }
 
+// --- `## Agora` — the instant the app opened: tempo + corpo + céu, consolidated ---
+// One block so the prompt == what the screen shows (HRV strip, mascote aura). All
+// pt-BR; narrative-first (named state, raw number only as a parenthetical aside).
+
+function num(v) {
+  // Number(null) === 0 and Number("") === 0 — guard those so absent fields read as null.
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** pt-BR readiness label from the iOS PhysioReadiness raw value. */
+export function readinessPtBR(raw) {
+  switch (String(raw || "").toLowerCase()) {
+    case "restored": return "recuperado";
+    case "steady": return "estável";
+    case "strained": return "tenso";
+    default: return "";
+  }
+}
+
+/** Kp geomagnetic band (planetary K-index, 0–9). */
+export function kpBand(kp) {
+  const v = num(kp);
+  if (v === null) return "";
+  if (v < 4) return "calmo";
+  if (v < 5) return "agitado";
+  return "tempestade";
+}
+
+// Rank a band label by severity so the CÉU line can lead with the worst of Kp/Dst.
+function skySeverity(label) {
+  switch (label) {
+    case "calmo": return 0;
+    case "agitado": case "perturbado": return 1;
+    case "tempestade": case "tempestade moderada": return 2;
+    case "tempestade intensa": return 3;
+    case "tempestade severa": return 4;
+    default: return -1;
+  }
+}
+
+/** Dst storm band (disturbance storm-time index, nT; more negative = deeper storm). */
+export function dstBand(dst) {
+  const v = num(dst);
+  if (v === null) return "";
+  if (v > -20) return "calmo";
+  if (v > -50) return "perturbado";
+  if (v > -100) return "tempestade moderada";
+  if (v > -200) return "tempestade intensa";
+  return "tempestade severa";
+}
+
+// Decimal comma for pt-BR; trims a trailing ",0".
+function ptNum(v, digits = 1) {
+  const n = num(v);
+  if (n === null) return "";
+  return n.toFixed(digits).replace(/\.0$/, "").replace(".", ",");
+}
+
+/**
+ * Consolidated `## Agora` block — the live instant the user opened the chat.
+ *   ctx  = buildTemporalContext(...) output (TEMPO)
+ *   body = { hrvMs, readiness, sleepHours, flowState } (CORPO; client physio)
+ *   sky  = { kp, dst, solarWind, bz } (CÉU; client values, server fetch as fallback)
+ * Missing sections drop out (fail-open). Returns "" if nothing at all is known.
+ */
+export function formatAgora({ ctx, body = {}, sky = {} } = {}) {
+  const lines = [];
+
+  const tempo = formatTempoAgora(ctx);
+  if (tempo) lines.push(tempo);
+
+  // CORPO: lead with the NAMED state (recuperado/estável/tenso); the numbers ride in a
+  // parenthetical the model can drop. Narrative-first so it speaks the state, not the readout.
+  const hrv = num(body.hrvMs);
+  const sleep = num(body.sleepHours);
+  const readiness = readinessPtBR(body.readiness);
+  const detail = [];
+  if (hrv !== null) detail.push(`HRV ${Math.round(hrv)}ms`);
+  if (sleep !== null) detail.push(`sono ${ptNum(sleep)}h`);
+  const paren = detail.length ? ` (${detail.join(" · ")})` : "";
+  const lead = readiness || cleanFlow(body.flowState);
+  if (lead) {
+    lines.push(`CORPO: ${lead}${paren}.`);
+  } else if (detail.length) {
+    lines.push(`CORPO: ${detail.join(" · ")}.`);
+  }
+
+  // CÉU: lead with the worst-of-Kp/Dst band as the felt descriptor; the raw values ride in
+  // the parenthetical. Omit the whole line only when neither Kp nor Dst is known.
+  const kb = kpBand(sky.kp), db = dstBand(sky.dst);
+  if (kb || db) {
+    const skyLead = skySeverity(db) >= skySeverity(kb) ? (db || kb) : (kb || db);
+    const detailSky = [];
+    if (kb) detailSky.push(`Kp ${ptNum(sky.kp)}`);
+    if (db) detailSky.push(`Dst ${Math.round(num(sky.dst))} nT`);
+    if (num(sky.solarWind) !== null) detailSky.push(`vento solar ${Math.round(num(sky.solarWind))} km/s`);
+    lines.push(`CÉU: ${skyLead} (${detailSky.join(" · ")}).`);
+  }
+
+  if (lines.length <= 0) return "";
+  // Header doubles as the instruction: this is private sensing, not a script to recite.
+  return ["## Agora — o instante dele (sinta e fale como vivido; nunca recite número nem rótulo)", ...lines].join("\n");
+}
+
+function cleanFlow(flowState) {
+  const f = String(flowState || "").toUpperCase();
+  if (f === "FLOW") return "fluxo";
+  if (f === "STRESS") return "tensão";
+  if (f === "NORMAL") return "equilíbrio";
+  return "";
+}
+
 // Cap each recalled snippet so a few large memory-pg rows can't bloat the system
 // prompt (token-cost / context overflow). k bounds the count; this bounds the size.
 const MAX_SNIPPET = 600;

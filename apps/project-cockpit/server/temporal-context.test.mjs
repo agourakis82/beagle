@@ -97,3 +97,73 @@ test("M1: short gap across local midnight is 'há poucas horas', not 'ontem'", (
   // a genuine day-ish gap across midnight stays 'ontem' (>= 6h)
   assert.equal(relativeTime(at("2026-06-26T10:00:00-03:00"), at("2026-06-27T10:00:00-03:00"), TZ), "ontem");
 });
+
+// --- `## Agora` block (tempo + corpo + céu) ---
+import { formatAgora, readinessPtBR, kpBand, dstBand } from "./temporal-context.mjs";
+
+const CTX = { nowLabel: "sexta, 26/jun, 23h47", parteDoDia: "noite", desdeUltimo: "há 3 dias" };
+
+test("readinessPtBR maps PhysioReadiness raw values", () => {
+  assert.equal(readinessPtBR("restored"), "recuperado");
+  assert.equal(readinessPtBR("steady"), "estável");
+  assert.equal(readinessPtBR("strained"), "tenso");
+  assert.equal(readinessPtBR("unavailable"), "");
+  assert.equal(readinessPtBR(undefined), "");
+});
+
+test("kpBand: calmo/agitado/tempestade", () => {
+  assert.equal(kpBand(2), "calmo");
+  assert.equal(kpBand(4), "agitado");
+  assert.equal(kpBand(4.5), "agitado");
+  assert.equal(kpBand(5), "tempestade");
+  assert.equal(kpBand(7.2), "tempestade");
+  assert.equal(kpBand(null), "");
+});
+
+test("dstBand: nT storm bands (more negative = deeper)", () => {
+  assert.equal(dstBand(-5), "calmo");
+  assert.equal(dstBand(-30), "perturbado");
+  assert.equal(dstBand(-72), "tempestade moderada");
+  assert.equal(dstBand(-150), "tempestade intensa");
+  assert.equal(dstBand(-250), "tempestade severa");
+  assert.equal(dstBand(null), "");
+});
+
+test("formatAgora: full block — state-first corpo + worst-band céu", () => {
+  const block = formatAgora({
+    ctx: CTX,
+    body: { hrvMs: 45, readiness: "restored", sleepHours: 7.2 },
+    sky: { kp: 5.8, dst: -72, solarWind: 385 },
+  });
+  assert.match(block, /^## Agora — o instante dele/);
+  assert.match(block, /TEMPO AGORA: sexta, 26\/jun, 23h47/);
+  // Named state leads; numbers are a droppable parenthetical aside.
+  assert.match(block, /CORPO: recuperado \(HRV 45ms · sono 7,2h\)\./);
+  // Worst-of-Kp\/Dst band leads (Dst moderada outranks Kp tempestade tie → Dst label).
+  assert.match(block, /CÉU: tempestade moderada \(Kp 5,8 · Dst -72 nT · vento solar 385 km\/s\)\./);
+});
+
+test("formatAgora: no HRV → leads with the flow state", () => {
+  const block = formatAgora({ ctx: CTX, body: { flowState: "FLOW" }, sky: {} });
+  assert.match(block, /CORPO: fluxo\./);
+  assert.doesNotMatch(block, /CÉU:/); // no kp/dst → no sky line
+});
+
+test("formatAgora: hrv but no readiness → numbers only, no leading state", () => {
+  const block = formatAgora({ ctx: CTX, body: { hrvMs: 50 }, sky: {} });
+  assert.match(block, /CORPO: HRV 50ms\./);
+});
+
+test("formatAgora: céu omitted when no kp AND no dst", () => {
+  const block = formatAgora({ ctx: CTX, body: { hrvMs: 50 }, sky: { solarWind: 400 } });
+  assert.doesNotMatch(block, /CÉU:/);
+});
+
+test("formatAgora: dst-only sky leads with the dst band", () => {
+  const block = formatAgora({ ctx: CTX, body: {}, sky: { dst: -120 } });
+  assert.match(block, /CÉU: tempestade intensa \(Dst -120 nT\)\./);
+});
+
+test("formatAgora: empty everything → empty string", () => {
+  assert.equal(formatAgora({ ctx: null, body: {}, sky: {} }), "");
+});

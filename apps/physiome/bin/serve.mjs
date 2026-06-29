@@ -1,5 +1,8 @@
 import express from "express";
-import { makePool, ensureSchema, upsertHealthSamples, upsertWeather } from "../src/db.mjs";
+import {
+  makePool, ensureSchema, upsertHealthSamples, upsertWeather,
+  getSpaceWeatherHistory, getWeatherHistory, getHealthHistory
+} from "../src/db.mjs";
 import { validateBatch } from "../src/validate.mjs";
 import { aggregateRange } from "../src/digest.mjs";
 import { correlatePhysiome, summarizeCorrelations } from "../src/correlate.mjs";
@@ -51,19 +54,38 @@ app.get("/api/physiome/correlations", async (req, res) => {
   }
 });
 
-// Latest space weather snapshot — Kp, F10.7, solar wind, IMF Bz. The /noaa-swpc
+// Latest space weather snapshot — Kp, Dst, F10.7, solar wind, IMF Bz. The /noaa-swpc
 // poller (run-poller.mjs) writes this every 2h; this is the read side so the
 // iOS companion can render the aurora presence with real-time geomagnetic state.
-// Read-only; same auth gate as ingest.
-app.get("/api/physiome/space-weather/latest", async (req, res) => {
-  if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
+// PUBLIC by design (no auth gate): this is global NOAA SWPC data (no user data), and
+// it must be reachable without the ingest token — the cockpit reads it as a chat
+// fallback and the phone reaches it via the cockpit (/api/mobile/v1/space-weather).
+app.get("/api/physiome/space-weather/latest", async (_req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ts, kp, f107, solar_wind_speed, bz, source
+      `SELECT ts, kp, dst, f107, solar_wind_speed, bz, source
          FROM space_weather ORDER BY ts DESC LIMIT 1`
     );
     if (!rows.length) return res.json({ ok: true, latest: null });
     res.json({ ok: true, latest: rows[0] });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+// History series for the "Agora" detail screen (weather-app-style trends): sky (Kp/Dst/
+// solar wind/Bz), ambient (temp/pressure/humidity/UV), and body (HRV). PUBLIC like the
+// latest endpoint — only the user's own uploaded series + global NOAA data; best-effort.
+const HRV_TYPE = "HKQuantityTypeIdentifierHeartRateVariabilitySDNN";
+app.get("/api/physiome/agora-history", async (req, res) => {
+  const hours = Math.min(Math.max(Number(req.query.hours) || 48, 6), 168);
+  try {
+    const [sky, weather, hrv] = await Promise.all([
+      getSpaceWeatherHistory(pool, hours),
+      getWeatherHistory(pool, hours),
+      getHealthHistory(pool, HRV_TYPE, hours),
+    ]);
+    res.json({ ok: true, hours, sky, weather, hrv });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }

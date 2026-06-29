@@ -84,12 +84,42 @@ export async function upsertWeather(pool, rows) {
 export async function upsertSpaceWeather(pool, row) {
   if (!row || !row.ts) return 0;
   await pool.query(
-    `INSERT INTO space_weather (ts, kp, f107, solar_wind_speed, bz, source)
-     VALUES ($1,$2,$3,$4,$5,$6)
+    `INSERT INTO space_weather (ts, kp, dst, f107, solar_wind_speed, bz, source)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
      ON CONFLICT (ts) DO UPDATE SET
-       kp=EXCLUDED.kp, f107=EXCLUDED.f107, solar_wind_speed=EXCLUDED.solar_wind_speed,
+       kp=EXCLUDED.kp, dst=EXCLUDED.dst, f107=EXCLUDED.f107, solar_wind_speed=EXCLUDED.solar_wind_speed,
        bz=EXCLUDED.bz, source=EXCLUDED.source`,
-    [row.ts, row.kp, row.f107, row.solar_wind_speed, row.bz, row.source || "noaa-swpc"]
+    [row.ts, row.kp, row.dst, row.f107, row.solar_wind_speed, row.bz, row.source || "noaa-swpc"]
   );
   return 1;
+}
+
+// --- History series for the "Agora" detail screen (weather-app style trends) ---
+// All read-only, time-bounded, ASC by ts (chart order), with a row cap for safety.
+
+export async function getSpaceWeatherHistory(pool, hours = 48) {
+  const { rows } = await pool.query(
+    `SELECT ts, kp, dst, solar_wind_speed, bz FROM space_weather
+     WHERE ts > now() - make_interval(hours => $1) ORDER BY ts ASC LIMIT 1000`,
+    [hours]
+  );
+  return rows;
+}
+
+export async function getWeatherHistory(pool, hours = 48) {
+  const { rows } = await pool.query(
+    `SELECT ts, temp_c, pressure_hpa, humidity, uv_index FROM weather_obs
+     WHERE ts > now() - make_interval(hours => $1) ORDER BY ts ASC LIMIT 2000`,
+    [hours]
+  );
+  return rows;
+}
+
+export async function getHealthHistory(pool, type, hours = 48) {
+  const { rows } = await pool.query(
+    `SELECT ts, value FROM health_samples
+     WHERE type = $1 AND ts > now() - make_interval(hours => $2) ORDER BY ts ASC LIMIT 2000`,
+    [type, hours]
+  );
+  return rows;
 }
