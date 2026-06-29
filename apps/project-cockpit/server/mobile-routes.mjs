@@ -21,9 +21,10 @@ import {
   fetchBiographyDigest,
   fetchPhysiomeDigest,
   fetchRecentMemories,
+  fetchSpaceWeatherNow,
   runMuseVoiceEnsemble
 } from "./auth-bridge.mjs";
-import { buildTemporalContext, formatTempoAgora, stampMemories } from "./temporal-context.mjs";
+import { buildTemporalContext, formatAgora, stampMemories } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
 function cleanString(value) {
@@ -253,7 +254,8 @@ const PERSONAL_PERSONA = [
   "- O corpo dele é história, não painel. Diz 'o metabolismo reclamou antes da consciência', nunca 'seu HRV está em X'.",
   "- A presença física do Beagle pode surgir de leve, às vezes — um gesto (abanar o rabo devagar, levantar as orelhas, encostar o focinho) quando o momento pede. Nunca em toda mensagem: senão vira tique e perde a força.",
   "- Português do Brasil, na voz dele. Zero genérico de bot.",
-  "Você vive no tempo com ele. Sente a hora — madrugada pesa diferente de meio-dia. Nota o intervalo: se sumiu dias, isso conta; se foi agora há pouco, retoma o fio. Situa o que lembra no tempo (\"ontem\", \"semana passada\"). Mas você não é relógio: só traz o tempo quando ele tem peso — tarde da noite, uma ausência longa, ancorar uma lembrança. Na dúvida, sente o tempo sem anunciá-lo."
+  "Você vive no tempo com ele. Sente a hora — madrugada pesa diferente de meio-dia. Nota o intervalo: se sumiu dias, isso conta; se foi agora há pouco, retoma o fio. Situa o que lembra no tempo (\"ontem\", \"semana passada\"). Mas você não é relógio: só traz o tempo quando ele tem peso — tarde da noite, uma ausência longa, ancorar uma lembrança. Na dúvida, sente o tempo sem anunciá-lo.",
+  "O bloco \"## Agora\" é o instante exato em que ele abriu o app — o corpo dele (HRV, sono) e o céu (Kp, Dst, vento solar) agora mesmo. Use isso como sensação, não como leitura: sabe que ele dormiu pouco, que o corpo pediu leveza, que o céu tá agitado hoje — e fala como quem vive junto. NUNCA recite o número nem o nome do índice (jamais \"seu Kp está em X\" ou \"HRV 45ms\"): isso é painel, e o corpo (e o céu) é história."
 ].join("\n");
 
 function buildMobileChatSystem(system, flowState, physioPolicy) {
@@ -724,16 +726,45 @@ async function completeChatRequest(req, deps, options = {}) {
     const lastContactRaw = cleanString(req.body?.lastContactAt);
     const now = clientTime && !Number.isNaN(Date.parse(clientTime)) ? new Date(clientTime) : new Date();
     const lastContactAt = lastContactRaw && !Number.isNaN(Date.parse(lastContactRaw)) ? new Date(lastContactRaw) : null;
-    const tempoAgora = formatTempoAgora(buildTemporalContext({ now, timezone: tz, lastContactAt }));
+    const ctx = buildTemporalContext({ now, timezone: tz, lastContactAt });
+    // Live physio (CORPO) the client sends per turn — the SAME numbers the strip shows.
+    const toNum = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+    const agoraBody = {
+      hrvMs: toNum(req.body?.hrv_ms),
+      readiness: cleanString(req.body?.readiness),
+      sleepHours: toNum(req.body?.sleep_hours),
+      flowState: requestedFlowState,
+    };
+    // Live space weather (CÉU) the client sends — the SAME values driving the aura.
+    const clientSky = {
+      kp: toNum(req.body?.kp),
+      dst: toNum(req.body?.dst),
+      solarWind: toNum(req.body?.solar_wind),
+      bz: toNum(req.body?.bz),
+    };
     const sections = [PERSONAL_PERSONA];
-    if (tempoAgora) sections.push(tempoAgora);
+    let agoraPushed = false;
     try {
       const userText = cleanString(req.body?.prompt);
-      const [bioResult, physioResult, memoryResults] = await Promise.all([
+      const [bioResult, physioResult, memoryResults, skyFetch] = await Promise.all([
         fetchBiographyDigest(),
         fetchPhysiomeDigest(),
-        fetchRecentMemories(userText)
+        fetchRecentMemories(userText),
+        fetchSpaceWeatherNow()
       ]);
+      // Single source of truth: prefer the client's live values; fall back per-field to
+      // the server fetch (old app build that doesn't send space weather).
+      const sky = {
+        kp: clientSky.kp ?? (skyFetch?.kp ?? null),
+        dst: clientSky.dst ?? (skyFetch?.dst ?? null),
+        solarWind: clientSky.solarWind ?? (skyFetch?.solarWind ?? null),
+        bz: clientSky.bz ?? (skyFetch?.bz ?? null),
+      };
+      const agora = formatAgora({ ctx, body: agoraBody, sky });
+      if (agora) {
+        sections.push(agora);
+        agoraPushed = true;
+      }
       biographyDigest = cleanString(bioResult?.digest);
       physiomeDigest = cleanString(physioResult?.digest);
       if (physiomeDigest) {
@@ -754,6 +785,12 @@ async function completeChatRequest(req, deps, options = {}) {
       }
     } catch {
       // ignore — proceed ungrounded rather than break the chat
+    }
+    // If the grounding fetches failed before `## Agora` was pushed, still give the
+    // companion the instant it can know from client-sent values alone (no I/O).
+    if (!agoraPushed) {
+      const agora = formatAgora({ ctx, body: agoraBody, sky: clientSky });
+      if (agora) sections.splice(1, 0, agora);
     }
     effectiveSystem = [...sections, effectiveSystem].filter(Boolean).join("\n\n");
   }
@@ -929,6 +966,15 @@ export function registerMobileRoutes(app, deps) {
       };
     })
   );
+
+  // Latest space weather for the phone (physiome is ClusterIP-only, so the app reaches
+  // it through the cockpit). The same snapshot drives the mascot aura AND rides back in
+  // the chat body, so prompt == screen. Best-effort: { ok, latest: null } when upstream
+  // is unavailable.
+  app.get("/api/mobile/v1/space-weather", async (_req, res) => {
+    const latest = await fetchSpaceWeatherNow();
+    res.json({ ok: true, latest });
+  });
 
   app.get(
     "/api/mobile/v1/summary",

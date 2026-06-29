@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parteDoDia, relativeTime } from "./temporal-context.mjs";
+import {
+  parteDoDia,
+  relativeTime,
+  formatAgora,
+  readinessPtBR,
+  kpBand,
+  dstBand,
+} from "./temporal-context.mjs";
 
 const TZ = "America/Sao_Paulo"; // UTC-03
 const at = (iso) => new Date(iso);
@@ -96,4 +103,79 @@ test("M1: short gap across local midnight is 'há poucas horas', not 'ontem'", (
   assert.equal(relativeTime(at("2026-06-26T22:00:00-03:00"), at("2026-06-27T02:00:00-03:00"), TZ), "há poucas horas");
   // a genuine day-ish gap across midnight stays 'ontem' (>= 6h)
   assert.equal(relativeTime(at("2026-06-26T10:00:00-03:00"), at("2026-06-27T10:00:00-03:00"), TZ), "ontem");
+});
+
+// ── `## Agora` consolidation ────────────────────────────────────────────────
+
+const CTX = buildTemporalContext({
+  now: at("2026-06-26T23:00:00-03:00"),
+  timezone: TZ,
+  lastContactAt: at("2026-06-25T15:00:00-03:00"),
+});
+
+test("readinessPtBR maps PhysioReadiness raw values", () => {
+  assert.equal(readinessPtBR("restored"), "recuperado");
+  assert.equal(readinessPtBR("steady"), "estável");
+  assert.equal(readinessPtBR("strained"), "tenso");
+  assert.equal(readinessPtBR("unavailable"), "");
+  assert.equal(readinessPtBR(""), "");
+});
+
+test("kpBand: calmo / ativo / tempestade", () => {
+  assert.equal(kpBand(2.3), "calmo");
+  assert.equal(kpBand(4.0), "ativo");
+  assert.equal(kpBand(4.9), "ativo");
+  assert.equal(kpBand(5.0), "tempestade");
+  assert.equal(kpBand(null), "");
+});
+
+test("dstBand: storm depth in nT", () => {
+  assert.equal(dstBand(-5), "calmo");
+  assert.equal(dstBand(-30), "perturbado");
+  assert.equal(dstBand(-72), "tempestade moderada");
+  assert.equal(dstBand(-150), "tempestade intensa");
+  assert.equal(dstBand(-250), "tempestade severa");
+  assert.equal(dstBand(null), "");
+});
+
+test("formatAgora: full block (tempo + corpo + céu)", () => {
+  const out = formatAgora({
+    ctx: CTX,
+    body: { hrvMs: 45, readiness: "restored", sleepHours: 7.2 },
+    sky: { kp: 5.8, dst: -72, solarWind: 385 },
+  });
+  assert.ok(out.startsWith("## Agora"));
+  assert.ok(out.includes("TEMPO AGORA:"));
+  assert.ok(out.includes("CORPO: HRV 45ms (recuperado), sono 7,2h."));
+  assert.ok(out.includes("CÉU: Kp 5,8 (tempestade), Dst -72 nT (tempestade moderada), vento solar 385 km/s."));
+});
+
+test("formatAgora: flow_state fallback when no HRV", () => {
+  const out = formatAgora({
+    ctx: CTX,
+    body: { flowState: "STRESS" },
+    sky: {},
+  });
+  assert.ok(out.includes("CORPO: o corpo tenso."));
+  assert.ok(!out.includes("HRV"));
+});
+
+test("formatAgora: céu omitted when no kp and no dst", () => {
+  const out = formatAgora({
+    ctx: CTX,
+    body: { hrvMs: 60, readiness: "steady" },
+    sky: { solarWind: 400 },
+  });
+  assert.ok(!out.includes("CÉU:"));
+  assert.ok(out.includes("CORPO: HRV 60ms (estável)."));
+});
+
+test("formatAgora: dst-only céu (kp missing)", () => {
+  const out = formatAgora({ ctx: CTX, body: {}, sky: { dst: -120 } });
+  assert.ok(out.includes("CÉU: Dst -120 nT (tempestade intensa)."));
+  assert.ok(!out.includes("Kp"));
+});
+
+test("formatAgora: empty when nothing to say", () => {
+  assert.equal(formatAgora({ ctx: null, body: {}, sky: {} }), "");
 });

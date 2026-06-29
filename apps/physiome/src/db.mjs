@@ -84,12 +84,22 @@ export async function upsertWeather(pool, rows) {
 export async function upsertSpaceWeather(pool, row) {
   if (!row || !row.ts) return 0;
   await pool.query(
-    `INSERT INTO space_weather (ts, kp, f107, solar_wind_speed, bz, source)
-     VALUES ($1,$2,$3,$4,$5,$6)
+    `INSERT INTO space_weather (ts, kp, dst, f107, solar_wind_speed, bz, source)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
      ON CONFLICT (ts) DO UPDATE SET
-       kp=EXCLUDED.kp, f107=EXCLUDED.f107, solar_wind_speed=EXCLUDED.solar_wind_speed,
+       kp=EXCLUDED.kp, dst=EXCLUDED.dst, f107=EXCLUDED.f107, solar_wind_speed=EXCLUDED.solar_wind_speed,
        bz=EXCLUDED.bz, source=EXCLUDED.source`,
-    [row.ts, row.kp, row.f107, row.solar_wind_speed, row.bz, row.source || "noaa-swpc"]
+    [row.ts, row.kp, row.dst, row.f107, row.solar_wind_speed, row.bz, row.source || "noaa-swpc"]
   );
   return 1;
+}
+
+// Most-recent space-weather snapshot, or null when the table is empty. Read-only;
+// the latest read endpoint serves this to the cockpit (fallback) and the phone.
+export async function getLatestSpaceWeather(pool) {
+  const { rows } = await pool.query(
+    `SELECT ts, kp, dst, f107, solar_wind_speed, bz, source
+     FROM space_weather ORDER BY ts DESC LIMIT 1`
+  );
+  return rows[0] || null;
 }

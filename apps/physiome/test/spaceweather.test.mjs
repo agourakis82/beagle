@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseKp, parseF107, parseSolarWind, mergeSpaceWeather } from "../src/spaceweather.mjs";
+import { parseKp, parseDst, parseF107, parseSolarWind, mergeSpaceWeather } from "../src/spaceweather.mjs";
 
 // NOAA SWPC products are array-of-arrays with a header row.
 const KP = [
@@ -21,6 +21,11 @@ const PLASMA = [
 const MAG = [
   ["time_tag", "bx_gsm", "by_gsm", "bz_gsm", "lon_gsm", "lat_gsm", "bt"],
   ["2026-06-22 11:59:00", "1.2", "-3.4", "-5.6", "120", "10", "6.8"],
+];
+const DST = [
+  ["time_tag", "dst"],
+  ["2026-06-22 10:00:00", "-15"],
+  ["2026-06-22 11:00:00", "-72"],
 ];
 
 test("parseKp reads time + Kp by header", () => {
@@ -51,9 +56,24 @@ test("parseKp/parseF107 handle array-of-objects format", () => {
   assert.equal(parseF107(f107Obj).at(-1).f107, 143);
 });
 
+test("parseDst reads time + Dst by header", () => {
+  const r = parseDst(DST);
+  assert.equal(r.length, 2);
+  assert.equal(r.at(-1).dst, -72);
+});
+
+test("parseDst handles array-of-objects format", () => {
+  const dstObj = [
+    { time_tag: "2026-06-22T10:00:00", dst: -10 },
+    { time_tag: "2026-06-22T11:00:00", dst: -55 },
+  ];
+  assert.equal(parseDst(dstObj).at(-1).dst, -55);
+});
+
 test("mergeSpaceWeather → latest snapshot row", () => {
-  const row = mergeSpaceWeather({ kp: parseKp(KP), f107: parseF107(F107), ...parseSolarWind(PLASMA, MAG) });
+  const row = mergeSpaceWeather({ kp: parseKp(KP), dst: parseDst(DST), f107: parseF107(F107), ...parseSolarWind(PLASMA, MAG) });
   assert.equal(row.kp, 5.0);
+  assert.equal(row.dst, -72);
   assert.equal(row.f107, 142);
   assert.equal(row.solar_wind_speed, 620);
   assert.equal(row.bz, -5.6);

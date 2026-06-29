@@ -25,6 +25,11 @@ struct BeagleFigure: View {
     var listening: Bool = false
     /// User's real respiratory rate (breaths/min, from PhysioStore); nil → calm resting default.
     var breathRate: Double? = nil
+    /// Live planetary Kp index (0–9). When elevated, the warm hearth aura gains an auroral layer.
+    var kp: Double? = nil
+    /// Live Dst index (nT, negative during storms). Drives the aura alongside Kp — the deeper
+    /// the dip, the stronger the storm — so the aura *becomes* the aurora when the sky stirs.
+    var dst: Double? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -43,6 +48,36 @@ struct BeagleFigure: View {
         case "STRESS": return Color(red: 190/255, green: 150/255, blue: 175/255)
         default:       return Color(red: 222/255, green: 158/255, blue: 120/255)
         }
+    }
+
+    /// 0 (calm sky) … 1 (severe storm). The more severe of the Kp and Dst bands —
+    /// honoring that Dst is as telling as Kp. The aura becomes the aurora as this rises.
+    private var skySeverity: Double {
+        func kpSev(_ k: Double) -> Double {
+            if k < 4 { return 0 }
+            if k < 5 { return 0.4 }
+            return min(1.0, 0.6 + (k - 5.0) / 4.0 * 0.4)  // Kp 5 → 0.6 … Kp 9 → 1.0
+        }
+        func dstSev(_ d: Double) -> Double {
+            if d > -20 { return 0 }
+            if d > -50 { return 0.4 }
+            if d > -100 { return 0.65 }
+            if d > -200 { return 0.85 }
+            return 1.0
+        }
+        let k = kp.map(kpSev) ?? 0
+        let d = dst.map(dstSev) ?? 0
+        return max(k, d)
+    }
+
+    /// Auroral tint: green when the sky just stirs, deepening toward violet in a real storm.
+    private var auroraColor: Color {
+        let t = skySeverity
+        return Color(
+            red:   (90.0 + (170.0 - 90.0) * t) / 255.0,
+            green: (220.0 + (120.0 - 220.0) * t) / 255.0,
+            blue:  (150.0 + (230.0 - 150.0) * t) / 255.0
+        )
     }
 
     var body: some View {
@@ -69,13 +104,27 @@ struct BeagleFigure: View {
     }
 
     private var auraField: some View {
-        Circle()
-            .fill(RadialGradient(
-                colors: [aura.opacity(0.28), aura.opacity(0.07), .clear],
-                center: .center, startRadius: 2, endRadius: 150))
-            .frame(width: 300, height: 300)
-            .blendMode(.screen)
-            .allowsHitTesting(false)
+        ZStack {
+            // Warm hearth base — always present (keeps the "fills the void" warmth the ember gave).
+            Circle()
+                .fill(RadialGradient(
+                    colors: [aura.opacity(0.28), aura.opacity(0.07), .clear],
+                    center: .center, startRadius: 2, endRadius: 150))
+            // Auroral shimmer — only when the sky stirs (Kp/Dst elevated). Calm sky → unchanged hearth.
+            if skySeverity > 0 {
+                Circle()
+                    .fill(RadialGradient(
+                        colors: [
+                            auroraColor.opacity(0.30 * skySeverity),
+                            auroraColor.opacity(0.10 * skySeverity),
+                            .clear
+                        ],
+                        center: .center, startRadius: 20, endRadius: 170))
+            }
+        }
+        .frame(width: 300, height: 300)
+        .blendMode(.screen)
+        .allowsHitTesting(false)
     }
 
     // MARK: - Drawing

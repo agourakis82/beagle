@@ -1,5 +1,5 @@
 import express from "express";
-import { makePool, ensureSchema, upsertHealthSamples, upsertWeather } from "../src/db.mjs";
+import { makePool, ensureSchema, upsertHealthSamples, upsertWeather, getLatestSpaceWeather } from "../src/db.mjs";
 import { validateBatch } from "../src/validate.mjs";
 import { aggregateRange } from "../src/digest.mjs";
 import { correlatePhysiome, summarizeCorrelations } from "../src/correlate.mjs";
@@ -46,6 +46,18 @@ app.get("/api/physiome/correlations", async (req, res) => {
     const aggs = await aggregateRange(pool, days);
     const result = correlatePhysiome(aggs, { minN });
     res.json({ ok: true, window_days: days, ...result, summary: summarizeCorrelations(result) });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+// Latest space-weather snapshot (Kp/Dst/solar wind/Bz). PUBLIC by design — this is
+// global NOAA SWPC data (no user data), and it must be reachable without the ingest
+// token: the cockpit reads it as a fallback and the phone reaches it via the cockpit.
+app.get("/api/physiome/space-weather/latest", async (_req, res) => {
+  try {
+    const latest = await getLatestSpaceWeather(pool);
+    res.json({ ok: true, latest });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }

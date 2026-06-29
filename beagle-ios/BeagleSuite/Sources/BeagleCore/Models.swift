@@ -302,6 +302,52 @@ public struct ExecutiveCatalog: Codable, Sendable {
     public let projectPosturePolicy: PosturePolicy?
 }
 
+/// Latest space-weather snapshot (Kp / Dst / solar wind / Bz). One fetch drives the
+/// mascot aura AND rides back in the chat body, so the prompt mirrors the screen.
+/// Tolerates both the cockpit shape (`solarWind`) and the raw physiome shape
+/// (`solar_wind_speed`) so it decodes regardless of which layer served it.
+public struct SpaceWeatherSnapshot: Decodable, Sendable, Equatable {
+    public let kp: Double?
+    public let dst: Double?
+    public let solarWindSpeed: Double?
+    public let bz: Double?
+    public let ts: String?
+
+    enum CodingKeys: String, CodingKey {
+        case kp
+        case dst
+        case solarWind
+        case solarWindSnake = "solar_wind_speed"
+        case bz
+        case ts
+    }
+
+    public init(kp: Double? = nil, dst: Double? = nil, solarWindSpeed: Double? = nil, bz: Double? = nil, ts: String? = nil) {
+        self.kp = kp
+        self.dst = dst
+        self.solarWindSpeed = solarWindSpeed
+        self.bz = bz
+        self.ts = ts
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kp = try container.decodeIfPresent(Double.self, forKey: .kp)
+        dst = try container.decodeIfPresent(Double.self, forKey: .dst)
+        solarWindSpeed =
+            try container.decodeIfPresent(Double.self, forKey: .solarWind)
+            ?? container.decodeIfPresent(Double.self, forKey: .solarWindSnake)
+        bz = try container.decodeIfPresent(Double.self, forKey: .bz)
+        ts = try container.decodeIfPresent(String.self, forKey: .ts)
+    }
+}
+
+/// Wrapper for the cockpit `GET /api/mobile/v1/space-weather` response.
+public struct SpaceWeatherLatestResponse: Decodable, Sendable {
+    public let ok: Bool?
+    public let latest: SpaceWeatherSnapshot?
+}
+
 public struct MobileMeta: Decodable, Sendable {
     public let truthMode: String?
     public let generatedAt: String?
