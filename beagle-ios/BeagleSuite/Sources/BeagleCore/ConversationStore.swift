@@ -114,8 +114,15 @@ public final class ConversationStore {
         }
     }
 
+    /// The active thread's id. Empty → falls back to the legacy single-thread id so an
+    /// existing conversation keeps loading until the user starts/switches a thread.
+    public private(set) var currentConversationId: String = ""
+    /// Observable title of the active thread (for the chat top bar). Updates when the thread
+    /// is created, switched, or auto-titled from the first user line.
+    public private(set) var currentConversationTitle: String = "Nova conversa"
+
     public var persistenceConversationId: String {
-        "home:\(projectSlug)"
+        currentConversationId.isEmpty ? "home:\(projectSlug)" : currentConversationId
     }
 
     // MARK: - Send (auto-routing)
@@ -600,6 +607,116 @@ public final class ConversationStore {
             )
         }
         isStreaming = false
+        // Backfill a thread record for legacy/un-recorded conversations so they show in the drawer.
+        if !messages.isEmpty {
+            touchConversationRecord(firstUserText: messages.first(where: { $0.role == .user })?.content)
+        }
+    }
+
+    // MARK: - Threads (multi-conversation)
+
+    /// All threads for the current project, pinned first then most-recently-updated.
+    public func conversations() -> [PersistedConversation] {
+        guard let ctx = modelContext else { return [] }
+        let slug = projectSlug
+        let d = FetchDescriptor<PersistedConversation>(
+            predicate: #Predicate<PersistedConversation> { $0.projectSlug == slug },
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+        )
+        let all = (try? ctx.fetch(d)) ?? []
+        // Bool isn't Comparable for SortDescriptor — partition pinned-first, stable within each group.
+        return all.filter { $0.pinned } + all.filter { !$0.pinned }
+    }
+
+    /// Start a fresh thread and switch to it (empty in-memory transcript).
+    public func newConversation() {
+        let id = "conv:\(UUID().uuidString.lowercased())"
+        if let ctx = modelContext {
+            ctx.insert(PersistedConversation(id: id, projectSlug: projectSlug, lastModel: discussionProfile.rawValue))
+            try? ctx.save()
+        }
+        currentConversationId = id
+        currentConversationTitle = "Nova conversa"
+        messages = []
+        isStreaming = false
+        lastContactAt = nil
+    }
+
+    /// Switch to an existing thread and load its transcript.
+    public func switchTo(conversationId id: String) {
+        guard id != persistenceConversationId || messages.isEmpty else { return }
+        currentConversationId = id
+        loadPersistedConversation()
+        refreshCurrentTitle()
+        lastContactAt = messages.last(where: { $0.role == .user })?.timestamp
+    }
+
+    private func refreshCurrentTitle() {
+        guard let ctx = modelContext else { return }
+        let id = persistenceConversationId
+        let d = FetchDescriptor<PersistedConversation>(predicate: #Predicate<PersistedConversation> { $0.id == id })
+        currentConversationTitle = (try? ctx.fetch(d).first)?.displayTitle ?? "Nova conversa"
+    }
+
+    public func renameConversation(_ id: String, title: String) {
+        guard let ctx = modelContext else { return }
+        let d = FetchDescriptor<PersistedConversation>(predicate: #Predicate<PersistedConversation> { $0.id == id })
+        if let conv = try? ctx.fetch(d).first {
+            conv.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            conv.updatedAt = .now
+            try? ctx.save()
+        }
+    }
+
+    public func togglePinned(_ id: String) {
+        guard let ctx = modelContext else { return }
+        let d = FetchDescriptor<PersistedConversation>(predicate: #Predicate<PersistedConversation> { $0.id == id })
+        if let conv = try? ctx.fetch(d).first {
+            conv.pinned.toggle()
+            try? ctx.save()
+        }
+    }
+
+    /// Delete a thread + its messages; if it was current, fall to the most-recent remaining (or a fresh one).
+    public func deleteConversation(_ id: String) {
+        guard let ctx = modelContext else { return }
+        let md = FetchDescriptor<PersistedMessage>(predicate: #Predicate<PersistedMessage> { $0.conversationId == id })
+        if let msgs = try? ctx.fetch(md) { for m in msgs { ctx.delete(m) } }
+        let cd = FetchDescriptor<PersistedConversation>(predicate: #Predicate<PersistedConversation> { $0.id == id })
+        if let convs = try? ctx.fetch(cd) { for c in convs { ctx.delete(c) } }
+        try? ctx.save()
+        if persistenceConversationId == id {
+            if let next = conversations().first {
+                switchTo(conversationId: next.id)
+            } else {
+                newConversation()
+            }
+        }
+    }
+
+    /// Upsert the thread record (createdif missing, bump updatedAt, set title from the first user
+    /// line if still untitled). Auto-title later upgrades to an LLM-generated title.
+    private func touchConversationRecord(firstUserText: String?) {
+        guard let ctx = modelContext else { return }
+        let id = persistenceConversationId
+        let slug = projectSlug
+        let d = FetchDescriptor<PersistedConversation>(predicate: #Predicate<PersistedConversation> { $0.id == id })
+        if let conv = try? ctx.fetch(d).first {
+            conv.updatedAt = .now
+            if (conv.title ?? "").isEmpty, let t = firstUserText { conv.title = Self.titleFrom(t) }
+            conv.lastModel = discussionProfile.rawValue
+        } else {
+            let conv = PersistedConversation(id: id, projectSlug: slug, lastModel: discussionProfile.rawValue)
+            if let t = firstUserText { conv.title = Self.titleFrom(t) }
+            ctx.insert(conv)
+        }
+        try? ctx.save()
+        refreshCurrentTitle()
+    }
+
+    private static func titleFrom(_ text: String) -> String {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
+        return String(t.prefix(48))
     }
 
     public func restoreContext(
@@ -639,6 +756,8 @@ public final class ConversationStore {
         )
         modelContext.insert(persisted)
         try? modelContext.save()
+        // Keep the thread record fresh (updatedAt for ordering; title from the first user line).
+        touchConversationRecord(firstUserText: message.role == .user ? message.content : nil)
     }
 
     private func autoImportExchange(

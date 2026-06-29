@@ -51,6 +51,7 @@ struct BeagleCockpitApp: App {
                 .modelContainer(for: [
                     PersistedThought.self,
                     PersistedMessage.self,
+                    PersistedConversation.self,
                     PersistedDeepSession.self,
                     PersistedExocortexHomeSnapshot.self,
                     PersistedAssistedImportOutbox.self,

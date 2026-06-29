@@ -25,7 +25,7 @@ public struct ChatScreen: View {
     let posture: CognitivePosture?
     @State private var draft = ""
     @State private var appeared = false
-    @State private var showAgora = false
+    @State private var showHistory = false
 
     public init(store: ConversationStore,
                 breathRate: Double? = nil,
@@ -56,15 +56,11 @@ public struct ChatScreen: View {
                     conversation
                 }
             }
-            // Layer 4: floating top-right "new conversation" button (only when there's history)
-            if !store.messages.isEmpty { newConversationButton }
-            // Top-left "Agora" affordance → the weather-app-style sky/ambient/body detail.
-            agoraButton
-            // Layer 5: body strip + composer, both pinned to the bottom
-            VStack(spacing: BeagleSpacing.xs) {
-                bodyStrip
-                composer
-            }
+            // Layer 4: minimal top bar — history · title · new. Floats over the aurora.
+            topBar
+            // Layer 5: composer pinned to the bottom. No body strip — body/sky/ambient data
+            // lives on its own screen now; the chat is just conversation.
+            composer
         }
         // Entry ceremony — the space materializes with a breath instead of snapping in
         // (Gaggioli: ceremony over frictionless).
@@ -78,42 +74,48 @@ public struct ChatScreen: View {
         .onAppear {
             withAnimation(.easeOut(duration: 0.55)) { appeared = true }
         }
-        .sheet(isPresented: $showAgora) {
-            AgoraDetailView(sky: weather, summary: store.physioSummary ?? .empty)
+        .sheet(isPresented: $showHistory) {
+            ConversationDrawer(store: store)
         }
     }
 
-    // Top-left glass chip — opens the "Agora" detail (céu + ambiente + corpo, with trends).
-    private var agoraButton: some View {
+    // Minimal top bar: history (☰) · conversation title · new (＋). Glass, floats over the aurora.
+    private var topBar: some View {
         VStack {
-            HStack {
-                Button {
-                    #if canImport(UIKit)
-                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-                    #endif
-                    showAgora = true
-                } label: {
-                    Image(systemName: agoraGlyph)
-                        .font(BeagleFont.caption.font.weight(.semibold))
-                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.85))
-                        .padding(.horizontal, BeagleSpacing.sm)
-                        .padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: Capsule())
+            HStack(spacing: BeagleSpacing.sm) {
+                topBarButton("line.3.horizontal") { showHistory = true }
+                Spacer(minLength: BeagleSpacing.sm)
+                Text(store.currentConversationTitle)
+                    .font(BeagleFont.footnote.font.weight(.semibold))
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: BeagleSpacing.sm)
+                topBarButton("square.and.pencil") {
+                    withAnimation(.easeOut(duration: 0.25)) { store.newConversation() }
                 }
-                .padding(.leading, BeagleSpacing.md)
-                .padding(.top, BeagleSpacing.sm)
-                Spacer()
             }
+            .padding(.horizontal, BeagleSpacing.md)
+            .padding(.top, BeagleSpacing.sm)
             Spacer()
         }
     }
 
-    private var agoraGlyph: String {
-        switch SkyBand.from(kp: weather?.kp, dst: weather?.dst) {
-        case .calm:   return "moon.stars"
-        case .active: return "sparkles"
-        case .storm:  return "cloud.bolt"
+    private func topBarButton(_ system: String, action: @escaping () -> Void) -> some View {
+        Button {
+            #if canImport(UIKit)
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            #endif
+            action()
+        } label: {
+            Image(systemName: system)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.85))
+                .frame(width: 34, height: 34)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
         }
+        .buttonStyle(.plain)
     }
 
     // Aurora CURTAIN sitting BEHIND the conversation. Spans the full width;
@@ -128,7 +130,10 @@ public struct ChatScreen: View {
             isStreaming: store.isStreaming,
             size: empty ? .greeter : .header
         )
-        .opacity(empty ? 1.0 : 0.55)
+        // Inspiring when empty (greeter); a quiet whisper behind the text when reading, so the
+        // conversation stays the hero (the user: "a aurora no fundo é inspiradora, sabendo fazer
+        // design não atrapalha").
+        .opacity(empty ? 0.9 : 0.28)
         .allowsHitTesting(false)
         .animation(.easeOut(duration: 0.35), value: empty)
     }
@@ -305,4 +310,83 @@ public struct ChatScreen: View {
     }
 
     private static let bottomAnchor = "companion.chat.bottom"
+}
+
+// MARK: - Conversation history drawer (Fase 1 polishes: search, rename, pin UI)
+
+/// The thread list — tap to switch, swipe to delete, + to start fresh. Best-in-class history
+/// (Claude/ChatGPT) so the chat is many conversations, not one.
+struct ConversationDrawer: View {
+    let store: ConversationStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var reloadToken = 0
+
+    var body: some View {
+        NavigationStack {
+            List {
+                let threads = store.conversations()
+                if threads.isEmpty {
+                    Text("Nenhuma conversa ainda.")
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                } else {
+                    ForEach(threads, id: \.id) { conv in
+                        Button {
+                            store.switchTo(conversationId: conv.id)
+                            dismiss()
+                        } label: {
+                            HStack(spacing: BeagleSpacing.sm) {
+                                if conv.pinned {
+                                    Image(systemName: "pin.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(BeagleTheme.truthRemembered)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(conv.displayTitle)
+                                        .font(BeagleFont.body.font)
+                                        .foregroundStyle(BeagleTheme.textPrimary)
+                                        .lineLimit(1)
+                                    Text(conv.updatedAt, format: .relative(presentation: .named))
+                                        .font(BeagleFont.caption2.font)
+                                        .foregroundStyle(BeagleTheme.textTertiary)
+                                }
+                                Spacer()
+                                if conv.id == store.currentConversationId {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(BeagleTheme.truthObserved)
+                                }
+                            }
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                store.deleteConversation(conv.id); reloadToken += 1
+                            } label: { Label("Apagar", systemImage: "trash") }
+                        }
+                        .swipeActions(edge: .leading) {
+                            Button {
+                                store.togglePinned(conv.id); reloadToken += 1
+                            } label: { Label("Fixar", systemImage: "pin") }
+                            .tint(BeagleTheme.truthRemembered)
+                        }
+                    }
+                }
+            }
+            .id(reloadToken)
+            .navigationTitle("Conversas")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Fechar") { dismiss() }
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        store.newConversation(); dismiss()
+                    } label: { Image(systemName: "square.and.pencil") }
+                }
+            }
+        }
+    }
 }
