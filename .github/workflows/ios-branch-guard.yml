@@ -1,0 +1,25 @@
+name: iOS branch guard
+
+# Anti-divergence guard. The iOS app is canonical on `integration/ios-physiome-merge`
+# (the branch built + installed from the Mac). Editing iOS on the server branch
+# (`reconcile/unify-beagle`) is what created the t560 ↔ Mac split (parallel
+# SpaceWeatherStore implementations). Fail fast when that happens.
+
+on:
+  push:
+    branches: [reconcile/unify-beagle]
+    paths: ['beagle-ios/**']
+  pull_request:
+    branches: [reconcile/unify-beagle]
+    paths: ['beagle-ios/**']
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject iOS changes on the server branch
+        run: |
+          echo "::error title=iOS on the wrong branch::beagle-ios/** changed on reconcile/unify-beagle."
+          echo "iOS is canonical on integration/ios-physiome-merge — make iOS changes there and harvest deltas onto it,"
+          echo "so t560 and the Mac never diverge again (see docs/agora-consolidation-handoff.md)."
+          exit 1

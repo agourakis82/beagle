@@ -1,0 +1,5 @@
+# The iOS app is CANONICAL on the `integration/ios-physiome-merge` branch (built + installed
+# from the Mac at ~/dev/beagle). Route all iOS changes through that one tree to avoid the
+# t560 ↔ Mac divergence that produced parallel SpaceWeather implementations. See
+# docs/agora-consolidation-handoff.md and .github/workflows/ios-branch-guard.yml.
+/beagle-ios/  @agourakis82
