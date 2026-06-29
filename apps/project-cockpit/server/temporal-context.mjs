@@ -85,6 +85,119 @@ export function formatTempoAgora(ctx) {
   return lines.join("\n");
 }
 
+// ── `## Agora` — the live instant the user opened the app ────────────────────
+// Consolidates TEMPO (when) + CORPO (his body) + CÉU (the sky) into ONE block, so
+// the prompt mirrors exactly what the app shows. All pure (no I/O), pt-BR. Missing
+// sections drop out (fail-open) — the companion is never handed a half-empty panel.
+
+/** pt-BR readiness word from the raw PhysioReadiness rawValue. "" when unknown. */
+export function readinessPtBR(raw) {
+  switch (String(raw || "").toLowerCase()) {
+    case "restored": return "recuperado";
+    case "steady":   return "estável";
+    case "strained": return "tenso";
+    default:         return "";
+  }
+}
+
+/** pt-BR Kp band. Kp is the 0–9 planetary index. */
+export function kpBand(kp) {
+  const v = finiteNum(kp);
+  if (v === null) return "";
+  if (v < 4) return "calmo";
+  if (v < 5) return "ativo";
+  return "tempestade";
+}
+
+/** pt-BR Dst band. Dst (nT) is the ring-current storm-time index — negative dips
+ *  mark geomagnetic storms; the deeper the dip, the stronger the storm. */
+export function dstBand(dst) {
+  const v = finiteNum(dst);
+  if (v === null) return "";
+  if (v > -20) return "calmo";
+  if (v > -50) return "perturbado";
+  if (v > -100) return "tempestade moderada";
+  if (v > -200) return "tempestade intensa";
+  return "tempestade severa";
+}
+
+// Treat null/undefined/"" as absent. `Number(null)` is 0 (finite), so a bare
+// Number.isFinite check would render a missing value as "0" — guard against it.
+function finiteNum(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function ptDecimal(n, digits = 1) {
+  return Number(n).toFixed(digits).replace(".", ",");
+}
+
+/** Directional body phrase from flow_state, used when no live HRV is available. */
+function flowStatePhrase(flowState) {
+  switch (String(flowState || "").toUpperCase()) {
+    case "FLOW":   return "o corpo em fluxo";
+    case "STRESS": return "o corpo tenso";
+    case "NORMAL": return "o corpo em ritmo neutro";
+    default:       return "";
+  }
+}
+
+/**
+ * Build the consolidated `## Agora` block. Returns "" when there is nothing to say.
+ *   ctx  — buildTemporalContext(...) result (TEMPO).
+ *   body — { hrvMs, readiness, sleepHours, flowState } (CORPO; client-sent live physio).
+ *   sky  — { kp, dst, solarWind, bz } (CÉU; client-sent live values or fallback fetch).
+ */
+export function formatAgora({ ctx, body = {}, sky = {} } = {}) {
+  const sections = [];
+
+  const tempo = formatTempoAgora(ctx);
+  if (tempo) sections.push(tempo);
+
+  // CORPO — HRV/sleep grounded, else a directional flow_state phrase.
+  const corpo = [];
+  const hrvMs = finiteNum(body?.hrvMs);
+  const sleepHours = finiteNum(body?.sleepHours);
+  if (hrvMs !== null) {
+    const word = readinessPtBR(body?.readiness);
+    corpo.push(`HRV ${Math.round(hrvMs)}ms${word ? ` (${word})` : ""}`);
+  }
+  if (sleepHours !== null) {
+    corpo.push(`sono ${ptDecimal(sleepHours, 1)}h`);
+  }
+  if (corpo.length) {
+    sections.push(`CORPO: ${corpo.join(", ")}.`);
+  } else {
+    const phrase = flowStatePhrase(body?.flowState);
+    if (phrase) sections.push(`CORPO: ${phrase}.`);
+  }
+
+  // CÉU — only when there's real space weather (kp or dst). Numbers grounded, spoken
+  // as the sky's mood, never as a dashboard.
+  const kp = finiteNum(sky?.kp);
+  const dst = finiteNum(sky?.dst);
+  const solarWind = finiteNum(sky?.solarWind);
+  if (kp !== null || dst !== null) {
+    const ceu = [];
+    if (kp !== null) {
+      const band = kpBand(kp);
+      ceu.push(`Kp ${ptDecimal(kp, 1)}${band ? ` (${band})` : ""}`);
+    }
+    if (dst !== null) {
+      const band = dstBand(dst);
+      ceu.push(`Dst ${Math.round(dst)} nT${band ? ` (${band})` : ""}`);
+    }
+    if (solarWind !== null) {
+      ceu.push(`vento solar ${Math.round(solarWind)} km/s`);
+    }
+    sections.push(`CÉU: ${ceu.join(", ")}.`);
+  }
+
+  if (!sections.length) return "";
+  return ["## Agora — o instante em que ele abriu o app", ...sections].join("\n");
+}
+
 // Cap each recalled snippet so a few large memory-pg rows can't bloat the system
 // prompt (token-cost / context overflow). k bounds the count; this bounds the size.
 const MAX_SNIPPET = 600;

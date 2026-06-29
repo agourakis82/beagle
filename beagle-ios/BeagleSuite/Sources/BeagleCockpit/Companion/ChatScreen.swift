@@ -55,7 +55,7 @@ public struct ChatScreen: View {
         if ProcessInfo.processInfo.arguments.contains("--beagle-splat") {
             BeagleSplatView(motion: CompanionMotion(flowState: store.flowState, listening: store.isStreaming, breathRate: breathRate))
         } else {
-            BeagleFigure(state: store.flowState, listening: store.isStreaming, breathRate: breathRate)
+            BeagleFigure(state: store.flowState, listening: store.isStreaming, breathRate: breathRate, kp: store.currentSky?.kp, dst: store.currentSky?.dst)
         }
         #else
         BeagleFigure(state: store.flowState, listening: store.isStreaming, breathRate: breathRate)

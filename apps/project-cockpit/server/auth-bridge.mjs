@@ -820,6 +820,63 @@ export async function fetchRecentMemories(query, {
   }
 }
 
+// Latest space-weather snapshot (Kp/Dst/solar wind/Bz) from the physiome service.
+// Used as a FALLBACK when the chat body doesn't carry client-fetched values (old app
+// build). Best-effort → null on any failure so chat is never blocked. Cached ~20min
+// since Kp updates ~hourly and Dst ~hourly — no need to re-fetch per turn.
+// The physiome /api/physiome/space-weather/latest route is public (global NOAA data),
+// so no auth header is sent. baseUrl/fetchImpl are injectable for tests.
+const SPACE_WEATHER_TTL_MS = 20 * 60 * 1000;
+let spaceWeatherCache = null;
+let spaceWeatherCachedAt = 0;
+
+export async function fetchSpaceWeatherNow({
+  baseUrl = process.env.PHYSIOME_URL || "http://physiome-ingest.beagle.svc.cluster.local:8080",
+  timeoutMs = 6000,
+  fetchImpl = fetch,
+  useCache = true,
+} = {}) {
+  const now = Date.now();
+  if (useCache && spaceWeatherCache && (now - spaceWeatherCachedAt) < SPACE_WEATHER_TTL_MS) {
+    return spaceWeatherCache;
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/api/physiome/space-weather/latest`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const payload = await res.json();
+    const latest = payload?.latest;
+    if (!latest || typeof latest !== "object") return null;
+    // Number(null) is 0 (finite) — treat null/undefined/"" as absent, not as 0.
+    const num = (v) => {
+      if (v === null || v === undefined || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const sky = {
+      kp: num(latest.kp),
+      dst: num(latest.dst),
+      solarWind: num(latest.solar_wind_speed),
+      bz: num(latest.bz),
+      ts: cleanString(latest.ts) || null,
+    };
+    if (useCache) {
+      spaceWeatherCache = sky;
+      spaceWeatherCachedAt = now;
+    }
+    return sky;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function extractRouterCompletionText(payload = {}) {
   return cleanString(
     payload?.choices?.[0]?.message?.content ||

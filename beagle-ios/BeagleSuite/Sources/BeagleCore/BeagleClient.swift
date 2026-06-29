@@ -1132,7 +1132,14 @@ public actor BeagleClient {
         discussionProfile: DiscussionProfile = .cluster,
         flowState: String? = nil,
         physioPolicy: PhysioConversationPolicy? = nil,
-        lastContactAt: Date? = nil
+        lastContactAt: Date? = nil,
+        hrvMs: Double? = nil,
+        readiness: String? = nil,
+        sleepHours: Double? = nil,
+        kp: Double? = nil,
+        dst: Double? = nil,
+        solarWind: Double? = nil,
+        bz: Double? = nil
     ) async -> Truthful<ChatResponse> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1171,6 +1178,15 @@ public actor BeagleClient {
         if let physioPolicy {
             body["physio_policy"] = physioPolicy.requestBody
         }
+        // Live instant — the SAME numbers on the strip + driving the aura. The cockpit
+        // folds these into the `## Agora` block so the prompt mirrors the screen.
+        if let hrvMs { body["hrv_ms"] = hrvMs }
+        if let readiness, !readiness.isEmpty { body["readiness"] = readiness }
+        if let sleepHours { body["sleep_hours"] = sleepHours }
+        if let kp { body["kp"] = kp }
+        if let dst { body["dst"] = dst }
+        if let solarWind { body["solar_wind"] = solarWind }
+        if let bz { body["bz"] = bz }
 
         let mobileResult = await postPublicMobileChat(body: body)
         if mobileResult.value != nil {
@@ -1262,7 +1278,14 @@ public actor BeagleClient {
         discussionProfile: DiscussionProfile = .cluster,
         flowState: String? = nil,
         physioPolicy: PhysioConversationPolicy? = nil,
-        lastContactAt: Date? = nil
+        lastContactAt: Date? = nil,
+        hrvMs: Double? = nil,
+        readiness: String? = nil,
+        sleepHours: Double? = nil,
+        kp: Double? = nil,
+        dst: Double? = nil,
+        solarWind: Double? = nil,
+        bz: Double? = nil
     ) async -> Truthful<ChatResponse> {
         await llmComplete(
             prompt: prompt,
@@ -1273,7 +1296,14 @@ public actor BeagleClient {
             discussionProfile: discussionProfile,
             flowState: flowState,
             physioPolicy: physioPolicy,
-            lastContactAt: lastContactAt
+            lastContactAt: lastContactAt,
+            hrvMs: hrvMs,
+            readiness: readiness,
+            sleepHours: sleepHours,
+            kp: kp,
+            dst: dst,
+            solarWind: solarWind,
+            bz: bz
         )
     }
 
@@ -1343,6 +1373,47 @@ public actor BeagleClient {
 
         print("[BeagleClient] \(debugLabel) all URLs failed: \(lastError)")
         return .staleError(lastError, source: "cockpit-mobile-gateway")
+    }
+
+    // MARK: - Space Weather
+
+    /// Latest space weather (Kp/Dst/solar wind/Bz) via the cockpit. Physiome is
+    /// ClusterIP-only, so the phone reaches it through the cockpit gateway (same hosts
+    /// as the mobile chat). One fetch is the single source of truth: it drives the
+    /// mascot aura AND is sent back in the chat body. Best-effort → nil on any failure.
+    public func spaceWeatherLatest() async -> SpaceWeatherSnapshot? {
+        let cockpitURLs = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+        ]
+        let debugLabel = "[SpaceWeatherSnapshot] GET /api/mobile/v1/space-weather"
+        for base in cockpitURLs {
+            guard let url = URL(string: "/api/mobile/v1/space-weather", relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "GET"
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+                request.timeoutInterval = 15
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode) else {
+                    continue
+                }
+                let decoded = try decoder.decode(SpaceWeatherLatestResponse.self, from: data)
+                if let latest = decoded.latest {
+                    print("[BeagleClient] \(debugLabel) ✅ success")
+                    return latest
+                }
+                // ok:true with latest:null → upstream has no snapshot yet; stop trying.
+                return nil
+            } catch {
+                print("[BeagleClient] \(debugLabel) ❌ error: \(error.localizedDescription)")
+                continue
+            }
+        }
+        return nil
     }
 
     // MARK: - Novelty Endpoints (Void, Fractal, Phi)

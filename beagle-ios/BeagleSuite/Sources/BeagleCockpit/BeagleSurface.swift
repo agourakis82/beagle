@@ -966,6 +966,13 @@ struct BeagleSurface: View {
         }
         // Real sleep → the attuned body-as-story greeting (no metrics surfaced).
         conversation.sleepQuality01 = physio.cognitivePosture.sleepQuality
+        // Live physiome (HRV/sleep/readiness) → the `## Agora` body, exact to the strip.
+        conversation.physioSummary = physio.summary
+        // One space-weather fetch → single source of truth: it drives the aura AND rides
+        // in the chat body so the prompt mirrors the screen. Best-effort.
+        Task { @MainActor in
+            conversation.currentSky = await BeagleClient.shared.spaceWeatherLatest()
+        }
         conversation.loadPersistedConversation()
 
         // Configure Foundation Models with stores

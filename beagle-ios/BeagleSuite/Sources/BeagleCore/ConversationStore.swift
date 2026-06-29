@@ -123,6 +123,12 @@ public final class ConversationStore {
     public var behaviorContext: String? = nil
     public var noteTakingContext: String? = nil
     public var physioPolicy: PhysioConversationPolicy? = nil
+    /// Live physiome (HRV/sleep/readiness) — the SAME values the strip shows. Set by the
+    /// view; sent per turn so the companion's `## Agora` body matches the screen.
+    public var physioSummary: PhysioSummary? = nil
+    /// Live space weather (Kp/Dst/solar wind) — the SAME snapshot driving the mascot
+    /// aura. One fetch, single source of truth: aura + prompt agree by construction.
+    public var currentSky: SpaceWeatherSnapshot? = nil
 
     /// Fast on-device responder (Apple Foundation Models), injected by the app layer
     /// (BeagleCore can't reach BeagleCockpit). Light/casual messages route here for an
@@ -212,7 +218,11 @@ public final class ConversationStore {
                 let result = await client.chat(prompt: prompt, system: activeSystemInstruction,
                     projectSlug: projectSlug, projectFamily: projectFamily,
                     publicationScope: publicationScope, discussionProfile: discussionProfile,
-                    flowState: flowState, physioPolicy: physioPolicy)
+                    flowState: flowState, physioPolicy: physioPolicy,
+                    hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
+                    sleepHours: physioSummary?.sleepHours,
+                    kp: currentSky?.kp, dst: currentSky?.dst,
+                    solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz)
                 let full = result.value?.response ?? "Tô meio devagar agora — me dá um instante e tenta de novo?"
                 messages[idx].source = result.value?.source
                 await revealText(full, for: assistantId)
@@ -328,7 +338,14 @@ public final class ConversationStore {
             discussionProfile: discussionProfile,
             flowState: flowState,
             physioPolicy: physioPolicy,
-            lastContactAt: previousContact
+            lastContactAt: previousContact,
+            hrvMs: physioSummary?.hrvMs,
+            readiness: physioSummary?.readiness.rawValue,
+            sleepHours: physioSummary?.sleepHours,
+            kp: currentSky?.kp,
+            dst: currentSky?.dst,
+            solarWind: currentSky?.solarWindSpeed,
+            bz: currentSky?.bz
         )
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
