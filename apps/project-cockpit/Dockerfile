@@ -1,3 +1,8 @@
+# kubectl as a build stage so we COPY the binary instead of curl-downloading it.
+# curl inside a kaniko RUN fails with "getaddrinfo() thread failed to start" (its
+# threaded resolver can't spawn under kaniko, on every node); COPY sidesteps it.
+FROM registry.k8s.io/kubectl:v1.30.14 AS kubectl
+
 FROM node:20-bookworm-slim
 
 RUN apt-get update \
@@ -11,9 +16,10 @@ RUN apt-get update \
     openssh-client \
     procps \
     python3 \
-  && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.30.14/bin/linux/amd64/kubectl" \
-  && chmod +x /usr/local/bin/kubectl \
   && rm -rf /var/lib/apt/lists/*
+
+COPY --from=kubectl /bin/kubectl /usr/local/bin/kubectl
+RUN chmod +x /usr/local/bin/kubectl
 
 WORKDIR /app
 COPY apps/project-cockpit/package.json ./package.json
