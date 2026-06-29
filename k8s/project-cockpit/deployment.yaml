@@ -34,16 +34,31 @@ spec:
         app.kubernetes.io/name: project-cockpit
         app.kubernetes.io/part-of: beagle
     spec:
-      affinity:
-        nodeAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - preference:
-              matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values:
-                - r770-proxmox
-            weight: 100
+      # Home = t560 (infra-control). It has by far the most disk (286G vs r770's chronically-full
+      # 94G), and the cockpit is a light Node proxy (no GPU, proxy-level I/O — unrelated to the
+      # souc builds that once starved etcd; the etcd-ioprio/souc-cap protections cover that). Hard
+      # role pin (not soft affinity) so the RWO PVC always reattaches on the same node — no
+      # Multi-Attach migration. Control-plane toleration + Unconfined (Core Location / kubectl /
+      # node-pty spawns need it) mirror the proven live config.
+      nodeSelector:
+        sounio.dev/runtime-role: infra-control
+      tolerations:
+      - key: sounio.dev/compute
+        operator: Equal
+        value: heavy
+        effect: NoSchedule
+      - key: sounio.dev/pool
+        operator: Equal
+        value: gpu-batch
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+        appArmorProfile:
+          type: Unconfined
       containers:
       - env:
         - name: PROJECT_COCKPIT_PORT
