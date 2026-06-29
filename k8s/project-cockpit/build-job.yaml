@@ -9,7 +9,15 @@ spec:
   template:
     spec:
       nodeSelector:
-        sounio.dev/runtime-role: cluster-core
+        sounio.dev/runtime-role: infra-control
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+        # node-pty's native build spawns sh/node-gyp; the node's default AppArmor profile
+        # blocks that exec (EPERM "rejected by your operating system") even with seccomp
+        # Unconfined. Disable AppArmor for the build too.
+        appArmorProfile:
+          type: Unconfined
       tolerations:
         - key: sounio.dev/compute
           operator: Equal
@@ -19,6 +27,11 @@ spec:
           operator: Equal
           value: gpu-batch
           effect: NoSchedule
+        # t560 (control-plane) is the only node not thread/process-saturated and with
+        # disk; native build (node-pty/node-gyp) needs the headroom. Monitored build.
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
       restartPolicy: Never
       initContainers:
         - name: clone
@@ -27,7 +40,7 @@ spec:
             - name: BEAGLE_GIT_BRANCH
               value: reconcile/unify-beagle
             - name: BEAGLE_GIT_REF
-              value: "267aa680"
+              value: "1f3a1ba5"
           command:
             - /bin/sh
             - -lc
@@ -40,7 +53,7 @@ spec:
           image: gcr.io/kaniko-project/executor:latest
           env:
             - name: BEAGLE_IMAGE_TAG
-              value: reconcile-267aa680
+              value: reconcile-1f3a1ba5
           args:
             - "--dockerfile=/workspace/apps/project-cockpit/Dockerfile"
             - "--context=dir:///workspace"
@@ -55,10 +68,10 @@ spec:
           resources:
             requests:
               cpu: "1"
-              memory: 1Gi
-            limits:
-              cpu: "2"
               memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 6Gi
       volumes:
         - name: workspace
           emptyDir:

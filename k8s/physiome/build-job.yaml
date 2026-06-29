@@ -11,6 +11,8 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      nodeSelector:
+        sounio.dev/runtime-role: io-lab
       tolerations:
         - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
         - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
@@ -19,7 +21,7 @@ spec:
         - name: clone
           image: alpine/git:latest
           # Pinned to an immutable commit SHA (not a mutable branch) for reproducible, tamper-resistant builds. Bump per release.
-          command: ["/bin/sh","-lc","cd /workspace && git init -q && git remote add origin https://github.com/agourakis82/beagle.git && git fetch -q --depth=1 origin 5775725740dcae1c52ad784c6fc3a99597bb18b8 && git checkout -q FETCH_HEAD"]
+          command: ["/bin/sh","-lc","cd /workspace && git init -q && git remote add origin https://github.com/agourakis82/beagle.git && git fetch -q --depth=1 origin 717628564c0e0ebf08da1fa5946826213fecf28a && git checkout -q FETCH_HEAD"]
           volumeMounts: [{ name: workspace, mountPath: /workspace }]
       containers:
         - name: kaniko
@@ -27,7 +29,7 @@ spec:
           args:
             - "--dockerfile=/workspace/apps/physiome/Dockerfile"
             - "--context=dir:///workspace"
-            - "--destination=192.168.3.207:5003/physiome:0.2.0-1b38f724"
+            - "--destination=192.168.3.207:5003/physiome:0.3.0-71762856"
             - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"
