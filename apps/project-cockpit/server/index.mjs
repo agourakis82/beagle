@@ -15009,6 +15009,29 @@ registerAuthBridgeRoutes(app);
     return null;
   }
 
+  // Mobile READ: body×sky×ambient correlations (lag scan) for the iOS data screen. The phone
+  // can't reach physiome's ClusterIP and doesn't hold the physiome token, so the cockpit reads
+  // through with the substituted token (same pattern as the ingest proxy). Front gate is the
+  // cockpit (tailnet/CF Access). Best-effort.
+  app.get("/api/mobile/v1/correlations", async (req, res) => {
+    try {
+      const token = await fetchPhysiomeToken();
+      const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 365);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      try {
+        const r = await fetch(`${PHYSIOME_INGEST_INTERNAL_URL}/api/physiome/correlations?days=${days}`, {
+          headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          signal: ctrl.signal,
+        });
+        const payload = JSON.parse(await r.text());
+        res.status(r.ok ? 200 : 502).json(payload);
+      } finally { clearTimeout(timer); }
+    } catch (e) {
+      res.status(502).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   app.post("/api/physiome/*", async (req, res) => {
     // Validate the incoming operator token against the known beagle token so this
     // endpoint cannot be abused by any bearer that merely passed the cockpit gate.
