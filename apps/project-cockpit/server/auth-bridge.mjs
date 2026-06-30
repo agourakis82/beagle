@@ -1137,7 +1137,10 @@ export async function streamChatViaRouter({
   messages,
   temperature = 0.8,
   onToken,
-  timeoutMs = 180000
+  timeoutMs = 180000,
+  // Generous default so long replies (code blocks, full markdown tables) aren't cut off by a
+  // low router/model default. Override via PROJECT_COCKPIT_PERSONAL_MAX_TOKENS.
+  maxTokens = Number(process.env.PROJECT_COCKPIT_PERSONAL_MAX_TOKENS) || 4096
 }) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -1154,6 +1157,7 @@ export async function streamChatViaRouter({
         model,
         messages,
         temperature,
+        max_tokens: maxTokens,
         stream: true
       }),
       signal: ctrl.signal
