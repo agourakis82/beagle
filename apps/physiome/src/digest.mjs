@@ -29,7 +29,9 @@ export async function aggregateDay(pool, date) {
        AVG(value) FILTER (WHERE type='VoiceAcousticF0VarianceHz') AS voice_pitch_variance,
        AVG(value) FILTER (WHERE type='VoiceAcousticRmsDb') AS voice_loudness_db,
        AVG(value) FILTER (WHERE type='VoiceAcousticPauseRatio') AS voice_pause_ratio,
-       AVG(value) FILTER (WHERE type='VoiceAcousticSpeechRateWpm') AS voice_speech_rate_wpm
+       AVG(value) FILTER (WHERE type='VoiceAcousticSpeechRateWpm') AS voice_speech_rate_wpm,
+       AVG(value) FILTER (WHERE type='ActigraphyDfaAlpha') AS actigraphy_dfa_alpha,
+       AVG(value) FILTER (WHERE type='ActigraphySampleEntropy') AS actigraphy_sample_entropy
      FROM health_samples WHERE ${range}`, win)).rows[0];
   const w = (await pool.query(
     `SELECT MIN(temp_c) tmin, MAX(temp_c) tmax, MAX(uv_index) uvmax, AVG(aqi) aqi,
@@ -52,6 +54,7 @@ export async function aggregateDay(pool, date) {
       voicePitchHz: r1(h.voice_pitch_hz), voicePitchVariance: r1(h.voice_pitch_variance),
       voiceLoudnessDb: r1(h.voice_loudness_db), voicePauseRatio: r1(h.voice_pause_ratio),
       voiceSpeechRateWpm: r1(h.voice_speech_rate_wpm),
+      actigraphyDfaAlpha: r1(h.actigraphy_dfa_alpha), actigraphySampleEntropy: r1(h.actigraphy_sample_entropy),
     },
     weather: { tempMinC: r1(w.tmin), tempMaxC: r1(w.tmax), pressureTrendHpa: r1(w.press_trend), uvMax: r0(w.uvmax), aqi: r0(w.aqi) },
     space: { kpMax: r1(s.kpmax), f107: r0(s.f107), solarWindSpeed: r0(s.sws) },

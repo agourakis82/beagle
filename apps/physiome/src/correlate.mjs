@@ -127,6 +127,7 @@ const OUTCOMES = [
   "balanceSteadiness", "balanceEvents", "gad7", "phq9",
   "drivingMinutes", "voicePitchHz", "voicePitchVariance", "voiceLoudnessDb",
   "voicePauseRatio", "voiceSpeechRateWpm",
+  "actigraphyDfaAlpha", "actigraphySampleEntropy",
 ];
 
 // Flatten the nested daily aggregates into one flat record per day, sorted by date.
@@ -149,6 +150,8 @@ export function flattenAggregates(aggs) {
       voiceLoudnessDb: a?.health?.voiceLoudnessDb ?? null,
       voicePauseRatio: a?.health?.voicePauseRatio ?? null,
       voiceSpeechRateWpm: a?.health?.voiceSpeechRateWpm ?? null,
+      actigraphyDfaAlpha: a?.health?.actigraphyDfaAlpha ?? null,
+      actigraphySampleEntropy: a?.health?.actigraphySampleEntropy ?? null,
       pressureTrendHpa: a?.weather?.pressureTrendHpa ?? null,
       uvMax: a?.weather?.uvMax ?? null,
       aqi: a?.weather?.aqi ?? null,
@@ -234,6 +237,7 @@ const LABELS = {
   voicePitchHz: "voz: pitch médio", voicePitchVariance: "voz: variância de pitch",
   voiceLoudnessDb: "voz: volume", voicePauseRatio: "voz: proporção de pausas",
   voiceSpeechRateWpm: "voz: taxa de fala",
+  actigraphyDfaAlpha: "actigrafia: DFA-alpha", actigraphySampleEntropy: "actigrafia: entropia amostral",
 };
 
 export function summarizeCorrelations(res, { top = 5 } = {}) {
