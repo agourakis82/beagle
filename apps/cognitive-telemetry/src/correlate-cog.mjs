@@ -11,7 +11,13 @@
 import { spearman, pearson } from "../../physiome/src/correlate.mjs";
 
 const COG_KEYS = ["coherenceMean", "coherenceMax", "zdMin", "zdMean", "lrMean", "ruptures"];
-const PHYS_KEYS = ["hrvMs", "sleepHours", "restingHr", "kpMax", "mood"];
+const PHYS_KEYS = [
+  "hrvMs", "sleepHours", "restingHr", "kpMax", "mood",
+  "balanceSteadiness", "balanceEvents", "gad7", "phq9",
+  "drivingMinutes", "voicePitchHz", "voicePitchVariance", "voiceLoudnessDb",
+  "voicePauseRatio", "voiceSpeechRateWpm",
+  "actigraphyDfaAlpha", "actigraphySampleEntropy",
+];
 
 function mulberry32(seed) {
   let a = seed >>> 0;
