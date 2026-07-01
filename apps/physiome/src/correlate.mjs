@@ -125,6 +125,8 @@ const DRIVERS = ["pressureTrendHpa", "kpMax", "solarWindSpeed", "f107", "uvMax",
 const OUTCOMES = [
   "hrvMs", "restingHr", "sleepHours", "mood", "steps",
   "balanceSteadiness", "balanceEvents", "gad7", "phq9",
+  "drivingMinutes", "voicePitchHz", "voicePitchVariance", "voiceLoudnessDb",
+  "voicePauseRatio", "voiceSpeechRateWpm",
 ];
 
 // Flatten the nested daily aggregates into one flat record per day, sorted by date.
@@ -141,6 +143,12 @@ export function flattenAggregates(aggs) {
       balanceEvents: a?.health?.balanceEvents ?? null,
       gad7: a?.health?.gad7 ?? null,
       phq9: a?.health?.phq9 ?? null,
+      drivingMinutes: a?.health?.drivingMinutes ?? null,
+      voicePitchHz: a?.health?.voicePitchHz ?? null,
+      voicePitchVariance: a?.health?.voicePitchVariance ?? null,
+      voiceLoudnessDb: a?.health?.voiceLoudnessDb ?? null,
+      voicePauseRatio: a?.health?.voicePauseRatio ?? null,
+      voiceSpeechRateWpm: a?.health?.voiceSpeechRateWpm ?? null,
       pressureTrendHpa: a?.weather?.pressureTrendHpa ?? null,
       uvMax: a?.weather?.uvMax ?? null,
       aqi: a?.weather?.aqi ?? null,
@@ -222,7 +230,10 @@ const LABELS = {
   mood: "humor", steps: "passos", pressureTrendHpa: "tendência de pressão",
   solarWindSpeed: "vento solar", f107: "F10.7", uvMax: "UV", aqi: "AQI", tempMaxC: "temp. máx",
   balanceSteadiness: "equilíbrio (steadiness)", balanceEvents: "eventos de risco de queda",
-  gad7: "GAD-7 (ansiedade)", phq9: "PHQ-9 (depressão)",
+  gad7: "GAD-7 (ansiedade)", phq9: "PHQ-9 (depressão)", drivingMinutes: "tempo dirigindo",
+  voicePitchHz: "voz: pitch médio", voicePitchVariance: "voz: variância de pitch",
+  voiceLoudnessDb: "voz: volume", voicePauseRatio: "voz: proporção de pausas",
+  voiceSpeechRateWpm: "voz: taxa de fala",
 };
 
 export function summarizeCorrelations(res, { top = 5 } = {}) {
