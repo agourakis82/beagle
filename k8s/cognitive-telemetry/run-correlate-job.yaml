@@ -1,0 +1,47 @@
+# One-off job: run apps/cognitive-telemetry/bin/run-correlate.mjs against the real
+# memory-pg + physiome pools. Not a deployed service — inspect logs, then delete.
+#   kubectl delete job run-correlate -n beagle --ignore-not-found
+#   kubectl apply -f k8s/cognitive-telemetry/run-correlate-job.yaml
+#   kubectl wait --for=condition=complete --timeout=180s job/run-correlate -n beagle
+#   kubectl logs job/run-correlate -n beagle
+apiVersion: batch/v1
+kind: Job
+metadata: { name: run-correlate, namespace: beagle }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        sounio.dev/runtime-role: io-lab
+      tolerations:
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+      securityContext: { seccompProfile: { type: Unconfined } }
+      containers:
+        - name: run-correlate
+          image: node:20-alpine
+          command: ["/bin/sh", "-lc"]
+          args:
+            - |
+              set -e
+              apk add --no-cache git >/dev/null
+              cd /workspace
+              git init -q
+              git remote add origin https://github.com/agourakis82/beagle.git
+              git fetch -q --depth=1 origin 01e2a97f4bab50553ec7c62262ba46ecc0d33b0f
+              git checkout -q FETCH_HEAD
+              cd apps/memory-pg && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1
+              cd ../physiome && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1
+              cd ../cognitive-telemetry
+              node bin/run-correlate.mjs --days 30
+          env:
+            - name: MEMORY_PG_DSN
+              valueFrom: { secretKeyRef: { name: memory-pg, key: DATABASE_URL } }
+            - name: PHYSIOME_PG_DSN
+              valueFrom: { secretKeyRef: { name: beagle-pg, key: DATABASE_URL } }
+          workingDir: /workspace
+          volumeMounts: [{ name: workspace, mountPath: /workspace }]
+          resources: { requests: { cpu: "500m", memory: "512Mi" }, limits: { cpu: "2", memory: "2Gi" } }
+      volumes: [{ name: workspace, emptyDir: { sizeLimit: 1Gi } }]
