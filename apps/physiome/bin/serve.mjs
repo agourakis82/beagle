@@ -77,15 +77,17 @@ app.get("/api/physiome/space-weather/latest", async (_req, res) => {
 // solar wind/Bz), ambient (temp/pressure/humidity/UV), and body (HRV). PUBLIC like the
 // latest endpoint — only the user's own uploaded series + global NOAA data; best-effort.
 const HRV_TYPE = "HKQuantityTypeIdentifierHeartRateVariabilitySDNN";
+const AUDIO_DB_TYPE = "HKQuantityTypeIdentifierEnvironmentalAudioExposure";
 app.get("/api/physiome/agora-history", async (req, res) => {
   const hours = Math.min(Math.max(Number(req.query.hours) || 48, 6), 168);
   try {
-    const [sky, weather, hrv] = await Promise.all([
+    const [sky, weather, hrv, audioDb] = await Promise.all([
       getSpaceWeatherHistory(pool, hours),
       getWeatherHistory(pool, hours),
       getHealthHistory(pool, HRV_TYPE, hours),
+      getHealthHistory(pool, AUDIO_DB_TYPE, hours),
     ]);
-    res.json({ ok: true, hours, sky, weather, hrv });
+    res.json({ ok: true, hours, sky, weather, hrv, audioDb });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }

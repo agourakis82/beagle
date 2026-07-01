@@ -1066,7 +1066,7 @@ export function registerMobileRoutes(app, deps) {
   app.get("/api/mobile/v1/agora-history", async (req, res) => {
     const hours = Math.min(Math.max(Number(req.query.hours) || 48, 6), 168);
     const data = await fetchAgoraHistory({ hours });
-    res.json({ ok: true, ...(data || { hours, sky: [], weather: [], hrv: [] }) });
+    res.json({ ok: true, ...(data || { hours, sky: [], weather: [], hrv: [], audioDb: [] }) });
   });
 
   // Resolve to `fallback` if `p` rejects OR exceeds `ms` — never hang, never throw.
