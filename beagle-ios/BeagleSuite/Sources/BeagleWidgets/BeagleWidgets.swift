@@ -34,6 +34,7 @@ struct BeagleWidgetsBundle: WidgetBundle {
 
         // Live Activities (iOS only)
         #if os(iOS)
+        CompanionTurnActivityConfiguration()
         AgentSessionActivityConfiguration()
         ResearchRunActivityConfiguration()
         CognitiveActivityConfiguration()
@@ -479,9 +480,71 @@ struct CaptureWidgetView: View {
     }
 }
 
-// MARK: - Live Activity: Agent Session
+// MARK: - Live Activity: Companion Turn
 
 #if os(iOS)
+struct CompanionTurnActivityConfiguration: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: CompanionTurnAttributes.self) { context in
+            // Lock screen / banner — warm, not technical (this IS the companion's voice, not an agent job).
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Image(systemName: context.state.status == "pensando" ? "sparkle" : "checkmark.circle.fill")
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                    Text(context.attributes.conversationTitle)
+                        .font(BeagleTheme.dataFont(size: 12, weight: .medium))
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(context.state.voiceLabel)
+                        .font(BeagleTheme.dataFont(size: 11))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                }
+                Text(context.state.snippet.isEmpty ? "pensando…" : context.state.snippet)
+                    .font(BeagleTheme.dataFont(size: 11))
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineLimit(2)
+            }
+            .padding(12)
+            .activityBackgroundTint(BeagleTheme.surface1)
+            .activitySystemActionForegroundColor(BeagleTheme.truthObserved)
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    Image(systemName: context.state.status == "pensando" ? "sparkle" : "checkmark.circle.fill")
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    Text(context.state.voiceLabel)
+                        .font(BeagleTheme.dataFont(size: 11))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                }
+                DynamicIslandExpandedRegion(.center) {
+                    Text(context.attributes.conversationTitle)
+                        .font(BeagleTheme.dataFont(size: 12, weight: .medium))
+                        .lineLimit(1)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    Text(context.state.snippet.isEmpty ? "pensando…" : context.state.snippet)
+                        .font(BeagleTheme.dataFont(size: 10))
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineLimit(2)
+                }
+            } compactLeading: {
+                Image(systemName: context.state.status == "pensando" ? "sparkle" : "checkmark.circle.fill")
+            } compactTrailing: {
+                Text(context.state.voiceLabel.prefix(4))
+                    .font(BeagleTheme.dataFont(size: 10))
+            } minimal: {
+                Image(systemName: context.state.status == "pensando" ? "sparkle" : "checkmark.circle.fill")
+                    .foregroundStyle(BeagleTheme.truthObserved)
+            }
+        }
+    }
+}
+
+// MARK: - Live Activity: Agent Session
+
 struct AgentSessionActivityConfiguration: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: AgentSessionAttributes.self) { context in

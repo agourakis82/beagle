@@ -257,7 +257,9 @@ public actor PhysiomeUploader {
     private func refreshPhysiomeToken() async {
         for base in physAuthBridgeURLs {
             guard let url = URL(string: "/api/auth/beagle-token", relativeTo: base) else { continue }
-            guard let (data, resp) = try? await physSession.data(for: URLRequest(url: url)),
+            var authRequest = URLRequest(url: url)
+            authRequest.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            guard let (data, resp) = try? await physSession.data(for: authRequest),
                   let http = resp as? HTTPURLResponse, http.statusCode == 200 else { continue }
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             let rawToken = json["token"] as? String
@@ -317,6 +319,7 @@ public actor PhysiomeUploader {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue(physConsumerId, forHTTPHeaderField: "X-Beagle-Consumer")
+            request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
             request.timeoutInterval = 60
             request.httpBody = payload
             do {

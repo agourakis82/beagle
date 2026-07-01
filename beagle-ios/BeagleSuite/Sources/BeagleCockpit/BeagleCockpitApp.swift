@@ -79,6 +79,10 @@ struct BeagleCockpitApp: App {
         #if os(iOS)
         .backgroundTask(.appRefresh(beagleDreamTaskIdentifier)) {
             await runDreamConsolidation()
+            // Piggybacks on this task's ~8h cadence rather than registering a second
+            // BGTaskSchedulerPermittedIdentifiers entry — comfortably inside the ~2-day
+            // window CMSensorRecorder needs to not lose its rolling 3-day buffer.
+            await ActigraphySyncEngine.shared.pullAndProcess(uploader: PhysiomeUploader.shared)
             await scheduleDreamConsolidation()
         }
         #endif
@@ -329,7 +333,15 @@ struct RootView: View {
             #if os(iOS)
             // Device barometer → exact local atmospheric pressure (indoor, no network).
             await BaroSyncEngine.shared.start(uploader: uploader)
+            // Driving-time proxy (CarPlay/Waze integration confirmed infeasible — see
+            // DrivingSyncEngine's header comment for why).
+            await DrivingSyncEngine.shared.start(uploader: uploader)
+            // Opportunistic pull — also runs from the dream BGTask (see .backgroundTask
+            // above), this is the foreground half of the same ~2-day-max cadence.
+            await ActigraphySyncEngine.shared.pullAndProcess(uploader: uploader)
             #endif
+            // AQI — WeatherKit doesn't provide it; direct API fallback chain instead.
+            await AQISyncEngine.shared.start(uploader: uploader)
         }
     }
 

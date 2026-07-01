@@ -159,6 +159,18 @@ public actor HealthSyncEngine {
     private var observerTokens: [String: HKObserverQuery] = [:]
     private var isAuthorized = false
 
+    // The Swift overlay doesn't expose a short case name (e.g. `.gad7`) for these — only
+    // the raw ObjC constant strings are documented (HKTypeIdentifiers.h) — so construct via
+    // RawRepresentable instead of guessing a synthesized short name.
+    @available(iOS 18.0, watchOS 11.0, macOS 15.0, *)
+    private static let gad7AssessmentType = HKScoredAssessmentType(
+        HKScoredAssessmentTypeIdentifier(rawValue: "HKScoredAssessmentTypeIdentifierGAD7")
+    )
+    @available(iOS 18.0, watchOS 11.0, macOS 15.0, *)
+    private static let phq9AssessmentType = HKScoredAssessmentType(
+        HKScoredAssessmentTypeIdentifier(rawValue: "HKScoredAssessmentTypeIdentifierPHQ9")
+    )
+
     // MARK: - Type catalogue
 
     /// Complete set of quantity types to authorise and sync.
@@ -185,6 +197,25 @@ public actor HealthSyncEngine {
         list.append((.appleExerciseTime,         "HKQuantityTypeIdentifierAppleExerciseTime",         .minute()))
         list.append((.appleStandTime,            "HKQuantityTypeIdentifierAppleStandTime",            .minute()))
         list.append((.environmentalAudioExposure, "HKQuantityTypeIdentifierEnvironmentalAudioExposure", .decibelAWeightedSoundPressureLevel()))
+        // Mobility (iPhone motion coprocessor, iOS 14+) — non-obvious gait signals for the
+        // N-of-1 panorama: asymmetry/double-support can shift subtly with fatigue or affect
+        // before the person consciously notices.
+        list.append((.walkingSpeed,                       "HKQuantityTypeIdentifierWalkingSpeed",                       HKUnit(from: "m/s")))
+        list.append((.walkingStepLength,                  "HKQuantityTypeIdentifierWalkingStepLength",                  .meter()))
+        list.append((.walkingAsymmetryPercentage,         "HKQuantityTypeIdentifierWalkingAsymmetryPercentage",         .percent()))
+        list.append((.walkingDoubleSupportPercentage,     "HKQuantityTypeIdentifierWalkingDoubleSupportPercentage",     .percent()))
+        list.append((.stairAscentSpeed,                   "HKQuantityTypeIdentifierStairAscentSpeed",                   HKUnit(from: "m/s")))
+        list.append((.stairDescentSpeed,                  "HKQuantityTypeIdentifierStairDescentSpeed",                  HKUnit(from: "m/s")))
+        // Balance (iPhone motion coprocessor, iOS 15+) — steadiness score; a gradual decline
+        // can precede a fall-risk event, complementing the fall-risk category event below.
+        if #available(iOS 15.0, watchOS 8.0, *) {
+            list.append((.appleWalkingSteadiness, "HKQuantityTypeIdentifierAppleWalkingSteadiness", .percent()))
+        }
+        // Cardio recovery (Watch, iOS 16+) — how fast HR drops after exertion; an autonomic
+        // tone signal distinct from resting HR/HRV.
+        if #available(iOS 16.0, watchOS 9.0, *) {
+            list.append((.heartRateRecoveryOneMinute, "HKQuantityTypeIdentifierHeartRateRecoveryOneMinute", .count().unitDivided(by: .minute())))
+        }
         #endif
         return list
     }
@@ -200,6 +231,18 @@ public actor HealthSyncEngine {
         types.insert(HKObjectType.workoutType())
         if #available(iOS 18.0, watchOS 11.0, macOS 15.0, *) {
             types.insert(HKSampleType.stateOfMindType())
+        }
+        if #available(iOS 18.0, watchOS 11.0, *),
+           let apnea = HKCategoryType.categoryType(forIdentifier: .sleepApneaEvent) {
+            types.insert(apnea)
+        }
+        if #available(iOS 18.0, watchOS 11.0, macOS 15.0, *) {
+            types.insert(Self.gad7AssessmentType)
+            types.insert(Self.phq9AssessmentType)
+        }
+        if #available(iOS 15.0, watchOS 8.0, *),
+           let steadinessEvent = HKCategoryType.categoryType(forIdentifier: .appleWalkingSteadinessEvent) {
+            types.insert(steadinessEvent)
         }
         #if os(iOS) || os(watchOS)
         types.insert(HKObjectType.electrocardiogramType())   // Apple Watch ECG
@@ -265,6 +308,53 @@ public actor HealthSyncEngine {
             print("[HealthSyncEngine] ECG catch-up failed: \(error)")
         }
         #endif
+
+        // Mood (HKStateOfMind, iOS 18+) — authorized since line ~202 but never actually fetched
+        // until now; see fetchNewStateOfMind's doc comment for the full story.
+        if #available(iOS 18.0, watchOS 11.0, macOS 15.0, *) {
+            do {
+                let moods = try await fetchNewStateOfMind()
+                if !moods.isEmpty { await uploader.enqueue(healthSamples: moods) }
+            } catch {
+                print("[HealthSyncEngine] state-of-mind catch-up failed: \(error)")
+            }
+        }
+
+        // Clinical questionnaires (GAD-7/PHQ-9, iOS 18+) — read-only, filled out via Health app
+        if #available(iOS 18.0, watchOS 11.0, macOS 15.0, *) {
+            do {
+                let gad7 = try await fetchNewGAD7Assessments()
+                if !gad7.isEmpty { await uploader.enqueue(healthSamples: gad7) }
+            } catch {
+                print("[HealthSyncEngine] GAD-7 catch-up failed: \(error)")
+            }
+            do {
+                let phq9 = try await fetchNewPHQ9Assessments()
+                if !phq9.isEmpty { await uploader.enqueue(healthSamples: phq9) }
+            } catch {
+                print("[HealthSyncEngine] PHQ-9 catch-up failed: \(error)")
+            }
+        }
+
+        // Sleep apnea / breathing disturbances (Watch, watchOS 11+)
+        if #available(iOS 18.0, watchOS 11.0, *) {
+            do {
+                let apneaEvents = try await fetchNewSleepApneaEvents()
+                if !apneaEvents.isEmpty { await uploader.enqueue(sleepSamples: apneaEvents) }
+            } catch {
+                print("[HealthSyncEngine] sleep-apnea catch-up failed: \(error)")
+            }
+        }
+
+        // Fall-risk / walking-steadiness-decline events (iOS 15+)
+        if #available(iOS 15.0, watchOS 8.0, *) {
+            do {
+                let steadinessEvents = try await fetchNewWalkingSteadinessEvents()
+                if !steadinessEvents.isEmpty { await uploader.enqueue(sleepSamples: steadinessEvents) }
+            } catch {
+                print("[HealthSyncEngine] walking-steadiness catch-up failed: \(error)")
+            }
+        }
     }
 
     // MARK: - Background delivery registration
@@ -310,6 +400,53 @@ public actor HealthSyncEngine {
             print("[HealthSyncEngine] ECG background delivery failed: \(error)")
         }
         #endif
+
+        if #available(iOS 18.0, watchOS 11.0, macOS 15.0, *) {
+            let stateOfMindType = HKSampleType.stateOfMindType()
+            do {
+                try await store.enableBackgroundDelivery(for: stateOfMindType, frequency: .hourly)
+                registerStateOfMindObserver(uploader: uploader)
+            } catch {
+                print("[HealthSyncEngine] state-of-mind background delivery failed: \(error)")
+            }
+        }
+
+        if #available(iOS 18.0, watchOS 11.0, macOS 15.0, *) {
+            let gad7Type = Self.gad7AssessmentType
+            do {
+                try await store.enableBackgroundDelivery(for: gad7Type, frequency: .hourly)
+                registerGAD7Observer(uploader: uploader)
+            } catch {
+                print("[HealthSyncEngine] GAD-7 background delivery failed: \(error)")
+            }
+            let phq9Type = Self.phq9AssessmentType
+            do {
+                try await store.enableBackgroundDelivery(for: phq9Type, frequency: .hourly)
+                registerPHQ9Observer(uploader: uploader)
+            } catch {
+                print("[HealthSyncEngine] PHQ-9 background delivery failed: \(error)")
+            }
+        }
+
+        if #available(iOS 18.0, watchOS 11.0, *),
+           let apneaType = HKCategoryType.categoryType(forIdentifier: .sleepApneaEvent) {
+            do {
+                try await store.enableBackgroundDelivery(for: apneaType, frequency: .hourly)
+                registerSleepApneaObserver(uploader: uploader)
+            } catch {
+                print("[HealthSyncEngine] sleep-apnea background delivery failed: \(error)")
+            }
+        }
+
+        if #available(iOS 15.0, watchOS 8.0, *),
+           let steadinessEventType = HKCategoryType.categoryType(forIdentifier: .appleWalkingSteadinessEvent) {
+            do {
+                try await store.enableBackgroundDelivery(for: steadinessEventType, frequency: .hourly)
+                registerWalkingSteadinessObserver(uploader: uploader)
+            } catch {
+                print("[HealthSyncEngine] walking-steadiness background delivery failed: \(error)")
+            }
+        }
     }
 
     // MARK: - Anchor persistence
@@ -398,6 +535,116 @@ public actor HealthSyncEngine {
         }
     }
 
+    /// Sleep apnea / breathing-disturbance events (Watch, iOS/watchOS 18+/11+). Same shape as
+    /// sleep analysis (HKCategorySample) — mirrors fetchNewSleepSamples exactly, different type.
+    @available(iOS 18.0, watchOS 11.0, *)
+    private func fetchNewSleepApneaEvents() async throws -> [PhysioSleepSample] {
+        let label = "HKCategoryTypeIdentifierSleepApneaEvent"
+        guard let type = HKCategoryType.categoryType(forIdentifier: .sleepApneaEvent) else { return [] }
+        let anchor = loadAnchor(for: label)
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKAnchoredObjectQuery(
+                type: type,
+                predicate: nil,
+                anchor: anchor,
+                limit: HKObjectQueryNoLimit
+            ) { [weak self] _, added, _, newAnchor, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let self else { continuation.resume(returning: []); return }
+                if let newAnchor { Task { await self.saveAnchor(newAnchor, for: label) } }
+                let samples = (added as? [HKCategorySample] ?? []).map { s in
+                    PhysioSleepSample(
+                        uuid: s.uuid.uuidString,
+                        ts: Self.iso8601.string(from: s.startDate),
+                        endTs: Self.iso8601.string(from: s.endDate),
+                        type: label,
+                        value: s.value,
+                        source: s.sourceRevision.source.bundleIdentifier,
+                        device: s.device?.name
+                    )
+                }
+                continuation.resume(returning: samples)
+            }
+            store.execute(query)
+        }
+    }
+
+    @available(iOS 18.0, watchOS 11.0, *)
+    private func registerSleepApneaObserver(uploader: PhysiomeUploader) {
+        guard let type = HKCategoryType.categoryType(forIdentifier: .sleepApneaEvent) else { return }
+        let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completionHandler, error in
+            let complete = SendableObserverCompletion(completionHandler)
+            guard let self, error == nil else { complete(); return }
+            Task {
+                do {
+                    let samples = try await self.fetchNewSleepApneaEvents()
+                    if !samples.isEmpty { await uploader.enqueue(sleepSamples: samples) }
+                    await uploader.flush()
+                } catch {
+                    print("[HealthSyncEngine] sleep-apnea observer fetch failed: \(error)")
+                }
+                complete()
+            }
+        }
+        observerTokens["HKCategoryTypeIdentifierSleepApneaEvent"] = query
+        store.execute(query)
+    }
+
+    /// Fall-risk / walking-steadiness-decline events (iOS 15+). Same HKCategorySample shape
+    /// as sleep apnea — mirrors fetchNewSleepApneaEvents exactly, different type.
+    @available(iOS 15.0, watchOS 8.0, *)
+    private func fetchNewWalkingSteadinessEvents() async throws -> [PhysioSleepSample] {
+        let label = "HKCategoryTypeIdentifierAppleWalkingSteadinessEvent"
+        guard let type = HKCategoryType.categoryType(forIdentifier: .appleWalkingSteadinessEvent) else { return [] }
+        let anchor = loadAnchor(for: label)
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKAnchoredObjectQuery(
+                type: type,
+                predicate: nil,
+                anchor: anchor,
+                limit: HKObjectQueryNoLimit
+            ) { [weak self] _, added, _, newAnchor, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let self else { continuation.resume(returning: []); return }
+                if let newAnchor { Task { await self.saveAnchor(newAnchor, for: label) } }
+                let samples = (added as? [HKCategorySample] ?? []).map { s in
+                    PhysioSleepSample(
+                        uuid: s.uuid.uuidString,
+                        ts: Self.iso8601.string(from: s.startDate),
+                        endTs: Self.iso8601.string(from: s.endDate),
+                        type: label,
+                        value: s.value,
+                        source: s.sourceRevision.source.bundleIdentifier,
+                        device: s.device?.name
+                    )
+                }
+                continuation.resume(returning: samples)
+            }
+            store.execute(query)
+        }
+    }
+
+    @available(iOS 15.0, watchOS 8.0, *)
+    private func registerWalkingSteadinessObserver(uploader: PhysiomeUploader) {
+        guard let type = HKCategoryType.categoryType(forIdentifier: .appleWalkingSteadinessEvent) else { return }
+        let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completionHandler, error in
+            let complete = SendableObserverCompletion(completionHandler)
+            guard let self, error == nil else { complete(); return }
+            Task {
+                do {
+                    let samples = try await self.fetchNewWalkingSteadinessEvents()
+                    if !samples.isEmpty { await uploader.enqueue(sleepSamples: samples) }
+                    await uploader.flush()
+                } catch {
+                    print("[HealthSyncEngine] walking-steadiness observer fetch failed: \(error)")
+                }
+                complete()
+            }
+        }
+        observerTokens["HKCategoryTypeIdentifierAppleWalkingSteadinessEvent"] = query
+        store.execute(query)
+    }
+
     private func fetchNewWorkouts() async throws -> [PhysioWorkoutSample] {
         let label = "HKWorkoutType"
         let type = HKObjectType.workoutType()
@@ -430,6 +677,179 @@ public actor HealthSyncEngine {
             }
             store.execute(query)
         }
+    }
+
+    /// HKStateOfMind (mood/valence, iOS 18+) — authorization was already requested (line ~202)
+    /// but this engine never actually fetched/uploaded it; `correlate.mjs`'s `mood` outcome has
+    /// been null the whole time because nothing reached `health_samples`, not because the
+    /// server-side digest was broken. Mirrors fetchNewSleepSamples/fetchNewWorkouts (a distinct
+    /// HKSampleType, not a plain quantity type, so it needs its own fetch like sleep/workouts do).
+    @available(iOS 18.0, watchOS 11.0, macOS 15.0, *)
+    private func fetchNewStateOfMind() async throws -> [PhysioHealthSample] {
+        let label = "HKStateOfMindType"
+        let type = HKSampleType.stateOfMindType()
+        let anchor = loadAnchor(for: label)
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKAnchoredObjectQuery(
+                type: type,
+                predicate: nil,
+                anchor: anchor,
+                limit: HKObjectQueryNoLimit
+            ) { [weak self] _, added, _, newAnchor, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let self else { continuation.resume(returning: []); return }
+                if let newAnchor { Task { await self.saveAnchor(newAnchor, for: label) } }
+                let samples = (added as? [HKStateOfMind] ?? []).map { s -> PhysioHealthSample in
+                    PhysioHealthSample(
+                        uuid: s.uuid.uuidString,
+                        ts: Self.iso8601.string(from: s.startDate),
+                        endTs: Self.iso8601.string(from: s.endDate),
+                        type: label,
+                        value: s.valence,
+                        unit: "valence",
+                        source: s.sourceRevision.source.bundleIdentifier,
+                        device: s.device?.name,
+                        metadata: ["kind": String(describing: s.kind)]
+                    )
+                }
+                continuation.resume(returning: samples)
+            }
+            store.execute(query)
+        }
+    }
+
+    @available(iOS 18.0, watchOS 11.0, macOS 15.0, *)
+    private func registerStateOfMindObserver(uploader: PhysiomeUploader) {
+        let type = HKSampleType.stateOfMindType()
+        let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completionHandler, error in
+            let complete = SendableObserverCompletion(completionHandler)
+            guard let self, error == nil else { complete(); return }
+            Task {
+                do {
+                    let samples = try await self.fetchNewStateOfMind()
+                    if !samples.isEmpty { await uploader.enqueue(healthSamples: samples) }
+                    await uploader.flush()
+                } catch {
+                    print("[HealthSyncEngine] state-of-mind observer fetch failed: \(error)")
+                }
+                complete()
+            }
+        }
+        observerTokens["HKStateOfMindType"] = query
+        store.execute(query)
+    }
+
+    /// GAD-7 (anxiety) clinical assessment (iOS 18+) — read-only: the user fills this out via
+    /// the Health app's own assessment UI, we only ever read the score/risk it produces.
+    @available(iOS 18.0, watchOS 11.0, macOS 15.0, *)
+    private func fetchNewGAD7Assessments() async throws -> [PhysioHealthSample] {
+        let label = "HKGAD7Assessment"
+        let type = Self.gad7AssessmentType
+        let anchor = loadAnchor(for: label)
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKAnchoredObjectQuery(
+                type: type,
+                predicate: nil,
+                anchor: anchor,
+                limit: HKObjectQueryNoLimit
+            ) { [weak self] _, added, _, newAnchor, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let self else { continuation.resume(returning: []); return }
+                if let newAnchor { Task { await self.saveAnchor(newAnchor, for: label) } }
+                let samples = (added as? [HKGAD7Assessment] ?? []).map { s -> PhysioHealthSample in
+                    PhysioHealthSample(
+                        uuid: s.uuid.uuidString,
+                        ts: Self.iso8601.string(from: s.startDate),
+                        endTs: Self.iso8601.string(from: s.endDate),
+                        type: label,
+                        value: Double(s.score),
+                        unit: "score",
+                        source: s.sourceRevision.source.bundleIdentifier,
+                        device: s.device?.name,
+                        metadata: ["risk": String(describing: s.risk)]
+                    )
+                }
+                continuation.resume(returning: samples)
+            }
+            store.execute(query)
+        }
+    }
+
+    @available(iOS 18.0, watchOS 11.0, macOS 15.0, *)
+    private func registerGAD7Observer(uploader: PhysiomeUploader) {
+        let type = Self.gad7AssessmentType
+        let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completionHandler, error in
+            let complete = SendableObserverCompletion(completionHandler)
+            guard let self, error == nil else { complete(); return }
+            Task {
+                do {
+                    let samples = try await self.fetchNewGAD7Assessments()
+                    if !samples.isEmpty { await uploader.enqueue(healthSamples: samples) }
+                    await uploader.flush()
+                } catch {
+                    print("[HealthSyncEngine] GAD-7 observer fetch failed: \(error)")
+                }
+                complete()
+            }
+        }
+        observerTokens["HKGAD7Assessment"] = query
+        store.execute(query)
+    }
+
+    /// PHQ-9 (depression) clinical assessment (iOS 18+) — same read-only pattern as GAD-7.
+    @available(iOS 18.0, watchOS 11.0, macOS 15.0, *)
+    private func fetchNewPHQ9Assessments() async throws -> [PhysioHealthSample] {
+        let label = "HKPHQ9Assessment"
+        let type = Self.phq9AssessmentType
+        let anchor = loadAnchor(for: label)
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKAnchoredObjectQuery(
+                type: type,
+                predicate: nil,
+                anchor: anchor,
+                limit: HKObjectQueryNoLimit
+            ) { [weak self] _, added, _, newAnchor, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let self else { continuation.resume(returning: []); return }
+                if let newAnchor { Task { await self.saveAnchor(newAnchor, for: label) } }
+                let samples = (added as? [HKPHQ9Assessment] ?? []).map { s -> PhysioHealthSample in
+                    PhysioHealthSample(
+                        uuid: s.uuid.uuidString,
+                        ts: Self.iso8601.string(from: s.startDate),
+                        endTs: Self.iso8601.string(from: s.endDate),
+                        type: label,
+                        value: Double(s.score),
+                        unit: "score",
+                        source: s.sourceRevision.source.bundleIdentifier,
+                        device: s.device?.name,
+                        metadata: ["risk": String(describing: s.risk)]
+                    )
+                }
+                continuation.resume(returning: samples)
+            }
+            store.execute(query)
+        }
+    }
+
+    @available(iOS 18.0, watchOS 11.0, macOS 15.0, *)
+    private func registerPHQ9Observer(uploader: PhysiomeUploader) {
+        let type = Self.phq9AssessmentType
+        let query = HKObserverQuery(sampleType: type, predicate: nil) { [weak self] _, completionHandler, error in
+            let complete = SendableObserverCompletion(completionHandler)
+            guard let self, error == nil else { complete(); return }
+            Task {
+                do {
+                    let samples = try await self.fetchNewPHQ9Assessments()
+                    if !samples.isEmpty { await uploader.enqueue(healthSamples: samples) }
+                    await uploader.flush()
+                } catch {
+                    print("[HealthSyncEngine] PHQ-9 observer fetch failed: \(error)")
+                }
+                complete()
+            }
+        }
+        observerTokens["HKPHQ9Assessment"] = query
+        store.execute(query)
     }
 
     // MARK: - Observer registration (HKObserverQuery, background)

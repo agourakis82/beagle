@@ -43,6 +43,23 @@ final class SpeechRecognizer {
     private var analyzerInputContinuation: AsyncStream<AnalyzerInput>.Continuation?
     private var useLegacyRecognizer: Bool = false
 
+    // MARK: - Voice-acoustic features (natural byproduct of speech already captured for STT)
+
+    /// Raw sample windows accumulated during the current recording, for
+    /// VoiceAcousticAnalyzer.summarize() once the turn ends. One window per tap callback
+    /// (~4096 frames) — no extra buffering, just retains what the STT path already reads.
+    private var audioWindows: [[Float]] = []
+    private var recordingStartedAt: Date?
+    private var acousticSampleRate: Double = 16000
+    /// Set by the caller before startRecording() so acoustic samples can be tagged back to
+    /// the companion conversation they came from.
+    var sessionId: String?
+
+    private static func extractSamples(from buffer: AVAudioPCMBuffer) -> [Float]? {
+        guard let channelData = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return nil }
+        return Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
+    }
+
     // MARK: - Setup
 
     func setup() async {
@@ -76,6 +93,8 @@ final class SpeechRecognizer {
     func startRecording() async {
         error = nil
         transcript = ""
+        audioWindows.removeAll()
+        recordingStartedAt = Date()
 
         if useLegacyRecognizer {
             await startRecordingLegacy()
@@ -94,6 +113,50 @@ final class SpeechRecognizer {
         recordingTask = nil
 
         stopAudioEngine()
+        uploadAcousticSummaryForCompletedTurn()
+    }
+
+    /// Computes the turn's voice-acoustic summary from windows accumulated during the tap
+    /// (see extractSamples/audioWindows above) and uploads it like any other health metric.
+    /// Best-effort, fire-and-forget — never blocks stopRecording() or the caller's UI flow.
+    private func uploadAcousticSummaryForCompletedTurn() {
+        guard !audioWindows.isEmpty else { return }
+        let windows = audioWindows
+        audioWindows.removeAll()
+        let turnDuration = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        let wordCount = transcript.split(separator: " ").count
+        let sid = sessionId
+        let sampleRate = acousticSampleRate
+
+        Task {
+            let summary = VoiceAcousticAnalyzer.summarize(
+                windows: windows,
+                sampleRate: sampleRate,
+                transcriptWordCount: wordCount > 0 ? wordCount : nil,
+                turnDurationSeconds: turnDuration
+            )
+            let now = ISO8601DateFormatter()
+            now.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let ts = now.string(from: Date())
+            let metadata: [String: String]? = sid.map { ["session_id": $0] }
+
+            var samples: [PhysioHealthSample] = [
+                PhysioHealthSample(uuid: UUID().uuidString, ts: ts, endTs: ts, type: "VoiceAcousticRmsDb", value: summary.rmsDb, unit: "dBFS", source: "com.beagle.cockpit", device: nil, metadata: metadata),
+                PhysioHealthSample(uuid: UUID().uuidString, ts: ts, endTs: ts, type: "VoiceAcousticPauseRatio", value: summary.pauseRatio, unit: "ratio", source: "com.beagle.cockpit", device: nil, metadata: metadata),
+            ]
+            if let f0Mean = summary.f0MeanHz {
+                samples.append(PhysioHealthSample(uuid: UUID().uuidString, ts: ts, endTs: ts, type: "VoiceAcousticF0MeanHz", value: f0Mean, unit: "Hz", source: "com.beagle.cockpit", device: nil, metadata: metadata))
+            }
+            if let f0Variance = summary.f0VarianceHz {
+                samples.append(PhysioHealthSample(uuid: UUID().uuidString, ts: ts, endTs: ts, type: "VoiceAcousticF0VarianceHz", value: f0Variance, unit: "Hz^2", source: "com.beagle.cockpit", device: nil, metadata: metadata))
+            }
+            if let wpm = summary.speechRateWpm {
+                samples.append(PhysioHealthSample(uuid: UUID().uuidString, ts: ts, endTs: ts, type: "VoiceAcousticSpeechRateWpm", value: wpm, unit: "wpm", source: "com.beagle.cockpit", device: nil, metadata: metadata))
+            }
+
+            await PhysiomeUploader.shared.enqueue(healthSamples: samples)
+            await PhysiomeUploader.shared.flush()
+        }
     }
 
     // MARK: - Ambient capture mode
@@ -154,6 +217,7 @@ final class SpeechRecognizer {
             stopAudioEngine()
             return
         }
+        acousticSampleRate = audioFormat.sampleRate
 
         let (inputStream, continuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
         self.analyzerInputContinuation = continuation
@@ -183,11 +247,17 @@ final class SpeechRecognizer {
                 if outError == nil {
                     let input = AnalyzerInput(buffer: convertedBuffer)
                     continuation.yield(input)
+                    if let samples = Self.extractSamples(from: convertedBuffer) {
+                        Task { @MainActor [weak self] in self?.audioWindows.append(samples) }
+                    }
                 }
             } else {
                 // Formats already match
                 let input = AnalyzerInput(buffer: buffer)
                 continuation.yield(input)
+                if let samples = Self.extractSamples(from: buffer) {
+                    Task { @MainActor [weak self] in self?.audioWindows.append(samples) }
+                }
             }
         }
 

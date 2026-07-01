@@ -374,6 +374,9 @@ struct ThoughtCaptureView: View {
                 }
             } else {
                 Button {
+                    // Tags voice-acoustic samples back to this conversation — natural
+                    // byproduct of speech already captured for STT, no extra instrumentation.
+                    speechRecognizer.sessionId = conversation.persistenceConversationId
                     Task { await speechRecognizer.startRecording() }
                 } label: {
                     Label("Start Recording", systemImage: "mic.fill")

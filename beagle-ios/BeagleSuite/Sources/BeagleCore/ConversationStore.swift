@@ -36,6 +36,9 @@ public struct ChatMessage: Identifiable, Sendable {
     public var voiceName: String?
     /// True once this exchange has been auto-imported into the cluster exocortex memory.
     public var savedToMemory: Bool = false
+    /// True while this is an instant on-device "presence" acknowledgment (warm pt-BR opener) shown
+    /// to bridge the cloud latency — replaced the moment the grounded cloud reply starts streaming.
+    public var isProvisional: Bool = false
 
     public init(
         id: UUID = UUID(),
@@ -89,6 +92,31 @@ public final class ConversationStore {
     public var projectFamily: ProjectFamily?
     public var publicationScope: PublicationScope?
     public var discussionProfile: DiscussionProfile = .cluster
+    /// Depth gear for the personal-voice path: nil = "Rápido" (server default voice); a model name
+    /// (e.g. "glm-5.2" for "Pensar") asks the companion to think with a stronger model. "Fundo" is
+    /// handled in the UI by routing to Go-Deeper instead of a chat turn.
+    public var voiceModel: String? = nil
+
+    /// Live Activity hooks (set by the view layer, since LiveActivityManager is in BeagleCockpit) —
+    /// mirrors the GoDeepStore onResearch* pattern. Lets the user leave the app during the ~14-20s
+    /// premium-voice wait (Opus/GPT) and see "pensando…" → the reply resolve on the lock screen.
+    public var onCompanionTurnStart: ((String, String) -> Void)?
+    public var onCompanionTurnEnd: ((String?) -> Void)?
+
+    /// Friendly voice name for the Live Activity — mirrors ChatDepth's labels (BeagleCockpit layer,
+    /// not importable from here) so the lock screen says "Sonnet 5" instead of "claude-sonnet-5".
+    private func voiceLabel(for model: String?) -> String {
+        switch model {
+        case "claude-sonnet-5": return "Sonnet 5"
+        case "claude-opus-4-8": return "Opus 4.8"
+        case "gpt-5.5": return "GPT 5.5"
+        case "grok": return "Grok 4.3"
+        case "glm-5.2": return "GLM 5.2"
+        case "kimi-k2.6": return "Kimi 2.6"
+        case "minimax-m3": return "MiniMax M3"
+        default: return "Beagle"
+        }
+    }
     public var modelContext: ModelContext?
 
     private let client: BeagleClient
@@ -146,6 +174,10 @@ public final class ConversationStore {
     /// instant reply; deep ones go to the cloud. Hybrid: on-device for light, cluster for deep.
     public var fastResponder: ((String, [String]) async -> String?)? = nil
     public var fastAvailable: Bool = false
+    /// Instant on-device "presence" acknowledgment (Apple Foundation Models). Given the user's
+    /// message, returns ONE warm pt-BR opener that bridges the cloud latency — it does NOT answer.
+    /// nil/unavailable → the chat just shows the typing indicator as before.
+    public var quickAck: ((String) async -> String?)? = nil
 
     /// Demo seed for screenshots/previews — a warm, attuned sample exchange. No-op if the
     /// conversation already has messages.
@@ -371,6 +403,22 @@ public final class ConversationStore {
         messages.append(placeholder)
         isStreaming = true
 
+        onCompanionTurnStart?(currentConversationTitle, voiceLabel(for: voiceModel))
+
+        // B-routing: instant on-device "presence". A warm pt-BR opener fills the ~14s cloud
+        // latency with the friend's voice instead of typing dots — then the grounded cloud reply
+        // replaces it the moment real tokens arrive. Best-effort; skipped if Apple FM is off.
+        if let quickAck {
+            Task { [assistantId] in
+                guard let ack = await quickAck(text)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !ack.isEmpty else { return }
+                guard let idx = messages.firstIndex(where: { $0.id == assistantId }),
+                      messages[idx].content.isEmpty else { return }   // cloud already streaming → skip
+                messages[idx].content = ack
+                messages[idx].isProvisional = true
+            }
+        }
+
         // Temporal awareness: send the previous contact time (the client owns the thread),
         // then stamp this exchange as the new "last contact" for the next turn. First send →
         // previousContact == nil → the server frames it as a first contact.
@@ -395,7 +443,8 @@ public final class ConversationStore {
             hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
             sleepHours: physioSummary?.sleepHours,
             kp: currentSky?.kp, dst: currentSky?.dst,
-            solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz
+            solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
+            voiceModel: voiceModel
         )
 
         var streamedText = ""
@@ -404,6 +453,8 @@ public final class ConversationStore {
             for try await token in stream {
                 streamedText += token
                 if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+                    // First real token evicts the provisional on-device ack.
+                    if messages[idx].isProvisional { messages[idx].isProvisional = false }
                     messages[idx].content = stripReasoning(streamedText)
                 }
             }
@@ -417,6 +468,7 @@ public final class ConversationStore {
                 messages[idx].isStreaming = false
                 messages[idx].source = "cloud-stream"
                 persist(message: messages[idx])
+                onCompanionTurnEnd?(messages[idx].content)
                 await autoImportExchange(
                     user: userMessage,
                     assistant: messages[idx],
@@ -443,10 +495,12 @@ public final class ConversationStore {
             hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
             sleepHours: physioSummary?.sleepHours,
             kp: currentSky?.kp, dst: currentSky?.dst,
-            solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz
+            solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
+            voiceModel: voiceModel
         )
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+            messages[idx].isProvisional = false   // evict any on-device ack before the real reply
             if let response = result.value {
                 let fullText = stripReasoning(response.response ?? "")
                 messages[idx].model = response.model
@@ -458,6 +512,7 @@ public final class ConversationStore {
                 await revealText(fullText, for: assistantId)
                 messages[idx].isStreaming = false
                 persist(message: messages[idx])
+                onCompanionTurnEnd?(messages[idx].content)
                 await autoImportExchange(
                     user: userMessage,
                     assistant: messages[idx],
@@ -467,6 +522,7 @@ public final class ConversationStore {
                 messages[idx].content = result.error ?? streamErr?.localizedDescription ?? "No response received."
                 messages[idx].isStreaming = false
                 persist(message: messages[idx])
+                onCompanionTurnEnd?(nil)
             }
         }
 

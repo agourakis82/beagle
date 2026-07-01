@@ -38,6 +38,8 @@ struct BeagleSurface: View {
         case originObservatory
         case continuityExplanation
         case capture
+        case agora   // the dedicated data screen (Fase 4) — body × sky × ambient series
+        case memory  // "o que eu lembro de ti" — warm biography read, NOT the memoryLens debug console
 
         var id: String { rawValue }
     }
@@ -79,18 +81,22 @@ struct BeagleSurface: View {
 
     private var surfaceForeground: some View {
         VStack(spacing: 0) {
-            headerBar
+            // Top chrome retired from the chat (project/dream/agents/readiness/settings) — the
+            // companion leads, Claude-grade. Settings + project moved into the drawer footer;
+            // the dashboard strips move to the dedicated data screen (Fase 4). Nudge/serendipity
+            // stay as transient event banners only.
             metacognitiveNudgeLayer
             serendipityLayer
 
-            // Chat-first companion surface: the conversation is the hero, full-height
-            // over the living mesh. (The exocortex home card is retired from this surface
-            // — it can return as a collapsible header or a separate view later.)
             ChatScreen(
                 store: conversation,
                 breathRate: physio.cognitivePosture.respiratoryRate,
                 weather: spaceWeather.latest,
-                posture: physio.cognitivePosture
+                posture: physio.cognitivePosture,
+                onOpenSettings: { activeSheet = .settings },
+                onOpenProject: { activeSheet = .projectPicker },
+                onOpenData: { activeSheet = .agora },
+                onOpenMemory: { activeSheet = .memory }
             )
         }
     }
@@ -140,6 +146,10 @@ struct BeagleSurface: View {
             continuityExplanationSheet
         case .capture:
             captureSheet
+        case .agora:
+            AgoraDetailView(sky: spaceWeather.latest, summary: physio.summary)
+        case .memory:
+            MemoryLensDetailView(store: conversation)
         }
     }
 
@@ -997,8 +1007,33 @@ struct BeagleSurface: View {
             conversation.fastResponder = { prompt, history in
                 await FoundationModelsAgent.shared.respond(to: prompt, conversationHistory: history)
             }
+            // B-routing: the on-device model doesn't ANSWER (too small for the companion's voice),
+            // but it gives an instant warm pt-BR "presence" that bridges the cloud latency. The
+            // grounded cluster reply replaces it the moment it streams.
+            conversation.quickAck = { userText in
+                await FoundationModelsAgent.shared.summarize(
+                    userText,
+                    instructions: """
+                    Você é um amigo íntimo falando português do Brasil, natural e caloroso. O usuário \
+                    acabou de te dizer algo. Responda com UMA frase curtíssima (até ~8 palavras) que \
+                    apenas acolhe e sinaliza que você está pensando junto — NÃO responda o conteúdo, \
+                    NÃO faça perguntas. Exemplos: "Boa, deixa eu pensar nisso contigo…", "Tô aqui, \
+                    sentindo isso com você…". Devolva só a frase.
+                    """
+                )
+            }
+            Task { await FoundationModelsAgent.shared.prewarm() }
         }
         #endif
+
+        // Live Activity for the companion's own voice turns — independent of on-device Foundation
+        // Models, so it covers every reply (Sonnet/Opus/GPT/...), not just the B-routing ack path.
+        conversation.onCompanionTurnStart = { title, voiceLabel in
+            LiveActivityManager.shared.startCompanionTurn(conversationTitle: title, voiceLabel: voiceLabel)
+        }
+        conversation.onCompanionTurnEnd = { snippet in
+            LiveActivityManager.shared.endCompanionTurn(finalSnippet: snippet)
+        }
     }
 
     // MARK: - Metacognitive nudge view

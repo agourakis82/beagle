@@ -20,6 +20,39 @@ public final class LiveActivityManager {
     private var agentActivity: Activity<AgentSessionAttributes>?
     private var researchActivity: Activity<ResearchRunAttributes>?
     private var cognitiveActivity: Activity<CognitiveActivityAttributes>?
+    private var companionActivity: Activity<CompanionTurnAttributes>?
+
+    // MARK: - Companion Turn (chat "pensando" → "respondeu")
+
+    public func startCompanionTurn(conversationTitle: String, voiceLabel: String) {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        // One turn at a time — a fresh message ends any activity still lingering from a prior turn.
+        if companionActivity != nil { endCompanionTurn(finalSnippet: nil) }
+
+        let attributes = CompanionTurnAttributes(conversationTitle: conversationTitle)
+        let initialState = CompanionTurnAttributes.ContentState(status: "pensando", voiceLabel: voiceLabel)
+        do {
+            companionActivity = try Activity.request(
+                attributes: attributes,
+                content: .init(state: initialState, staleDate: Date.now.addingTimeInterval(120))
+            )
+        } catch {
+            print("[LiveActivity] companion turn start failed: \(error)")
+        }
+    }
+
+    public func endCompanionTurn(finalSnippet: String?) {
+        guard let act = companionActivity else { return }
+        let finalState = CompanionTurnAttributes.ContentState(
+            status: finalSnippet != nil ? "respondeu" : "sem resposta",
+            voiceLabel: act.content.state.voiceLabel,
+            snippet: finalSnippet.map { String($0.prefix(120)) } ?? ""
+        )
+        let content = ActivityContent(state: finalState, staleDate: nil)
+        nonisolated(unsafe) let unsafeAct = act
+        Task { await unsafeAct.end(content, dismissalPolicy: .after(.now + 20)) }
+        companionActivity = nil
+    }
 
     // MARK: - Agent Session
 
@@ -209,5 +242,7 @@ public final class LiveActivityManager {
     public func updateCognitiveActivity(posture: CognitivePosture, agentCount: Int, jobCount: Int, lastThought: String? = nil) {}
     public func endCognitiveActivity() {}
     public var isCognitiveActivityRunning: Bool { false }
+    public func startCompanionTurn(conversationTitle: String, voiceLabel: String) {}
+    public func endCompanionTurn(finalSnippet: String?) {}
 }
 #endif

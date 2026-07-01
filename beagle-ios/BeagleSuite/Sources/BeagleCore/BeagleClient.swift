@@ -18,6 +18,20 @@ import Foundation
 
 public actor BeagleClient {
 
+    /// Shared secret gating the project-cockpit's `/api/mobile/v1/*` surface — that API is
+    /// reachable on the public internet (beagle.chiuratto.ai), so every request must prove
+    /// physical possession of this build. Personal single-user app: a compiled-in constant
+    /// matches this app's existing trust model (device possession = access), same as the
+    /// other hardcoded endpoints/UAs already in this file. Rotate by regenerating + rebuilding.
+    // internal (module-visible), not fileprivate: PhysiomeUploader (same BeagleCore module)
+    // also needs it — its own token-bridge + ingest requests were missed in the original
+    // cockpit-auth pass (a duplicate refreshPhysiomeToken() implementation, not routed
+    // through this actor).
+    // public, not just internal: BeagleCockpit-module screens (e.g. CognitiveRecall.swift)
+    // also need it — BeagleCore and BeagleCockpit are separate modules, so `internal` isn't
+    // enough.
+    public static let cockpitMobileToken = "63e6190ef59507df275fb3550398bf7012afabc6a8075bb70f3869c8cb9e2f7e"
+
     public static let shared = BeagleClient()
 
     private let session: URLSession
@@ -304,8 +318,10 @@ public actor BeagleClient {
                 continue
             }
             do {
+                var request = URLRequest(url: url)
+                request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
                 print("[BeagleClient] ensureAuth requesting: \(url)")
-                let (data, response) = try await session.data(for: URLRequest(url: url))
+                let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
                     lastFailure = formatError(
@@ -1242,7 +1258,8 @@ public actor BeagleClient {
         kp: Double? = nil,
         dst: Double? = nil,
         solarWind: Double? = nil,
-        bz: Double? = nil
+        bz: Double? = nil,
+        voiceModel: String? = nil
     ) async -> Truthful<ChatResponse> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1283,6 +1300,9 @@ public actor BeagleClient {
         }
         if !history.isEmpty {
             body["history"] = history
+        }
+        if let voiceModel, !voiceModel.isEmpty {
+            body["voiceModel"] = voiceModel
         }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
                             kp: kp, dst: dst, solarWind: solarWind, bz: bz)
@@ -1409,7 +1429,8 @@ public actor BeagleClient {
         kp: Double? = nil,
         dst: Double? = nil,
         solarWind: Double? = nil,
-        bz: Double? = nil
+        bz: Double? = nil,
+        voiceModel: String? = nil
     ) async -> Truthful<ChatResponse> {
         await llmComplete(
             prompt: prompt,
@@ -1423,7 +1444,8 @@ public actor BeagleClient {
             lastContactAt: lastContactAt,
             history: history,
             hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
-            kp: kp, dst: dst, solarWind: solarWind, bz: bz
+            kp: kp, dst: dst, solarWind: solarWind, bz: bz,
+            voiceModel: voiceModel
         )
     }
 
@@ -1459,6 +1481,7 @@ public actor BeagleClient {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
                 request.timeoutInterval = 60
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -1532,7 +1555,8 @@ public actor BeagleClient {
         kp: Double? = nil,
         dst: Double? = nil,
         solarWind: Double? = nil,
-        bz: Double? = nil
+        bz: Double? = nil,
+        voiceModel: String? = nil
     ) -> AsyncThrowingStream<String, Error> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1564,6 +1588,11 @@ public actor BeagleClient {
         if !history.isEmpty {
             body["history"] = history
         }
+        // Depth gear: a non-default voiceModel asks the personal-voice path for a stronger model
+        // (e.g. "Pensar" → glm-5.2). nil → server default voice ("Rápido").
+        if let voiceModel, !voiceModel.isEmpty {
+            body["voiceModel"] = voiceModel
+        }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
                             kp: kp, dst: dst, solarWind: solarWind, bz: bz)
 
@@ -1592,6 +1621,7 @@ public actor BeagleClient {
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
                     request.timeoutInterval = 120
                     request.httpBody = payload
                     do {
@@ -1692,11 +1722,39 @@ public actor BeagleClient {
                 var request = URLRequest(url: url)
                 request.timeoutInterval = 20
                 request.setValue("application/json", forHTTPHeaderField: "Accept")
+                request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { continue }
                 return try decoder.decode(AgoraHistory.self, from: data)
             } catch {
                 print("[AgoraHistory] \(base.host ?? "?") error: \(error.localizedDescription)")
+                continue
+            }
+        }
+        return nil
+    }
+
+    /// Body×sky×ambient correlations (Spearman + lag scan) for the data screen. Reads through the
+    /// cockpit (the phone can't reach physiome's ClusterIP / hold its token). Best-effort → nil.
+    public func correlations(days: Int = 30) async -> PhysioCorrelations? {
+        let cockpitURLs = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+        ]
+        for base in cockpitURLs {
+            guard let url = URL(string: "/api/mobile/v1/correlations?days=\(days)", relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 20
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+                request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { continue }
+                return try decoder.decode(PhysioCorrelations.self, from: data)
+            } catch {
+                print("[Correlations] \(base.host ?? "?") error: \(error.localizedDescription)")
                 continue
             }
         }

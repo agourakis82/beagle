@@ -108,6 +108,7 @@ struct CognitiveAPI: Sendable {
             var req = URLRequest(url: url)
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
             // Synthesis can take up to ~75s; dead hosts fail fast at the connection layer.
             req.timeoutInterval = 75

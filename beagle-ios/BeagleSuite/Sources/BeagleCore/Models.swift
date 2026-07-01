@@ -1150,6 +1150,29 @@ public struct CognitiveActivityAttributes: ActivityAttributes {
 
     public init() {}
 }
+
+/// A single companion chat turn — "pensando" while the voice (Sonnet/Opus/GPT/...) works, then
+/// "respondeu" with a snippet once the reply lands. Lets the user leave the app during the ~14-20s
+/// premium-voice wait (Opus/GPT) and see it resolve from the lock screen / Dynamic Island.
+public struct CompanionTurnAttributes: ActivityAttributes {
+    public struct ContentState: Codable, Hashable, Sendable {
+        public var status: String        // "pensando" | "respondeu" | "sem resposta"
+        public var voiceLabel: String     // "Sonnet 5", "Opus 4.8", "GLM 5.2", ...
+        public var snippet: String        // opening of the reply once available; empty while thinking
+
+        public init(status: String, voiceLabel: String, snippet: String = "") {
+            self.status = status
+            self.voiceLabel = voiceLabel
+            self.snippet = snippet
+        }
+    }
+
+    public var conversationTitle: String
+
+    public init(conversationTitle: String) {
+        self.conversationTitle = conversationTitle
+    }
+}
 #endif
 
 // MARK: - WebSocket / Terminal

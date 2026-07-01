@@ -76,6 +76,7 @@ public actor CockpitClient {
             guard let url = URL(string: path, relativeTo: base) else { continue }
             do {
                 var request = URLRequest(url: url)
+                request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
                 request.timeoutInterval = timeout
                 let (data, response) = try await session.data(for: request)
 
@@ -115,6 +116,7 @@ public actor CockpitClient {
             guard let url = URL(string: path, relativeTo: base) else { continue }
             do {
                 var request = URLRequest(url: url)
+                request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
                 request.timeoutInterval = timeout
                 let (data, response) = try await session.data(for: request)
 
@@ -277,6 +279,7 @@ public actor CockpitClient {
             guard let url = URL(string: path, relativeTo: base) else { continue }
             do {
                 var request = URLRequest(url: url)
+                request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.timeoutInterval = timeout
@@ -318,6 +321,7 @@ public actor CockpitClient {
             guard let url = URL(string: path, relativeTo: base) else { continue }
             do {
                 var request = URLRequest(url: url)
+                request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.timeoutInterval = timeout
@@ -373,6 +377,7 @@ public actor CockpitClient {
             guard let url = URL(string: path, relativeTo: base) else { continue }
             do {
                 var request = URLRequest(url: url)
+                request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
                 request.httpMethod = "DELETE"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.timeoutInterval = 15

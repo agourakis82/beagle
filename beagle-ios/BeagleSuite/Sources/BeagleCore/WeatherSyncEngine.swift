@@ -51,6 +51,8 @@ public struct PhysioWeatherObservation: Sendable, Codable, Equatable {
     public let dewPointC: Double?
     /// Visibility in kilometres.
     public let visibilityKm: Double?
+    /// Air Quality Index (US EPA scale), from AQISyncEngine — WeatherKit doesn't provide this.
+    public let aqi: Double?
 
     enum CodingKeys: String, CodingKey {
         case ts, lat, lon
@@ -63,6 +65,20 @@ public struct PhysioWeatherObservation: Sendable, Codable, Equatable {
         case windKph      = "wind_kph"
         case dewPointC    = "dew_point_c"
         case visibilityKm = "visibility_km"
+        case aqi
+    }
+
+    public init(
+        ts: String, lat: Double, lon: Double,
+        tempC: Double?, pressureHpa: Double?, humidityPct: Double?, uvIndex: Double?,
+        precipMm: Double?, condition: String, windKph: Double?, dewPointC: Double?,
+        visibilityKm: Double?, aqi: Double? = nil
+    ) {
+        self.ts = ts; self.lat = lat; self.lon = lon
+        self.tempC = tempC; self.pressureHpa = pressureHpa; self.humidityPct = humidityPct
+        self.uvIndex = uvIndex; self.precipMm = precipMm; self.condition = condition
+        self.windKph = windKph; self.dewPointC = dewPointC; self.visibilityKm = visibilityKm
+        self.aqi = aqi
     }
 }
 
@@ -258,6 +274,11 @@ extension WeatherSyncEngine {
             lon: location.coordinate.longitude
         )
         #endif
+        // Geo-tag AQI lookups with the same location stream.
+        await AQISyncEngine.shared.noteLocation(
+            lat: location.coordinate.latitude,
+            lon: location.coordinate.longitude
+        )
         if let uploader = currentUploader {
             await fetchAndEnqueue(uploader: uploader)
         }

@@ -78,6 +78,10 @@ public final class MoshiSessionManager {
         var request = URLRequest(url: serverURL)
         request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
         request.setValue("beagle-operator", forHTTPHeaderField: "X-Beagle-Consumer")
+        // The cockpit's OUTER auth gate checks x-cockpit-token (or COCKPIT_AUTH_TOKEN/tailnet
+        // header) on every request — the Bearer above is a SEPARATE, inner check for the Moshi
+        // service itself. Both are required; missing this one silently 401'd the voice handshake.
+        request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
 
         webSocketTask = urlSession.webSocketTask(with: request)
         webSocketTask?.resume()
