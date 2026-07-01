@@ -327,6 +327,9 @@ struct ThinkingAloudSessionView: View {
         let result = await BeagleClient.shared.captureSessionStart(request)
         captureSession = result.value
         statusLine = result.value == nil ? "Local only" : "Observed"
+        // Tags voice-acoustic samples back to this capture session — same convention as
+        // ThoughtCaptureView's persistenceConversationId.
+        speechRecognizer.sessionId = captureSession?.id
         await speechRecognizer.startRecording()
     }
 

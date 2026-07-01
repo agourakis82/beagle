@@ -337,8 +337,13 @@ struct RootView: View {
             // DrivingSyncEngine's header comment for why).
             await DrivingSyncEngine.shared.start(uploader: uploader)
             // Opportunistic pull — also runs from the dream BGTask (see .backgroundTask
-            // above), this is the foreground half of the same ~2-day-max cadence.
-            await ActigraphySyncEngine.shared.pullAndProcess(uploader: uploader)
+            // above), this is the foreground half of the same ~2-day-max cadence. Own
+            // detached Task (not awaited here): bucketing 2 days of 50Hz accelerometer +
+            // DFA/sample-entropy is real CPU work that shouldn't delay AQI/other engines
+            // starting right behind it.
+            Task.detached(priority: .utility) {
+                await ActigraphySyncEngine.shared.pullAndProcess(uploader: uploader)
+            }
             #endif
             // AQI — WeatherKit doesn't provide it; direct API fallback chain instead.
             await AQISyncEngine.shared.start(uploader: uploader)

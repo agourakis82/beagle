@@ -13,7 +13,20 @@ public struct AgoraHistory: Decodable, Sendable {
     public let hrv: [HrvPoint]
     /// Ambient decibel level (HKQuantityTypeIdentifierEnvironmentalAudioExposure) — Tier 0
     /// of the ambient-audio panorama; just a loudness proxy, no scene classification.
+    /// Decoded leniently (missing key → []) so an older/rolled-back server response can't
+    /// fail the WHOLE decode and take the sky/weather/HRV charts down with it.
     public let audioDb: [HrvPoint]
+
+    enum CodingKeys: String, CodingKey { case hours, sky, weather, hrv, audioDb }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        hours = try c.decode(Int.self, forKey: .hours)
+        sky = try c.decode([SkyPoint].self, forKey: .sky)
+        weather = try c.decode([WeatherPoint].self, forKey: .weather)
+        hrv = try c.decode([HrvPoint].self, forKey: .hrv)
+        audioDb = try c.decodeIfPresent([HrvPoint].self, forKey: .audioDb) ?? []
+    }
 }
 
 // MARK: - Correlations (body × sky × ambient, Spearman + lag scan)
