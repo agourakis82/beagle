@@ -31,6 +31,11 @@ public struct ChatScreen: View {
     var onOpenData: (() -> Void)?
     /// Opens "o que eu lembro de ti" — the warm memory-browse screen. Drawer footer.
     var onOpenMemory: (() -> Void)?
+    /// Opens the overnight Dream Synthesis reader. Drawer footer, badge shows unread count —
+    /// this is the ONLY surfaced consumer of DreamSynthesisEngine; it silently had no home
+    /// after the header-bar chrome was retired, so insights piled up invisibly.
+    var onOpenDreamInsights: (() -> Void)?
+    var unreadDreamInsightCount: Int = 0
     @State private var draft = ""
     @State private var appeared = false
     /// ONE sheet for the whole screen — multiple `.sheet(isPresented:)` on the same view conflict
@@ -56,7 +61,9 @@ public struct ChatScreen: View {
                 onOpenSettings: (() -> Void)? = nil,
                 onOpenProject: (() -> Void)? = nil,
                 onOpenData: (() -> Void)? = nil,
-                onOpenMemory: (() -> Void)? = nil) {
+                onOpenMemory: (() -> Void)? = nil,
+                onOpenDreamInsights: (() -> Void)? = nil,
+                unreadDreamInsightCount: Int = 0) {
         self.store = store
         self.breathRate = breathRate
         self.weather = weather
@@ -65,6 +72,8 @@ public struct ChatScreen: View {
         self.onOpenProject = onOpenProject
         self.onOpenData = onOpenData
         self.onOpenMemory = onOpenMemory
+        self.onOpenDreamInsights = onOpenDreamInsights
+        self.unreadDreamInsightCount = unreadDreamInsightCount
     }
 
     public var body: some View {
@@ -107,7 +116,7 @@ public struct ChatScreen: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .history:
-                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory)
+                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount)
             case .goDeep(let prompt):
                 GoDeepView(store: composerGoDeepStore, prompt: prompt)
             }
@@ -421,6 +430,8 @@ struct ConversationDrawer: View {
     var onOpenProject: (() -> Void)?
     var onOpenData: (() -> Void)?
     var onOpenMemory: (() -> Void)?
+    var onOpenDreamInsights: (() -> Void)?
+    var unreadDreamInsightCount: Int = 0
     @Environment(\.dismiss) private var dismiss
     @State private var reloadToken = 0
 
@@ -479,6 +490,20 @@ struct ConversationDrawer: View {
                     if onOpenMemory != nil {
                         Button { dismiss(); onOpenMemory?() } label: {
                             Label("O que eu lembro de ti", systemImage: "brain.head.profile")
+                        }
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                    }
+                    if onOpenDreamInsights != nil {
+                        Button { dismiss(); onOpenDreamInsights?() } label: {
+                            HStack {
+                                Label("Insights da noite", systemImage: "moon.stars.fill")
+                                if unreadDreamInsightCount > 0 {
+                                    Spacer()
+                                    Text("\(unreadDreamInsightCount)")
+                                        .font(BeagleFont.caption2.font)
+                                        .foregroundStyle(Color(hue: 270/360, saturation: 0.5, brightness: 0.9))
+                                }
+                            }
                         }
                         .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
                     }

@@ -475,6 +475,17 @@ struct RecallPane: View {
     @FocusState private var focused: Bool
     @State private var recallTask: Task<Void, Never>?
 
+    /// Programmatic entry point (e.g. SpatialDeskMissionControlView's Action Menu) — runs
+    /// this query on appear instead of relying on the `-cognitiveAutoQuery` launch-argument
+    /// deep link, which is meant for CLI/test automation, not in-app callers.
+    private let presetQuery: String?
+    private let presetScope: String?
+
+    init(presetQuery: String? = nil, presetScope: String? = nil) {
+        self.presetQuery = presetQuery
+        self.presetScope = presetScope
+    }
+
     private var api: CognitiveAPI { CognitiveAPI(preferred: baseURL) }
 
     private let suggestions = [
@@ -513,7 +524,13 @@ struct RecallPane: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .task {
-                if !didAutoRun, !autoQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard !didAutoRun else { return }
+                if let presetQuery, !presetQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                    didAutoRun = true
+                    if let presetScope { scope = presetScope }
+                    query = presetQuery
+                    run()
+                } else if !autoQuery.trimmingCharacters(in: .whitespaces).isEmpty {
                     didAutoRun = true
                     query = autoQuery
                     run()

@@ -16,6 +16,10 @@ struct SpatialDeskMissionControlView: View {
     @State private var commandAnswer: String?
     @State private var commandRunning = false
     @State private var runningActionId: String?
+    /// Cited-recall actions (open_memory_lens/review_claim) present the real RecallPane —
+    /// same CognitiveAPI.recall() path CognitiveRecallView uses, same citation/confidence/
+    /// source-timeline UI — instead of a second hand-rolled query dumped into plain text.
+    @State private var recallQuery: (query: String, scope: String)?
 
     private var snapshot: MindPalaceSnapshot? { exocortex.mindPalace?.value }
     private var selectedRoom: MindPalaceRoom? {
@@ -61,6 +65,16 @@ struct SpatialDeskMissionControlView: View {
         .sheet(isPresented: Binding(get: { commandAnswer != nil }, set: { if !$0 { commandAnswer = nil } })) {
             commandAnswerSheet
         }
+        .sheet(isPresented: Binding(get: { recallQuery != nil }, set: { if !$0 { recallQuery = nil } })) {
+            NavigationStack {
+                RecallPane(presetQuery: recallQuery?.query, presetScope: recallQuery?.scope)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { recallQuery = nil }
+                        }
+                    }
+            }
+        }
     }
 
     /// Send the command bar text as a real exocortex query and present the cited answer.
@@ -87,16 +101,11 @@ struct SpatialDeskMissionControlView: View {
         Task {
             switch action.kind {
             case "open_memory_lens", "review_claim":
-                // Cited recall over the GraphRAG++ hypergraph.
-                let result = await exocortex.queryGraphMemory(
-                    intent,
-                    scope: projectSlug,
-                    maxItems: 6,
-                    mode: "hypermemory_multivector"
-                )
-                commandAnswer = result.value?.summary
-                    ?? result.error
-                    ?? "No memory matched this action."
+                // Cited recall — present the real RecallPane (CognitiveAPI.recall()) instead
+                // of a second, inconsistent ExocortexStore.queryGraphMemory() path dumped
+                // into plain text; one source of truth for "cited recall," full citation/
+                // confidence/source-timeline UI.
+                recallQuery = (query: intent, scope: projectSlug)
             case "focus_intervention":
                 // Log a real focus-coach event, then refresh the palace.
                 let result = await exocortex.recordFocusCoachEvent(

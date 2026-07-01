@@ -40,6 +40,7 @@ struct BeagleSurface: View {
         case capture
         case agora   // the dedicated data screen (Fase 4) — body × sky × ambient series
         case memory  // "o que eu lembro de ti" — warm biography read, NOT the memoryLens debug console
+        case dreamInsights  // overnight Dream Synthesis reader — only surfaced consumer of DreamSynthesisEngine
 
         var id: String { rawValue }
     }
@@ -96,7 +97,9 @@ struct BeagleSurface: View {
                 onOpenSettings: { activeSheet = .settings },
                 onOpenProject: { activeSheet = .projectPicker },
                 onOpenData: { activeSheet = .agora },
-                onOpenMemory: { activeSheet = .memory }
+                onOpenMemory: { activeSheet = .memory },
+                onOpenDreamInsights: { activeSheet = .dreamInsights },
+                unreadDreamInsightCount: DreamSynthesisEngine.shared.unreadCount
             )
         }
     }
@@ -150,6 +153,19 @@ struct BeagleSurface: View {
             AgoraDetailView(sky: spaceWeather.latest, summary: physio.summary)
         case .memory:
             MemoryLensDetailView(store: conversation)
+        case .dreamInsights:
+            dreamInsightsSheet
+        }
+    }
+
+    private var dreamInsightsSheet: some View {
+        NavigationStack {
+            DreamInsightsView()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { activeSheet = nil }
+                    }
+                }
         }
     }
 
