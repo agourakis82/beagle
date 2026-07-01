@@ -11,9 +11,10 @@
 //  - Lag scan: a geomagnetic/weather driver on day d may move the body on day d, d+1, d+2 — we scan
 //    lags and keep the strongest, since the physiological response is often delayed.
 //
-// NOTE on `mood`: it flows from HealthKit State of Mind (HKStateOfMind, iOS 18+). aggregateDay does
-// not populate it yet; this engine reads agg.health.mood when present, so mood correlations light up
-// automatically once the iOS uploader sends it. No change here will be needed.
+// NOTE on `mood`: it flows from HealthKit State of Mind (HKStateOfMind, iOS 18+). Both the iOS
+// capture (HealthSyncEngine.fetchNewStateOfMind/registerStateOfMindObserver) and aggregateDay's
+// extraction were missing until 2026-07-01 — the iOS side never fetched/uploaded it at all, so
+// this engine's `agg.health.mood` read was correct but had nothing to read. Fixed on both ends now.
 
 function finite(v) {
   return typeof v === "number" && Number.isFinite(v);
