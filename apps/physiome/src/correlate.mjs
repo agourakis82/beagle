@@ -122,7 +122,10 @@ function pFromRho(rho, n) {
 // ---- pairing across the daily series --------------------------------------
 
 const DRIVERS = ["pressureTrendHpa", "kpMax", "solarWindSpeed", "f107", "uvMax", "aqi", "tempMaxC"];
-const OUTCOMES = ["hrvMs", "restingHr", "sleepHours", "mood", "steps"];
+const OUTCOMES = [
+  "hrvMs", "restingHr", "sleepHours", "mood", "steps",
+  "balanceSteadiness", "balanceEvents", "gad7", "phq9",
+];
 
 // Flatten the nested daily aggregates into one flat record per day, sorted by date.
 export function flattenAggregates(aggs) {
@@ -134,6 +137,10 @@ export function flattenAggregates(aggs) {
       sleepHours: a?.health?.sleepHours ?? null,
       mood: a?.health?.mood ?? null,
       steps: a?.health?.steps ?? null,
+      balanceSteadiness: a?.health?.balanceSteadiness ?? null,
+      balanceEvents: a?.health?.balanceEvents ?? null,
+      gad7: a?.health?.gad7 ?? null,
+      phq9: a?.health?.phq9 ?? null,
       pressureTrendHpa: a?.weather?.pressureTrendHpa ?? null,
       uvMax: a?.weather?.uvMax ?? null,
       aqi: a?.weather?.aqi ?? null,
@@ -214,6 +221,8 @@ const LABELS = {
   kpMax: "Kp (geomagnético)", hrvMs: "HRV", restingHr: "FC repouso", sleepHours: "sono",
   mood: "humor", steps: "passos", pressureTrendHpa: "tendência de pressão",
   solarWindSpeed: "vento solar", f107: "F10.7", uvMax: "UV", aqi: "AQI", tempMaxC: "temp. máx",
+  balanceSteadiness: "equilíbrio (steadiness)", balanceEvents: "eventos de risco de queda",
+  gad7: "GAD-7 (ansiedade)", phq9: "PHQ-9 (depressão)",
 };
 
 export function summarizeCorrelations(res, { top = 5 } = {}) {

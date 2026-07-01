@@ -19,7 +19,11 @@ export async function aggregateDay(pool, date) {
        AVG(value) FILTER (WHERE type='HKQuantityTypeIdentifierRestingHeartRate') AS resting_hr,
        SUM(value) FILTER (WHERE type='HKQuantityTypeIdentifierStepCount') AS steps,
        SUM(value) FILTER (WHERE type='HKQuantityTypeIdentifierActiveEnergyBurned') AS active_kcal,
-       AVG(value) FILTER (WHERE type='HKStateOfMindType') AS mood
+       AVG(value) FILTER (WHERE type='HKStateOfMindType') AS mood,
+       AVG(value) FILTER (WHERE type='HKQuantityTypeIdentifierAppleWalkingSteadiness') AS balance_steadiness_pct,
+       COUNT(*) FILTER (WHERE type='HKCategoryTypeIdentifierAppleWalkingSteadinessEvent') AS balance_events_ct,
+       AVG(value) FILTER (WHERE type='HKGAD7Assessment') AS gad7_score,
+       AVG(value) FILTER (WHERE type='HKPHQ9Assessment') AS phq9_score
      FROM health_samples WHERE ${range}`, win)).rows[0];
   const w = (await pool.query(
     `SELECT MIN(temp_c) tmin, MAX(temp_c) tmax, MAX(uv_index) uvmax, AVG(aqi) aqi,
@@ -33,7 +37,12 @@ export async function aggregateDay(pool, date) {
   const r0 = (x) => (x == null ? null : Math.round(Number(x)));
   return {
     date,
-    health: { sleepHours: r1(h.sleep_hours), hrvMs: r0(h.hrv_ms), restingHr: r0(h.resting_hr), steps: r0(h.steps), activeKcal: r0(h.active_kcal), mood: r1(h.mood) },
+    health: {
+      sleepHours: r1(h.sleep_hours), hrvMs: r0(h.hrv_ms), restingHr: r0(h.resting_hr),
+      steps: r0(h.steps), activeKcal: r0(h.active_kcal), mood: r1(h.mood),
+      balanceSteadiness: r1(h.balance_steadiness_pct), balanceEvents: r0(h.balance_events_ct),
+      gad7: r0(h.gad7_score), phq9: r0(h.phq9_score),
+    },
     weather: { tempMinC: r1(w.tmin), tempMaxC: r1(w.tmax), pressureTrendHpa: r1(w.press_trend), uvMax: r0(w.uvmax), aqi: r0(w.aqi) },
     space: { kpMax: r1(s.kpmax), f107: r0(s.f107), solarWindSpeed: r0(s.sws) },
   };
