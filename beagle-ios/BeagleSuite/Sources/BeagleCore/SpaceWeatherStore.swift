@@ -23,10 +23,10 @@ public final class SpaceWeatherStore {
         public let kp: Double           // 0–9, current 3-hourly index
         public let dst: Double?         // Dst storm-time index, nT (more negative = deeper storm)
         public let f107: Double         // solar flux, sfu
-        public let solarWindSpeed: Double  // km/s
-        public let bz: Double           // IMF Bz, nT (negative = active)
+        public let solarWindSpeed: Double?  // km/s (null when the SWPC feed omits it)
+        public let bz: Double?          // IMF Bz, nT (negative = active)
         public let source: String
-        public init(ts: Date, kp: Double, dst: Double? = nil, f107: Double, solarWindSpeed: Double, bz: Double, source: String) {
+        public init(ts: Date, kp: Double, dst: Double? = nil, f107: Double, solarWindSpeed: Double? = nil, bz: Double? = nil, source: String) {
             self.ts = ts; self.kp = kp; self.dst = dst; self.f107 = f107
             self.solarWindSpeed = solarWindSpeed; self.bz = bz; self.source = source
         }
@@ -87,7 +87,7 @@ public final class SpaceWeatherStore {
             print("[SpaceWeather] refresh: ❌ fetch returned nil")
             return
         }
-        print("[SpaceWeather] refresh: ✅ kp=\(snap.kp) wind=\(snap.solarWindSpeed) bz=\(snap.bz)")
+        print("[SpaceWeather] refresh: ✅ kp=\(snap.kp) wind=\(snap.solarWindSpeed.map { "\($0)" } ?? "nil") bz=\(snap.bz.map { "\($0)" } ?? "nil")")
         self.latest = snap
     }
 }

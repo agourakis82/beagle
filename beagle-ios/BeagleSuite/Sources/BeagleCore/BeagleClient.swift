@@ -77,8 +77,16 @@ public actor BeagleClient {
     }
 
     /// Whether beagle-server is reachable (quick health check).
+    /// Minimal decode of GET /health. The server returns a MIXED-type object
+    /// ({"status":"ok","safe_mode":true,...}); decoding it as [String: Bool] (the old
+    /// shape) always failed on the string fields, so isReachable() returned false — which
+    /// silently gated every CognitiveStore.refresh(), so a triggered fractal/Φ (or any
+    /// cognitive refresh) never surfaced in the UI. A permissive struct just confirms the
+    /// server answered with parseable JSON.
+    private struct HealthProbe: Decodable { let status: String? }
+
     public func isReachable() async -> Bool {
-        let result = await fetch([String: Bool].self, path: "/health", requiresAuth: false)
+        let result = await fetch(HealthProbe.self, path: "/health", requiresAuth: false)
         return result.mode == .observed
     }
 
@@ -1693,7 +1701,7 @@ public actor BeagleClient {
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                 print("[SpaceWeather/Client] \(base.host ?? "?") → HTTP \(code) (\(data.count)B)")
                 guard (200..<300).contains(code) else { continue }
-                struct Resp: Decodable { let ok: Bool; let latest: Latest? ; struct Latest: Decodable { let ts: String; let kp: Double; let dst: Double?; let f107: Double; let solar_wind_speed: Double; let bz: Double; let source: String } }
+                struct Resp: Decodable { let ok: Bool; let latest: Latest? ; struct Latest: Decodable { let ts: String; let kp: Double; let dst: Double?; let f107: Double; let solar_wind_speed: Double?; let bz: Double?; let source: String } }
                 let resp = try decoder.decode(Resp.self, from: data)
                 guard let l = resp.latest else { return nil }
                 let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

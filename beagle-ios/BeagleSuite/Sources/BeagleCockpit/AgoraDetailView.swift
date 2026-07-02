@@ -163,12 +163,12 @@ struct AgoraDetailView: View {
                 color: BeagleTheme.auroraViolet
             )
             metricChart(
-                "Vento solar", sky.map { "\(Int($0.solarWindSpeed.rounded())) km/s" } ?? "—", nil,
+                "Vento solar", sky.flatMap { $0.solarWindSpeed.map { "\(Int($0.rounded())) km/s" } } ?? "—", nil,
                 series: (history?.sky ?? []).compactMap { p in tsDate(p.ts).flatMap { d in p.solarWindSpeed.map { (d, $0) } } },
                 color: BeagleTheme.truthRemembered
             )
             metricChart(
-                "IMF Bz", sky.map { String(format: "%.1f nT", $0.bz) } ?? "—", nil,
+                "IMF Bz", sky.flatMap { $0.bz.map { String(format: "%.1f nT", $0) } } ?? "—", nil,
                 series: (history?.sky ?? []).compactMap { p in tsDate(p.ts).flatMap { d in p.bz.map { (d, $0) } } },
                 color: BeagleTheme.truthDeclared
             )
