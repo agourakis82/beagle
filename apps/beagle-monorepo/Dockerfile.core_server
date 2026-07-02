@@ -19,6 +19,16 @@ COPY apps ./apps
 COPY crates ./crates
 COPY beagle-bin ./beagle-bin
 COPY docs ./docs
+# CARGO_HTTP_MULTIPLEXING=false + CARGO_NET_RETRY + a capped job count: on resource-constrained
+# kaniko build nodes, cargo's registry fetch spawns enough concurrent getaddrinfo() resolver
+# threads to hit the container's process/thread limit, failing with a cryptic
+# "Could not resolve hostname (getaddrinfo() thread failed to start)" that looks like a DNS
+# outage but isn't (verified: DNS resolves fine from a plain pod on the same node). This is a
+# universally-safe mitigation — it only trades build parallelism for reliability, never affects
+# the resulting binary.
+ENV CARGO_HTTP_MULTIPLEXING=false \
+    CARGO_NET_RETRY=10 \
+    CARGO_BUILD_JOBS=4
 RUN cargo build --release -p beagle-monorepo --bin core_server --features memory
 
 FROM debian:bookworm-slim AS runtime
