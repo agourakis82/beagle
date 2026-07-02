@@ -71,6 +71,13 @@ export function createApp(deps) {
     graphRetrieveFn = defaultGraphRetrieve,
     graphHops = 1,
     graphK = 20,
+    // Hard ceiling on the graph-fusion channel. The multi-hop traversal fans out
+    // through hub entities (e.g. "Sounio" touches ~2900 facts) and can build a
+    // 50k-row candidate set whose per-query latency swings from ~1s to >45s under
+    // load — with no timeout, that hang propagated straight to /query. Cap it so a
+    // slow graph query degrades to chunk-only retrieval (pre-Phase-4 behavior)
+    // instead of stalling the whole request.
+    graphTimeoutMs = Number(process.env.MEMORY_PG_GRAPH_TIMEOUT_MS) || 3500,
   } = deps || {};
 
   if (typeof embedFn !== "function") throw new Error("createApp: embedFn required");
@@ -118,7 +125,21 @@ export function createApp(deps) {
       // the candidate pool by RRF. Fail-soft — a graph error never breaks /query.
       if (graphEnabled) {
         try {
-          const facts = await graphRetrieveFn(pool, { queryEmbedding, k: graphK, hops: graphHops });
+          // Bounded await: a slow multi-hop traversal must never hang /query. On
+          // timeout the reject is caught below and we keep the chunk candidates.
+          const facts = await Promise.race([
+            graphRetrieveFn(pool, {
+              queryEmbedding,
+              k: graphK,
+              hops: graphHops,
+              // DB cancels ~0.5s before the JS race gives up, so a runaway is killed
+              // server-side (connection reusable) rather than orphaned behind the race.
+              timeoutMs: Math.max(1000, graphTimeoutMs - 500),
+            }),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("graph fusion timeout")), graphTimeoutMs).unref?.(),
+            ),
+          ]);
           if (Array.isArray(facts) && facts.length) {
             const fused = fuseChannels([
               { items: candidates, keyOf: (c) => "chunk:" + c.chunk_id },
@@ -136,8 +157,11 @@ export function createApp(deps) {
                 : x,
             );
           }
-        } catch {
-          /* graph fusion is best-effort; keep the chunk candidates */
+        } catch (e) {
+          // graph fusion is best-effort; keep the chunk candidates. Log so the
+          // timeout/fallback rate is observable (a spike means the graph query
+          // needs tuning, not that /query is broken).
+          console.warn(`[memory-pg-serve] graph fusion skipped: ${e?.message || e}`);
         }
       }
 
