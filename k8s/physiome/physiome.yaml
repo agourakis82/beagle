@@ -41,6 +41,9 @@ spec:
               valueFrom: { secretKeyRef: { name: beagle-pg, key: DATABASE_URL } }
             - name: PHYSIOME_INGEST_TOKEN
               valueFrom: { secretKeyRef: { name: physiome-secrets, key: PHYSIOME_INGEST_TOKEN } }
+            # OpenWeatherMap fallback key for the /weather proxy (primary is Open-Meteo, keyless).
+            - name: OWM_API_KEY
+              valueFrom: { secretKeyRef: { name: physiome-secrets, key: OWM_API_KEY, optional: true } }
           readinessProbe:
             httpGet: { path: /healthz, port: 8090 }
             initialDelaySeconds: 3

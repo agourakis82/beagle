@@ -89,6 +89,57 @@ app.get("/api/physiome/space-weather/latest", async (_req, res) => {
   }
 });
 
+// Weather proxy for the app's "tempo" (ambiente) — REPLACES on-device WeatherKit, which
+// fails with a runtime JWT error (Code=2) that no code change can fix (it's an Apple
+// account/activation issue). The device sends its lat/lon; the server fetches from
+// Open-Meteo (primary — free, no key, includes UV) and falls back to OpenWeatherMap (key
+// held ONLY in the physiome-secrets cluster secret, never in the app binary or git).
+// Returns the shape the iOS PhysioWeatherObservation expects.
+const OWM_KEY = process.env.OWM_API_KEY || "";
+async function fetchOpenMeteo(lat, lon) {
+  const url =
+    `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+    `&current=temperature_2m,relative_humidity_2m,surface_pressure,uv_index,precipitation`;
+  const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
+  if (!r.ok) throw new Error(`open-meteo ${r.status}`);
+  const c = (await r.json()).current || {};
+  return {
+    temp_c: num(c.temperature_2m), humidity: num(c.relative_humidity_2m),
+    pressure_hpa: num(c.surface_pressure), uv_index: num(c.uv_index),
+    precip: num(c.precipitation), source: "open-meteo",
+  };
+}
+async function fetchOWM(lat, lon) {
+  if (!OWM_KEY) throw new Error("no OWM key");
+  const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${OWM_KEY}&units=metric`;
+  const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
+  if (!r.ok) throw new Error(`owm ${r.status}`);
+  const d = await r.json(), m = d.main || {};
+  // OWM 2.5 has no UV (that needs One Call 3.0); leave uv null on this fallback path.
+  return {
+    temp_c: num(m.temp), humidity: num(m.humidity), pressure_hpa: num(m.pressure),
+    uv_index: null, precip: num(d.rain?.["1h"]), source: "openweathermap",
+  };
+}
+function num(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
+app.get("/api/physiome/weather", async (req, res) => {
+  const lat = Number(req.query.lat), lon = Number(req.query.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: "lat and lon (numbers) required" });
+  }
+  try {
+    let w;
+    try { w = await fetchOpenMeteo(lat, lon); }
+    catch (e1) {
+      try { w = await fetchOWM(lat, lon); }
+      catch (e2) { return res.status(502).json({ error: `both weather providers failed: ${e1.message}; ${e2.message}` }); }
+    }
+    res.json({ ok: true, ts: new Date().toISOString(), lat, lon, ...w });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
 // History series for the "Agora" detail screen (weather-app-style trends): sky (Kp/Dst/
 // solar wind/Bz), ambient (temp/pressure/humidity/UV), and body (HRV). PUBLIC like the
 // latest endpoint — only the user's own uploaded series + global NOAA data; best-effort.
