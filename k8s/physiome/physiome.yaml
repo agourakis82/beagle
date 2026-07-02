@@ -1,14 +1,9 @@
 # Beagle Physiome — sovereign body+environment ingestion (ns: beagle, next to beagle-pg/beagle-core).
-apiVersion: v1
-kind: Secret
-metadata:
-  name: physiome-secrets
-  namespace: beagle
-type: Opaque
-stringData:
-  # Bearer token the iOS app presents on /api/physiome/ingest. Rotate as needed.
-  PHYSIOME_INGEST_TOKEN: "REPLACE_ME_PHYSIOME_INGEST_TOKEN"
----
+#
+# NOTE: the `physiome-secrets` Secret is managed OUT-OF-BAND (kubectl patch), NOT in this
+# manifest — a placeholder Secret here would clobber the real values on every `kubectl apply`.
+# Keys: PHYSIOME_INGEST_TOKEN (= the beagle operator token the iOS app presents on
+# /api/physiome/ingest) and OWM_API_KEY (OpenWeatherMap fallback for the /weather proxy).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
