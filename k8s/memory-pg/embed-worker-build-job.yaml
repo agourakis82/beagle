@@ -25,7 +25,7 @@ spec:
         component: embed-worker
     spec:
       nodeSelector:
-        sounio.dev/runtime-role: cluster-core
+        sounio.dev/runtime-role: io-lab
       tolerations:
         - key: sounio.dev/compute
           operator: Equal
@@ -38,8 +38,13 @@ spec:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
           effect: NoSchedule
+      # npm ci's registry fetch spawns threaded getaddrinfo() resolvers that the
+      # default AppArmor profile blocks even with seccomp Unconfined (same class of
+      # failure documented for the beagle-core cargo build). Disable both.
       securityContext:
         seccompProfile:
+          type: Unconfined
+        appArmorProfile:
           type: Unconfined
       restartPolicy: Never
       initContainers:
@@ -66,7 +71,7 @@ spec:
           args:
             - "--dockerfile=/workspace/apps/memory-pg/Dockerfile"
             - "--context=dir:///workspace"
-            - "--destination=192.168.3.207:5003/memory-pg-embed-worker:p4-d3138dc3"
+            - "--destination=192.168.3.207:5003/memory-pg-embed-worker:p4-7dd85ed5"
             - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"
