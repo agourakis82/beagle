@@ -442,40 +442,19 @@ struct AgoraDetailView: View {
                 if let band { bandPill(band.0, band.1) }
             }
             if hasSeries {
-                Chart {
-                    ForEach(hist, id: \.0) { p in
-                        AreaMark(x: .value("t", p.0), y: .value("v", p.1))
-                            .foregroundStyle(LinearGradient(colors: [color.opacity(0.28), color.opacity(0.02)], startPoint: .top, endPoint: .bottom))
-                            .interpolationMethod(.catmullRom)
-                        LineMark(x: .value("t", p.0), y: .value("v", p.1), series: .value("s", "obs"))
-                            .foregroundStyle(color)
-                            .interpolationMethod(.catmullRom)
-                            .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
-                    }
-                    ForEach(fc, id: \.0) { p in
-                        LineMark(x: .value("t", p.0), y: .value("v", p.1), series: .value("s", "fc"))
-                            .foregroundStyle(color.opacity(0.7))
-                            .interpolationMethod(.catmullRom)
-                            .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                    }
-                    if !fc.isEmpty {
-                        RuleMark(x: .value("now", Date()))
-                            .foregroundStyle(BeagleTheme.textTertiary.opacity(0.5))
-                            .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
-                    }
+                // BISECT: minimal chart close to the proven-working original (history only,
+                // default axes, no series:/RuleMark) to isolate the signal-11 segfault.
+                Chart(hist, id: \.0) { p in
+                    AreaMark(x: .value("t", p.0), y: .value("v", p.1))
+                        .foregroundStyle(LinearGradient(colors: [color.opacity(0.28), color.opacity(0.02)], startPoint: .top, endPoint: .bottom))
+                        .interpolationMethod(.catmullRom)
+                    LineMark(x: .value("t", p.0), y: .value("v", p.1))
+                        .foregroundStyle(color)
+                        .interpolationMethod(.catmullRom)
+                        .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
                 }
-                .chartYAxis {
-                    AxisMarks(position: .leading) {
-                        AxisGridLine().foregroundStyle(BeagleTheme.textTertiary.opacity(0.12))
-                        AxisValueLabel().font(.system(size: 8)).foregroundStyle(BeagleTheme.textTertiary)
-                    }
-                }
-                .chartXAxis {
-                    AxisMarks {
-                        AxisGridLine().foregroundStyle(BeagleTheme.textTertiary.opacity(0.08))
-                        AxisValueLabel().font(.system(size: 8)).foregroundStyle(BeagleTheme.textTertiary)
-                    }
-                }
+                .chartXAxis { AxisMarks() }
+                .chartYAxis { AxisMarks(position: .leading) }
                 .chartLegend(.hidden)
                 .frame(height: 62)
             }
