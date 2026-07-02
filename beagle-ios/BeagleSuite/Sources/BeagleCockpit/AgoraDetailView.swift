@@ -425,19 +425,25 @@ struct AgoraDetailView: View {
     private func sciChart(_ title: String, value: String, unit: String?, band: (String, Color)?,
                           history: [(Date, Double)], forecast: [(Date, Double)] = [],
                           logScale: Bool = false, color: Color) -> some View {
-        let hasSeries = history.count > 1 || forecast.count > 1
-        let logSafe = logScale && history.allSatisfy { $0.1 > 0 } && forecast.allSatisfy { $0.1 > 0 }
+        // Prep: drop NaN/Inf, de-dupe timestamps (duplicate ids break Charts), and for
+        // orders-of-magnitude channels plot log10 on a LINEAR axis instead of using
+        // .chartYScale(type: .log) — the framework's log scale segfaults on a degenerate
+        // domain (single value / all-equal), which is exactly what a sparse feed produces.
+        let hist = prepSeries(history, log: logScale)
+        let fc = prepSeries(forecast, log: logScale)
+        let hasSeries = hist.count > 1 || fc.count > 1
+        let unitText = unit.map { logScale ? "\($0) (log₁₀)" : $0 }
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(title).font(BeagleFont.caption2.font).foregroundStyle(BeagleTheme.textTertiary)
                 Spacer(minLength: 4)
                 Text(value).font(BeagleFont.footnote.font.monospaced().weight(.medium)).foregroundStyle(BeagleTheme.textPrimary)
-                if let unit { Text(unit).font(BeagleFont.caption2.font).foregroundStyle(BeagleTheme.textTertiary) }
+                if let unitText { Text(unitText).font(BeagleFont.caption2.font).foregroundStyle(BeagleTheme.textTertiary) }
                 if let band { bandPill(band.0, band.1) }
             }
             if hasSeries {
                 Chart {
-                    ForEach(history, id: \.0) { p in
+                    ForEach(hist, id: \.0) { p in
                         AreaMark(x: .value("t", p.0), y: .value("v", p.1))
                             .foregroundStyle(LinearGradient(colors: [color.opacity(0.28), color.opacity(0.02)], startPoint: .top, endPoint: .bottom))
                             .interpolationMethod(.catmullRom)
@@ -446,19 +452,18 @@ struct AgoraDetailView: View {
                             .interpolationMethod(.catmullRom)
                             .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
                     }
-                    ForEach(forecast, id: \.0) { p in
+                    ForEach(fc, id: \.0) { p in
                         LineMark(x: .value("t", p.0), y: .value("v", p.1), series: .value("s", "fc"))
                             .foregroundStyle(color.opacity(0.7))
                             .interpolationMethod(.catmullRom)
                             .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                     }
-                    if !forecast.isEmpty {
+                    if !fc.isEmpty {
                         RuleMark(x: .value("now", Date()))
                             .foregroundStyle(BeagleTheme.textTertiary.opacity(0.5))
                             .lineStyle(StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
                     }
                 }
-                .chartYScale(type: logSafe ? .log : .linear)
                 .chartYAxis {
                     AxisMarks(position: .leading) {
                         AxisGridLine().foregroundStyle(BeagleTheme.textTertiary.opacity(0.12))
@@ -476,6 +481,17 @@ struct AgoraDetailView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    /// Finite-filter, de-dupe by timestamp (last wins), sort, and optionally log10-transform.
+    private func prepSeries(_ s: [(Date, Double)], log: Bool) -> [(Date, Double)] {
+        var byTs: [Date: Double] = [:]
+        for (d, v) in s {
+            guard v.isFinite else { continue }
+            if log { guard v > 0 else { continue }; byTs[d] = log10(v) }
+            else { byTs[d] = v }
+        }
+        return byTs.sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
     }
 
     // MARK: - Series extraction
