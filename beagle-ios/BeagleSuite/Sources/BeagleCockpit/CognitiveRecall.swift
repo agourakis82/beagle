@@ -288,10 +288,13 @@ private func composedLine(_ raw: String) -> AttributedString {
     return out
 }
 
-// MARK: - Tab root (Recall ⇄ Next)
+// MARK: - Tab root (Recall ⇄ Propor)
 
 struct CognitiveRecallView: View {
-    enum Mode: String, CaseIterable { case recall = "Recall", next = "Next" }
+    // "Next" used to collide with SpatialDeskMissionControlView's "Next Best Place" (a
+    // different concept — spatial navigation, not fleet task proposals). Renamed to
+    // "Propor", matching what this mode actually does (POST /api/propose).
+    enum Mode: String, CaseIterable { case recall = "Recall", next = "Propor" }
     @State private var mode: Mode = .recall
 
     var body: some View {
@@ -903,7 +906,7 @@ struct NextPane: View {
     private var idle: some View {
         VStack(spacing: 10) {
             Image(systemName: "bolt.fill").font(.system(size: 34)).foregroundStyle(CK.line2)
-            Text("Next steps").font(.title3.weight(.bold)).foregroundStyle(CK.fg)
+            Text("Próximos passos propostos").font(.title3.weight(.bold)).foregroundStyle(CK.fg)
             Text("The organism reads recent state + memory and the fleet proposes the next moves — you decide.")
                 .font(.subheadline).foregroundStyle(CK.dim).multilineTextAlignment(.center)
         }

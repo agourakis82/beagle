@@ -115,16 +115,16 @@ struct MemoryLensDetailView: View {
     private func ask(_ question: String, showAsUserTurn: Bool) async {
         loading = true
         // `/api/memory/query` returns raw ranked snippets (not prose) and isn't publicly proxied —
-        // it only works over the tailnet. `chat()` rides the SAME companion pipeline already proven
-        // live (space: "personal" → biography/`## Agora` grounding, public-reachable, authenticated),
-        // so it gives a warm narrative answer instead of a snippet dump.
+        // it only works over the tailnet. `.personalNarrative` rides the SAME companion pipeline
+        // already proven live (space: "personal" → biography/`## Agora` grounding, public-reachable,
+        // authenticated), so it gives a warm narrative answer instead of a snippet dump.
         let lastContact = store.conversations().map(\.updatedAt).max()
-        let result = await BeagleClient.shared.chat(prompt: question, lastContactAt: lastContact)
+        let result = await ExocortexQuery.ask(question, mode: .personalNarrative(lastContactAt: lastContact))
         loading = false
-        let answer = result.value?.response?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let answer = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         entries.append(MemoryLensEntry(
             question: showAsUserTurn ? question : nil,
-            answer: (answer?.isEmpty == false ? answer! : nil) ?? "Não consegui buscar a memória agora — tenta de novo em instantes."
+            answer: (!result.failed && !answer.isEmpty) ? answer : "Não consegui buscar a memória agora — tenta de novo em instantes."
         ))
     }
 }

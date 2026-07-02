@@ -65,6 +65,7 @@
 		A3ED060D3B5CB1EB7489B82E /* TriadReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58F534520B1CC1C32DDB9A16 /* TriadReviewView.swift */; };
 		A7BD9C0296F6BFB68F473BAB /* BodyStory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5286286749095956E24B879 /* BodyStory.swift */; };
 		A7E50EC5008FE3C119415E16 /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */; };
+		148761676CA84F88B6125B23 /* ExocortexQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A691DEE477784B7D8AD6EC46 /* ExocortexQuery.swift */; };
 		9E98E25D3CAE46B9B15F2F1C /* DreamInsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5507A9B6D8CF4760BAA8E82F /* DreamInsightsView.swift */; };
 		F8A4B0D0E4AE4701B2073E86 /* VoiceAcousticAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19B0440E9914889AB0B8AF2 /* VoiceAcousticAnalyzer.swift */; };
 		AD3EC51B746E458EE74D29B7 /* MindPalaceSpatialDeskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 116495C07A91879581E756AF /* MindPalaceSpatialDeskView.swift */; };
@@ -158,6 +159,7 @@
 		47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalContentView.swift; sourceTree = "<group>"; };
 		49590C3934C2C786F704ADB3 /* PostureGradientBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostureGradientBackground.swift; sourceTree = "<group>"; };
 		4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizer.swift; sourceTree = "<group>"; };
+		A691DEE477784B7D8AD6EC46 /* ExocortexQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExocortexQuery.swift; sourceTree = "<group>"; };
 		5507A9B6D8CF4760BAA8E82F /* DreamInsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DreamInsightsView.swift; sourceTree = "<group>"; };
 		E19B0440E9914889AB0B8AF2 /* VoiceAcousticAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceAcousticAnalyzer.swift; sourceTree = "<group>"; };
 		4CE1683D1192E8680C94F682 /* MatrixMathUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixMathUtil.swift; sourceTree = "<group>"; };
@@ -306,6 +308,7 @@
 				77EBB6E9F932B4C6400037BD /* ScienceJobsView.swift */,
 				6BCE6419932AE042CD69160D /* SpatialDeskMissionControlView.swift */,
 				4CB35A8D6C02B04B0B51FC94 /* SpeechRecognizer.swift */,
+				A691DEE477784B7D8AD6EC46 /* ExocortexQuery.swift */,
 				5507A9B6D8CF4760BAA8E82F /* DreamInsightsView.swift */,
 				E19B0440E9914889AB0B8AF2 /* VoiceAcousticAnalyzer.swift */,
 				47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */,
@@ -695,6 +698,7 @@
 				EFC226181CCAC66E7086F83E /* ScienceJobsView.swift in Sources */,
 				C7199097F3FA38EE2525D4D7 /* SpatialDeskMissionControlView.swift in Sources */,
 				A7E50EC5008FE3C119415E16 /* SpeechRecognizer.swift in Sources */,
+				148761676CA84F88B6125B23 /* ExocortexQuery.swift in Sources */,
 				9E98E25D3CAE46B9B15F2F1C /* DreamInsightsView.swift in Sources */,
 				F8A4B0D0E4AE4701B2073E86 /* VoiceAcousticAnalyzer.swift in Sources */,
 				F6B8AD9C0AA3F60830DD055D /* SplatReactor.swift in Sources */,
