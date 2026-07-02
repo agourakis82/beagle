@@ -157,6 +157,65 @@ app.get("/api/physiome/weather", async (req, res) => {
   }
 });
 
+// Forecast for the Agora charts' forward half (past = uploaded history, future = this).
+// Open-Meteo hourly temp/UV + AQ hourly us_aqi (keyless), and the NOAA SWPC 3-day planetary
+// Kp forecast (each point tagged observed|predicted, so the chart can draw the future dashed).
+// Best-effort per source: a failing feed yields an empty array, never a 500.
+async function omHourly(base, params, keys) {
+  try {
+    const r = await fetch(`${base}&${params}&forecast_days=3`, { signal: AbortSignal.timeout(12000) });
+    if (!r.ok) return [];
+    const h = (await r.json()).hourly || {};
+    const t = h.time || [];
+    return t.map((ts, i) => {
+      const row = { ts: ts.endsWith("Z") ? ts : ts + ":00Z" };
+      for (const [out, src] of keys) row[out] = num(h[src]?.[i]);
+      return row;
+    });
+  } catch { return []; }
+}
+function zulu(t) {
+  const s = String(t || "").trim().replace(" ", "T");
+  if (!s) return null;
+  return s.endsWith("Z") || /[+-]\d\d:?\d\d$/.test(s) ? s : s + "Z";
+}
+async function kpForecast() {
+  try {
+    const r = await fetch("https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json",
+      { signal: AbortSignal.timeout(12000) });
+    if (!r.ok) return [];
+    const rows = await r.json();
+    // array-of-arrays has a string header row to drop; array-of-objects does not.
+    const arr = Array.isArray(rows[0]) ? rows.slice(1) : rows;
+    return arr
+      .map((x) => (Array.isArray(x)
+        ? { ts: zulu(x[0]), kp: num(x[1]), predicted: String(x[2]) !== "observed" }
+        : { ts: zulu(x.time_tag), kp: num(x.kp), predicted: String(x.observed) !== "observed" }))
+      .filter((p) => p.ts && p.kp != null);
+  } catch { return []; }
+}
+app.get("/api/physiome/forecast", async (req, res) => {
+  const lat = Number(req.query.lat), lon = Number(req.query.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: "lat and lon (numbers) required" });
+  }
+  try {
+    const wxBase = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`;
+    const aqBase = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}`;
+    const [wx, aq, kp] = await Promise.all([
+      omHourly(wxBase, "hourly=temperature_2m,uv_index", [["temp_c", "temperature_2m"], ["uv_index", "uv_index"]]),
+      omHourly(aqBase, "hourly=us_aqi", [["aqi", "us_aqi"]]),
+      kpForecast(),
+    ]);
+    // merge aqi into the weather hourly grid by ts
+    const aqBy = new Map(aq.map((r) => [r.ts, r.aqi]));
+    const weather = wx.map((r) => ({ ...r, aqi: aqBy.get(r.ts) ?? null }));
+    res.json({ ok: true, ts: new Date().toISOString(), lat, lon, weather, sky_kp: kp });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
 // History series for the "Agora" detail screen (weather-app-style trends): sky (Kp/Dst/
 // solar wind/Bz), ambient (temp/pressure/humidity/UV), and body (HRV). PUBLIC like the
 // latest endpoint — only the user's own uploaded series + global NOAA data; best-effort.
