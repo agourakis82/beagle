@@ -25,6 +25,8 @@ struct AgoraDetailView: View {
     @State private var corr: PhysioCorrelations?
     @State private var loading = true
     @State private var appeared = false
+    @State private var isExploringFractal = false
+    @State private var isMeasuringPhi = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(CognitiveStore.self) private var cognitive
@@ -253,8 +255,15 @@ struct AgoraDetailView: View {
         let phis = cognitive.state.value?.recentPhiMeasurements ?? []
         let voids = cognitive.state.value?.recentVoidJourneys ?? []
 
-        if !fractals.isEmpty || !phis.isEmpty || !voids.isEmpty {
-            glassSection("MENTE", tint: BeagleTheme.truthRemembered) {
+        // Always shown (not gated on having data) — otherwise there's no way to ever
+        // trigger the first exploration. server-side persistence alone doesn't help if
+        // nothing in the app ever calls startFractalTree/measurePhi.
+        glassSection("MENTE", tint: BeagleTheme.truthRemembered) {
+            if fractals.isEmpty && phis.isEmpty && voids.isEmpty {
+                Text("Nenhuma exploração ainda.")
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            } else {
                 if let fractal = fractals.first {
                     Button {
                         let prompt = fractal.rootPrompt ?? "fractal tree"
@@ -293,7 +302,59 @@ struct AgoraDetailView: View {
                     )
                 }
             }
+
+            Divider().overlay(BeagleTheme.truthRemembered.opacity(0.1)).padding(.vertical, 2)
+
+            HStack(spacing: BeagleSpacing.md) {
+                mindTriggerButton(
+                    label: "Explorar fractal", icon: "tree", isLoading: isExploringFractal
+                ) { await triggerFractalExploration() }
+                mindTriggerButton(
+                    label: "Medir Φ agora", icon: "waveform.path.ecg", isLoading: isMeasuringPhi
+                ) { await triggerPhiMeasurement() }
+            }
         }
+    }
+
+    private func mindTriggerButton(label: String, icon: String, isLoading: Bool, action: @escaping () async -> Void) -> some View {
+        Button {
+            Task { await action() }
+        } label: {
+            HStack(spacing: BeagleSpacing.xxs) {
+                if isLoading {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: icon).font(.system(size: 11))
+                }
+                Text(label).font(BeagleFont.caption2.font)
+            }
+            .foregroundStyle(BeagleTheme.truthRemembered)
+        }
+        .buttonStyle(.plain)
+        .disabled(isLoading)
+    }
+
+    /// Minimal trigger: without this, the persisted fractal/Φ history above would stay
+    /// empty forever — nothing else in the app ever calls startFractalTree/measurePhi.
+    /// Uses the latest captured thought as the seed prompt when available, falling back to
+    /// a generic self-reflective one so the button always does something meaningful.
+    private var explorationSeedPrompt: String {
+        let thought = cognitive.recentThoughts.first
+        return thought?.refinedText ?? thought?.rawText ?? "What is the current state of my exocortex?"
+    }
+
+    private func triggerFractalExploration() async {
+        isExploringFractal = true
+        _ = await BeagleClient.shared.startFractalTree(prompt: explorationSeedPrompt)
+        await cognitive.refresh()
+        isExploringFractal = false
+    }
+
+    private func triggerPhiMeasurement() async {
+        isMeasuringPhi = true
+        _ = await BeagleClient.shared.measurePhi(prompt: explorationSeedPrompt)
+        await cognitive.refresh()
+        isMeasuringPhi = false
     }
 
     private func mindRow(icon: String, color: Color, title: String, subtitle: String, detail: String) -> some View {
