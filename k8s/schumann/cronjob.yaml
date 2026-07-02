@@ -1,0 +1,33 @@
+# Schumann-resonance extractor CronJob. Every 30 min: pull the Tomsk SOS spectrogram,
+# extract SR harmonic amplitude (schumann_f1/f2/f3), upsert into physiome space_weather.
+# Fail-soft: a bad/blocked image logs and exits 0 without writing.
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: schumann-extract, namespace: beagle }
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 180
+      template:
+        spec:
+          restartPolicy: OnFailure
+          tolerations:
+            - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+            - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+          securityContext:
+            seccompProfile: { type: Unconfined }
+          containers:
+            - name: extract
+              image: 192.168.3.207:5003/schumann:0.1.0
+              command: ["python", "extract.py"]
+              env:
+                - name: PHYSIOME_PG_DSN
+                  valueFrom: { secretKeyRef: { name: beagle-pg, key: DATABASE_URL } }
+              resources:
+                requests: { cpu: "200m", memory: "256Mi" }
+                limits: { cpu: "1", memory: "512Mi" }

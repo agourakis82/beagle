@@ -46,3 +46,8 @@ ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS hp30            DOUBLE PRECIS
 ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS ap30            DOUBLE PRECISION;
 ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS hp60            DOUBLE PRECISION;
 ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS cosmic_ray_oulu DOUBLE PRECISION;
+-- Schumann-resonance harmonic amplitude (relative 0..1), extracted from the Tomsk SOS
+-- spectrogram image by apps/schumann (there is no numeric feed). EXPLORATORY proxy.
+ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS schumann_f1     DOUBLE PRECISION;
+ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS schumann_f2     DOUBLE PRECISION;
+ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS schumann_f3     DOUBLE PRECISION;
