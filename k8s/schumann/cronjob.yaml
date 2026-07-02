@@ -23,7 +23,7 @@ spec:
             seccompProfile: { type: Unconfined }
           containers:
             - name: extract
-              image: 192.168.3.207:5003/schumann:0.1.0
+              image: 192.168.3.207:5003/schumann:0.1.0-84083ea9
               command: ["python", "extract.py"]
               env:
                 - name: PHYSIOME_PG_DSN

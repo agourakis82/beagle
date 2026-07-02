@@ -1,0 +1,41 @@
+# Kaniko build for the schumann extractor image. Run with:
+#   kubectl delete job schumann-build -n beagle --ignore-not-found
+#   kubectl apply -f k8s/schumann/build-job.yaml
+# Poll the registry tag (NOT the Job — TTL deletes it): 192.168.3.207:5003/v2/schumann/tags/list
+apiVersion: batch/v1
+kind: Job
+metadata: { name: schumann-build, namespace: beagle }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        sounio.dev/runtime-role: io-lab
+      tolerations:
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+      # pip's index fetch spawns threaded getaddrinfo() resolvers blocked by the default
+      # AppArmor profile even with seccomp Unconfined (same class as the cargo/npm builds).
+      securityContext:
+        seccompProfile: { type: Unconfined }
+        appArmorProfile: { type: Unconfined }
+      initContainers:
+        - name: clone
+          image: alpine/git:latest
+          command: ["/bin/sh","-lc","cd /workspace && git init -q && git remote add origin https://github.com/agourakis82/beagle.git && git fetch -q --depth=1 origin 84083ea9fa720f461d3bc746be5ba99cd50d86ef && git checkout -q FETCH_HEAD"]
+          volumeMounts: [{ name: workspace, mountPath: /workspace }]
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - "--dockerfile=/workspace/apps/schumann/Dockerfile"
+            - "--context=dir:///workspace"
+            - "--destination=192.168.3.207:5003/schumann:0.1.0-84083ea9"
+            - "--insecure-registry=192.168.3.207:5003"
+            - "--cache=false"
+            - "--snapshot-mode=redo"
+          volumeMounts: [{ name: workspace, mountPath: /workspace }]
+          resources: { requests: { cpu: "1", memory: "2Gi" }, limits: { cpu: "4", memory: "6Gi" } }
+      volumes: [{ name: workspace, emptyDir: { sizeLimit: 3Gi } }]
