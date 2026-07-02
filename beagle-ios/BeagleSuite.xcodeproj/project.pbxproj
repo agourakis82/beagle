@@ -52,7 +52,6 @@
 		88A28D4391FECECF547F0F1F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
 		88C136823E49CE00F3BACA50 /* MatrixMathUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CE1683D1192E8680C94F682 /* MatrixMathUtil.swift */; };
 		8A5884FB4F1AAAAF5E951305 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 89A4FE3D86B15D992A7B5030 /* BeagleCore */; };
-		907EF19DEAD54A0CE58672EC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC6B7360324065FECF7F1A2F /* HomeView.swift */; };
 		9186CB9B9DEC4901445A3C3A /* trellis_doodle.ply in Resources */ = {isa = PBXBuildFile; fileRef = 381B14E054CDB5B337BC4A52 /* trellis_doodle.ply */; };
 		92B4E05E95660C6A18722F63 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = EC23CD7FEB1FC70A4E7192BF /* BeagleCore */; };
 		940357316D6ABA1C8BB85DF3 /* CognitiveRecall.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCFA09876B0976760E929222 /* CognitiveRecall.swift */; };
@@ -207,7 +206,6 @@
 		E19225CC4B80CE9408A68022 /* ControlRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlRoomView.swift; sourceTree = "<group>"; };
 		E81EA117A445504E0B157182 /* SpatialTriadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialTriadView.swift; sourceTree = "<group>"; };
 		E83D053E3A7586E830B4B4BB /* SplatRenderer+ModelRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SplatRenderer+ModelRenderer.swift"; sourceTree = "<group>"; };
-		EC6B7360324065FECF7F1A2F /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		ED8D2C606B61A2AE04D24FCA /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		EECE76875D595132E400D65E /* HeatmapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeatmapView.swift; sourceTree = "<group>"; };
 		F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoDeepButton.swift; sourceTree = "<group>"; };
@@ -292,7 +290,6 @@
 				F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */,
 				3FADF6A9C3533B785FE38619 /* GoDeepView.swift */,
 				EECE76875D595132E400D65E /* HeatmapView.swift */,
-				EC6B7360324065FECF7F1A2F /* HomeView.swift */,
 				5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */,
 				A08540D355E6437F5F11ED49 /* JournalingSuggestionsView.swift */,
 				365A4A4180DF64759923830A /* LiveActivityManager.swift */,
@@ -675,7 +672,6 @@
 				B4C18225A382E1164A752BEC /* GoDeepView.swift in Sources */,
 				AFF447F376A1DA08356C28E0 /* HPCDashboardView.swift in Sources */,
 				BF0742CD0ABD9D8AD53DE9D6 /* HeatmapView.swift in Sources */,
-				907EF19DEAD54A0CE58672EC /* HomeView.swift in Sources */,
 				06BB7ABD02B36D11C5057D62 /* JournalingSuggestionsView.swift in Sources */,
 				BD8DE849A86BAFDCE1CAC86B /* LiveActivityManager.swift in Sources */,
 				8074F587452ECB33D0DAEA08 /* LorenzAttractorView.swift in Sources */,

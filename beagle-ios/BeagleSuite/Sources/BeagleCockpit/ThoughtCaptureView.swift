@@ -67,8 +67,12 @@ struct ThoughtCaptureView: View {
         }
     }
 
-    init() {
-        _conversation = State(initialValue: ConversationStore(preferLocal: false))
+    /// "Talk" mode used to always spin up its OWN ConversationStore — a second, invisible
+    /// conversation history disconnected from the main chat, depending on which button you
+    /// tapped to start talking. Callers with an existing store (BeagleSurface) should pass
+    /// it in so "Talk" is just another entry point into the SAME conversation, not a fork.
+    init(sharedConversation: ConversationStore? = nil) {
+        _conversation = State(initialValue: sharedConversation ?? ConversationStore(preferLocal: false))
     }
 
     var body: some View {

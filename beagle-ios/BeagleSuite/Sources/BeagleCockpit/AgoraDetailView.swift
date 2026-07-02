@@ -16,6 +16,10 @@ import BeagleCore
 struct AgoraDetailView: View {
     let sky: SpaceWeatherStore.Snapshot?
     let summary: PhysioSummary
+    /// Tapping a "mente maior" card asks the main companion chat to explain/analyze that
+    /// measurement — same UX HomeView.swift (now dead) had, ported here since Agora is a
+    /// sheet and can't hold its own ConversationStore.
+    var onSendToChat: ((String) -> Void)? = nil
 
     @State private var history: AgoraHistory?
     @State private var corr: PhysioCorrelations?
@@ -23,6 +27,7 @@ struct AgoraDetailView: View {
     @State private var appeared = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(CognitiveStore.self) private var cognitive
 
     private var band: SkyBand { sky?.band ?? .calm }
     private var ambient: WeatherPoint? { history?.weather.last }
@@ -46,6 +51,7 @@ struct AgoraDetailView: View {
                         ambientCard
                         bodyCard
                         correlationsCard
+                        mindCard
                         if loading {
                             ProgressView().tint(BeagleTheme.textTertiary).padding(.top, BeagleSpacing.sm)
                         }
@@ -237,6 +243,70 @@ struct AgoraDetailView: View {
                     .padding(.top, 2)
             }
         }
+    }
+
+    // MARK: - Mind (fractal/Φ/void — "LARGER MIND", ported from the now-dead HomeView.swift)
+
+    @ViewBuilder
+    private var mindCard: some View {
+        let fractals = cognitive.state.value?.recentFractalTrees ?? []
+        let phis = cognitive.state.value?.recentPhiMeasurements ?? []
+        let voids = cognitive.state.value?.recentVoidJourneys ?? []
+
+        if !fractals.isEmpty || !phis.isEmpty || !voids.isEmpty {
+            glassSection("MENTE", tint: BeagleTheme.truthRemembered) {
+                if let fractal = fractals.first {
+                    Button {
+                        let prompt = fractal.rootPrompt ?? "fractal tree"
+                        onSendToChat?("Explain this fractal exploration: \(prompt) — it produced \(fractal.nodeCount ?? 0) nodes at depth \(fractal.maxDepth ?? 0) in \(fractal.durationMs ?? 0)ms")
+                        dismiss()
+                    } label: {
+                        mindRow(
+                            icon: "tree", color: BeagleTheme.truthObserved,
+                            title: "Fractal: \(fractal.nodeCount ?? 0) nós",
+                            subtitle: fractal.rootPrompt ?? "",
+                            detail: "profundidade \(fractal.maxDepth ?? 0) · \(fractal.durationMs ?? 0)ms"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                if let phi = phis.first {
+                    Button {
+                        onSendToChat?("Analyze this IIT measurement: Φ = \(phi.phi ?? 0) for query '\(phi.querySnippet ?? "")'. Awareness: \(phi.awarenessLevel ?? "unknown"). What does this mean?")
+                        dismiss()
+                    } label: {
+                        mindRow(
+                            icon: "waveform.path.ecg", color: BeagleTheme.truthRemembered,
+                            title: "Φ = \(String(format: "%.4f", phi.phi ?? 0))",
+                            subtitle: phi.querySnippet ?? "",
+                            detail: "\(phi.awarenessLevel ?? "") · \(phi.substrateSize ?? 0) substratos"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+                if !voids.isEmpty {
+                    mindRow(
+                        icon: "circle.dotted", color: BeagleTheme.postureWarm,
+                        title: "\(voids.count) jornada\(voids.count > 1 ? "s" : "") void",
+                        subtitle: "\(voids.first?.insights?.count ?? 0) insights na última",
+                        detail: "profundidade \(String(format: "%.1f", voids.first?.maxDepthReached ?? 0))"
+                    )
+                }
+            }
+        }
+    }
+
+    private func mindRow(icon: String, color: Color, title: String, subtitle: String, detail: String) -> some View {
+        HStack(spacing: BeagleSpacing.sm) {
+            Image(systemName: icon).font(.system(size: 14)).foregroundStyle(color).frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(BeagleFont.footnote.font).fontWeight(.medium).foregroundStyle(BeagleTheme.textPrimary)
+                Text(subtitle).font(BeagleFont.caption2.font).foregroundStyle(BeagleTheme.textSecondary).lineLimit(1)
+            }
+            Spacer()
+            Text(detail).font(BeagleFont.caption2.font).foregroundStyle(BeagleTheme.textTertiary)
+        }
+        .padding(.vertical, 4)
     }
 
     private func correlationRow(_ c: PhysioCorrelations.Correlation) -> some View {

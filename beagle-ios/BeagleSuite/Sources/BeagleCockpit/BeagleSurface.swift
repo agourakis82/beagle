@@ -150,7 +150,9 @@ struct BeagleSurface: View {
         case .capture:
             captureSheet
         case .agora:
-            AgoraDetailView(sky: spaceWeather.latest, summary: physio.summary)
+            AgoraDetailView(sky: spaceWeather.latest, summary: physio.summary) { prompt in
+                Task { await conversation.sendMessage(prompt) }
+            }
         case .memory:
             MemoryLensDetailView(store: conversation)
         case .dreamInsights:
@@ -239,7 +241,7 @@ struct BeagleSurface: View {
 
     private var captureSheet: some View {
         NavigationStack {
-            ThoughtCaptureView()
+            ThoughtCaptureView(sharedConversation: conversation)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Done") { activeSheet = nil }
