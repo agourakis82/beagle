@@ -84,12 +84,16 @@ export async function upsertWeather(pool, rows) {
 export async function upsertSpaceWeather(pool, row) {
   if (!row || !row.ts) return 0;
   await pool.query(
-    `INSERT INTO space_weather (ts, kp, dst, f107, solar_wind_speed, bz, source)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
+    `INSERT INTO space_weather
+       (ts, kp, dst, f107, solar_wind_speed, bz, hp30, ap30, hp60, cosmic_ray_oulu, source)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (ts) DO UPDATE SET
        kp=EXCLUDED.kp, dst=EXCLUDED.dst, f107=EXCLUDED.f107, solar_wind_speed=EXCLUDED.solar_wind_speed,
-       bz=EXCLUDED.bz, source=EXCLUDED.source`,
-    [row.ts, row.kp, row.dst, row.f107, row.solar_wind_speed, row.bz, row.source || "noaa-swpc"]
+       bz=EXCLUDED.bz, hp30=EXCLUDED.hp30, ap30=EXCLUDED.ap30, hp60=EXCLUDED.hp60,
+       cosmic_ray_oulu=EXCLUDED.cosmic_ray_oulu, source=EXCLUDED.source`,
+    [row.ts, row.kp, row.dst, row.f107, row.solar_wind_speed, row.bz,
+     row.hp30 ?? null, row.ap30 ?? null, row.hp60 ?? null, row.cosmic_ray_oulu ?? null,
+     row.source || "noaa-swpc"]
   );
   return 1;
 }

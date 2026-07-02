@@ -39,3 +39,10 @@ CREATE TABLE IF NOT EXISTS space_weather (
 -- ensureSchema re-runs this file on every boot; the CREATE above is a no-op once the
 -- table exists, so add dst to already-provisioned DBs idempotently here.
 ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS dst DOUBLE PRECISION;
+-- 2026-07: high-cadence GFZ Hp30/Hp60 (30/60-min geomagnetic, finer than 3-hourly Kp)
+-- + NMDB neutron-monitor rate (galactic cosmic ray / Forbush context). Fail-soft: null
+-- when the upstream feed is missing, same as solar_wind_speed/bz.
+ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS hp30            DOUBLE PRECISION;
+ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS ap30            DOUBLE PRECISION;
+ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS hp60            DOUBLE PRECISION;
+ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS cosmic_ray_oulu DOUBLE PRECISION;

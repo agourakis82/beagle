@@ -74,9 +74,69 @@ function latest(arr, key) {
   return { v: null, ts: null };
 }
 
+// Parse a GFZ Hp30/Hp60 nowcast ASCII file. Whitespace-separated columns:
+//   YYY MM DD hh.h hh._m days days_m Hp ap D
+// where hh.h is the decimal UTC hour of the interval START, and Hp/ap are -1 for
+// intervals not yet observed (the nowcast file is pre-filled to end-of-day). Returns
+// observed rows only, as [{ ts, hp, ap }]. Same layout for Hp30 and Hp60 files.
+export function parseHpAscii(text) {
+  const out = [];
+  if (typeof text !== "string") return out;
+  for (const line of text.split("\n")) {
+    if (!line || line[0] === "#") continue;
+    const f = line.trim().split(/\s+/);
+    if (f.length < 9) continue;
+    const hp = Number(f[7]);
+    const ap = Number(f[8]);
+    if (!Number.isFinite(hp) || hp < 0) continue; // -1 = not yet observed
+    const hStart = Number(f[3]);
+    if (!Number.isFinite(hStart)) continue;
+    const hh = Math.floor(hStart);
+    const mm = Math.round((hStart - hh) * 60);
+    const p2 = (n) => String(n).padStart(2, "0");
+    const ts = `${f[0]}-${p2(f[1])}-${p2(f[2])}T${p2(hh)}:${p2(mm)}:00Z`;
+    out.push({ ts, hp, ap: Number.isFinite(ap) && ap >= 0 ? ap : null });
+  }
+  return out;
+}
+
+// Parse NMDB NEST ascii (semicolon-delimited): comment/blank lines, then a header,
+// then rows "YYYY-MM-DD HH:MM:SS;<count>". Returns [{ ts, count }]. Fail-soft: an
+// empty/HTML body (NMDB sometimes rate-limits or blocks) yields []. count is the
+// efficiency-corrected neutron rate; the poller keeps the most recent finite row.
+export function parseNmdbAscii(text) {
+  const out = [];
+  if (typeof text !== "string") return out;
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s || s[0] === "#") continue;
+    const parts = s.split(";");
+    if (parts.length < 2) continue;
+    const d = parts[0].trim();
+    const v = Number(parts[1]);
+    if (!/^\d{4}-\d\d-\d\d/.test(d) || !Number.isFinite(v)) continue;
+    out.push({ ts: d.replace(" ", "T") + (/[Zz]|[+-]\d\d:?\d\d$/.test(d) ? "" : "Z"), count: v });
+  }
+  return out;
+}
+
 // Collapse the latest reading of each series into one snapshot row for `space_weather`.
-export function mergeSpaceWeather({ kp = [], dst = [], f107 = [], speed = [], bz = [] }) {
-  const lk = latest(kp, "kp"), ld = latest(dst, "dst"), lf = latest(f107, "f107"), ls = latest(speed), lb = latest(bz);
-  const ts = lk.ts || ld.ts || lf.ts || ls.ts || lb.ts || new Date().toISOString();
-  return { ts, kp: lk.v, dst: ld.v, f107: lf.v, solar_wind_speed: ls.v, bz: lb.v, source: "noaa-swpc" };
+// New (2026-07) high-cadence + heliophysics channels: hp30/hp60/ap30 (GFZ, 30/60-min
+// geomagnetic — finer than 3-hourly Kp) and cosmicRay (NMDB neutron rate, for Forbush
+// context). All fail-soft: a missing feed leaves that column null, never crashes the run.
+export function mergeSpaceWeather({
+  kp = [], dst = [], f107 = [], speed = [], bz = [], hp30 = [], hp60 = [], cosmicRay = [],
+}) {
+  const lk = latest(kp, "kp"), ld = latest(dst, "dst"), lf = latest(f107, "f107");
+  const ls = latest(speed), lb = latest(bz);
+  const lh30 = latest(hp30, "hp"), lap30 = latest(hp30, "ap"), lh60 = latest(hp60, "hp");
+  const lcr = latest(cosmicRay, "count");
+  const ts =
+    lk.ts || ld.ts || lf.ts || ls.ts || lb.ts || lh30.ts || lh60.ts || lcr.ts ||
+    new Date().toISOString();
+  return {
+    ts, kp: lk.v, dst: ld.v, f107: lf.v, solar_wind_speed: ls.v, bz: lb.v,
+    hp30: lh30.v, ap30: lap30.v, hp60: lh60.v, cosmic_ray_oulu: lcr.v,
+    source: "noaa-swpc+gfz+nmdb",
+  };
 }

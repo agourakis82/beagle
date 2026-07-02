@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseKp, parseDst, parseF107, parseSolarWind, mergeSpaceWeather } from "../src/spaceweather.mjs";
+import { parseKp, parseDst, parseF107, parseSolarWind, parseHpAscii, parseNmdbAscii, mergeSpaceWeather } from "../src/spaceweather.mjs";
 
 // NOAA SWPC products are array-of-arrays with a header row.
 const KP = [
@@ -78,4 +78,39 @@ test("mergeSpaceWeather → latest snapshot row", () => {
   assert.equal(row.solar_wind_speed, 620);
   assert.equal(row.bz, -5.6);
   assert.ok(row.ts);
+});
+
+// GFZ Hp30 nowcast: real column layout, -1 = not-yet-observed (dropped), decimal hour → ts.
+const HP30 = [
+  "# YYY MM DD hh.h hh._m days days_m Hp30 ap30 D",
+  "2026 07 02 16.0 16.25 34516.66667 34516.67708  1.000    4 0",
+  "2026 07 02 16.5 16.75 34516.68750 34516.69792  0.667    3 0",
+  "2026 07 02 17.0 17.25 34516.70833 34516.71875 -1.000   -1 0", // future → dropped
+].join("\n");
+
+test("parseHpAscii drops -1 rows and builds ts from decimal hour", () => {
+  const s = parseHpAscii(HP30);
+  assert.equal(s.length, 2, "only observed rows");
+  assert.deepEqual(s[0], { ts: "2026-07-02T16:00:00Z", hp: 1.0, ap: 4 });
+  assert.equal(s[1].ts, "2026-07-02T16:30:00Z"); // 16.5 → :30
+  assert.equal(s[1].hp, 0.667);
+});
+
+test("parseNmdbAscii parses semicolon rows, skips comments/header", () => {
+  const txt = "# NMDB\nstart_date_time;RCORR_E\n2026-07-02 10:00:00;6543.2\n2026-07-02 11:00:00;6551.9\n";
+  const s = parseNmdbAscii(txt);
+  assert.equal(s.length, 2);
+  assert.deepEqual(s.at(-1), { ts: "2026-07-02T11:00:00Z", count: 6551.9 });
+  assert.deepEqual(parseNmdbAscii(""), []); // fail-soft on empty/blocked body
+});
+
+test("mergeSpaceWeather carries hp30/ap30/cosmicRay", () => {
+  const row = mergeSpaceWeather({
+    kp: parseKp(KP), hp30: parseHpAscii(HP30),
+    cosmicRay: [{ ts: "2026-07-02T11:00:00Z", count: 6551.9 }],
+  });
+  assert.equal(row.hp30, 0.667);
+  assert.equal(row.ap30, 3);
+  assert.equal(row.cosmic_ray_oulu, 6551.9);
+  assert.match(row.source, /gfz/);
 });
