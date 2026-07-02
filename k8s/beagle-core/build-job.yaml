@@ -18,11 +18,17 @@ spec:
       tolerations:
         - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
         - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
-      securityContext: { seccompProfile: { type: Unconfined } }
+      # cargo/curl's threaded DNS resolver ("getaddrinfo() thread failed to start") is
+      # blocked by the default AppArmor profile even with seccomp Unconfined — confirmed by
+      # bisecting with plain `docker run` (same root cause already documented in
+      # project-cockpit/build-job.yaml for node-pty's native build). Disable both.
+      securityContext:
+        seccompProfile: { type: Unconfined }
+        appArmorProfile: { type: Unconfined }
       initContainers:
         - name: clone
           image: alpine/git:latest
-          command: ["/bin/sh","-lc","cd /workspace && git init -q && git remote add origin https://github.com/agourakis82/beagle.git && git fetch -q --depth=1 origin 245e365026c23a83217af235c8dc697d924ea670 && git checkout -q FETCH_HEAD"]
+          command: ["/bin/sh","-lc","cd /workspace && git init -q && git remote add origin https://github.com/agourakis82/beagle.git && git fetch -q --depth=1 origin 0f034833ec029ad54bc6abcaa0cbedd814b453b0 && git checkout -q FETCH_HEAD"]
           volumeMounts: [{ name: workspace, mountPath: /workspace }]
       containers:
         - name: kaniko
@@ -30,7 +36,7 @@ spec:
           args:
             - "--dockerfile=/workspace/apps/beagle-monorepo/Dockerfile.core_server"
             - "--context=dir:///workspace"
-            - "--destination=192.168.3.207:5003/beagle-core-exocortex:reconcile-245e3650"
+            - "--destination=192.168.3.207:5003/beagle-core-exocortex:reconcile-0f034833"
             - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"
