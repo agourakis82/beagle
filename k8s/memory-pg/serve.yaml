@@ -74,9 +74,15 @@ spec:
             # query embeddings match the stored ones (same model_version).
             - name: BEAGLE_TEI_EMBED_URL
               value: http://beagle-sovereign-embeddings.beagle.svc.cluster.local:80/embed
-            # On-cluster cross-encoder reranker (Task 2.2).
+            # On-cluster cross-encoder reranker — GPU (bge-reranker-v2-m3 on TEI/
+            # FlashBert, r740 A5000). ~150x faster than the CPU reranker: it was the
+            # dominant /query latency (~1.2s/doc, ~30s pool → hangs). See reranker-gpu.yaml.
             - name: MEMORY_PG_RERANK_URL
-              value: http://memory-pg-reranker.beagle.svc.cluster.local:80
+              value: http://reranker-gpu.beagle.svc.cluster.local:80
+            # Rerank input cap. With the GPU reranker the full first-stage pool is cheap,
+            # so this is generous (the CPU path needed a tight cap to stay under timeout).
+            - name: MEMORY_PG_RERANK_INPUT_CAP
+              value: "64"
             # Auth token (optional). secretKeyRef with optional:true so the
             # Deployment applies before the key is patched in (gate open until set).
             - name: MEMORY_PG_QUERY_TOKEN

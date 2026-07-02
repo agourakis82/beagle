@@ -1,0 +1,95 @@
+# GPU cross-encoder reranker for memory-pg — bge-reranker-v2-m3 on TEI/FlashBert.
+#
+# WHY: the CPU reranker (memory-pg-reranker, TEI cpu-1.9) costs ~1.2s/doc and is a
+# single replica — reranking a ~30-doc /query pool took ~30s and intermittently hung,
+# starving the Φ substrate. Same model on an A5000 (SM86) via FlashBert does 32 long
+# docs in ~0.06s (~150x). memory-pg-serve's MEMORY_PG_RERANK_URL points here.
+#
+# Pinned to r740 (working nvidia runtime; r770's is broken post-reboot). Image is the
+# SM86 (86-1.9) TEI build for the A5000; if rescheduled onto the RTX 8000 (SM75) switch
+# to turing-1.9. Shares a time-sliced GPU (model is ~2.2GB, tiny VRAM footprint).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: reranker-gpu
+  name: reranker-gpu
+  namespace: beagle
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: reranker-gpu
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: reranker-gpu
+    spec:
+      containers:
+      - args:
+        - --model-id
+        - BAAI/bge-reranker-v2-m3
+        - --port
+        - '80'
+        - --auto-truncate
+        - --max-client-batch-size
+        - '64'
+        image: ghcr.io/huggingface/text-embeddings-inference:86-1.9
+        imagePullPolicy: IfNotPresent
+        name: tei
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      nodeSelector:
+        kubernetes.io/hostname: r740-proxmox
+      restartPolicy: Always
+      runtimeClassName: nvidia
+      schedulerName: default-scheduler
+      securityContext:
+        appArmorProfile:
+          type: Unconfined
+        seccompProfile:
+          type: Unconfined
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Exists
+      - effect: NoSchedule
+        key: sounio.dev/pool
+        operator: Exists
+      - effect: NoSchedule
+        key: sounio.dev/compute
+        operator: Exists
+      volumes:
+      - emptyDir:
+          sizeLimit: 6Gi
+        name: cache
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 1Gi
+        name: shm
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: reranker-gpu
+  name: reranker-gpu
+  namespace: beagle
+spec:
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: reranker-gpu
+  type: ClusterIP
+
