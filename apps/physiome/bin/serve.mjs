@@ -195,11 +195,17 @@ async function kpForecast() {
   } catch { return []; }
 }
 app.get("/api/physiome/forecast", async (req, res) => {
-  const lat = Number(req.query.lat), lon = Number(req.query.lon);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return res.status(400).json({ error: "lat and lon (numbers) required" });
-  }
   try {
+    // lat/lon optional: default to the device's most recently uploaded weather location, so
+    // the Agora screen can fetch the forecast without plumbing location through the UI.
+    let lat = Number(req.query.lat), lon = Number(req.query.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      const { rows } = await pool.query(
+        "SELECT lat, lon FROM weather_obs WHERE lat IS NOT NULL AND lon IS NOT NULL ORDER BY ts DESC LIMIT 1"
+      );
+      if (!rows.length) return res.json({ ok: true, weather: [], sky_kp: [], note: "no known location yet" });
+      lat = Number(rows[0].lat); lon = Number(rows[0].lon);
+    }
     const wxBase = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`;
     const aqBase = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}`;
     const [wx, aq, kp] = await Promise.all([
