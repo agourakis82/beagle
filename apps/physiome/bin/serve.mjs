@@ -122,6 +122,22 @@ async function fetchOWM(lat, lon) {
   };
 }
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
+// Air quality (Open-Meteo AQ API, keyless): US AQI (0-500, the standard scale) + the key
+// pollutants. Best-effort — returns nulls if the AQ API is down, never blocks the weather.
+async function fetchOpenMeteoAQ(lat, lon) {
+  try {
+    const url =
+      `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}` +
+      `&current=us_aqi,pm2_5,pm10,ozone,nitrogen_dioxide`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    if (!r.ok) return {};
+    const c = (await r.json()).current || {};
+    return {
+      aqi: num(c.us_aqi), pm2_5: num(c.pm2_5), pm10: num(c.pm10),
+      ozone: num(c.ozone), no2: num(c.nitrogen_dioxide),
+    };
+  } catch { return {}; }
+}
 app.get("/api/physiome/weather", async (req, res) => {
   const lat = Number(req.query.lat), lon = Number(req.query.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -134,7 +150,8 @@ app.get("/api/physiome/weather", async (req, res) => {
       try { w = await fetchOWM(lat, lon); }
       catch (e2) { return res.status(502).json({ error: `both weather providers failed: ${e1.message}; ${e2.message}` }); }
     }
-    res.json({ ok: true, ts: new Date().toISOString(), lat, lon, ...w });
+    const aq = await fetchOpenMeteoAQ(lat, lon); // best-effort, keyless
+    res.json({ ok: true, ts: new Date().toISOString(), lat, lon, ...w, ...aq });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }

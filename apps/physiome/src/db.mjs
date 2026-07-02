@@ -119,7 +119,7 @@ export async function getSpaceWeatherHistory(pool, hours = 48) {
 
 export async function getWeatherHistory(pool, hours = 48) {
   const { rows } = await pool.query(
-    `SELECT ts, temp_c, pressure_hpa, humidity, uv_index FROM weather_obs
+    `SELECT ts, temp_c, pressure_hpa, humidity, uv_index, aqi FROM weather_obs
      WHERE ts > now() - make_interval(hours => $1) ORDER BY ts ASC LIMIT 2000`,
     [hours]
   );
