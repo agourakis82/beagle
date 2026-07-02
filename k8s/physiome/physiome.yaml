@@ -30,7 +30,7 @@ spec:
           type: Unconfined
       containers:
         - name: physiome-ingest
-          image: 192.168.3.207:5003/physiome:0.1.0
+          image: 192.168.3.207:5003/physiome:0.4.0-6f60415b
           command: ["node", "bin/serve.mjs"]
           ports:
             - containerPort: 8090
@@ -81,7 +81,7 @@ spec:
             seccompProfile: { type: Unconfined }
           containers:
             - name: poller
-              image: 192.168.3.207:5003/physiome:0.1.0
+              image: 192.168.3.207:5003/physiome:0.4.0-6f60415b
               command: ["node", "bin/run-poller.mjs"]
               env:
                 - name: PHYSIOME_PG_DSN
@@ -109,7 +109,7 @@ spec:
             seccompProfile: { type: Unconfined }
           containers:
             - name: digest
-              image: 192.168.3.207:5003/physiome:0.1.0
+              image: 192.168.3.207:5003/physiome:0.4.0-6f60415b
               command: ["sh", "-c", "node bin/run-digest.mjs $(date -u +%F)"]
               env:
                 - name: PHYSIOME_PG_DSN
