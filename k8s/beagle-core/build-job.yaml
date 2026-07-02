@@ -1,0 +1,39 @@
+# Kaniko build for the beagle-core (core_server) image. Rust release build — much slower
+# than the Node app builds (~10-20min), give it a real timeout. Run with:
+#   kubectl delete job beagle-core-build -n beagle --ignore-not-found
+#   kubectl apply -f k8s/beagle-core/build-job.yaml
+# Then poll the registry tag (NOT the Job — TTL deletes it): 192.168.3.207:5003/v2/beagle-core-exocortex/tags/list
+apiVersion: batch/v1
+kind: Job
+metadata: { name: beagle-core-build, namespace: beagle }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  activeDeadlineSeconds: 2400
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        sounio.dev/runtime-role: io-lab
+      tolerations:
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+      securityContext: { seccompProfile: { type: Unconfined } }
+      initContainers:
+        - name: clone
+          image: alpine/git:latest
+          command: ["/bin/sh","-lc","cd /workspace && git init -q && git remote add origin https://github.com/agourakis82/beagle.git && git fetch -q --depth=1 origin 245e365026c23a83217af235c8dc697d924ea670 && git checkout -q FETCH_HEAD"]
+          volumeMounts: [{ name: workspace, mountPath: /workspace }]
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - "--dockerfile=/workspace/apps/beagle-monorepo/Dockerfile.core_server"
+            - "--context=dir:///workspace"
+            - "--destination=192.168.3.207:5003/beagle-core-exocortex:reconcile-245e3650"
+            - "--insecure-registry=192.168.3.207:5003"
+            - "--cache=false"
+            - "--snapshot-mode=redo"
+          volumeMounts: [{ name: workspace, mountPath: /workspace }]
+          resources: { requests: { cpu: "4", memory: "8Gi" }, limits: { cpu: "8", memory: "16Gi" } }
+      volumes: [{ name: workspace, emptyDir: { sizeLimit: 8Gi } }]
