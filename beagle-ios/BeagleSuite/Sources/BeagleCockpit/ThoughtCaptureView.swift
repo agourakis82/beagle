@@ -31,9 +31,6 @@ struct ThoughtCaptureView: View {
     @State private var conversation: ConversationStore
     @State private var hermesPhase = ""
     @State private var hermesPhaseIndex = 0
-    #if os(iOS)
-    @State private var speechRecognizer = SpeechRecognizer()
-    #endif
     @FocusState private var inputFocused: Bool
 
     private static let hermesMessages = [
@@ -89,9 +86,6 @@ struct ThoughtCaptureView: View {
                 }
                 .background { captureBackground }
                 .navigationTitle("Talk")
-                #if os(iOS)
-                .task { await speechRecognizer.setup() }
-                #endif
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
@@ -294,112 +288,6 @@ struct ThoughtCaptureView: View {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
-    }
-
-    // MARK: - Voice
-
-    private var voiceSection: some View {
-        #if os(iOS)
-        VStack(spacing: BeagleSpacing.md) {
-            // Whisper status
-            if speechRecognizer.isWhisperReady {
-                HStack(spacing: BeagleSpacing.xxs) {
-                    Image(systemName: "waveform.badge.microphone")
-                        .font(.system(size: 10))
-                    Text("On-device speech")
-                        .font(BeagleFont.caption2.font)
-                }
-                .foregroundStyle(BeagleTheme.truthObserved.opacity(0.7))
-            }
-
-            // Mic icon with live waveform animation
-            ZStack {
-                // Breathing ring when recording
-                if speechRecognizer.isRecording {
-                    Circle()
-                        .strokeBorder(BeagleTheme.truthObserved.opacity(0.2), lineWidth: 2)
-                        .frame(width: 72, height: 72)
-                        .scaleEffect(speechRecognizer.isRecording ? 1.15 : 1.0)
-                        .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: speechRecognizer.isRecording)
-                }
-
-                Image(systemName: speechRecognizer.isRecording ? "waveform" : "mic.fill")
-                    .font(.system(size: 32))
-                    .foregroundStyle(speechRecognizer.isRecording ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
-                    .symbolEffect(.variableColor.iterative, isActive: speechRecognizer.isRecording)
-            }
-            .frame(height: 76)
-            .sensoryFeedback(.impact(weight: .light), trigger: speechRecognizer.isRecording)
-
-            // Live transcript
-            if speechRecognizer.isRecording || !speechRecognizer.transcript.isEmpty {
-                Text(speechRecognizer.transcript.isEmpty ? "Listening..." : speechRecognizer.transcript)
-                    .font(BeagleFont.body.font)
-                    .foregroundStyle(BeagleTheme.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-            }
-
-            // Error
-            if let error = speechRecognizer.error {
-                HStack(spacing: BeagleSpacing.xs) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(BeagleTheme.stateError)
-                    Text(error)
-                        .font(BeagleFont.caption.font)
-                        .foregroundStyle(BeagleTheme.stateError)
-                        .lineLimit(2)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            // Controls
-            if speechRecognizer.isRecording {
-                HStack(spacing: BeagleSpacing.sm) {
-                    Button {
-                        speechRecognizer.stopRecording()
-                        inputText = speechRecognizer.transcript
-                        if !inputText.isEmpty {
-                            Task { await captureThought() }
-                        }
-                    } label: {
-                        Label("Capture", systemImage: "sparkles")
-                    }
-                    .buttonStyle(PrimaryButton())
-                    .disabled(speechRecognizer.transcript.isEmpty)
-
-                    Button {
-                        speechRecognizer.stopRecording()
-                    } label: {
-                        Label("Cancel", systemImage: "xmark")
-                    }
-                    .buttonStyle(SecondaryButton(color: BeagleTheme.stateError))
-                }
-            } else {
-                Button {
-                    // Tags voice-acoustic samples back to this conversation — natural
-                    // byproduct of speech already captured for STT, no extra instrumentation.
-                    speechRecognizer.sessionId = conversation.persistenceConversationId
-                    Task { await speechRecognizer.startRecording() }
-                } label: {
-                    Label("Start Recording", systemImage: "mic.fill")
-                }
-                .buttonStyle(PrimaryButton())
-            }
-        }
-        .frame(minHeight: 100)
-        #else
-        VStack(spacing: BeagleSpacing.md) {
-            Image(systemName: "mic.slash")
-                .font(.system(size: 32))
-                .foregroundStyle(BeagleTheme.textTertiary)
-            Text("Voice capture requires iOS")
-                .font(BeagleFont.footnote.font)
-                .foregroundStyle(BeagleTheme.textTertiary)
-        }
-        .frame(minHeight: 100)
-        #endif
     }
 
     // MARK: - Refined Result
