@@ -186,8 +186,11 @@ struct AgoraDetailView: View {
             sciChart("Kp", value: sky.map { String(format: "%.1f", $0.kp) } ?? "—", unit: nil,
                      band: (sky?.kp).map(kpBand),
                      history: skySeries(\.kp), forecast: kpForecastSeries(), color: skyColor)
-            sciChart("Dst / SYM-H", value: symDstValue, unit: "nT",
-                     band: (sky?.dst ?? sky?.symH).map(dstBand),
+            // Dst = ring-current (live, ~hourly). SYM-H is its 1-min OMNI twin but is
+            // RETROSPECTIVE (~40d latency), so plotting them as one "Dst / SYM-H" line while
+            // only the dst series is charted silently swapped indices — dropped the slash.
+            sciChart("Dst", value: sky?.dst.map { "\(Int($0.rounded()))" } ?? "—", unit: "nT · anel",
+                     band: (sky?.dst).map(dstBand),
                      history: skySeries(\.dst), color: BeagleTheme.auroraViolet)
             sciChart("Hp30", value: sky?.hp30.map { String(format: "%.2f", $0) } ?? "—", unit: "30-min",
                      band: (sky?.hp30).map { kpBand($0) },
@@ -211,17 +214,14 @@ struct AgoraDetailView: View {
             subHeader("Heliobiológico", exploratory: true)
             sciChart("Raios cósmicos", value: sky?.cosmicRayOulu.map { String(format: "%.1f%%", $0) } ?? "—", unit: "Oulu · Forbush",
                      band: nil, history: skySeries(\.cosmicRayOulu), color: BeagleTheme.truthObserved)
-            sciChart("Aurora", value: sky?.auroraPower.map { "\(Int($0.rounded()))" } ?? "—", unit: "GW · OVATION",
+            // OVATION aurora_power here is a SUMMED GRID INDEX (~75k, arb. units), NOT the
+            // hemispheric power in GW (real aurora is 5–200 GW) — labeling it "GW" was wrong.
+            sciChart("Aurora", value: sky?.auroraPower.map { "\(Int($0.rounded()))" } ?? "—", unit: "índice · OVATION",
                      band: nil, history: skySeries(\.auroraPower), color: BeagleTheme.auroraGreen)
-            sciChart("Schumann", value: sky?.schumannF1.map { String(format: "%.2f", $0) } ?? "—", unit: "7.83 Hz",
+            // The value is a RELATIVE AMPLITUDE (0..1) of the 7.83 Hz fundamental, not a frequency.
+            sciChart("Schumann", value: sky?.schumannF1.map { String(format: "%.2f", $0) } ?? "—", unit: "amp · 7.83 Hz",
                      band: nil, history: skySeries(\.schumannF1), color: BeagleTheme.auroraViolet)
         }
-    }
-
-    private var symDstValue: String {
-        if let d = sky?.dst { return "\(Int(d.rounded()))" }
-        if let s = sky?.symH { return "\(Int(s.rounded()))" }
-        return "—"
     }
 
     // MARK: - AMBIENTE — with forecast overlay (temp/UV/AQI)
@@ -489,20 +489,23 @@ struct AgoraDetailView: View {
             if hasSeries {
                 // History solid + forecast dashed (the dash marks "future" — no RuleMark, which
                 // was part of the signal-11 segfault). Default axes (proven safe in bisect).
+                // .linear (NOT catmullRom): a spline overshoots between sparse samples and
+                // invents peaks/valleys the data never had — scientifically dishonest. Linear
+                // connects the actual observations, so the trend the user reads is the real one.
                 Chart {
                     ForEach(hist, id: \.0) { p in
                         AreaMark(x: .value("t", p.0), y: .value("v", p.1))
                             .foregroundStyle(LinearGradient(colors: [color.opacity(0.28), color.opacity(0.02)], startPoint: .top, endPoint: .bottom))
-                            .interpolationMethod(.catmullRom)
+                            .interpolationMethod(.linear)
                         LineMark(x: .value("t", p.0), y: .value("v", p.1), series: .value("s", "obs"))
                             .foregroundStyle(color)
-                            .interpolationMethod(.catmullRom)
+                            .interpolationMethod(.linear)
                             .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
                     }
                     ForEach(fc, id: \.0) { p in
                         LineMark(x: .value("t", p.0), y: .value("v", p.1), series: .value("s", "fc"))
                             .foregroundStyle(color.opacity(0.65))
-                            .interpolationMethod(.catmullRom)
+                            .interpolationMethod(.linear)
                             .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                     }
                 }
