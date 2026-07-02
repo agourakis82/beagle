@@ -1,4 +1,5 @@
 use crate::auth::api_token_auth;
+use crate::http_exocortex::{ExocortexRepository, FRACTAL_TREES_LOG, PHI_MEASUREMENTS_LOG};
 use crate::{
     run_beagle_pipeline, ExperimentFlags, RunState, RunStatus, ScienceJobKind, ScienceJobRegistry,
     ScienceJobState, ScienceJobStatus,
@@ -1656,18 +1657,33 @@ async fn cognitive_state_handler(
 
     let running_agent_count = sessions.iter().filter(|s| s.ready_replicas > 0).count();
 
+    // Real aggregation (fractal/Φ persistence added — was hardcoded None before, which is
+    // why the iOS "MENTE" card in AgoraDetailView could never show anything regardless of
+    // how many times /api/fractal/recurse or /api/exocortex/process were called). Void
+    // journeys stay None: no HTTP trigger route exists for beagle-void yet.
+    let repo = ExocortexRepository::default();
+    let recent_fractal_trees = repo
+        .read_recent_jsonl::<serde_json::Value>(FRACTAL_TREES_LOG, 10)
+        .unwrap_or_default();
+    let recent_phi_measurements = repo
+        .read_recent_jsonl::<serde_json::Value>(PHI_MEASUREMENTS_LOG, 10)
+        .unwrap_or_default();
+
     Json(CognitiveStateResponse {
         hrv: None,
         recent_drafts: None,
         triad_latest: None,
         agent_sessions: sessions,
         recent_void_journeys: None,
-        recent_fractal_trees: None,
-        recent_phi_measurements: None,
+        recent_fractal_trees: (!recent_fractal_trees.is_empty())
+            .then(|| serde_json::Value::Array(recent_fractal_trees)),
+        recent_phi_measurements: (!recent_phi_measurements.is_empty())
+            .then(|| serde_json::Value::Array(recent_phi_measurements)),
         running_agent_count,
         generated_at: Utc::now().to_rfc3339(),
-        // Honest provenance: core_server only sees its own in-process job registries.
-        // Kubernetes/cockpit-managed agent pods are NOT visible here.
+        // Honest provenance: core_server only sees its own in-process job registries plus
+        // whatever it has persisted itself (fractal/phi). Kubernetes/cockpit-managed agent
+        // pods and void journeys are NOT visible here.
         source: "core_server:job_registries".to_string(),
     })
 }

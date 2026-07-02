@@ -4495,15 +4495,25 @@ pub(crate) async fn fractal_recurse_handler(
     };
     let res = fractal_recurse(&inference_base_url(), req).await;
     match (res, has_branching) {
-        (Some(r), true) => Json(serde_json::json!({
-            "root_id": root_id,
-            "root_prompt": root_prompt,
-            "max_depth": r.max_depth,
-            "branching": branching,
-            "node_count": r.node_count,
-            "generated_at": now,
-            "truth_mode": "computed",
-        })),
+        (Some(r), true) => {
+            let value = serde_json::json!({
+                "root_id": root_id,
+                "root_prompt": root_prompt,
+                "max_depth": r.max_depth,
+                "branching": branching,
+                "node_count": r.node_count,
+                "generated_at": now,
+                "truth_mode": "computed",
+            });
+            // Persist so /api/v1/cognitive/state can surface "recent fractal trees" — this
+            // handler used to compute-and-discard, which is why the iOS "MENTE" card in
+            // AgoraDetailView could never show real data no matter how often this was called.
+            if let Err(e) = ExocortexRepository::default().append_jsonl(FRACTAL_TREES_LOG, &value)
+            {
+                error!("failed to persist fractal tree: {e}");
+            }
+            Json(value)
+        }
         (Some(r), false) => Json(serde_json::json!({
             "result": {
                 "root_id": root_id,
@@ -4616,7 +4626,7 @@ pub(crate) async fn exocortex_process_handler(
                         .collect()
                 })
                 .collect();
-            Json(serde_json::json!({
+            let value = serde_json::json!({
                 "query_snippet": snippet,
                 "phi": p.phi,
                 "substrate_size": p.n,
@@ -4626,7 +4636,15 @@ pub(crate) async fn exocortex_process_handler(
                 "measured_at": now,
                 "duration_ms": dur,
                 "truth_mode": "measured",
-            }))
+            });
+            // Persist so /api/v1/cognitive/state can surface "recent Φ measurements" — see
+            // the matching comment in fractal_recurse_handler for why this was missing.
+            if let Err(e) =
+                ExocortexRepository::default().append_jsonl(PHI_MEASUREMENTS_LOG, &value)
+            {
+                error!("failed to persist phi measurement: {e}");
+            }
+            Json(value)
         }
         None => Json(serde_json::json!({
             "query_snippet": snippet, "substrate_size": n,
