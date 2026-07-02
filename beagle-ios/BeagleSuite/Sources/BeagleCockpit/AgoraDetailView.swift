@@ -442,16 +442,24 @@ struct AgoraDetailView: View {
                 if let band { bandPill(band.0, band.1) }
             }
             if hasSeries {
-                // BISECT: minimal chart close to the proven-working original (history only,
-                // default axes, no series:/RuleMark) to isolate the signal-11 segfault.
-                Chart(hist, id: \.0) { p in
-                    AreaMark(x: .value("t", p.0), y: .value("v", p.1))
-                        .foregroundStyle(LinearGradient(colors: [color.opacity(0.28), color.opacity(0.02)], startPoint: .top, endPoint: .bottom))
-                        .interpolationMethod(.catmullRom)
-                    LineMark(x: .value("t", p.0), y: .value("v", p.1))
-                        .foregroundStyle(color)
-                        .interpolationMethod(.catmullRom)
-                        .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
+                // History solid + forecast dashed (the dash marks "future" — no RuleMark, which
+                // was part of the signal-11 segfault). Default axes (proven safe in bisect).
+                Chart {
+                    ForEach(hist, id: \.0) { p in
+                        AreaMark(x: .value("t", p.0), y: .value("v", p.1))
+                            .foregroundStyle(LinearGradient(colors: [color.opacity(0.28), color.opacity(0.02)], startPoint: .top, endPoint: .bottom))
+                            .interpolationMethod(.catmullRom)
+                        LineMark(x: .value("t", p.0), y: .value("v", p.1), series: .value("s", "obs"))
+                            .foregroundStyle(color)
+                            .interpolationMethod(.catmullRom)
+                            .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
+                    }
+                    ForEach(fc, id: \.0) { p in
+                        LineMark(x: .value("t", p.0), y: .value("v", p.1), series: .value("s", "fc"))
+                            .foregroundStyle(color.opacity(0.65))
+                            .interpolationMethod(.catmullRom)
+                            .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    }
                 }
                 .chartXAxis { AxisMarks() }
                 .chartYAxis { AxisMarks(position: .leading) }
