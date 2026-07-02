@@ -58,10 +58,25 @@ public struct SkyPoint: Decodable, Sendable, Identifiable {
     public let dst: Double?
     public let solarWindSpeed: Double?
     public let bz: Double?
+    public let hp30: Double?
+    public let cosmicRayOulu: Double?
+    public let schumannF1: Double?
+    public let xrayFlux: Double?
+    public let protonFlux: Double?
+    public let auroraPower: Double?
+    public let symH: Double?
+    public let aeIndex: Double?
     public var id: String { ts }
     enum CodingKeys: String, CodingKey {
-        case ts, kp, dst, bz
+        case ts, kp, dst, bz, hp30
         case solarWindSpeed = "solar_wind_speed"
+        case cosmicRayOulu = "cosmic_ray_oulu"
+        case schumannF1 = "schumann_f1"
+        case xrayFlux = "xray_flux"
+        case protonFlux = "proton_flux"
+        case auroraPower = "aurora_power"
+        case symH = "sym_h"
+        case aeIndex = "ae_index"
     }
 }
 
@@ -71,9 +86,10 @@ public struct WeatherPoint: Decodable, Sendable, Identifiable {
     public let pressureHpa: Double?
     public let humidity: Double?
     public let uvIndex: Double?
+    public let aqi: Double?
     public var id: String { ts }
     enum CodingKeys: String, CodingKey {
-        case ts, humidity
+        case ts, humidity, aqi
         case tempC = "temp_c"
         case pressureHpa = "pressure_hpa"
         case uvIndex = "uv_index"
@@ -83,5 +99,32 @@ public struct WeatherPoint: Decodable, Sendable, Identifiable {
 public struct HrvPoint: Decodable, Sendable, Identifiable {
     public let ts: String
     public let value: Double?
+    public var id: String { ts }
+}
+
+
+// --- Forecast (Agora charts forward half): /api/physiome/forecast ---
+public struct AgoraForecast: Decodable, Sendable {
+    public let weather: [WxForecastPoint]
+    public let skyKp: [KpForecastPoint]
+    enum CodingKeys: String, CodingKey { case weather; case skyKp = "sky_kp" }
+    public init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        weather = (try? c.decode([WxForecastPoint].self, forKey: .weather)) ?? []
+        skyKp = (try? c.decode([KpForecastPoint].self, forKey: .skyKp)) ?? []
+    }
+}
+public struct WxForecastPoint: Decodable, Sendable, Identifiable {
+    public let ts: String
+    public let tempC: Double?
+    public let uvIndex: Double?
+    public let aqi: Double?
+    public var id: String { ts }
+    enum CodingKeys: String, CodingKey { case ts, aqi; case tempC = "temp_c"; case uvIndex = "uv_index" }
+}
+public struct KpForecastPoint: Decodable, Sendable, Identifiable {
+    public let ts: String
+    public let kp: Double?
+    public let predicted: Bool
     public var id: String { ts }
 }

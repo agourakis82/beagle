@@ -1701,12 +1701,12 @@ public actor BeagleClient {
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                 print("[SpaceWeather/Client] \(base.host ?? "?") → HTTP \(code) (\(data.count)B)")
                 guard (200..<300).contains(code) else { continue }
-                struct Resp: Decodable { let ok: Bool; let latest: Latest? ; struct Latest: Decodable { let ts: String; let kp: Double; let dst: Double?; let f107: Double; let solar_wind_speed: Double?; let bz: Double?; let source: String } }
+                struct Resp: Decodable { let ok: Bool; let latest: Latest? ; struct Latest: Decodable { let ts: String; let kp: Double; let dst: Double?; let f107: Double; let solar_wind_speed: Double?; let bz: Double?; let hp30: Double?; let ap30: Double?; let hp60: Double?; let cosmic_ray_oulu: Double?; let schumann_f1: Double?; let schumann_f2: Double?; let schumann_f3: Double?; let xray_flux: Double?; let proton_flux: Double?; let aurora_power: Double?; let sym_h: Double?; let ae_index: Double?; let source: String } }
                 let resp = try decoder.decode(Resp.self, from: data)
                 guard let l = resp.latest else { return nil }
                 let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
                 let ts = f.date(from: l.ts) ?? ISO8601DateFormatter().date(from: l.ts) ?? Date()
-                return SpaceWeatherStore.Snapshot(ts: ts, kp: l.kp, dst: l.dst, f107: l.f107, solarWindSpeed: l.solar_wind_speed, bz: l.bz, source: l.source)
+                return SpaceWeatherStore.Snapshot(ts: ts, kp: l.kp, dst: l.dst, f107: l.f107, solarWindSpeed: l.solar_wind_speed, bz: l.bz, hp30: l.hp30, ap30: l.ap30, hp60: l.hp60, cosmicRayOulu: l.cosmic_ray_oulu, schumannF1: l.schumann_f1, schumannF2: l.schumann_f2, schumannF3: l.schumann_f3, xrayFlux: l.xray_flux, protonFlux: l.proton_flux, auroraPower: l.aurora_power, symH: l.sym_h, aeIndex: l.ae_index, source: l.source)
             } catch {
                 print("[SpaceWeather/Client] \(base.host ?? "?") error: \(error.localizedDescription)")
                 continue
@@ -1736,6 +1736,31 @@ public actor BeagleClient {
                 return try decoder.decode(AgoraHistory.self, from: data)
             } catch {
                 print("[AgoraHistory] \(base.host ?? "?") error: \(error.localizedDescription)")
+                continue
+            }
+        }
+        return nil
+    }
+
+    /// Forecast (the forward half of the Agora charts): hourly temp/UV/AQI + the NOAA
+    /// planetary-K 3-day forecast. The server defaults to the last uploaded location, so no
+    /// lat/lon is needed. Public endpoint (no auth). Best-effort → nil.
+    public func agoraForecast() async -> AgoraForecast? {
+        let bases = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://physiome-ingest.beagle.svc.cluster.local:8080")!
+        ]
+        for base in bases {
+            guard let url = URL(string: "/api/physiome/forecast", relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 20
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { continue }
+                return try decoder.decode(AgoraForecast.self, from: data)
+            } catch {
+                print("[AgoraForecast] \(base.host ?? "?") error: \(error.localizedDescription)")
                 continue
             }
         }

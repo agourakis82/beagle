@@ -25,10 +25,27 @@ public final class SpaceWeatherStore {
         public let f107: Double         // solar flux, sfu
         public let solarWindSpeed: Double?  // km/s (null when the SWPC feed omits it)
         public let bz: Double?          // IMF Bz, nT (negative = active)
+        public let hp30: Double?        // GFZ 30-min geomagnetic (finer than 3-hourly Kp, open-ended)
+        public let ap30: Double?        // GFZ ap30 (linear amplitude of Hp30)
+        public let hp60: Double?        // GFZ 60-min geomagnetic
+        public let cosmicRayOulu: Double?   // NMDB neutron rate, % of baseline (Forbush context)
+        public let schumannF1: Double?  // Schumann fundamental ~7.83 Hz, relative amplitude (exploratory)
+        public let schumannF2: Double?  // 2nd harmonic ~14.3 Hz
+        public let schumannF3: Double?  // 3rd harmonic ~20.8 Hz
+        public let xrayFlux: Double?    // GOES 0.1-0.8nm long-channel flux, W/m² (flare class)
+        public let protonFlux: Double?  // GOES >=10 MeV integral proton flux, pfu (S-scale)
+        public let auroraPower: Double? // OVATION hemispheric power proxy
+        public let symH: Double?        // SYM-H ring current, nT (retrospective via OMNI)
+        public let aeIndex: Double?     // AE auroral electrojet, nT (retrospective)
         public let source: String
-        public init(ts: Date, kp: Double, dst: Double? = nil, f107: Double, solarWindSpeed: Double? = nil, bz: Double? = nil, source: String) {
+        public init(ts: Date, kp: Double, dst: Double? = nil, f107: Double, solarWindSpeed: Double? = nil, bz: Double? = nil, hp30: Double? = nil, ap30: Double? = nil, hp60: Double? = nil, cosmicRayOulu: Double? = nil, schumannF1: Double? = nil, schumannF2: Double? = nil, schumannF3: Double? = nil, xrayFlux: Double? = nil, protonFlux: Double? = nil, auroraPower: Double? = nil, symH: Double? = nil, aeIndex: Double? = nil, source: String) {
             self.ts = ts; self.kp = kp; self.dst = dst; self.f107 = f107
-            self.solarWindSpeed = solarWindSpeed; self.bz = bz; self.source = source
+            self.solarWindSpeed = solarWindSpeed; self.bz = bz
+            self.hp30 = hp30; self.ap30 = ap30; self.hp60 = hp60; self.cosmicRayOulu = cosmicRayOulu
+            self.schumannF1 = schumannF1; self.schumannF2 = schumannF2; self.schumannF3 = schumannF3
+            self.xrayFlux = xrayFlux; self.protonFlux = protonFlux; self.auroraPower = auroraPower
+            self.symH = symH; self.aeIndex = aeIndex
+            self.source = source
         }
         /// Named band — severity is the worst of Kp and Dst (Dst weighs as much as Kp).
         public var band: SkyBand { SkyBand.from(kp: kp, dst: dst) }
