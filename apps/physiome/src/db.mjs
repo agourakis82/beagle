@@ -85,14 +85,19 @@ export async function upsertSpaceWeather(pool, row) {
   if (!row || !row.ts) return 0;
   await pool.query(
     `INSERT INTO space_weather
-       (ts, kp, dst, f107, solar_wind_speed, bz, hp30, ap30, hp60, cosmic_ray_oulu, source)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       (ts, kp, dst, f107, solar_wind_speed, bz, hp30, ap30, hp60, cosmic_ray_oulu,
+        xray_flux, proton_flux, aurora_power, sym_h, ae_index, source)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      ON CONFLICT (ts) DO UPDATE SET
        kp=EXCLUDED.kp, dst=EXCLUDED.dst, f107=EXCLUDED.f107, solar_wind_speed=EXCLUDED.solar_wind_speed,
        bz=EXCLUDED.bz, hp30=EXCLUDED.hp30, ap30=EXCLUDED.ap30, hp60=EXCLUDED.hp60,
-       cosmic_ray_oulu=EXCLUDED.cosmic_ray_oulu, source=EXCLUDED.source`,
+       cosmic_ray_oulu=EXCLUDED.cosmic_ray_oulu, xray_flux=EXCLUDED.xray_flux,
+       proton_flux=EXCLUDED.proton_flux, aurora_power=EXCLUDED.aurora_power,
+       sym_h=EXCLUDED.sym_h, ae_index=EXCLUDED.ae_index, source=EXCLUDED.source`,
     [row.ts, row.kp, row.dst, row.f107, row.solar_wind_speed, row.bz,
      row.hp30 ?? null, row.ap30 ?? null, row.hp60 ?? null, row.cosmic_ray_oulu ?? null,
+     row.xray_flux ?? null, row.proton_flux ?? null, row.aurora_power ?? null,
+     row.sym_h ?? null, row.ae_index ?? null,
      row.source || "noaa-swpc"]
   );
   return 1;
@@ -103,7 +108,8 @@ export async function upsertSpaceWeather(pool, row) {
 
 export async function getSpaceWeatherHistory(pool, hours = 48) {
   const { rows } = await pool.query(
-    `SELECT ts, kp, dst, solar_wind_speed, bz, hp30, cosmic_ray_oulu, schumann_f1
+    `SELECT ts, kp, dst, solar_wind_speed, bz, hp30, cosmic_ray_oulu, schumann_f1,
+            xray_flux, proton_flux, aurora_power, sym_h, ae_index
        FROM space_weather
      WHERE ts > now() - make_interval(hours => $1) ORDER BY ts ASC LIMIT 1000`,
     [hours]

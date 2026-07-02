@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseKp, parseDst, parseF107, parseSolarWind, parseHpAscii, parseNmdbAscii, mergeSpaceWeather } from "../src/spaceweather.mjs";
+import { parseKp, parseDst, parseF107, parseSolarWind, parseHpAscii, parseNmdbAscii, parseXrayFlux, parseProtonFlux, parseOvation, parseOmniCsv, mergeSpaceWeather } from "../src/spaceweather.mjs";
 
 // NOAA SWPC products are array-of-arrays with a header row.
 const KP = [
@@ -113,4 +113,77 @@ test("mergeSpaceWeather carries hp30/ap30/cosmicRay", () => {
   assert.equal(row.ap30, 3);
   assert.equal(row.cosmic_ray_oulu, 6551.9);
   assert.match(row.source, /gfz/);
+});
+
+// --- 2026-07 NOAA GOES + OVATION + OMNI channels ---
+
+// GOES X-ray: array-of-objects interleaving two energy channels; keep only 0.1-0.8nm (long).
+const XRAY = [
+  { time_tag: "2026-07-02T20:00:00Z", satellite: 16, flux: 3.2e-7, energy: "0.05-0.4nm" },
+  { time_tag: "2026-07-02T20:00:00Z", satellite: 16, flux: 1.4e-6, energy: "0.1-0.8nm" },
+  { time_tag: "2026-07-02T20:01:00Z", satellite: 16, flux: 2.1e-6, energy: "0.1-0.8nm" },
+];
+test("parseXrayFlux keeps only the 0.1-0.8nm long channel", () => {
+  const r = parseXrayFlux(XRAY);
+  assert.equal(r.length, 2, "short channel dropped");
+  assert.deepEqual(r.at(-1), { ts: "2026-07-02T20:01:00Z", xray_flux: 2.1e-6 });
+  assert.deepEqual(parseXrayFlux("nope"), []); // fail-soft
+});
+
+// GOES integral protons: many energy channels; keep only >=10 MeV (S-scale driver).
+const PROTON = [
+  { time_tag: "2026-07-02T20:00:00Z", satellite: 16, flux: 0.12, energy: ">=1 MeV" },
+  { time_tag: "2026-07-02T20:00:00Z", satellite: 16, flux: 0.05, energy: ">=10 MeV" },
+  { time_tag: "2026-07-02T20:05:00Z", satellite: 16, flux: 0.08, energy: ">=10 MeV" },
+];
+test("parseProtonFlux keeps only the >=10 MeV channel", () => {
+  const r = parseProtonFlux(PROTON);
+  assert.equal(r.length, 2);
+  assert.deepEqual(r.at(-1), { ts: "2026-07-02T20:05:00Z", proton_flux: 0.08 });
+  assert.deepEqual(parseProtonFlux(null), []); // fail-soft
+});
+
+// OVATION: single object, coordinates = [lon, lat, aurora] triples; power = summed aurora.
+const OVATION = {
+  "Observation Time": "2026-07-02T20:22:00Z",
+  "Forecast Time": "2026-07-02T20:52:00Z",
+  type: "MultiPoint",
+  coordinates: [[0, 60, 5], [1, 60, 10], [2, 60, 7]],
+};
+test("parseOvation sums grid aurora into a hemispheric-power proxy", () => {
+  const r = parseOvation(OVATION);
+  assert.equal(r.length, 1);
+  assert.deepEqual(r[0], { ts: "2026-07-02T20:22:00Z", aurora_power: 22 });
+  assert.deepEqual(parseOvation({}), []);   // fail-soft: no coordinates
+  assert.deepEqual(parseOvation(null), []); // fail-soft: null body
+});
+
+// OMNI HAPI CSV: headerless Time,AE,AL,AU,SYM_H rows; fill 99999 dropped per-column.
+const OMNI = [
+  "2026-05-24T23:44:00.000Z,84,-38,22,-4",
+  "2026-05-24T23:45:00.000Z,90,-40,25,99999", // sym_h filled → sym dropped, ae kept
+  "2026-05-24T23:46:00.000Z,99999,-38,22,-9",  // ae filled → ae dropped, sym kept
+].join("\n");
+test("parseOmniCsv splits AE + SYM-H and drops 99999 fill per column", () => {
+  const { ae, symH } = parseOmniCsv(OMNI);
+  assert.equal(ae.length, 2);
+  assert.deepEqual(ae.at(-1), { ts: "2026-05-24T23:45:00.000Z", ae: 90 });
+  assert.equal(symH.length, 2);
+  assert.deepEqual(symH.at(-1), { ts: "2026-05-24T23:46:00.000Z", sym_h: -9 });
+  assert.deepEqual(parseOmniCsv(""), { ae: [], symH: [] }); // fail-soft on empty body
+});
+
+test("mergeSpaceWeather carries xray/proton/aurora/sym_h/ae", () => {
+  const row = mergeSpaceWeather({
+    kp: parseKp(KP),
+    xrayFlux: parseXrayFlux(XRAY),
+    protonFlux: parseProtonFlux(PROTON),
+    aurora: parseOvation(OVATION),
+    ...parseOmniCsv(OMNI),
+  });
+  assert.equal(row.xray_flux, 2.1e-6);
+  assert.equal(row.proton_flux, 0.08);
+  assert.equal(row.aurora_power, 22);
+  assert.equal(row.sym_h, -9);
+  assert.equal(row.ae_index, 90);
 });

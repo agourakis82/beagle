@@ -2,10 +2,29 @@
 // Fail-soft per source: a missing/down feed yields null for that metric, never crashes the run.
 import { makePool, ensureSchema, upsertSpaceWeather } from "../src/db.mjs";
 import {
-  parseKp, parseDst, parseF107, parseSolarWind, parseHpAscii, parseNmdbAscii, mergeSpaceWeather,
+  parseKp, parseDst, parseF107, parseSolarWind, parseHpAscii, parseNmdbAscii,
+  parseXrayFlux, parseProtonFlux, parseOvation, parseOmniCsv, mergeSpaceWeather,
 } from "../src/spaceweather.mjs";
 
 const SWPC = "https://services.swpc.noaa.gov/products";
+// NOAA SWPC JSON products (separate host from /products): GOES X-ray (0.1-0.8nm long channel,
+// flare context), GOES integral protons (>=10 MeV, radiation-storm S-scale), OVATION aurora
+// nowcast (hemispheric power). All array-/object-JSON, fail-soft via getJson → null.
+const SWPC_JSON = "https://services.swpc.noaa.gov/json";
+// NASA CDAWeb HAPI OMNI_HRO_1MIN → SYM-H + AE (nT). RETROSPECTIVE ONLY: OMNI runs ~40-day
+// latency, so the live snapshot for sym_h/ae_index is almost always null; this feed only
+// backfills historical rows (ON CONFLICT). Request a wide trailing window so we catch
+// whatever has been published. Returns headerless CSV text → parseOmniCsv.
+function omniUrl() {
+  const end = new Date();
+  const start = new Date(end.getTime() - 45 * 24 * 3600 * 1000); // trailing 45 days
+  const iso = (d) => d.toISOString().slice(0, 19) + "Z";
+  return (
+    "https://cdaweb.gsfc.nasa.gov/hapi/data?id=OMNI_HRO_1MIN" +
+    `&time.min=${iso(start)}&time.max=${iso(end)}` +
+    "&parameters=AE_INDEX,AL_INDEX,AU_INDEX,SYM_H&format=csv"
+  );
+}
 // GFZ Hp30/Hp60 nowcast (30/60-min geomagnetic, ASCII). Use kp.gfz.de — the www.gfz.de
 // path 404s. NMDB neutron rate (galactic cosmic ray / Forbush context): the NEST ascii
 // GET, fail-soft (NMDB rate-limits/blocks some IPs → empty body → null column).
@@ -31,6 +50,10 @@ const URLS = {
   hp30: `${GFZ}/Hp30_ap30_nowcast.txt`,
   hp60: `${GFZ}/Hp60_ap60_nowcast.txt`,
   nmdb: nmdbUrl(),
+  xray: `${SWPC_JSON}/goes/primary/xrays-1-day.json`,
+  proton: `${SWPC_JSON}/goes/primary/integral-protons-1-day.json`,
+  ovation: `${SWPC_JSON}/ovation_aurora_latest.json`,
+  omni: omniUrl(),
 };
 
 async function getJson(url) {
@@ -58,11 +81,14 @@ async function getText(url) {
   }
 }
 
-const [kpJ, dstJ, f107J, plasmaJ, magJ, hp30T, hp60T, nmdbT] = await Promise.all([
-  getJson(URLS.kp), getJson(URLS.dst), getJson(URLS.f107), getJson(URLS.plasma), getJson(URLS.mag),
-  getText(URLS.hp30), getText(URLS.hp60), getText(URLS.nmdb),
-]);
+const [kpJ, dstJ, f107J, plasmaJ, magJ, hp30T, hp60T, nmdbT, xrayJ, protonJ, ovationJ, omniT] =
+  await Promise.all([
+    getJson(URLS.kp), getJson(URLS.dst), getJson(URLS.f107), getJson(URLS.plasma), getJson(URLS.mag),
+    getText(URLS.hp30), getText(URLS.hp60), getText(URLS.nmdb),
+    getJson(URLS.xray), getJson(URLS.proton), getJson(URLS.ovation), getText(URLS.omni),
+  ]);
 const sw = parseSolarWind(plasmaJ || [], magJ || []);
+const omni = parseOmniCsv(omniT || ""); // { ae, symH } — RETROSPECTIVE backfill, usually null live
 const row = mergeSpaceWeather({
   kp: parseKp(kpJ || []),
   dst: parseDst(dstJ || []),
@@ -72,6 +98,11 @@ const row = mergeSpaceWeather({
   hp30: parseHpAscii(hp30T || ""),
   hp60: parseHpAscii(hp60T || ""),
   cosmicRay: parseNmdbAscii(nmdbT || ""),
+  xrayFlux: parseXrayFlux(xrayJ || []),
+  protonFlux: parseProtonFlux(protonJ || []),
+  aurora: parseOvation(ovationJ || null),
+  symH: omni.symH,
+  ae: omni.ae,
 });
 
 const pool = makePool();

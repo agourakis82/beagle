@@ -120,23 +120,105 @@ export function parseNmdbAscii(text) {
   return out;
 }
 
+// Parse NOAA SWPC GOES X-ray flux (array-of-objects: {time_tag, satellite, flux, energy}).
+// The feed interleaves TWO energy channels — short (0.05-0.4nm) and long (0.1-0.8nm). The
+// LONG channel drives flare classification (C >=1e-6, M >=1e-5, X >=1e-4 W/m²), so we keep
+// only energy === "0.1-0.8nm". Returns [{ ts, xray_flux }]. Fail-soft: non-array → [].
+export function parseXrayFlux(json) {
+  if (!Array.isArray(json)) return [];
+  const out = [];
+  for (const o of json) {
+    if (!o || typeof o !== "object" || String(o.energy) !== "0.1-0.8nm") continue;
+    const v = Number(o.flux);
+    if (o.time_tag && Number.isFinite(v)) out.push({ ts: isoUtc(o.time_tag), xray_flux: v });
+  }
+  return out;
+}
+
+// Parse NOAA SWPC GOES integral proton flux (array-of-objects: {time_tag, satellite, flux,
+// energy}). The feed carries many energy channels; the radiation-storm S-scale is defined
+// on the >=10 MeV channel (S1 10, S2 100, S3 1e3, S4 1e4, S5 1e5 protons/cm²/s), so we keep
+// only energy === ">=10 MeV". Returns [{ ts, proton_flux }]. Fail-soft: non-array → [].
+export function parseProtonFlux(json) {
+  if (!Array.isArray(json)) return [];
+  const out = [];
+  for (const o of json) {
+    if (!o || typeof o !== "object" || String(o.energy) !== ">=10 MeV") continue;
+    const v = Number(o.flux);
+    if (o.time_tag && Number.isFinite(v)) out.push({ ts: isoUtc(o.time_tag), proton_flux: v });
+  }
+  return out;
+}
+
+// Parse NOAA SWPC OVATION aurora nowcast: ONE object with a `coordinates` array of
+// [lon, lat, aurora] triples (aurora 0..~22, arbitrary units, 1° global grid). We collapse
+// the grid to a single hemispheric-power proxy = SUM of the aurora column (an integrated
+// power measure), timestamped at "Observation Time". Returns [{ ts, aurora_power }] (0 or 1
+// row). Fail-soft: missing/blank coordinates → [].
+export function parseOvation(json) {
+  if (!json || typeof json !== "object" || !Array.isArray(json.coordinates)) return [];
+  let sum = 0, n = 0;
+  for (const c of json.coordinates) {
+    if (!Array.isArray(c) || c.length < 3) continue;
+    const a = Number(c[2]);
+    if (Number.isFinite(a)) { sum += a; n++; }
+  }
+  if (n === 0) return [];
+  const t = json["Observation Time"] || json["Forecast Time"];
+  const ts = t ? isoUtc(t) : new Date().toISOString();
+  return [{ ts, aurora_power: sum }];
+}
+
+// Parse NASA CDAWeb HAPI OMNI_HRO_1MIN CSV. The /hapi/data rows are HEADERLESS and column
+// order is fixed by the request's parameters=AE_INDEX,AL_INDEX,AU_INDEX,SYM_H, so each row
+// is: Time,AE,AL,AU,SYM_H. Fill value 99999 → dropped (null). Returns { ae:[{ts,ae}],
+// symH:[{ts,sym_h}] }. RETROSPECTIVE ONLY: OMNI currently has ~40-day latency, so the live
+// poller snapshot for sym_h/ae_index is USUALLY NULL — this feed backfills historical rows
+// (older than ~30d) via ON CONFLICT. Same fail-soft contract as every other channel.
+export function parseOmniCsv(text) {
+  const ae = [], symH = [];
+  if (typeof text !== "string") return { ae, symH };
+  const FILL = 99999;
+  for (const line of text.split("\n")) {
+    const s = line.trim();
+    if (!s || s[0] === "#") continue;
+    const f = s.split(",");
+    if (f.length < 5 || !/^\d{4}-\d\d-\d\d/.test(f[0])) continue; // skip any header row
+    const ts = isoUtc(f[0]);
+    const aeV = Number(f[1]), symV = Number(f[4]);
+    if (Number.isFinite(aeV) && aeV !== FILL) ae.push({ ts, ae: aeV });
+    if (Number.isFinite(symV) && symV !== FILL) symH.push({ ts, sym_h: symV });
+  }
+  return { ae, symH };
+}
+
 // Collapse the latest reading of each series into one snapshot row for `space_weather`.
 // New (2026-07) high-cadence + heliophysics channels: hp30/hp60/ap30 (GFZ, 30/60-min
 // geomagnetic — finer than 3-hourly Kp) and cosmicRay (NMDB neutron rate, for Forbush
-// context). All fail-soft: a missing feed leaves that column null, never crashes the run.
+// context). Also NOAA GOES xrayFlux (long-channel W/m², flare context) + protonFlux (>=10
+// MeV, S-scale) + OVATION aurora hemispheric power, and OMNI symH/ae (RETROSPECTIVE backfill
+// — live snapshot usually null). All fail-soft: a missing feed leaves that column null,
+// never crashes the run.
 export function mergeSpaceWeather({
   kp = [], dst = [], f107 = [], speed = [], bz = [], hp30 = [], hp60 = [], cosmicRay = [],
+  xrayFlux = [], protonFlux = [], aurora = [], symH = [], ae = [],
 }) {
   const lk = latest(kp, "kp"), ld = latest(dst, "dst"), lf = latest(f107, "f107");
   const ls = latest(speed), lb = latest(bz);
   const lh30 = latest(hp30, "hp"), lap30 = latest(hp30, "ap"), lh60 = latest(hp60, "hp");
   const lcr = latest(cosmicRay, "count");
+  const lxr = latest(xrayFlux, "xray_flux"), lpr = latest(protonFlux, "proton_flux");
+  const lau = latest(aurora, "aurora_power");
+  const lsy = latest(symH, "sym_h"), lae = latest(ae, "ae");
   const ts =
     lk.ts || ld.ts || lf.ts || ls.ts || lb.ts || lh30.ts || lh60.ts || lcr.ts ||
+    lxr.ts || lpr.ts || lau.ts || lsy.ts || lae.ts ||
     new Date().toISOString();
   return {
     ts, kp: lk.v, dst: ld.v, f107: lf.v, solar_wind_speed: ls.v, bz: lb.v,
     hp30: lh30.v, ap30: lap30.v, hp60: lh60.v, cosmic_ray_oulu: lcr.v,
-    source: "noaa-swpc+gfz+nmdb",
+    xray_flux: lxr.v, proton_flux: lpr.v, aurora_power: lau.v,
+    sym_h: lsy.v, ae_index: lae.v,
+    source: "noaa-swpc+gfz+nmdb+omni",
   };
 }
