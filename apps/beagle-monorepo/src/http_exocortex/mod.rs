@@ -757,7 +757,7 @@ async fn memory_pg_recall(query: &str, k: usize, min_chars: usize) -> Vec<Recall
         Ok(p) => p,
         Err(_) => return Vec::new(),
     };
-    map_memory_pg_results(parsed.results, k)
+    map_memory_pg_results(parsed.results, k, min_chars)
 }
 
 /// Retrieve rich passages from the memory-engine `/v1/query`. Fail-soft: returns an empty
