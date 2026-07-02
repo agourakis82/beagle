@@ -78,6 +78,10 @@ export function createApp(deps) {
     // slow graph query degrades to chunk-only retrieval (pre-Phase-4 behavior)
     // instead of stalling the whole request.
     graphTimeoutMs = Number(process.env.MEMORY_PG_GRAPH_TIMEOUT_MS) || 3500,
+    // Max candidates handed to the (sequential, ~1.8s/batch-of-8, CPU) cross-encoder
+    // reranker. The first-stage pool is RRF-ranked, so a generous top slice keeps
+    // recall while bounding rerank latency. Tune via MEMORY_PG_RERANK_INPUT_CAP.
+    rerankInputCap = Number(process.env.MEMORY_PG_RERANK_INPUT_CAP) || 24,
   } = deps || {};
 
   if (typeof embedFn !== "function") throw new Error("createApp: embedFn required");
@@ -165,8 +169,14 @@ export function createApp(deps) {
         }
       }
 
-      // 3. Cross-encoder rerank -> top-N.
-      const reranked = await rerank(query, candidates, { rerankFn, topN });
+      // 3. Cross-encoder rerank -> top-N. Cap the rerank input: the CPU reranker
+      // costs ~1.8s per batch of 8 and is driven sequentially, so reranking the full
+      // ~100-candidate first-stage pool took ~23s. The candidates are already RRF-
+      // ranked, so reranking the top slice reorders the ones that matter without the
+      // long tail — the dominant remaining /query latency after the graph-fusion fix.
+      const toRerank =
+        candidates.length > rerankInputCap ? candidates.slice(0, rerankInputCap) : candidates;
+      const reranked = await rerank(query, toRerank, { rerankFn, topN });
 
       const results = reranked.map((c) => ({
         text: c.text,
