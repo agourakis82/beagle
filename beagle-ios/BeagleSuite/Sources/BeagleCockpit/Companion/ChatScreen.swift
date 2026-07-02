@@ -36,6 +36,10 @@ public struct ChatScreen: View {
     /// after the header-bar chrome was retired, so insights piled up invisibly.
     var onOpenDreamInsights: (() -> Void)?
     var unreadDreamInsightCount: Int = 0
+    /// Opens WorkView (the agent deck) — was iPad-sidebar-only before this session's screen
+    /// audit found it had zero entry point on iPhone despite being the richest single
+    /// feature in the app. Drawer footer.
+    var onOpenWork: (() -> Void)?
     @State private var draft = ""
     @State private var appeared = false
     /// ONE sheet for the whole screen — multiple `.sheet(isPresented:)` on the same view conflict
@@ -63,7 +67,8 @@ public struct ChatScreen: View {
                 onOpenData: (() -> Void)? = nil,
                 onOpenMemory: (() -> Void)? = nil,
                 onOpenDreamInsights: (() -> Void)? = nil,
-                unreadDreamInsightCount: Int = 0) {
+                unreadDreamInsightCount: Int = 0,
+                onOpenWork: (() -> Void)? = nil) {
         self.store = store
         self.breathRate = breathRate
         self.weather = weather
@@ -74,6 +79,7 @@ public struct ChatScreen: View {
         self.onOpenMemory = onOpenMemory
         self.onOpenDreamInsights = onOpenDreamInsights
         self.unreadDreamInsightCount = unreadDreamInsightCount
+        self.onOpenWork = onOpenWork
     }
 
     public var body: some View {
@@ -116,7 +122,7 @@ public struct ChatScreen: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .history:
-                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount)
+                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork)
             case .goDeep(let prompt):
                 GoDeepView(store: composerGoDeepStore, prompt: prompt)
             }
@@ -432,6 +438,7 @@ struct ConversationDrawer: View {
     var onOpenMemory: (() -> Void)?
     var onOpenDreamInsights: (() -> Void)?
     var unreadDreamInsightCount: Int = 0
+    var onOpenWork: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var reloadToken = 0
 
@@ -510,6 +517,12 @@ struct ConversationDrawer: View {
                     if onOpenData != nil {
                         Button { dismiss(); onOpenData?() } label: {
                             Label("Dados", systemImage: "chart.xyaxis.line")
+                        }
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                    }
+                    if onOpenWork != nil {
+                        Button { dismiss(); onOpenWork?() } label: {
+                            Label("Trabalho", systemImage: "bolt.fill")
                         }
                         .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
                     }

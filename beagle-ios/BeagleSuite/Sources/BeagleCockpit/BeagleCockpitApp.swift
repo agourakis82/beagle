@@ -611,32 +611,6 @@ struct RootView: View {
 
 }
 
-/// Work (the agent deck) and Fleet (live sessions) share one phone tab — they are two
-/// views of the same domain (the cluster agents). A segmented control swaps between them
-/// so neither gets buried in a "More" overflow.
-private struct AgentsTabView: View {
-    @Binding var bootError: String?
-    @State private var mode = 0   // 0 = Deck, 1 = Sessions
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("Agents", selection: $mode) {
-                Text("Deck").tag(0)
-                Text("Sessions").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.bottom, 8)
-
-            if mode == 0 {
-                WorkView(bootError: $bootError)
-            } else {
-                FleetTerminalsView()
-            }
-        }
-    }
-}
-
 struct LaunchOverrides {
     let selectedTab: Int?
     let projectSlug: String?

@@ -35,7 +35,6 @@
 		4DA6AD62DD347FAACCB96433 /* DeepExplorationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */; };
 		4E33B6ACECC471E64754FB9D /* MemoryLensDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93ABC6EEEFA5327B2B528AC /* MemoryLensDetailView.swift */; };
 		4F30330ABC2C3224A105FB72 /* BeagleWorkbenchKit in Frameworks */ = {isa = PBXBuildFile; productRef = 19404BEBA13FB54406BE5069 /* BeagleWorkbenchKit */; };
-		4F65E298CDC06A93095BB178 /* AgentsHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95B4CE43B87FD3AB52F29A2F /* AgentsHubView.swift */; };
 		516E1D231C1D60DF1ECDB5A1 /* BeagleShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		53B8479DB1330CE984F0FC29 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 235FEA192D29E895FB53AC4D /* MessageBubble.swift */; };
 		558DF95BA7821C7D9511DA64 /* DiagnosticsRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */; };
@@ -188,7 +187,6 @@
 		88F68F6456B64893491C1B93 /* BeagleSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleSurface.swift; sourceTree = "<group>"; };
 		8F9429744BAEF1DC81205FFB /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		902E0125E6DDA133D4486E04 /* BuildInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildInfo.swift; sourceTree = "<group>"; };
-		95B4CE43B87FD3AB52F29A2F /* AgentsHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsHubView.swift; sourceTree = "<group>"; };
 		95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 		9D18264939BB3C472DC5342F /* BeagleSplatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleSplatView.swift; sourceTree = "<group>"; };
 		A08540D355E6437F5F11ED49 /* JournalingSuggestionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalingSuggestionsView.swift; sourceTree = "<group>"; };
@@ -271,7 +269,6 @@
 				2BA5F99901AB683C69032C1D /* Splat */,
 				BF024B3743049659F7073E6C /* AgentActivityView.swift */,
 				287C64605E5D53C799744EFA /* AgentSessionView.swift */,
-				95B4CE43B87FD3AB52F29A2F /* AgentsHubView.swift */,
 				CE98C9276CD162B3C8A73ACB /* AgoraDetailView.swift */,
 				579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */,
 				818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */,
@@ -645,7 +642,6 @@
 			files = (
 				951D9C072CAFC68FA6BAE300 /* AgentActivityView.swift in Sources */,
 				5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */,
-				4F65E298CDC06A93095BB178 /* AgentsHubView.swift in Sources */,
 				029E94DF2B6FD3EFABFAF744 /* AgoraDetailView.swift in Sources */,
 				9E87B243B252D1D9E4FF3478 /* AuroraPresence.swift in Sources */,
 				2506AE1D807F002678049438 /* BeagleAppIntents.swift in Sources */,
