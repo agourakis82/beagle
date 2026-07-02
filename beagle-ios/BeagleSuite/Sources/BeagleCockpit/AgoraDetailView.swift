@@ -13,6 +13,7 @@
 
 import SwiftUI
 import Charts
+import MapKit
 import BeagleCore
 
 struct AgoraDetailView: View {
@@ -27,6 +28,7 @@ struct AgoraDetailView: View {
     @State private var appeared = false
     @State private var isExploringFractal = false
     @State private var isMeasuringPhi = false
+    @State private var showPlaceLabels = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(CognitiveStore.self) private var cognitive
@@ -94,6 +96,7 @@ struct AgoraDetailView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showPlaceLabels) { PlaceLabelSheet() }
         .opacity(appeared ? 1 : 0)
         .scaleEffect(appeared ? 1 : 0.98, anchor: .top)
         .task {
@@ -228,13 +231,19 @@ struct AgoraDetailView: View {
 
     private var ambientCard: some View {
         glassSection("AMBIENTE", tint: BeagleTheme.truthRemembered) {
-            if let where0 = currentPlaceLine {
+            // Tap the place line to open the map and label where you are (home/hospital/hotel/
+            // mall/work). The label then tags every future observation, overriding the raw POI.
+            Button { showPlaceLabels = true } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "mappin.and.ellipse").font(.system(size: 10)).foregroundStyle(BeagleTheme.textSecondary)
-                    Text(where0).font(BeagleFont.caption2.font).foregroundStyle(BeagleTheme.textSecondary).lineLimit(1)
-                    Spacer()
+                    Image(systemName: "mappin.and.ellipse").font(.system(size: 10)).foregroundStyle(BeagleTheme.truthRemembered)
+                    Text(currentPlaceLine ?? "Rotular este lugar")
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(currentPlaceLine == nil ? BeagleTheme.truthRemembered : BeagleTheme.textSecondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right").font(.system(size: 8)).foregroundStyle(BeagleTheme.textTertiary)
                 }
-            }
+            }.buttonStyle(.plain)
 
             subHeader("Estação · região (Open-Meteo)")
             sciChart("Temperatura", value: lastWx(\.tempC).map { "\(Int($0.rounded()))" } ?? "—", unit: "°C",
@@ -501,6 +510,13 @@ struct AgoraDetailView: View {
                             .foregroundStyle(color)
                             .interpolationMethod(.linear)
                             .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
+                        // Real samples as dots — so the eye separates measured points from the
+                        // line between them. Hidden when dense (>60 pts): the line is already
+                        // faithful and dots would just be noise; shown when sparse, which is
+                        // exactly where the interpolation gap matters.
+                        PointMark(x: .value("t", p.0), y: .value("v", p.1))
+                            .foregroundStyle(color)
+                            .symbolSize(hist.count > 60 ? 0 : 16)
                     }
                     ForEach(fc, id: \.0) { p in
                         LineMark(x: .value("t", p.0), y: .value("v", p.1), series: .value("s", "fc"))
@@ -664,5 +680,118 @@ private struct GlassCard: ViewModifier {
 private extension View {
     func glassCard(tint: Color, reduceTransparency: Bool) -> some View {
         modifier(GlassCard(tint: tint, reduceTransparency: reduceTransparency))
+    }
+}
+
+// MARK: - Place labeling (MapKit)
+
+/// Pan the map so the fixed center pin sits over a recurring place, pick a category + name,
+/// and save it. Matched by radius at capture time — the label then tags every observation.
+struct PlaceLabelSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @State private var camera: MapCameraPosition = .userLocation(fallback: .automatic)
+    @State private var centerCoord: CLLocationCoordinate2D?
+    @State private var name: String = ""
+    @State private var category: PlaceCategory = .casa
+    @State private var radiusM: Double = 120
+    @State private var places: [LabeledPlace] = PlaceLabelStore.shared.all()
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                BeagleTheme.auroraNight.ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: BeagleSpacing.md) {
+                        mapPicker
+                        form
+                        savedList
+                    }
+                    .padding(BeagleSpacing.md)
+                }
+                .scrollContentBackground(.hidden)
+            }
+            .navigationTitle("Rotular lugar")
+            .navigationBarTitleDisplayModeIfAvailable(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Fechar") { dismiss() }.foregroundStyle(BeagleTheme.textSecondary)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private var mapPicker: some View {
+        ZStack {
+            Map(position: $camera) { UserAnnotation() }
+                .mapStyle(.standard(elevation: .flat))
+                .onMapCameraChange(frequency: .continuous) { ctx in centerCoord = ctx.region.center }
+                .frame(height: 240)
+                .clipShape(RoundedRectangle(cornerRadius: BeagleRadius.lg, style: .continuous))
+            // Fixed center pin — pan the map so the pin sits over the place, then Save.
+            Image(systemName: category.glyph)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(BeagleTheme.truthRemembered)
+                .shadow(color: .black.opacity(0.5), radius: 2)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var form: some View {
+        VStack(spacing: BeagleSpacing.sm) {
+            Picker("Categoria", selection: $category) {
+                ForEach(PlaceCategory.allCases, id: \.self) { c in
+                    Label(c.label, systemImage: c.glyph).tag(c)
+                }
+            }.pickerStyle(.menu).tint(BeagleTheme.truthRemembered).frame(maxWidth: .infinity, alignment: .leading)
+            TextField("Nome (ex. Minha casa, Plantão HC)", text: $name)
+                .textFieldStyle(.roundedBorder)
+            HStack {
+                Text("Raio \(Int(radiusM)) m").font(BeagleFont.caption2.font).foregroundStyle(BeagleTheme.textTertiary)
+                Slider(value: $radiusM, in: 50...500, step: 10).tint(BeagleTheme.truthRemembered)
+            }
+            Button {
+                guard let c = centerCoord else { return }
+                let nm = name.trimmingCharacters(in: .whitespaces)
+                PlaceLabelStore.shared.add(LabeledPlace(
+                    name: nm.isEmpty ? category.label : nm, category: category.rawValue,
+                    lat: c.latitude, lon: c.longitude, radiusM: radiusM))
+                places = PlaceLabelStore.shared.all()
+                name = ""
+            } label: {
+                Text(centerCoord == nil ? "Aguardando mapa…" : "Salvar este lugar").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent).tint(BeagleTheme.truthRemembered)
+            .disabled(centerCoord == nil)
+        }
+    }
+
+    @ViewBuilder
+    private var savedList: some View {
+        if !places.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("MEUS LUGARES").font(.system(size: 10, weight: .semibold)).foregroundStyle(BeagleTheme.textSecondary).tracking(0.5)
+                ForEach(places) { p in
+                    HStack(spacing: 8) {
+                        Image(systemName: PlaceCategory(rawValue: p.category)?.glyph ?? "mappin")
+                            .font(.system(size: 12)).foregroundStyle(BeagleTheme.truthRemembered).frame(width: 20)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(p.name).font(BeagleFont.footnote.font).foregroundStyle(BeagleTheme.textPrimary)
+                            Text("\(PlaceCategory(rawValue: p.category)?.label ?? p.category) · \(Int(p.radiusM)) m")
+                                .font(BeagleFont.caption2.font).foregroundStyle(BeagleTheme.textTertiary)
+                        }
+                        Spacer()
+                        Button {
+                            PlaceLabelStore.shared.remove(p.id); places = PlaceLabelStore.shared.all()
+                        } label: {
+                            Image(systemName: "trash").font(.system(size: 12)).foregroundStyle(BeagleTheme.stateError)
+                        }.buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }

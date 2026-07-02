@@ -229,9 +229,14 @@ public actor WeatherSyncEngine: NSObject {
     /// Reverse-geocode to (city, place). place prefers a named POI (areasOfInterest) so a
     /// hospital/hotel/mall/home shows its name; best-effort, nil on failure.
     private static func reverseGeocode(_ location: CLLocation) async -> (String?, String?) {
-        guard let pm = try? await CLGeocoder().reverseGeocodeLocation(location), let p = pm.first else { return (nil, nil) }
+        let coord = location.coordinate
+        let labeled = PlaceLabelStore.shared.match(lat: coord.latitude, lon: coord.longitude)
+        guard let pm = try? await CLGeocoder().reverseGeocodeLocation(location), let p = pm.first else {
+            return (nil, labeled?.name)
+        }
         let city = p.locality ?? p.subAdministrativeArea ?? p.administrativeArea
-        let place = p.areasOfInterest?.first ?? p.name
+        // A user's OWN label for a recurring place (home/plantao/hotel) wins over the raw POI.
+        let place = labeled?.name ?? p.areasOfInterest?.first ?? p.name
         return (city, place)
     }
 

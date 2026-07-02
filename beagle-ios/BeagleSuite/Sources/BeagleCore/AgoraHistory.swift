@@ -134,3 +134,90 @@ public struct KpForecastPoint: Decodable, Sendable, Identifiable {
     public let predicted: Bool
     public var id: String { ts }
 }
+
+// MARK: - User-labeled places (home / hospital / hotel / mall / work)
+//
+// The reverse-geocoder gives a raw POI name ("Hospital Sírio-Libanês"), but for an N-of-1
+// experiment what matters is the user's OWN label of a recurring place ("plantão", "minha
+// casa"). A LabeledPlace is matched to an observation by radius, and its name overrides the
+// POI so every weather/ambient row is tagged with a place the user actually reasons about.
+// Persisted locally in UserDefaults (JSON) — never leaves the device except as the resolved
+// `place` string already uploaded with each observation.
+
+public struct LabeledPlace: Codable, Identifiable, Sendable, Equatable {
+    public var id: UUID
+    public var name: String
+    public var category: String   // key into PlaceCategory
+    public var lat: Double
+    public var lon: Double
+    public var radiusM: Double
+    public init(id: UUID = UUID(), name: String, category: String, lat: Double, lon: Double, radiusM: Double = 120) {
+        self.id = id; self.name = name; self.category = category
+        self.lat = lat; self.lon = lon; self.radiusM = radiusM
+    }
+}
+
+/// The fixed vocabulary the user asked for, each with a glyph + a sensible default name.
+public enum PlaceCategory: String, CaseIterable, Sendable {
+    case casa, hospital, hotel, shopping, trabalho, outro
+    public var label: String {
+        switch self {
+        case .casa: return "Casa"; case .hospital: return "Hospital"; case .hotel: return "Hotel"
+        case .shopping: return "Shopping"; case .trabalho: return "Trabalho"; case .outro: return "Outro"
+        }
+    }
+    public var glyph: String {
+        switch self {
+        case .casa: return "house.fill"; case .hospital: return "cross.case.fill"; case .hotel: return "bed.double.fill"
+        case .shopping: return "bag.fill"; case .trabalho: return "briefcase.fill"; case .outro: return "mappin"
+        }
+    }
+}
+
+/// Thread-safe singleton store. Read from the geocoder (background) + the labeling UI (main),
+/// so all access is serialized under a lock. Small (a handful of places) — full rewrite on save.
+public final class PlaceLabelStore: @unchecked Sendable {
+    public static let shared = PlaceLabelStore()
+    private let key = "beagle.labeledPlaces.v1"
+    private let lock = NSLock()
+    private var cache: [LabeledPlace]
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: key),
+           let decoded = try? JSONDecoder().decode([LabeledPlace].self, from: data) {
+            cache = decoded
+        } else { cache = [] }
+    }
+
+    public func all() -> [LabeledPlace] { lock.lock(); defer { lock.unlock() }; return cache }
+
+    public func add(_ p: LabeledPlace) {
+        lock.lock(); cache.removeAll { $0.id == p.id }; cache.append(p); persist(); lock.unlock()
+    }
+    public func remove(_ id: UUID) {
+        lock.lock(); cache.removeAll { $0.id == id }; persist(); lock.unlock()
+    }
+    private func persist() { // called under lock
+        if let data = try? JSONEncoder().encode(cache) { UserDefaults.standard.set(data, forKey: key) }
+    }
+
+    /// Nearest labeled place whose radius contains (lat,lon), or nil. Nearest wins on overlap.
+    public func match(lat: Double, lon: Double) -> LabeledPlace? {
+        lock.lock(); let places = cache; lock.unlock()
+        var best: (LabeledPlace, Double)? = nil
+        for p in places {
+            let d = Self.haversineMeters(lat, lon, p.lat, p.lon)
+            if d <= p.radiusM, best == nil || d < best!.1 { best = (p, d) }
+        }
+        return best?.0
+    }
+
+    /// Great-circle distance in meters (Foundation re-exports the math funcs; no CoreLocation dep).
+    public static func haversineMeters(_ aLat: Double, _ aLon: Double, _ bLat: Double, _ bLon: Double) -> Double {
+        let R = 6_371_000.0
+        let dLat = (bLat - aLat) * .pi / 180, dLon = (bLon - aLon) * .pi / 180
+        let la1 = aLat * .pi / 180, la2 = bLat * .pi / 180
+        let h = sin(dLat / 2) * sin(dLat / 2) + cos(la1) * cos(la2) * sin(dLon / 2) * sin(dLon / 2)
+        return 2 * R * asin(min(1, sqrt(h)))
+    }
+}
