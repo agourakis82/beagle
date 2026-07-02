@@ -62,11 +62,27 @@ app.get("/api/physiome/correlations", async (req, res) => {
 // fallback and the phone reaches it via the cockpit (/api/mobile/v1/space-weather).
 app.get("/api/physiome/space-weather/latest", async (_req, res) => {
   try {
+    // Coalesce the newer high-cadence channels from recent rows: the poller (NOAA/GFZ) and
+    // the schumann CronJob write on different grids, so the single newest row may miss some.
+    // Pull the most recent non-null of each over the last ~3h so "latest" is complete.
     const { rows } = await pool.query(
-      `SELECT ts, kp, dst, f107, solar_wind_speed, bz, source
-         FROM space_weather ORDER BY ts DESC LIMIT 1`
+      `SELECT
+         (SELECT ts FROM space_weather ORDER BY ts DESC LIMIT 1) AS ts,
+         (SELECT kp FROM space_weather WHERE kp IS NOT NULL ORDER BY ts DESC LIMIT 1) AS kp,
+         (SELECT dst FROM space_weather WHERE dst IS NOT NULL ORDER BY ts DESC LIMIT 1) AS dst,
+         (SELECT f107 FROM space_weather WHERE f107 IS NOT NULL ORDER BY ts DESC LIMIT 1) AS f107,
+         (SELECT solar_wind_speed FROM space_weather WHERE solar_wind_speed IS NOT NULL ORDER BY ts DESC LIMIT 1) AS solar_wind_speed,
+         (SELECT bz FROM space_weather WHERE bz IS NOT NULL ORDER BY ts DESC LIMIT 1) AS bz,
+         (SELECT hp30 FROM space_weather WHERE hp30 IS NOT NULL ORDER BY ts DESC LIMIT 1) AS hp30,
+         (SELECT ap30 FROM space_weather WHERE ap30 IS NOT NULL ORDER BY ts DESC LIMIT 1) AS ap30,
+         (SELECT hp60 FROM space_weather WHERE hp60 IS NOT NULL ORDER BY ts DESC LIMIT 1) AS hp60,
+         (SELECT cosmic_ray_oulu FROM space_weather WHERE cosmic_ray_oulu IS NOT NULL ORDER BY ts DESC LIMIT 1) AS cosmic_ray_oulu,
+         (SELECT schumann_f1 FROM space_weather WHERE schumann_f1 IS NOT NULL ORDER BY ts DESC LIMIT 1) AS schumann_f1,
+         (SELECT schumann_f2 FROM space_weather WHERE schumann_f2 IS NOT NULL ORDER BY ts DESC LIMIT 1) AS schumann_f2,
+         (SELECT schumann_f3 FROM space_weather WHERE schumann_f3 IS NOT NULL ORDER BY ts DESC LIMIT 1) AS schumann_f3,
+         (SELECT source FROM space_weather ORDER BY ts DESC LIMIT 1) AS source`
     );
-    if (!rows.length) return res.json({ ok: true, latest: null });
+    if (!rows.length || rows[0].ts == null) return res.json({ ok: true, latest: null });
     res.json({ ok: true, latest: rows[0] });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });

@@ -103,7 +103,8 @@ export async function upsertSpaceWeather(pool, row) {
 
 export async function getSpaceWeatherHistory(pool, hours = 48) {
   const { rows } = await pool.query(
-    `SELECT ts, kp, dst, solar_wind_speed, bz FROM space_weather
+    `SELECT ts, kp, dst, solar_wind_speed, bz, hp30, cosmic_ray_oulu, schumann_f1
+       FROM space_weather
      WHERE ts > now() - make_interval(hours => $1) ORDER BY ts ASC LIMIT 1000`,
     [hours]
   );
