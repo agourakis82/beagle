@@ -710,12 +710,14 @@ struct MemoryPgQueryResponse {
 }
 
 /// Map memory-pg `/query` results into the legacy `RecallSource` shape, applying
-/// the same >=40-char text filter and 1-based ranking the memory-engine path
-/// uses, so the cutover is transparent to callers and A/B-comparable.
-fn map_memory_pg_results(results: Vec<MemoryPgResult>, k: usize) -> Vec<RecallSource> {
+/// a `min_chars` text floor and 1-based ranking the memory-engine path uses, so the
+/// cutover is transparent to callers and A/B-comparable. Most callers pass 40 (the
+/// historical floor that keeps recall answers free of trivial snippets); the Φ
+/// substrate path passes a lower floor so short graph-fusion facts still count.
+fn map_memory_pg_results(results: Vec<MemoryPgResult>, k: usize, min_chars: usize) -> Vec<RecallSource> {
     results
         .into_iter()
-        .filter(|r| r.text.trim().chars().count() >= 40)
+        .filter(|r| r.text.trim().chars().count() >= min_chars)
         .take(k)
         .enumerate()
         .map(|(i, r)| RecallSource {
@@ -729,7 +731,8 @@ fn map_memory_pg_results(results: Vec<MemoryPgResult>, k: usize) -> Vec<RecallSo
 }
 
 /// Retrieve from the memory-pg `/query` endpoint. Fail-soft like the legacy path.
-async fn memory_pg_recall(query: &str, k: usize) -> Vec<RecallSource> {
+/// `min_chars` is the text floor applied when mapping results (see [`map_memory_pg_results`]).
+async fn memory_pg_recall(query: &str, k: usize, min_chars: usize) -> Vec<RecallSource> {
     let base = env::var("MEMORY_PG_QUERY_URL")
         .unwrap_or_else(|_| "http://memory-pg-serve.beagle.svc.cluster.local".to_string());
     let url = format!("{}/query", base.trim_end_matches('/'));
@@ -762,7 +765,7 @@ async fn memory_pg_recall(query: &str, k: usize) -> Vec<RecallSource> {
 pub(crate) async fn memory_engine_recall(query: &str, scope: &str, k: usize) -> Vec<RecallSource> {
     // Phase 3.3 cutover: behind the flag, serve retrieval from memory-pg instead.
     if retrieval_via_memory_pg() {
-        return memory_pg_recall(query, k).await;
+        return memory_pg_recall(query, k, 40).await;
     }
     let base = env::var("BEAGLE_MEMORY_ENGINE_URL").unwrap_or_else(|_| {
         "http://beagle-memory-engine.beagle-memory-lab.svc.cluster.local:8090".to_string()
@@ -798,6 +801,22 @@ pub(crate) async fn memory_engine_recall(query: &str, scope: &str, k: usize) -> 
             score: r.score.unwrap_or(0.0),
         })
         .collect()
+}
+
+/// Recall a substrate for the Φ (integrated-information) measurement.
+///
+/// Distinct from [`memory_engine_recall`] ONLY in the text floor: Φ builds an n×n
+/// connectivity matrix over recalled passages and needs n≥2 to say anything, but with
+/// graph-fusion enabled memory-pg `/query` returns short graph facts (e.g. "language is
+/// sounio", ~18 chars) that the standard 40-char recall floor drops entirely — starving Φ
+/// to `insufficient_substrate` no matter the query. Here we use a 12-char floor so real
+/// graph facts count while still excluding empty/degenerate snippets. Falls back to the
+/// legacy memory-engine path (unchanged 40-char floor) when the memory-pg flag is off.
+async fn phi_substrate_recall(query: &str, k: usize) -> Vec<RecallSource> {
+    if retrieval_via_memory_pg() {
+        return memory_pg_recall(query, k, 12).await;
+    }
+    memory_engine_recall(query, "all", k).await
 }
 
 pub(crate) async fn recall_answer_handler(
@@ -4562,7 +4581,7 @@ pub(crate) async fn exocortex_process_handler(
             "awareness_level": "indeterminate",
         }));
     }
-    let sources = memory_engine_recall(&query, "all", 8).await;
+    let sources = phi_substrate_recall(&query, 8).await;
     let n = sources.len();
     if n < 2 {
         return Json(serde_json::json!({
@@ -4714,7 +4733,7 @@ mod tests {
                 occurred_at: None,
             },
         ];
-        let mapped = map_memory_pg_results(results, 10);
+        let mapped = map_memory_pg_results(results, 10, 40);
         assert_eq!(mapped.len(), 2, "short result filtered out");
         assert_eq!(mapped[0].n, 1);
         assert_eq!(mapped[0].source, "r-1");
@@ -4735,7 +4754,27 @@ mod tests {
                 occurred_at: None,
             })
             .collect();
-        assert_eq!(map_memory_pg_results(results, 3).len(), 3);
+        assert_eq!(map_memory_pg_results(results, 3, 40).len(), 3);
+    }
+
+    #[test]
+    fn phi_substrate_floor_keeps_short_graph_facts() {
+        // Regression: with graph-fusion on, memory-pg /query returns short facts (e.g.
+        // "language is sounio"). The 40-char recall floor drops them all, starving Φ; the
+        // Φ path uses a 12-char floor so they survive while trivially-short snippets don't.
+        let facts: Vec<MemoryPgResult> = ["language is sounio", "Sounio ε meaning", "hi"]
+            .iter()
+            .map(|t| MemoryPgResult {
+                text: t.to_string(),
+                record_id: None,
+                rerank_score: Some(0.9),
+                occurred_at: None,
+            })
+            .collect();
+        // 40-char floor (recall path) drops every short fact.
+        assert_eq!(map_memory_pg_results(facts.clone(), 8, 40).len(), 0);
+        // 12-char floor (Φ path) keeps the two real facts, drops "hi".
+        assert_eq!(map_memory_pg_results(facts, 8, 12).len(), 2);
     }
 
     #[test]
