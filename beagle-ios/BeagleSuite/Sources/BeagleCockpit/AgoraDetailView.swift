@@ -42,7 +42,7 @@ struct AgoraDetailView: View {
     private var severity: Severity {
         var s = Severity.good
         switch band { case .active: s = max(s, .watch); case .storm: s = .alert; default: break }
-        if let a = ambient?.aqi { if a > 150 { s = .alert } else if a > 100 { s = max(s, .watch) } }
+        if let a = lastWx(\.aqi) { if a > 150 { s = .alert } else if a > 100 { s = max(s, .watch) } }
         if summary.readiness == .strained { s = max(s, .watch) }
         return s
     }
@@ -131,7 +131,7 @@ struct AgoraDetailView: View {
                 .font(.system(size: 42, weight: .light))
                 .foregroundStyle(severityColor.gradient)
                 .symbolEffect(.pulse, options: .repeating, isActive: severity == .alert)
-            if let t = ambient?.tempC {
+            if let t = lastWx(\.tempC) {
                 Text("\(Int(t.rounded()))°")
                     .font(.system(size: 66, weight: .thin, design: .rounded))
                     .foregroundStyle(
@@ -166,14 +166,14 @@ struct AgoraDetailView: View {
         if let k = sky?.kp { parts.append("céu \(kpBand(k).0)") }
         else if sky != nil { parts.append("céu \(band.label)") }
         if let f = sky?.xrayFlux { let fc = flareClass(f); parts.append(fc.0 == "sem flare" ? "sem flare" : "flare \(fc.0)") }
-        if let a = ambient?.aqi { parts.append("ar \(aqiBand(a).0.lowercased())") }
+        if let a = lastWx(\.aqi) { parts.append("ar \(aqiBand(a).0.lowercased())") }
         if summary.readiness != .unavailable { parts.append("corpo \(readinessPt(summary.readiness))") }
         return parts.isEmpty ? "seu instante agora" : parts.joined(separator: " · ")
     }
     private var subHeadline: String? {
         var p: [String] = []
         if let k = sky?.kp { p.append("Kp \(String(format: "%.1f", k))") }
-        if let a = ambient?.aqi { p.append("AQI \(Int(a.rounded()))") }
+        if let a = lastWx(\.aqi) { p.append("AQI \(Int(a.rounded()))") }
         if let h = summary.hrvMs ?? history?.hrv.last?.value { p.append("HRV \(Int(h.rounded()))ms") }
         return p.isEmpty ? nil : p.joined(separator: "  ·  ")
     }
@@ -228,24 +228,69 @@ struct AgoraDetailView: View {
 
     private var ambientCard: some View {
         glassSection("AMBIENTE", tint: BeagleTheme.truthRemembered) {
-            sciChart("Temperatura", value: ambient?.tempC.map { "\(Int($0.rounded()))" } ?? "—", unit: "°C",
+            if let where0 = currentPlaceLine {
+                HStack(spacing: 5) {
+                    Image(systemName: "mappin.and.ellipse").font(.system(size: 10)).foregroundStyle(BeagleTheme.textSecondary)
+                    Text(where0).font(BeagleFont.caption2.font).foregroundStyle(BeagleTheme.textSecondary).lineLimit(1)
+                    Spacer()
+                }
+            }
+
+            subHeader("Estação · região (Open-Meteo)")
+            sciChart("Temperatura", value: lastWx(\.tempC).map { "\(Int($0.rounded()))" } ?? "—", unit: "°C",
                      band: nil, history: wxSeries(\.tempC), forecast: wxForecastSeries(\.tempC),
                      color: BeagleTheme.postureWarm)
-            sciChart("Pressão", value: ambient?.pressureHpa.map { "\(Int($0.rounded()))" } ?? "—", unit: "hPa",
+            sciChart("Pressão (estação)", value: lastWx(\.pressureHpa).map { "\(Int($0.rounded()))" } ?? "—", unit: "hPa",
                      band: nil, history: wxSeries(\.pressureHpa), color: BeagleTheme.truthRemembered)
-            sciChart("Umidade", value: ambient?.humidity.map { "\(Int($0.rounded()))" } ?? "—", unit: "%",
+            sciChart("Umidade", value: lastWx(\.humidity).map { "\(Int($0.rounded()))" } ?? "—", unit: "%",
                      band: nil, history: wxSeries(\.humidity), color: BeagleTheme.truthObserved)
-            sciChart("UV", value: ambient?.uvIndex.map { String(format: "%.0f", $0) } ?? "—", unit: "índice",
-                     band: (ambient?.uvIndex).map(uvBand), history: wxSeries(\.uvIndex),
+            sciChart("UV", value: lastWx(\.uvIndex).map { String(format: "%.0f", $0) } ?? "—", unit: "índice",
+                     band: lastWx(\.uvIndex).map(uvBand), history: wxSeries(\.uvIndex),
                      forecast: wxForecastSeries(\.uvIndex), color: BeagleTheme.postureWarm)
-            sciChart("Qualidade do ar", value: ambient?.aqi.map { "AQI \(Int($0.rounded()))" } ?? "—", unit: nil,
-                     band: (ambient?.aqi).map(aqiBand), history: wxSeries(\.aqi),
+            sciChart("Qualidade do ar", value: lastWx(\.aqi).map { "AQI \(Int($0.rounded()))" } ?? "—", unit: nil,
+                     band: lastWx(\.aqi).map(aqiBand), history: wxSeries(\.aqi),
                      forecast: wxForecastSeries(\.aqi), color: BeagleTheme.truthObserved)
+
+            subHeader("Você · sensores do device")
+            sciChart("Pressão (barômetro)", value: lastWx(\.ambientPressureHpa).map { String(format: "%.1f", $0) } ?? "—",
+                     unit: pressureTrendLabel, band: pressureTrendBand,
+                     history: wxSeries(\.ambientPressureHpa), color: BeagleTheme.auroraGreen)
+            sciChart("Altitude", value: lastWx(\.altitudeM).map { "\(Int($0.rounded()))" } ?? "—", unit: "m",
+                     band: nil, history: wxSeries(\.altitudeM), color: BeagleTheme.truthRemembered)
             sciChart("Ruído", value: (history?.audioDb.last?.value).map { "\(Int($0.rounded()))" } ?? "—", unit: "dB",
                      band: nil,
                      history: (history?.audioDb ?? []).compactMap { p in tsDate(p.ts).flatMap { d in p.value.map { (d, $0) } } },
                      color: BeagleTheme.truthDeclared)
+            Text("Temperatura ambiente real precisa de sensor externo — a Apple não expõe termômetro de ar.")
+                .font(.system(size: 9)).foregroundStyle(BeagleTheme.textTertiary).padding(.top, 2)
         }
+    }
+
+    private func lastWx(_ kp: KeyPath<WeatherPoint, Double?>) -> Double? {
+        (history?.weather ?? []).compactMap { $0[keyPath: kp] }.last
+    }
+    private var currentPlaceLine: String? {
+        let place = (history?.weather ?? []).compactMap { $0.place }.last
+        let city = (history?.weather ?? []).compactMap { $0.city }.last
+        if let place, let city, place != city { return "\(place) · \(city)" }
+        return place ?? city
+    }
+    private var pressureTrendHpaPerH: Double? {
+        let pts = Array(wxSeries(\.ambientPressureHpa).suffix(12))
+        guard pts.count >= 2, let a = pts.first, let b = pts.last else { return nil }
+        let hours = b.0.timeIntervalSince(a.0) / 3600
+        guard hours > 0.1 else { return nil }
+        return (b.1 - a.1) / hours
+    }
+    private var pressureTrendLabel: String {
+        guard let d = pressureTrendHpaPerH else { return "hPa" }
+        return String(format: "hPa · %@%.1f/h", d >= 0 ? "+" : "", d)
+    }
+    private var pressureTrendBand: (String, Color)? {
+        guard let d = pressureTrendHpaPerH else { return nil }
+        if d <= -1 { return ("caindo", BeagleTheme.postureWarm) }
+        if d >= 1 { return ("subindo", BeagleTheme.truthObserved) }
+        return ("estável", BeagleTheme.textSecondary)
     }
 
     // MARK: - CORPO

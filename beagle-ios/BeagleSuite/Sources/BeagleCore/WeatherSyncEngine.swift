@@ -53,6 +53,12 @@ public struct PhysioWeatherObservation: Sendable, Codable, Equatable {
     public let visibilityKm: Double?
     /// Air Quality Index (US EPA scale), from AQISyncEngine — WeatherKit doesn't provide this.
     public let aqi: Double?
+    /// AMBIENT (device barometer) pressure hPa — the user's true local pressure, distinct from
+    /// the Open-Meteo station pressureHpa. altitudeM from CMAltimeter. city/place reverse-geocoded.
+    public let ambientPressureHpa: Double?
+    public let altitudeM: Double?
+    public let city: String?
+    public let place: String?
 
     enum CodingKeys: String, CodingKey {
         case ts, lat, lon
@@ -66,19 +72,24 @@ public struct PhysioWeatherObservation: Sendable, Codable, Equatable {
         case dewPointC    = "dew_point_c"
         case visibilityKm = "visibility_km"
         case aqi
+        case ambientPressureHpa = "ambient_pressure_hpa"
+        case altitudeM = "altitude_m"
+        case city, place
     }
 
     public init(
         ts: String, lat: Double, lon: Double,
         tempC: Double?, pressureHpa: Double?, humidityPct: Double?, uvIndex: Double?,
         precipMm: Double?, condition: String, windKph: Double?, dewPointC: Double?,
-        visibilityKm: Double?, aqi: Double? = nil
+        visibilityKm: Double?, aqi: Double? = nil,
+        ambientPressureHpa: Double? = nil, altitudeM: Double? = nil, city: String? = nil, place: String? = nil
     ) {
         self.ts = ts; self.lat = lat; self.lon = lon
         self.tempC = tempC; self.pressureHpa = pressureHpa; self.humidityPct = humidityPct
         self.uvIndex = uvIndex; self.precipMm = precipMm; self.condition = condition
         self.windKph = windKph; self.dewPointC = dewPointC; self.visibilityKm = visibilityKm
         self.aqi = aqi
+        self.ambientPressureHpa = ambientPressureHpa; self.altitudeM = altitudeM; self.city = city; self.place = place
     }
 }
 
@@ -183,15 +194,50 @@ public actor WeatherSyncEngine: NSObject {
         lastFetch = Date()
 
         do {
-            let weather = try await service.weather(for: location)
-            let observations = buildObservations(from: weather, location: location)
-            if !observations.isEmpty {
-                await uploader.enqueue(weatherObservations: observations)
-                await uploader.flush()
-            }
+            // WeatherKit on-device fails with a runtime JWT error (Code=2) that no code change
+            // fixes (Apple account/activation). Fetch via the server weather proxy instead:
+            // Open-Meteo primary (keyless, has UV) + OpenWeatherMap fallback (key server-side only).
+            let obs = try await fetchFromServerProxy(location: location)
+            await uploader.enqueue(weatherObservations: [obs])
+            await uploader.flush()
         } catch {
             print("[WeatherSyncEngine] weather fetch failed: \(error)")
         }
+    }
+
+    /// Fetch current conditions from the server weather proxy (replaces WeatherKit).
+    private func fetchFromServerProxy(location: CLLocation) async throws -> PhysioWeatherObservation {
+        let lat = location.coordinate.latitude, lon = location.coordinate.longitude
+        let geo = await Self.reverseGeocode(location)
+        let url = URL(string: "https://beagle.chiuratto.ai/api/physiome/weather?lat=\(lat)&lon=\(lon)")!
+        var req = URLRequest(url: url); req.timeoutInterval = 20
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw NSError(domain: "WeatherSyncEngine", code: (resp as? HTTPURLResponse)?.statusCode ?? -1,
+                          userInfo: [NSLocalizedDescriptionKey: "server weather HTTP error"])
+        }
+        let w = try JSONDecoder().decode(ServerWeather.self, from: data)
+        return PhysioWeatherObservation(
+            ts: w.ts ?? iso8601.string(from: Date()),
+            lat: lat, lon: lon,
+            tempC: w.temp_c, pressureHpa: w.pressure_hpa, humidityPct: w.humidity,
+            uvIndex: w.uv_index, precipMm: w.precip, condition: w.source ?? "server-weather",
+            windKph: nil, dewPointC: nil, visibilityKm: nil, aqi: w.aqi,
+            city: geo.0, place: geo.1
+        )
+    }
+    /// Reverse-geocode to (city, place). place prefers a named POI (areasOfInterest) so a
+    /// hospital/hotel/mall/home shows its name; best-effort, nil on failure.
+    private static func reverseGeocode(_ location: CLLocation) async -> (String?, String?) {
+        guard let pm = try? await CLGeocoder().reverseGeocodeLocation(location), let p = pm.first else { return (nil, nil) }
+        let city = p.locality ?? p.subAdministrativeArea ?? p.administrativeArea
+        let place = p.areasOfInterest?.first ?? p.name
+        return (city, place)
+    }
+
+    private struct ServerWeather: Decodable {
+        let ts: String?; let temp_c: Double?; let humidity: Double?
+        let pressure_hpa: Double?; let uv_index: Double?; let precip: Double?; let source: String?; let aqi: Double?
     }
 
     // MARK: - Model mapping

@@ -87,12 +87,18 @@ public struct WeatherPoint: Decodable, Sendable, Identifiable {
     public let humidity: Double?
     public let uvIndex: Double?
     public let aqi: Double?
+    public let ambientPressureHpa: Double?
+    public let altitudeM: Double?
+    public let city: String?
+    public let place: String?
     public var id: String { ts }
     enum CodingKeys: String, CodingKey {
-        case ts, humidity, aqi
+        case ts, humidity, aqi, city, place
         case tempC = "temp_c"
         case pressureHpa = "pressure_hpa"
         case uvIndex = "uv_index"
+        case ambientPressureHpa = "ambient_pressure_hpa"
+        case altitudeM = "altitude_m"
     }
 }
 
