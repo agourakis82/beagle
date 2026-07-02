@@ -216,7 +216,10 @@ app.get("/api/physiome/forecast", async (req, res) => {
     // merge aqi into the weather hourly grid by ts
     const aqBy = new Map(aq.map((r) => [r.ts, r.aqi]));
     const weather = wx.map((r) => ({ ...r, aqi: aqBy.get(r.ts) ?? null }));
-    res.json({ ok: true, ts: new Date().toISOString(), lat, lon, weather, sky_kp: kp });
+    // Do NOT echo lat/lon: this endpoint is public and can default to the user's last
+    // uploaded location, so returning coordinates would disclose the user's location to an
+    // unauthenticated caller. The app only needs the series.
+    res.json({ ok: true, ts: new Date().toISOString(), weather, sky_kp: kp });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }
