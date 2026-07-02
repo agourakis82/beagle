@@ -51,6 +51,14 @@ ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS cosmic_ray_oulu DOUBLE PRECIS
 ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS schumann_f1     DOUBLE PRECISION;
 ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS schumann_f2     DOUBLE PRECISION;
 ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS schumann_f3     DOUBLE PRECISION;
+-- 2026-07: separate STATION weather (Open-Meteo model at the GPS location; temp_c/pressure_hpa)
+-- from the user's true AMBIENT signals — the iPhone barometer's exact local pressure + altitude
+-- (CMAltimeter) — plus the reverse-geocoded place. Ambient temperature is NOT captured: Apple
+-- exposes no air-temperature sensor (only external BLE would). All nullable/idempotent.
+ALTER TABLE weather_obs ADD COLUMN IF NOT EXISTS ambient_pressure_hpa DOUBLE PRECISION;
+ALTER TABLE weather_obs ADD COLUMN IF NOT EXISTS altitude_m           DOUBLE PRECISION;
+ALTER TABLE weather_obs ADD COLUMN IF NOT EXISTS city                 TEXT;
+ALTER TABLE weather_obs ADD COLUMN IF NOT EXISTS place                TEXT;
 -- 2026-07: NOAA GOES + OVATION + OMNI heliophysics channels. Fail-soft: null when the
 -- upstream feed is missing, same as solar_wind_speed/cosmic_ray_oulu.
 --   xray_flux    = GOES long-channel (0.1-0.8nm) X-ray flux W/m² (flare C/M/X context)

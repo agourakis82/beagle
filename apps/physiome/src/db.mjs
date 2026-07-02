@@ -70,14 +70,17 @@ export async function upsertHealthSamples(pool, rows) {
 
 export async function upsertWeather(pool, rows) {
   return txChunkedUpsert(pool, {
-    colsPerRow: 11,
-    toParams: (r) => [r.ts, r.lat, r.lon, r.temp_c, r.pressure_hpa, r.humidity, r.uv_index, r.precip, r.aqi, r.condition, JSON.stringify(r.metadata || {})],
-    sql: (n) => `INSERT INTO weather_obs (ts, lat, lon, temp_c, pressure_hpa, humidity, uv_index, precip, aqi, condition, metadata)
-      VALUES ${placeholders(n, 11)}
+    colsPerRow: 15,
+    toParams: (r) => [r.ts, r.lat, r.lon, r.temp_c, r.pressure_hpa, r.humidity, r.uv_index, r.precip, r.aqi, r.condition, JSON.stringify(r.metadata || {}), r.ambient_pressure_hpa ?? null, r.altitude_m ?? null, r.city ?? null, r.place ?? null],
+    sql: (n) => `INSERT INTO weather_obs (ts, lat, lon, temp_c, pressure_hpa, humidity, uv_index, precip, aqi, condition, metadata, ambient_pressure_hpa, altitude_m, city, place)
+      VALUES ${placeholders(n, 15)}
       ON CONFLICT (ts, lat, lon) DO UPDATE SET
-        temp_c=EXCLUDED.temp_c, pressure_hpa=EXCLUDED.pressure_hpa, humidity=EXCLUDED.humidity,
-        uv_index=EXCLUDED.uv_index, precip=EXCLUDED.precip, aqi=EXCLUDED.aqi,
-        condition=EXCLUDED.condition, metadata=EXCLUDED.metadata`,
+        temp_c=COALESCE(EXCLUDED.temp_c, weather_obs.temp_c), pressure_hpa=COALESCE(EXCLUDED.pressure_hpa, weather_obs.pressure_hpa), humidity=COALESCE(EXCLUDED.humidity, weather_obs.humidity),
+        uv_index=COALESCE(EXCLUDED.uv_index, weather_obs.uv_index), precip=COALESCE(EXCLUDED.precip, weather_obs.precip), aqi=COALESCE(EXCLUDED.aqi, weather_obs.aqi),
+        condition=COALESCE(EXCLUDED.condition, weather_obs.condition), metadata=EXCLUDED.metadata,
+        ambient_pressure_hpa=COALESCE(EXCLUDED.ambient_pressure_hpa, weather_obs.ambient_pressure_hpa),
+        altitude_m=COALESCE(EXCLUDED.altitude_m, weather_obs.altitude_m),
+        city=COALESCE(EXCLUDED.city, weather_obs.city), place=COALESCE(EXCLUDED.place, weather_obs.place)`,
   }, rows);
 }
 
@@ -119,7 +122,9 @@ export async function getSpaceWeatherHistory(pool, hours = 48) {
 
 export async function getWeatherHistory(pool, hours = 48) {
   const { rows } = await pool.query(
-    `SELECT ts, temp_c, pressure_hpa, humidity, uv_index, aqi FROM weather_obs
+    `SELECT ts, temp_c, pressure_hpa, humidity, uv_index, aqi,
+            ambient_pressure_hpa, altitude_m, city, place
+       FROM weather_obs
      WHERE ts > now() - make_interval(hours => $1) ORDER BY ts ASC LIMIT 2000`,
     [hours]
   );

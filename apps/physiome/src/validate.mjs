@@ -41,6 +41,11 @@ export function validateWeatherObs(w) {
     uv_index: num(w.uv_index),
     precip: num(w.precip) ?? num(w.precip_mm), // client field is precip_mm
     aqi: num(w.aqi),
+    // AMBIENT (device barometer) vs the station temp_c/pressure_hpa above, + place.
+    ambient_pressure_hpa: num(w.ambient_pressure_hpa),
+    altitude_m: num(w.altitude_m),
+    city: typeof w.city === "string" ? w.city : null,
+    place: typeof w.place === "string" ? w.place : null,
     condition: w.condition || null,
     metadata: base,
   };
