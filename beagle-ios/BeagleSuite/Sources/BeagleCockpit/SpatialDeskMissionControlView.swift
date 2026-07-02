@@ -77,14 +77,14 @@ struct SpatialDeskMissionControlView: View {
         }
     }
 
-    /// Send the command bar text as a real exocortex query and present the cited answer.
+    /// Send the command bar text as a real exocortex query and present the answer.
     private func runCommand() {
         let q = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty, !commandRunning else { return }
         commandRunning = true
         Task {
-            let result = await BeagleClient.shared.chat(prompt: q, projectSlug: "sounio")
-            commandAnswer = result.value?.response ?? result.error ?? "No response from the exocortex."
+            let result = await ExocortexQuery.ask(q, mode: .personalNarrative(projectSlug: "sounio"))
+            commandAnswer = result.text
             commandRunning = false
             commandText = ""
         }
