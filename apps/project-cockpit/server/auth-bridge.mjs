@@ -1087,11 +1087,19 @@ async function routerChat({
   messages,
   temperature = 0.8,
   stream = false,
-  timeoutMs = 120000
+  timeoutMs = 120000,
+  maxTokens = null
 }) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
+    const body = { model, messages, temperature, stream };
+    // Bound generation when asked (ensemble fan-out): reasoning models like
+    // baichuan-m2-med otherwise generate very long answers and blow the sequential
+    // wall-clock past the mobile/CF timeout. null = no cap (default single-call path).
+    if (Number.isFinite(maxTokens) && maxTokens > 0) {
+      body.max_tokens = maxTokens;
+    }
     const res = await fetch(`${LITELLM_ROUTER_URL}/v1/chat/completions`, {
       method: "POST",
       headers: {
@@ -1099,12 +1107,7 @@ async function routerChat({
         "content-type": "application/json",
         Authorization: "Bearer noauth"
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature,
-        stream
-      }),
+      body: JSON.stringify(body),
       signal: ctrl.signal
     });
     const raw = await res.text();
@@ -1276,7 +1279,16 @@ export async function runEnsembleFanout({
   prompt,
   models = ENSEMBLE_DEFAULT_MODELS,
   synthModel = ENSEMBLE_SYNTH_MODEL,
-  timeoutMs = 60000
+  // Tighter per-model timeout: with a bounded max_tokens each resident vLLM model
+  // returns in ~15-30s, so 45s is generous headroom while a truly-stuck model is
+  // dropped fast instead of eating 60s and pushing the sequential sum past the
+  // mobile/CF ceiling. Overridable.
+  timeoutMs = 45000,
+  // Cap per-model generation so the fan-out's wall-clock stays under the mobile
+  // timeout. The synth step compresses anyway, so ~900 tokens per model is plenty
+  // of substance to synthesize from. Measured: uncapped baichuan (reasoning) alone
+  // could push a clinical prompt to 156s total; capped keeps the trio well bounded.
+  maxTokensPerModel = 900
 }) {
   const promptText = cleanString(prompt);
   if (!promptText) {
@@ -1299,7 +1311,8 @@ export async function runEnsembleFanout({
         messages: [{ role: "user", content: promptText }],
         temperature: 0.7,
         stream: false,
-        timeoutMs
+        timeoutMs,
+        maxTokens: maxTokensPerModel
       });
       if (r?.text) perModel.push({ model, text: r.text });
     } catch {
@@ -1336,7 +1349,10 @@ export async function runEnsembleFanout({
       ],
       temperature: 0.3,
       stream: false,
-      timeoutMs
+      // Synth is claude-sonnet-5 (fast TTFT via the proxy); give it a bit more wall-clock
+      // than a local model and a bounded output so the reconciliation stays concise.
+      timeoutMs: Math.max(timeoutMs, 60000),
+      maxTokens: 1200
     });
     synthesis = synthResult.text;
   } catch (err) {
