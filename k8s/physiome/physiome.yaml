@@ -56,6 +56,19 @@ spec:
             # config changes.
             - name: WEATHERKIT_SERVICE_ID
               value: "dev.sounio.beagle"
+            # APNs — same apple-auth-key signing key, token-based (JWT/ES256). optional:true so
+            # the pod stays healthy (push silently disabled) if the key/capability is missing.
+            # PROVEN 2026-07-02: sandbox accepts the JWT+topic (400 BadDeviceToken, not 403).
+            - name: APNS_P8
+              valueFrom: { secretKeyRef: { name: apple-auth-key, key: AuthKey.p8, optional: true } }
+            - name: APNS_KEY_ID
+              valueFrom: { secretKeyRef: { name: apple-auth-key, key: key_id, optional: true } }
+            - name: APNS_TEAM_ID
+              valueFrom: { secretKeyRef: { name: apple-auth-key, key: team_id, optional: true } }
+            - name: APNS_TOPIC
+              value: "dev.sounio.cockpit"
+            - name: APNS_ENV
+              value: "sandbox"
           readinessProbe:
             httpGet: { path: /healthz, port: 8090 }
             initialDelaySeconds: 3

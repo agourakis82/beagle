@@ -7,6 +7,8 @@ import { ensurePlacesSchema, upsertPlaces, getPlaces, matchPlace } from "../src/
 import { validateBatch } from "../src/validate.mjs";
 import { aggregateRange } from "../src/digest.mjs";
 import { correlatePhysiome, summarizeCorrelations } from "../src/correlate.mjs";
+import { ensureDeviceTokensSchema, upsertDeviceToken, getLatestDeviceToken } from "../src/devicetokens.mjs";
+import { sendPush } from "../src/apns.mjs";
 
 const PORT = Number(process.env.PORT || 8090);
 const INGEST_TOKEN = process.env.PHYSIOME_INGEST_TOKEN || "";
@@ -14,6 +16,7 @@ const INGEST_TOKEN = process.env.PHYSIOME_INGEST_TOKEN || "";
 const pool = makePool();
 await ensureSchema(pool);
 await ensurePlacesSchema(pool);
+await ensureDeviceTokensSchema(pool);
 
 const app = express();
 app.use(express.json({ limit: "16mb" }));
@@ -288,6 +291,38 @@ app.get("/api/physiome/agora-history", async (req, res) => {
       getHealthHistory(pool, AUDIO_DB_TYPE, hours),
     ]);
     res.json({ ok: true, hours, sky, weather, hrv, audioDb });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+// APNs device-token registration + a test-push endpoint (both authed). The sender
+// (apps/physiome/src/apns.mjs) fails soft when APNS_* env is unset, so these are inert
+// until the key + Push capability are live — proven working: sandbox returns BadDeviceToken.
+app.post("/api/physiome/device-token", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
+  const { token, apns_env, bundle } = req.body || {};
+  if (!token) return res.status(400).json({ error: "missing token" });
+  try {
+    await upsertDeviceToken(pool, { token, apnsEnv: apns_env || "sandbox", bundle: bundle || "dev.sounio.cockpit" });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+app.post("/api/physiome/push-test", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
+  try {
+    const row = await getLatestDeviceToken(pool);
+    if (!row) return res.status(404).json({ error: "no device token registered" });
+    const result = await sendPush({
+      deviceToken: row.token,
+      title: "Beagle",
+      body: "Test push from physiome-ingest.",
+      env: row.apns_env,
+    });
+    res.status(result.ok ? 200 : 502).json(result);
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }
