@@ -45,6 +45,17 @@ test("parseSolarWind takes speed (plasma) + bz (mag)", () => {
   assert.equal(r.bz.at(-1).value, -5.6);
 });
 
+// Regression: NOAA retired /products/solar-wind/plasma-1-day.json (404) → the poller now
+// reads the /products/summary/ products, whose speed field is "proton_speed" and IMF is a
+// single-row {bz_gsm, bt} object. parseSolarWind must extract from that shape too.
+test("parseSolarWind reads NOAA summary shape (proton_speed + bz_gsm)", () => {
+  const speedSummary = [{ proton_speed: 550, time_tag: "2026-07-03T21:27:00Z" }];
+  const magSummary = [{ bt: 14, bz_gsm: 8, time_tag: "2026-07-03T21:27:00Z" }];
+  const r = parseSolarWind(speedSummary, magSummary);
+  assert.equal(r.speed.at(-1).value, 550);
+  assert.equal(r.bz.at(-1).value, 8);
+});
+
 // NOAA also serves array-of-objects (Kp, F10.7 products).
 test("parseKp/parseF107 handle array-of-objects format", () => {
   const kpObj = [

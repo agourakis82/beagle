@@ -59,9 +59,14 @@ export function parseDst(json) {
   return seriesByHeader(json, ["dst", "dst_index"]).map((r) => ({ ts: r.ts, dst: r.value }));
 }
 
+// NOAA retired /products/solar-wind/plasma-1-day.json + mag-1-day.json (both 404 as of
+// 2026-07). The live sources are the /products/summary/ single-latest products, whose speed
+// field is "proton_speed" (not "speed"/"bulk_speed") — and the real-time /json/rtsw/ feeds,
+// which are ordered NEWEST-FIRST (so the ascending-order latest() would pick the oldest row).
+// Accept all of those value names; the poller now points at the summary products.
 export function parseSolarWind(plasmaJson, magJson) {
   return {
-    speed: seriesByHeader(plasmaJson, ["speed", "bulk_speed"]),
+    speed: seriesByHeader(plasmaJson, ["speed", "bulk_speed", "proton_speed"]),
     bz: seriesByHeader(magJson, ["bz_gsm", "bz"]),
   };
 }

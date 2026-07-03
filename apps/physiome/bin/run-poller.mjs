@@ -45,8 +45,11 @@ const URLS = {
   kp: `${SWPC}/noaa-planetary-k-index.json`,
   dst: `${SWPC}/kyoto-dst.json`,
   f107: `${SWPC}/10cm-flux-30-day.json`,
-  plasma: `${SWPC}/solar-wind/plasma-1-day.json`,
-  mag: `${SWPC}/solar-wind/mag-1-day.json`,
+  // NOAA retired /products/solar-wind/plasma-1-day.json + mag-1-day.json (404 as of 2026-07).
+  // Use the /products/summary/ single-latest products — speed via proton_speed, IMF via
+  // bz_gsm — which are what SpaceWeatherLive shows and are always the newest reading.
+  plasma: `${SWPC}/summary/solar-wind-speed.json`,
+  mag: `${SWPC}/summary/solar-wind-mag-field.json`,
   hp30: `${GFZ}/Hp30_ap30_nowcast.txt`,
   hp60: `${GFZ}/Hp60_ap60_nowcast.txt`,
   nmdb: nmdbUrl(),
