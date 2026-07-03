@@ -1251,6 +1251,101 @@ const MUSE_MODEL = process.env.PROJECT_COCKPIT_PERSONAL_MUSE_MODEL || "hunyuan-7
 const PERSONAL_VOICE_MODEL =
   process.env.PROJECT_COCKPIT_PERSONAL_VOICE_MODEL || "hermes-4";
 
+// ─── Ensemble fan-out ("consult the local models") ─────────────────────
+//
+// Read-only, side-effect-free: fans a single prompt out to several
+// zero-cost local models in parallel, then asks a synthesis model to
+// rank/merge their takes. Used by the agentic deep-think path (via the
+// consult_ensemble MCP tool) and by /api/mobile/v1/ensemble.
+//
+// Fail-soft: any model that errors or times out is simply dropped from
+// perModel; synthesis runs over whatever survived. If ALL models fail,
+// synthesis is skipped and an error is returned instead of a fabricated
+// summary.
+const ENSEMBLE_DEFAULT_MODELS = [
+  "qwen2.5-14b",
+  "qwen2.5-coder-32b",
+  "hermes-4",
+  "glm-4.5-air"
+];
+const ENSEMBLE_SYNTH_MODEL =
+  process.env.PROJECT_COCKPIT_ENSEMBLE_SYNTH_MODEL || "claude-sonnet-5";
+
+export async function runEnsembleFanout({
+  prompt,
+  models = ENSEMBLE_DEFAULT_MODELS,
+  synthModel = ENSEMBLE_SYNTH_MODEL,
+  timeoutMs = 60000
+}) {
+  const promptText = cleanString(prompt);
+  if (!promptText) {
+    return { error: "prompt is required" };
+  }
+  const modelList = (Array.isArray(models) && models.length ? models : ENSEMBLE_DEFAULT_MODELS)
+    .map((m) => cleanString(m))
+    .filter(Boolean);
+
+  const settled = await Promise.allSettled(
+    modelList.map((model) =>
+      routerChat({
+        model,
+        messages: [{ role: "user", content: promptText }],
+        temperature: 0.7,
+        stream: false,
+        timeoutMs
+      }).then((r) => ({ model, text: r.text }))
+    )
+  );
+
+  const perModel = [];
+  for (let i = 0; i < settled.length; i += 1) {
+    const outcome = settled[i];
+    if (outcome.status === "fulfilled") {
+      perModel.push(outcome.value);
+    }
+    // rejected models are dropped silently (fail-soft) — the model name
+    // is still known from modelList[i] if callers want to diff later.
+  }
+
+  if (perModel.length === 0) {
+    return {
+      error: "all ensemble models failed",
+      perModel: [],
+      synthesis: ""
+    };
+  }
+
+  const synthSystem =
+    "Você recebeu as respostas de vários modelos locais para o mesmo prompt. " +
+    "Sintetize: identifique consenso, divergências úteis, e a melhor resposta combinada. " +
+    "Seja conciso. Não invente respostas de modelos que não estão listados.";
+  const synthUser = [
+    `Prompt original:\n${promptText}`,
+    "",
+    "Respostas dos modelos:",
+    ...perModel.map((m) => `\n### ${m.model}\n${m.text}`)
+  ].join("\n");
+
+  let synthesis = "";
+  try {
+    const synthResult = await routerChat({
+      model: synthModel,
+      messages: [
+        { role: "system", content: synthSystem },
+        { role: "user", content: synthUser }
+      ],
+      temperature: 0.3,
+      stream: false,
+      timeoutMs
+    });
+    synthesis = synthResult.text;
+  } catch (err) {
+    synthesis = `(synthesis failed: ${err?.message || err}; raw perModel takes below)`;
+  }
+
+  return { synthesis, perModel };
+}
+
 export async function runMuseVoiceEnsemble({
   prompt,
   system = "",

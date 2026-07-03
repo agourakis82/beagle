@@ -27,10 +27,14 @@ import {
   fetchSpaceWeatherNow,
   fetchAgoraHistory,
   runMuseVoiceEnsemble,
+  // Layer 2 (auth-bridge.mjs): fans a prompt out to multiple router models and returns a
+  // synthesis. Consumed here by POST /api/mobile/v1/ensemble, which is what the MCP
+  // consult_ensemble tool hits.
+  runEnsembleFanout,
   fetchExocortexContext,
   fetchOperatorToken
 } from "./auth-bridge.mjs";
-import { ingestPersonalTurn, handleIngestRequest } from "./memory-ingest.mjs";
+import { ingestPersonalTurn, handleIngestRequest, captureProvenanced } from "./memory-ingest.mjs";
 import { buildTemporalContext, formatAgora, stampMemories, filterTrustedMemories } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
@@ -695,6 +699,96 @@ function latestIso(...values) {
   return normalized[0] || "";
 }
 
+const DEEP_THINK_PROXY_URL =
+  process.env.PROJECT_COCKPIT_AGENTIC_PROXY_URL || "http://100.103.228.8:9500";
+const DEEP_THINK_TIMEOUT_MS =
+  Number(process.env.PROJECT_COCKPIT_AGENTIC_TIMEOUT_MS) || 300000;
+
+/**
+ * Deep Think: read-only agentic mode. Calls the t560 Claude Opus agentic proxy DIRECTLY
+ * (bypassing the LiteLLM router, which strips unknown fields like beagle_agentic) so the
+ * proxy's 'claude --print' path with Read/Grep/Glob/WebSearch/WebFetch + MCP tools engages.
+ * SSE-streamed the same way streamChatViaRouter (auth-bridge.mjs) is; onToken is optional —
+ * the non-streaming /api/mobile/v1/chat route just gets the buffered text back.
+ */
+async function proxyDeepThinkAgentic({ prompt, system = "", history = [], onToken }) {
+  const messages = [];
+  if (system) messages.push({ role: "system", content: system });
+  for (const turn of Array.isArray(history) ? history : []) {
+    const role = turn?.role === "assistant" ? "assistant" : "user";
+    const content = cleanString(turn?.content);
+    if (content) messages.push({ role, content });
+  }
+  messages.push({ role: "user", content: prompt });
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), DEEP_THINK_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${DEEP_THINK_PROXY_URL}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        Accept: "text/event-stream, application/json",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "claude-opus-4-8",
+        stream: true,
+        beagle_agentic: true,
+        messages
+      }),
+      signal: ctrl.signal
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`deep think proxy HTTP ${res.status}: ${text.slice(0, 300)}`);
+    }
+
+    const contentType = cleanString(res.headers.get("content-type")).toLowerCase();
+    if (!contentType.includes("text/event-stream") || !res.body) {
+      const payload = JSON.parse(await res.text());
+      const text = cleanString(
+        payload?.choices?.[0]?.message?.content || payload?.text || payload?.response
+      );
+      if (!text) throw new Error("deep think proxy returned empty completion");
+      if (onToken) onToken(text);
+      return { text, model: "claude-opus-4-8", source: "agentic" };
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let fullText = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const data = trimmed.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+        let payload;
+        try {
+          payload = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        const delta = payload?.choices?.[0]?.delta?.content;
+        if (typeof delta === "string" && delta) {
+          fullText += delta;
+          if (onToken) onToken(delta);
+        }
+      }
+    }
+    if (!fullText) throw new Error("deep think proxy stream returned no tokens");
+    return { text: fullText, model: "claude-opus-4-8", source: "agentic" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function completeChatRequest(req, deps, options = {}) {
   const onToken = typeof options.onToken === "function" ? options.onToken : null;
   const prompt = cleanString(req.body?.prompt);
@@ -721,6 +815,11 @@ async function completeChatRequest(req, deps, options = {}) {
   const effectiveDiscussionProfile =
     requestedDiscussionProfile ||
     cleanString(requestedPhysioPolicy?.discussionProfile);
+  // Deep Think: read-only agentic mode. Bypasses the LiteLLM router entirely and talks
+  // straight to the t560 Claude Opus agentic proxy (beagle_agentic:true unlocks
+  // Read/Grep/Glob/WebSearch/WebFetch + MCP tools server-side, read-only). Fast intimate
+  // chat (deepThink falsy) is completely unaffected — identical code path as before.
+  const deepThink = req.body?.deepThink === true || req.body?.deep_think === true;
   // Ground the answer in the user's exocortex memory (RAG) instead of replying
   // generically. Without this, the mobile chat was a context-blind chatbot.
   // Fail-soft: fetchExocortexContext returns "" on any error/timeout.
@@ -746,6 +845,10 @@ async function completeChatRequest(req, deps, options = {}) {
   // Both fetches are best-effort — grounding must never block or fail the chat.
   let biographyDigest = "";
   let physiomeDigest = "";
+  // Fase 0 audit log inputs — populated below, consumed after `model` is known (see the
+  // captureProvenanced(...ChatContextLog...) call near the end of this function).
+  let auditMemoryIds = [];
+  let auditSectionTitles = [];
   if (chatSpace === "personal") {
     // Persona first (who you are) — always present, even if grounding fails.
     // Then the grounding (what you know about him): physiome + living biography.
@@ -832,7 +935,9 @@ async function completeChatRequest(req, deps, options = {}) {
       // replies and old generic-assistant echoes come back as 'memories' and must not be recalled
       // as 'what he told me' — and (b) empty-text chunks (a data-quality artifact that wastes
       // slots), keeping the top 6 real, trusted memories. This is the measured noise, not infra bleed.
-      const stamped = stampMemories(filterTrustedMemories(memoryResults), now, tz).slice(0, 6);
+      const trustedMemories = filterTrustedMemories(memoryResults);
+      auditMemoryIds = trustedMemories.map((r) => cleanString(r?.id)).filter(Boolean).slice(0, 6);
+      const stamped = stampMemories(trustedMemories, now, tz).slice(0, 6);
       if (stamped.length) {
         dynamicSections.push(
           "## O que ele já te contou (memórias — situe no tempo quando ajudar)",
@@ -868,13 +973,43 @@ async function completeChatRequest(req, deps, options = {}) {
       },
     });
     if (agora) dynamicSections.push(agora);
+    auditSectionTitles = [...sections, ...dynamicSections]
+      .filter((s) => typeof s === "string" && s.trim().startsWith("##"));
     effectiveSystem = [...sections, ...dynamicSections, effectiveSystem].filter(Boolean).join("\n\n");
   }
 
   let appliedDiscussionProfile = effectiveDiscussionProfile || "cluster";
 
   let result;
-  if (chatSpace === "personal") {
+  if (deepThink) {
+    // Deep Think overrides the normal voice entirely, regardless of space. Grounding
+    // (effectiveSystem) built above still applies when chatSpace === "personal".
+    appliedDiscussionProfile = "deep-think-agentic";
+    const deepThinkResult = await proxyDeepThinkAgentic({
+      prompt,
+      system: effectiveSystem,
+      history: Array.isArray(req.body?.history) ? req.body.history : [],
+      onToken
+    });
+    result = {
+      status: 200,
+      payload: {
+        text: deepThinkResult.text,
+        model: deepThinkResult.model,
+        provider: "anthropic",
+        source: deepThinkResult.source
+      }
+    };
+    if (chatSpace === "personal") {
+      ingestPersonalTurn({
+        sessionId: cleanString(req.body?.session_id || req.body?.sessionId),
+        userText: prompt,
+        assistantText: deepThinkResult.text,
+        clientTime: cleanString(req.body?.clientTime),
+        timezone: cleanString(req.body?.timezone),
+      }, { tokenFn: fetchOperatorToken }).catch(() => {});
+    }
+  } else if (chatSpace === "personal") {
     appliedDiscussionProfile = "personal-ensemble";
     result = await runMuseVoiceEnsemble({
       prompt,
@@ -989,6 +1124,32 @@ async function completeChatRequest(req, deps, options = {}) {
   const model = provider || tier || "unknown";
   const generatedAt = new Date().toISOString();
   const totalTokens = Number(result.payload?.usage?.total_tokens);
+
+  // Fase 0 audit log: a structured per-turn record of what the model actually saw —
+  // personal space only, since that's where the grounding sections above are assembled.
+  // Fire-and-forget to memory-pg; auditing must never block or fail the chat.
+  if (chatSpace === "personal") {
+    captureProvenanced(
+      {
+        source_type: "ChatContextLog",
+        content: `deep_think=${deepThink} model=${model} sections=${auditSectionTitles.length} memories=${auditMemoryIds.length}`,
+        prov_actor: "system",
+        prov_surface: "companion-ios",
+        occurred_at: generatedAt,
+        metadata: {
+          space: chatSpace,
+          model,
+          deep_think: deepThink,
+          injected_memory_ids: auditMemoryIds,
+          sections: auditSectionTitles
+        }
+      },
+      {
+        memoryPgUrl: process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local",
+        ingestToken: process.env.MEMORY_PG_INGEST_TOKEN
+      }
+    ).catch(() => {});
+  }
 
   return {
     response: responseText,
@@ -1717,6 +1878,38 @@ export function registerMobileRoutes(app, deps) {
     withEnvelope(async (req) => {
       const out = await handleIngestRequest(req.body || {}, { tokenFn: fetchOperatorToken });
       return out.body;
+    })
+  );
+
+  // Ensemble fanout: fans one prompt out to multiple router models (Layer 2,
+  // runEnsembleFanout in auth-bridge.mjs) and returns the synthesis. This is what the MCP
+  // consult_ensemble tool hits — an authed route like every other /api/mobile/v1/* route
+  // (auth handled upstream by the app-level auth middleware, same as /chat).
+  app.post(
+    "/api/mobile/v1/ensemble",
+    withEnvelope(async (req) => {
+      try {
+        const prompt = cleanString(req.body?.prompt);
+        if (!prompt) {
+          throw contractFailure(ErrorCode.BAD_REQUEST, "prompt is required");
+        }
+        const system = cleanString(req.body?.system);
+        const history = Array.isArray(req.body?.history) ? req.body.history : [];
+        const fanout = await runEnsembleFanout({ prompt, system, history });
+        const generatedAt = new Date().toISOString();
+        return {
+          data: {
+            response: cleanString(
+              fanout?.synthesis || fanout?.text || fanout?.response
+            ),
+            models: Array.isArray(fanout?.models) ? fanout.models : undefined,
+            generatedAt
+          },
+          meta: buildMeta(generatedAt)
+        };
+      } catch (error) {
+        rethrowAsContract(error, "ensemble fanout failed");
+      }
     })
   );
 
