@@ -120,7 +120,14 @@ app.get("/api/physiome/space-weather/latest", async (_req, res) => {
     // Pull the most recent non-null of each over the last ~3h so "latest" is complete.
     const { rows } = await pool.query(
       `SELECT
-         (SELECT ts FROM space_weather ORDER BY ts DESC LIMIT 1) AS ts,
+         -- ts/source come from the freshest row carrying actual NOAA/GFZ space weather, NOT the
+         -- newest row overall — the schumann CronJob (source 'tomsk-sos-image') writes rows with
+         -- every geomagnetic/solar column null, so the plain "newest row" mislabeled the whole
+         -- snapshot as tomsk with a Schumann-grid timestamp even though the values are NOAA's.
+         (SELECT ts FROM space_weather
+            WHERE kp IS NOT NULL OR solar_wind_speed IS NOT NULL OR dst IS NOT NULL
+               OR hp30 IS NOT NULL OR xray_flux IS NOT NULL OR aurora_power IS NOT NULL
+            ORDER BY ts DESC LIMIT 1) AS ts,
          (SELECT kp FROM space_weather WHERE kp IS NOT NULL ORDER BY ts DESC LIMIT 1) AS kp,
          (SELECT dst FROM space_weather WHERE dst IS NOT NULL ORDER BY ts DESC LIMIT 1) AS dst,
          (SELECT f107 FROM space_weather WHERE f107 IS NOT NULL ORDER BY ts DESC LIMIT 1) AS f107,
@@ -133,7 +140,10 @@ app.get("/api/physiome/space-weather/latest", async (_req, res) => {
          (SELECT schumann_f1 FROM space_weather WHERE schumann_f1 IS NOT NULL ORDER BY ts DESC LIMIT 1) AS schumann_f1,
          (SELECT schumann_f2 FROM space_weather WHERE schumann_f2 IS NOT NULL ORDER BY ts DESC LIMIT 1) AS schumann_f2,
          (SELECT schumann_f3 FROM space_weather WHERE schumann_f3 IS NOT NULL ORDER BY ts DESC LIMIT 1) AS schumann_f3,
-         (SELECT source FROM space_weather ORDER BY ts DESC LIMIT 1) AS source`
+         (SELECT source FROM space_weather
+            WHERE kp IS NOT NULL OR solar_wind_speed IS NOT NULL OR dst IS NOT NULL
+               OR hp30 IS NOT NULL OR xray_flux IS NOT NULL OR aurora_power IS NOT NULL
+            ORDER BY ts DESC LIMIT 1) AS source`
     );
     if (!rows.length || rows[0].ts == null) return res.json({ ok: true, latest: null });
     res.json({ ok: true, latest: rows[0] });

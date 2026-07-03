@@ -215,10 +215,18 @@ export function mergeSpaceWeather({
   const lxr = latest(xrayFlux, "xray_flux"), lpr = latest(protonFlux, "proton_flux");
   const lau = latest(aurora, "aurora_power");
   const lsy = latest(symH, "sym_h"), lae = latest(ae, "ae");
-  const ts =
-    lk.ts || ld.ts || lf.ts || ls.ts || lb.ts || lh30.ts || lh60.ts || lcr.ts ||
-    lxr.ts || lpr.ts || lau.ts || lsy.ts || lae.ts ||
-    new Date().toISOString();
+  // Snapshot ts = the FRESHEST observation among the present metrics, NOT Kp's coarse 3-hourly
+  // stamp. Keying to Kp pinned every poll within a 3h window onto ONE row, so the fast metrics
+  // (solar wind, X-ray — native ~1-min) were flattened to 3-hourly in the history/chart and the
+  // reported "as of" was misleading. Freshest-ts makes each poll a distinct row at its real time,
+  // giving per-poll granularity for the fast channels and an honest timestamp. sym_h/ae from the
+  // OMNI backfill are ~40d old so they never win the max; the live channels do.
+  const tsCandidates = [lk, ld, lf, ls, lb, lh30, lh60, lcr, lxr, lpr, lau]
+    .map((x) => x.ts)
+    .filter(Boolean);
+  const ts = tsCandidates.length
+    ? tsCandidates.reduce((a, b) => (new Date(b) > new Date(a) ? b : a))
+    : lsy.ts || lae.ts || new Date().toISOString();
   return {
     ts, kp: lk.v, dst: ld.v, f107: lf.v, solar_wind_speed: ls.v, bz: lb.v,
     hp30: lh30.v, ap30: lap30.v, hp60: lh60.v, cosmic_ray_oulu: lcr.v,

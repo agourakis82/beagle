@@ -89,6 +89,9 @@ test("mergeSpaceWeather → latest snapshot row", () => {
   assert.equal(row.solar_wind_speed, 620);
   assert.equal(row.bz, -5.6);
   assert.ok(row.ts);
+  // ts is the FRESHEST metric stamp (plasma/mag 11:59), not Kp's coarse 03:00 — so each poll
+  // becomes a distinct row and fast channels keep per-poll granularity.
+  assert.equal(row.ts, "2026-06-22T11:59:00Z");
 });
 
 // GFZ Hp30 nowcast: real column layout, -1 = not-yet-observed (dropped), decimal hour → ts.
