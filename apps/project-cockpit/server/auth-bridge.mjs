@@ -1262,12 +1262,13 @@ const PERSONAL_VOICE_MODEL =
 // perModel; synthesis runs over whatever survived. If ALL models fail,
 // synthesis is skipped and an error is returned instead of a fabricated
 // summary.
-const ENSEMBLE_DEFAULT_MODELS = [
-  "qwen2.5-14b",
-  "qwen2.5-coder-32b",
-  "hermes-4",
-  "glm-4.5-air"
-];
+// Default fleet for DISCUSSION / CLINICAL questions: a medical model (baichuan-m2-med) plus
+// diverse general/reasoning models, so the synthesis surfaces real perspective divergence (the
+// user's epistemological triangle). Code-discussion callers can override with the coder model.
+// Env-overridable (comma-sep) so the mix can be tuned without a rebuild.
+const ENSEMBLE_DEFAULT_MODELS = (process.env.PROJECT_COCKPIT_ENSEMBLE_MODELS ||
+  "baichuan-m2-med,qwen2.5-14b,hermes-4,glm-4.5-air")
+  .split(",").map((m) => m.trim()).filter(Boolean);
 const ENSEMBLE_SYNTH_MODEL =
   process.env.PROJECT_COCKPIT_ENSEMBLE_SYNTH_MODEL || "claude-sonnet-5";
 
