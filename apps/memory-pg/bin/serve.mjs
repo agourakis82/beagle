@@ -103,6 +103,28 @@ export function createApp(deps) {
     return (req.get("authorization") || "") === `Bearer ${ingestToken}`;
   }
 
+  // Recent records by provenance surface, ordered by RECENCY (deterministic — not semantic).
+  // The companion's technical register needs "the newest Sounio commits", which semantic /query
+  // can't reliably surface; the sounio-now-poller writes SounioCommit/SounioState records here.
+  app.get("/recent", async (req, res) => {
+    if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
+    const surface = typeof req.query.surface === "string" ? req.query.surface.slice(0, 200) : "";
+    if (!surface) return res.status(400).json({ error: "surface required" });
+    const sourceType = typeof req.query.source_type === "string" ? req.query.source_type.slice(0, 80) : null;
+    const limit = Math.min(Math.max(Number(req.query.limit) || 6, 1), 50);
+    try {
+      const params = [surface];
+      let sql = "SELECT content, source_type, metadata, created_at FROM records WHERE prov_surface = $1";
+      if (sourceType) { params.push(sourceType); sql += ` AND source_type = $${params.length}`; }
+      params.push(limit);
+      sql += ` ORDER BY created_at DESC LIMIT $${params.length}`;
+      const { rows } = await pool.query(sql, params);
+      res.json({ ok: true, records: rows });
+    } catch (e) {
+      res.status(500).json({ error: String(e.message || e) });
+    }
+  });
+
   app.post("/query", async (req, res) => {
     if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
     const body = req.body || {};

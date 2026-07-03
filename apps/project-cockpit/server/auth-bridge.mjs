@@ -768,34 +768,26 @@ export async function fetchSounioNow({ limit = 6, timeoutMs = 8000 } = {}) {
   if (_sounioNowCache.items.length && Date.now() - _sounioNowCache.at < SOUNIO_NOW_TTL_MS) {
     return { items: _sounioNowCache.items, cached: true };
   }
-  const tokenResult = await fetchOperatorToken();
-  if (tokenResult.error || !tokenResult.token) return { items: [], error: tokenResult.error || "no token" };
+  // Read the poller's SounioCommit records from memory-pg by RECENCY (deterministic). The old
+  // path queried beagle-core with tags:["sounio-now"] — a tag the poller never sets — so it fell
+  // back to generic semantic recall (noise), leaving the companion blind to the real commit state.
+  const base = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local";
+  const tok = process.env.MEMORY_PG_QUERY_TOKEN || "";
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "content-type": "application/json",
-        "X-Beagle-Consumer": "beagle-operator",
-        Authorization: `Bearer ${tokenResult.token}`
-      },
-      body: JSON.stringify({
-        query: "Sounio commit branch trabalho recente compilador",
-        k: limit,
-        tags: ["sounio-now"]
-      }),
+    const url = `${base}/recent?surface=sounio-now-poller&source_type=SounioCommit&limit=${encodeURIComponent(limit)}`;
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
       signal: ctrl.signal
     });
-    if (!res.ok) return { items: [], error: `memory/query ${res.status}` };
+    if (!res.ok) return { items: [], error: `memory-pg/recent ${res.status}` };
     const payload = parseJsonResponse(await res.text());
-    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
-    const items = highlights
-      .filter(h => cleanString(h?.snippet))
-      .sort((a, b) => cleanString(b?.date).localeCompare(cleanString(a?.date)))
-      .slice(0, limit)
-      .map(h => ({ snippet: cleanString(h.snippet), date: cleanString(h.date) }));
+    const recs = Array.isArray(payload?.records) ? payload.records : [];
+    const items = recs
+      .map(r => ({ snippet: cleanString(r.content), date: cleanString(r.created_at) }))
+      .filter(x => x.snippet)
+      .slice(0, limit);
     if (items.length) _sounioNowCache = { items, at: Date.now() };
     return { items };
   } catch (err) {
@@ -817,38 +809,29 @@ export async function fetchSounioState({ limit = 1, timeoutMs = 8000, token = nu
   if (cache && _sounioStateCache.digest && Date.now() - _sounioStateCache.at < SOUNIO_STATE_TTL_MS) {
     return { digest: _sounioStateCache.digest, cached: true };
   }
-  let tok = token;
-  if (!tok) {
-    const tokenResult = await fetchOperatorToken();
-    if (tokenResult.error || !tokenResult.token) return { digest: "", error: tokenResult.error || "no token" };
-    tok = tokenResult.token;
-  }
+  // Derive the current state from the FRESHEST commit — the dedicated SounioState atom is
+  // emit-on-change and goes stale (it can name a branch he left days ago while he commits on
+  // main). memory-pg /recent by SounioCommit is always current. token param kept for test compat.
+  void token;
+  const base = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local";
+  const mpTok = process.env.MEMORY_PG_QUERY_TOKEN || "";
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetchImpl(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "content-type": "application/json",
-        "X-Beagle-Consumer": "beagle-operator",
-        Authorization: `Bearer ${tok}`
-      },
-      body: JSON.stringify({
-        query: "Sounio estado atual branch teste em progresso bloqueio",
-        k: Math.max(limit, 3),
-        tags: ["sounio-state"]
-      }),
+    const url = `${base}/recent?surface=sounio-now-poller&source_type=SounioCommit&limit=${Math.max(limit, 1)}`;
+    const res = await fetchImpl(url, {
+      headers: { Accept: "application/json", ...(mpTok ? { Authorization: `Bearer ${mpTok}` } : {}) },
       signal: ctrl.signal
     });
-    if (!res.ok) return { digest: "", error: `memory/query ${res.status}` };
+    if (!res.ok) return { digest: "", error: `memory-pg/recent ${res.status}` };
     const payload = parseJsonResponse(await res.text());
-    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
-    const digest = cleanString(
-      highlights
-        .filter(h => cleanString(h?.snippet))
-        .sort((a, b) => cleanString(b?.date).localeCompare(cleanString(a?.date)))[0]?.snippet
-    );
+    const recs = Array.isArray(payload?.records) ? payload.records : [];
+    const latest = recs[0];
+    if (!latest) return { digest: "" };
+    const branch = cleanString(latest.metadata?.branch)
+      || (cleanString(latest.content).match(/ em ([^\s(]+)/) || [])[1]
+      || "main";
+    const digest = `Branch ativa: ${branch}. Movimento mais recente observado: ${cleanString(latest.content)}`;
     if (digest && cache) _sounioStateCache = { digest, at: Date.now() };
     return { digest };
   } catch (err) {
