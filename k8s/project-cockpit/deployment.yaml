@@ -130,15 +130,25 @@ spec:
           value: glm-5.1
         - name: TELEGRAM_VOICE_MODEL
           value: hermes-4
-        # Discussão/ensemble fan-out set (consult_ensemble + /api/mobile/v1/ensemble).
-        # All three are vLLM-RESIDENT (baichuan+hermes on RTX8000, hunyuan on A5000) so
-        # they never cold-load. Dropped qwen2.5-14b: it routed to Ollama on the DGX Spark
-        # (192.168.3.24), which evicts on-demand → non-deterministic 60s+ cold-loads that
-        # timed out the fan-out (measured 2026-07-03). qwen2.5-14b-vllm (r770-eagle3) would
-        # be the ideal 3rd but that backend is currently 500. Diverse base families
-        # (Qwen/Llama/Hunyuan) = genuine decorrelation for the "triângulo" (divergence+synthesis).
+        # Discussão/ensemble fan-out (consult_ensemble + /api/mobile/v1/ensemble).
+        # ALL-LOCAL trio, each FINGERPRINT-VERIFIED as the real model (2026-07-03) — NOT a
+        # router fallback. Critical lesson: hermes-4 and hunyuan-7b silently fell back to
+        # MiniMax-M3 (their vLLM pods were gone), so the earlier "baichuan,hermes,hunyuan"
+        # was really baichuan+2×MiniMax (zero decorrelation). Real distinct families now:
+        #   baichuan-m2-med  → local vLLM r740 RTX8000 (medical, ~1s)
+        #   internlm2.5-7b   → local vLLM r740 (general, ~0.6s)
+        #   phi4-reasoning   → phi4-reasoning:14b (Q4) on DGX Spark .24 Ollama, keep_alive=-1
+        #                      resident (reasoning; ~9.9 tok/s, the latency long-pole → ~130s
+        #                      total, deliberate "discussion" mode). fp16 was 4.2 tok/s (too
+        #                      slow); Q4 chosen. Router alias repointed off its old glm-5.2
+        #                      masquerade + fallback removed (see k8s/llm-router snapshot).
+        # Tunable without rebuild via the three envs below.
         - name: PROJECT_COCKPIT_ENSEMBLE_MODELS
-          value: baichuan-m2-med,hermes-4,hunyuan-7b
+          value: baichuan-m2-med,internlm2.5-7b,phi4-reasoning
+        - name: PROJECT_COCKPIT_ENSEMBLE_TIMEOUT_MS
+          value: '90000'
+        - name: PROJECT_COCKPIT_ENSEMBLE_MAX_TOKENS
+          value: '700'
         image: 192.168.3.207:5003/project-cockpit:reconcile-de417be2
         imagePullPolicy: IfNotPresent
         livenessProbe:

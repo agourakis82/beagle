@@ -1,4 +1,28 @@
 model_list:
+- model_name: claude-opus-4-8
+  litellm_params:
+    model: openai/claude-opus-4-8
+    api_base: http://100.103.228.8:9500/v1
+    api_key: noauth
+    rpm: 200
+- model_name: claude-sonnet-5
+  litellm_params:
+    model: openai/claude-sonnet-5
+    api_base: http://100.103.228.8:9500/v1
+    api_key: noauth
+    rpm: 200
+- model_name: gpt-5.5
+  litellm_params:
+    model: openai/gpt-5.5
+    api_base: http://100.103.228.8:9510/v1
+    api_key: noauth
+    rpm: 100
+- model_name: qwen2.5-14b-vllm
+  litellm_params:
+    model: openai/qwen2.5-14b
+    api_base: http://vllm.vllm-r770-eagle3.svc.cluster.local:8000/v1
+    api_key: noauth
+    rpm: 600
 - model_name: glm-air-companion
   litellm_params:
     model: openai/glm-air-companion
@@ -38,9 +62,10 @@ model_list:
     api_key: noauth
 - model_name: phi4-reasoning
   litellm_params:
-    model: openai/glm-5.2
-    api_base: https://api.z.ai/api/coding/paas/v4
-    api_key: os.environ/ZAI_API_KEY
+    model: openai/phi4-reasoning:14b
+    api_base: http://192.168.3.24:11434/v1
+    api_key: noauth
+    rpm: 100
 - model_name: science
   litellm_params:
     model: openai/glm-5.2
@@ -209,8 +234,6 @@ router_settings:
     - minimax-m3
   - hunyuan-7b:
     - minimax-m3
-  - phi4-reasoning:
-    - glm-5.2
   - science:
     - glm-5.2
   - r1-distill-70b:
