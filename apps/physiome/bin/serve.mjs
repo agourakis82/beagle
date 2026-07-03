@@ -3,6 +3,7 @@ import {
   makePool, ensureSchema, upsertHealthSamples, upsertWeather,
   getSpaceWeatherHistory, getWeatherHistory, getHealthHistory
 } from "../src/db.mjs";
+import { ensurePlacesSchema, upsertPlaces, getPlaces, matchPlace } from "../src/places.mjs";
 import { validateBatch } from "../src/validate.mjs";
 import { aggregateRange } from "../src/digest.mjs";
 import { correlatePhysiome, summarizeCorrelations } from "../src/correlate.mjs";
@@ -12,6 +13,7 @@ const INGEST_TOKEN = process.env.PHYSIOME_INGEST_TOKEN || "";
 
 const pool = makePool();
 await ensureSchema(pool);
+await ensurePlacesSchema(pool);
 
 const app = express();
 app.use(express.json({ limit: "16mb" }));
@@ -28,12 +30,50 @@ app.post("/api/physiome/ingest", async (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
   try {
     const { health_samples, weather_obs, received, rejected } = validateBatch(req.body || {});
+    // OPTIONAL: override the geocoded street-address `place` with the user's own label,
+    // if the coordinate falls inside a synced labeled_places radius. Fail-soft — a places
+    // lookup error must never block health/weather ingest.
+    if (weather_obs.length) {
+      try {
+        const places = await getPlaces(pool);
+        if (places.length) {
+          for (const w of weather_obs) {
+            const m = matchPlace(places, w.lat, w.lon);
+            if (m) w.place = m.name;
+          }
+        }
+      } catch (e) {
+        console.warn(`[physiome] place-match skipped: ${String(e.message || e)}`);
+      }
+    }
     const health = await upsertHealthSamples(pool, health_samples);
     const weather = await upsertWeather(pool, weather_obs);
     if (rejected.health || rejected.weather) {
       console.warn(`[physiome] ingest dropped invalid samples: health=${rejected.health}/${received.health} weather=${rejected.weather}/${received.weather}`);
     }
     res.json({ ok: true, ingested: { health, weather }, received, rejected });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+// Device→server sync of the user's own named places (Sources/BeagleCore/AgoraHistory.swift
+// PlaceLabelStore). Full-list upsert keyed by client-generated UUID; same auth gate as ingest.
+app.post("/api/physiome/places", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
+  try {
+    const places = Array.isArray(req.body?.places) ? req.body.places : [];
+    const n = await upsertPlaces(pool, places);
+    res.json({ ok: true, upserted: n });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+app.get("/api/physiome/places", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
+  try {
+    res.json({ ok: true, places: await getPlaces(pool) });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }
@@ -95,6 +135,8 @@ app.get("/api/physiome/space-weather/latest", async (_req, res) => {
 // Open-Meteo (primary — free, no key, includes UV) and falls back to OpenWeatherMap (key
 // held ONLY in the physiome-secrets cluster secret, never in the app binary or git).
 // Returns the shape the iOS PhysioWeatherObservation expects.
+import { fetchWeatherKit } from "../src/weatherkit.mjs";
+
 const OWM_KEY = process.env.OWM_API_KEY || "";
 async function fetchOpenMeteo(lat, lon) {
   const url =
@@ -144,11 +186,17 @@ app.get("/api/physiome/weather", async (req, res) => {
     return res.status(400).json({ error: "lat and lon (numbers) required" });
   }
   try {
-    let w;
-    try { w = await fetchOpenMeteo(lat, lon); }
-    catch (e1) {
-      try { w = await fetchOWM(lat, lon); }
-      catch (e2) { return res.status(502).json({ error: `both weather providers failed: ${e1.message}; ${e2.message}` }); }
+    // Prefer Apple WeatherKit REST (first-party for the iOS app's own account) when the
+    // server is provisioned for it; it fails soft to null on any missing config, network
+    // error, or non-2xx (e.g. NOT_ENABLED — see apps/physiome/src/weatherkit.mjs), so the
+    // existing Open-Meteo -> OWM chain below is the always-on fallback path.
+    let w = await fetchWeatherKit(lat, lon);
+    if (!w) {
+      try { w = await fetchOpenMeteo(lat, lon); }
+      catch (e1) {
+        try { w = await fetchOWM(lat, lon); }
+        catch (e2) { return res.status(502).json({ error: `both weather providers failed: ${e1.message}; ${e2.message}` }); }
+      }
     }
     const aq = await fetchOpenMeteoAQ(lat, lon); // best-effort, keyless
     res.json({ ok: true, ts: new Date().toISOString(), lat, lon, ...w, ...aq });

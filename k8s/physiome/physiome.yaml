@@ -39,6 +39,23 @@ spec:
             # OpenWeatherMap fallback key for the /weather proxy (primary is Open-Meteo, keyless).
             - name: OWM_API_KEY
               valueFrom: { secretKeyRef: { name: physiome-secrets, key: OWM_API_KEY, optional: true } }
+            # Apple WeatherKit REST — first-party weather source, tried before Open-Meteo/OWM.
+            # apple-auth-key is the SAME cluster Secret used for Sign in with Apple (ns beagle);
+            # optional:true so the deployment still comes up (falling back to Open-Meteo/OWM) if
+            # the key or WeatherKit capability is ever missing/rotated.
+            - name: WEATHERKIT_P8
+              valueFrom: { secretKeyRef: { name: apple-auth-key, key: AuthKey.p8, optional: true } }
+            - name: WEATHERKIT_KEY_ID
+              valueFrom: { secretKeyRef: { name: apple-auth-key, key: key_id, optional: true } }
+            - name: WEATHERKIT_TEAM_ID
+              valueFrom: { secretKeyRef: { name: apple-auth-key, key: team_id, optional: true } }
+            # Services ID / App ID that actually has the WeatherKit capability enabled and is
+            # associated with the apple-auth-key signing key. VERIFIED 2026-07-02: this must be
+            # "dev.sounio.beagle" — the iOS bundle id "dev.sounio.cockpit" gets a hard 401
+            # NOT_ENABLED. Overridable so it can be corrected without a rebuild if Apple's portal
+            # config changes.
+            - name: WEATHERKIT_SERVICE_ID
+              value: "dev.sounio.beagle"
           readinessProbe:
             httpGet: { path: /healthz, port: 8090 }
             initialDelaySeconds: 3
