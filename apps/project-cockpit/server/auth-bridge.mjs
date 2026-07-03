@@ -1267,7 +1267,7 @@ const PERSONAL_VOICE_MODEL =
 // user's epistemological triangle). Code-discussion callers can override with the coder model.
 // Env-overridable (comma-sep) so the mix can be tuned without a rebuild.
 const ENSEMBLE_DEFAULT_MODELS = (process.env.PROJECT_COCKPIT_ENSEMBLE_MODELS ||
-  "baichuan-m2-med,qwen2.5-14b,hermes-4,glm-4.5-air")
+  "baichuan-m2-med,qwen2.5-14b,hermes-4")
   .split(",").map((m) => m.trim()).filter(Boolean);
 const ENSEMBLE_SYNTH_MODEL =
   process.env.PROJECT_COCKPIT_ENSEMBLE_SYNTH_MODEL || "claude-sonnet-5";
@@ -1286,26 +1286,25 @@ export async function runEnsembleFanout({
     .map((m) => cleanString(m))
     .filter(Boolean);
 
-  const settled = await Promise.allSettled(
-    modelList.map((model) =>
-      routerChat({
+  // SEQUENTIAL fan-out (NOT Promise.allSettled): the local models share GPUs and can't serve
+  // concurrent requests — hitting all at once starves all but one to a 60s timeout (measured:
+  // baichuan+qwen abort, only hermes returns). One model at a time gives each the GPU. Slower
+  // wall-clock, but this is a "discussion" mode, not the fast chat. Fail-soft: a model that
+  // errors/times out is dropped.
+  const perModel = [];
+  for (const model of modelList) {
+    try {
+      const r = await routerChat({
         model,
         messages: [{ role: "user", content: promptText }],
         temperature: 0.7,
         stream: false,
         timeoutMs
-      }).then((r) => ({ model, text: r.text }))
-    )
-  );
-
-  const perModel = [];
-  for (let i = 0; i < settled.length; i += 1) {
-    const outcome = settled[i];
-    if (outcome.status === "fulfilled") {
-      perModel.push(outcome.value);
+      });
+      if (r?.text) perModel.push({ model, text: r.text });
+    } catch {
+      // dropped (fail-soft)
     }
-    // rejected models are dropped silently (fail-soft) — the model name
-    // is still known from modelList[i] if callers want to diff later.
   }
 
   if (perModel.length === 0) {
