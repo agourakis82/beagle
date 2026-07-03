@@ -226,3 +226,23 @@ public final class PlaceLabelStore: @unchecked Sendable {
         return 2 * R * asin(min(1, sqrt(h)))
     }
 }
+
+// MARK: - EMA (Ecological Momentary Assessment) capture routing
+
+public struct EMAPrompt: Identifiable, Sendable, Equatable {
+    public let promptId: String
+    public let place: String
+    public let fromPlace: String?
+    public let protocolVersion: String
+    public var id: String { promptId }
+    public init(promptId: String, place: String, fromPlace: String?, protocolVersion: String) {
+        self.promptId = promptId; self.place = place; self.fromPlace = fromPlace; self.protocolVersion = protocolVersion
+    }
+}
+
+@MainActor
+public final class EMARouter: ObservableObject {
+    public static let shared = EMARouter()
+    @Published public var pendingPrompt: EMAPrompt?
+    private init() {}
+}

@@ -253,9 +253,17 @@ public actor HealthSyncEngine {
     // MARK: - Authorization
 
     /// Request read authorisation for all Physiome types. Safe to call multiple times.
+    private static var allWriteTypes: Set<HKSampleType> {
+        var types = Set<HKSampleType>()
+        if #available(iOS 18.0, watchOS 11.0, macOS 15.0, *) {
+            types.insert(HKSampleType.stateOfMindType())
+        }
+        return types
+    }
+
     public func requestAuthorization() async throws {
         guard HKHealthStore.isHealthDataAvailable() else { return }
-        try await store.requestAuthorization(toShare: [], read: Self.allReadTypes)
+        try await store.requestAuthorization(toShare: Self.allWriteTypes, read: Self.allReadTypes)
         isAuthorized = true
     }
 

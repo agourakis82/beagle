@@ -250,6 +250,51 @@ public actor PhysiomeUploader {
         print("[PhysiomeUploader] device-token registration failed after retries")
     }
 
+    /// Submit an EMA capture triggered by a place-change push. Single attempt per base URL,
+    /// no offline queue (the HKStateOfMind write in EMASheet is the durable local copy).
+    public func submitEMA(
+        promptId: String, ts: Date, valence: Double, kind: String,
+        labels: [String], associations: [String], note: String?,
+        place: String, protocolVersion: String
+    ) async {
+        if physToken == nil {
+            let authReady = await BeagleClient.shared.ensureAuth()
+            guard authReady else { print("[PhysiomeUploader] submitEMA: auth not ready"); return }
+            await refreshPhysiomeToken()
+        }
+        guard let token = physToken else { print("[PhysiomeUploader] submitEMA: no token"); return }
+
+        let iso = ISO8601DateFormatter()
+        var body: [String: Any] = [
+            "prompt_id": promptId, "ts": iso.string(from: ts), "valence": valence, "kind": kind,
+            "labels": labels, "associations": associations, "place": place, "protocol_version": protocolVersion,
+        ]
+        if let note, !note.isEmpty { body["note"] = note }
+        guard let payload = try? JSONSerialization.data(withJSONObject: body) else {
+            print("[PhysiomeUploader] submitEMA: encode failed"); return
+        }
+
+        for base in physiomeBaseURLs {
+            guard let url = URL(string: "/api/physiome/ema", relativeTo: base) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue(physConsumerId, forHTTPHeaderField: "X-Beagle-Consumer")
+            request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            request.timeoutInterval = 30
+            request.httpBody = payload
+            do {
+                let (_, response) = try await physSession.data(for: request)
+                if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                    print("[PhysiomeUploader] submitEMA OK \(base.host ?? "") prompt=\(promptId)")
+                    return
+                }
+            } catch { continue }
+        }
+        print("[PhysiomeUploader] submitEMA failed on all endpoints (prompt=\(promptId))")
+    }
+
     // MARK: - Internal flush
 
     private func performFlush() async {

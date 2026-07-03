@@ -14,6 +14,7 @@
 import SwiftUI
 import Charts
 import MapKit
+import HealthKit
 import BeagleCore
 
 struct AgoraDetailView: View {
@@ -795,3 +796,184 @@ struct PlaceLabelSheet: View {
         }
     }
 }
+
+// MARK: - EMA capture sheet (place-change momentary check-in)
+
+private enum EMAEmotion: String, CaseIterable, Identifiable {
+    case calmo, feliz, ansioso, estressado, triste, irritado, cansado, animado
+    var id: String { rawValue }
+    var displayName: String { rawValue.prefix(1).uppercased() + rawValue.dropFirst() }
+    @available(iOS 18.0, *)
+    var hkLabel: HKStateOfMind.Label {
+        switch self {
+        case .calmo:      return .calm
+        case .feliz:      return .happy
+        case .ansioso:    return .anxious
+        case .estressado: return .stressed
+        case .triste:     return .sad
+        case .irritado:   return .irritated
+        case .cansado:    return .drained
+        case .animado:    return .excited
+        }
+    }
+}
+
+private enum EMAAssociation: String, CaseIterable, Identifiable {
+    case trabalho, familia, saude, hobby, dinheiro, deslocamento
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .trabalho:      return "Trabalho"
+        case .familia:       return "Família"
+        case .saude:         return "Saúde"
+        case .hobby:         return "Hobby"
+        case .dinheiro:      return "Dinheiro"
+        case .deslocamento:  return "Deslocamento"
+        }
+    }
+    @available(iOS 18.0, *)
+    var hkAssociation: HKStateOfMind.Association {
+        switch self {
+        case .trabalho:     return .work
+        case .familia:      return .family
+        case .saude:        return .health
+        case .hobby:        return .hobbies
+        case .dinheiro:     return .money
+        case .deslocamento: return .travel
+        }
+    }
+}
+
+struct EMASheet: View {
+    let prompt: EMAPrompt
+    @Environment(\.dismiss) private var dismiss
+    @State private var valence: Double = 0.0
+    @State private var selectedEmotions: Set<EMAEmotion> = []
+    @State private var selectedAssociations: Set<EMAAssociation> = []
+    @State private var note: String = ""
+    @State private var isSaving = false
+    @State private var saveError: String?
+
+    private var valenceLabel: String {
+        switch valence {
+        case ..<(-0.6):  return "Muito desagradável"
+        case ..<(-0.2):  return "Desagradável"
+        case ..<0.2:     return "Neutro"
+        case ..<0.6:     return "Agradável"
+        default:         return "Muito agradável"
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Como você está agora?")
+                                .font(BeagleFont.subheadline.font)
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                            Spacer()
+                            Text(valenceLabel)
+                                .font(BeagleFont.caption.font)
+                                .foregroundStyle(BeagleTheme.truthObserved)
+                        }
+                        Slider(value: $valence, in: -1.0...1.0, step: 0.05)
+                            .tint(BeagleTheme.truthObserved)
+                        HStack {
+                            Text("Muito desagradável").font(BeagleFont.caption2.font).foregroundStyle(BeagleTheme.textTertiary)
+                            Spacer()
+                            Text("Muito agradável").font(BeagleFont.caption2.font).foregroundStyle(BeagleTheme.textTertiary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } header: {
+                    Text(prompt.fromPlace != nil ? "Você chegou em \(prompt.place)" : prompt.place)
+                }
+
+                Section("Emoções") {
+                    EMAFlowChips(items: EMAEmotion.allCases, selected: $selectedEmotions) { $0.displayName }
+                }
+
+                Section("Associações") {
+                    EMAFlowChips(items: EMAAssociation.allCases, selected: $selectedAssociations) { $0.displayName }
+                }
+
+                Section("Nota (opcional)") {
+                    TextField("O que está acontecendo?", text: $note, axis: .vertical)
+                        .lineLimit(3...6)
+                }
+
+                if let saveError {
+                    Section {
+                        Text(saveError).font(BeagleFont.caption.font).foregroundStyle(BeagleTheme.stateError)
+                    }
+                }
+            }
+            .navigationTitle("Check-in")
+            .navigationBarTitleDisplayModeIfAvailable(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Salvar") { Task { await save() } }.disabled(isSaving)
+                }
+            }
+        }
+    }
+
+    private func save() async {
+        isSaving = true; saveError = nil
+        defer { isSaving = false }
+        let now = Date()
+
+        if #available(iOS 18.0, *) {
+            let store = HKHealthStore()
+            if HKHealthStore.isHealthDataAvailable() {
+                let sample = HKStateOfMind(
+                    date: now,
+                    kind: .momentaryEmotion,
+                    valence: valence,
+                    labels: selectedEmotions.map(\.hkLabel),
+                    associations: selectedAssociations.map(\.hkAssociation)
+                )
+                do { try await store.save(sample) }
+                catch { print("[EMASheet] HKStateOfMind save failed: \(error)") }
+            }
+        }
+
+        await PhysiomeUploader.shared.submitEMA(
+            promptId: prompt.promptId, ts: now, valence: valence, kind: "momentaryEmotion",
+            labels: selectedEmotions.map(\.rawValue), associations: selectedAssociations.map(\.rawValue),
+            note: note.isEmpty ? nil : note, place: prompt.place, protocolVersion: prompt.protocolVersion
+        )
+        dismiss()
+    }
+}
+
+private struct EMAFlowChips<Item: Hashable & Identifiable>: View {
+    let items: [Item]
+    @Binding var selected: Set<Item>
+    let label: (Item) -> String
+    private let columns = [GridItem(.adaptive(minimum: 92), spacing: 8)]
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+            ForEach(items) { item in
+                let isOn = selected.contains(item)
+                Button {
+                    if isOn { selected.remove(item) } else { selected.insert(item) }
+                } label: {
+                    Text(label(item))
+                        .font(BeagleFont.footnote.font)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .frame(maxWidth: .infinity)
+                        .background(Capsule().fill(isOn ? BeagleTheme.truthObserved.opacity(0.22) : BeagleTheme.surface1))
+                        .overlay(Capsule().stroke(isOn ? BeagleTheme.truthObserved : BeagleTheme.hairline, lineWidth: 1))
+                        .foregroundStyle(isOn ? BeagleTheme.truthObserved : BeagleTheme.textSecondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+

@@ -24,8 +24,9 @@ import BackgroundTasks
 /// Must match the `BGTaskSchedulerPermittedIdentifiers` Info.plist entry.
 let beagleDreamTaskIdentifier = "dev.sounio.cockpit.dream"
 
-final class BeagleAppDelegate: NSObject, UIApplicationDelegate {
+final class BeagleAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
         print("[APNsDBG] didFinishLaunching -> requesting notification authorization")
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, err in
             print("[APNsDBG] authorization granted=\(granted) err=\(String(describing: err))")
@@ -43,6 +44,26 @@ final class BeagleAppDelegate: NSObject, UIApplicationDelegate {
     }
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         print("[APNsDBG] didFailToRegister: \(error)")
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        let userInfo = response.notification.request.content.userInfo
+        guard let emaDict = userInfo["ema"] as? [String: Any],
+              let promptId = emaDict["prompt_id"] as? String,
+              let place = emaDict["place"] as? String else {
+            print("[APNsDBG] didReceive: no/malformed ema payload")
+            return
+        }
+        let fromPlace = emaDict["from_place"] as? String
+        let protocolVersion = emaDict["protocol_version"] as? String ?? "v0-draft"
+        let prompt = EMAPrompt(promptId: promptId, place: place, fromPlace: fromPlace, protocolVersion: protocolVersion)
+        await MainActor.run { EMARouter.shared.pendingPrompt = prompt }
     }
 }
 
@@ -245,6 +266,7 @@ struct RootView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var emaRouter = EMARouter.shared
 
     var body: some View {
         Group {
@@ -253,6 +275,9 @@ struct RootView: View {
             } else {
                 iPhoneLayout
             }
+        }
+        .sheet(item: $emaRouter.pendingPrompt) { prompt in
+            EMASheet(prompt: prompt)
         }
         .task {
             initializeTabSelectionIfNeeded()
