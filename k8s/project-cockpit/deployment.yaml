@@ -139,7 +139,7 @@ spec:
         # (Qwen/Llama/Hunyuan) = genuine decorrelation for the "triângulo" (divergence+synthesis).
         - name: PROJECT_COCKPIT_ENSEMBLE_MODELS
           value: baichuan-m2-med,hermes-4,hunyuan-7b
-        image: 192.168.3.207:5003/project-cockpit:reconcile-1669b153
+        image: 192.168.3.207:5003/project-cockpit:reconcile-be734bcb
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:
