@@ -25,7 +25,7 @@ spec:
           type: Unconfined
       containers:
         - name: physiome-ingest
-          image: 192.168.3.207:5003/physiome:0.16.0-4741d03f
+          image: 192.168.3.207:5003/physiome:0.17.0-65b00b6b
           command: ["node", "bin/serve.mjs"]
           ports:
             - containerPort: 8090
@@ -109,8 +109,9 @@ metadata:
   namespace: beagle
 spec:
   schedule: "*/30 * * * *" # every 30 min — solar wind (rtsw/summary) updates ~1-min; the
-  # old every-2h left the current value up to 2h stale even when the feed worked. The snapshot
-  # ts is keyed to Kp's 3-hourly stamp, so this refreshes the CURRENT value, not chart cadence.
+  # old every-2h left the current value up to 2h stale even when the feed worked. As of 0.17.0
+  # the snapshot ts is the freshest metric stamp (not Kp's 3-hourly), so each poll is a distinct
+  # row → 30-min granularity for the fast channels. (True 1-min realtime = a further step.)
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 2
   failedJobsHistoryLimit: 2
@@ -126,7 +127,7 @@ spec:
             seccompProfile: { type: Unconfined }
           containers:
             - name: poller
-              image: 192.168.3.207:5003/physiome:0.16.0-4741d03f
+              image: 192.168.3.207:5003/physiome:0.17.0-65b00b6b
               command: ["node", "bin/run-poller.mjs"]
               env:
                 - name: PHYSIOME_PG_DSN
@@ -154,7 +155,7 @@ spec:
             seccompProfile: { type: Unconfined }
           containers:
             - name: digest
-              image: 192.168.3.207:5003/physiome:0.16.0-4741d03f
+              image: 192.168.3.207:5003/physiome:0.17.0-65b00b6b
               command: ["sh", "-c", "node bin/run-digest.mjs $(date -u +%F)"]
               env:
                 - name: PHYSIOME_PG_DSN
