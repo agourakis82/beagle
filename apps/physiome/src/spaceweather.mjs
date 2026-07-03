@@ -71,6 +71,25 @@ export function parseSolarWind(plasmaJson, magJson) {
   };
 }
 
+// Parse a NOAA real-time solar wind feed (/json/rtsw/rtsw_wind_1m.json or rtsw_mag_1m.json)
+// into a native ~1-minute series [{ ts, value }] for the hires store. These feeds interleave
+// multiple spacecraft (SOLAR1/ACE) and are ordered NEWEST-FIRST; we keep only active===true
+// rows (NOAA's currently-primary source) and skip non-finite values. Order-agnostic — the
+// hires upsert is keyed by (metric, ts), so ingest order doesn't matter. valueName is the
+// field to extract ("proton_speed" for wind, "bz_gsm" for mag).
+export function parseRtswSeries(json, valueName) {
+  if (!Array.isArray(json)) return [];
+  const out = [];
+  for (const o of json) {
+    if (!o || typeof o !== "object" || o.active !== true) continue;
+    const raw = o[valueName];
+    if (raw == null || raw === "") continue; // guard: Number(null)===0 would fake a 0 reading
+    const v = Number(raw);
+    if (o.time_tag && Number.isFinite(v)) out.push({ ts: isoUtc(o.time_tag), value: v });
+  }
+  return out;
+}
+
 function latest(arr, key) {
   for (let i = arr.length - 1; i >= 0; i--) {
     const v = key ? arr[i][key] : arr[i].value;

@@ -72,3 +72,18 @@ ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS proton_flux     DOUBLE PRECIS
 ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS aurora_power    DOUBLE PRECISION;
 ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS sym_h           DOUBLE PRECISION;
 ALTER TABLE space_weather ADD COLUMN IF NOT EXISTS ae_index        DOUBLE PRECISION;
+
+-- High-resolution (native-cadence) space-weather series for intraday scientific correlation.
+-- Long/EAV format so any metric at any cadence lands here with NO schema change: solar wind
+-- speed + Bz are ingested at their native ~1-minute resolution (NOAA rtsw_*_1m, active source),
+-- and X-ray / SME / quasi-real-time SYM-H can follow the same shape later. The coarse
+-- `space_weather` snapshot table stays as-is (the "current value" card + daily aggregates);
+-- this table is the fine substrate the intraday correlation model will join physiology against.
+CREATE TABLE IF NOT EXISTS space_weather_hires (
+  ts     TIMESTAMPTZ NOT NULL,
+  metric TEXT        NOT NULL,   -- e.g. 'solar_wind_speed', 'bz', 'xray_flux'
+  value  DOUBLE PRECISION NOT NULL,
+  source TEXT,
+  PRIMARY KEY (metric, ts)
+);
+CREATE INDEX IF NOT EXISTS space_weather_hires_metric_ts ON space_weather_hires (metric, ts DESC);

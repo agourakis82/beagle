@@ -68,6 +68,20 @@ export async function upsertHealthSamples(pool, rows) {
   }, rows);
 }
 
+// Batch-upsert native-cadence space-weather points into space_weather_hires. `rows` is
+// [{ ts, metric, value, source }]. Idempotent (ON CONFLICT (metric, ts)), so the poller can
+// safely re-ingest an overlapping trailing window every run without creating duplicates.
+export async function upsertHiresSeries(pool, rows) {
+  const clean = (rows || []).filter((r) => r && r.ts && r.metric && Number.isFinite(r.value));
+  return txChunkedUpsert(pool, {
+    colsPerRow: 4,
+    toParams: (r) => [r.ts, r.metric, r.value, r.source ?? null],
+    sql: (n) => `INSERT INTO space_weather_hires (ts, metric, value, source)
+      VALUES ${placeholders(n, 4)}
+      ON CONFLICT (metric, ts) DO UPDATE SET value=EXCLUDED.value, source=EXCLUDED.source`,
+  }, clean);
+}
+
 export async function upsertWeather(pool, rows) {
   return txChunkedUpsert(pool, {
     colsPerRow: 15,

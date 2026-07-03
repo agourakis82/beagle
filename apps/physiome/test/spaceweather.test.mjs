@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseKp, parseDst, parseF107, parseSolarWind, parseHpAscii, parseNmdbAscii, parseXrayFlux, parseProtonFlux, parseOvation, parseOmniCsv, mergeSpaceWeather } from "../src/spaceweather.mjs";
+import { parseKp, parseDst, parseF107, parseSolarWind, parseHpAscii, parseNmdbAscii, parseXrayFlux, parseProtonFlux, parseOvation, parseOmniCsv, parseRtswSeries, mergeSpaceWeather } from "../src/spaceweather.mjs";
 
 // NOAA SWPC products are array-of-arrays with a header row.
 const KP = [
@@ -54,6 +54,23 @@ test("parseSolarWind reads NOAA summary shape (proton_speed + bz_gsm)", () => {
   const r = parseSolarWind(speedSummary, magSummary);
   assert.equal(r.speed.at(-1).value, 550);
   assert.equal(r.bz.at(-1).value, 8);
+});
+
+// rtsw 1-min feed → hires series: newest-first, multi-source, keep only active===true.
+test("parseRtswSeries keeps active rows, drops inactive/non-finite, order-agnostic", () => {
+  const wind = [
+    { time_tag: "2026-07-03T21:23:00", active: true, source: "SOLAR1", proton_speed: 550 },
+    { time_tag: "2026-07-03T21:23:00", active: false, source: "ACE", proton_speed: 328 }, // dropped (inactive)
+    { time_tag: "2026-07-03T21:22:00", active: true, source: "SOLAR1", proton_speed: 548 },
+    { time_tag: "2026-07-03T21:21:00", active: true, source: "SOLAR1", proton_speed: null }, // dropped (non-finite)
+  ];
+  const s = parseRtswSeries(wind, "proton_speed");
+  assert.equal(s.length, 2);
+  assert.deepEqual(s.map((p) => p.value), [550, 548]);
+  assert.ok(s[0].ts.endsWith("Z"));
+  const mag = [{ time_tag: "2026-07-03T21:23:00", active: true, bz_gsm: 8, bt: 14 }];
+  assert.equal(parseRtswSeries(mag, "bz_gsm").at(0).value, 8);
+  assert.deepEqual(parseRtswSeries(null, "proton_speed"), []);
 });
 
 // NOAA also serves array-of-objects (Kp, F10.7 products).

@@ -1,9 +1,9 @@
 // Poll NOAA SWPC space-weather products → parse → upsert a latest snapshot into space_weather.
 // Fail-soft per source: a missing/down feed yields null for that metric, never crashes the run.
-import { makePool, ensureSchema, upsertSpaceWeather } from "../src/db.mjs";
+import { makePool, ensureSchema, upsertSpaceWeather, upsertHiresSeries } from "../src/db.mjs";
 import {
   parseKp, parseDst, parseF107, parseSolarWind, parseHpAscii, parseNmdbAscii,
-  parseXrayFlux, parseProtonFlux, parseOvation, parseOmniCsv, mergeSpaceWeather,
+  parseXrayFlux, parseProtonFlux, parseOvation, parseOmniCsv, parseRtswSeries, mergeSpaceWeather,
 } from "../src/spaceweather.mjs";
 
 const SWPC = "https://services.swpc.noaa.gov/products";
@@ -57,6 +57,10 @@ const URLS = {
   proton: `${SWPC_JSON}/goes/primary/integral-protons-1-day.json`,
   ovation: `${SWPC_JSON}/ovation_aurora_latest.json`,
   omni: omniUrl(),
+  // Native ~1-minute real-time solar wind (DSCOVR/ACE) → space_weather_hires, for intraday
+  // scientific correlation. Newest-first, multi-source; parseRtswSeries keeps active===true.
+  rtswWind: `${SWPC_JSON}/rtsw/rtsw_wind_1m.json`,
+  rtswMag: `${SWPC_JSON}/rtsw/rtsw_mag_1m.json`,
 };
 
 async function getJson(url) {
@@ -84,11 +88,12 @@ async function getText(url) {
   }
 }
 
-const [kpJ, dstJ, f107J, plasmaJ, magJ, hp30T, hp60T, nmdbT, xrayJ, protonJ, ovationJ, omniT] =
+const [kpJ, dstJ, f107J, plasmaJ, magJ, hp30T, hp60T, nmdbT, xrayJ, protonJ, ovationJ, omniT, rtswWindJ, rtswMagJ] =
   await Promise.all([
     getJson(URLS.kp), getJson(URLS.dst), getJson(URLS.f107), getJson(URLS.plasma), getJson(URLS.mag),
     getText(URLS.hp30), getText(URLS.hp60), getText(URLS.nmdb),
     getJson(URLS.xray), getJson(URLS.proton), getJson(URLS.ovation), getText(URLS.omni),
+    getJson(URLS.rtswWind), getJson(URLS.rtswMag),
   ]);
 const sw = parseSolarWind(plasmaJ || [], magJ || []);
 const omni = parseOmniCsv(omniT || ""); // { ae, symH } — RETROSPECTIVE backfill, usually null live
@@ -108,8 +113,22 @@ const row = mergeSpaceWeather({
   ae: omni.ae,
 });
 
+// Native 1-minute solar wind → hires store. Bound to a trailing ~40-min window (covers the
+// 30-min poll gap + margin) so each run upserts only recent points, not the whole ~1-day feed.
+// Idempotent (ON CONFLICT), so overlap across runs is harmless.
+const HIRES_WINDOW_MS = 40 * 60 * 1000;
+const hiresCutoff = Date.now() - HIRES_WINDOW_MS;
+const inWindow = (p) => { const t = new Date(p.ts).getTime(); return Number.isFinite(t) && t >= hiresCutoff; };
+const hiresRows = [
+  ...parseRtswSeries(rtswWindJ || [], "proton_speed").filter(inWindow)
+    .map((p) => ({ ts: p.ts, metric: "solar_wind_speed", value: p.value, source: "noaa-rtsw" })),
+  ...parseRtswSeries(rtswMagJ || [], "bz_gsm").filter(inWindow)
+    .map((p) => ({ ts: p.ts, metric: "bz", value: p.value, source: "noaa-rtsw" })),
+];
+
 const pool = makePool();
 await ensureSchema(pool);
 const n = await upsertSpaceWeather(pool, row);
+const hiresN = await upsertHiresSeries(pool, hiresRows);
 await pool.end();
-console.log("[poller]", JSON.stringify({ upserted: n, ...row }));
+console.log("[poller]", JSON.stringify({ upserted: n, hires: hiresN, ...row }));
