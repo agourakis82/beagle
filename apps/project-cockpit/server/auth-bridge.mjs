@@ -1274,21 +1274,23 @@ const ENSEMBLE_DEFAULT_MODELS = (process.env.PROJECT_COCKPIT_ENSEMBLE_MODELS ||
   .split(",").map((m) => m.trim()).filter(Boolean);
 const ENSEMBLE_SYNTH_MODEL =
   process.env.PROJECT_COCKPIT_ENSEMBLE_SYNTH_MODEL || "claude-sonnet-5";
+// Per-model timeout + generation cap for the fan-out, env-tunable without a rebuild.
+// Default 55s: resident vLLM models return in ~20-40s normally but spike over 45s when
+// baichuan+hermes contend on their shared (time-sliced) RTX 8000, so 55s buys reliability
+// (all three land in the "triângulo") while still dropping a truly-stuck model before the
+// mobile/CF ceiling. 900 tokens/model keeps generation bounded; synth compresses anyway.
+const ENSEMBLE_TIMEOUT_MS =
+  Number(process.env.PROJECT_COCKPIT_ENSEMBLE_TIMEOUT_MS) || 55000;
+const ENSEMBLE_MAX_TOKENS =
+  Number(process.env.PROJECT_COCKPIT_ENSEMBLE_MAX_TOKENS) || 900;
 
 export async function runEnsembleFanout({
   prompt,
   models = ENSEMBLE_DEFAULT_MODELS,
   synthModel = ENSEMBLE_SYNTH_MODEL,
-  // Tighter per-model timeout: with a bounded max_tokens each resident vLLM model
-  // returns in ~15-30s, so 45s is generous headroom while a truly-stuck model is
-  // dropped fast instead of eating 60s and pushing the sequential sum past the
-  // mobile/CF ceiling. Overridable.
-  timeoutMs = 45000,
-  // Cap per-model generation so the fan-out's wall-clock stays under the mobile
-  // timeout. The synth step compresses anyway, so ~900 tokens per model is plenty
-  // of substance to synthesize from. Measured: uncapped baichuan (reasoning) alone
-  // could push a clinical prompt to 156s total; capped keeps the trio well bounded.
-  maxTokensPerModel = 900
+  // Per-model timeout + generation cap (env-tunable, see ENSEMBLE_TIMEOUT_MS/_MAX_TOKENS).
+  timeoutMs = ENSEMBLE_TIMEOUT_MS,
+  maxTokensPerModel = ENSEMBLE_MAX_TOKENS
 }) {
   const promptText = cleanString(prompt);
   if (!promptText) {
