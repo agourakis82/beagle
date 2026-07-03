@@ -16,6 +16,7 @@ import BeagleCore
 import BeagleWorkbenchKit
 #if os(iOS)
 import UIKit
+import UserNotifications
 import BackgroundTasks
 #endif
 
@@ -25,15 +26,23 @@ let beagleDreamTaskIdentifier = "dev.sounio.cockpit.dream"
 
 final class BeagleAppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        UIApplication.shared.registerForRemoteNotifications()
+        print("[APNsDBG] didFinishLaunching -> requesting notification authorization")
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, err in
+            print("[APNsDBG] authorization granted=\(granted) err=\(String(describing: err))")
+            DispatchQueue.main.async {
+                print("[APNsDBG] calling registerForRemoteNotifications()")
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
         return true
     }
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        print("[APNsDBG] device token acquired, len=\(deviceToken.count) hex12=\(hex.prefix(12))")
         Task { await PhysiomeUploader.shared.registerDeviceToken(hex, apnsEnv: "sandbox") }
     }
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        print("[BeagleCockpit] APNs registration failed: \(error)")
+        print("[APNsDBG] didFailToRegister: \(error)")
     }
 }
 
