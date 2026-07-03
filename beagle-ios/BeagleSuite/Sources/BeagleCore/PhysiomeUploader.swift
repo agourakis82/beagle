@@ -55,6 +55,19 @@ struct PhysiomeIngestRequest: Codable, Sendable {
     }
 }
 
+struct PhysiomePlacesRequest: Codable, Sendable {
+    let places: [PhysioLabeledPlace]
+}
+
+struct PhysioLabeledPlace: Codable, Sendable {
+    let id: String
+    let name: String
+    let category: String?
+    let lat: Double
+    let lon: Double
+    let radiusM: Double
+}
+
 struct PhysiomeIngestResponse: Codable, Sendable {
     let accepted: Int?
     let skipped: Int?
@@ -159,6 +172,72 @@ public actor PhysiomeUploader {
     public func recoverAndFlush() {
         loadPersistedQueue()
         flush()
+    }
+
+    /// Sync the device's full labeled-places list to the server (POST /api/physiome/places).
+    /// Best-effort/silent-fail — places are already durable on-device (PlaceLabelStore); this
+    /// is only the mirror that lets the server relabel weather_obs.place with the user's names.
+    public func syncPlaces(_ places: [LabeledPlace]) async {
+        if physToken == nil {
+            let authReady = await BeagleClient.shared.ensureAuth()
+            guard authReady else { return }
+            await refreshPhysiomeToken()
+        }
+        guard let token = physToken else { return }
+        let payload: Data
+        do {
+            let body = PhysiomePlacesRequest(places: places.map {
+                PhysioLabeledPlace(id: $0.id.uuidString, name: $0.name, category: $0.category,
+                                    lat: $0.lat, lon: $0.lon, radiusM: $0.radiusM)
+            })
+            payload = try JSONEncoder().encode(body)
+        } catch {
+            print("[PhysiomeUploader] syncPlaces encode failed: \(error)")
+            return
+        }
+        for base in physiomeBaseURLs {
+            guard let url = URL(string: "/api/physiome/places", relativeTo: base) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue(physConsumerId, forHTTPHeaderField: "X-Beagle-Consumer")
+            request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            request.timeoutInterval = 30
+            request.httpBody = payload
+            do {
+                let (_, response) = try await physSession.data(for: request)
+                if let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                    print("[PhysiomeUploader] syncPlaces OK \(base.host ?? "") (\(places.count) places)")
+                    return
+                }
+            } catch { continue }
+        }
+        print("[PhysiomeUploader] syncPlaces failed on all endpoints")
+    }
+
+    /// Register the device's APNs token so physiome-ingest can push to it.
+    public func registerDeviceToken(_ hexToken: String, apnsEnv: String) async {
+        if physToken == nil { await refreshPhysiomeToken() }
+        guard let token = physToken else { return }
+        for base in physiomeBaseURLs {
+            guard let url = URL(string: "/api/physiome/device-token", relativeTo: base) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue(physConsumerId, forHTTPHeaderField: "X-Beagle-Consumer")
+            request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            request.httpBody = try? JSONEncoder().encode([
+                "token": hexToken, "apns_env": apnsEnv, "bundle": "dev.sounio.cockpit"
+            ])
+            if let (_, resp) = try? await physSession.data(for: request),
+               let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                print("[PhysiomeUploader] device-token registered OK")
+                return
+            }
+        }
+        print("[PhysiomeUploader] device-token registration failed on all endpoints")
     }
 
     // MARK: - Internal flush

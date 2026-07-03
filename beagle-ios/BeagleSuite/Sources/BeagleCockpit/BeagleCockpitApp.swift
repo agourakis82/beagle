@@ -23,6 +23,20 @@ import BackgroundTasks
 /// Must match the `BGTaskSchedulerPermittedIdentifiers` Info.plist entry.
 let beagleDreamTaskIdentifier = "dev.sounio.cockpit.dream"
 
+final class BeagleAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        UIApplication.shared.registerForRemoteNotifications()
+        return true
+    }
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        Task { await PhysiomeUploader.shared.registerDeviceToken(hex, apnsEnv: "sandbox") }
+    }
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("[BeagleCockpit] APNs registration failed: \(error)")
+    }
+}
+
 @main
 struct BeagleCockpitApp: App {
     @State private var catalog = CatalogStore()
@@ -31,6 +45,7 @@ struct BeagleCockpitApp: App {
     @State private var hpc = HPCStore()
     @State private var navigationPath = NavigationPath()
     @State private var bootError: String?
+    @UIApplicationDelegateAdaptor(BeagleAppDelegate.self) var appDelegate
     @State private var launchOverrides = LaunchOverrides.current
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 

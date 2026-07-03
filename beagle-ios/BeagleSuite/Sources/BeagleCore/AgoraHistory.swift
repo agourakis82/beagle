@@ -192,7 +192,12 @@ public final class PlaceLabelStore: @unchecked Sendable {
     public func all() -> [LabeledPlace] { lock.lock(); defer { lock.unlock() }; return cache }
 
     public func add(_ p: LabeledPlace) {
-        lock.lock(); cache.removeAll { $0.id == p.id }; cache.append(p); persist(); lock.unlock()
+        lock.lock(); cache.removeAll { $0.id == p.id }; cache.append(p); persist()
+        let snapshot = cache
+        lock.unlock()
+        // Mirror the full list to the server (best-effort) so weather_obs.place can be
+        // retroactively re-labeled with the user's own names instead of the geocoded address.
+        Task { await PhysiomeUploader.shared.syncPlaces(snapshot) }
     }
     public func remove(_ id: UUID) {
         lock.lock(); cache.removeAll { $0.id == id }; persist(); lock.unlock()
