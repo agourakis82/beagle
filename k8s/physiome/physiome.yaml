@@ -25,7 +25,7 @@ spec:
           type: Unconfined
       containers:
         - name: physiome-ingest
-          image: 192.168.3.207:5003/physiome:0.8.0-d24d95ce
+          image: 192.168.3.207:5003/physiome:0.14.0-d3b5a6b1
           command: ["node", "bin/serve.mjs"]
           ports:
             - containerPort: 8090
@@ -69,6 +69,21 @@ spec:
               value: "dev.sounio.cockpit"
             - name: APNS_ENV
               value: "sandbox"
+            # EMA place-change trigger — OFF until the N-of-1 experiment protocol is pre-registered.
+            # Flip EMA_TRIGGER_ENABLED to "true" (kubectl set env, no rebuild) once the protocol is
+            # locked; bump EMA_PROTOCOL_VERSION at that moment so every prompt/response is stamped.
+            - name: EMA_TRIGGER_ENABLED
+              value: "false"
+            - name: EMA_PROTOCOL_VERSION
+              value: "v0-draft"
+            - name: EMA_COOLDOWN_MIN
+              value: "90"
+            - name: EMA_ACTIVE_HOURS
+              value: "8-22"
+            - name: EMA_TZ
+              value: "America/Sao_Paulo"
+            - name: EMA_LABELED_ONLY
+              value: "false"
           readinessProbe:
             httpGet: { path: /healthz, port: 8090 }
             initialDelaySeconds: 3
@@ -109,7 +124,7 @@ spec:
             seccompProfile: { type: Unconfined }
           containers:
             - name: poller
-              image: 192.168.3.207:5003/physiome:0.8.0-d24d95ce
+              image: 192.168.3.207:5003/physiome:0.14.0-d3b5a6b1
               command: ["node", "bin/run-poller.mjs"]
               env:
                 - name: PHYSIOME_PG_DSN
@@ -137,7 +152,7 @@ spec:
             seccompProfile: { type: Unconfined }
           containers:
             - name: digest
-              image: 192.168.3.207:5003/physiome:0.8.0-d24d95ce
+              image: 192.168.3.207:5003/physiome:0.14.0-d3b5a6b1
               command: ["sh", "-c", "node bin/run-digest.mjs $(date -u +%F)"]
               env:
                 - name: PHYSIOME_PG_DSN

@@ -8,6 +8,7 @@ import { validateBatch } from "../src/validate.mjs";
 import { aggregateRange } from "../src/digest.mjs";
 import { correlatePhysiome, summarizeCorrelations } from "../src/correlate.mjs";
 import { ensureDeviceTokensSchema, upsertDeviceToken, getLatestDeviceToken } from "../src/devicetokens.mjs";
+import { ensureEmaSchema, maybePromptEMA, fire, saveEmaResponse } from "../src/ema.mjs";
 import { sendPush } from "../src/apns.mjs";
 
 const PORT = Number(process.env.PORT || 8090);
@@ -17,6 +18,7 @@ const pool = makePool();
 await ensureSchema(pool);
 await ensurePlacesSchema(pool);
 await ensureDeviceTokensSchema(pool);
+await ensureEmaSchema(pool);
 
 const app = express();
 app.use(express.json({ limit: "16mb" }));
@@ -42,7 +44,7 @@ app.post("/api/physiome/ingest", async (req, res) => {
         if (places.length) {
           for (const w of weather_obs) {
             const m = matchPlace(places, w.lat, w.lon);
-            if (m) w.place = m.name;
+            if (m) { w.place = m.name; w._labeled = true; }
           }
         }
       } catch (e) {
@@ -51,6 +53,14 @@ app.post("/api/physiome/ingest", async (req, res) => {
     }
     const health = await upsertHealthSamples(pool, health_samples);
     const weather = await upsertWeather(pool, weather_obs);
+    // EMA place-change trigger (gated off by default; fail-soft — never blocks ingest).
+    try {
+      if (weather_obs.length) {
+        let newest = null;
+        for (const w of weather_obs) if (w.place && (!newest || String(w.ts) > String(newest.ts))) newest = w;
+        if (newest) await maybePromptEMA(pool, { place: newest.place, ts: newest.ts, labeled: newest._labeled === true });
+      }
+    } catch (e) { console.warn(`[physiome] ema trigger skipped: ${String(e.message || e)}`); }
     if (rejected.health || rejected.weather) {
       console.warn(`[physiome] ingest dropped invalid samples: health=${rejected.health}/${received.health} weather=${rejected.weather}/${received.weather}`);
     }
@@ -309,6 +319,24 @@ app.post("/api/physiome/device-token", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }
+});
+
+app.post("/api/physiome/ema", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
+  try { const id = await saveEmaResponse(pool, req.body || {}); res.json({ ok: true, id }); }
+  catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+});
+
+// Force an EMA prompt regardless of the gate/cooldown/hours — for testing the push+deep-link
+// path without moving or enabling the live trigger. Does NOT change ema_state.last_prompt cooldown gate.
+app.post("/api/physiome/ema-trigger-test", async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
+  try {
+    const place = (req.body && req.body.place) || "Casa";
+    const r = await fire(pool, { place, fromPlace: (req.body && req.body.from_place) || null, trigger: "test",
+                                 protocol: process.env.EMA_PROTOCOL_VERSION || "v0-draft", force: true });
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
 });
 
 app.post("/api/physiome/push-test", async (req, res) => {
