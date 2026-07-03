@@ -131,24 +131,24 @@ spec:
         - name: TELEGRAM_VOICE_MODEL
           value: hermes-4
         # Discussão/ensemble fan-out (consult_ensemble + /api/mobile/v1/ensemble).
-        # ALL-LOCAL trio, each FINGERPRINT-VERIFIED as the real model (2026-07-03) — NOT a
-        # router fallback. Critical lesson: hermes-4 and hunyuan-7b silently fell back to
-        # MiniMax-M3 (their vLLM pods were gone), so the earlier "baichuan,hermes,hunyuan"
-        # was really baichuan+2×MiniMax (zero decorrelation). Real distinct families now:
+        # FAST RELIABLE trio, each FINGERPRINT-VERIFIED as the real model (2026-07-03) — NOT
+        # a router fallback. Lesson: hermes-4/hunyuan-7b silently fell back to MiniMax-M3
+        # (their vLLM pods were gone) → the "resident trio" was really baichuan+2×MiniMax.
         #   baichuan-m2-med  → local vLLM r740 RTX8000 (medical, ~1s)
         #   internlm2.5-7b   → local vLLM r740 (general, ~0.6s)
-        #   phi4-reasoning   → phi4-reasoning:14b (Q4) on DGX Spark .24 Ollama, keep_alive=-1
-        #                      resident (reasoning; ~9.9 tok/s, the latency long-pole → ~130s
-        #                      total, deliberate "discussion" mode). fp16 was 4.2 tok/s (too
-        #                      slow); Q4 chosen. Router alias repointed off its old glm-5.2
-        #                      masquerade + fallback removed (see k8s/llm-router snapshot).
-        # Tunable without rebuild via the three envs below.
+        #   minimax-m3       → strong general (cloud, real, fast) — the reliable 3rd voice
+        # Whole fan-out ~50-60s. Phi-4-reasoning (real, Q4, DGX Spark .24) is DEPLOYED but
+        # kept OUT of the always-on set (decision B, 2026-07-03): it is ~9.9 tok/s on the
+        # SHARED Spark and drops under contention. It stays an OPT-IN heavy model — the agent
+        # calls consult_ensemble with models:["phi4-reasoning"] when the depth is worth ~2-3min.
+        # PENDING: dedicate the 2nd Spark (.43) to Phi-4 (decision A, deferred) → then re-add.
+        # All three tunable without rebuild via the envs below.
         - name: PROJECT_COCKPIT_ENSEMBLE_MODELS
-          value: baichuan-m2-med,internlm2.5-7b,phi4-reasoning
+          value: baichuan-m2-med,internlm2.5-7b,minimax-m3
         - name: PROJECT_COCKPIT_ENSEMBLE_TIMEOUT_MS
-          value: '90000'
+          value: '60000'
         - name: PROJECT_COCKPIT_ENSEMBLE_MAX_TOKENS
-          value: '700'
+          value: '900'
         image: 192.168.3.207:5003/project-cockpit:reconcile-de417be2
         imagePullPolicy: IfNotPresent
         livenessProbe:
