@@ -45,6 +45,9 @@ struct MessageBubble: View {
                     .sheet(isPresented: $showGoDeep) {
                         GoDeepView(store: goDeepStore, prompt: displayedText)
                     }
+                if !isUser, !statusLines.isEmpty, message.isStreaming {
+                    statusChips(statusLines)
+                }
                 if !isUser, let thinking = parsed.thinking {
                     thinkingDisclosure(thinking)
                 }
@@ -80,14 +83,50 @@ struct MessageBubble: View {
 
     /// Split the companion's internal note (presence framing + "Nota rápida" reasoning)
     /// from the warm message it actually says. The model puts the note above a `---` rule.
+    /// Agentic tool-status lines the server streams inline, each on its own line starting with
+    /// "⟜ " (Layer 1 emits these as it calls MCP tools, e.g. "⟜ consultando cluster…"). Stripped
+    /// out of the displayed answer and shown as transient chips instead. Cheap line-scan, not a
+    /// persisted field — recomputed from `message.content` each render, so it naturally clears
+    /// once the server stops emitting markers and stays correct across streaming updates.
+    private var statusLines: [String] {
+        message.content
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .filter { $0.hasPrefix("⟜") }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
     private var parsed: (message: String, thinking: String?) {
         let c = message.content
+            .split(separator: "\n")
+            .filter { !$0.hasPrefix("⟜") }
+            .joined(separator: "\n")
         guard let r = c.range(of: "\n---\n") ?? c.range(of: "\n---") else { return (c, nil) }
         let before = c[..<r.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
         let after = c[r.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
         let looksLikeNote = ["nota", "pergunta viva", "interpretação", "próximo movimento", "abana"]
             .contains { before.range(of: $0, options: .caseInsensitive) != nil }
         return (after.isEmpty || !looksLikeNote) ? (c, nil) : (after, before)
+    }
+
+    /// Agentic tool-status chips — small, subdued, distinct from the answer text and from the
+    /// TypingIndicator dot. Renders one chip per status line currently present (usually just the
+    /// latest, since the server will typically only keep the last ⟜ line live).
+    @ViewBuilder
+    private func statusChips(_ lines: [String]) -> some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
+            ForEach(lines, id: \.self) { line in
+                HStack(spacing: BeagleSpacing.xxs) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text(line.hasPrefix("⟜") ? String(line.dropFirst()).trimmingCharacters(in: .whitespaces) : line)
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
+                .transition(.opacity)
+            }
+        }
+        .padding(.leading, BeagleSpacing.xs)
+        .animation(.snappy(duration: 0.2), value: lines)
     }
 
     @ViewBuilder

@@ -405,6 +405,7 @@ public struct ChatScreen: View {
         }
         draft = ""
         store.voiceModel = depth.voiceModel   // Rápido → default voice; Pensar → stronger model
+        store.deepThink = depth.isDeepThink    // Agente → agentic read-only tool path (server side)
         Task { await store.sendMessage(text) }
     }
 

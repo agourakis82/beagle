@@ -21,7 +21,7 @@ import UIKit
 enum ChatDepth: String, CaseIterable, Identifiable {
     // .sonnet is the default voice — near-Opus quality (Anthropic, released 2026-06-30), far
     // cheaper, and the most agentic Sonnet yet. Opus stays one tap away for the absolute ceiling.
-    case sonnet, opus, gpt, grok, glm, kimi, minimax, fundo
+    case sonnet, opus, gpt, grok, glm, kimi, minimax, fundo, agente
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -33,6 +33,7 @@ enum ChatDepth: String, CaseIterable, Identifiable {
         case .kimi: return "Kimi 2.6"
         case .minimax: return "MiniMax M3"
         case .fundo: return "Fundo"
+        case .agente: return "Agente"
         }
     }
     var subtitle: String {
@@ -45,6 +46,7 @@ enum ChatDepth: String, CaseIterable, Identifiable {
         case .kimi: return "voz alternativa"
         case .minimax: return "voz alternativa"
         case .fundo: return "exploração profunda"
+        case .agente: return "cluster + ferramentas (leitura)"
         }
     }
     var systemImage: String {
@@ -55,6 +57,7 @@ enum ChatDepth: String, CaseIterable, Identifiable {
         case .grok: return "bolt"
         case .glm, .kimi, .minimax: return "waveform"
         case .fundo: return "scope"
+        case .agente: return "wrench.and.screwdriver"
         }
     }
     /// Personal-path voiceModel (router model_name); nil = server default. `.fundo` → Go-Deeper.
@@ -68,8 +71,13 @@ enum ChatDepth: String, CaseIterable, Identifiable {
         case .kimi: return "kimi-k2.6"
         case .minimax: return "minimax-m3"
         case .fundo: return nil
+        case .agente: return nil   // server default voice; deepThink flag (not voiceModel) selects the agentic path
         }
     }
+
+    /// True only for `.agente` — the composer's signal to thread `deepThink: true` into the
+    /// request body instead of the ChatDepth voiceModel override.
+    var isDeepThink: Bool { self == .agente }
 }
 
 struct ChatComposer: View {

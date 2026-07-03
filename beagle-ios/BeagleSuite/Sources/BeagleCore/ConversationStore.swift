@@ -96,6 +96,10 @@ public final class ConversationStore {
     /// (e.g. "glm-5.2" for "Pensar") asks the companion to think with a stronger model. "Fundo" is
     /// handled in the UI by routing to Go-Deeper instead of a chat turn.
     public var voiceModel: String? = nil
+    /// Set true for one turn (ChatDepth.agente) to ask the server for the read-only agentic
+    /// (tool-using) path instead of the plain one-shot voice call. Server: mobile-routes.mjs
+    /// completeChatRequest reads `deepThink` at ~L718.
+    public var deepThink: Bool = false
 
     /// Live Activity hooks (set by the view layer, since LiveActivityManager is in BeagleCockpit) —
     /// mirrors the GoDeepStore onResearch* pattern. Lets the user leave the app during the ~14-20s
@@ -444,7 +448,8 @@ public final class ConversationStore {
             sleepHours: physioSummary?.sleepHours,
             kp: currentSky?.kp, dst: currentSky?.dst,
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
-            voiceModel: voiceModel
+            voiceModel: voiceModel,
+            deepThink: deepThink
         )
 
         var streamedText = ""
