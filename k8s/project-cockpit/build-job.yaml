@@ -40,7 +40,7 @@ spec:
             - name: BEAGLE_GIT_BRANCH
               value: reconcile/unify-beagle
             - name: BEAGLE_GIT_REF
-              value: "be734bcb"
+              value: "de417be2"
           command:
             - /bin/sh
             - -lc
@@ -53,7 +53,7 @@ spec:
           image: gcr.io/kaniko-project/executor:latest
           env:
             - name: BEAGLE_IMAGE_TAG
-              value: reconcile-be734bcb
+              value: reconcile-de417be2
           args:
             - "--dockerfile=/workspace/apps/project-cockpit/Dockerfile"
             - "--context=dir:///workspace"
