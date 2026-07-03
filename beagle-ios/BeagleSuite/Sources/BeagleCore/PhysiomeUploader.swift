@@ -218,26 +218,36 @@ public actor PhysiomeUploader {
 
     /// Register the device's APNs token so physiome-ingest can push to it.
     public func registerDeviceToken(_ hexToken: String, apnsEnv: String) async {
-        if physToken == nil { await refreshPhysiomeToken() }
-        guard let token = physToken else { return }
-        for base in physiomeBaseURLs {
-            guard let url = URL(string: "/api/physiome/device-token", relativeTo: base) else { continue }
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            request.setValue(physConsumerId, forHTTPHeaderField: "X-Beagle-Consumer")
-            request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
-            request.httpBody = try? JSONEncoder().encode([
-                "token": hexToken, "apns_env": apnsEnv, "bundle": "dev.sounio.cockpit"
-            ])
-            if let (_, resp) = try? await physSession.data(for: request),
-               let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
-                print("[PhysiomeUploader] device-token registered OK")
-                return
+        // didRegister can fire at cold start BEFORE the physiome auth bridge is up, so ensure
+        // auth first and retry with backoff instead of silently dropping the token once.
+        for attempt in 0..<5 {
+            if physToken == nil {
+                _ = await BeagleClient.shared.ensureAuth()
+                await refreshPhysiomeToken()
             }
+            if let token = physToken {
+                for base in physiomeBaseURLs {
+                    guard let url = URL(string: "/api/physiome/device-token", relativeTo: base) else { continue }
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    request.setValue(physConsumerId, forHTTPHeaderField: "X-Beagle-Consumer")
+                    request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                    request.httpBody = try? JSONEncoder().encode([
+                        "token": hexToken, "apns_env": apnsEnv, "bundle": "dev.sounio.cockpit"
+                    ])
+                    if let (_, resp) = try? await physSession.data(for: request),
+                       let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) {
+                        print("[PhysiomeUploader] device-token registered OK")
+                        return
+                    }
+                }
+            }
+            _ = attempt
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
-        print("[PhysiomeUploader] device-token registration failed on all endpoints")
+        print("[PhysiomeUploader] device-token registration failed after retries")
     }
 
     // MARK: - Internal flush
