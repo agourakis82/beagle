@@ -953,6 +953,19 @@ export async function fetchPhysiomeDigest({ timeoutMs = 8000 } = {}) {
   }
 }
 
+// Keep the personal-companion grounding digests warm so the FIRST chat message after an idle
+// gap doesn't pay the full cold beagle-core cost (~2.7s each, in parallel). Cheap: 5 tag
+// queries on an interval shorter than the 5-min digest TTL. Best-effort — never throws.
+export async function warmCompanionDigests() {
+  await Promise.allSettled([
+    fetchBiographyDigest(),
+    fetchPhysiomeDigest(),
+    fetchSounioNow({ limit: 6 }),
+    fetchSounioState({ limit: 1 }),
+    fetchSounioRelationship({ k: 4 }),
+  ]);
+}
+
 // Latest space-weather snapshot (Kp/Dst/solar wind/Bz) from the physiome service.
 // This is the FALLBACK for the chat's `## Agora` block — the iOS app normally sends
 // the live values it's already showing (single source of truth), and this fills in

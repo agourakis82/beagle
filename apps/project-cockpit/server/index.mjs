@@ -21,7 +21,7 @@ import {
 import { registerScratchpadRoutes } from "./scratchpad-routes.mjs";
 import { registerJobRoutes } from "./job-routes.mjs";
 import { registerQueueRoutes } from "./queue-routes.mjs";
-import { registerAuthBridgeRoutes, fetchOperatorToken } from "./auth-bridge.mjs";
+import { registerAuthBridgeRoutes, fetchOperatorToken, warmCompanionDigests } from "./auth-bridge.mjs";
 import { startJobReconciler } from "./job-reconciler.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -90,6 +90,13 @@ const disableMemoryWarmers =
   String(process.env.PROJECT_COCKPIT_DISABLE_MEMORY_WARMERS || "")
     .trim()
     .toLowerCase() === "true";
+// Dedicated LIGHT warmer for the personal-companion grounding digests — independent of the
+// heavier dashboard warmers above (which stay disabled). Keeps the first chat message fast.
+const companionWarmEnabled =
+  String(process.env.PROJECT_COCKPIT_COMPANION_WARM || "on").trim().toLowerCase() !== "off";
+const companionWarmIntervalMs = Number(
+  process.env.PROJECT_COCKPIT_COMPANION_WARM_INTERVAL_MS || 240000
+);
 const datasetMetadataCacheTtlMs = Number(
   process.env.PROJECT_COCKPIT_DATASET_METADATA_CACHE_TTL_MS || 5 * 60 * 1000
 );
@@ -15225,6 +15232,13 @@ wss.on("connection", async (ws, req) => {
 server.listen(port, host, () => {
   console.log(`Project cockpit server listening on http://${host}:${port}`);
   startJobReconciler();
+  // Companion-digest warmer: NOT gated by DISABLE_MEMORY_WARMERS — this is the cheap, targeted
+  // one that keeps personal chat's grounding (biography/sounio/physiome) hot so the first
+  // message after idle doesn't stall on cold beagle-core fetches.
+  if (companionWarmEnabled) {
+    warmCompanionDigests().catch(() => {});
+    setInterval(() => { warmCompanionDigests().catch(() => {}); }, companionWarmIntervalMs).unref();
+  }
   if (disableMemoryWarmers) {
     startupWarmState = {
       ...startupWarmState,

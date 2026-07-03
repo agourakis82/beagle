@@ -730,7 +730,12 @@ async function completeChatRequest(req, deps, options = {}) {
   // Fail-soft: fetchExocortexContext returns "" on any error/timeout.
   // (The personal-space block below further grounds in biography + physiome +
   // temporal memory, and reassigns effectiveSystem — hence `let`.)
-  const memoryContext = await fetchExocortexContext(prompt);
+  const chatSpace = cleanString(req.body?.space || req.body?.chatSpace).toLowerCase();
+  // LATENCY: the legacy beagle-core top-6 RAG here costs ~2.7s on the critical path (every
+  // token waits on it) and is the noise source the chat audit flagged. Personal chat is already
+  // grounded by the canonical memory-pg recall (fetchRecentMemories) in the block below, so skip
+  // this legacy fetch for personal and keep it only for the non-personal/discussion spaces.
+  const memoryContext = chatSpace === "personal" ? "" : await fetchExocortexContext(prompt);
   const mergedSystem = [cleanString(req.body?.system), memoryContext]
     .filter(Boolean)
     .join("\n\n");
@@ -743,7 +748,6 @@ async function completeChatRequest(req, deps, options = {}) {
   // Personal space: ground the companion in the user's living biography and
   // current physiome state so it responds as someone who actually knows him.
   // Both fetches are best-effort — grounding must never block or fail the chat.
-  const chatSpace = cleanString(req.body?.space || req.body?.chatSpace).toLowerCase();
   let biographyDigest = "";
   let physiomeDigest = "";
   if (chatSpace === "personal") {
