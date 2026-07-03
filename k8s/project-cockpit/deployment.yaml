@@ -106,15 +106,31 @@ spec:
         # Companion (Pessoal) voice: fast, warm, non-reasoning model that streams
         # real content (qwen2.5-14b, warm on DGX Spark). glm-air-companion was a
         # reasoning model → empty stream (503) + 26s latency that broke the cadence.
+        # 2026-07-03: companion voice = Claude Opus 4.8 (LiteLLM router → t560:9500 claude proxy
+        # → real CLI, $0 on Max). Persona rewritten for his register (elevated peer, not the
+        # beagle-dog folksy voice); qwen read flat. Overridable via kubectl set env if needed.
         - name: PROJECT_COCKPIT_PERSONAL_VOICE_MODEL
-          value: qwen2.5-14b
+          value: claude-opus-4-8
         - name: PROJECT_COCKPIT_PERSONAL_MUSE_MODEL
           value: qwen2.5-14b
         # Muse creative pre-pass OFF: it added a full non-streaming call before the
         # voice could stream. Set to 'on' to restore the seed pass.
         - name: PROJECT_COCKPIT_PERSONAL_MUSE
           value: 'off'
-        image: 192.168.3.207:5003/project-cockpit:reconcile-267aa680
+        # Reconciled from live 2026-07-03 (these were set via kubectl and ABSENT from IaC — an
+        # apply would have dropped them). DISCUSSION_LAB/SGLANG point at the sglang glm-5.1
+        # backend (currently down — separate cleanup); captured so the manifest is durable truth.
+        - name: PROJECT_COCKPIT_LITELLM_ROUTER_URL
+          value: http://router.llm-router.svc.cluster.local:4000
+        - name: PROJECT_COCKPIT_DYNAMO_MODEL
+          value: kimi-k2.7
+        - name: PROJECT_COCKPIT_SGLANG_MODEL
+          value: glm-5.1
+        - name: PROJECT_COCKPIT_DISCUSSION_LAB_MODEL
+          value: glm-5.1
+        - name: TELEGRAM_VOICE_MODEL
+          value: hermes-4
+        image: 192.168.3.207:5003/project-cockpit:reconcile-1669b153
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:
