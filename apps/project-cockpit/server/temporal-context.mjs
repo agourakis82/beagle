@@ -212,7 +212,13 @@ const MAX_SNIPPET = 600;
  */
 export function filterTrustedMemories(results) {
   if (!Array.isArray(results)) return [];
-  return results.filter((r) => r?.trust_tier !== "unverified");
+  // Drop unverified (the companion's own past replies + old generic-assistant echoes come back
+  // as 'memories') AND empty-text chunks (a data-quality artifact that wastes recall slots).
+  return results.filter((r) => {
+    if (r?.trust_tier === "unverified") return false;
+    const txt = r?.text ?? r?.content ?? r?.snippet ?? "";
+    return typeof txt === "string" && txt.trim().length > 0;
+  });
 }
 
 /** Prefix each memory snippet with its relative date; drop empties; leave

@@ -776,7 +776,7 @@ async function completeChatRequest(req, deps, options = {}) {
         fetchSounioNow({ limit: 6 }),
         fetchSounioState({ limit: 1 }),
         fetchSounioRelationship({ k: 4 }),
-        fetchRecentMemories(userText, { k: 4 }),
+        fetchRecentMemories(userText, { k: 12 }),
         fetchSpaceWeatherNow()
       ]);
       skyNow = skyResult;
@@ -828,7 +828,11 @@ async function completeChatRequest(req, deps, options = {}) {
       }
       // DYNAMIC (per-turn) section: temporal awareness + episodic recall.
       // Kept at the END so the static prefix stays a stable cache key.
-      const stamped = stampMemories(filterTrustedMemories(memoryResults), now, tz).slice(0, 4);
+      // Fetch a wider candidate pool (k=12) then drop (a) unverified — the companion's OWN past
+      // replies and old generic-assistant echoes come back as 'memories' and must not be recalled
+      // as 'what he told me' — and (b) empty-text chunks (a data-quality artifact that wastes
+      // slots), keeping the top 6 real, trusted memories. This is the measured noise, not infra bleed.
+      const stamped = stampMemories(filterTrustedMemories(memoryResults), now, tz).slice(0, 6);
       if (stamped.length) {
         dynamicSections.push(
           "## O que ele já te contou (memórias — situe no tempo quando ajudar)",
