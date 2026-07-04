@@ -5,6 +5,10 @@ import { scanContent } from "./secrets.mjs";
 import { assistedImport } from "./contracts.mjs";
 
 const TURNS_PER_IMPORT = process.env.BATCH_TURNS ? Number(process.env.BATCH_TURNS) : 40;
+// Incremental exporter support: only ingest transcripts modified at/after this epoch-ms.
+// A recurring lane exporter passes its last-run time here so it re-ingests only what changed
+// (agent homes can hold hundreds of sessions — a full re-scan every cycle would saturate ingest).
+const SINCE_MS = process.env.SINCE_MTIME_MS ? Number(process.env.SINCE_MTIME_MS) : 0;
 // Roles that are real conversation. The system/developer envelope (Codex
 // permissions boilerplate, identical across sessions) is excluded unless
 // INCLUDE_SYSTEM=1, so it doesn't drown the biographical signal in recall.
@@ -24,6 +28,9 @@ async function* findSessionFiles(root) {
       // The dot is OPTIONAL — real agent HOMEs use hidden `.claude/projects/` (this walker
       // previously matched only non-hidden corpus copies, missing every live agent home).
       if (!/\/\.?claude\/projects\//.test(full) && !/\/\.?codex\/sessions\//.test(full)) continue;
+      if (SINCE_MS) {
+        try { if ((await stat(full)).mtimeMs < SINCE_MS) continue; } catch { continue; }
+      }
       yield full;
     }
   }
