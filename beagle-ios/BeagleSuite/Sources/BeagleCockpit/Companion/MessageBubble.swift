@@ -280,6 +280,7 @@ struct MarkdownText: View {
             }
         }
         .font(BeagleFont.body.font)
+        .lineSpacing(5)   // calmer prose for one-handed mobile reading
         .foregroundStyle(inkColor)
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
