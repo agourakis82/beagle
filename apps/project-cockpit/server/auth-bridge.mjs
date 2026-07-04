@@ -713,39 +713,40 @@ export async function fetchBiographyDigest({ timeoutMs = 8000 } = {}) {
   if (_bioDigestCache.digest && Date.now() - _bioDigestCache.at < BIO_DIGEST_TTL_MS) {
     return { digest: _bioDigestCache.digest, cached: true };
   }
-  const tokenResult = await fetchOperatorToken();
-  if (tokenResult.error || !tokenResult.token) {
-    return { digest: "", error: tokenResult.error || "beagle token unavailable" };
-  }
+  // REPOINTED to memory-pg (2026-07-04): the old beagle-core /api/memory/query read the LEGACY
+  // semantic index, whose rebuilder (beagle-memory-engine) was scaled to 0 during the memory-pg
+  // migration — so that index froze ~2026-06-23 and the companion grounded on a stale biography.
+  // memory-pg is the live pipeline (embed-worker current, "recall 95% vs legacy 0%"); its /query
+  // returns reranked chunks {text, rerank_score, trust_tier}. Take the top reranked biography
+  // chunks as the digest. NO trust-filter here on purpose: the biography is his curated identity
+  // (grounding), not a world-claim — filtering `unverified` would empty it. Mirrors fetchSounioRelationship.
+  const base = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local";
+  const tok = process.env.MEMORY_PG_QUERY_TOKEN || "";
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+    const headers = { "content-type": "application/json" };
+    if (tok) headers.authorization = `Bearer ${tok}`;
+    const res = await fetch(`${base}/query`, {
       method: "POST",
-      headers: {
-        Accept: "application/json",
-        "content-type": "application/json",
-        "X-Beagle-Consumer": "beagle-operator",
-        Authorization: `Bearer ${tokenResult.token}`
-      },
-      // Tag-filtered query reliably surfaces the pinned digest (see docs/exocortex/CONTRACTS.md).
+      headers,
       body: JSON.stringify({
-        query: "biografia viva Demetrios quem ele é trabalho recente",
-        k: 5,
-        tags: ["biography-digest"],
-        scope: "biography_digest"
+        query: "biografia viva de Demetrios: quem ele é, formação, o que constrói, angústias e orgulho, trabalho recente",
+        k: 6
       }),
       signal: ctrl.signal
     });
     if (!res.ok) {
-      return { digest: "", error: `memory/query ${res.status}` };
+      return { digest: "", error: `memory-pg/query ${res.status}` };
     }
-    const payload = parseJsonResponse(await res.text());
-    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
-    const sorted = highlights
-      .filter((h) => cleanString(h?.snippet))
-      .sort((a, b) => cleanString(b?.date).localeCompare(cleanString(a?.date)));
-    const digest = cleanString(sorted[0]?.snippet);
+    const j = await res.json();
+    const results = Array.isArray(j?.results) ? j.results : [];
+    const digest = results
+      .map((r) => cleanString(r?.text))
+      .filter(Boolean)
+      .slice(0, 3)
+      .join("\n\n")
+      .slice(0, 1800);
     if (digest) _bioDigestCache = { digest, at: Date.now() };
     return { digest };
   } catch (err) {
