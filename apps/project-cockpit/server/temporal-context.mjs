@@ -152,18 +152,27 @@ function ptNum(v, digits = 1) {
  *   sky  = { kp, dst, solarWind, bz } (CÉU; client values, server fetch as fallback)
  * Missing sections drop out (fail-open). Returns "" if nothing at all is known.
  */
-export function formatAgora({ ctx, body = {}, sky = {} } = {}) {
+export function formatAgora({ ctx, body = {}, sky = {}, episodeMinutes = null } = {}) {
   const lines = [];
 
   const tempo = formatTempoAgora(ctx);
-  if (tempo) lines.push(tempo);
+  if (tempo) {
+    // TEMPO awareness: how long they've been in this exchange. A sustained conversation
+    // (a distress spell that runs an hour) should be felt as duration, not a single instant.
+    const dur = num(episodeMinutes);
+    const durTxt = dur !== null && dur >= 12 ? ` Estão nisto há ~${humanMin(dur)}.` : "";
+    lines.push(tempo + durTxt);
+  }
 
   // CORPO: lead with the NAMED state (recuperado/estável/tenso); the numbers ride in a
   // parenthetical the model can drop. Narrative-first so it speaks the state, not the readout.
+  const hr = num(body.heartRate);
   const hrv = num(body.hrvMs);
   const sleep = num(body.sleepHours);
   const readiness = readinessPtBR(body.readiness);
   const detail = [];
+  // Heart first: it is the live interoceptive anchor — the thing to name back in a hard moment.
+  if (hr !== null) detail.push(`coração ${Math.round(hr)} bpm`);
   if (hrv !== null) detail.push(`HRV ${Math.round(hrv)}ms`);
   if (sleep !== null) detail.push(`sono ${ptNum(sleep)}h`);
   const paren = detail.length ? ` (${detail.join(" · ")})` : "";
@@ -173,6 +182,11 @@ export function formatAgora({ ctx, body = {}, sky = {} } = {}) {
   } else if (detail.length) {
     lines.push(`CORPO: ${detail.join(" · ")}.`);
   }
+
+  // AFETO: his OWN logged State of Mind (Apple Health, iOS 18+). His testimony about how he
+  // feels — honor it, never re-ask what he already recorded. Felt, not recited (block header).
+  const affect = stateOfMindPtBR(body.stateOfMind, body.stateOfMindLabel);
+  if (affect) lines.push(`AFETO: você mesmo registrou-se ${affect} — é seu, parta disso, não repergunte.`);
 
   // CÉU: lead with the worst-of-Kp/Dst band as the felt descriptor; the raw values ride in
   // the parenthetical. Omit the whole line only when neither Kp nor Dst is known.
@@ -197,6 +211,34 @@ function cleanFlow(flowState) {
   if (f === "STRESS") return "tensão";
   if (f === "NORMAL") return "equilíbrio";
   return "";
+}
+
+// Minutes → human pt-BR ("40 min", "1 h 20").
+function humanMin(m) {
+  m = Math.round(m);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return r ? `${h} h ${String(r).padStart(2, "0")}` : `${h} h`;
+}
+
+/**
+ * Apple State of Mind → felt pt-BR descriptor. `valence` is HKStateOfMind valence (−1..1);
+ * `label` is the optional emotion word he tagged ("ansioso"). The label carries the meaning —
+ * prefer it, with the valence band as texture. Returns "" when neither is present.
+ */
+export function stateOfMindPtBR(valence, label) {
+  const lab = typeof label === "string" ? label.trim() : "";
+  const v = num(valence);
+  let band = "";
+  if (v !== null) {
+    if (v <= -0.6) band = "muito desagradável";
+    else if (v <= -0.2) band = "desagradável";
+    else if (v < 0.2) band = "neutro";
+    else if (v < 0.6) band = "agradável";
+    else band = "muito agradável";
+  }
+  if (lab && band) return `${lab} (${band})`;
+  return lab || band || "";
 }
 
 // Cap each recalled snippet so a few large memory-pg rows can't bloat the system

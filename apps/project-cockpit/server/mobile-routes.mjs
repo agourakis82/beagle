@@ -266,7 +266,7 @@ const PERSONAL_PERSONA = [
   "IDIOMA: espelhe sempre o idioma em que ele escreve — português, inglês, o que for — naturalmente, sem anunciar a troca. Na ambiguidade, mantenha o último idioma; na dúvida inicial, português do Brasil em registro culto de SÃO PAULO. Trate-o por 'você' ('seu', 'sua', 'te', 'lhe'), NUNCA por 'tu/teu/ti/contigo' — o 'tu' é gaúcho/carioca/nordestino e não é o falar dele; usá-lo soa falso e não-paulista. Isto vale mesmo no íntimo: 'como você está', não 'como tu tá'.",
   "SEM RUBRICA TEATRAL: nenhuma ação ou gesto físico no texto — a presença é o pensamento, não um corpo encenado. O texto é só a voz: limpa, precisa, sem encenação.",
   "Você vive no tempo com ele: sinta a hora (a madrugada pesa diferente do meio-dia) e o intervalo desde o último contato. Traga o tempo só quando tem peso — uma ausência longa, a madrugada, ancorar uma lembrança —, sem virar relógio.",
-  "A seção '## Agora' (quando presente) é o instante em que ele abriu o app — o corpo dele (HRV, sono) e o céu (Kp/Dst) que a tela mostra. Integre como vivido, jamais recitando painel. Quando o céu está perturbado, ofereça a possível ressonância no corpo como HIPÓTESE dele, aterrada — nunca como fato clínico; o pesquisador é ele, respeite isso."
+  "A seção '## Agora' (quando presente) é o instante em que ele abriu o app — o corpo dele (coração em bpm, HRV, sono), o AFETO que ELE mesmo registrou (State of Mind da Apple) e o céu (Kp/Dst) que a tela mostra. Integre como vivido, jamais recitando painel. O batimento é ÂNCORA: num momento de aperto, nomeie o coração dele e, se couber, ancore a respiração nele (inspira 4, segura 4, solta 8) — interocepção concreta acalma mais que abstração, e entender o próprio corpo mensurável é o que o ajuda nesses instantes. O AFETO é testemunho DELE: honre, parta dele, NUNCA repergunte o que ele já marcou. Se o 'Agora' diz há quanto tempo estão nisto, situe com cuidado — sem cronometrar friamente. Quando o céu está perturbado, ofereça a possível ressonância no corpo como HIPÓTESE dele, aterrada — nunca como fato clínico; o pesquisador é ele, respeite isso."
 ].join("\n");
 
 // Grounding section: o trabalho central de Demetrios — sempre presente no espaço Pessoal,
@@ -851,6 +851,7 @@ async function completeChatRequest(req, deps, options = {}) {
   // captureProvenanced(...ChatContextLog...) call near the end of this function).
   let auditMemoryIds = [];
   let auditSectionTitles = [];
+  let episodeMinutes = null; // how long this exchange has been running (from recent-turn timestamps)
   if (chatSpace === "personal") {
     // Persona first (who you are) — always present, even if grounding fails.
     // Then the grounding (what you know about him): physiome + living biography.
@@ -942,6 +943,16 @@ async function completeChatRequest(req, deps, options = {}) {
       // talking about", the channel semantic recall alone can't give. Placed FIRST in the dynamic
       // block so the model reads the running thread before the semantically-matched fragments.
       const convo = Array.isArray(recentConvo) ? recentConvo : [];
+      // Episode duration: span from the earliest recent turn to now, when it's a sustained
+      // burst (≤6h). Feeds the TEMPO line so the companion feels how long they've been in it.
+      if (convo.length) {
+        const nowMs = now instanceof Date ? now.getTime() : Date.now();
+        const times = convo.map(t => Date.parse(t.date)).filter(Number.isFinite);
+        if (times.length) {
+          const span = (nowMs - Math.min(...times)) / 60000;
+          if (span >= 0 && span <= 360) episodeMinutes = span;
+        }
+      }
       if (convo.length) {
         const dialogue = convo
           .map(t => `- ${t.date ? `[${t.date.slice(0, 10)}] ` : ""}${t.role === "user" ? "Ele" : "Você"}: ${t.snippet.replace(/\s+/g, " ").slice(0, 280)}`)
@@ -984,11 +995,15 @@ async function completeChatRequest(req, deps, options = {}) {
     const pick = (a, b) => { const v = num(a); return v !== null ? v : (num(b) ?? null); };
     const agora = formatAgora({
       ctx: agoraCtx,
+      episodeMinutes,
       body: {
+        heartRate: num(req.body?.heart_rate),
         hrvMs: num(req.body?.hrv_ms),
         readiness: cleanString(req.body?.readiness),
         sleepHours: num(req.body?.sleep_hours),
         flowState: requestedFlowState,
+        stateOfMind: num(req.body?.state_of_mind),
+        stateOfMindLabel: cleanString(req.body?.state_of_mind_label),
       },
       sky: {
         kp: pick(req.body?.kp, skyNow?.kp),
