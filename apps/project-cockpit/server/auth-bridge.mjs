@@ -896,38 +896,36 @@ export async function fetchPhysiomeDigest({ timeoutMs = 8000 } = {}) {
   if (_physioDigestCache.digest && Date.now() - _physioDigestCache.at < PHYSIO_DIGEST_TTL_MS) {
     return { digest: _physioDigestCache.digest, cached: true };
   }
-  const tokenResult = await fetchOperatorToken();
-  if (tokenResult.error || !tokenResult.token) {
-    return { digest: "", error: tokenResult.error || "beagle token unavailable" };
-  }
+  // REPOINTED to memory-pg (2026-07-04): the beagle-core legacy index is retired (frozen ~2026-06-23),
+  // so reading it would inject an 11-day-old body narrative as "recent" — worse than nothing. memory-pg
+  // is the live pipeline but does NOT yet carry the physiome DAILY DIGEST (run-digest posts to
+  // beagle-core), so this currently returns "" and the companion grounds body state on the LIVE
+  // "## Agora" block instead (current HRV/sleep/sky). TODO: ingest run-digest → memory-pg to restore
+  // the narrative body digest here.
+  const base = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local";
+  const tok = process.env.MEMORY_PG_QUERY_TOKEN || "";
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+    const headers = { "content-type": "application/json" };
+    if (tok) headers.authorization = `Bearer ${tok}`;
+    const res = await fetch(`${base}/query`, {
       method: "POST",
-      headers: {
-        Accept: "application/json",
-        "content-type": "application/json",
-        "X-Beagle-Consumer": "beagle-operator",
-        Authorization: `Bearer ${tokenResult.token}`
-      },
-      // Tag-filtered query reliably surfaces the pinned physiome digest.
-      body: JSON.stringify({
-        query: "estado físico corpo ambiente HRV sono energia recente",
-        k: 3,
-        tags: ["physiome-digest"]
-      }),
+      headers,
+      body: JSON.stringify({ query: "estado físico corpo ambiente HRV sono energia recente", k: 3 }),
       signal: ctrl.signal
     });
     if (!res.ok) {
-      return { digest: "", error: `memory/query ${res.status}` };
+      return { digest: "", error: `memory-pg/query ${res.status}` };
     }
-    const payload = parseJsonResponse(await res.text());
-    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
-    const sorted = highlights
-      .filter((h) => cleanString(h?.snippet))
-      .sort((a, b) => cleanString(b?.date).localeCompare(cleanString(a?.date)));
-    const digest = cleanString(sorted[0]?.snippet);
+    const j = await res.json();
+    const results = Array.isArray(j?.results) ? j.results : [];
+    const digest = results
+      .map((r) => cleanString(r?.text))
+      .filter(Boolean)
+      .slice(0, 2)
+      .join("\n\n")
+      .slice(0, 1200);
     if (digest) _physioDigestCache = { digest, at: Date.now() };
     return { digest };
   } catch (err) {
@@ -2214,43 +2212,35 @@ export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000
   const q = cleanString(query);
   if (!q) return "";
   try {
-    // beagle-core's /api/memory routes accept the operator token from
-    // beagle-core-tokens (injected here as env via secretKeyRef). The shared
-    // fetchOperatorToken() reads beagle-core-secrets, whose token beagle-core
-    // rejects with 401. Prefer the explicit env token; fall back to the shared.
-    let token = cleanString(process.env.BEAGLE_MEMORY_API_TOKEN);
-    if (!token) {
-      const tokenResult = await fetchOperatorToken();
-      token = tokenResult?.token || "";
-    }
-    if (!token) return "";
+    // REPOINTED to memory-pg (2026-07-04): read the LIVE pipeline, not the retired beagle-core
+    // legacy index (its rebuilder was scaled to 0 → frozen ~2026-06-23). memory-pg /query returns
+    // reranked chunks {text, occurred_at, ...}; no token needed in-cluster. Mirrors fetchRecentMemories.
+    const base = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local";
+    const tok = process.env.MEMORY_PG_QUERY_TOKEN || "";
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     let res;
     try {
-      res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+      const headers = { "content-type": "application/json" };
+      if (tok) headers.authorization = `Bearer ${tok}`;
+      res = await fetch(`${base}/query`, {
         method: "POST",
-        headers: {
-          Accept: "application/json",
-          "content-type": "application/json",
-          "X-Beagle-Consumer": "beagle-operator",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ query: q }),
+        headers,
+        body: JSON.stringify({ query: q, k: limit }),
         signal: ctrl.signal
       });
     } finally {
       clearTimeout(timer);
     }
     if (!res.ok) return "";
-    const payload = parseJsonResponse(await res.text());
-    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
-    const lines = highlights
+    const j = await res.json();
+    const results = Array.isArray(j?.results) ? j.results : [];
+    const lines = results
       .slice(0, limit)
-      .map((h) => {
-        const snippet = cleanString(h?.snippet).replace(/\s+/g, " ").slice(0, 300);
+      .map((r) => {
+        const snippet = cleanString(r?.text).replace(/\s+/g, " ").slice(0, 300);
         if (!snippet) return null;
-        const date = cleanString(h?.date).slice(0, 10);
+        const date = cleanString(r?.occurred_at).slice(0, 10);
         return `- ${date ? `[${date}] ` : ""}${snippet}`;
       })
       .filter(Boolean);
