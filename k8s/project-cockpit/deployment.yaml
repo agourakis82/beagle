@@ -149,7 +149,7 @@ spec:
           value: '60000'
         - name: PROJECT_COCKPIT_ENSEMBLE_MAX_TOKENS
           value: '900'
-        image: 192.168.3.207:5003/project-cockpit:reconcile-0a3d2c50
+        image: 192.168.3.207:5003/project-cockpit:reconcile-d978affc
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:
