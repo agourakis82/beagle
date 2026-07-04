@@ -2244,7 +2244,14 @@ export function registerAuthBridgeRoutes(app) {
 // ---------------------------------------------------------------------------
 // Exocortex RAG grounding (ported from fix/mobile-summary-timeout)
 // ---------------------------------------------------------------------------
-export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000 } = {}) {
+// `personal: true` switches to a BACKGROUND framing for the intimate chat: this is a broad,
+// UNFILTERED semantic draw over his whole recorded self (science, biography, past sessions —
+// much of it trust_tier 'unverified', which the authoritative "o que ele já te contou" section
+// filters out). Because /query returns no provenance, an occasional past AI reply can surface;
+// the personal header therefore does NOT assert "his own words / treat as known" — it frames the
+// block as reference/continuity so nothing here is attributed to him as testimony. His verified
+// words stay in the separate trust-filtered section. Preserves the anti-fabrication safeguard.
+export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000, personal = false } = {}) {
   const q = cleanString(query);
   if (!q) return "";
   try {
@@ -2282,8 +2289,12 @@ export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000
       .filter(Boolean);
     if (lines.length === 0) return "";
     return [
-      "## Exocortex memory — the user's own recorded context",
-      "Ground your answer in the facts below. Do NOT ask the user for information that is already present here; treat it as known. Cite or build on it where relevant.",
+      personal
+        ? "## Recall amplo do seu registro (pano de fundo — ciência, biografia, sessões passadas)"
+        : "## Exocortex memory — the user's own recorded context",
+      personal
+        ? "Use como contexto e continuidade — puxe o fio quando for relevante, sem repetir o óbvio. NÃO atribua a ele como fala/testemunho o que estiver aqui: a fala verificada dele está na seção de memórias confiáveis; isto é recall amplo e pode conter trocas passadas."
+        : "Ground your answer in the facts below. Do NOT ask the user for information that is already present here; treat it as known. Cite or build on it where relevant.",
       ...lines
     ].join("\n");
   } catch {

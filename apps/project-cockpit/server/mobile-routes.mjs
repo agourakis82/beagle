@@ -875,7 +875,7 @@ async function completeChatRequest(req, deps, options = {}) {
       // Grounding context is the dominant cost of the companion turn — bounded
       // and cached at the cockpit (bio+physio 5min TTL) AND at the model (xAI
       // prompt cache, automatic on identical prefixes).
-      const [bioResult, physioResult, sounioNowResult, sounioStateResult, sounioRelResult, memoryResults, recentConvo, skyResult] = await Promise.all([
+      const [bioResult, physioResult, sounioNowResult, sounioStateResult, sounioRelResult, memoryResults, recentConvo, broadRecall, skyResult] = await Promise.all([
         fetchBiographyDigest(),
         fetchPhysiomeDigest(),
         fetchSounioNow({ limit: 6 }),
@@ -883,6 +883,9 @@ async function completeChatRequest(req, deps, options = {}) {
         fetchSounioRelationship({ k: 4 }),
         fetchRecentMemories(userText, { k: 16 }),
         fetchRecentConversation({ limit: 8 }),
+        // Wide semantic recall over his whole recorded self — background framing, unfiltered,
+        // concurrent so it adds no wall-clock. Returns a ready section string ("" on miss).
+        fetchExocortexContext(userText, { limit: 8, personal: true }),
         fetchSpaceWeatherNow()
       ]);
       skyNow = skyResult;
@@ -960,6 +963,11 @@ async function completeChatRequest(req, deps, options = {}) {
           "## O que ele já te contou (memórias — situe no tempo quando ajudar)",
           stamped.join("\n")
         );
+      }
+      // Broad semantic recall — deepest background, AFTER his authoritative words above. A ready
+      // section string (own header) or "" on miss. Placed last so trusted testimony leads.
+      if (typeof broadRecall === "string" && broadRecall.trim()) {
+        dynamicSections.push(broadRecall);
       }
     } catch {
       // ignore — proceed ungrounded rather than break the chat
