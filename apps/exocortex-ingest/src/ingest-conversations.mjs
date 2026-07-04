@@ -20,8 +20,10 @@ async function* findSessionFiles(root) {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) { stack.push(full); continue; }
       if (!e.isFile() || !full.endsWith(".jsonl")) continue;
-      // Only true session transcripts: under claude/projects/ or codex/sessions/.
-      if (!/\/claude\/projects\//.test(full) && !/\/codex\/sessions\//.test(full)) continue;
+      // Only true session transcripts: under (.)claude/projects/ or (.)codex/sessions/.
+      // The dot is OPTIONAL — real agent HOMEs use hidden `.claude/projects/` (this walker
+      // previously matched only non-hidden corpus copies, missing every live agent home).
+      if (!/\/\.?claude\/projects\//.test(full) && !/\/\.?codex\/sessions\//.test(full)) continue;
       yield full;
     }
   }
