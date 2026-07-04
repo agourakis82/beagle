@@ -1041,6 +1041,42 @@ export async function fetchAgoraHistory({
  * array ([{ text, occurred_at, ... }]) or [] on any failure — never throws, so
  * the chat is never blocked. fetchImpl is injectable for tests.
  */
+// Recent conversation continuity (B): the last few verbatim turns of the companion chat by
+// RECENCY (created_at DESC via /recent), NOT semantic similarity. fetchRecentMemories only
+// surfaces turns that resemble the CURRENT message; this restores plain "what we were just
+// talking about" so the companion stops re-asking what was said an hour ago. Returns items in
+// chronological order (oldest→newest). Both roles included so it reads as a dialogue — the
+// assistant's own lines are grounding for continuity, not promoted to world-claims. Fail-soft [].
+export async function fetchRecentConversation({ limit = 8, timeoutMs = 6000, fetchImpl = fetch } = {}) {
+  const base = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local";
+  const tok = process.env.MEMORY_PG_QUERY_TOKEN || "";
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const url = `${base}/recent?surface=companion-ios&source_type=ConversationPassage&limit=${encodeURIComponent(limit)}`;
+    const res = await fetchImpl(url, {
+      headers: { Accept: "application/json", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+      signal: ctrl.signal
+    });
+    if (!res.ok) return [];
+    const payload = parseJsonResponse(await res.text());
+    const recs = Array.isArray(payload?.records) ? payload.records : [];
+    // /recent is newest-first; reverse to chronological so the dialogue reads top→bottom.
+    return recs
+      .map(r => ({
+        role: cleanString(r?.metadata?.role) === "user" ? "user" : "assistant",
+        snippet: cleanString(r?.content),
+        date: cleanString(r?.created_at)
+      }))
+      .filter(x => x.snippet)
+      .reverse();
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function fetchRecentMemories(query, {
   baseUrl = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local",
   token = process.env.MEMORY_PG_QUERY_TOKEN || "",

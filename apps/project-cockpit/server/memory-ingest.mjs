@@ -175,6 +175,14 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
     const verbatim = buildVerbatimPayload({ sessionId, userText, assistantText, clientTime, timezone });
     if (!verbatim) return;
 
+    // occurred_at (A): stamp the exchange with the user's local moment (falls back to now).
+    // Without this the turn lands with NULL occurred_at and is invisible to any recency /
+    // temporal recall — only semantic search could ever surface it. captureFn passes this
+    // straight through to the record row.
+    let occurredAt;
+    try { occurredAt = clientTime ? new Date(clientTime).toISOString() : new Date().toISOString(); }
+    catch { occurredAt = new Date().toISOString(); }
+
     const atoms = await distillFn({ userText, assistantText }, { routerUrl, model, fetchImpl });
 
     // PROVENANCE FIRST. The user/assistant turns are written to the canonical store
@@ -190,7 +198,7 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
     if (u) {
       const r = await captureFn(
         { source_type: "ConversationPassage", content: u, prov_actor: "user_stated",
-          prov_surface: "companion-ios", prov_confidence: 1.0,
+          prov_surface: "companion-ios", prov_confidence: 1.0, occurred_at: occurredAt,
           metadata: { space: "personal", session_id: sid, role: "user" } },
         capDeps,
       );
@@ -199,7 +207,7 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
     if (a) {
       await captureFn(
         { source_type: "ConversationPassage", content: a, prov_actor: "model_generated",
-          prov_surface: "companion-ios",
+          prov_surface: "companion-ios", occurred_at: occurredAt,
           metadata: { space: "personal", session_id: sid, role: "assistant" } },
         capDeps,
       );
@@ -207,7 +215,7 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
     for (const atom of atoms) {
       await captureFn(
         { source_type: "MemoryAtom", content: atom, prov_actor: "model_distilled",
-          prov_surface: "companion-ios",
+          prov_surface: "companion-ios", occurred_at: occurredAt,
           prov_derived_from: userId ? [userId] : [],
           metadata: { space: "personal", session_id: sid, kind: "distill" } },
         capDeps,

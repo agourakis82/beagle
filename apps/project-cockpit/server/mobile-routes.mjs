@@ -24,6 +24,7 @@ import {
   fetchSounioState,
   fetchSounioRelationship,
   fetchRecentMemories,
+  fetchRecentConversation,
   fetchSpaceWeatherNow,
   fetchAgoraHistory,
   runMuseVoiceEnsemble,
@@ -874,13 +875,14 @@ async function completeChatRequest(req, deps, options = {}) {
       // Grounding context is the dominant cost of the companion turn — bounded
       // and cached at the cockpit (bio+physio 5min TTL) AND at the model (xAI
       // prompt cache, automatic on identical prefixes).
-      const [bioResult, physioResult, sounioNowResult, sounioStateResult, sounioRelResult, memoryResults, skyResult] = await Promise.all([
+      const [bioResult, physioResult, sounioNowResult, sounioStateResult, sounioRelResult, memoryResults, recentConvo, skyResult] = await Promise.all([
         fetchBiographyDigest(),
         fetchPhysiomeDigest(),
         fetchSounioNow({ limit: 6 }),
         fetchSounioState({ limit: 1 }),
         fetchSounioRelationship({ k: 4 }),
-        fetchRecentMemories(userText, { k: 12 }),
+        fetchRecentMemories(userText, { k: 16 }),
+        fetchRecentConversation({ limit: 8 }),
         fetchSpaceWeatherNow()
       ]);
       skyNow = skyResult;
@@ -930,15 +932,29 @@ async function completeChatRequest(req, deps, options = {}) {
           sounioFeeling.join("\n")
         );
       }
-      // DYNAMIC (per-turn) section: temporal awareness + episodic recall.
+      // DYNAMIC (per-turn) section: recent-conversation continuity + temporal awareness + recall.
       // Kept at the END so the static prefix stays a stable cache key.
-      // Fetch a wider candidate pool (k=12) then drop (a) unverified — the companion's OWN past
-      // replies and old generic-assistant echoes come back as 'memories' and must not be recalled
-      // as 'what he told me' — and (b) empty-text chunks (a data-quality artifact that wastes
-      // slots), keeping the top 6 real, trusted memories. This is the measured noise, not infra bleed.
+      //
+      // (B) RECENCY CONTINUITY: the last ~8 verbatim turns by time — plain "what we were just
+      // talking about", the channel semantic recall alone can't give. Placed FIRST in the dynamic
+      // block so the model reads the running thread before the semantically-matched fragments.
+      const convo = Array.isArray(recentConvo) ? recentConvo : [];
+      if (convo.length) {
+        const dialogue = convo
+          .map(t => `- ${t.date ? `[${t.date.slice(0, 10)}] ` : ""}${t.role === "user" ? "Ele" : "Você"}: ${t.snippet.replace(/\s+/g, " ").slice(0, 280)}`)
+          .join("\n");
+        dynamicSections.push(
+          "## Continuidade — o que vocês conversaram recentemente (ordem cronológica; NÃO repergunte o que já está aqui)",
+          dialogue
+        );
+      }
+      // (C) EPISODIC RECALL: fetch a wider candidate pool (k=16) then drop (a) unverified — the
+      // companion's OWN past replies and old generic-assistant echoes come back as 'memories' and
+      // must not be recalled as 'what he told me' — and (b) empty-text chunks (a data-quality
+      // artifact that wastes slots), keeping the top 10 real, trusted memories.
       const trustedMemories = filterTrustedMemories(memoryResults);
-      auditMemoryIds = trustedMemories.map((r) => cleanString(r?.id)).filter(Boolean).slice(0, 6);
-      const stamped = stampMemories(trustedMemories, now, tz).slice(0, 6);
+      auditMemoryIds = trustedMemories.map((r) => cleanString(r?.id)).filter(Boolean).slice(0, 10);
+      const stamped = stampMemories(trustedMemories, now, tz).slice(0, 10);
       if (stamped.length) {
         dynamicSections.push(
           "## O que ele já te contou (memórias — situe no tempo quando ajudar)",
