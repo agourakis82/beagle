@@ -892,10 +892,12 @@ async function completeChatRequest(req, deps, options = {}) {
       skyNow = skyResult;
       biographyDigest = cleanString(bioResult?.digest).slice(0, 1800);
       physiomeDigest = cleanString(physioResult?.digest).slice(0, 600);
-      // STATIC (cacheable) section: physiome + biography (change on TTL, not per turn)
-      if (physiomeDigest) {
-        sections.push("## Estado físico+ambiente recente", physiomeDigest);
-      }
+      // The physiome DIGEST is a FROZEN snapshot (the run-digest pipeline stalled ~2026-06-23),
+      // so injecting it as "físico+ambiente recente" fed stale numbers (e.g. HRV 44 / Kp 2.7) that
+      // contradicted the LIVE `## Agora` block (real-time coração/HRV/sono/State of Mind + sky).
+      // The live block is now the authoritative body signal, so we no longer inject the stale
+      // digest. (Revive as a genuine TRENDS section once run-digest → memory-pg is fresh again.)
+      // biographyDigest still pushed below — it changes slowly and is not time-sensitive.
       if (biographyDigest) {
         sections.push(
           "## Quem é Demetrios (biografia viva — fale como quem o conhece de verdade, sem genéricos)",
