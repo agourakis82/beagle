@@ -95,6 +95,33 @@ final class SpeechRecognizer {
         }
     }
 
+    /// Request microphone + speech-recognition permission and AWAIT the user's choice. Returns
+    /// false (and sets `error`) on denial, so the caller never starts the audio engine without
+    /// access — starting it while permission is undetermined gives the input node an invalid
+    /// (0-rate) format and triggers a hard AVAudioEngine assertion crash. This was missing
+    /// entirely (voice was a dead stub, so no path was ever exercised) → crash on first mic tap.
+    private func ensureAuthorized() async -> Bool {
+        #if canImport(AVFoundation) && os(iOS)
+        let micGranted = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            AVAudioApplication.requestRecordPermission { granted in cont.resume(returning: granted) }
+        }
+        guard micGranted else {
+            error = "Permita o microfone em Ajustes para usar a voz."
+            return false
+        }
+        let speechStatus = await withCheckedContinuation { (cont: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
+            SFSpeechRecognizer.requestAuthorization { status in cont.resume(returning: status) }
+        }
+        guard speechStatus == .authorized else {
+            error = "Permita o reconhecimento de fala em Ajustes para usar a voz."
+            return false
+        }
+        return true
+        #else
+        return false
+        #endif
+    }
+
     // MARK: - Manual recording (tap to start/stop)
 
     func startRecording() async {
@@ -102,6 +129,10 @@ final class SpeechRecognizer {
         transcript = ""
         audioWindows.removeAll()
         recordingStartedAt = Date()
+
+        // Permission MUST be granted before the engine starts (see ensureAuthorized) — otherwise
+        // the first mic tap crashes the app on an invalid input format.
+        guard await ensureAuthorized() else { return }
 
         if useLegacyRecognizer {
             await startRecordingLegacy()
