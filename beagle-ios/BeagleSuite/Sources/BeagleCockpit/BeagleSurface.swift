@@ -108,7 +108,8 @@ struct BeagleSurface: View {
                 onOpenMemory: { activeSheet = .memory },
                 onOpenDreamInsights: { activeSheet = .dreamInsights },
                 unreadDreamInsightCount: DreamSynthesisEngine.shared.unreadCount,
-                onOpenWork: { activeSheet = .work }
+                onOpenWork: { activeSheet = .work },
+                onOpenCapture: { activeSheet = .capture }
             )
         }
     }

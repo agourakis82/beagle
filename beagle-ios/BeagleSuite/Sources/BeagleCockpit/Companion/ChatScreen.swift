@@ -40,8 +40,15 @@ public struct ChatScreen: View {
     /// audit found it had zero entry point on iPhone despite being the richest single
     /// feature in the app. Drawer footer.
     var onOpenWork: (() -> Void)?
+    /// Opens ThoughtCaptureView (voice→text + Sounio typing) — SAME story as Work: it lived only
+    /// in the iPad sidebar, so the iPhone had NO way to capture a thought at all, which is why the
+    /// night synthesis stayed starved and the user couldn't dictate. Drawer footer.
+    var onOpenCapture: (() -> Void)?
     @State private var draft = ""
     @State private var appeared = false
+    // SOTA-chat #5: send haptic trigger — bumped in send() so .sensoryFeedback fires a
+    // discrete light impact on every send, independent of the message store's timing.
+    @State private var sendTick = 0
     /// ONE sheet for the whole screen — multiple `.sheet(isPresented:)` on the same view conflict
     /// in SwiftUI (the second silently breaks the first, which is why the drawer stopped opening).
     @State private var activeSheet: ChatSheet?
@@ -68,7 +75,8 @@ public struct ChatScreen: View {
                 onOpenMemory: (() -> Void)? = nil,
                 onOpenDreamInsights: (() -> Void)? = nil,
                 unreadDreamInsightCount: Int = 0,
-                onOpenWork: (() -> Void)? = nil) {
+                onOpenWork: (() -> Void)? = nil,
+                onOpenCapture: (() -> Void)? = nil) {
         self.store = store
         self.breathRate = breathRate
         self.weather = weather
@@ -80,6 +88,7 @@ public struct ChatScreen: View {
         self.onOpenDreamInsights = onOpenDreamInsights
         self.unreadDreamInsightCount = unreadDreamInsightCount
         self.onOpenWork = onOpenWork
+        self.onOpenCapture = onOpenCapture
     }
 
     public var body: some View {
@@ -119,10 +128,17 @@ public struct ChatScreen: View {
         .onAppear {
             withAnimation(.easeOut(duration: 0.55)) { appeared = true }
         }
+        // SOTA-chat #5: subtle haptics via iOS 17 .sensoryFeedback (state-triggered, no
+        // generators to manage). Light impact on send; a discrete success at the moment the
+        // stream finishes (isStreaming true → false). Adult register — never festive.
+        .sensoryFeedback(.impact(weight: .light), trigger: sendTick)
+        .sensoryFeedback(trigger: store.isStreaming) { wasStreaming, isStreaming in
+            (wasStreaming && !isStreaming) ? .success : nil
+        }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .history:
-                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork)
+                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork, onOpenCapture: onOpenCapture)
             case .goDeep(let prompt):
                 GoDeepView(store: composerGoDeepStore, prompt: prompt)
             }
@@ -332,11 +348,23 @@ public struct ChatScreen: View {
                     scrollAccum = 0
                 }
             }
+            // SOTA-chat #1: the instant a send starts, isStreaming flips true with an empty
+            // assistant snapshot (the "pensando" indicator). Scroll it into view immediately so
+            // the thinking state is visible at the moment of send, before the first token.
+            .onChange(of: store.isStreaming) { _, isStreaming in
+                if isStreaming {
+                    withAnimation(.smooth) { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
+                }
+            }
+            // SOTA-chat #3: springs (.smooth, bounce 0) instead of .easeOut so an in-flight
+            // scroll FUSES with the next token or a user drag — the animation carries velocity
+            // and blends rather than restarting/stuttering on every snapshot.
             .onChange(of: store.messages.last?.content) { _, _ in
-                withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
+                withAnimation(.smooth) { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
             }
             .onChange(of: store.messages.count) { _, _ in
-                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                // SOTA-chat #3: interruptible spring for the new-message jump too.
+                withAnimation(.smooth) { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
                 // A fresh turn brings the bar back so the title/controls are always reachable.
                 if topBarHidden { withAnimation(.easeOut(duration: 0.28)) { topBarHidden = false } }
             }
@@ -397,6 +425,8 @@ public struct ChatScreen: View {
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        // SOTA-chat #5: fire the light send haptic for any committed send (chat turn or Fundo).
+        sendTick &+= 1
         // Fundo = escalate to a full Go-Deeper exploration instead of a chat turn.
         if depth == .fundo {
             draft = ""
@@ -440,6 +470,7 @@ struct ConversationDrawer: View {
     var onOpenDreamInsights: (() -> Void)?
     var unreadDreamInsightCount: Int = 0
     var onOpenWork: (() -> Void)?
+    var onOpenCapture: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var reloadToken = 0
 
@@ -495,6 +526,12 @@ struct ConversationDrawer: View {
                 }
                 // Footer: memory + data screen + settings + project live here now (off the chat top).
                 Section {
+                    if onOpenCapture != nil {
+                        Button { dismiss(); onOpenCapture?() } label: {
+                            Label("Capturar pensamento", systemImage: "mic.fill")
+                        }
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                    }
                     if onOpenMemory != nil {
                         Button { dismiss(); onOpenMemory?() } label: {
                             Label("O que eu lembro de ti", systemImage: "brain.head.profile")
