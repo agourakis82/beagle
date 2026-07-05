@@ -1265,6 +1265,7 @@ public actor BeagleClient {
         sleepHours: Double? = nil,
         heartRate: Double? = nil,
         stateOfMind: Double? = nil,
+        stateOfMindLabel: String? = nil,
         kp: Double? = nil,
         dst: Double? = nil,
         solarWind: Double? = nil,
@@ -1315,7 +1316,7 @@ public actor BeagleClient {
             body["voiceModel"] = voiceModel
         }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
-                            heartRate: heartRate, stateOfMind: stateOfMind,
+                            heartRate: heartRate, stateOfMind: stateOfMind, stateOfMindLabel: stateOfMindLabel,
                             kp: kp, dst: dst, solarWind: solarWind, bz: bz)
 
         let mobileResult = await postPublicMobileChat(body: body)
@@ -1439,6 +1440,7 @@ public actor BeagleClient {
         sleepHours: Double? = nil,
         heartRate: Double? = nil,
         stateOfMind: Double? = nil,
+        stateOfMindLabel: String? = nil,
         kp: Double? = nil,
         dst: Double? = nil,
         solarWind: Double? = nil,
@@ -1457,7 +1459,7 @@ public actor BeagleClient {
             lastContactAt: lastContactAt,
             history: history,
             hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
-            heartRate: heartRate, stateOfMind: stateOfMind,
+            heartRate: heartRate, stateOfMind: stateOfMind, stateOfMindLabel: stateOfMindLabel,
             kp: kp, dst: dst, solarWind: solarWind, bz: bz,
             voiceModel: voiceModel
         )
@@ -1468,11 +1470,13 @@ public actor BeagleClient {
     /// the rest from its own fetch.
     static func addLiveContext(_ body: inout [String: any Sendable], hrvMs: Double?, readiness: String?,
                                sleepHours: Double?, heartRate: Double?, stateOfMind: Double?,
+                               stateOfMindLabel: String?,
                                kp: Double?, dst: Double?, solarWind: Double?, bz: Double?) {
         // Live interoceptive anchor: the heartbeat, named back in a hard moment; and his OWN
-        // logged State of Mind valence (−1..1). Both optional → older server ignores them.
+        // logged State of Mind (valence −1..1 + the emotion word he tagged). All optional.
         if let heartRate { body["heart_rate"] = heartRate }
         if let stateOfMind { body["state_of_mind"] = stateOfMind }
+        if let stateOfMindLabel, !stateOfMindLabel.isEmpty { body["state_of_mind_label"] = stateOfMindLabel }
         if let hrvMs { body["hrv_ms"] = hrvMs }
         if let readiness, !readiness.isEmpty { body["readiness"] = readiness }
         if let sleepHours { body["sleep_hours"] = sleepHours }
@@ -1573,6 +1577,7 @@ public actor BeagleClient {
         sleepHours: Double? = nil,
         heartRate: Double? = nil,
         stateOfMind: Double? = nil,
+        stateOfMindLabel: String? = nil,
         kp: Double? = nil,
         dst: Double? = nil,
         solarWind: Double? = nil,
@@ -1619,7 +1624,7 @@ public actor BeagleClient {
             body["deepThink"] = true
         }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
-                            heartRate: heartRate, stateOfMind: stateOfMind,
+                            heartRate: heartRate, stateOfMind: stateOfMind, stateOfMindLabel: stateOfMindLabel,
                             kp: kp, dst: dst, solarWind: solarWind, bz: bz)
 
         let cockpitURLs: [URL] = [

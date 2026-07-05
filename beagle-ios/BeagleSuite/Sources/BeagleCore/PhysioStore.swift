@@ -112,6 +112,8 @@ public struct PhysioSummary: Sendable, Equatable {
     public let heartRate: Double?
     /// Latest Apple State of Mind valence (−1..1), logged by the user himself.
     public let stateOfMind: Double?
+    /// Primary emotion word the user tagged on that State of Mind entry ("ansioso"), pt-BR.
+    public let stateOfMindLabel: String?
     public let sleepHours: Double?
     public let mindfulMinutes: Double?
     public let workoutCount: Int
@@ -124,6 +126,7 @@ public struct PhysioSummary: Sendable, Equatable {
         restingHeartRate: Double? = nil,
         heartRate: Double? = nil,
         stateOfMind: Double? = nil,
+        stateOfMindLabel: String? = nil,
         sleepHours: Double? = nil,
         mindfulMinutes: Double? = nil,
         workoutCount: Int = 0,
@@ -135,6 +138,7 @@ public struct PhysioSummary: Sendable, Equatable {
         self.restingHeartRate = restingHeartRate
         self.heartRate = heartRate
         self.stateOfMind = stateOfMind
+        self.stateOfMindLabel = stateOfMindLabel
         self.sleepHours = sleepHours
         self.mindfulMinutes = mindfulMinutes
         self.workoutCount = workoutCount
@@ -411,14 +415,15 @@ public final class PhysioStore {
                 workoutCount: workoutCount
             )
 
-            let stateOfMindValence = await queryStateOfMind()
+            let som = await queryStateOfMind()
             let latestHeartRate = await queryLatestHeartRate()
 
             summary = PhysioSummary(
                 hrvMs: hrv?.value,
                 restingHeartRate: resting?.value,
                 heartRate: latestHeartRate,
-                stateOfMind: stateOfMindValence,
+                stateOfMind: som?.valence,
+                stateOfMindLabel: som?.label,
                 sleepHours: sleepHours,
                 mindfulMinutes: mindfulMinutes,
                 workoutCount: workoutCount,
@@ -432,7 +437,7 @@ public final class PhysioStore {
                 respiratoryRate: respiratoryRate,
                 wristTemperature: wristTemperature,
                 sleepQuality: sleepQualityRatio,
-                stateOfMind: stateOfMindValence,
+                stateOfMind: som?.valence,
                 observedAt: observedAt
             )
         } catch {
@@ -682,9 +687,9 @@ public final class PhysioStore {
         return deepREMSeconds / totalAsleepSeconds
     }
 
-    /// Query the latest State of Mind valence from HealthKit (iOS 18+).
-    /// Returns a value from -1.0 (very unpleasant) to 1.0 (very pleasant), or nil.
-    private func queryStateOfMind() async -> Double? {
+    /// Query the latest State of Mind from HealthKit (iOS 18+): valence (−1..1) plus the primary
+    /// emotion word the user tagged, mapped to pt-BR. nil when none logged in the last ~3 days.
+    private func queryStateOfMind() async -> (valence: Double, label: String?)? {
         guard #available(iOS 18.0, watchOS 11.0, macOS 15.0, *) else { return nil }
         let sampleType = HKSampleType.stateOfMindType()
         let end = Date()
@@ -692,7 +697,7 @@ public final class PhysioStore {
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
 
-        return try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Double?, Error>) in
+        return try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(valence: Double, label: String?)?, Error>) in
             let query = HKSampleQuery(sampleType: sampleType, predicate: predicate, limit: 1, sortDescriptors: [sort]) { _, samples, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -702,9 +707,54 @@ public final class PhysioStore {
                     continuation.resume(returning: nil)
                     return
                 }
-                continuation.resume(returning: sample.valence)
+                continuation.resume(returning: (sample.valence, Self.stateOfMindLabelPtBR(sample.labels)))
             }
             healthStore.execute(query)
+        }
+    }
+
+    /// Map the user's tagged Apple State of Mind label to a pt-BR emotion word (adjective form),
+    /// or nil for anything unmapped — the server then falls back to the valence band. A regular
+    /// `default` covers future/unknown labels (HKStateOfMind.Label is a non-frozen enum).
+    @available(iOS 18.0, watchOS 11.0, macOS 15.0, *)
+    private static func stateOfMindLabelPtBR(_ labels: [HKStateOfMind.Label]) -> String? {
+        guard let label = labels.first else { return nil }
+        switch label {
+        case .amazed: return "maravilhado"
+        case .amused: return "divertido"
+        case .angry: return "com raiva"
+        case .anxious: return "ansioso"
+        case .ashamed: return "envergonhado"
+        case .brave: return "corajoso"
+        case .calm: return "calmo"
+        case .content: return "contente"
+        case .disappointed: return "decepcionado"
+        case .discouraged: return "desencorajado"
+        case .disgusted: return "com nojo"
+        case .embarrassed: return "constrangido"
+        case .excited: return "empolgado"
+        case .frustrated: return "frustrado"
+        case .grateful: return "grato"
+        case .guilty: return "culpado"
+        case .happy: return "feliz"
+        case .hopeful: return "esperançoso"
+        case .indifferent: return "indiferente"
+        case .irritated: return "irritado"
+        case .jealous: return "com ciúme"
+        case .joyful: return "radiante"
+        case .lonely: return "solitário"
+        case .overwhelmed: return "sobrecarregado"
+        case .passionate: return "apaixonado"
+        case .peaceful: return "em paz"
+        case .proud: return "orgulhoso"
+        case .relieved: return "aliviado"
+        case .sad: return "triste"
+        case .satisfied: return "satisfeito"
+        case .scared: return "assustado"
+        case .stressed: return "estressado"
+        case .surprised: return "surpreso"
+        case .worried: return "preocupado"
+        default: return nil
         }
     }
 

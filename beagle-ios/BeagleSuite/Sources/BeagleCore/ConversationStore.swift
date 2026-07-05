@@ -288,7 +288,7 @@ public final class ConversationStore {
                     flowState: flowState, physioPolicy: physioPolicy,
                     hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
                     sleepHours: physioSummary?.sleepHours,
-                    heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind,
+                    heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind, stateOfMindLabel: physioSummary?.stateOfMindLabel,
                     kp: currentSky?.kp, dst: currentSky?.dst,
                     solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz)
                 let full = result.value?.response ?? "Tô meio devagar agora — me dá um instante e tenta de novo?"
@@ -466,7 +466,7 @@ public final class ConversationStore {
             history: history,
             hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
             sleepHours: physioSummary?.sleepHours,
-            heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind,
+            heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind, stateOfMindLabel: physioSummary?.stateOfMindLabel,
             kp: currentSky?.kp, dst: currentSky?.dst,
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
             voiceModel: voiceModel,
@@ -540,7 +540,7 @@ public final class ConversationStore {
             history: history,
             hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
             sleepHours: physioSummary?.sleepHours,
-            heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind,
+            heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind, stateOfMindLabel: physioSummary?.stateOfMindLabel,
             kp: currentSky?.kp, dst: currentSky?.dst,
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
             voiceModel: voiceModel
