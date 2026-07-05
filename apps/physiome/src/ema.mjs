@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS ema_responses (
   place            TEXT,
   protocol_version TEXT
 );
+-- Sampling scheme of this response, stamped directly on the row so exploratory triggers stay
+-- separable from the pre-registered place-change protocol WITHOUT a prompt round-trip. Null =
+-- the legacy place-change path. HR-event samples carry hr_variation so HELIO-N1 can filter it
+-- out (trigger IS DISTINCT FROM hr_variation) and keep the pre-registration clean.
+ALTER TABLE ema_responses ADD COLUMN IF NOT EXISTS trigger TEXT;
 `;
 
 export async function ensureEmaSchema(pool) {
@@ -133,11 +138,12 @@ export async function fire(pool, { place, fromPlace = null, trigger = "place_cha
 export async function saveEmaResponse(pool, r) {
   const id = randomUUID();
   await pool.query(
-    `INSERT INTO ema_responses (id, prompt_id, ts, valence, kind, labels, associations, note, place, protocol_version)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    `INSERT INTO ema_responses (id, prompt_id, ts, valence, kind, labels, associations, note, place, protocol_version, trigger)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     [id, r.prompt_id || null, r.ts || new Date().toISOString(), num(r.valence), r.kind || "momentaryEmotion",
      JSON.stringify(Array.isArray(r.labels) ? r.labels : []), JSON.stringify(Array.isArray(r.associations) ? r.associations : []),
-     typeof r.note === "string" ? r.note : null, r.place || null, r.protocol_version || process.env.EMA_PROTOCOL_VERSION || "v0-draft"]
+     typeof r.note === "string" ? r.note : null, r.place || null, r.protocol_version || process.env.EMA_PROTOCOL_VERSION || "v0-draft",
+     typeof r.trigger === "string" ? r.trigger : null]
   );
   return id;
 }
