@@ -62,7 +62,7 @@ final class SpeechRecognizer {
     /// the companion conversation they came from.
     var sessionId: String?
 
-    private static func extractSamples(from buffer: AVAudioPCMBuffer) -> [Float]? {
+    nonisolated private static func extractSamples(from buffer: AVAudioPCMBuffer) -> [Float]? {
         guard let channelData = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return nil }
         return Array(UnsafeBufferPointer(start: channelData, count: Int(buffer.frameLength)))
     }
@@ -145,11 +145,12 @@ final class SpeechRecognizer {
         // the first mic tap crashes the app on an invalid input format.
         guard await ensureAuthorized() else { return }
 
-        if useLegacyRecognizer {
-            await startRecordingLegacy()
-        } else {
-            await startRecordingAnalyzer()
-        }
+        // Manual mic ALWAYS uses the classic SFSpeechRecognizer streaming path. The iOS 26
+        // SpeechAnalyzer path installs a realtime audio tap whose closure inherits @MainActor and
+        // TRAPS (EXC_BREAKPOINT) when the audio thread invokes it. The legacy path routes its tap +
+        // recognition through a nonisolated helper, so the realtime thread is safe. (Ambient capture
+        // still uses the analyzer branch, unchanged.)
+        await startRecordingLegacy()
     }
 
     func stopRecording() {
@@ -502,21 +503,31 @@ final class SpeechRecognizer {
         request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         legacyRequest = request
 
-        let inputNode = audioEngine.inputNode
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputNode.outputFormat(forBus: 0)) { [weak self] buffer, _ in
-            // Feed the request the native hardware-format buffer directly — no manual PCM
-            // reconstruction or sample-rate relabeling needed; append(buffer:) is documented
-            // safe to call from this realtime audio thread.
-            request.append(buffer)
+        // Install the tap + recognition through a nonisolated helper so the realtime audio thread
+        // and the recognition callback are NOT @MainActor-bound (which would trap the app).
+        legacyRecognitionTask = installLegacyTapAndRecognize(on: audioEngine, recognizer: recognizer, request: request)
+        #endif
+    }
 
-            if let samples = Self.extractSamples(from: buffer) {
+    #if canImport(AVFoundation) && os(iOS)
+    /// nonisolated on purpose: the AVAudioEngine tap block runs on the realtime audio thread and the
+    /// recognitionTask handler on a background queue. A closure created inside a @MainActor method
+    /// inherits that isolation and TRAPS (EXC_BREAKPOINT) the moment those threads invoke it. Built
+    /// here — outside the actor — the closures are non-isolated; real @MainActor state is mutated
+    /// only via explicit Task { @MainActor } hops.
+    nonisolated private func installLegacyTapAndRecognize(
+        on engine: AVAudioEngine,
+        recognizer: SFSpeechRecognizer,
+        request: SFSpeechAudioBufferRecognitionRequest
+    ) -> SFSpeechRecognitionTask {
+        let inputNode = engine.inputNode
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputNode.outputFormat(forBus: 0)) { [weak self] buffer, _ in
+            request.append(buffer)
+            if let samples = SpeechRecognizer.extractSamples(from: buffer) {
                 Task { @MainActor [weak self] in self?.audioWindows.append(samples) }
             }
         }
-
-        legacyRecognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            // recognitionTask's callback is not guaranteed to run on MainActor — hop back
-            // before touching any @MainActor-isolated state, same pattern as the analyzer path.
+        return recognizer.recognitionTask(with: request) { [weak self] result, error in
             if let result {
                 let text = result.bestTranscription.formattedString
                 Task { @MainActor [weak self] in
@@ -531,8 +542,8 @@ final class SpeechRecognizer {
                 }
             }
         }
-        #endif
     }
+    #endif
 
     private func startAmbientLegacy() async {
         #if canImport(AVFoundation) && os(iOS)
