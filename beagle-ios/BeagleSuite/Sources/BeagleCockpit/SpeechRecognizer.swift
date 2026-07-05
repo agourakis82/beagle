@@ -490,7 +490,12 @@ final class SpeechRecognizer {
         await startAudioEngine()
         guard isRecording, let audioEngine else { return }
 
-        let recognizer = SFSpeechRecognizer(locale: Locale.current)
+        // Default to pt-BR (his primary language) — Locale.current is often en on a dev phone, so
+        // it transcribed English. SFSpeechRecognizer is single-locale; fall back to the device
+        // locale, then en-US, if pt-BR isn't installed. (A pt/en toggle is the next step for mixed use.)
+        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "pt_BR"))
+            ?? SFSpeechRecognizer(locale: Locale.current)
+            ?? SFSpeechRecognizer(locale: Locale(identifier: "en_US"))
         guard let recognizer, recognizer.isAvailable else {
             error = "Speech recognizer unavailable"
             stopAudioEngine()
