@@ -44,6 +44,8 @@ public struct ChatScreen: View {
     /// in the iPad sidebar, so the iPhone had NO way to capture a thought at all, which is why the
     /// night synthesis stayed starved and the user couldn't dictate. Drawer footer.
     var onOpenCapture: (() -> Void)?
+    /// Opens SleepView — last night's HealthKit sleep data (the real "análise do sono").
+    var onOpenSleep: (() -> Void)?
     @State private var draft = ""
     @State private var appeared = false
     /// Live dictation for the composer mic (was a dead `onVoice: {}` stub). @Observable +
@@ -79,7 +81,8 @@ public struct ChatScreen: View {
                 onOpenDreamInsights: (() -> Void)? = nil,
                 unreadDreamInsightCount: Int = 0,
                 onOpenWork: (() -> Void)? = nil,
-                onOpenCapture: (() -> Void)? = nil) {
+                onOpenCapture: (() -> Void)? = nil,
+                onOpenSleep: (() -> Void)? = nil) {
         self.store = store
         self.breathRate = breathRate
         self.weather = weather
@@ -92,6 +95,7 @@ public struct ChatScreen: View {
         self.unreadDreamInsightCount = unreadDreamInsightCount
         self.onOpenWork = onOpenWork
         self.onOpenCapture = onOpenCapture
+        self.onOpenSleep = onOpenSleep
     }
 
     public var body: some View {
@@ -141,7 +145,7 @@ public struct ChatScreen: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .history:
-                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork, onOpenCapture: onOpenCapture)
+                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork, onOpenCapture: onOpenCapture, onOpenSleep: onOpenSleep)
             case .goDeep(let prompt):
                 GoDeepView(store: composerGoDeepStore, prompt: prompt)
             }
@@ -491,6 +495,7 @@ struct ConversationDrawer: View {
     var unreadDreamInsightCount: Int = 0
     var onOpenWork: (() -> Void)?
     var onOpenCapture: (() -> Void)?
+    var onOpenSleep: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var reloadToken = 0
 
@@ -549,6 +554,12 @@ struct ConversationDrawer: View {
                     if onOpenCapture != nil {
                         Button { dismiss(); onOpenCapture?() } label: {
                             Label("Capturar pensamento", systemImage: "mic.fill")
+                        }
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                    }
+                    if onOpenSleep != nil {
+                        Button { dismiss(); onOpenSleep?() } label: {
+                            Label("Sono", systemImage: "bed.double.fill")
                         }
                         .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
                     }

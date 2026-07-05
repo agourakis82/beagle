@@ -304,6 +304,49 @@ public struct PhysioSummary: Sendable, Equatable {
     }
 }
 
+/// A single night's sleep, bucketed by stage — the granular counterpart to
+/// `PhysioSummary.sleepHours`, meant for a dedicated sleep view rather than the compact summary.
+public struct SleepNight: Sendable, Equatable {
+    public let date: Date
+    public let totalAsleepHours: Double
+    public let deepMinutes: Double
+    public let remMinutes: Double
+    public let coreMinutes: Double
+    public let awakeMinutes: Double
+    public let inBedHours: Double
+    public let hrvMs: Double?
+    public let restingHeartRate: Double?
+
+    public init(
+        date: Date,
+        totalAsleepHours: Double,
+        deepMinutes: Double,
+        remMinutes: Double,
+        coreMinutes: Double,
+        awakeMinutes: Double,
+        inBedHours: Double,
+        hrvMs: Double? = nil,
+        restingHeartRate: Double? = nil
+    ) {
+        self.date = date
+        self.totalAsleepHours = totalAsleepHours
+        self.deepMinutes = deepMinutes
+        self.remMinutes = remMinutes
+        self.coreMinutes = coreMinutes
+        self.awakeMinutes = awakeMinutes
+        self.inBedHours = inBedHours
+        self.hrvMs = hrvMs
+        self.restingHeartRate = restingHeartRate
+    }
+
+    /// Ratio of restorative (deep + REM) sleep to total asleep time, 0 when nothing was asleep.
+    public var deepREMFraction: Double {
+        guard totalAsleepHours > 0 else { return 0 }
+        let totalAsleepMinutes = totalAsleepHours * 60.0
+        return (deepMinutes + remMinutes) / totalAsleepMinutes
+    }
+}
+
 // MARK: - Cognitive Posture (5-signal biosensor fusion)
 
 public struct CognitivePosture: Sendable {
@@ -448,6 +491,92 @@ public final class PhysioStore {
         #else
         authorizationState = .unavailable
         summary = PhysioSummary(authorizationState: .unavailable, readiness: .unavailable)
+        #endif
+    }
+
+    /// Last night's sleep, bucketed by stage (deep/REM/core/awake/inBed) plus the latest HRV and
+    /// resting heart rate — the granular counterpart to `summary.sleepHours` for a dedicated sleep
+    /// view. Returns nil only when there were zero asleep samples in the last 24h, so the view can
+    /// distinguish "no sleep data yet" from "slept zero restorative minutes."
+    public func lastNightSleep() async -> SleepNight? {
+        #if canImport(HealthKit)
+        guard let type = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else { return nil }
+        let calendar = Calendar.current
+        let end = Date()
+        let start = calendar.date(byAdding: .day, value: -1, to: end) ?? end.addingTimeInterval(-86400)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
+
+        let samples: [HKCategorySample]
+        do {
+            samples = try await withCheckedThrowingContinuation { continuation in
+                let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+                    continuation.resume(returning: (samples as? [HKCategorySample]) ?? [])
+                }
+                healthStore.execute(query)
+            }
+        } catch {
+            return nil
+        }
+
+        var deepSeconds = 0.0
+        var remSeconds = 0.0
+        var coreSeconds = 0.0
+        var awakeSeconds = 0.0
+        var inBedSeconds = 0.0
+        var latestEnd: Date?
+
+        for sample in samples {
+            let duration = sample.endDate.timeIntervalSince(sample.startDate)
+            switch sample.value {
+            case HKCategoryValueSleepAnalysis.asleepDeep.rawValue:
+                deepSeconds += duration
+            case HKCategoryValueSleepAnalysis.asleepREM.rawValue:
+                remSeconds += duration
+            case HKCategoryValueSleepAnalysis.asleepCore.rawValue, HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
+                coreSeconds += duration
+            case HKCategoryValueSleepAnalysis.awake.rawValue:
+                awakeSeconds += duration
+            case HKCategoryValueSleepAnalysis.inBed.rawValue:
+                inBedSeconds += duration
+            default:
+                break
+            }
+            if latestEnd == nil || sample.endDate > latestEnd! {
+                latestEnd = sample.endDate
+            }
+        }
+
+        let totalAsleepSeconds = deepSeconds + remSeconds + coreSeconds
+        guard totalAsleepSeconds > 0 else { return nil }
+
+        let hrvSample = (try? await latestQuantitySample(
+            identifier: .heartRateVariabilitySDNN,
+            unit: HKUnit(from: "ms"),
+            lookbackDays: 1
+        )) ?? nil
+        let restingSample = (try? await latestQuantitySample(
+            identifier: .restingHeartRate,
+            unit: HKUnit.count().unitDivided(by: .minute()),
+            lookbackDays: 1
+        )) ?? nil
+
+        return SleepNight(
+            date: latestEnd ?? end,
+            totalAsleepHours: totalAsleepSeconds / 3600.0,
+            deepMinutes: deepSeconds / 60.0,
+            remMinutes: remSeconds / 60.0,
+            coreMinutes: coreSeconds / 60.0,
+            awakeMinutes: awakeSeconds / 60.0,
+            inBedHours: inBedSeconds / 3600.0,
+            hrvMs: hrvSample?.value,
+            restingHeartRate: restingSample?.value
+        )
+        #else
+        return nil
         #endif
     }
 
