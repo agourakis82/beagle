@@ -621,16 +621,22 @@ final class SpeechRecognizer {
     private func startAudioEngine() async {
         let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            // .record + .measurement (raw audio for STT). NO .duckOthers — it's invalid for a pure
+            // input category — and NO .notifyOthersOnDeactivation on setActive(TRUE); that option is
+            // only valid when DEactivating. The bad combo left the session in a state where
+            // AVAudioEngine's graph init threw an NSException from prepare() (the SIGABRT crash).
+            try audioSession.setCategory(.record, mode: .measurement)
+            try audioSession.setActive(true)
         } catch {
             self.error = "Audio session error: \(error.localizedDescription)"
             return
         }
 
         let engine = AVAudioEngine()
+        // Reference the input node (and its hardware format) BEFORE starting so the engine graph
+        // initializes against a valid input — an unconfigured input is the other way Initialize throws.
+        _ = engine.inputNode.inputFormat(forBus: 0)
         do {
-            engine.prepare()
             try engine.start()
         } catch {
             self.error = "Could not start audio: \(error.localizedDescription)"
