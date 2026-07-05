@@ -43,6 +43,13 @@ final class SpeechRecognizer {
     private var analyzerInputContinuation: AsyncStream<AnalyzerInput>.Continuation?
     private var useLegacyRecognizer: Bool = false
 
+    /// Streaming SFSpeechRecognizer fallback state (manual recording only — see
+    /// startRecordingLegacy()). Populated only when useLegacyRecognizer == true and a
+    /// recording is in progress; stopRecording() tears all three down together.
+    private var legacyRecognizer: SFSpeechRecognizer?
+    private var legacyRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var legacyRecognitionTask: SFSpeechRecognitionTask?
+
     // MARK: - Voice-acoustic features (natural byproduct of speech already captured for STT)
 
     /// Raw sample windows accumulated during the current recording, for
@@ -107,6 +114,14 @@ final class SpeechRecognizer {
         // Signal the analyzer input stream to finish
         analyzerInputContinuation?.finish()
         analyzerInputContinuation = nil
+
+        // Tear down the legacy SFSpeechRecognizer streaming path, if it was the one running.
+        // Safe to always call: these are nil (no-ops) whenever the analyzer path was active.
+        legacyRequest?.endAudio()
+        legacyRecognitionTask?.cancel()
+        legacyRequest = nil
+        legacyRecognitionTask = nil
+        legacyRecognizer = nil
 
         // Cancel the recording task
         recordingTask?.cancel()
@@ -423,32 +438,56 @@ final class SpeechRecognizer {
 
     // MARK: - Legacy SFSpeechRecognizer path (fallback)
 
+    /// Streaming SFSpeechRecognizer fallback for manual recording, used when SpeechAnalyzer
+    /// (iOS 26 Neural Engine) is unavailable — see setup(). Mirrors startRecordingAnalyzer()'s
+    /// shape: one shared audio tap feeding a live recognition request, with partials flowing
+    /// into `transcript` as they arrive (not batch re-transcription of the whole buffer).
     private func startRecordingLegacy() async {
         #if canImport(AVFoundation) && os(iOS)
         await startAudioEngine()
-        guard isRecording else { return }
+        guard isRecording, let audioEngine else { return }
 
-        let bufferRef = UnsafeMutablePointer<[Float]>.allocate(capacity: 1)
-        bufferRef.initialize(to: [])
+        let recognizer = SFSpeechRecognizer(locale: Locale.current)
+        guard let recognizer, recognizer.isAvailable else {
+            error = "Speech recognizer unavailable"
+            stopAudioEngine()
+            return
+        }
+        legacyRecognizer = recognizer
 
-        audioEngine?.inputNode.installTap(onBus: 0, bufferSize: 4096, format: audioEngine!.inputNode.outputFormat(forBus: 0)) { buffer, _ in
-            let channelData = buffer.floatChannelData?[0]
-            let frameLength = Int(buffer.frameLength)
-            if let channelData, frameLength > 0 {
-                bufferRef.pointee.append(contentsOf: Array(UnsafeBufferPointer(start: channelData, count: frameLength)))
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
+        legacyRequest = request
+
+        let inputNode = audioEngine.inputNode
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputNode.outputFormat(forBus: 0)) { [weak self] buffer, _ in
+            // Feed the request the native hardware-format buffer directly — no manual PCM
+            // reconstruction or sample-rate relabeling needed; append(buffer:) is documented
+            // safe to call from this realtime audio thread.
+            request.append(buffer)
+
+            if let samples = Self.extractSamples(from: buffer) {
+                Task { @MainActor [weak self] in self?.audioWindows.append(samples) }
             }
         }
 
-        recordingTask = Task {
-            while isRecording {
-                try? await Task.sleep(for: .seconds(2))
-                guard isRecording else { break }
-                let samples = bufferRef.pointee
-                if !samples.isEmpty {
-                    await transcribeAndUpdateLegacy(samples)
+        legacyRecognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            // recognitionTask's callback is not guaranteed to run on MainActor — hop back
+            // before touching any @MainActor-isolated state, same pattern as the analyzer path.
+            if let result {
+                let text = result.bestTranscription.formattedString
+                Task { @MainActor [weak self] in
+                    if !text.isEmpty {
+                        self?.transcript = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
                 }
             }
-            bufferRef.deallocate()
+            if let error {
+                Task { @MainActor [weak self] in
+                    self?.error = "Transcription error: \(error.localizedDescription)"
+                }
+            }
         }
         #endif
     }
@@ -578,12 +617,11 @@ final class SpeechRecognizer {
     #endif
 
     // MARK: - Private: legacy transcription (SFSpeechRecognizer)
-
-    private func transcribeAndUpdateLegacy(_ samples: [Float]) async {
-        if let text = await transcribeRawLegacy(samples), !text.isEmpty {
-            transcript = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
+    //
+    // NOTE: transcribeRawLegacy is used only by startAmbientLegacy's chunked polling loop
+    // (unchanged — out of scope for this fix). The manual-recording fallback in
+    // startRecordingLegacy() above no longer uses this batch/one-shot helper; it streams
+    // partials directly through a persistent SFSpeechAudioBufferRecognitionRequest instead.
 
     private func transcribeRawLegacy(_ samples: [Float]) async -> String? {
         let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)
