@@ -334,7 +334,7 @@ struct RootView: View {
         startPhysiomeRealtimeSync()
         async let catalogTask: () = catalog.refresh()
         async let cognitiveTask: () = cognitive.refresh()
-        async let physioTask: () = physio.refresh()
+        async let physioTask: () = physio.refresh(requestAuthorization: true)
         async let sharedQueueTask: () = cognitive.drainSharedThoughtQueue()
         async let outboxDrainTask: Int = cognitive.drainAssistedImportOutbox()
         async let warmTask: () = FoundationModelsAgent.shared.prewarm()

@@ -1263,6 +1263,8 @@ public actor BeagleClient {
         hrvMs: Double? = nil,
         readiness: String? = nil,
         sleepHours: Double? = nil,
+        heartRate: Double? = nil,
+        stateOfMind: Double? = nil,
         kp: Double? = nil,
         dst: Double? = nil,
         solarWind: Double? = nil,
@@ -1313,6 +1315,7 @@ public actor BeagleClient {
             body["voiceModel"] = voiceModel
         }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
+                            heartRate: heartRate, stateOfMind: stateOfMind,
                             kp: kp, dst: dst, solarWind: solarWind, bz: bz)
 
         let mobileResult = await postPublicMobileChat(body: body)
@@ -1434,6 +1437,8 @@ public actor BeagleClient {
         hrvMs: Double? = nil,
         readiness: String? = nil,
         sleepHours: Double? = nil,
+        heartRate: Double? = nil,
+        stateOfMind: Double? = nil,
         kp: Double? = nil,
         dst: Double? = nil,
         solarWind: Double? = nil,
@@ -1452,6 +1457,7 @@ public actor BeagleClient {
             lastContactAt: lastContactAt,
             history: history,
             hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
+            heartRate: heartRate, stateOfMind: stateOfMind,
             kp: kp, dst: dst, solarWind: solarWind, bz: bz,
             voiceModel: voiceModel
         )
@@ -1461,7 +1467,12 @@ public actor BeagleClient {
     /// the streaming path). Only present values are sent — the server's `## Agora` fills in
     /// the rest from its own fetch.
     static func addLiveContext(_ body: inout [String: any Sendable], hrvMs: Double?, readiness: String?,
-                               sleepHours: Double?, kp: Double?, dst: Double?, solarWind: Double?, bz: Double?) {
+                               sleepHours: Double?, heartRate: Double?, stateOfMind: Double?,
+                               kp: Double?, dst: Double?, solarWind: Double?, bz: Double?) {
+        // Live interoceptive anchor: the heartbeat, named back in a hard moment; and his OWN
+        // logged State of Mind valence (−1..1). Both optional → older server ignores them.
+        if let heartRate { body["heart_rate"] = heartRate }
+        if let stateOfMind { body["state_of_mind"] = stateOfMind }
         if let hrvMs { body["hrv_ms"] = hrvMs }
         if let readiness, !readiness.isEmpty { body["readiness"] = readiness }
         if let sleepHours { body["sleep_hours"] = sleepHours }
@@ -1560,6 +1571,8 @@ public actor BeagleClient {
         hrvMs: Double? = nil,
         readiness: String? = nil,
         sleepHours: Double? = nil,
+        heartRate: Double? = nil,
+        stateOfMind: Double? = nil,
         kp: Double? = nil,
         dst: Double? = nil,
         solarWind: Double? = nil,
@@ -1606,6 +1619,7 @@ public actor BeagleClient {
             body["deepThink"] = true
         }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
+                            heartRate: heartRate, stateOfMind: stateOfMind,
                             kp: kp, dst: dst, solarWind: solarWind, bz: bz)
 
         let cockpitURLs: [URL] = [

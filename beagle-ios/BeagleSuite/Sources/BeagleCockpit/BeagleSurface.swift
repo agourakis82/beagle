@@ -51,6 +51,13 @@ struct BeagleSurface: View {
             .task {
                 await bootstrapSurface()
             }
+            // Keep the chat's physio snapshot LIVE: bootstrapSurface() copies physio.summary once,
+            // before the async HealthKit refresh completes, so without this the companion sends a
+            // stale/empty body (heart/HRV/State of Mind missing). PhysioSummary is a value type —
+            // re-copy on every change so send always reads the freshest reading.
+            .onChange(of: physio.summary) {
+                conversation.physioSummary = physio.summary
+            }
             .onChange(of: conversation.messages.count) {
                 runMetacognitiveCheck()
             }

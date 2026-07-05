@@ -257,6 +257,8 @@ public final class ConversationStore {
     /// Instant on-device reply via the injected fast responder (Apple Foundation Models).
     public func sendMessageFast(_ text: String) async {
         let history = messages.suffix(8).map { "\($0.role == .user ? "User" : "Assistant"): \($0.content)" }
+        // SOTA-chat: optimistic UI — user bubble + empty streaming assistant bubble are appended
+        // synchronously, before any network/model await, so send feels instant.
         let userMessage = ChatMessage(role: .user, content: text)
         messages.append(userMessage)
         persist(message: userMessage)
@@ -286,6 +288,7 @@ public final class ConversationStore {
                     flowState: flowState, physioPolicy: physioPolicy,
                     hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
                     sleepHours: physioSummary?.sleepHours,
+                    heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind,
                     kp: currentSky?.kp, dst: currentSky?.dst,
                     solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz)
                 let full = result.value?.response ?? "Tô meio devagar agora — me dá um instante e tenta de novo?"
@@ -333,6 +336,17 @@ public final class ConversationStore {
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    // SOTA-chat: word-grouped stream buffering.
+    /// Reveal up to the last completed word — i.e. everything through the final whitespace or
+    /// newline — holding back the trailing in-progress word. Combined with the ~40ms repaint
+    /// window in the stream loop, this makes the cloud reply land word-by-word (calm, natural)
+    /// instead of char/token-jerky, while never altering the final text (the loop's post-pass
+    /// commits the full `streamedText`). Returns "" until the first boundary exists.
+    private func wordGroupedPrefix(_ s: String) -> String {
+        guard let boundary = s.lastIndex(where: { $0.isWhitespace }) else { return "" }
+        return String(s[...boundary])
+    }
+
     // MARK: - Send via on-device LLM
 
     /// Send using the on-device MLX model (streaming).
@@ -343,6 +357,8 @@ public final class ConversationStore {
             return
         }
 
+        // SOTA-chat: optimistic UI — user bubble + empty streaming assistant bubble appended
+        // synchronously before the first model await, so the send registers instantly.
         let userMessage = ChatMessage(role: .user, content: text)
         messages.append(userMessage)
         persist(message: userMessage)
@@ -394,10 +410,14 @@ public final class ConversationStore {
         // concatenated string. Smart models (Grok) read concatenated transcripts
         // as text-to-continue and hallucinate the next user line.
         let history: [[String: String]] = messages
-            .suffix(10)
+            .suffix(16)   // C: widen in-conversation memory (10→16) so long threads don't forget the opening turns
             .map { ["role": $0.role == .user ? "user" : "assistant", "content": $0.content] }
         let contextualPrompt = text
 
+        // SOTA-chat: optimistic UI — the user bubble and the empty streaming assistant bubble
+        // (isStreaming=true) are appended here, BEFORE any network await (chatStream below only
+        // builds the async sequence; the first await is in the `for try await` loop). Send is
+        // instant; no artificial delay is introduced.
         let userMessage = ChatMessage(role: .user, content: text)
         messages.append(userMessage)
         persist(message: userMessage)
@@ -446,6 +466,7 @@ public final class ConversationStore {
             history: history,
             hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
             sleepHours: physioSummary?.sleepHours,
+            heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind,
             kp: currentSky?.kp, dst: currentSky?.dst,
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
             voiceModel: voiceModel,
@@ -454,13 +475,30 @@ public final class ConversationStore {
 
         var streamedText = ""
         var streamErr: Error? = nil
+        // SOTA-chat: word-grouped repaint window. Raw SSE deltas accumulate in `streamedText`
+        // (the source of truth) and are painted into the bubble at most once per ~40ms, aligned
+        // to word boundaries — a calm, natural reveal, not char-jerky and not artificially slow.
+        // Time-gated on the main actor (no extra Task/Timer) to stay @Observable/Sendable-safe.
+        let flushWindow: Duration = .milliseconds(40)
+        var lastFlushAt = ContinuousClock.now
         do {
             for try await token in stream {
                 streamedText += token
-                if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
-                    // First real token evicts the provisional on-device ack.
-                    if messages[idx].isProvisional { messages[idx].isProvisional = false }
-                    messages[idx].content = stripReasoning(streamedText)
+                guard let idx = messages.firstIndex(where: { $0.id == assistantId }) else { continue }
+                // First real token evicts the provisional on-device ack; clear it so the
+                // word-buffer reveals the grounded reply cleanly rather than blending with it.
+                if messages[idx].isProvisional {
+                    messages[idx].isProvisional = false
+                    messages[idx].content = ""
+                }
+                // SOTA-chat: flush only complete words, and only when the ~40ms window elapsed.
+                let now = ContinuousClock.now
+                if now - lastFlushAt >= flushWindow {
+                    lastFlushAt = now
+                    let reveal = wordGroupedPrefix(streamedText)
+                    if !reveal.isEmpty {
+                        messages[idx].content = stripReasoning(reveal)
+                    }
                 }
             }
         } catch {
@@ -469,6 +507,9 @@ public final class ConversationStore {
 
         if !streamedText.isEmpty {
             if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+                // SOTA-chat: end-of-stream commit — the full text is always painted here,
+                // guaranteeing the buffered trailing word (and any content held back by the
+                // word window) lands, with the final text preserved exactly.
                 messages[idx].content = stripReasoning(streamedText)
                 messages[idx].isStreaming = false
                 messages[idx].source = "cloud-stream"
@@ -499,6 +540,7 @@ public final class ConversationStore {
             history: history,
             hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
             sleepHours: physioSummary?.sleepHours,
+            heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind,
             kp: currentSky?.kp, dst: currentSky?.dst,
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
             voiceModel: voiceModel

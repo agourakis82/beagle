@@ -108,6 +108,10 @@ public struct PhysioConversationPolicy: Sendable, Equatable, Codable {
 public struct PhysioSummary: Sendable, Equatable {
     public let hrvMs: Double?
     public let restingHeartRate: Double?
+    /// Most recent instantaneous heart rate (bpm) — the live interoceptive anchor.
+    public let heartRate: Double?
+    /// Latest Apple State of Mind valence (−1..1), logged by the user himself.
+    public let stateOfMind: Double?
     public let sleepHours: Double?
     public let mindfulMinutes: Double?
     public let workoutCount: Int
@@ -118,6 +122,8 @@ public struct PhysioSummary: Sendable, Equatable {
     public init(
         hrvMs: Double? = nil,
         restingHeartRate: Double? = nil,
+        heartRate: Double? = nil,
+        stateOfMind: Double? = nil,
         sleepHours: Double? = nil,
         mindfulMinutes: Double? = nil,
         workoutCount: Int = 0,
@@ -127,6 +133,8 @@ public struct PhysioSummary: Sendable, Equatable {
     ) {
         self.hrvMs = hrvMs
         self.restingHeartRate = restingHeartRate
+        self.heartRate = heartRate
+        self.stateOfMind = stateOfMind
         self.sleepHours = sleepHours
         self.mindfulMinutes = mindfulMinutes
         self.workoutCount = workoutCount
@@ -403,9 +411,14 @@ public final class PhysioStore {
                 workoutCount: workoutCount
             )
 
+            let stateOfMindValence = await queryStateOfMind()
+            let latestHeartRate = await queryLatestHeartRate()
+
             summary = PhysioSummary(
                 hrvMs: hrv?.value,
                 restingHeartRate: resting?.value,
+                heartRate: latestHeartRate,
+                stateOfMind: stateOfMindValence,
                 sleepHours: sleepHours,
                 mindfulMinutes: mindfulMinutes,
                 workoutCount: workoutCount,
@@ -413,8 +426,6 @@ public final class PhysioStore {
                 authorizationState: authorizationState,
                 readiness: readiness
             )
-
-            let stateOfMindValence = await queryStateOfMind()
 
             cognitivePosture = CognitivePosture(
                 hrv: hrv?.value,
@@ -442,6 +453,7 @@ public final class PhysioStore {
         var readTypes: Set<HKObjectType> = [
             HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!,
             HKQuantityType.quantityType(forIdentifier: .restingHeartRate)!,
+            HKQuantityType.quantityType(forIdentifier: .heartRate)!,
             HKQuantityType(.respiratoryRate),
             HKQuantityType(.appleSleepingWristTemperature),
             HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)!,
@@ -466,9 +478,14 @@ public final class PhysioStore {
         authorizationState = .requesting
         try await healthStore.requestAuthorization(toShare: [], read: readTypes)
 
-        let hrvType = HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!
-        let status = healthStore.authorizationStatus(for: hrvType)
-        authorizationState = status == .sharingDenied ? .denied : .authorized
+        // authorizationStatus(for:) reports SHARE/write permission only. Apple deliberately keeps
+        // it .sharingDenied for a read-only app even when READ access is fully granted (read status
+        // is unqueryable for privacy) — so it must NOT gate reads. The old heuristic below flipped
+        // authorizationState to .denied whenever the HRV *write* toggle was off, emptying the whole
+        // summary despite Health being on (observed as AUTH:denied with HRV/HR/sleep all absent).
+        // After requestAuthorization returns, treat as authorized; the sample reads fail-soft to
+        // nil if read was actually denied, which surfaces honestly as "no data" — not a hard block.
+        authorizationState = .authorized
     }
 
     private func latestQuantitySample(
@@ -686,6 +703,32 @@ public final class PhysioStore {
                     return
                 }
                 continuation.resume(returning: sample.valence)
+            }
+            healthStore.execute(query)
+        }
+    }
+
+    /// Query the most recent instantaneous heart rate sample (bpm) from HealthKit, or nil.
+    /// The live beat the companion names back as an interoceptive anchor in a hard moment.
+    private func queryLatestHeartRate() async -> Double? {
+        let sampleType = HKQuantityType.quantityType(forIdentifier: .heartRate)!
+        let end = Date()
+        let start = Calendar.current.date(byAdding: .hour, value: -6, to: end) ?? end.addingTimeInterval(-3600 * 6)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+        let bpmUnit = HKUnit.count().unitDivided(by: .minute())
+
+        return try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Double?, Error>) in
+            let query = HKSampleQuery(sampleType: sampleType, predicate: predicate, limit: 1, sortDescriptors: [sort]) { _, samples, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let sample = samples?.first as? HKQuantitySample else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: sample.quantity.doubleValue(for: bpmUnit))
             }
             healthStore.execute(query)
         }
