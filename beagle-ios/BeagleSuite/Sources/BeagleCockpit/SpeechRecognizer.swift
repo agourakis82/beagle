@@ -102,16 +102,16 @@ final class SpeechRecognizer {
     /// entirely (voice was a dead stub, so no path was ever exercised) → crash on first mic tap.
     private func ensureAuthorized() async -> Bool {
         #if canImport(AVFoundation) && os(iOS)
-        let micGranted = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-            AVAudioApplication.requestRecordPermission { granted in cont.resume(returning: granted) }
-        }
+        // Use the compiler-generated ASYNC forms — NOT a hand-rolled withCheckedContinuation.
+        // These callbacks fire on a background TCC/XPC queue; a manual continuation closure
+        // inherits this method's @MainActor isolation and traps (EXC_BREAKPOINT / actor-isolation
+        // assertion) when invoked off-main. The async bridge resumes correctly on our executor.
+        let micGranted = await AVAudioApplication.requestRecordPermission()
         guard micGranted else {
             error = "Permita o microfone em Ajustes para usar a voz."
             return false
         }
-        let speechStatus = await withCheckedContinuation { (cont: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
-            SFSpeechRecognizer.requestAuthorization { status in cont.resume(returning: status) }
-        }
+        let speechStatus = await Self.requestSpeechAuthorization()
         guard speechStatus == .authorized else {
             error = "Permita o reconhecimento de fala em Ajustes para usar a voz."
             return false
@@ -121,6 +121,17 @@ final class SpeechRecognizer {
         return false
         #endif
     }
+
+    #if canImport(AVFoundation) && os(iOS)
+    /// nonisolated on purpose: SFSpeechRecognizer.requestAuthorization has no async form and fires
+    /// its completion on a background TCC/XPC queue. Wrapping it here (outside @MainActor) keeps the
+    /// closure non-isolated, so it does not trap the actor-isolation assertion when invoked off-main.
+    private nonisolated static func requestSpeechAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {
+        await withCheckedContinuation { (cont: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
+            SFSpeechRecognizer.requestAuthorization { status in cont.resume(returning: status) }
+        }
+    }
+    #endif
 
     // MARK: - Manual recording (tap to start/stop)
 
