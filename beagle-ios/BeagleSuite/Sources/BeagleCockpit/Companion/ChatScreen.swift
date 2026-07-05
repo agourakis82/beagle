@@ -46,6 +46,9 @@ public struct ChatScreen: View {
     var onOpenCapture: (() -> Void)?
     @State private var draft = ""
     @State private var appeared = false
+    /// Live dictation for the composer mic (was a dead `onVoice: {}` stub). @Observable +
+    /// @MainActor; the transcript streams into `draft` while recording. Set up once via .task.
+    @State private var speech = SpeechRecognizer()
     // SOTA-chat #5: send haptic trigger — bumped in send() so .sensoryFeedback fires a
     // discrete light impact on every send, independent of the message store's timing.
     @State private var sendTick = 0
@@ -379,11 +382,28 @@ public struct ChatScreen: View {
             depth: $depth,
             isStreaming: store.isStreaming,
             onSend: send,
-            onVoice: {}     // TODO: voice capture
+            onVoice: { toggleVoice() },
+            isRecording: speech.isRecording
         )
         .padding(.horizontal, BeagleSpacing.md)
         .padding(.bottom, BeagleSpacing.sm)
         .shadow(color: .black.opacity(0.35), radius: 18, y: 6)   // lift off the surface
+        .task { await speech.setup() }
+        // Voice→text: stream the live transcript into the field while dictating. The mic only
+        // appears when the field is empty, so this never clobbers typed text.
+        .onChange(of: speech.transcript) { _, newValue in
+            if speech.isRecording { draft = newValue }
+        }
+    }
+
+    /// Toggle dictation: tap the mic to start (transcript streams into `draft`), tap Stop to end;
+    /// the text then stays in the field to edit or send. Reuses the same SpeechRecognizer as capture.
+    private func toggleVoice() {
+        if speech.isRecording {
+            speech.stopRecording()
+        } else {
+            Task { await speech.startRecording() }
+        }
     }
 
     // MARK: - Empty state (warm, zero-friction — no forms)

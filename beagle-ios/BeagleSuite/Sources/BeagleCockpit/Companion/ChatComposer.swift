@@ -86,10 +86,15 @@ struct ChatComposer: View {
     var isStreaming: Bool
     var onSend: () -> Void
     var onVoice: () -> Void
+    /// Live dictation state: while true the trailing control becomes a Stop button (a growing
+    /// transcript would otherwise flip canSend true and hide the mic mid-recording).
+    var isRecording: Bool = false
 
     @State private var pickedItem: PhotosPickerItem?
     @State private var attachedData: Data?
     @FocusState private var focused: Bool
+    // SOTA-chat: monotonic trigger for the send haptic (fires .sensoryFeedback on change).
+    @State private var sendHaptic = 0
     /// Accessibility: Reduce Transparency swaps the Liquid Glass for a solid material so the
     /// draft text never loses contrast over a busy aurora (iOS 27 contrast guidance).
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -115,11 +120,25 @@ struct ChatComposer: View {
                     .padding(.vertical, 4)
 
                 Group {
-                    if canSend {
+                    if isRecording {
+                        // Dictating: a Stop control that's ALWAYS reachable (the growing transcript
+                        // would flip canSend true and hide the mic). Tap to stop; text stays to edit/send.
+                        Button(action: onVoice) {
+                            Image(systemName: "stop.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundStyle(BeagleTheme.stateError)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Parar de gravar")
+                    } else if canSend {
                         Button(action: send) {
                             Image(systemName: "arrow.up.circle.fill")
                                 .font(.system(size: 28))
                                 .foregroundStyle(BeagleTheme.truthObserved)
+                                // SOTA-chat: >=44pt HIG tap target for the thumb-reachable send action.
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .accessibilityLabel("Enviar")
                     } else {
@@ -127,18 +146,23 @@ struct ChatComposer: View {
                             Image(systemName: "mic.fill")
                                 .font(.system(size: 20))
                                 .foregroundStyle(BeagleTheme.textSecondary)
-                                .frame(width: 30, height: 30)
+                                // SOTA-chat: bump 30→44pt so the voice target also meets HIG.
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .accessibilityLabel("Voz")
                     }
                 }
                 .buttonStyle(.plain)
                 .animation(.snappy(duration: 0.2), value: canSend)
+                .animation(.snappy(duration: 0.2), value: isRecording)
             }
         }
         .padding(.vertical, BeagleSpacing.xs)
         .padding(.horizontal, BeagleSpacing.sm)
         .modifier(ComposerGlass(reduceTransparency: reduceTransparency))
+        // SOTA-chat: subtle light-impact haptic confirming the send, contained and non-decorative.
+        .sensoryFeedback(.impact(weight: .light), trigger: sendHaptic)
         .onChange(of: pickedItem) { _, item in
             Task { attachedData = try? await item?.loadTransferable(type: Data.self) }
         }
@@ -164,6 +188,7 @@ struct ChatComposer: View {
     }
 
     private func send() {
+        sendHaptic &+= 1   // SOTA-chat: bump trigger before the send so the haptic fires with the action.
         onSend()
         attachedData = nil
         pickedItem = nil
