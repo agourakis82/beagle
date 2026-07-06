@@ -47,6 +47,8 @@ public struct ChatScreen: View {
     /// Opens SleepView — last night's HealthKit sleep data (the real "análise do sono").
     var onOpenSleep: (() -> Void)?
     @State private var draft = ""
+    /// Dictation language, toggled by the composer's PT/EN chip. Persisted; pt_BR default.
+    @AppStorage("dictationLocaleID") private var dictationLocaleID = "pt_BR"
     @State private var appeared = false
     /// Live dictation for the composer mic (was a dead `onVoice: {}` stub). @Observable +
     /// @MainActor; the transcript streams into `draft` while recording. Set up once via .task.
@@ -387,7 +389,9 @@ public struct ChatScreen: View {
             isStreaming: store.isStreaming,
             onSend: send,
             onVoice: { toggleVoice() },
-            isRecording: speech.isRecording
+            isRecording: speech.isRecording,
+            dictationLocaleID: dictationLocaleID,
+            onToggleLocale: { dictationLocaleID = dictationLocaleID.hasPrefix("en") ? "pt_BR" : "en_US" }
         )
         .padding(.horizontal, BeagleSpacing.md)
         .padding(.bottom, BeagleSpacing.sm)
@@ -406,7 +410,7 @@ public struct ChatScreen: View {
         if speech.isRecording {
             speech.stopRecording()
         } else {
-            Task { await speech.startRecording() }
+            Task { await speech.startRecording(localeID: dictationLocaleID) }
         }
     }
 

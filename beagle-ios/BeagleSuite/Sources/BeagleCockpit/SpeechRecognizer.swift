@@ -42,6 +42,8 @@ final class SpeechRecognizer {
     private var recordingTask: Task<Void, Never>?
     private var analyzerInputContinuation: AsyncStream<AnalyzerInput>.Continuation?
     private var useLegacyRecognizer: Bool = false
+    /// Locale for dictation (pt_BR default; toggled by the composer's PT/EN chip via startRecording).
+    private var dictationLocaleID: String = "pt_BR"
 
     /// Streaming SFSpeechRecognizer fallback state (manual recording only — see
     /// startRecordingLegacy()). Populated only when useLegacyRecognizer == true and a
@@ -135,7 +137,8 @@ final class SpeechRecognizer {
 
     // MARK: - Manual recording (tap to start/stop)
 
-    func startRecording() async {
+    func startRecording(localeID: String = "pt_BR") async {
+        dictationLocaleID = localeID
         error = nil
         transcript = ""
         audioWindows.removeAll()
@@ -490,10 +493,9 @@ final class SpeechRecognizer {
         await startAudioEngine()
         guard isRecording, let audioEngine else { return }
 
-        // Default to pt-BR (his primary language) — Locale.current is often en on a dev phone, so
-        // it transcribed English. SFSpeechRecognizer is single-locale; fall back to the device
-        // locale, then en-US, if pt-BR isn't installed. (A pt/en toggle is the next step for mixed use.)
-        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "pt_BR"))
+        // Locale chosen in the composer's PT/EN chip (dictationLocaleID, pt_BR default).
+        // SFSpeechRecognizer is single-locale; fall back to device locale then en_US if unavailable.
+        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: dictationLocaleID))
             ?? SFSpeechRecognizer(locale: Locale.current)
             ?? SFSpeechRecognizer(locale: Locale(identifier: "en_US"))
         guard let recognizer, recognizer.isAvailable else {

@@ -89,6 +89,11 @@ struct ChatComposer: View {
     /// Live dictation state: while true the trailing control becomes a Stop button (a growing
     /// transcript would otherwise flip canSend true and hide the mic mid-recording).
     var isRecording: Bool = false
+    /// Dictation language (pt_BR/en_US) shown in the PT/EN chip + a handler to toggle it. The chip
+    /// sits next to the mic (only when the field is empty) — SFSpeechRecognizer is single-locale, so
+    /// the language is chosen before speaking.
+    var dictationLocaleID: String = "pt_BR"
+    var onToggleLocale: (() -> Void)? = nil
 
     @State private var pickedItem: PhotosPickerItem?
     @State private var attachedData: Data?
@@ -142,15 +147,30 @@ struct ChatComposer: View {
                         }
                         .accessibilityLabel("Enviar")
                     } else {
-                        Button(action: onVoice) {
-                            Image(systemName: "mic.fill")
-                                .font(.system(size: 20))
-                                .foregroundStyle(BeagleTheme.textSecondary)
-                                // SOTA-chat: bump 30→44pt so the voice target also meets HIG.
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
+                        HStack(spacing: BeagleSpacing.xxs) {
+                            // PT/EN dictation-language chip — single-locale recognizer, so pick before
+                            // speaking. Sits next to the mic, only in this empty-field state.
+                            if let onToggleLocale {
+                                Button(action: onToggleLocale) {
+                                    Text(dictationLocaleID.hasPrefix("en") ? "EN" : "PT")
+                                        .font(BeagleFont.caption2.font.weight(.semibold))
+                                        .foregroundStyle(BeagleTheme.textSecondary)
+                                        .frame(minWidth: 28, minHeight: 28)
+                                        .background(Capsule().fill(BeagleTheme.companionInk.opacity(0.08)))
+                                        .contentShape(Capsule())
+                                }
+                                .accessibilityLabel(dictationLocaleID.hasPrefix("en") ? "Idioma da ditada: inglês, tocar para português" : "Idioma da ditada: português, tocar para inglês")
+                            }
+                            Button(action: onVoice) {
+                                Image(systemName: "mic.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(BeagleTheme.textSecondary)
+                                    // SOTA-chat: bump 30→44pt so the voice target also meets HIG.
+                                    .frame(width: 44, height: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("Voz")
                         }
-                        .accessibilityLabel("Voz")
                     }
                 }
                 .buttonStyle(.plain)
