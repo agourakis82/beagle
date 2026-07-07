@@ -20,6 +20,28 @@ function safeFormatter(tz) {
   }
 }
 
+// The intimate companion is single-user. When the client omits or garbles the
+// timezone, the fallback must be HIS home zone — never UTC. UTC is +3h from his
+// local time, which routinely crosses the madrugada/manhã/tarde/noite boundaries,
+// so a UTC fallback makes the "## Agora" TEMPO line name the wrong part of the day
+// (e.g. "de madrugada" while he's having breakfast). Overridable per deployment.
+export const HOME_TIMEZONE = process.env.PROJECT_COCKPIT_HOME_TZ || "America/Sao_Paulo";
+
+export function isValidTimeZone(tz) {
+  if (typeof tz !== "string" || !tz.trim()) return false;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: tz.trim() });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Prefer a valid client-sent IANA zone; otherwise the user's home zone (never UTC). */
+export function resolveTimezone(clientTz) {
+  return isValidTimeZone(clientTz) ? clientTz.trim() : HOME_TIMEZONE;
+}
+
 function localParts(date, tz) {
   const p = Object.fromEntries(safeFormatter(tz).formatToParts(date).map((x) => [x.type, x.value]));
   return { y: +p.year, m: +p.month, d: +p.day, hour: +p.hour, minute: +p.minute };

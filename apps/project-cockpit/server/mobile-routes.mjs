@@ -36,7 +36,7 @@ import {
   fetchOperatorToken
 } from "./auth-bridge.mjs";
 import { ingestPersonalTurn, handleIngestRequest, captureProvenanced } from "./memory-ingest.mjs";
-import { buildTemporalContext, formatAgora, stampMemories, filterTrustedMemories } from "./temporal-context.mjs";
+import { buildTemporalContext, formatAgora, stampMemories, filterTrustedMemories, resolveTimezone } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
 function cleanString(value) {
@@ -913,7 +913,9 @@ async function completeChatRequest(req, deps, options = {}) {
     // Persona first (who you are) — always present, even if grounding fails.
     // Then the grounding (what you know about him): physiome + living biography.
     const clientTime = cleanString(req.body?.clientTime);
-    const tz = cleanString(req.body?.timezone) || "UTC";
+    // Never fall back to UTC for a single-user companion — the wrong part-of-day is
+    // worse than useless. A valid client tz wins; otherwise his home zone.
+    const tz = resolveTimezone(req.body?.timezone);
     const lastContactRaw = cleanString(req.body?.lastContactAt);
     const now = clientTime && !Number.isNaN(Date.parse(clientTime)) ? new Date(clientTime) : new Date();
     const lastContactAt = lastContactRaw && !Number.isNaN(Date.parse(lastContactRaw)) ? new Date(lastContactRaw) : null;
