@@ -2050,6 +2050,11 @@ export function registerMobileRoutes(app, deps) {
         return {
           data: {
             response: completion.response,
+            // Three-layer contract (presence → state → voice): always present so the
+            // app can render the floor when `degraded`, and show state alongside voice.
+            presence: completion.presence || "",
+            state: completion.state || "",
+            degraded: completion.degraded === true,
             model: completion.model,
             source: completion.source,
             agentKind: completion.agentKind || null,
@@ -2082,13 +2087,24 @@ export function registerMobileRoutes(app, deps) {
     };
 
     try {
+      let streamed = false;
       const completion = await completeChatRequest(req, deps, {
         onToken(token) {
+          streamed = true;
           writeEvent({ token });
         }
       });
+      // Floor / non-streamed path: when the voice degrades to the floor it produces no
+      // tokens via onToken. Emit the text now so a streaming client shows presence+state
+      // instead of an empty bubble (the void this whole change exists to prevent).
+      if (!streamed && completion.response) {
+        writeEvent({ token: completion.response });
+      }
       writeEvent({
         done: true,
+        degraded: completion.degraded === true,
+        presence: completion.presence || "",
+        state: completion.state || "",
         grounded: completion.grounded === true,
         model: completion.model,
         source: completion.source,
