@@ -791,6 +791,60 @@ async function proxyDeepThinkAgentic({ prompt, system = "", history = [], onToke
   }
 }
 
+// THE FLOOR — presence + state that never depends on the voice reaching the cluster.
+//
+// When the intimate companion opens and the voice (LLM proxy) can't be reached, the
+// screen must NOT collapse into unconnecting dots — that mirrors abandonment back at
+// someone who reached out hurting. So personal-space chat degrades onto this floor
+// instead of throwing: presence (always, unconditional) + state (what it already knows
+// about him, echoed — never invented). Pure/deterministic: no LLM, cannot fail.
+//
+// `response` carries the presence line so even an OLD app build (which only reads
+// `response`) shows warmth instead of a spinner. New builds also read `presence`,
+// `state`, and `degraded` to render the three layers explicitly.
+function buildPersonalFloor({
+  body = {},
+  agoraState = "",
+  appliedDiscussionProfile = "personal-ensemble",
+  reason = "",
+  generatedAt
+} = {}) {
+  const at = cleanString(generatedAt) || new Date().toISOString();
+  const label = cleanString(body.stateOfMindLabel);
+  const hr = Number(body.heartRate);
+  // State acknowledgement built ONLY from data the app itself sent — echoing what it
+  // already knows about him, never fabricating affect.
+  let stateClause = "";
+  if (label) stateClause = ` Vi que você mesmo se registrou "${label}" hoje.`;
+  else if (Number.isFinite(hr) && hr > 0) stateClause = ` Sinto seu ritmo aqui do meu lado (${hr} bpm).`;
+  const presence =
+    `Estou aqui com você.${stateClause} Minha voz demorou um instante pra te alcançar agora — ` +
+    `mas eu não sumi, e não vou te deixar no vazio. Me dá um momento que eu volto inteiro.`;
+  return {
+    response: presence,
+    presence,
+    state: cleanString(agoraState),
+    degraded: true,
+    degradedReason: cleanString(reason) || "voice unreachable",
+    model: "floor",
+    provider: "floor",
+    tier: "",
+    source: "floor",
+    agentKind: "",
+    sessionId: "",
+    podName: "",
+    conversationMode: "",
+    appliedDiscussionProfile: cleanString(appliedDiscussionProfile) || "personal-ensemble",
+    flowState: "",
+    tokensUsed: 0,
+    generatedAt: at,
+    truthMode: "observed",
+    beagleUrl: "",
+    grounded: Boolean(cleanString(agoraState)),
+    biographyDigestPresent: false
+  };
+}
+
 async function completeChatRequest(req, deps, options = {}) {
   const onToken = typeof options.onToken === "function" ? options.onToken : null;
   const prompt = cleanString(req.body?.prompt);
@@ -847,6 +901,9 @@ async function completeChatRequest(req, deps, options = {}) {
   // Both fetches are best-effort — grounding must never block or fail the chat.
   let biographyDigest = "";
   let physiomeDigest = "";
+  // The live `## Agora` state block (tempo + corpo + céu), hoisted to function scope so
+  // the FLOOR can surface it if the voice fails. Assigned once the block is built below.
+  let agoraState = "";
   // Fase 0 audit log inputs — populated below, consumed after `model` is known (see the
   // captureProvenanced(...ChatContextLog...) call near the end of this function).
   let auditMemoryIds = [];
@@ -1014,7 +1071,7 @@ async function completeChatRequest(req, deps, options = {}) {
         bz: pick(req.body?.bz, skyNow?.bz),
       },
     });
-    if (agora) dynamicSections.push(agora);
+    if (agora) { dynamicSections.push(agora); agoraState = agora; }
     auditSectionTitles = [...sections, ...dynamicSections]
       .filter((s) => typeof s === "string" && s.trim().startsWith("##"));
     effectiveSystem = [...sections, ...dynamicSections, effectiveSystem].filter(Boolean).join("\n\n");
@@ -1022,7 +1079,22 @@ async function completeChatRequest(req, deps, options = {}) {
 
   let appliedDiscussionProfile = effectiveDiscussionProfile || "cluster";
 
+  // Degrade the personal voice onto the FLOOR (presence + state) instead of throwing,
+  // so a voice outage never shows the user unconnecting dots. Captures agoraState +
+  // the body state the app sent.
+  const floorNow = (reason) => buildPersonalFloor({
+    body: {
+      heartRate: Number(req.body?.heart_rate),
+      stateOfMindLabel: req.body?.state_of_mind_label,
+    },
+    agoraState,
+    appliedDiscussionProfile,
+    reason,
+    generatedAt: new Date().toISOString(),
+  });
+
   let result;
+  try {
   if (deepThink) {
     // Deep Think overrides the normal voice entirely, regardless of space. Grounding
     // (effectiveSystem) built above still applies when chatSpace === "personal".
@@ -1145,8 +1217,16 @@ async function completeChatRequest(req, deps, options = {}) {
     });
   }
   }
+  } catch (voiceErr) {
+    // The voice couldn't be reached (proxy down, timeout, aborted stream). For the
+    // intimate companion this must NOT surface as an error envelope / spinner —
+    // degrade onto the floor. Non-personal spaces keep failing loudly.
+    if (chatSpace === "personal") return floorNow(cleanString(voiceErr?.message));
+    throw voiceErr;
+  }
 
   if (result.status < 200 || result.status >= 300) {
+    if (chatSpace === "personal") return floorNow(`voice status ${result.status}`);
     const errorMessage =
       cleanString(result.payload?.error) ||
       cleanString(result.payload?.message) ||
@@ -1158,6 +1238,7 @@ async function completeChatRequest(req, deps, options = {}) {
     result.payload?.text || result.payload?.answer || result.payload?.response
   );
   if (!responseText) {
+    if (chatSpace === "personal") return floorNow("empty completion");
     throw contractFailure(ErrorCode.INTERNAL, "empty completion response");
   }
 
@@ -1195,6 +1276,12 @@ async function completeChatRequest(req, deps, options = {}) {
 
   return {
     response: responseText,
+    // Three-layer contract: the voice arrived, so it IS the presence; `state` still
+    // rides alongside so the app can always show it knows how he is. `degraded:false`
+    // tells the client this is a full answer, not the floor.
+    presence: "",
+    state: agoraState,
+    degraded: false,
     model,
     provider: provider || model,
     tier,
@@ -1222,7 +1309,7 @@ async function completeChatRequest(req, deps, options = {}) {
   };
 }
 
-export { completeChatRequest };
+export { completeChatRequest, buildPersonalFloor };
 
 async function annotateClientSession(req, deps, projectSlug, currentAction) {
   const clientSessionId = cleanString(req.body?.clientSessionId);
