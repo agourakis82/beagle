@@ -117,6 +117,12 @@ spec:
         # voice could stream. Set to 'on' to restore the seed pass.
         - name: PROJECT_COCKPIT_PERSONAL_MUSE
           value: 'off'
+        # 2026-07-13: deep-think agentic path (proxyDeepThinkAgentic) → claude proxy on t560:9500.
+        # Code default was a TAILSCALE IP (100.103.228.8) that can change on re-auth → silent
+        # "fetch failed" 503s. Pinned to the t560 FABRIC node IP (static) for robustness. Set via
+        # kubectl set env on 2026-07-13; captured here so an apply keeps it (durable truth).
+        - name: PROJECT_COCKPIT_AGENTIC_PROXY_URL
+          value: http://10.100.100.2:9500
         # Reconciled from live 2026-07-03 (these were set via kubectl and ABSENT from IaC — an
         # apply would have dropped them). DISCUSSION_LAB/SGLANG point at the sglang glm-5.1
         # backend (currently down — separate cleanup); captured so the manifest is durable truth.
