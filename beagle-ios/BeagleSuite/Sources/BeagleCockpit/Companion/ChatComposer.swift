@@ -87,7 +87,14 @@ struct ChatComposer: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var canSend: Bool { (!trimmed.isEmpty || attachedData != nil) && !isStreaming }
+    /// Whether there's anything to send — independent of streaming state. This (not `canSend`)
+    /// decides send-vs-mic identity, so the send button never gets swapped away for the mic
+    /// mid-response just because a reply happens to still be streaming.
+    private var hasContent: Bool { !trimmed.isEmpty || attachedData != nil }
+    /// Whether tapping send would actually do anything right now. While streaming this is false,
+    /// but the send button itself stays put (disabled + dimmed) — see body — instead of
+    /// disappearing, which is what made the button look like it vanished mid-conversation.
+    private var canSend: Bool { hasContent && !isStreaming }
 
     var body: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
@@ -107,12 +114,17 @@ struct ChatComposer: View {
                     .padding(.vertical, 4)
 
                 Group {
-                    if canSend {
+                    // Identity swap keyed on CONTENT only — not streaming — so the send button
+                    // stays the send button (just disabled) while a reply streams in instead of
+                    // being replaced by the mic and appearing to disappear.
+                    if hasContent {
                         Button(action: send) {
                             Image(systemName: "arrow.up.circle.fill")
                                 .font(.system(size: 28))
-                                .foregroundStyle(BeagleTheme.truthObserved)
+                                .foregroundStyle(canSend ? BeagleTheme.truthObserved : BeagleTheme.textSecondary)
                         }
+                        .disabled(!canSend)
+                        .opacity(canSend ? 1 : 0.45)
                         .accessibilityLabel("Enviar")
                     } else {
                         Button(action: onVoice) {
@@ -125,7 +137,8 @@ struct ChatComposer: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .animation(.snappy(duration: 0.2), value: canSend)
+                .animation(.snappy(duration: 0.2), value: hasContent)
+                .animation(.snappy(duration: 0.15), value: canSend)
             }
         }
         .padding(.vertical, BeagleSpacing.xs)
