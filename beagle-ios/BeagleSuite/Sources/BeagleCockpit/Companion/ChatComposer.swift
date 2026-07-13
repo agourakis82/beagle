@@ -87,13 +87,18 @@ struct ChatComposer: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    /// Whether there's anything to send — independent of streaming state. This (not `canSend`)
-    /// decides send-vs-mic identity, so the send button never gets swapped away for the mic
-    /// mid-response just because a reply happens to still be streaming.
+    /// Whether there's anything to send — independent of streaming state.
     private var hasContent: Bool { !trimmed.isEmpty || attachedData != nil }
-    /// Whether tapping send would actually do anything right now. While streaming this is false,
-    /// but the send button itself stays put (disabled + dimmed) — see body — instead of
-    /// disappearing, which is what made the button look like it vanished mid-conversation.
+    /// Whether tapping the button would actually send right now. While streaming this is
+    /// false, but — see body — the button itself never disables its *identity*, only whether
+    /// the tap does anything; the glyph swap (arrow ⇄ mic) and the streaming state are both
+    /// just modifiers on ONE persistent Button, never a structural if/else. An if/else here
+    /// was the real remaining "disappears" bug (beyond the streaming case fixed in 0c32ddd):
+    /// it destroys and recreates the Button every time `hasContent` flips — which happens
+    /// constantly (typing then deleting back to empty, or `text` clearing the instant Send is
+    /// tapped) — and that structural swap, combined with per-branch `.animation`/`.opacity`
+    /// modifiers, could race and land on a blank frame mid cross-fade. A single Button that
+    /// only ever changes its icon/action in place cannot do that.
     private var canSend: Bool { hasContent && !isStreaming }
 
     var body: some View {
@@ -113,32 +118,31 @@ struct ChatComposer: View {
                     .focused($focused)
                     .padding(.vertical, 4)
 
-                Group {
-                    // Identity swap keyed on CONTENT only — not streaming — so the send button
-                    // stays the send button (just disabled) while a reply streams in instead of
-                    // being replaced by the mic and appearing to disappear.
-                    if hasContent {
-                        Button(action: send) {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundStyle(canSend ? BeagleTheme.truthObserved : BeagleTheme.textSecondary)
+                // ONE persistent Button — send-vs-mic is just which icon/action it wears right
+                // now, never a structural if/else. (See `canSend`'s doc comment: the old
+                // if/else identity-swap was the real remaining disappearing bug.) Streaming is
+                // shown as a quiet ring around the still full-opacity arrow, not a gray dim —
+                // the button is never hidden and never looks "broken".
+                Button(action: hasContent ? send : onVoice) {
+                    ZStack {
+                        if hasContent && isStreaming {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .tint(BeagleTheme.truthObserved.opacity(0.7))
+                                .scaleEffect(1.25)
                         }
-                        .disabled(!canSend)
-                        .opacity(canSend ? 1 : 0.45)
-                        .accessibilityLabel("Enviar")
-                    } else {
-                        Button(action: onVoice) {
-                            Image(systemName: "mic.fill")
-                                .font(.system(size: 20))
-                                .foregroundStyle(BeagleTheme.textSecondary)
-                                .frame(width: 30, height: 30)
-                        }
-                        .accessibilityLabel("Voz")
+                        Image(systemName: hasContent ? "arrow.up.circle.fill" : "mic.fill")
+                            .font(.system(size: hasContent ? 28 : 20))
+                            .foregroundStyle(hasContent ? BeagleTheme.truthObserved : BeagleTheme.textSecondary)
+                            .contentTransition(.symbolEffect(.replace))
                     }
+                    .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.plain)
+                .disabled(hasContent && !canSend)
+                .accessibilityLabel(hasContent ? (isStreaming ? "Enviando" : "Enviar") : "Voz")
                 .animation(.snappy(duration: 0.2), value: hasContent)
-                .animation(.snappy(duration: 0.15), value: canSend)
+                .animation(.snappy(duration: 0.2), value: isStreaming)
             }
         }
         .padding(.vertical, BeagleSpacing.xs)
