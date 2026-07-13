@@ -137,6 +137,7 @@ struct ChatComposer: View {
                             .contentTransition(.symbolEffect(.replace))
                     }
                     .frame(width: 34, height: 34)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(hasContent && !canSend)
