@@ -20,10 +20,12 @@ echo "$r" | grep -q '"grounded":true' && line "2 companion (personal)" "GREEN" |
 r=$(curl -s -m175 -X POST "$EXT/api/mobile/v1/chat" -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -d '{"prompt":"Cite one paper linking network curvature to brain connectivity.","space":"personal","deepThink":true}')
 echo "$r" | grep -qiE 'http|doi|[0-9]{4}\)' && line "3 deep-think cites" "GREEN" || { line "3 deep-think cites" "RED"; fail=1; }
 
-# 4. memory recall (ORC + Sounio present)
-orc=$(kubectl -n $NS exec memory-pg-0 -- sh -lc "psql -U memory -d memory -tAc \"SELECT count(*) FROM records WHERE content ~* 'ollivier|hyperbolic|HSN'\"" 2>/dev/null | tr -d '[:space:]')
-sou=$(kubectl -n $NS exec memory-pg-0 -- sh -lc "psql -U memory -d memory -tAc \"SELECT count(*) FROM records WHERE content ~* 'sounio|souc|tapestry'\"" 2>/dev/null | tr -d '[:space:]')
-{ [ "${orc:-0}" -gt 0 ] && [ "${sou:-0}" -gt 0 ]; } && line "4 memory recall" "GREEN (orc=$orc sounio=$sou)" || { line "4 memory recall" "RED (orc=${orc:-?} sounio=${sou:-?})"; fail=1; }
+# 4. memory recall (ORC + Sounio present) — DB re-homed to DGX Spark .24 (2026-07-13, off stalled Ceph).
+#    Query the ACTIVE store on the Spark, NOT the now-stale Ceph pod memory-pg-0.
+SPARKQ="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=6 -o BatchMode=yes -i $HOME/.ssh/id_ed25519 demetrios@192.168.3.24 docker exec beagle-memory-pg"
+orc=$($SPARKQ psql -U memory -d memory -tAc "SELECT count(*) FROM records WHERE content ~* 'ollivier|hyperbolic|HSN'" 2>/dev/null | tr -d '[:space:]')
+sou=$($SPARKQ psql -U memory -d memory -tAc "SELECT count(*) FROM records WHERE content ~* 'sounio|souc|tapestry'" 2>/dev/null | tr -d '[:space:]')
+{ [ "${orc:-0}" -gt 0 ] && [ "${sou:-0}" -gt 0 ]; } && line "4 memory recall (Spark)" "GREEN (orc=$orc sounio=$sou)" || { line "4 memory recall (Spark)" "RED (orc=${orc:-?} sounio=${sou:-?})"; fail=1; }
 
 # 5. claude proxy up (deep-think brain)
 c=$(curl -s -m8 -o /dev/null -w '%{http_code}' http://127.0.0.1:9500/v1/models)
