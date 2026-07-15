@@ -83,6 +83,7 @@
 		C7FB16C8609C0B478FA7DAD2 /* ExocortexTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = 148676E7FD99D57EF0457448 /* ExocortexTools.swift */; };
 		CAB18C9B9AA87C72B1B91BE4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
 		D2FC298403B665481570A770 /* SampleBoxRenderer in Frameworks */ = {isa = PBXBuildFile; productRef = 70FCFF1DA548BBBF49CBAFB7 /* SampleBoxRenderer */; };
+		C27DD84313C1C873498CA053 /* DailySynthesisView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16BCC6784B8C5B1DA795A1A9 /* DailySynthesisView.swift */; };
 		DBDE230C56BD951ED91BCF5C /* ThoughtCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */; };
 		DC905A79099605C79BAFCD31 /* ControlRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19225CC4B80CE9408A68022 /* ControlRoomView.swift */; };
 		E380C5A65B4379A937CB79DE /* ChatComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAEDA7BA713E365355EC3D94 /* ChatComposer.swift */; };
@@ -139,6 +140,7 @@
 		116495C07A91879581E756AF /* MindPalaceSpatialDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MindPalaceSpatialDeskView.swift; sourceTree = "<group>"; };
 		148676E7FD99D57EF0457448 /* ExocortexTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExocortexTools.swift; sourceTree = "<group>"; };
 		1627EC91F819B45D2929869B /* MetalClusterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalClusterView.swift; sourceTree = "<group>"; };
+		16BCC6784B8C5B1DA795A1A9 /* DailySynthesisView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailySynthesisView.swift; sourceTree = "<group>"; };
 		180E9B8412BB43C5DE2DB991 /* ThoughtCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThoughtCaptureView.swift; sourceTree = "<group>"; };
 		189F9DCDE0C15DEF48A24B21 /* ChatBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatBubbleView.swift; sourceTree = "<group>"; };
 		1A6266364731B5C6EF907DE7 /* SpatialThoughtsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialThoughtsView.swift; sourceTree = "<group>"; };
@@ -281,6 +283,7 @@
 				D4E5BFBC8407D4C833BA3F95 /* CognitiveStateView.swift */,
 				E19225CC4B80CE9408A68022 /* ControlRoomView.swift */,
 				639809058407AA2A7F31CBFA /* ConversationView.swift */,
+				16BCC6784B8C5B1DA795A1A9 /* DailySynthesisView.swift */,
 				57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */,
 				4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */,
 				95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */,
@@ -662,6 +665,7 @@
 				742ABE528AA4B9ED1469FF13 /* Constants.swift in Sources */,
 				DC905A79099605C79BAFCD31 /* ControlRoomView.swift in Sources */,
 				E73BE34C11A09D57EE250508 /* ConversationView.swift in Sources */,
+				C27DD84313C1C873498CA053 /* DailySynthesisView.swift in Sources */,
 				4DA6AD62DD347FAACCB96433 /* DeepExplorationView.swift in Sources */,
 				558DF95BA7821C7D9511DA64 /* DiagnosticsRunner.swift in Sources */,
 				FD773EBDECB3C46EB77F7469 /* DiagnosticsView.swift in Sources */,
@@ -875,7 +879,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 54;
+				CURRENT_PROJECT_VERSION = 56;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -945,7 +949,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 54;
+				CURRENT_PROJECT_VERSION = 56;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

@@ -25,6 +25,7 @@ struct ThoughtCaptureView: View {
     @State private var composerTimeline: [ChatMemoryTimelineEvent] = []
     @State private var showingThinkingAloud = false
     @State private var showingVisualEvidence = false
+    @State private var showingDailySynthesis = false
     @State private var lastRefined: String?
     @State private var lastTranslation: String?
     @State private var refinedPersisted = false
@@ -123,6 +124,9 @@ struct ThoughtCaptureView: View {
             VisualEvidenceCaptureView(projectSlug: cognitive.activeProjectSlug ?? "sounio") { candidates in
                 Task { await promoteCaptureCandidates(candidates, sourceSurface: "beagle-ios-visual-evidence") }
             }
+        }
+        .sheet(isPresented: $showingDailySynthesis) {
+            DailySynthesisView(captureLines: cognitive.todaysCaptureLines())
         }
         .translationTask(TranslationEngine.shared.activeConfiguration) { session in
             let batch = TranslationEngine.shared.drainPending()
@@ -369,12 +373,29 @@ struct ThoughtCaptureView: View {
     private var recentThoughtsSection: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
             if !cognitive.recentThoughts.isEmpty {
-                Text("Recent")
-                    .font(BeagleFont.caption.font)
-                    .fontWeight(.medium)
-                    .foregroundStyle(BeagleTheme.textTertiary)
-                    .textCase(.uppercase)
-                    .tracking(0.5)
+                HStack(spacing: BeagleSpacing.xs) {
+                    Text("Recent")
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+
+                    Spacer()
+
+                    if !cognitive.todaysCaptureLines().isEmpty {
+                        Button {
+                            showingDailySynthesis = true
+                        } label: {
+                            PresencePill(
+                                label: "Sintetizar hoje",
+                                systemImage: "sparkles.rectangle.stack",
+                                tint: BeagleTheme.truthRemembered
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
 
                 ForEach(cognitive.recentThoughts.prefix(10)) { thought in
                     let thoughtText = thought.refinedText ?? thought.rawText ?? ""

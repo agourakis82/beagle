@@ -1564,7 +1564,8 @@ public actor BeagleClient {
         dst: Double? = nil,
         solarWind: Double? = nil,
         bz: Double? = nil,
-        voiceModel: String? = nil
+        voiceModel: String? = nil,
+        deepThink: Bool = false
     ) -> AsyncThrowingStream<String, Error> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1600,6 +1601,11 @@ public actor BeagleClient {
         // (e.g. "Pensar" → glm-5.2). nil → server default voice ("Rápido").
         if let voiceModel, !voiceModel.isEmpty {
             body["voiceModel"] = voiceModel
+        }
+        // Deep-think gear: asks the server to route this turn through the grounded/agentic
+        // path (web + cluster + fs tools) instead of the fast conversational default.
+        if deepThink {
+            body["deepThink"] = true
         }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
                             kp: kp, dst: dst, solarWind: solarWind, bz: bz)
