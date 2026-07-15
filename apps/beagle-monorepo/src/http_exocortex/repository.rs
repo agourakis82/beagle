@@ -4000,7 +4000,7 @@ impl ExocortexRepository {
         if dual {
             if let Some(kind) = mirrored {
                 if let Ok(v) = serde_json::to_value(value) {
-                    spawn_memory_pg_dual_write(kind, v);
+                    spawn_memory_pg_dual_write(self.clone(), kind, v);
                 }
             }
         }
@@ -4207,8 +4207,13 @@ impl ExocortexRepository {
 // When `BEAGLE_DUAL_WRITE_MEMORY_PG` is on, every canonical JSONL append of a
 // mirrored record kind is ALSO POSTed to memory-pg's `/capture` endpoint, which
 // runs the same extraction the migration backfill uses (so dual-write and the
-// backfill produce identical rows). This is strictly additive and best-effort:
-// the POST is fire-and-forget and a failure never affects the canonical write.
+// backfill produce identical rows). This is strictly additive: the POST runs
+// in a background task and a failure never blocks or fails the canonical
+// write, but it is no longer fire-and-forget in the sense of silently
+// swallowing errors — a failed POST is retried once, and if it still fails
+// the record is logged at error! and dead-lettered into the failed-writes
+// inbox (FAILED_WRITES_LOG) so it can be inspected/rescued instead of
+// vanishing without a trace.
 // ---------------------------------------------------------------------------
 
 fn memory_pg_dual_write_enabled() -> bool {
@@ -4252,16 +4257,27 @@ fn memory_pg_dual_write_kind(file_name: &str) -> Option<&'static str> {
     }
 }
 
-/// Fire-and-forget POST `{ kind, record }` to memory-pg `/capture`. Only runs
-/// when a tokio runtime is active (the HTTP handlers); on a sync/test call site
-/// with no runtime it is a silent no-op. Never panics, never blocks.
-fn spawn_memory_pg_dual_write(kind: &'static str, record: serde_json::Value) {
+/// POST `{ kind, record }` to memory-pg `/capture`, retrying once on a
+/// transient failure. Only runs when a tokio runtime is active (the HTTP
+/// handlers); on a sync/test call site with no runtime it is a silent no-op.
+/// Never panics, never blocks the caller — but a failure that survives the
+/// retry is no longer swallowed: it is logged at `error!` and dead-lettered
+/// into the existing failed-writes inbox (`FAILED_WRITES_LOG`, the same
+/// append-only log backing `GET/POST /api/exocortex/v1/failed-writes` and
+/// `/failed-writes/rescue`) so the capture can be inspected/rescued instead of
+/// vanishing without a trace.
+fn spawn_memory_pg_dual_write(repo: ExocortexRepository, kind: &'static str, record: serde_json::Value) {
     let base = match std::env::var("MEMORY_PG_CAPTURE_URL") {
         Ok(u) if !u.trim().is_empty() => u,
         _ => return,
     };
     let token = std::env::var("MEMORY_PG_INGEST_TOKEN").unwrap_or_default();
     let url = format!("{}/capture", base.trim_end_matches('/'));
+    let record_id = record
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
     let body = serde_json::json!({ "kind": kind, "record": record });
     let handle = match tokio::runtime::Handle::try_current() {
         Ok(h) => h,
@@ -4269,19 +4285,72 @@ fn spawn_memory_pg_dual_write(kind: &'static str, record: serde_json::Value) {
     };
     handle.spawn(async move {
         let client = reqwest::Client::new();
-        let mut req = client
-            .post(&url)
-            .timeout(std::time::Duration::from_secs(10))
-            .json(&body);
-        if !token.is_empty() {
-            req = req.bearer_auth(token);
-        }
-        match req.send().await {
-            Ok(resp) if !resp.status().is_success() => {
-                tracing::warn!("dual-write memory-pg {kind}: HTTP {}", resp.status());
+        let mut last_error: Option<String> = None;
+        // One attempt plus one retry: transient network/5xx hiccups against
+        // memory-pg should not need to lose the capture.
+        for attempt in 1..=2 {
+            let mut req = client
+                .post(&url)
+                .timeout(std::time::Duration::from_secs(10))
+                .json(&body);
+            if !token.is_empty() {
+                req = req.bearer_auth(&token);
             }
-            Err(e) => tracing::warn!("dual-write memory-pg {kind} failed: {e}"),
-            _ => {}
+            match req.send().await {
+                Ok(resp) if resp.status().is_success() => return,
+                Ok(resp) => {
+                    let msg = format!("HTTP {}", resp.status());
+                    if attempt == 1 {
+                        tracing::warn!(
+                            "dual-write memory-pg {kind} id={record_id}: {msg}, retrying once"
+                        );
+                    }
+                    last_error = Some(msg);
+                }
+                Err(e) => {
+                    if attempt == 1 {
+                        tracing::warn!(
+                            "dual-write memory-pg {kind} id={record_id} failed: {e}, retrying once"
+                        );
+                    }
+                    last_error = Some(e.to_string());
+                }
+            }
+        }
+
+        let reason = last_error.unwrap_or_else(|| "unknown error".to_string());
+        tracing::error!(
+            "dual-write memory-pg {kind} id={record_id} failed after retry, dead-lettering: {reason}"
+        );
+        let now = Utc::now().to_rfc3339();
+        let item = FailedWriteInboxItem {
+            id: stable_id(
+                "failed-write",
+                &["memory_pg_dual_write", kind, &record_id, &now],
+            ),
+            created_at: now.clone(),
+            updated_at: now,
+            status: "observed".to_string(),
+            reason: format!("memory_pg_dual_write_failed: {reason}"),
+            source_platform: "beagle".to_string(),
+            source_surface: "memory_pg_dual_write".to_string(),
+            principal: "system".to_string(),
+            summary: format!(
+                "Dual-write to memory-pg /capture failed for {kind} id={record_id}"
+            ),
+            privacy_class: normalize_privacy_class(None),
+            payload_kind: kind.to_string(),
+            retry_eligible: true,
+            artifact_refs: Vec::new(),
+            candidate_refs: Vec::new(),
+            metadata: body,
+            rescue_memory_event_id: None,
+            rescue_audit_event_id: None,
+        };
+        if let Err(e) = repo.append_jsonl(FAILED_WRITES_LOG, &item) {
+            tracing::error!(
+                "dual-write memory-pg {kind} id={record_id}: failed to dead-letter into {FAILED_WRITES_LOG}: {e}"
+            );
         }
     });
 }
