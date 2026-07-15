@@ -10,14 +10,21 @@
 #   - namespace beagle, StorageClass ceph-rbd-ssd
 #   - tolerations for the tainted compute/gpu-batch nodes
 #   - seccompProfile Unconfined (default blocks socketpair -> asyncio crash)
-# The `memory-pg` Secret (POSTGRES_PASSWORD + DATABASE_URL) is created OUT-OF-BAND
-# and is NEVER committed to git. Create/rotate it with:
-#   PW=$(openssl rand -hex 24)
+# ⚠️ 2026-07: memory-pg was RE-HOMED off this Ceph StatefulSet to a Docker container on the
+# DGX Spark (192.168.3.24:5433, image paradedb/paradedb:pg16 — pgvector needs ParadeDB BM25
+# for the hybrid recall). This StatefulSet is now a RETIRED cold-spare (replicas: 0 below, PVC
+# Retain). See memory project_memory_pg_wal_stall_20260713. The CANONICAL topology lives in
+# topology-configmap.yaml (memory-pg-topology) and drift-check-cronjob.yaml guards it.
+# The `memory-pg` Secret (POSTGRES_PASSWORD + DATABASE_URL) is created OUT-OF-BAND, NEVER in git.
+# To recreate/rotate it, SOURCE THE HOST/PORT FROM THE TOPOLOGY ConfigMap — never hardcode the
+# dead Ceph DNS (doing so silently reverts the companion's memory to the stale spare):
+#   H=$(kubectl -n beagle get cm memory-pg-topology -o jsonpath='{.data.MEMORY_PG_HOST}')
+#   P=$(kubectl -n beagle get cm memory-pg-topology -o jsonpath='{.data.MEMORY_PG_PORT}')
+#   PW=<the live memory user password on that host>   # NOT regenerated — must match the Spark DB
 #   kubectl -n beagle create secret generic memory-pg \
 #     --from-literal=POSTGRES_PASSWORD="$PW" \
-#     --from-literal=DATABASE_URL="postgresql://memory:$PW@memory-pg.beagle.svc.cluster.local:5432/memory" \
+#     --from-literal=DATABASE_URL="postgresql://memory:$PW@$H:$P/memory" \
 #     --dry-run=client -o yaml | kubectl -n beagle apply -f -
-# The StatefulSet below consumes it via secretKeyRef (POSTGRES_PASSWORD).
 ---
 # Headless service — stable per-pod DNS for the StatefulSet.
 apiVersion: v1
@@ -69,9 +76,19 @@ metadata:
   namespace: beagle
   labels:
     app: memory-pg
+  annotations:
+    beagle.dev/role: retired-fallback
+    beagle.dev/superseded-by: "dgx-spark-192.168.3.24:5433 (paradedb/paradedb:pg16)"
+    beagle.dev/superseded-date: "2026-07"
+    beagle.dev/note: >-
+      RETIRED cold spare. memory-pg lives on the DGX Spark now (see topology-configmap.yaml).
+      PVC is Retain — data intact on Ceph. Do NOT scale up without deliberately re-pointing the
+      memory-pg Secret DATABASE_URL back at this pod; scaling up alone does nothing (consumers
+      read the Secret DSN → Spark). Revert only for a true Spark-loss fallback.
 spec:
   serviceName: memory-pg-headless
-  replicas: 1
+  # 0 = retired (re-homed to DGX Spark). Reversible: kubectl -n beagle scale sts memory-pg --replicas=1
+  replicas: 0
   selector:
     matchLabels:
       app: memory-pg

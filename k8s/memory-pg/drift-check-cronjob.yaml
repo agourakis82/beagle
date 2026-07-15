@@ -1,0 +1,46 @@
+# Drift guard for the memory-pg re-home. Every 15 min it confirms the live routing Secret's
+# DATABASE_URL host:port still matches the canonical topology ConfigMap (the DGX Spark), and that
+# the retired Ceph StatefulSet is still at 0 replicas. On mismatch it exits non-zero → a Failed
+# Job (visible via `kubectl -n beagle get jobs` / the CronJob's failedJobsHistoryLimit) so a
+# silent regression back to the dead Ceph pod surfaces within one interval instead of never.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: memory-pg-drift-check
+  namespace: beagle
+  labels:
+    app: memory-pg
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 120
+      template:
+        spec:
+          serviceAccountName: memory-pg-drift-check
+          restartPolicy: Never
+          tolerations:
+            - { effect: NoSchedule, key: sounio.dev/compute, operator: Equal, value: heavy }
+            - { effect: NoSchedule, key: sounio.dev/pool, operator: Equal, value: gpu-batch }
+          containers:
+            - name: drift-check
+              image: bitnami/kubectl:latest
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  WANT_H=$(kubectl -n beagle get cm memory-pg-topology -o jsonpath='{.data.MEMORY_PG_HOST}')
+                  WANT_P=$(kubectl -n beagle get cm memory-pg-topology -o jsonpath='{.data.MEMORY_PG_PORT}')
+                  DSN=$(kubectl -n beagle get secret memory-pg -o jsonpath='{.data.DATABASE_URL}' | base64 -d)
+                  # extract host:port from postgresql://user:pw@HOST:PORT/db
+                  HP=$(printf '%s' "$DSN" | sed -E 's|.*@([^/]+)/.*|\1|')
+                  GOT_H=${HP%%:*}; GOT_P=${HP##*:}
+                  REPL=$(kubectl -n beagle get sts memory-pg -o jsonpath='{.spec.replicas}')
+                  echo "topology want=$WANT_H:$WANT_P  live DSN=$GOT_H:$GOT_P  ceph-sts-replicas=$REPL"
+                  FAIL=0
+                  [ "$GOT_H" = "$WANT_H" ] && [ "$GOT_P" = "$WANT_P" ] || { echo "DRIFT DETECTED: routing DSN is NOT the canonical Spark topology"; FAIL=1; }
+                  [ "${REPL:-0}" = "0" ] || { echo "DRIFT DETECTED: retired Ceph StatefulSet memory-pg has replicas>0 ($REPL)"; FAIL=1; }
+                  [ "$FAIL" = "0" ] && echo "OK: memory-pg routing pinned to Spark, Ceph STS retired." || exit 1

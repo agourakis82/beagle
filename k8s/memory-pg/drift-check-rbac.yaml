@@ -1,0 +1,41 @@
+# Least-privilege RBAC for the memory-pg drift-check CronJob: get-only on the topology ConfigMap,
+# the routing Secret, and the retired StatefulSet. Mirrors the pattern in
+# k8s/project-cockpit/darwin-hpc-adapter-secret-role.yaml.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: memory-pg-drift-check
+  namespace: beagle
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: memory-pg-drift-check
+  namespace: beagle
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["memory-pg"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["memory-pg-topology"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    resourceNames: ["memory-pg"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: memory-pg-drift-check
+  namespace: beagle
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: memory-pg-drift-check
+subjects:
+  - kind: ServiceAccount
+    name: memory-pg-drift-check
+    namespace: beagle

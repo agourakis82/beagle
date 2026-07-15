@@ -1,0 +1,15 @@
+# CANONICAL memory-pg topology pin (non-secret host/port only — password stays out-of-band).
+# memory-pg was re-homed off Ceph to the DGX Spark 2026-07 (paradedb/paradedb:pg16). This is the
+# tracked source of truth: any Secret recreation runbook + the drift-check CronJob read from here.
+# See project_memory_pg_wal_stall_20260713. If the DB ever moves again, change it HERE and re-apply.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: memory-pg-topology
+  namespace: beagle
+  labels:
+    app: memory-pg
+data:
+  MEMORY_PG_HOST: "192.168.3.24"
+  MEMORY_PG_PORT: "5433"
+  MEMORY_PG_BACKEND: "dgx-spark-docker-paradedb-pg16"

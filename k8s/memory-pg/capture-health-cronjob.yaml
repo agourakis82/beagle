@@ -1,0 +1,55 @@
+# Capture heartbeat. The thought-capture dual-write is fire-and-forget: for weeks it failed
+# silently (the read_recent_jsonl 500 bug, fixed 2026-07-15 commit 27e9f554) and nothing surfaced.
+# This CronJob every 30 min checks that the Apple capture surface (source_platform=beagle-apple,
+# i.e. the "Capturar pensamento" drawer + Apple auto-imports) is still landing rows in memory-pg,
+# and FAILS its Job (visible via `kubectl -n beagle get jobs`) if the surface has been SILENT for
+# >7 days. NOTE: it is EXPECTED to fail on first runs until a real drawer capture lands post-fix —
+# that failing state IS the detector working; it clears the moment captures resume.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: memory-pg-capture-health
+  namespace: beagle
+  labels:
+    app: memory-pg
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 120
+      template:
+        spec:
+          restartPolicy: Never
+          tolerations:
+            - { effect: NoSchedule, key: sounio.dev/compute, operator: Equal, value: heavy }
+            - { effect: NoSchedule, key: sounio.dev/pool, operator: Equal, value: gpu-batch }
+          containers:
+            - name: capture-health
+              image: postgres:16-alpine
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: memory-pg
+                      key: DATABASE_URL
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  R=$(psql "$DATABASE_URL" -tAc "
+                    SELECT
+                      coalesce(to_char(max(occurred_at),'YYYY-MM-DD HH24:MI'),'never') || '|' ||
+                      count(*) FILTER (WHERE occurred_at > now() - interval '7 days') || '|' ||
+                      count(*)
+                    FROM records
+                    WHERE metadata->'provenance'->>'source_platform' = 'beagle-apple';")
+                  LAST=${R%%|*}; REST=${R#*|}; LAST7=${REST%%|*}; TOTAL=${REST#*|}
+                  echo "beagle-apple captures: last=$LAST  last7d=$LAST7  total=$TOTAL"
+                  if [ "${LAST7:-0}" = "0" ]; then
+                    echo "CAPTURE SILENCE: no beagle-apple captures in 7 days (last: $LAST). Drawer capture may be broken again — check beagle-core assisted-import 500s + the fire-and-forget dual-write."
+                    exit 1
+                  fi
+                  echo "OK: Apple capture surface is landing rows."
