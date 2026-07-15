@@ -4019,12 +4019,29 @@ impl ExocortexRepository {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let mut values = Vec::new();
-        for line in reader.lines() {
+        for (idx, line) in reader.lines().enumerate() {
             let line = line?;
             if line.trim().is_empty() {
                 continue;
             }
-            values.push(serde_json::from_str::<T>(&line)?);
+            match serde_json::from_str::<T>(&line) {
+                Ok(value) => values.push(value),
+                Err(err) => {
+                    // A single malformed historical line (e.g. a torn append or
+                    // a control-character-corrupted record from a concurrent
+                    // write) must NEVER abort the whole read: doing so would make
+                    // every future operation that reads this log — including every
+                    // memory capture — fail with HTTP 500. Skip + warn instead so
+                    // the corrupt line is quarantined but the rest of the log
+                    // remains fully usable.
+                    tracing::warn!(
+                        file = %file_name,
+                        line = idx + 1,
+                        error = %err,
+                        "read_recent_jsonl: skipping malformed JSONL line"
+                    );
+                }
+            }
         }
         values.reverse();
         values.truncate(limit);
