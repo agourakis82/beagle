@@ -1,0 +1,20 @@
+# Stable in-cluster address for the memory-pg standby (StatefulSet memory-pg-standby, on t560).
+# Normally UNUSED — the 6 consumers point at the Spark primary (secret memory-pg DATABASE_URL,
+# 192.168.3.24:5433). This Service exists so that on failover, `pg_promote` + repointing the DSN
+# at memory-pg-standby.beagle.svc:5432 gives a stable name instead of a pod IP that can change.
+# Driven by scripts/memory-pg-failover.sh. See project_memory_pg_durability.
+apiVersion: v1
+kind: Service
+metadata:
+  name: memory-pg-standby
+  namespace: beagle
+  labels:
+    app: memory-pg-standby
+    beagle.dev/role: durability-standby
+spec:
+  selector:
+    app: memory-pg-standby
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
