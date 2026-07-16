@@ -1,0 +1,86 @@
+# Live streaming standby of the memory-pg primary (DGX Spark .24). Runs on t560 (a SEPARATE
+# physical node) with its data on t560's /data (1.4TB). It pg_basebackups the primary once, then
+# streams WAL continuously (RPO~0), consuming the physical slot 't560_standby' on the primary.
+# If the Spark dies, this is a hot copy: promote it (`pg_ctl promote` / touch a trigger) and repoint
+# the memory-pg Secret DATABASE_URL at it. Pairs with backup-cronjob.yaml (point-in-time net).
+# See project_memory_pg_wal_stall_20260713. NOTE: paradedb/paradedb:pg16 = same image as primary
+# (binary + extension compat required for a physical replica).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: memory-pg-standby
+  namespace: beagle
+  labels:
+    app: memory-pg-standby
+spec:
+  serviceName: memory-pg-standby
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memory-pg-standby
+  template:
+    metadata:
+      labels:
+        app: memory-pg-standby
+      annotations:
+        container.apparmor.security.beta.kubernetes.io/postgres: unconfined
+        container.apparmor.security.beta.kubernetes.io/basebackup: unconfined
+    spec:
+      nodeName: t560-proxmox
+      tolerations:
+        - { effect: NoSchedule, key: node-role.kubernetes.io/control-plane, operator: Exists }
+        - { effect: NoSchedule, key: sounio.dev/compute, operator: Equal, value: heavy }
+        - { effect: NoSchedule, key: sounio.dev/pool, operator: Equal, value: gpu-batch }
+      securityContext:
+        seccompProfile: { type: Unconfined }
+      initContainers:
+        # 1) hostPath /data/memory-pg-standby is root-owned; postgres runs as uid 999.
+        - name: chown-data
+          image: busybox:1.36
+          command: ["sh","-c","mkdir -p /pgdata && chown -R 999:999 /pgdata && chmod 700 /pgdata"]
+          securityContext: { runAsUser: 0 }
+          volumeMounts: [{ name: pgdata, mountPath: /pgdata }]
+        # 2) one-time base backup from the primary; idempotent (skips if already initialized).
+        - name: basebackup
+          image: paradedb/paradedb:pg16
+          securityContext: { runAsUser: 999 }
+          env:
+            - name: REPLPW
+              valueFrom: { secretKeyRef: { name: memory-pg-replication, key: password } }
+          command: ["sh","-c"]
+          args:
+            - |
+              set -eu
+              PGDATA=/var/lib/postgresql/data
+              if [ -s "$PGDATA/PG_VERSION" ]; then
+                echo "PGDATA already initialized — skipping base backup (streaming will resume)"; exit 0
+              fi
+              echo "base-backing up primary 192.168.3.24:5433 -> $PGDATA"
+              export PGPASSWORD="$REPLPW"
+              pg_basebackup -h 192.168.3.24 -p 5433 -U replicator -D "$PGDATA" -Fp -Xs -c fast -P
+              # streaming standby config (with password; slot on the primary)
+              touch "$PGDATA/standby.signal"
+              printf "primary_conninfo = 'host=192.168.3.24 port=5433 user=replicator password=%s application_name=t560_standby'\nprimary_slot_name = 't560_standby'\n" "$REPLPW" >> "$PGDATA/postgresql.auto.conf"
+              echo "base backup done; standby configured"
+          volumeMounts: [{ name: pgdata, mountPath: /var/lib/postgresql/data }]
+      containers:
+        - name: postgres
+          image: paradedb/paradedb:pg16
+          securityContext: { runAsUser: 999 }
+          # run postgres directly (skip the paradedb bootstrap entrypoint — the replica already
+          # carries pg_search + all extensions from the primary's copied data dir).
+          command: ["postgres", "-D", "/var/lib/postgresql/data"]
+          ports: [{ name: postgres, containerPort: 5432 }]
+          volumeMounts: [{ name: pgdata, mountPath: /var/lib/postgresql/data }]
+          readinessProbe:
+            exec: { command: ["sh","-c","pg_isready -U postgres -h 127.0.0.1 || pg_isready -h 127.0.0.1"] }
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "500m", memory: "2Gi" }
+            limits: { cpu: "2", memory: "8Gi" }
+      volumes:
+        - name: pgdata
+          hostPath:
+            path: /data/memory-pg-standby
+            type: DirectoryOrCreate

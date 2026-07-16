@@ -1,0 +1,63 @@
+# memory-pg durable backups. The live DB is a single Docker container on the DGX Spark (.24) —
+# irreplaceable data on a single node. This CronJob pg_dumps it HOURLY to t560's /data (1.4TB,
+# a SEPARATE physical node, so a Spark/disk death does not take the backups too), with tiered
+# retention, and self-verifies each dump is restorable-shaped (pg_restore --list). Pairs with the
+# live standby (standby StatefulSet) for RPO~0 + point-in-time recovery. See project_memory_pg_wal_stall_20260713.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: memory-pg-backup
+  namespace: beagle
+  labels:
+    app: memory-pg
+spec:
+  schedule: "17 * * * *"          # hourly at :17 (offset from the drift/health checks)
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: Never
+          nodeName: t560-proxmox           # pin to t560 so the hostPath /data is the local 1.4TB volume
+          tolerations:
+            - { effect: NoSchedule, key: node-role.kubernetes.io/control-plane, operator: Exists }
+            - { effect: NoSchedule, key: sounio.dev/compute, operator: Equal, value: heavy }
+            - { effect: NoSchedule, key: sounio.dev/pool, operator: Equal, value: gpu-batch }
+          securityContext:
+            seccompProfile: { type: Unconfined }
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              env:
+                - name: DATABASE_URL
+                  valueFrom: { secretKeyRef: { name: memory-pg, key: DATABASE_URL } }
+              volumeMounts:
+                - { name: backups, mountPath: /backups }
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  cd /backups
+                  TS=$(date -u +%Y%m%dT%H%M%SZ)
+                  TMP="memory-$TS.fc.partial"; OUT="memory-$TS.fc"
+                  echo "dumping memory-pg -> /backups/$OUT"
+                  # dump to a .partial then atomic-rename, so a crashed job never leaves a half file
+                  # that looks like a good backup.
+                  pg_dump "$DATABASE_URL" -Fc -Z 3 -f "$TMP"
+                  pg_restore --list "$TMP" > /dev/null      # verify the archive TOC is readable (restorable-shaped)
+                  mv "$TMP" "$OUT"
+                  echo "OK: $OUT ($(du -h "$OUT" | cut -f1)) verified restorable-shaped"
+                  # Retention: keep the newest 168 (7 days at hourly). Count-based = robust, no date
+                  # parsing. Live standby covers RPO~0; these are the point-in-time / both-nodes-down net.
+                  rm -f memory-*.fc.partial 2>/dev/null || true
+                  ls -1t memory-*.fc | tail -n +169 | while read old; do rm -f "$old"; done
+                  echo "backups on t560:/data/memory-pg-backups (newest first):"; ls -1t memory-*.fc | head -4
+                  echo "total kept: $(ls -1 memory-*.fc | wc -l)  disk:"; df -h /backups | tail -1
+          volumes:
+            - name: backups
+              hostPath:
+                path: /data/memory-pg-backups
+                type: DirectoryOrCreate
