@@ -70,6 +70,45 @@ test("extractCandidates: privacy filter + kind selection + passage-per-turn", ()
   assert.equal(byId["passage:pa1:0"].occurred_at, "2026-02-02");
 });
 
+test("extractFromRecord: passage turns derive prov_actor from role (user_stated vs model_generated)", () => {
+  // Root-cause regression: the export-shaped ingest used to discard turns[i].role,
+  // so a user's OWN words landed as model_generated and were excluded from trusted
+  // recall. A user/human turn must be user_stated; assistant/model stays generated.
+  const cands = extractCandidates({
+    episodes: [], atoms: [], worlds: [],
+    passages: [{
+      id: "p1", privacy_class: "sensitive", occurred_at: "2026-03-03",
+      session_id: "s1", source_platform: "beagle-apple",
+      turns: [
+        { role: "user", content: "the user's own words, the ground truth" },
+        { role: "assistant", content: "the model's reply, model-authored" },
+        { role: "human", content: "human is an alias for user" },
+      ],
+    }],
+  });
+  const byId = Object.fromEntries(cands.map((c) => [c.canonical_id, c]));
+  assert.equal(byId["passage:p1:0"].prov_actor, "user_stated");
+  assert.equal(byId["passage:p1:1"].prov_actor, "model_generated");
+  assert.equal(byId["passage:p1:2"].prov_actor, "user_stated");
+});
+
+test("candidateToRecord: passage turn carries derived prov_actor; non-turn kinds leave it default", () => {
+  const [userTurn] = extractCandidates({
+    episodes: [], atoms: [], worlds: [],
+    passages: [{ id: "p", privacy_class: "sensitive", source_platform: "beagle-apple",
+      turns: [{ role: "user", content: "minha palavra" }] }],
+  });
+  assert.equal(candidateToRecord(userTurn).prov_actor, "user_stated");
+
+  // Episodes/atoms/worlds carry no role → prov_actor undefined so captureRecord
+  // applies its conservative model_generated default (behavior unchanged).
+  const [episode] = extractCandidates({
+    episodes: [{ id: "e", summary: "a model-written summary", privacy_class: "sensitive" }],
+    atoms: [], worlds: [], passages: [],
+  });
+  assert.equal(candidateToRecord(episode).prov_actor, undefined);
+});
+
 test("extractCandidates: empty / whitespace-only records produce nothing", () => {
   const cands = extractCandidates({
     episodes: [{ id: "e", summary: "   ", privacy_class: "sensitive" }],

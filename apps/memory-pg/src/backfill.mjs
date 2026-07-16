@@ -39,6 +39,17 @@ function recordText(item, kind) {
   return "";
 }
 
+// Map a conversation turn's role to a provenance actor. A user/human turn is the
+// user's OWN words (user_stated) — the ground truth of the biography — while an
+// assistant/model turn is model-authored (model_generated). Without this, every
+// turn defaulted to model_generated in captureRecord, so the user's own words were
+// stamped as if the model wrote them and then EXCLUDED from trusted recall. Mirrors
+// the live /capture_turn path in project-cockpit/server/memory-ingest.mjs.
+export function actorForTurn(role) {
+  const r = String(role || "").trim().toLowerCase();
+  return r === "user" || r === "human" ? "user_stated" : "model_generated";
+}
+
 function makeCandidate(item, kind, content, canonicalId, opts = {}) {
   return {
     canonical_id: canonicalId,
@@ -50,6 +61,9 @@ function makeCandidate(item, kind, content, canonicalId, opts = {}) {
     provenance: opts.provenance ?? item.provenance ?? {},
     source_refs: item.source_refs ?? [],
     chronoself_commit: String(item.chronoself_commit || ""),
+    // Only conversation turns carry a derived actor; other kinds leave it
+    // undefined so captureRecord applies its conservative model_generated default.
+    prov_actor: opts.prov_actor,
   };
 }
 
@@ -93,6 +107,7 @@ export function extractFromRecord(kind, item) {
         makeCandidate(item, "ConversationPassage", content, `passage:${passageId}:${i}`, {
           occurred_at,
           provenance,
+          prov_actor: actorForTurn((turns[i] || {}).role),
         }),
       );
     }
@@ -131,6 +146,8 @@ export function candidateToRecord(c) {
     content: c.content,
     occurred_at,
     privacy_class: c.privacy_class,
+    // undefined for non-turn kinds → captureRecord's model_generated default.
+    prov_actor: c.prov_actor,
     metadata: {
       canonical_id: c.canonical_id,
       kind: c.kind,
