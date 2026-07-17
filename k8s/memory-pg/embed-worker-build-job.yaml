@@ -71,7 +71,7 @@ spec:
           args:
             - "--dockerfile=/workspace/apps/memory-pg/Dockerfile"
             - "--context=dir:///workspace"
-            - "--destination=192.168.3.207:5003/memory-pg-embed-worker:p8-bf7d2ee7"
+            - "--destination=192.168.3.207:5003/memory-pg-embed-worker:p9-a1429496"
             - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"
