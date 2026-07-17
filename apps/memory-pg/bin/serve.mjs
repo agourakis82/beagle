@@ -26,6 +26,7 @@ import { makeTeiEmbedFn } from "../src/embed-worker.mjs";
 import { retrieve as defaultRetrieve } from "../src/retrieve.mjs";
 import { rerank, makeTeiRerankFn, cleanResults } from "../src/rerank.mjs";
 import { captureRecord } from "../src/capture.mjs";
+import { recentTrusted } from "../src/recent.mjs";
 import { extractFromRecord, candidateToRecord } from "../src/backfill.mjs";
 import { graphRetrieve as defaultGraphRetrieve, fuseChannels } from "../src/graph.mjs";
 
@@ -127,6 +128,21 @@ export function createApp(deps) {
       res.json({ ok: true, records: rows });
     } catch (e) {
       res.status(500).json({ error: String(e.message || e) });
+    }
+  });
+
+  // Recency-ordered pull of his TRUSTED records (trust_tier != unverified), within a
+  // day window. Feeds the no-topic synthesis path (see project-cockpit /synthesize).
+  app.get("/recent_trusted", async (req, res) => {
+    if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
+    try {
+      const results = await recentTrusted(pool, {
+        windowDays: Number(req.query.window_days) || 7,
+        limit: Number(req.query.limit) || 12,
+      });
+      res.json({ ok: true, results });
+    } catch (e) {
+      res.status(500).json({ error: String(e?.message || e) });
     }
   });
 
