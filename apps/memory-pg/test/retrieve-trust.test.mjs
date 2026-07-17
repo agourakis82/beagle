@@ -40,3 +40,17 @@ test("each hit carries its record's trust_tier", async () => {
   assert.ok(hits.length >= 1, "expected at least one hit");
   assert.equal(hits[0].trust_tier, "claimed");
 });
+
+test("trustedOnly restricts retrieval to non-unverified records (his authoritative words)", async () => {
+  await seed({ axis: 7, text: "his own words about sailing weekends", tier: "claimed" });
+  await seed({ axis: 7, text: "a model reply about sailing weekends", tier: "unverified" });
+
+  const all = await retrieve(pool, { queryEmbedding: oneHot(7), queryText: "sailing", k: 5 });
+  assert.equal(all.length, 2, "both records returned without the filter");
+
+  const trusted = await retrieve(pool, {
+    queryEmbedding: oneHot(7), queryText: "sailing", k: 5, trustedOnly: true,
+  });
+  assert.equal(trusted.length, 1, "only the trusted record survives trustedOnly");
+  assert.equal(trusted[0].trust_tier, "claimed");
+});

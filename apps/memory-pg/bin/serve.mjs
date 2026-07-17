@@ -136,6 +136,10 @@ export function createApp(deps) {
     const query = typeof body.query === "string" ? body.query.trim() : "";
     if (!query) return res.status(400).json({ error: "query (non-empty string) required" });
     const topN = Number.isFinite(Number(body.k)) && Number(body.k) > 0 ? Number(body.k) : defaultTopN;
+    // Trusted-only pass: restrict retrieval to his non-unverified records so the
+    // companion's authoritative "what he told me" grounding is filled directly from
+    // his own trusted words, not scraped from a noisy pool after top-k.
+    const trustedOnly = body.trusted_only === true;
 
     try {
       // 1. Embed the query (single text -> 1024-dim).
@@ -150,6 +154,7 @@ export function createApp(deps) {
         queryEmbedding,
         queryText: query,
         k: firstStageK,
+        trustedOnly,
       });
 
       // 2b. Graph channel (Phase 4): fuse relevant facts (vector + multi-hop) into
@@ -214,7 +219,7 @@ export function createApp(deps) {
 
       // Post-rerank sharpening: relevance floor + dedup + belt-and-suspenders
       // empty drop, so the companion is grounded only on clean, on-topic hits.
-      const results = cleanResults(
+      let results = cleanResults(
         reranked.map((c) => ({
           text: c.text,
           record_id: c.record_id,
@@ -226,6 +231,12 @@ export function createApp(deps) {
         })),
         { floor: rerankFloor },
       );
+      // On a trusted-only pass, also drop any fused graph fact that is unverified
+      // (the chunk channel was already trust-filtered at retrieve time; graph facts
+      // are fused in separately, so gate them here too).
+      if (trustedOnly) {
+        results = results.filter((r) => r.trust_tier && r.trust_tier !== "unverified");
+      }
       res.json({ ok: true, results });
     } catch (e) {
       // Best-effort: never crash the server; surface the error to the caller.

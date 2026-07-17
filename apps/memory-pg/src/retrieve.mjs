@@ -55,6 +55,12 @@ export async function retrieve(pool, opts) {
     k = 50,
     alpha = 0.7,
     halfLifeDays = {},
+    // When true, restrict BOTH channels to records whose trust_tier is not
+    // 'unverified' (a NULL tier counts as untrusted). Used to populate the
+    // companion's authoritative "what he told me" grounding directly from his own
+    // trusted words, instead of recalling the full noisy pool and filtering it
+    // down to scraps after top-k.
+    trustedOnly = false,
   } = opts;
 
   if (queryEmbedding == null) throw new Error("retrieve: queryEmbedding required");
@@ -72,7 +78,7 @@ export async function retrieve(pool, opts) {
   const hlTasks = Number(halfLife.tasks) || DEFAULT_HALF_LIFE.tasks;
 
   // $1 embedding, $2 queryText, $3 channel LIMIT, $4 RRF_K, $5 RRF_NORM,
-  // $6 alpha, $7 hlIdentity, $8 hlTasks, $9 k
+  // $6 alpha, $7 hlIdentity, $8 hlTasks, $9 k, $10 trustedOnly
   const sql = `
 WITH dense AS (
   SELECT e.chunk_id,
@@ -81,6 +87,7 @@ WITH dense AS (
   JOIN chunks c ON c.id = e.chunk_id
   JOIN records r ON r.id = c.record_id
   WHERE e.is_current
+    AND (NOT $10::bool OR COALESCE(r.trust_tier, 'unverified') <> 'unverified')
   ORDER BY e.embedding <=> $1::halfvec ASC
   LIMIT $3
 ),
@@ -88,11 +95,13 @@ bm25 AS (
   SELECT c.id AS chunk_id,
          row_number() OVER (ORDER BY paradedb.score(c.id) DESC) AS bm25_rank
   FROM chunks c
+  JOIN records r2 ON r2.id = c.record_id
   -- paradedb.match (NOT raw \`text @@@ $2\`): the query-string parser errors on
   -- Tantivy special chars in natural queries (apostrophe in "cluster's", a
   -- trailing "?", etc.). match() treats the input as analyzed terms, so any user
   -- text is safe and still scored/ranked by BM25.
   WHERE c.id @@@ paradedb.match('text', $2)
+    AND (NOT $10::bool OR COALESCE(r2.trust_tier, 'unverified') <> 'unverified')
   ORDER BY paradedb.score(c.id) DESC
   LIMIT $3
 ),
@@ -148,6 +157,7 @@ LIMIT $9;
       hlIdentity, // $7
       hlTasks, // $8
       k, // $9
+      trustedOnly, // $10
     ]);
     await client.query("COMMIT");
     return res.rows.map((row) => ({
