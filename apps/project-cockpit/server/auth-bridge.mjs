@@ -1111,6 +1111,32 @@ export async function fetchRecentMemories(query, {
   }
 }
 
+export async function fetchRecentTrusted({
+  baseUrl = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local",
+  token = process.env.MEMORY_PG_QUERY_TOKEN || "",
+  windowDays = 7,
+  limit = 12,
+  timeoutMs = 6000,
+  fetchImpl = fetch,
+} = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const headers = {};
+    if (token) headers.authorization = `Bearer ${token}`;
+    const res = await fetchImpl(
+      `${baseUrl}/recent_trusted?window_days=${Number(windowDays) || 7}&limit=${Number(limit) || 12}`,
+      { headers, signal: ctrl.signal });
+    if (!res.ok) return [];
+    const j = await res.json();
+    return Array.isArray(j?.results) ? j.results : [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function extractRouterCompletionText(payload = {}) {
   return cleanString(
     payload?.choices?.[0]?.message?.content ||

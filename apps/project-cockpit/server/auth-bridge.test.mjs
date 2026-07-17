@@ -139,3 +139,18 @@ test("fetchAgoraHistory: fail-soft → null", async () => {
   const boom = async () => { throw new Error("down"); };
   assert.equal(await fetchAgoraHistory({ baseUrl: "http://x", fetchImpl: boom, cache: false }), null);
 });
+
+import { fetchRecentTrusted } from "./auth-bridge.mjs";
+
+test("fetchRecentTrusted GETs /recent_trusted with window+limit, returns results", async () => {
+  let sentUrl = null;
+  const stub = async (url) => { sentUrl = url; return { ok: true, json: async () => ({ results: [{ text: "a" }] }) }; };
+  const out = await fetchRecentTrusted({ baseUrl: "http://x", windowDays: 5, limit: 9, fetchImpl: stub });
+  assert.match(sentUrl, /\/recent_trusted\?window_days=5&limit=9/);
+  assert.deepEqual(out, [{ text: "a" }]);
+});
+
+test("fetchRecentTrusted is fail-soft: empty array on error", async () => {
+  const stub = async () => { throw new Error("down"); };
+  assert.deepEqual(await fetchRecentTrusted({ baseUrl: "http://x", fetchImpl: stub }), []);
+});
