@@ -30,3 +30,20 @@ test("no-topic mode: pulls recent trusted by window, no semantic recall", async 
   assert.equal(memCalled, false);
   assert.deepEqual(m.trustedWords, [{ text: "pensamento recente" }]);
 });
+
+import { buildSynthesisPrompt } from "./synthesize.mjs";
+
+test("buildSynthesisPrompt: system carries the 5-block contract + provenance rule", () => {
+  const p = buildSynthesisPrompt({ mode: "topic", topic: "HSN", trustedWords: [{ text: "x" }], background: "" });
+  assert.equal(p.sufficient, true);
+  for (const h of ["## Elevator", "## Espinha", "## O que você circula", "## Perguntas abertas", "## Próximo movimento concreto"]) {
+    assert.ok(p.system.includes(h), `missing block: ${h}`);
+  }
+  assert.match(p.system, /SOMENTE o material|NUNCA invente/);
+  assert.match(p.user, /HSN/);
+});
+
+test("buildSynthesisPrompt: no material → insufficient (never confabulate)", () => {
+  const p = buildSynthesisPrompt({ mode: "topic", topic: "algo", trustedWords: [], background: "" });
+  assert.equal(p.sufficient, false);
+});
