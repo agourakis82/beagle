@@ -1083,6 +1083,10 @@ export async function fetchRecentMemories(query, {
   k = 6,
   timeoutMs = 6000,
   fetchImpl = fetch,
+  // Restrict recall to his own trusted (non-unverified) records. Used for the
+  // authoritative "what he told me" grounding so it fills from his real words
+  // directly instead of scraping a noisy pool down to a couple of scraps.
+  trustedOnly = false,
 } = {}) {
   const q = typeof query === "string" ? query.trim() : "";
   if (!q) return [];
@@ -1094,7 +1098,7 @@ export async function fetchRecentMemories(query, {
     const res = await fetchImpl(`${baseUrl}/query`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ query: q, k }),
+      body: JSON.stringify({ query: q, k, trusted_only: trustedOnly }),
       signal: ctrl.signal,
     });
     if (!res.ok) return [];

@@ -11,6 +11,20 @@ test("fetchRecentMemories returns results array on 200", async () => {
   assert.deepEqual(out, [{ text: "a", occurred_at: "2026-06-25T10:00:00Z" }]);
 });
 
+test("fetchRecentMemories passes trusted_only in the /query body when requested", async () => {
+  let sentBody = null;
+  const stub = async (_url, opts) => {
+    sentBody = JSON.parse(opts.body);
+    return { ok: true, json: async () => ({ results: [] }) };
+  };
+  await fetchRecentMemories("oi", { baseUrl: "http://x", k: 16, trustedOnly: true, fetchImpl: stub });
+  assert.equal(sentBody.trusted_only, true);
+  assert.equal(sentBody.k, 16);
+  // default stays false (background/broad recall must remain unfiltered)
+  await fetchRecentMemories("oi", { baseUrl: "http://x", fetchImpl: stub });
+  assert.equal(sentBody.trusted_only, false);
+});
+
 test("fetchRecentMemories is fail-soft: empty array on error", async () => {
   const stub = async () => { throw new Error("down"); };
   const out = await fetchRecentMemories("oi", { baseUrl: "http://x", fetchImpl: stub });

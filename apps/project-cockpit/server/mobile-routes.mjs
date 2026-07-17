@@ -942,7 +942,10 @@ async function completeChatRequest(req, deps, options = {}) {
         fetchSounioNow({ limit: 6 }),
         fetchSounioState({ limit: 1 }),
         fetchSounioRelationship({ k: 4 }),
-        fetchRecentMemories(userText, { k: 16 }),
+        // Authoritative "what he told me" grounding: trusted-only recall so it fills
+        // directly from his own claimed/corroborated words (not the noisy full pool
+        // filtered down to scraps). Background framing stays unfiltered below.
+        fetchRecentMemories(userText, { k: 16, trustedOnly: true }),
         fetchRecentConversation({ limit: 8 }),
         // Wide semantic recall over his whole recorded self — background framing, unfiltered,
         // concurrent so it adds no wall-clock. Returns a ready section string ("" on miss).
