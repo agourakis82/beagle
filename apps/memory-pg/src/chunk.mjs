@@ -8,14 +8,33 @@ function sha256hex(s) {
 }
 
 /**
- * Hard-split a single oversized string into <= maxChars pieces.
+ * Hard-split a single oversized string into <= maxChars pieces, breaking on a
+ * WORD boundary (the last whitespace in the window) so a chunk never ends
+ * mid-word. A single token longer than the window has no boundary to break on,
+ * so it falls back to a hard cut (best effort — better than losing content).
  */
 function hardSplit(s, maxChars) {
   const out = [];
-  for (let i = 0; i < s.length; i += maxChars) {
-    out.push(s.slice(i, i + maxChars));
+  let i = 0;
+  while (i < s.length) {
+    let end = i + maxChars;
+    if (end >= s.length) {
+      out.push(s.slice(i));
+      break;
+    }
+    // snap back to the last whitespace inside the window to keep words whole.
+    let cut = -1;
+    for (let j = end; j > i; j--) {
+      if (/\s/.test(s[j])) {
+        cut = j;
+        break;
+      }
+    }
+    if (cut > i) end = cut;
+    out.push(s.slice(i, end));
+    i = end;
   }
-  return out;
+  return out.map((p) => p.trim()).filter((p) => p.length > 0);
 }
 
 /**
@@ -88,8 +107,21 @@ export function chunkText(text, opts = {}) {
     if (i === 0 || overlapChars === 0) {
       finalTexts.push(packed[i]);
     } else {
-      const tail = packed[i - 1].slice(-overlapChars);
-      finalTexts.push(tail + packed[i]);
+      const prev = packed[i - 1];
+      const start = Math.max(0, prev.length - overlapChars);
+      let tail = prev.slice(start);
+      // Don't begin the overlap mid-word: if the raw slice cut into a token
+      // (the char before it AND the tail's first char are both non-space),
+      // advance past the partial token to the next word boundary. A tail with no
+      // internal whitespace is a single partial token → drop it rather than
+      // inject a fragment like "icação de leigo".
+      if (start > 0 && /\S/.test(prev[start - 1]) && /\S/.test(tail[0] || "")) {
+        const sp = tail.search(/\s/);
+        tail = sp >= 0 ? tail.slice(sp + 1) : "";
+      }
+      tail = tail.trimStart();
+      // Separator so the tail's last word and the chunk's first word don't glue.
+      finalTexts.push(tail ? tail + "\n\n" + packed[i] : packed[i]);
     }
   }
 

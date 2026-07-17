@@ -85,6 +85,37 @@ export async function rerank(query, candidates, { rerankFn, topN = 10 } = {}) {
 }
 
 /**
+ * Post-rerank sharpening of the final result list. Three cheap, order-preserving
+ * passes that keep noise out of what grounds the companion:
+ *   1. drop empty / whitespace-only text (kills blank graph facts that padded k);
+ *   2. relevance floor — drop hits scoring below `floor` instead of padding to k
+ *      with junk (a sparse query should return fewer real hits, never a zombie log);
+ *   3. dedup by normalized text (trim + lowercase + collapse whitespace), keeping
+ *      the FIRST occurrence — the input is already rerank-sorted, so that is the
+ *      highest-scored copy.
+ * `floor` only gates results that carry a numeric `rerank_score`; a result with no
+ * score is kept (never silently dropped by an inapplicable threshold).
+ *
+ * @param {Array<{text?:string, rerank_score?:number, [k:string]:any}>} results
+ * @param {{floor?:number}} [opts]
+ * @returns {Array} cleaned results, original order preserved
+ */
+export function cleanResults(results, { floor = 0 } = {}) {
+  const seen = new Set();
+  const out = [];
+  for (const r of results || []) {
+    const text = String(r?.text ?? "").trim();
+    if (!text) continue; // (1) empty / blank
+    if (r.rerank_score != null && Number(r.rerank_score) < floor) continue; // (2) floor
+    const key = text.toLowerCase().replace(/\s+/g, " "); // (3) dedup key
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
+/**
  * Build the real rerankFn that POSTs to a TEI reranker's /rerank endpoint.
  *
  * Verified TEI (text-embeddings-inference) request/response shape:

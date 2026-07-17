@@ -24,7 +24,7 @@ import express from "express";
 import { makePool } from "../src/db.mjs";
 import { makeTeiEmbedFn } from "../src/embed-worker.mjs";
 import { retrieve as defaultRetrieve } from "../src/retrieve.mjs";
-import { rerank, makeTeiRerankFn } from "../src/rerank.mjs";
+import { rerank, makeTeiRerankFn, cleanResults } from "../src/rerank.mjs";
 import { captureRecord } from "../src/capture.mjs";
 import { extractFromRecord, candidateToRecord } from "../src/backfill.mjs";
 import { graphRetrieve as defaultGraphRetrieve, fuseChannels } from "../src/graph.mjs";
@@ -82,6 +82,11 @@ export function createApp(deps) {
     // reranker. The first-stage pool is RRF-ranked, so a generous top slice keeps
     // recall while bounding rerank latency. Tune via MEMORY_PG_RERANK_INPUT_CAP.
     rerankInputCap = Number(process.env.MEMORY_PG_RERANK_INPUT_CAP) || 24,
+    // Relevance floor: drop final hits scoring below this rather than padding topN
+    // with junk (a sparse query like "meu pai" was returning an unrelated log at
+    // 0.126 while real hits score >=0.7). Cross-encoder scores are in (0,1); 0.2 is
+    // safely below real matches and above noise. Tune via MEMORY_PG_RERANK_FLOOR.
+    rerankFloor = Number(process.env.MEMORY_PG_RERANK_FLOOR ?? 0.2),
   } = deps || {};
 
   if (typeof embedFn !== "function") throw new Error("createApp: embedFn required");
@@ -179,6 +184,9 @@ export function createApp(deps) {
                     chunk_id: "fact:" + x.fact_id,
                     occurred_at: null,
                     source: "graph",
+                    // gate graph facts by the same trust filter as chunks; an
+                    // untiered fact is treated as unverified, never laundered.
+                    trust_tier: x.trust_tier ?? "unverified",
                   }
                 : x,
             );
@@ -196,19 +204,28 @@ export function createApp(deps) {
       // ~100-candidate first-stage pool took ~23s. The candidates are already RRF-
       // ranked, so reranking the top slice reorders the ones that matter without the
       // long tail — the dominant remaining /query latency after the graph-fusion fix.
+      // Drop empty-text candidates BEFORE rerank so blank graph facts never
+      // consume a rerank slot (or the cross-encoder's attention) at the expense
+      // of a real hit.
+      const nonEmpty = candidates.filter((c) => String(c?.text ?? "").trim());
       const toRerank =
-        candidates.length > rerankInputCap ? candidates.slice(0, rerankInputCap) : candidates;
+        nonEmpty.length > rerankInputCap ? nonEmpty.slice(0, rerankInputCap) : nonEmpty;
       const reranked = await rerank(query, toRerank, { rerankFn, topN });
 
-      const results = reranked.map((c) => ({
-        text: c.text,
-        record_id: c.record_id,
-        chunk_id: c.chunk_id,
-        rerank_score: c.rerank_score,
-        occurred_at: c.occurred_at ?? null,
-        source: c.source ?? "chunk",
-        trust_tier: c.trust_tier ?? null,
-      }));
+      // Post-rerank sharpening: relevance floor + dedup + belt-and-suspenders
+      // empty drop, so the companion is grounded only on clean, on-topic hits.
+      const results = cleanResults(
+        reranked.map((c) => ({
+          text: c.text,
+          record_id: c.record_id,
+          chunk_id: c.chunk_id,
+          rerank_score: c.rerank_score,
+          occurred_at: c.occurred_at ?? null,
+          source: c.source ?? "chunk",
+          trust_tier: c.trust_tier ?? null,
+        })),
+        { floor: rerankFloor },
+      );
       res.json({ ok: true, results });
     } catch (e) {
       // Best-effort: never crash the server; surface the error to the caller.

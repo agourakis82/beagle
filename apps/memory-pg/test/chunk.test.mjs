@@ -9,6 +9,31 @@ function sha256hex(s) {
   return crypto.createHash("sha256").update(s).digest("hex");
 }
 
+test("never cuts a word in half (hardSplit + overlap word-boundary)", () => {
+  // one long space-separated run of distinct tokens, no blank lines, so it is a
+  // single oversized segment forced through hardSplit; a small target also makes
+  // the overlap tail land mid-token. Every emitted token must be a WHOLE word.
+  const words = [];
+  for (let i = 0; i < 400; i++) words.push("palavra" + i);
+  const text = words.join(" ");
+  const chunks = chunkText(text, { target: 20, overlap: 0.1 }); // 80-char window
+  assert.ok(chunks.length > 1, `expected multiple chunks, got ${chunks.length}`);
+  for (const c of chunks) {
+    for (const tok of c.text.trim().split(/\s+/)) {
+      assert.match(tok, /^palavra\d+$/, `mid-word fragment "${tok}" in chunk "${c.text.slice(0, 60)}"`);
+    }
+  }
+});
+
+test("a single token longer than the window still splits and terminates", () => {
+  const chunks = chunkText("x".repeat(500), { target: 20 }); // no whitespace to break on
+  assert.ok(chunks.length > 1, "the long token is split into multiple chunks");
+  // content preserved exactly: overlap on a whitespace-free token is dropped, so
+  // the x's are neither lost nor runaway-duplicated.
+  const xCount = chunks.map((c) => c.text).join("").replace(/[^x]/g, "").length;
+  assert.equal(xCount, 500);
+});
+
 test("short text (< target) → exactly 1 chunk, index 0, 64-hex sha", () => {
   const text = "This is a short note that is comfortably under the target size.";
   const chunks = chunkText(text);
@@ -47,31 +72,22 @@ test("long text → multiple chunks, contiguous indices, bounded length", () => 
   }
 });
 
-test("overlap invariant: chunk[i+1] begins with a tail snippet of chunk[i]", () => {
-  const target = 384;
-  const overlap = 0.1;
-  const paras = [];
-  for (let i = 0; i < 20; i++) {
-    paras.push(`Paragraph ${i}. ` + "lorem ipsum dolor sit amet ".repeat(11));
-  }
-  const text = paras.join("\n\n");
-  const chunks = chunkText(text, { target, overlap });
+test("overlap invariant: chunk[i+1] begins with a WORD-ALIGNED tail of chunk[i]", () => {
+  // distinct tokens so overlap carry-over is decisively checkable (and any
+  // mid-word fragment would fail the /^tok\d{4}$/ shape).
+  const words = [];
+  for (let i = 0; i < 300; i++) words.push("tok" + String(i).padStart(4, "0"));
+  const text = words.join(" ");
+  const chunks = chunkText(text, { target: 30, overlap: 0.2 });
   assert.ok(chunks.length > 1);
 
-  // Invariant: the carried-over overlap text from chunk i appears at the
-  // start of chunk i+1. We assert that a non-trivial trailing substring of
-  // chunk[i].text is a prefix of chunk[i+1].text.
   for (let i = 0; i < chunks.length - 1; i++) {
-    const prev = chunks[i].text;
-    const next = chunks[i + 1].text;
-    // expected overlap size in chars (token approx: chars/4 * overlap fraction)
-    const overlapChars = Math.floor(target * overlap) * 4;
-    assert.ok(overlapChars > 0);
-    const tail = prev.slice(-overlapChars).trimStart();
-    assert.ok(
-      tail.length > 0 && next.startsWith(tail.slice(0, Math.min(20, tail.length))),
-      `chunk ${i + 1} does not begin with tail of chunk ${i}\ntail="${tail.slice(0, 40)}"\nnext="${next.slice(0, 40)}"`
-    );
+    const prevToks = chunks[i].text.trim().split(/\s+/);
+    const nextToks = chunks[i + 1].text.trim().split(/\s+/);
+    // every token whole (no mid-word fragment introduced by hardSplit OR overlap).
+    for (const t of nextToks) assert.match(t, /^tok\d{4}$/, `fragment "${t}"`);
+    // real overlap: chunk i+1 begins with a token carried from the tail of chunk i.
+    assert.ok(prevToks.includes(nextToks[0]), `overlap head ${nextToks[0]} not carried from prev`);
   }
 });
 

@@ -8,7 +8,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rerank, makeTeiRerankFn } from "../src/rerank.mjs";
+import { rerank, makeTeiRerankFn, cleanResults } from "../src/rerank.mjs";
 
 // Stub rerankFn: returns scores ALIGNED to input order. Scores by the number of
 // query tokens that appear in the text (substring match), normalized lightly.
@@ -25,6 +25,56 @@ function substringRerankFn(query, texts) {
 function cand(chunk_id, text) {
   return { chunk_id, record_id: "r-" + chunk_id, text };
 }
+
+// ---- cleanResults: post-rerank sharpening (empty-drop + floor + dedup) ----
+
+test("cleanResults drops empty / whitespace-only text (kills blank graph facts)", () => {
+  const out = cleanResults(
+    [
+      { chunk_id: "a", text: "real content", rerank_score: 0.9 },
+      { chunk_id: "b", text: "   ", rerank_score: 0.8 },
+      { chunk_id: "c", text: "", rerank_score: 0.7 },
+      { chunk_id: "d", text: null, rerank_score: 0.6 },
+    ],
+    { floor: 0 },
+  );
+  assert.deepEqual(out.map((r) => r.chunk_id), ["a"]);
+});
+
+test("cleanResults applies the relevance floor (junk below floor is dropped, not padded)", () => {
+  const out = cleanResults(
+    [
+      { chunk_id: "good", text: "on topic", rerank_score: 0.9 },
+      { chunk_id: "junk", text: "zombie process log", rerank_score: 0.126 },
+    ],
+    { floor: 0.2 },
+  );
+  assert.deepEqual(out.map((r) => r.chunk_id), ["good"]);
+});
+
+test("cleanResults floor is an inclusive lower bound; missing score is kept", () => {
+  const out = cleanResults(
+    [
+      { chunk_id: "at", text: "x", rerank_score: 0.2 }, // == floor → kept
+      { chunk_id: "below", text: "y", rerank_score: 0.199 }, // < floor → dropped
+      { chunk_id: "noscore", text: "z" }, // no score → kept
+    ],
+    { floor: 0.2 },
+  );
+  assert.deepEqual(out.map((r) => r.chunk_id), ["at", "noscore"]);
+});
+
+test("cleanResults dedups by normalized text, keeping the first (highest-ranked)", () => {
+  const out = cleanResults(
+    [
+      { chunk_id: "a", text: "Redes semânticas em depressão", rerank_score: 0.9 },
+      { chunk_id: "b", text: "  redes   SEMÂNTICAS  em depressão ", rerank_score: 0.8 },
+      { chunk_id: "c", text: "distinct", rerank_score: 0.5 },
+    ],
+    { floor: 0 },
+  );
+  assert.deepEqual(out.map((r) => r.chunk_id), ["a", "c"]);
+});
 
 test("rerank puts the best cross-encoder match first", async () => {
   const candidates = [
