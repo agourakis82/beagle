@@ -24,6 +24,8 @@ import {
   fetchSounioState,
   fetchSounioRelationship,
   fetchRecentMemories,
+  fetchRecentTrusted,
+  streamChatViaRouter,
   fetchRecentConversation,
   fetchSpaceWeatherNow,
   fetchAgoraHistory,
@@ -35,6 +37,14 @@ import {
   fetchExocortexContext,
   fetchOperatorToken
 } from "./auth-bridge.mjs";
+import { gatherSynthesisMaterial, buildSynthesisPrompt } from "./synthesize.mjs";
+
+// Own model knob; defaults to the companion's voice model. The register is isolated
+// by the PROMPT (synthesize.mjs), not the model — the wall does not live here.
+const SYNTHESIS_MODEL =
+  process.env.PROJECT_COCKPIT_SYNTHESIS_MODEL ||
+  process.env.PROJECT_COCKPIT_PERSONAL_VOICE_MODEL ||
+  "claude-sonnet-5";
 import { ingestPersonalTurn, handleIngestRequest, captureProvenanced } from "./memory-ingest.mjs";
 import { buildTemporalContext, formatAgora, stampMemories, filterTrustedMemories, resolveTimezone } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
@@ -2125,6 +2135,46 @@ export function registerMobileRoutes(app, deps) {
         error: error?.message || "mobile chat stream failed",
         code
       });
+      res.end();
+    }
+  });
+
+  // Proactive synthesis — a SEPARATE, deliberate surface (see the hard wall in
+  // docs/superpowers/specs/2026-07-17-proactive-synthesis-design.md). It never fires
+  // unprompted, never touches /chat, and writes NOTHING to memory.
+  app.post("/api/mobile/v1/synthesize", async (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+    const writeEvent = (p) => res.write(`data: ${JSON.stringify(p)}\n\n`);
+    try {
+      const topic = typeof req.body?.topic === "string" ? req.body.topic : "";
+      const windowDays = Number(req.body?.windowDays) || 7;
+      const material = await gatherSynthesisMaterial({ topic, windowDays }, {
+        fetchRecentMemories,
+        fetchExocortexContext,
+        fetchRecentTrusted,
+      });
+      const { system, user, sufficient } = buildSynthesisPrompt(material);
+      if (!sufficient) {
+        writeEvent({ token: "Ainda não tenho o bastante registrado sobre isso pra sintetizar com verdade." });
+        writeEvent({ done: true, insufficient: true, mode: material.mode });
+        return res.end();
+      }
+      const result = await streamChatViaRouter({
+        model: SYNTHESIS_MODEL,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        temperature: 0.6,
+        onToken: (tok) => writeEvent({ token: tok }),
+      });
+      writeEvent({ done: true, mode: material.mode, model: result?.model || SYNTHESIS_MODEL });
+      res.end();
+    } catch (error) {
+      writeEvent({ done: true, error: error?.message || "synthesize failed" });
       res.end();
     }
   });
