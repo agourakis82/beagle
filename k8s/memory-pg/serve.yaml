@@ -58,7 +58,7 @@ spec:
           operator: Exists
       containers:
         - name: serve
-          image: 192.168.3.207:5003/memory-pg-embed-worker:p7-4dec8a8d
+          image: 192.168.3.207:5003/memory-pg-embed-worker:p8-bf7d2ee7
           imagePullPolicy: IfNotPresent
           command: ["node", "bin/serve.mjs"]
           env:
