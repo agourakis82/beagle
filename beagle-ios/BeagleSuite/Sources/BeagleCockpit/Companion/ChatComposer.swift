@@ -154,7 +154,7 @@ struct ChatComposer: View {
                                 Button(action: onToggleLocale) {
                                     Text(dictationLocaleID.hasPrefix("en") ? "EN" : "PT")
                                         .font(BeagleFont.caption2.font.weight(.semibold))
-                                        .foregroundStyle(BeagleTheme.textSecondary)
+                                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                                         .frame(minWidth: 28, minHeight: 28)
                                         .background(Capsule().fill(BeagleTheme.companionInk.opacity(0.08)))
                                         .contentShape(Capsule())
@@ -164,7 +164,7 @@ struct ChatComposer: View {
                             Button(action: onVoice) {
                                 Image(systemName: "mic.fill")
                                     .font(.system(size: 20))
-                                    .foregroundStyle(BeagleTheme.textSecondary)
+                                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                                     // SOTA-chat: bump 30→44pt so the voice target also meets HIG.
                                     .frame(width: 44, height: 44)
                                     .contentShape(Rectangle())
@@ -199,7 +199,7 @@ struct ChatComposer: View {
         } label: {
             Image(systemName: depth.systemImage)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(depth == .fundo ? BeagleTheme.truthObserved : BeagleTheme.textSecondary)
+                .foregroundStyle(depth == .fundo ? BeagleTheme.truthObserved : BeagleTheme.companionInk.opacity(0.6))
                 .frame(width: 32, height: 32)
         }
         .menuStyle(.button)
@@ -219,14 +219,14 @@ struct ChatComposer: View {
             thumbnail
             Text("foto anexada")
                 .font(BeagleFont.caption2.font)
-                .foregroundStyle(BeagleTheme.textSecondary)
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
             Spacer()
             Button {
                 attachedData = nil
                 pickedItem = nil
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
             }
             .buttonStyle(.plain)
         }
@@ -243,10 +243,10 @@ struct ChatComposer: View {
                 .frame(width: 36, height: 36)
                 .clipShape(RoundedRectangle(cornerRadius: BeagleRadius.sm))
         } else {
-            Image(systemName: "photo").foregroundStyle(BeagleTheme.textSecondary)
+            Image(systemName: "photo").foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
         }
         #else
-        Image(systemName: "photo").foregroundStyle(BeagleTheme.textSecondary)
+        Image(systemName: "photo").foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
         #endif
     }
 }
