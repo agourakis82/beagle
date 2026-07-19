@@ -1,145 +1,142 @@
-# Platform State + Phone tmux Terminal (replace Termius) — Design
+# Beagle Command Deck — the platform in his pocket, with an acting copilot
 
-**Date:** 2026-07-19
-**Status:** approved (design), pending implementation plan
+**Date:** 2026-07-19 (bold rewrite — supersedes the timid v1 of this file)
+**Status:** approved-in-spirit (bold scope), pending phased implementation plans
 **Owner:** Demetrios (sole operator)
-**Repos:** `beagle` (cockpit server `apps/project-cockpit/`, k8s `k8s/`), iOS `~/dev/beagle/beagle-ios` branch `integration/ios-physiome-merge` (Mac).
+**Repos:** `beagle` (cockpit `apps/project-cockpit/`, `k8s/`), iOS `~/dev/beagle/beagle-ios` branch `integration/ios-physiome-merge`.
+**Mode:** written under the standing directive to be BOLD — full vision on paper, disciplined phased delivery, invariants non-negotiable. See [[feedback_be_bold]].
 
-## Motivation
+## The vision
 
-Two joined needs, one root:
-1. **Drive the t560 tmux from the phone, away from the laptop, without Termius.** The
-   user runs his real work in t560 tmux sessions (`beagle` = the persistent Claude
-   session, `darwin-ops` = cluster operator). He wants to open and TYPE INTO them from
-   the Beagle app.
-2. **The companion knows the platform state live** — Sounio (branch/gates/themes), his
-   sessions (who's alive, on what), cluster — fresh in-conversation (a `## Estado da
-   plataforma agora` block, like `## Agora` for body/sky).
+Not "attach to two tmux sessions from the phone." The whole platform — **known,
+driveable, and worked-alongside — from his pocket**:
+1. **Command deck** — open, drive, create, kill, switch any of his t560 sessions (and the
+   cockpit fleet) from the phone. Termius not replaced — superseded.
+2. **Live consciousness** — the companion always knows the platform state (Sounio, sessions,
+   cluster) AND **surfaces it proactively**: "darwin-ops idle 3h, the Sounio gate went red on
+   your last push — want me to look?" In his register, gentle, never spammy.
+3. **Acting copilot** — with his OK, the companion **does**: fire a gate, revive a session,
+   run a doctor, kick a job. Not an observer — a peer.
 
-The key discovery: **the whole terminal stack already exists and is proven** — iOS
-`AgentSessionView` + `TerminalContentView` (live WebSocket ANSI terminal) ↔ cockpit
-`agent-routes.mjs` WebSocket **PTY bridge** (`node-pty` + `kubectl exec`). Today it
-shells into workspace pods. The work is to point it at his t560 tmux, and add the
-read-only state block. **Reuse, don't rebuild.**
+The whole terminal stack already exists and is proven (iOS `AgentSessionView` +
+`TerminalContentView` ↔ cockpit `agent-routes.mjs` WebSocket PTY bridge via `node-pty` +
+`kubectl exec`). We build the deck ON it.
 
-## Architecture (measured decision)
+## THE INVARIANTS (what makes boldness safe, not what limits it)
 
-Measured facts that drove it: the cockpit's only t560-reaching capability is
-**`kubectl exec`** (RBAC via SA `project-cockpit`; no ssh key to t560); the old Rust
-`pty-gateway` source is gone (only `target/` remains); the tmux sockets live at
-`/tmp/tmux-1000/` (`default` = beagle, `clops` = darwin-ops), uid 1000, hostPath-mountable.
+These are absolute; every phase inherits them. Boldness lives in scope, rigor lives here.
+1. **Pane content stays in the terminal.** The live terminal (his screens, his secrets) is
+   NEVER sent to the companion's grounding, NEVER written to memory, NEVER synthesized. Only
+   the deliberate terminal surface he opens shows it.
+2. **The companion state/awareness is METADATA ONLY** — session name/attached/idle/window,
+   Sounio branch/gate/themes, cluster status. No pane dumps, no output bodies.
+3. **Every action is allowlisted + confirmed.** The acting copilot can run ONLY a fixed,
+   reviewed set of named actions (run gate, restart session, doctor, cancel job), each shown
+   to him and executed only on explicit confirm. No arbitrary command from a model. No
+   `rm -rf`. The allowlist is the leash.
+4. **Provenance holds** — his words vs the companion's inferences stay distinct (the
+   [[project_memory_provenance]] ethos); a proactive nudge is marked as the system's read of
+   state, never as his testimony.
+5. **The intimate chat's naturalness is untouched** — proactive nudges + acting are a
+   SEPARATE capability/surface, not bleeding into the companion's warm conversation (the same
+   wall as [[project_companion_proactive_synthesis]]).
 
-**Chosen: one t560-pinned "bridge" pod, reached by the cockpit's existing `kubectl exec`.**
-It serves BOTH the interactive attach AND the read-only state — one access point, no ssh
-keys, no reviving lost code.
+## Architecture (one bridge, three consumers)
+
+Measured decision (see below): the cockpit's only t560-reaching capability is `kubectl exec`
+(SA `project-cockpit`, no ssh key to t560); the old Rust `pty-gateway` source is gone; tmux
+sockets live at `/tmp/tmux-1000/` (`default`=beagle, `clops`=darwin-ops), uid 1000,
+hostPath-mountable. So: **one t560-pinned bridge pod, reached by the cockpit's existing
+`kubectl exec`, serving all three consumers** — no ssh keys, no reviving lost code.
 
 ```
-                       ┌──────────────── t560 (control-plane node) ───────────────┐
-iPhone (Beagle app)    │  bridge pod (NEW, small):                                │
-  AgentSessionView ──WS──►  cockpit PTY bridge ──kubectl exec──►  tmux -S /tmp/... │
-  (reuse terminal)     │     (agent-routes.mjs, reuse)              attach -t <s>  │
-                       │                                          ▲ shared attach  │
-  companion chat ──HTTP──► cockpit state endpoint ─kubectl exec─► tmux ls + git    │
-  "## Estado agora"    │     (NEW, read-only)                     (~sounio, ro)    │
-                       │  hostPath: /tmp/tmux-1000 (rw), ~/sounio (ro); uid 1000   │
-                       └──────────────────────────────────────────────────────────┘
+iPhone (Beagle app)          cockpit (in-cluster)              t560 bridge pod (NEW)
+  AgentSessionView ──WS────►  PTY bridge (reuse) ──kubectl exec──► tmux attach/new/kill
+  Command deck    ──HTTP───►  /platform-control  ──kubectl exec──► allowlisted actions
+  companion chat  ──HTTP───►  /platform-state    ──kubectl exec──► tmux ls + git (ro)
+                                                  hostPath: /tmp/tmux-1000 (rw), ~/sounio (ro),
+                                                            action scripts (ro); uid 1000
 ```
-
-## THE WALL / privacy (non-negotiable)
-
-- **Pane content (the live terminal) is shown ONLY in the deliberate terminal surface**
-  the user opens (like Termius) — it is NEVER sent to the companion's grounding, never
-  written to memory, never synthesized. His terminals hold secrets.
-- **The companion state block is METADATA ONLY** — session name, attached?, idle time,
-  window title / last command; Sounio branch/gate/themes; cluster status. NO pane
-  dumps, NO command output bodies.
-- The bridge pod exposes **only** the tmux sockets (rw) + the sounio repo (ro) — nothing
-  else of t560. Reached only through the cockpit's authenticated routes (cockpit token).
 
 ## Components
 
-### 1. t560 bridge pod (`k8s/platform-bridge/`)
-- **What:** a tiny always-on pod, `nodeName: t560-proxmox`, `runAsUser: 1000` (devsounio),
-  image with `tmux` + `git` + a coreutils base. hostPath volumes: `/tmp/tmux-1000` (rw,
-  for tmux client socket access) and the sounio repo `/home/devsounio/sounio` (ro).
-  Idle `sleep infinity` command; it exists to be `kubectl exec`-ed.
-- **Why:** gives the in-cluster cockpit a `kubectl exec` handle to t560's tmux + repo
-  without ssh. One pod, both interactive + read-only uses.
-- **Depends on:** nothing new; standard k8s + hostPath + the tmux socket perms (uid 1000).
+### 0. t560 bridge pod (`k8s/platform-bridge/`) — the shared foundation
+Tiny always-on pod, `nodeName: t560-proxmox`, `runAsUser: 1000`, image with `tmux`+`git`+
+coreutils. hostPath: `/tmp/tmux-1000` (rw), sounio repo (ro), and a reviewed `actions/`
+script dir (ro). `sleep infinity`; exists to be `kubectl exec`-ed. Exposes ONLY these mounts
+— nothing else of t560.
 
-### 2. Cockpit — interactive attach (extend `agent-routes.mjs`)
-- **What:** register a t560-session target in the PTY bridge. The WS handler, for a
-  t560-kind session, execs `kubectl exec -i <bridge-pod> -- tmux -S /tmp/tmux-1000/<socket> attach -t <session>`
-  instead of the agent-pod shell. Everything else (node-pty framing, WS streaming,
-  resize) is reused unchanged.
-- **Session registry:** a small allowlist of exposed sessions → `{kind, socket, target}`
-  (e.g. `t560-beagle → {default, beagle}`, `t560-darwin-ops → {clops, darwin-ops}`). Only
-  allowlisted sessions are attachable (no arbitrary command injection).
-- **Shared attach:** attaching a live session (beagle is attached on the laptop) yields a
-  shared tmux client — phone + laptop see/drive the same screen. Desired.
+### Phase 1 — Command deck (the Termius supersession)
+- **Cockpit interactive attach:** extend `agent-routes.mjs` PTY bridge with a t560-session
+  target → `kubectl exec -i <bridge> -- tmux -S /tmp/tmux-1000/<socket> attach -t <session>`.
+  Reuses node-pty framing/streaming/resize. Shared attach (phone + laptop drive the same
+  screen — desired).
+- **Cockpit session control:** `POST /api/mobile/v1/platform-control` (authed) with an
+  allowlisted verb: `attach|new|kill|list|switch-window`, mapping to `tmux` argv against the
+  allowlisted socket/session (no free-form command). New sessions get a naming convention.
+- **iOS:** add t560 sessions to the `AgentKind` registry (`.t560Beagle`, `.t560DarwinOps`, +
+  a "new session" affordance); the existing `AgentSessionView`/`TerminalContentView` render +
+  drive them. A deck picker listing sessions (from `/platform-state`) with attach/new/kill.
+- **Deliverable:** open/drive/create/kill his sessions from the phone. Live-verified on device.
 
-### 3. Cockpit — read-only state endpoint (NEW, `apps/project-cockpit/server/`)
-- **What:** `GET /api/mobile/v1/platform-state` (authed). It `kubectl exec`s the bridge
-  pod for safe read-only commands and returns JSON:
-  - `sessions`: from `tmux -S <socket> list-sessions -F '#{session_name}|#{session_attached}|#{session_activity}|#{window_name}'` per socket → `[{name, attached, idleSeconds, window}]`.
-  - `sounio`: `git -C ~/sounio symbolic-ref --short HEAD` (branch); recent 5 commit subjects; gate status from `test-results.xml` if present (green/red counts). Best-effort per probe.
-  - `cluster`: reuse the cockpit's existing mission-control / cluster-truth summary (already in-cluster).
-- Pure helpers (`buildPlatformState(raw)`) unit-tested; the kubectl-exec + parse is the shell.
+### Phase 2 — Live consciousness (know + surface)
+- **Cockpit read-only state:** `GET /api/mobile/v1/platform-state` → kubectl-exec the bridge
+  for `tmux list-sessions -F '...'` (name|attached|idle|window) per socket + `git -C ~/sounio`
+  (branch, 5 recent subjects, gate from `test-results.xml`) + reuse the cockpit's existing
+  mission-control/cluster-truth summary. Pure `buildPlatformState(raw)` → safe JSON (unit-tested).
+- **Companion grounding:** `fetchPlatformState()` (fail-soft) → a live `## Estado da
+  plataforma agora` block beside `## Agora`. Metadata only (invariant #2).
+- **Proactive nudge (bold):** a per-turn diff of a few watched signals (gate red↔green,
+  session idle-crossing, a failed job) → the companion MAY raise ONE gentle nudge in its
+  register when something meaningful changed, marked as the system's read (invariant #4), and
+  never in the intimate flow when he's mid-emotion (respect the floor). Opt-out honored.
 
-### 4. iOS — expose t560 sessions (reuse `AgentSessionView`)
-- **What:** add t560 sessions to the `AgentKind` registry (e.g. `.t560Beagle`, `.t560DarwinOps`),
-  each mapping to the WS path `/ws/projects/<slug>/agent/<kind>`. The existing
-  `AgentSessionView` + `TerminalContentView` render + drive them unchanged — a new entry in
-  the agent picker, nothing else.
+### Phase 3 — Acting copilot (do, with his OK)
+- **Cockpit action runner:** `POST /api/mobile/v1/platform-action` (authed) with an
+  allowlisted action name → kubectl-exec the bridge running the matching reviewed script in
+  the ro `actions/` dir (e.g. `run-gate <name>`, `revive-session <kind>`, `doctor <target>`,
+  `cancel-job <id>`). Returns a SUMMARY (exit + tail), never a raw stream to the companion.
+- **Confirmation UX:** the companion proposes an action ("quer que eu rode `make madaros-full-gate`?");
+  it executes ONLY on his explicit confirm (a button / an unambiguous yes). Invariant #3.
+- **Deliverable:** the companion can run a gate / revive a session / doctor / cancel a job on
+  his say-so, and report the result — a peer, not an observer.
 
-### 5. Companion — the live state block (`mobile-routes.mjs`)
-- **What:** `fetchPlatformState()` (best-effort, fail-soft, like the other `fetch*`) calls
-  the cockpit `/platform-state`, and assembles a `## Estado da plataforma agora` grounding
-  section (Sounio: branch/gate/themes · sessões: beagle ativa / darwin-ops idle 3h ·
-  cluster: OK) placed with the dynamic `## Agora` block. If the fetch fails → the block is
-  omitted; the chat never blocks.
-- **Wall:** this block carries ONLY the metadata from #3 — never pane content.
+## Data flow (per surface)
+- Terminal: app → AgentSessionView → WS `/ws/.../agent/t560-<sess>` → PTY bridge → kubectl exec
+  tmux attach → live ANSI both ways.
+- Control: app deck → `/platform-control {verb, session}` → kubectl exec tmux <verb>.
+- State: chat turn → `fetchPlatformState()` → `/platform-state` → kubectl exec (tmux ls + git) → block.
+- Action: companion proposes → he confirms → `/platform-action {name, args}` → kubectl exec
+  actions/<name> → summary → companion reports.
 
-## Data flow
-
-- **Terminal:** app → open t560 session in AgentSessionView → WS `/ws/.../agent/t560-beagle`
-  → cockpit PTY bridge → `kubectl exec bridge-pod -- tmux attach -t beagle` → live ANSI both ways.
-- **State:** chat turn → `fetchPlatformState()` → cockpit `/platform-state` → kubectl exec
-  bridge-pod (tmux ls + git) → JSON → `## Estado da plataforma agora` in the grounding.
-
-## Error handling (fail-soft everywhere)
-- Bridge pod down / kubectl-exec fails → terminal shows a clean "sessão indisponível";
-  the state block is omitted from grounding (chat unaffected).
-- A session not in the allowlist → refused (no arbitrary attach).
-- Attaching a non-existent/dead session → tmux errors surfaced in the terminal, not a crash.
+## Error handling (fail-soft)
+Bridge down → terminal shows "sessão indisponível"; state block omitted (chat unaffected);
+control/action returns a clean error, never a crash. Un-allowlisted verb/action/session →
+refused. Dead session attach → tmux error surfaced in the terminal.
 
 ## Testing
-- **`buildPlatformState` (pure):** raw tmux-ls + git strings → the safe JSON shape; asserts
-  NO pane content, correct session/branch/gate parsing. No cluster.
-- **Session allowlist (pure):** an un-allowlisted kind is refused; an allowlisted one maps to
-  the right `tmux -S <socket> attach -t <target>` argv (no injection).
-- **Live-verify:** deploy the bridge pod → `kubectl exec` it manually to confirm `tmux ls`
-  + attach work → open a t560 session in the app terminal and type → confirm shared attach
-  (laptop sees it) → open a chat and confirm the `## Estado agora` block shows the sessions,
-  and that NO pane content appears in the companion.
+- Pure, unit-tested: `buildPlatformState(raw)` (safe JSON, no pane content); the allowlist
+  resolvers for control verbs + action names (un-allowlisted refused; allowlisted → exact
+  argv, no injection); the proactive-nudge diff (fires only on a real watched change, respects
+  the floor).
+- Live-verify per phase on the device: attach+type+create+kill; the `## Estado agora` block +
+  a real nudge; a confirmed action running + reporting; and the invariant checks — NO pane
+  content in the companion, un-allowlisted attempts refused.
 
-## Scope note (decomposition)
-Two consumers share the bridge pod and can ship independently:
-- **A — the terminal** (bridge pod + cockpit attach + iOS AgentKind): the primary Termius
-  replacement.
-- **B — the state block** (cockpit `/platform-state` + companion grounding): the read-side.
-The plan builds the bridge pod first (shared foundation), then A, then B.
+## Phasing (bold vision, provable steps)
+Bridge pod (0) → **Phase 1 command deck** (the thing he most wants — ship first) → **Phase 2
+consciousness** → **Phase 3 acting copilot**. Each phase is its own implementation plan; each
+ends with a device-verified deliverable. The vision is committed; the delivery is disciplined.
 
-## Out of scope (v1)
-- Non-t560 sessions / the cockpit workspace fleet (already exists) / the coord board.
-- Persisted history of platform state (the user chose live-only).
-- Session lifecycle control from the phone (start/kill sessions) — attach/read only.
-- Full mobile keyboard ergonomics (arrow/ctrl keys) beyond what TerminalContentView already has.
+## Out of scope (even bold)
+- Actions outside the reviewed allowlist (never free-form model execution).
+- Non-his sessions / other users. Persisted platform-state history (live-only, his call).
+- Full desktop-terminal ergonomics beyond what TerminalContentView already renders.
 
 ## Success criteria
-1. From the phone, the user opens `beagle`/`darwin-ops` and types into them — shared with
-   the laptop — replacing Termius, gated by the cockpit token.
-2. The companion's `## Estado da plataforma agora` shows live Sounio + session + cluster
-   state, refreshed each turn, and NEVER leaks pane content.
-3. The bridge pod exposes only tmux + sounio; un-allowlisted attach is refused.
-4. Pure helpers unit-tested; the flow live-verified on the device.
+1. He drives beagle/darwin-ops (and creates/kills sessions) from the phone, shared with the
+   laptop — Termius superseded, cockpit-token gated.
+2. The companion knows the live platform state, surfaces meaningful changes proactively in his
+   register, and NEVER leaks pane content or breaks the intimate chat.
+3. With his explicit OK, the companion runs an allowlisted action and reports the result.
+4. Every invariant holds; pure helpers unit-tested; each phase live-verified on device.
