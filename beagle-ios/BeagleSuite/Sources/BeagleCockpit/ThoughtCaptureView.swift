@@ -178,7 +178,7 @@ struct ThoughtCaptureView: View {
                         .padding(.horizontal, BeagleSpacing.sm)
                         .padding(.vertical, BeagleSpacing.xs + 2)
                         .frame(minHeight: 44)
-                        .foregroundStyle(captureMode == mode ? BeagleTheme.truthObserved : BeagleTheme.textSecondary)
+                        .foregroundStyle(captureMode == mode ? BeagleTheme.truthObserved : BeagleTheme.companionInk.opacity(0.6))
                         .background(
                             Capsule().fill(captureMode == mode ? BeagleTheme.truthObserved.opacity(0.12) : Color.white.opacity(0.04))
                         )
@@ -258,7 +258,7 @@ struct ThoughtCaptureView: View {
 
                 Text(hermesPhase.isEmpty ? Self.hermesMessages[0] : hermesPhase)
                     .font(BeagleFont.footnote.font)
-                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                     .contentTransition(.numericText())
                     .animation(BeagleMotion.normal, value: hermesPhase)
             }
@@ -310,7 +310,7 @@ struct ThoughtCaptureView: View {
 
                 Text(refined)
                     .font(BeagleFont.body.font)
-                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .foregroundStyle(BeagleTheme.companionInk)
                     .textSelection(.enabled)
                     .lineSpacing(2)
 
@@ -330,7 +330,7 @@ struct ThoughtCaptureView: View {
 
                         Text(translation)
                             .font(BeagleFont.footnote.font)
-                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                             .textSelection(.enabled)
                             .lineSpacing(2)
                             .italic()
@@ -372,7 +372,7 @@ struct ThoughtCaptureView: View {
                 Text("Recent")
                     .font(BeagleFont.caption.font)
                     .fontWeight(.medium)
-                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                     .textCase(.uppercase)
                     .tracking(0.5)
 
@@ -387,7 +387,7 @@ struct ThoughtCaptureView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(thoughtText.isEmpty ? "---" : thoughtText)
                                 .font(BeagleFont.footnote.font)
-                                .foregroundStyle(BeagleTheme.textPrimary)
+                                .foregroundStyle(BeagleTheme.companionInk)
                                 .lineLimit(3)
 
                             // Bilingual: show English translation if available
@@ -398,7 +398,7 @@ struct ThoughtCaptureView: View {
                                         .foregroundStyle(BeagleTheme.truthRemembered)
                                     Text(translated)
                                         .font(BeagleFont.caption.font)
-                                        .foregroundStyle(BeagleTheme.textSecondary)
+                                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                                         .lineLimit(2)
                                         .italic()
                                 }
@@ -421,7 +421,7 @@ struct ThoughtCaptureView: View {
                                 if let source = sourceLabel(for: thought.source) {
                                     Text(source)
                                         .font(BeagleFont.dataSmall.font)
-                                        .foregroundStyle(BeagleTheme.textTertiary)
+                                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                                         .lineLimit(1)
                                 }
                             }
@@ -552,11 +552,11 @@ struct ThoughtCaptureView: View {
                 Text("Talk begins with the mind in your hand.")
                     .font(BeagleFont.title3.font)
                     .fontWeight(.medium)
-                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .foregroundStyle(BeagleTheme.companionInk)
 
                 Text("This preview makes the provenance visible. Start privately, feel the response land, and only widen into the larger mind when the thread asks for more reach.")
                     .font(BeagleFont.footnote.font)
-                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                     .lineSpacing(2)
 
                 CognitiveBridgeField(
@@ -587,11 +587,11 @@ struct ThoughtCaptureView: View {
                 Text("Ideas begin here.")
                     .font(BeagleFont.title3.font)
                     .fontWeight(.medium)
-                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .foregroundStyle(BeagleTheme.companionInk)
 
                 Text("Ideas are not just notes. Capture the raw thread, clarify it, and choose whether it stays with you or becomes durable memory in the cluster. This build is meant to make that choice impossible to miss.")
                     .font(BeagleFont.footnote.font)
-                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                     .lineSpacing(2)
 
                 CognitiveBridgeField(
