@@ -19,6 +19,7 @@
 		12D7B45482CD096BD0B59773 /* ModelIdentifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07875FE1BC5B577880B10E03 /* ModelIdentifier.swift */; };
 		13420826715E8046706851EF /* ModelRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A345F350FAA7CFA5AC048D /* ModelRenderer.swift */; };
 		1B55247C99EAB1B670864938 /* PostureGradientBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49590C3934C2C786F704ADB3 /* PostureGradientBackground.swift */; };
+		1D90B85763CB1D027AE857F3 /* SynthesisSSEParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4515A2E2086D07162593A7 /* SynthesisSSEParser.swift */; };
 		232DEFB048E340F8FE242BDB /* TerminalContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */; };
 		2396C4F5F0DA7A853A9A3C3F /* SampleBoxRenderer+ModelRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B713EC8E0F002B825CFA709F /* SampleBoxRenderer+ModelRenderer.swift */; };
 		2506AE1D807F002678049438 /* BeagleAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */; };
@@ -148,6 +149,7 @@
 		277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HyperbolicGraphView.swift; sourceTree = "<group>"; };
 		287C64605E5D53C799744EFA /* AgentSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionView.swift; sourceTree = "<group>"; };
 		2C4128C7822635F0B4D0B966 /* PresencePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresencePill.swift; sourceTree = "<group>"; };
+		2E4515A2E2086D07162593A7 /* SynthesisSSEParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynthesisSSEParser.swift; sourceTree = "<group>"; };
 		3133A19FD4CA197756C9D57A /* WorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkView.swift; sourceTree = "<group>"; };
 		33C43E52CFE080A1A53483E0 /* MetalKitSceneRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalKitSceneRenderer.swift; sourceTree = "<group>"; };
 		365A4A4180DF64759923830A /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
@@ -269,6 +271,7 @@
 				250C4319907C38176D426AAF /* Companion */,
 				49306022E798431025B3FFFC /* Resources */,
 				2BA5F99901AB683C69032C1D /* Splat */,
+				B42A93718D388FF61E948333 /* Synthesis */,
 				BF024B3743049659F7073E6C /* AgentActivityView.swift */,
 				287C64605E5D53C799744EFA /* AgentSessionView.swift */,
 				CE98C9276CD162B3C8A73ACB /* AgoraDetailView.swift */,
@@ -396,6 +399,14 @@
 			);
 			name = BeagleVisionOS;
 			path = BeagleSuite/Sources/BeagleVisionOS;
+			sourceTree = "<group>";
+		};
+		B42A93718D388FF61E948333 /* Synthesis */ = {
+			isa = PBXGroup;
+			children = (
+				2E4515A2E2086D07162593A7 /* SynthesisSSEParser.swift */,
+			);
+			path = Synthesis;
 			sourceTree = "<group>";
 		};
 		C8A1F4C4DC0D44201EF02465 /* Packages */ = {
@@ -594,10 +605,10 @@
 			projectRoot = "";
 			targets = (
 				233B7E5DA2C7B4C7AEE6B02C /* BeagleCockpit */,
+				D460B6115A3309F917104353 /* BeagleWidgets */,
 				4619751AD2B537C66DE2F869 /* BeagleShare */,
 				133E3664A7BB29ABCC6B3137 /* BeagleVisionOS */,
 				6B57DEA48061080A95ED178F /* BeagleWatch */,
-				D460B6115A3309F917104353 /* BeagleWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -702,6 +713,7 @@
 				A7E50EC5008FE3C119415E16 /* SpeechRecognizer.swift in Sources */,
 				F6B8AD9C0AA3F60830DD055D /* SplatReactor.swift in Sources */,
 				2B3CACDAB7F3FA702ED64521 /* SplatRenderer+ModelRenderer.swift in Sources */,
+				1D90B85763CB1D027AE857F3 /* SynthesisSSEParser.swift in Sources */,
 				232DEFB048E340F8FE242BDB /* TerminalContentView.swift in Sources */,
 				DBDE230C56BD951ED91BCF5C /* ThoughtCaptureView.swift in Sources */,
 				A3ED060D3B5CB1EB7489B82E /* TriadReviewView.swift in Sources */,
