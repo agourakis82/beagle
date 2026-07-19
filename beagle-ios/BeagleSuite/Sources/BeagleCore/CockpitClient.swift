@@ -61,6 +61,9 @@ public actor CockpitClient {
         self.baseURLs = baseURLs
     }
 
+    /// Read-only base URLs (resolution order) for the synthesis streaming client.
+    public var mobileBaseURLs: [URL] { baseURLs }
+
     // MARK: - Core fetch
 
     /// Fetch a typed response with truth-aware error handling.

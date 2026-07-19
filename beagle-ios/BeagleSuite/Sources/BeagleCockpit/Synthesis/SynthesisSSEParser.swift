@@ -3,7 +3,7 @@
 // (the hard wall — see docs/superpowers/specs/2026-07-17-ios-synthesis-screen-design.md).
 import Foundation
 
-public enum SSEChunk: Equatable {
+public enum SSEChunk: Equatable, Sendable {
     case token(String)
     case done(insufficient: Bool, error: String?)
 }
