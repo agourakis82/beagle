@@ -43,6 +43,7 @@ struct BeagleSurface: View {
         case dreamInsights  // overnight Dream Synthesis reader — only surfaced consumer of DreamSynthesisEngine
         case work  // agent deck (WorkView) — was iPad-sidebar-only until this session's audit
         case sleep  // last night's HealthKit sleep data — the real "análise do sono"
+        case synthesis  // proactive synthesis — a deliberate surface, separate from chat
 
         var id: String { rawValue }
     }
@@ -111,7 +112,8 @@ struct BeagleSurface: View {
                 unreadDreamInsightCount: DreamSynthesisEngine.shared.unreadCount,
                 onOpenWork: { activeSheet = .work },
                 onOpenCapture: { activeSheet = .capture },
-                onOpenSleep: { activeSheet = .sleep }
+                onOpenSleep: { activeSheet = .sleep },
+                onOpenSynthesize: { activeSheet = .synthesis }
             )
         }
     }
@@ -147,6 +149,8 @@ struct BeagleSurface: View {
     @ViewBuilder
     private func surfaceSheet(_ sheet: SurfaceSheet) -> some View {
         switch sheet {
+        case .synthesis:
+            SynthesisView()
         case .settings:
             settingsSheet
         case .cognitiveState:

@@ -29,6 +29,8 @@ public struct ChatScreen: View {
     var onOpenProject: (() -> Void)?
     /// Opens the dedicated data screen (Agora/physiome series). Lives in the drawer footer.
     var onOpenData: (() -> Void)?
+    /// Opens the proactive Synthesis sheet — a deliberate surface, separate from the chat.
+    var onOpenSynthesize: (() -> Void)?
     /// Opens "o que eu lembro de ti" — the warm memory-browse screen. Drawer footer.
     var onOpenMemory: (() -> Void)?
     /// Opens the overnight Dream Synthesis reader. Drawer footer, badge shows unread count —
@@ -84,7 +86,8 @@ public struct ChatScreen: View {
                 unreadDreamInsightCount: Int = 0,
                 onOpenWork: (() -> Void)? = nil,
                 onOpenCapture: (() -> Void)? = nil,
-                onOpenSleep: (() -> Void)? = nil) {
+                onOpenSleep: (() -> Void)? = nil,
+                onOpenSynthesize: (() -> Void)? = nil) {
         self.store = store
         self.breathRate = breathRate
         self.weather = weather
@@ -98,6 +101,7 @@ public struct ChatScreen: View {
         self.onOpenWork = onOpenWork
         self.onOpenCapture = onOpenCapture
         self.onOpenSleep = onOpenSleep
+        self.onOpenSynthesize = onOpenSynthesize
     }
 
     public var body: some View {
@@ -147,7 +151,7 @@ public struct ChatScreen: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .history:
-                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork, onOpenCapture: onOpenCapture, onOpenSleep: onOpenSleep)
+                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork, onOpenCapture: onOpenCapture, onOpenSleep: onOpenSleep, onOpenSynthesize: onOpenSynthesize)
             case .goDeep(let prompt):
                 GoDeepView(store: composerGoDeepStore, prompt: prompt)
             }
@@ -500,6 +504,7 @@ struct ConversationDrawer: View {
     var onOpenWork: (() -> Void)?
     var onOpenCapture: (() -> Void)?
     var onOpenSleep: (() -> Void)?
+    var onOpenSynthesize: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var reloadToken = 0
 
@@ -558,6 +563,12 @@ struct ConversationDrawer: View {
                     if onOpenCapture != nil {
                         Button { dismiss(); onOpenCapture?() } label: {
                             Label("Capturar pensamento", systemImage: "mic.fill")
+                        }
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                    }
+                    if onOpenSynthesize != nil {
+                        Button { dismiss(); onOpenSynthesize?() } label: {
+                            Label("Sintetizar", systemImage: "sparkles")
                         }
                         .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
                     }
