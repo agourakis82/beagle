@@ -61,6 +61,7 @@
 		947DC1F85670234F684A0FCF /* MetalSplatter in Frameworks */ = {isa = PBXBuildFile; productRef = BB39F53D2A16552DD1727933 /* MetalSplatter */; };
 		951D9C072CAFC68FA6BAE300 /* AgentActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF024B3743049659F7073E6C /* AgentActivityView.swift */; };
 		955AF5DFA3C5E28DE9E71AAF /* GoDeepButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */; };
+		9A122DD80997E6F13819377F /* SynthesisView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CB645102DC229E1D71888EF /* SynthesisView.swift */; };
 		9CC023D0D4B249261F286235 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8818FC1E3DC8B03233F14F29 /* Assets.xcassets */; };
 		9CC466E7952DB6517E30310A /* BeagleVisionOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */; };
 		9D3E9AC3F435A2A585B1F48B /* ChatBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189F9DCDE0C15DEF48A24B21 /* ChatBubbleView.swift */; };
@@ -150,6 +151,7 @@
 		277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HyperbolicGraphView.swift; sourceTree = "<group>"; };
 		287C64605E5D53C799744EFA /* AgentSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionView.swift; sourceTree = "<group>"; };
 		2C4128C7822635F0B4D0B966 /* PresencePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresencePill.swift; sourceTree = "<group>"; };
+		2CB645102DC229E1D71888EF /* SynthesisView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynthesisView.swift; sourceTree = "<group>"; };
 		2E4515A2E2086D07162593A7 /* SynthesisSSEParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SynthesisSSEParser.swift; sourceTree = "<group>"; };
 		3133A19FD4CA197756C9D57A /* WorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkView.swift; sourceTree = "<group>"; };
 		33C43E52CFE080A1A53483E0 /* MetalKitSceneRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalKitSceneRenderer.swift; sourceTree = "<group>"; };
@@ -408,6 +410,7 @@
 			children = (
 				AA3235636B9AB705481E1DE5 /* SynthesisClient.swift */,
 				2E4515A2E2086D07162593A7 /* SynthesisSSEParser.swift */,
+				2CB645102DC229E1D71888EF /* SynthesisView.swift */,
 			);
 			path = Synthesis;
 			sourceTree = "<group>";
@@ -718,6 +721,7 @@
 				2B3CACDAB7F3FA702ED64521 /* SplatRenderer+ModelRenderer.swift in Sources */,
 				1817922595F4E2222C6F1FBC /* SynthesisClient.swift in Sources */,
 				1D90B85763CB1D027AE857F3 /* SynthesisSSEParser.swift in Sources */,
+				9A122DD80997E6F13819377F /* SynthesisView.swift in Sources */,
 				232DEFB048E340F8FE242BDB /* TerminalContentView.swift in Sources */,
 				DBDE230C56BD951ED91BCF5C /* ThoughtCaptureView.swift in Sources */,
 				A3ED060D3B5CB1EB7489B82E /* TriadReviewView.swift in Sources */,
