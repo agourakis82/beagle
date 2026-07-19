@@ -148,10 +148,10 @@ private enum CK {
     static let card2   = BeagleTheme.surface3
     static let line    = BeagleTheme.hairline
     static let line2   = Color(light: .black.opacity(0.16), dark: .white.opacity(0.16))
-    static let fg      = BeagleTheme.textPrimary
-    static let txt     = BeagleTheme.textData
-    static let dim     = BeagleTheme.textSecondary
-    static let faint   = BeagleTheme.textTertiary
+    static let fg      = BeagleTheme.companionInk
+    static let txt     = BeagleTheme.companionInk.opacity(0.9)
+    static let dim     = BeagleTheme.companionInk.opacity(0.6)
+    static let faint   = BeagleTheme.companionInk.opacity(0.42)
     static let accent  = Color(lightHex: 0xA8620A, darkHex: 0xffc24d)
     static let accent2 = Color(lightHex: 0xCC4E28, darkHex: 0xff7a4c)
     static let turq    = Color(lightHex: 0x0E9886, darkHex: 0x2dd4bf)
