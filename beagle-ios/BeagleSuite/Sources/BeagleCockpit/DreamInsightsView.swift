@@ -44,7 +44,7 @@ struct DreamInsightsView: View {
                                         Text("Marcar tudo como lido")
                                             .font(BeagleFont.caption.font)
                                     }
-                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                                     .frame(maxWidth: .infinity, alignment: .trailing)
                                 }
                                 .buttonStyle(.plain)
@@ -55,6 +55,8 @@ struct DreamInsightsView: View {
             }
             .padding(BeagleSpacing.lg)
         }
+        .scrollContentBackground(.hidden)
+        .background(BeagleTheme.companionSurface.ignoresSafeArea())
         .navigationTitle("Insights da noite")
         .navigationBarTitleDisplayModeIfAvailable(.inline)
     }
@@ -62,7 +64,7 @@ struct DreamInsightsView: View {
     private func header(count: Int) -> some View {
         HStack(spacing: BeagleSpacing.xs) {
             Image(systemName: "moon.stars.fill")
-                .font(.system(size: 15))
+                .font(BeagleFont.subheadline.font)
                 .foregroundStyle(
                     LinearGradient(colors: [dreamTint, Color(red: 0.6, green: 0.5, blue: 0.85)],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -77,7 +79,7 @@ struct DreamInsightsView: View {
                 if let last = engine.lastDreamSession {
                     Text(last, style: .relative)
                         .font(BeagleFont.caption2.font)
-                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                 }
             }
             Spacer()
@@ -92,12 +94,12 @@ struct DreamInsightsView: View {
                 if let hrv = insight.hrvAtGeneration {
                     Text("HRV \(Int(hrv))")
                         .font(BeagleFont.caption2.font)
-                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                 }
             }
             Text(insight.text)
                 .font(BeagleFont.footnote.font)
-                .foregroundStyle(BeagleTheme.textPrimary)
+                .foregroundStyle(BeagleTheme.companionInk)
                 .lineSpacing(2)
             HStack(spacing: BeagleSpacing.sm) {
                 Button {
@@ -126,7 +128,7 @@ struct DreamInsightsView: View {
                 Button { engine.markRead(insight.id) } label: {
                     Image(systemName: "checkmark.circle")
                         .font(.system(size: 13))
-                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                 }
                 .buttonStyle(.plain)
             }
@@ -138,13 +140,13 @@ struct DreamInsightsView: View {
         VStack(spacing: BeagleSpacing.sm) {
             Image(systemName: "moon.zzz")
                 .font(.system(size: 32))
-                .foregroundStyle(BeagleTheme.textTertiary)
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
             Text("Nada novo por enquanto")
                 .font(BeagleFont.body.font)
-                .foregroundStyle(BeagleTheme.textSecondary)
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
             Text("O exocórtex sintetiza insights durante o sono profundo/REM detectado pelo Watch.")
                 .font(BeagleFont.caption.font)
-                .foregroundStyle(BeagleTheme.textTertiary)
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
