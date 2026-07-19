@@ -40,10 +40,10 @@ struct MemoryLensDetailView: View {
                         }
                         if loading {
                             HStack(spacing: BeagleSpacing.sm) {
-                                ProgressView().tint(BeagleTheme.textTertiary)
+                                ProgressView().tint(BeagleTheme.companionInk.opacity(0.42))
                                 Text("Vasculhando o que lembro…")
                                     .font(BeagleFont.footnote.font)
-                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                             }
                             .padding(.top, BeagleSpacing.sm)
                         }
@@ -55,7 +55,7 @@ struct MemoryLensDetailView: View {
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
             }
-            .background(BeagleTheme.surface0.ignoresSafeArea())
+            .background(BeagleTheme.companionSurface.ignoresSafeArea())
             .safeAreaInset(edge: .bottom) { followUpComposer }
             .navigationTitle("O que eu lembro de ti")
             .navigationBarTitleDisplayModeIfAvailable(.inline)
@@ -63,7 +63,7 @@ struct MemoryLensDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Fechar") { dismiss() }
                         .font(BeagleFont.caption.font)
-                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                 }
             }
         }
@@ -78,11 +78,11 @@ struct MemoryLensDetailView: View {
         if let question = entry.question {
             Text(question)
                 .font(BeagleFont.footnote.font.weight(.semibold))
-                .foregroundStyle(BeagleTheme.textSecondary)
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
         }
-        MarkdownText(text: entry.answer, inkColor: BeagleTheme.textPrimary)
+        MarkdownText(text: entry.answer, inkColor: BeagleTheme.companionInk)
             .frame(maxWidth: .infinity, alignment: .leading)
-        Divider().overlay(BeagleTheme.textTertiary.opacity(0.15))
+        Divider().overlay(BeagleTheme.companionHairline)
     }
 
     private var followUpComposer: some View {
