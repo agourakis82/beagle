@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata: { name: platform-bridge-build, namespace: beagle }
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      nodeSelector: { sounio.dev/runtime-role: io-lab }
+      tolerations:
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+        - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }
+      securityContext: { seccompProfile: { type: Unconfined }, appArmorProfile: { type: Unconfined } }
+      restartPolicy: Never
+      initContainers:
+        - name: clone
+          image: alpine/git:latest
+          command: [/bin/sh, -lc, "git clone --depth=1 --branch=reconcile/unify-beagle https://github.com/agourakis82/beagle.git /workspace"]
+          volumeMounts: [{ name: workspace, mountPath: /workspace }]
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - "--dockerfile=/workspace/k8s/platform-bridge/Dockerfile"
+            - "--context=dir:///workspace/k8s/platform-bridge"
+            - "--destination=192.168.3.207:5003/platform-bridge:v1"
+            - "--insecure-registry=192.168.3.207:5003"
+            - "--cache=false"
+          volumeMounts: [{ name: workspace, mountPath: /workspace }]
+          resources: { requests: { cpu: "1", memory: 1Gi }, limits: { cpu: "2", memory: 3Gi } }
+      volumes: [{ name: workspace, emptyDir: { sizeLimit: 1Gi } }]
