@@ -18,11 +18,12 @@
 //   AGENT_IMAGE    — the default agent container image (default: beagle-agent:latest)
 //   AGENT_NAMESPACE — K8s namespace (default: beagle)
 
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import pty from "node-pty";
 import { loadScratchpadEntries } from "./scratchpad-routes.mjs";
+import { isT560Kind, tmuxAttachArgv } from "./platform-bridge.mjs";
 
 const AGENT_NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
 const AGENT_IMAGE = process.env.PROJECT_COCKPIT_AGENT_IMAGE || "beagle-agent:latest";
@@ -347,11 +348,51 @@ export function registerAgentRoutes(app) {
  * WebSocket handler — stream an interactive shell from the agent pod.
  * @param {import('ws').WebSocketServer} wss
  */
+// Resolve the t560 platform-bridge pod (for tmux attach). Throws if absent.
+function bridgePodName() {
+  const out = execFileSync(KUBECTL, ["-n", AGENT_NAMESPACE, "get", "pod",
+    "-l", "app=platform-bridge", "-o", "jsonpath={.items[0].metadata.name}"], { encoding: "utf8" });
+  if (!out.trim()) throw new Error("platform-bridge pod not found");
+  return out.trim();
+}
+
+// Wire a spawned pty <-> the websocket (shared by the agent-pod and t560 tmux paths).
+function wirePtyToSocket(socket, term) {
+  socket.on("message", (data) => {
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === "input") term.write(msg.data);
+      else if (msg.type === "resize") term.resize(Number(msg.cols) || 120, Number(msg.rows) || 34);
+    } catch { term.write(data.toString()); }
+  });
+  term.onData((d) => socket.send(JSON.stringify({ type: "data", data: d })));
+  term.onExit(({ exitCode, signal }) => {
+    if (socket.readyState === 1) {
+      socket.send(JSON.stringify({ type: "exit", data: signal ? `terminal exited (${exitCode}, signal ${signal})` : `terminal exited (${exitCode})` }));
+      socket.close();
+    }
+  });
+  socket.on("close", () => term.kill());
+}
+
 export function registerAgentWebSocket(wss, { urlPattern = /^\/ws\/projects\/([^/]+)\/agent\/([^/]+)/ } = {}) {
   wss.on("connection", (socket, req) => {
     const match = req.url?.match(urlPattern);
     if (!match) return;
     const [, slug, kind] = match;
+
+    // t560 tmux session: attach the bridge pod's tmux instead of an agent pod.
+    if (isT560Kind(kind)) {
+      if (!/^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/.test(slug)) { socket.close(); return; }
+      let bridgePod;
+      try { bridgePod = bridgePodName(); } catch { socket.close(); return; }
+      const t560Term = pty.spawn(KUBECTL, [
+        "-n", AGENT_NAMESPACE, "exec", "-it", bridgePod, "--",
+        "tmux", ...tmuxAttachArgv(kind)
+      ], { name: "xterm-256color", cols: 120, rows: 34, cwd: process.cwd(), env: process.env });
+      wirePtyToSocket(socket, t560Term);
+      return;
+    }
 
     // Validate slug and kind before kubectl exec
     try { normKind(kind); } catch { socket.close(); return; }
