@@ -377,7 +377,10 @@ function wirePtyToSocket(socket, term) {
 
 export function registerAgentWebSocket(wss, { urlPattern = /^\/ws\/projects\/([^/]+)\/agent\/([^/]+)/ } = {}) {
   wss.on("connection", (socket, req) => {
-    const match = req.url?.match(urlPattern);
+    // Strip the query string before matching: ([^/]+) would otherwise swallow a trailing
+    // ?token=... into the kind capture, breaking isT560Kind / normKind resolution.
+    const urlPath = (req.url || "").split("?")[0];
+    const match = urlPath.match(urlPattern);
     if (!match) return;
     const [, slug, kind] = match;
 

@@ -15115,8 +15115,13 @@ server.on("upgrade", (req, socket, head) => {
   if (COCKPIT_AUTH_TOKEN) {
     const wsUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
     const token = wsUrl.searchParams.get("token") || "";
+    // The iOS app authenticates the WS with the same x-cockpit-token header it sends on
+    // every mobile REST call (no ?token= in the URL — which would also pollute the kind
+    // capture downstream). Accept it here so the Command Deck terminal works over the
+    // public gateway too, not only over the tailnet (tailscale-user-login) path.
+    const headerToken = req.headers["x-cockpit-token"] || "";
     const tsUser = req.headers["tailscale-user-login"];
-    if (token !== COCKPIT_AUTH_TOKEN && !tsUser) {
+    if (token !== COCKPIT_AUTH_TOKEN && headerToken !== COCKPIT_AUTH_TOKEN && !tsUser) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;
