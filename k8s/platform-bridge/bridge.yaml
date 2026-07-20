@@ -1,0 +1,43 @@
+# Always-on t560-pinned bridge: gives the in-cluster cockpit a `kubectl exec` handle to
+# t560's tmux (attach) + the sounio repo (read-only state), without ssh. tmux 3.5a matches
+# t560 (Debian trixie). Exposes ONLY those mounts.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-bridge
+  namespace: beagle
+  labels: { app: platform-bridge }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: platform-bridge } }
+  template:
+    metadata:
+      labels: { app: platform-bridge }
+    spec:
+      nodeName: t560-proxmox
+      tolerations:
+        - { key: node-role.kubernetes.io/control-plane, effect: NoSchedule, operator: Exists }
+        - { key: sounio.dev/compute, effect: NoSchedule, operator: Equal, value: heavy }
+        - { key: sounio.dev/pool, effect: NoSchedule, operator: Equal, value: gpu-batch }
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: Unconfined }
+      containers:
+        - name: bridge
+          image: 192.168.3.207:5003/platform-bridge:v1
+          command: ["sleep", "infinity"]
+          env:
+            - { name: HOME, value: /home/devsounio }
+          volumeMounts:
+            - { name: tmux, mountPath: /tmp/tmux-1000 }
+            - { name: sounio, mountPath: /home/devsounio/sounio, readOnly: true }
+          resources:
+            requests: { cpu: "50m", memory: 64Mi }
+            limits: { cpu: "1", memory: 256Mi }
+      volumes:
+        - name: tmux
+          hostPath: { path: /tmp/tmux-1000, type: Directory }
+        - name: sounio
+          hostPath: { path: /home/devsounio/sounio, type: Directory }
