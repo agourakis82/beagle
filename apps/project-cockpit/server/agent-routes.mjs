@@ -23,7 +23,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import pty from "node-pty";
 import { loadScratchpadEntries } from "./scratchpad-routes.mjs";
-import { isT560Kind, tmuxAttachArgv } from "./platform-bridge.mjs";
+import { isT560Kind, deckExec, kubectlArgv } from "./platform-bridge.mjs";
 
 const AGENT_NAMESPACE = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
 const AGENT_IMAGE = process.env.PROJECT_COCKPIT_AGENT_IMAGE || "beagle-agent:latest";
@@ -384,16 +384,17 @@ export function registerAgentWebSocket(wss, { urlPattern = /^\/ws\/projects\/([^
     if (!match) return;
     const [, slug, kind] = match;
 
-    // t560 tmux session: attach the bridge pod's tmux instead of an agent pod.
+    // Command Deck session: attach an allowlisted multiplexer (t560 tmux via the bridge pod,
+    // or the sounio workspace zellij via the workspace pod) instead of an agent pod.
     if (isT560Kind(kind)) {
       if (!/^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/.test(slug)) { socket.close(); return; }
-      let bridgePod;
-      try { bridgePod = bridgePodName(); } catch { socket.close(); return; }
-      const t560Term = pty.spawn(KUBECTL, [
-        "-n", AGENT_NAMESPACE, "exec", "-it", bridgePod, "--",
-        "tmux", ...tmuxAttachArgv(kind)
-      ], { name: "xterm-256color", cols: 120, rows: 34, cwd: process.cwd(), env: process.env });
-      wirePtyToSocket(socket, t560Term);
+      const spec = deckExec(kind, "attach");
+      if (!spec) { socket.close(); return; }
+      let pod;
+      try { pod = spec.pod === "@bridge" ? bridgePodName() : spec.pod; } catch { socket.close(); return; }
+      const deckTerm = pty.spawn(KUBECTL, kubectlArgv(AGENT_NAMESPACE, pod, spec, true),
+        { name: "xterm-256color", cols: 120, rows: 34, cwd: process.cwd(), env: process.env });
+      wirePtyToSocket(socket, deckTerm);
       return;
     }
 
