@@ -14,6 +14,7 @@ import {
   registerAgentRoutes,
   registerAgentWebSocket as attachAgentWebSocket,
 } from "./agent-routes.mjs";
+import { isT560Kind } from "./platform-bridge.mjs";
 import {
   registerWorkspaceRoutes,
   registerWorkspaceWebSocket as attachWorkspaceWebSocket,
@@ -15133,7 +15134,9 @@ server.on("upgrade", (req, socket, head) => {
     // Validate slug and kind before proceeding
     if (!VALID_SLUG.test(wsSlug)) { socket.destroy(); return; }
     const validKinds = ["claude-code", "codex", "local-sglang", "custom"];
-    if (!validKinds.includes(wsKind)) { socket.destroy(); return; }
+    // t560-* kinds are Command Deck tmux sessions (allowlisted in platform-bridge.mjs);
+    // let them through the upgrade gate so registerAgentWebSocket's t560 branch handles them.
+    if (!validKinds.includes(wsKind) && !isT560Kind(wsKind)) { socket.destroy(); return; }
     agentWss.handleUpgrade(req, socket, head, (ws) => agentWss.emit("connection", ws, req));
     return;
   }
