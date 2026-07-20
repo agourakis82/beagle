@@ -19,6 +19,7 @@ import {
   registerWorkspaceWebSocket as attachWorkspaceWebSocket,
 } from "./workspace-routes.mjs";
 import { registerScratchpadRoutes } from "./scratchpad-routes.mjs";
+import { registerPlatformRoutes } from "./platform-routes.mjs";
 import { registerJobRoutes } from "./job-routes.mjs";
 import { registerQueueRoutes } from "./queue-routes.mjs";
 import { registerAuthBridgeRoutes, fetchOperatorToken, warmCompanionDigests } from "./auth-bridge.mjs";
@@ -14966,6 +14967,7 @@ registerWorkspaceRoutes(app, {
 
 // ─── Agent scratchpad — shared notepad between agent + iOS ──────────────
 registerScratchpadRoutes(app);
+registerPlatformRoutes(app);
 
 // ─── Job routes (cluster batch jobs — canonical escalation path) ───────
 registerJobRoutes(app);
