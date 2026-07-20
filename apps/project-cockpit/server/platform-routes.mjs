@@ -31,7 +31,9 @@ export function registerPlatformRoutes(app) {
         if (line) raw[kind] = line.trim();
       } catch { /* session/socket absent — omit */ }
     }
-    res.json({ ok: true, sessions: buildSessionList(raw, now) });
+    // Mobile envelope contract: the iOS fetchMobile reads `data` as the payload. Return the
+    // session array under `data` (not a bare `sessions` key), or the app decodes nothing.
+    res.json({ ok: true, data: buildSessionList(raw, now), meta: { truthMode: "observed" } });
   });
 
   app.post("/api/mobile/v1/platform-control", async (req, res) => {
@@ -39,7 +41,7 @@ export function registerPlatformRoutes(app) {
     const verb = String(req.body?.verb || "");
     const argv = tmuxControlArgv(kind, verb);
     if (!argv || verb === "list") return res.status(400).json({ ok: false, error: "unsupported" });
-    try { await tmuxExec(argv); res.json({ ok: true }); }
+    try { await tmuxExec(argv); res.json({ ok: true, data: { done: true }, meta: { truthMode: "observed" } }); }
     catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 }
