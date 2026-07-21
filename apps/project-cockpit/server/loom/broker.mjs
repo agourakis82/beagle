@@ -2,6 +2,7 @@
 import { decodeClient, encodeServer } from "./protocol.mjs";
 import { recipeFor } from "./catalog.mjs";
 import { classify } from "./state.mjs";
+import { LazySession } from "./lazySession.mjs";
 
 let _seq = 0;
 const nextSid = (kind) => `${kind}-${++_seq}`;
@@ -14,6 +15,11 @@ export class Broker {
     this._subs = new Map();              // socket -> Set(sid)
   }
   addSeed(session) { this._sessions.set(session.sid, session); this._wire(session); }
+  // Advertise an existing attachable session; it attaches (materializes) on first subscribe.
+  addLazySeed(sid, kind, factory, opts = {}) {
+    const ls = new LazySession(sid, kind, factory, opts);
+    this._sessions.set(sid, ls); this._wire(ls);
+  }
   startStatePump(intervalMs = 20000) {
     this._pump = setInterval(() => { if (this._clients.size) this._broadcastSessions(); }, intervalMs);
     this._pump?.unref?.();
@@ -24,13 +30,14 @@ export class Broker {
     session.onExit(() => { this._broadcastState(session.sid); this._broadcastSessions(); });
   }
   _stateOf(session) {
+    if (session.lazyPending) return "idle";      // seeded but not yet attached
     const m = session.meta;
     return classify({ alive: m.alive, lastOutputAt: m.lastOutputAt, now: Date.now() });
   }
   _sessionsSnapshot() {
     return [...this._sessions.values()].map((s) => {
       const m = s.meta;
-      return { sid: m.sid, title: m.sid, kind: m.kind, source: m.source, state: this._stateOf(s), detail: "", cols: m.cols, rows: m.rows };
+      return { sid: m.sid, title: m.title || m.sid, kind: m.kind, source: m.source, state: this._stateOf(s), detail: "", cols: m.cols, rows: m.rows };
     });
   }
   _send(sock, msg) { try { sock.send(encodeServer(msg)); } catch { /* closed */ } }
@@ -53,6 +60,10 @@ export class Broker {
       case "subscribe": {
         if (!s) return this._send(sock, { t: "error", sid: m.sid, message: "no such session" });
         this._subs.get(sock).add(m.sid);
+        if (s.lazyPending) {
+          try { s.materialize(); this._broadcastSessions(); }
+          catch { return this._send(sock, { t: "error", sid: m.sid, message: "failed to attach" }); }
+        }
         return this._send(sock, { t: "scrollback", sid: m.sid, bytes: s.snapshot() });
       }
       case "unsubscribe": this._subs.get(sock).delete(m.sid); return;

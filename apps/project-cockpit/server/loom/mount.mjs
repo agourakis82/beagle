@@ -34,9 +34,22 @@ export function makeSessionFactory({ kubectl, ns, podResolver }) {
 // mountLoom() is self-contained: no args needed from index.mjs. Builds the real
 // kubectl/ns/podResolver internally and returns a Broker singleton wired to
 // handleConnection(ws) by the caller.
+// His existing attachable sessions (Command Deck adapters): 3 t560 tmux sessions + the
+// sounio workspace zellij. Seeded lazily — each attaches on first subscribe.
+const SEED_SESSIONS = [
+  { kind: "t560-beagle",     title: "beagle" },
+  { kind: "t560-darwin-ops", title: "darwin-ops" },
+  { kind: "t560-clops",      title: "clops" },
+  { kind: "sounio-dev",      title: "sounio-dev" },
+];
+
 export function mountLoom() {
-  const sessionFactory = makeSessionFactory({ kubectl: KUBECTL, ns: NS, podResolver: syncBridgePodResolver });
+  const podResolver = syncBridgePodResolver;
+  const sessionFactory = makeSessionFactory({ kubectl: KUBECTL, ns: NS, podResolver });
   const broker = new Broker({ sessionFactory });
+  for (const { kind, title } of SEED_SESSIONS) {
+    broker.addLazySeed(kind, kind, () => new AdaptedSession(kind, kind, { kubectl: KUBECTL, ns: NS, podResolver }), { title });
+  }
   broker.startStatePump();
   return broker;
 }
