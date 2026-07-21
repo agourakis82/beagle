@@ -47,6 +47,7 @@ export class Broker {
 
   handleConnection(sock) {
     this._clients.add(sock); this._subs.set(sock, new Set());
+    console.log(`[loom] client connected (clients=${this._clients.size}, sessions=${this._sessions.size})`);
     this._send(sock, { t: "sessions", sessions: this._sessionsSnapshot() });
     sock.on("message", (raw) => this._onMessage(sock, raw));
     sock.on("close", () => { this._clients.delete(sock); this._subs.delete(sock); });
@@ -58,6 +59,7 @@ export class Broker {
     switch (m.t) {
       case "hello": case "list": return this._send(sock, { t: "sessions", sessions: this._sessionsSnapshot() });
       case "subscribe": {
+        console.log(`[loom] subscribe ${m.sid} (exists=${!!s}, lazyPending=${s?.lazyPending})`);
         if (!s) return this._send(sock, { t: "error", sid: m.sid, message: "no such session" });
         this._subs.get(sock).add(m.sid);
         if (s.lazyPending) {
