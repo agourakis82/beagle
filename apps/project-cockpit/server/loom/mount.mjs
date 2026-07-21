@@ -36,5 +36,7 @@ export function makeSessionFactory({ kubectl, ns, podResolver }) {
 // handleConnection(ws) by the caller.
 export function mountLoom() {
   const sessionFactory = makeSessionFactory({ kubectl: KUBECTL, ns: NS, podResolver: syncBridgePodResolver });
-  return new Broker({ sessionFactory });
+  const broker = new Broker({ sessionFactory });
+  broker.startStatePump();
+  return broker;
 }

@@ -14,6 +14,11 @@ export class Broker {
     this._subs = new Map();              // socket -> Set(sid)
   }
   addSeed(session) { this._sessions.set(session.sid, session); this._wire(session); }
+  startStatePump(intervalMs = 20000) {
+    this._pump = setInterval(() => { if (this._clients.size) this._broadcastSessions(); }, intervalMs);
+    this._pump?.unref?.();
+  }
+  stopStatePump() { clearInterval(this._pump); this._pump = null; }
   _wire(session) {
     session.onData((d) => this._toSubscribers(session.sid, { t: "data", sid: session.sid, bytes: d }));
     session.onExit(() => { this._broadcastState(session.sid); this._broadcastSessions(); });
@@ -55,15 +60,27 @@ export class Broker {
       case "resize": if (s) s.resize(Number(m.cols) || 120, Number(m.rows) || 34); return;
       case "create": {
         if (!recipeFor(m.kind)) return this._send(sock, { t: "error", message: "unknown kind" });
-        const sid = nextSid(m.kind); const sess = this._factory(sid, m.kind);
-        this._sessions.set(sid, sess); this._wire(sess); this._broadcastSessions(); return;
+        const sid = nextSid(m.kind);
+        try {
+          const sess = this._factory(sid, m.kind);
+          this._sessions.set(sid, sess); this._wire(sess); this._broadcastSessions();
+        } catch {
+          return this._send(sock, { t: "error", message: "failed to start session" });
+        }
+        return;
       }
       case "kill": if (s) { s.kill(); this._sessions.delete(m.sid); this._broadcastSessions(); } return;
       case "reset": {
         if (!s) return;
         const kind = s.meta.kind; s.kill(); this._sessions.delete(m.sid);
-        const sid = nextSid(kind); const sess = this._factory(sid, kind);
-        this._sessions.set(sid, sess); this._wire(sess); this._broadcastSessions(); return;
+        const sid = nextSid(kind);
+        try {
+          const sess = this._factory(sid, kind);
+          this._sessions.set(sid, sess); this._wire(sess); this._broadcastSessions();
+        } catch {
+          return this._send(sock, { t: "error", message: "failed to start session" });
+        }
+        return;
       }
     }
   }
