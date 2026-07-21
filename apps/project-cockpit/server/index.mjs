@@ -15,6 +15,7 @@ import {
   registerAgentWebSocket as attachAgentWebSocket,
 } from "./agent-routes.mjs";
 import { isT560Kind } from "./platform-bridge.mjs";
+import { mountLoom } from "./loom/mount.mjs";
 import {
   registerWorkspaceRoutes,
   registerWorkspaceWebSocket as attachWorkspaceWebSocket,
@@ -15107,6 +15108,9 @@ if (Number.isFinite(keepAliveTimeoutMs) && keepAliveTimeoutMs > 0) {
 const wss = new WebSocketServer({ noServer: true });
 const agentWss = new WebSocketServer({ noServer: true });
 const workspaceWss = new WebSocketServer({ noServer: true });
+const loomWss = new WebSocketServer({ noServer: true });
+const loomBroker = mountLoom();
+loomWss.on("connection", (ws) => loomBroker.handleConnection(ws));
 attachAgentWebSocket(agentWss);
 attachWorkspaceWebSocket(workspaceWss, { getProjectOrThrow });
 
@@ -15150,6 +15154,10 @@ server.on("upgrade", (req, socket, head) => {
     const [, wsSlug] = workspaceMatch;
     if (!VALID_SLUG.test(wsSlug)) { socket.destroy(); return; }
     workspaceWss.handleUpgrade(req, socket, head, (ws) => workspaceWss.emit("connection", ws, req));
+    return;
+  }
+  if (urlPath === "/ws/loom") {
+    loomWss.handleUpgrade(req, socket, head, (ws) => loomWss.emit("connection", ws, req));
     return;
   }
   socket.destroy();
