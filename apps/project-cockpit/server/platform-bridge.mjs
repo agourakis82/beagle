@@ -63,6 +63,22 @@ export function deckExec(kind, action, param) {
   return null;
 }
 
+// Kill leaked broker-owned zellij attach clients for a session, WITHOUT touching his real
+// clients (e.g. the Mac via Termius). Discriminator: broker attaches are children of a
+// `su -s /bin/bash <user>` process; his direct clients are children of sshd. Killing the
+// cockpit-side kubectl-exec does NOT reliably kill the remote attach (it orphans), so this
+// parent-based cleanup is the reliable detach. Session/user come only from the allowlist.
+export function zellijCleanupArgv(kind, ns) {
+  const s = SESSION_ALLOWLIST[kind];
+  if (!s || s.type !== "zellij") return null;
+  const script =
+    `for z in $(pgrep -x -f "zellij attach ${s.session}" 2>/dev/null); do ` +
+    `pp=$(ps -o ppid= -p "$z" 2>/dev/null | tr -d " "); ` +
+    `pc=$(ps -o args= -p "$pp" 2>/dev/null); ` +
+    `case "$pc" in *"su -s /bin/bash ${s.user}"*) kill -9 "$z" "$pp" 2>/dev/null;; esac; done`;
+  return ["-n", ns, "exec", s.pod, "-c", s.container, "--", "sh", "-c", script];
+}
+
 // Full kubectl argv given a resolved pod name (caller resolves "@bridge" → real pod).
 export function kubectlArgv(ns, pod, spec, interactive) {
   const c = spec.container ? ["-c", spec.container] : [];

@@ -2,7 +2,8 @@
 // agents) via kubectl exec, reusing the Command Deck's allowlisted resolvers. Same
 // interface as OwnedPtySession so the broker treats both identically. Retires later.
 import pty from "node-pty";
-import { deckExec, kubectlArgv } from "../platform-bridge.mjs";
+import { spawn } from "node:child_process";
+import { deckExec, kubectlArgv, zellijCleanupArgv } from "../platform-bridge.mjs";
 import { Ring } from "./ring.mjs";
 
 export function adaptedAttachArgv(kind, kubectl, ns, podResolver) {
@@ -14,7 +15,7 @@ export function adaptedAttachArgv(kind, kubectl, ns, podResolver) {
 
 export class AdaptedSession {
   constructor(sid, kind, { kubectl, ns, podResolver, cols = 120, rows = 34, spawnFn = pty.spawn } = {}) {
-    this.sid = sid; this.kind = kind;
+    this.sid = sid; this.kind = kind; this._kubectl = kubectl; this._ns = ns;
     this._ring = new Ring(); this._alive = true; this._lastOutputAt = Date.now();
     this._dataCbs = []; this._exitCbs = []; this._cols = cols; this._rows = rows;
     const argv = adaptedAttachArgv(kind, kubectl, ns, podResolver);
@@ -27,7 +28,16 @@ export class AdaptedSession {
   onExit(fn) { this._exitCbs.push(fn); }
   write(data) { if (this._alive) this._term.write(data); }
   resize(cols, rows) { this._cols = cols; this._rows = rows; if (this._alive) this._term.resize(cols, rows); }
-  kill() { if (this._alive) this._term.kill(); }
+  kill() {
+    if (this._alive) this._term.kill();
+    this._alive = false;
+    // Killing the cockpit-side kubectl-exec orphans the remote zellij attach; run the
+    // parent-based cleanup so the client actually detaches (stops shrinking his Mac).
+    const cargv = zellijCleanupArgv(this.kind, this._ns);
+    if (cargv && this._kubectl) {
+      try { spawn(this._kubectl, cargv, { stdio: "ignore", detached: true }).unref(); } catch { /* best effort */ }
+    }
+  }
   snapshot() { return this._ring.snapshot(); }
   get meta() { return { sid: this.sid, kind: this.kind, source: "adapted", cols: this._cols, rows: this._rows, alive: this._alive, lastOutputAt: this._lastOutputAt }; }
 }

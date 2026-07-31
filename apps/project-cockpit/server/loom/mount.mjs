@@ -8,7 +8,7 @@ import { Broker } from "./broker.mjs";
 import { OwnedPtySession } from "./ownedSession.mjs";
 import { AdaptedSession } from "./adaptedSession.mjs";
 import { recipeFor } from "./catalog.mjs";
-import { isT560Kind } from "../platform-bridge.mjs";
+import { isT560Kind, zellijCleanupArgv } from "../platform-bridge.mjs";
 
 const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
 const NS = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
@@ -49,6 +49,11 @@ export function mountLoom() {
   const broker = new Broker({ sessionFactory });
   for (const { kind, title } of SEED_SESSIONS) {
     broker.addLazySeed(kind, kind, () => new AdaptedSession(kind, kind, { kubectl: KUBECTL, ns: NS, podResolver }), { title });
+  }
+  // Startup hygiene: clear broker zellij attaches orphaned by a previous pod (rollout leaks).
+  for (const { kind } of SEED_SESSIONS) {
+    const cargv = zellijCleanupArgv(kind, NS);
+    if (cargv) { try { execFileSync(KUBECTL, cargv, { stdio: "ignore", timeout: 8000 }); } catch { /* best effort */ } }
   }
   broker.startStatePump();
   return broker;
