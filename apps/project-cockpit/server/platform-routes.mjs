@@ -14,12 +14,23 @@ async function bridgePod() {
   return stdout.trim();
 }
 // Resolve "@bridge" → the live bridge pod, then run the kind's action non-interactively.
-async function runDeck(kind, action) {
-  const spec = deckExec(kind, action);
+async function runDeck(kind, action, param) {
+  const spec = deckExec(kind, action, param);
   if (!spec) throw new Error("unsupported");
   const pod = spec.pod === "@bridge" ? await bridgePod() : spec.pod;
   const { stdout } = await pexec(KUBECTL, kubectlArgv(NS, pod, spec, false), { timeout: 9000 });
   return stdout;
+}
+
+// Parse `zellij action dump-layout` into a metadata-only tab list with the active one flagged.
+function parseZellijTabs(layout) {
+  const tabs = [];
+  const re = /tab name="([^"]+)"([^\n{]*)/g;
+  let m;
+  while ((m = re.exec(String(layout || ""))) !== null) {
+    tabs.push({ name: m[1], active: /focus=true/.test(m[2]) });
+  }
+  return tabs;
 }
 
 export function registerPlatformRoutes(app) {
@@ -37,14 +48,25 @@ export function registerPlatformRoutes(app) {
     res.json({ ok: true, data: sessions, meta: { truthMode: "observed" } });
   });
 
+  // Native zellij tab bar: list the session's tabs (name + which is active).
+  app.get("/api/mobile/v1/zellij-tabs", async (req, res) => {
+    const kind = String(req.query?.kind || "");
+    if (!deckExec(kind, "tabs")) return res.status(400).json({ ok: false, error: "unsupported" });
+    try {
+      const out = await runDeck(kind, "tabs");
+      res.json({ ok: true, data: { tabs: parseZellijTabs(out) }, meta: { truthMode: "observed" } });
+    } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
+  });
+
   app.post("/api/mobile/v1/platform-control", async (req, res) => {
     const kind = String(req.body?.kind || "");
     const verb = String(req.body?.verb || "");
-    const ALLOWED = new Set(["kill", "tab-next", "tab-prev"]);   // tab-* = zellij action nav
-    if (!ALLOWED.has(verb) || !deckExec(kind, verb)) {
+    const tab = req.body?.tab != null ? String(req.body.tab) : undefined;   // goto-tab param
+    const ALLOWED = new Set(["kill", "tab-next", "tab-prev", "goto-tab"]);   // tab-* = zellij nav
+    if (!ALLOWED.has(verb) || !deckExec(kind, verb, tab)) {
       return res.status(400).json({ ok: false, error: "unsupported" });
     }
-    try { await runDeck(kind, verb); res.json({ ok: true, data: { done: true }, meta: { truthMode: "observed" } }); }
+    try { await runDeck(kind, verb, tab); res.json({ ok: true, data: { done: true }, meta: { truthMode: "observed" } }); }
     catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 }

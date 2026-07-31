@@ -30,7 +30,11 @@ function zellijSu(s, inner) {
 
 // Returns { pod, container, argv } — the part AFTER `kubectl -n <ns> exec -i[t] <pod> [-c <c>] --`
 // — or null if kind/action is not allowlisted. pod may be "@bridge".
-export function deckExec(kind, action) {
+// Tab names are injection-safe only if they match this charset (no shell metacharacters);
+// the goto-tab param is shell-interpolated inside zellijSu, so anything else is refused.
+const SAFE_TAB = /^[A-Za-z0-9._-]{1,64}$/;
+
+export function deckExec(kind, action, param) {
   const s = SESSION_ALLOWLIST[kind];
   if (!s) return null;
   if (s.type === "tmux") {
@@ -48,6 +52,11 @@ export function deckExec(kind, action) {
     else if (action === "kill") inner = `zellij kill-session ${s.session}`;
     else if (action === "tab-next") inner = `zellij -s ${s.session} action go-to-next-tab`;
     else if (action === "tab-prev") inner = `zellij -s ${s.session} action go-to-previous-tab`;
+    else if (action === "tabs") inner = `zellij -s ${s.session} action dump-layout`;
+    else if (action === "goto-tab") {
+      if (!SAFE_TAB.test(String(param || ""))) return null;
+      inner = `zellij -s ${s.session} action go-to-tab-name ${param}`;
+    }
     else return null;
     return { pod: s.pod, container: s.container || null, argv: zellijSu(s, inner) };
   }
