@@ -40,10 +40,11 @@ export function registerPlatformRoutes(app) {
   app.post("/api/mobile/v1/platform-control", async (req, res) => {
     const kind = String(req.body?.kind || "");
     const verb = String(req.body?.verb || "");
-    if (verb !== "kill" || !deckExec(kind, "kill")) {
+    const ALLOWED = new Set(["kill", "tab-next", "tab-prev"]);   // tab-* = zellij action nav
+    if (!ALLOWED.has(verb) || !deckExec(kind, verb)) {
       return res.status(400).json({ ok: false, error: "unsupported" });
     }
-    try { await runDeck(kind, "kill"); res.json({ ok: true, data: { done: true }, meta: { truthMode: "observed" } }); }
+    try { await runDeck(kind, verb); res.json({ ok: true, data: { done: true }, meta: { truthMode: "observed" } }); }
     catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
   });
 }

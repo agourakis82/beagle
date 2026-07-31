@@ -46,6 +46,8 @@ export function deckExec(kind, action) {
     if (action === "attach") inner = `zellij attach ${s.session}`;
     else if (action === "list") inner = "zellij list-sessions";
     else if (action === "kill") inner = `zellij kill-session ${s.session}`;
+    else if (action === "tab-next") inner = `zellij -s ${s.session} action go-to-next-tab`;
+    else if (action === "tab-prev") inner = `zellij -s ${s.session} action go-to-previous-tab`;
     else return null;
     return { pod: s.pod, container: s.container || null, argv: zellijSu(s, inner) };
   }
