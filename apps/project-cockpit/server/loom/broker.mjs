@@ -44,13 +44,27 @@ export class Broker {
   _broadcastSessions() { const snap = this._sessionsSnapshot(); for (const c of this._clients) this._send(c, { t: "sessions", sessions: snap }); }
   _broadcastState(sid) { const s = this._sessions.get(sid); if (!s) return; for (const c of this._clients) this._send(c, { t: "state", sid, state: this._stateOf(s), detail: "" }); }
   _toSubscribers(sid, msg) { for (const c of this._clients) if (this._subs.get(c)?.has(sid)) this._send(c, msg); }
+  _subscriberCount(sid) { let n = 0; for (const set of this._subs.values()) if (set.has(sid)) n++; return n; }
+  // When the last viewer of a lazy (attached) session leaves, detach its real client so it
+  // stops constraining other clients (e.g. a shared zellij shrinking his Mac). Seed stays.
+  _maybeDetach(sid) {
+    const s = this._sessions.get(sid);
+    if (s && typeof s.dematerialize === "function" && this._subscriberCount(sid) === 0) {
+      s.dematerialize();
+      this._broadcastSessions();
+    }
+  }
 
   handleConnection(sock) {
     this._clients.add(sock); this._subs.set(sock, new Set());
     console.log(`[loom] client connected (clients=${this._clients.size}, sessions=${this._sessions.size})`);
     this._send(sock, { t: "sessions", sessions: this._sessionsSnapshot() });
     sock.on("message", (raw) => this._onMessage(sock, raw));
-    sock.on("close", () => { this._clients.delete(sock); this._subs.delete(sock); });
+    sock.on("close", () => {
+      const sids = [...(this._subs.get(sock) || [])];
+      this._clients.delete(sock); this._subs.delete(sock);
+      for (const sid of sids) this._maybeDetach(sid);   // release attaches this socket held
+    });
   }
   _onMessage(sock, raw) {
     const m = decodeClient(String(raw));
@@ -68,7 +82,7 @@ export class Broker {
         }
         return this._send(sock, { t: "scrollback", sid: m.sid, bytes: s.snapshot() });
       }
-      case "unsubscribe": this._subs.get(sock).delete(m.sid); return;
+      case "unsubscribe": this._subs.get(sock).delete(m.sid); this._maybeDetach(m.sid); return;
       case "input": if (s) s.write(m.data); return;
       case "resize": if (s) s.resize(Number(m.cols) || 120, Number(m.rows) || 34); return;
       case "create": {

@@ -20,6 +20,9 @@ export class LazySession {
   write(data) { this._real?.write(data); }
   resize(cols, rows) { this._real?.resize(cols, rows); }
   kill() { this._real?.kill(); this._real = null; }
+  // Detach the real client (e.g. the zellij attach that shrinks other clients) but KEEP the
+  // seed, so it re-attaches on the next subscribe. Used when the last viewer unsubscribes.
+  dematerialize() { if (this._real) { try { this._real.kill(); } catch { /* already gone */ } this._real = null; } }
   snapshot() { return this._real ? this._real.snapshot() : ""; }
   get meta() {
     if (this._real) return { ...this._real.meta, title: this._title };
