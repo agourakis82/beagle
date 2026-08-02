@@ -185,7 +185,7 @@ nodes:
     bmc_ilo_ip: 192.168.3.153        # HPE iLO 5 v3.17
     primary_fabric_ip: 10.100.100.5  # VLAN100 vmbr100, ConnectX-5 ens6f0np0
     gpu_rdma_ip: 10.210.0.5          # VLAN210 vmbr210, RoCEv2, rdma.available
-    secondary_fabric_ip: pending     # 10.200.0.5 storage fabric — not yet configured
+    secondary_fabric_ip: 10.200.0.5  # storage/ceph cluster_network — UNTAGGED on ens6f0np0 (native VLAN1, not tagged VLAN200); jumbo-9000 to peers; hosts ceph osd.26 (ssd)
     service_fabric_ip: 10.30.0.6     # VLAN130 ens6f0np0.130, jumbo-9000 clean to edge .1 + SVI .254
     accelerator: xilinx-alveo-u250-fpga   # xocl/xclmgmt loaded; XRT+device-plugin pending. Radeon(AMD) deferred: no power cable
     cpu: 2x-xeon-gold-6262v-48c
