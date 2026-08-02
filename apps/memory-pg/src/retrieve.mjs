@@ -25,6 +25,22 @@
 // Everything runs in ONE transaction (a single pool client) so `SET LOCAL`
 // applies to the fusion query, and a single SQL statement does the fuse.
 
+// Content-free pointer records: rows whose ENTIRE text is a dangling reference like
+// `omnimemory:<uuid>`. Measured 2026-08-02: 16,723 of them, 17,020 carrying embeddings,
+// 17,046 of 215,991 chunks — 7.9% of the retrieval pool is these. The UUIDs resolve to
+// nothing. They burn first-stage slots and, via the deliberately unfiltered broadRecall,
+// reach the companion's prompt as noise.
+//
+// Anchored (^…$) on purpose: prose that merely MENTIONS a pointer is a real memory and
+// must survive. POSIX classes, not \s — a backslash escape would be eaten by the JS
+// template literal before Postgres ever saw it.
+// Dropped in JS, NOT in the channel WHERE clauses. Measured 2026-08-02: putting this
+// as `c.text !~ '…'` inside the dense CTE took /query from ~500ms to 33-40s — a filtered
+// HNSW scan has to walk far past k to fill the limit, and the cost dwarfs the ~4 slots
+// (of 50) the pointers were wasting. Filtering the small first-stage result set instead
+// keeps them out of rerank and out of the prompt at zero latency cost.
+const POINTER_ONLY_RE = /^\s*omnimemory:[0-9a-fA-F-]+\s*$/;
+
 const RRF_K = 60;
 const RRF_NORM = 2 / (RRF_K + 1); // max possible rrf (both ranks == 1)
 const CHANNEL_LIMIT = 50;
@@ -160,7 +176,9 @@ LIMIT $9;
       trustedOnly, // $10
     ]);
     await client.query("COMMIT");
-    return res.rows.map((row) => ({
+    return res.rows
+      .filter((row) => !POINTER_ONLY_RE.test(String(row.text ?? "")))
+      .map((row) => ({
       chunk_id: row.chunk_id,
       record_id: row.record_id,
       text: row.text,

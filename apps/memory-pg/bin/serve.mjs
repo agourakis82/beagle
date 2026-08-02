@@ -25,6 +25,7 @@ import { makePool } from "../src/db.mjs";
 import { makeTeiEmbedFn } from "../src/embed-worker.mjs";
 import { retrieve as defaultRetrieve } from "../src/retrieve.mjs";
 import { rerank, makeTeiRerankFn, cleanResults } from "../src/rerank.mjs";
+import { expandEpisodes } from "../src/episode.mjs";
 import { captureRecord } from "../src/capture.mjs";
 import { recentTrusted } from "../src/recent.mjs";
 import { extractFromRecord, candidateToRecord } from "../src/backfill.mjs";
@@ -88,6 +89,13 @@ export function createApp(deps) {
     // 0.126 while real hits score >=0.7). Cross-encoder scores are in (0,1); 0.2 is
     // safely below real matches and above noise. Tune via MEMORY_PG_RERANK_FLOOR.
     rerankFloor = Number(process.env.MEMORY_PG_RERANK_FLOOR ?? 0.2),
+    // Episodic expansion: widen each surviving hit back into the chunks around it
+    // so the companion is grounded on scenes, not shards. Measured before this
+    // existed, the median atom reaching the prompt was 53 characters — true, and
+    // useless. 0 disables. Tune via MEMORY_PG_EPISODE_RADIUS / _MAX_CHARS.
+    episodeRadius = Number(process.env.MEMORY_PG_EPISODE_RADIUS ?? 1),
+    episodeMaxChars = Number(process.env.MEMORY_PG_EPISODE_MAX_CHARS ?? 1200),
+    expandFn = expandEpisodes,
   } = deps || {};
 
   if (typeof embedFn !== "function") throw new Error("createApp: embedFn required");
@@ -231,7 +239,23 @@ export function createApp(deps) {
       const nonEmpty = candidates.filter((c) => String(c?.text ?? "").trim());
       const toRerank =
         nonEmpty.length > rerankInputCap ? nonEmpty.slice(0, rerankInputCap) : nonEmpty;
-      const reranked = await rerank(query, toRerank, { rerankFn, topN });
+      // The reranker is a SHARPENER, not a gate. When it is unreachable the right
+      // answer is a blunter memory, never no memory: on 2026-08-02 the GPU reranker
+      // sat scaled to zero and every /query returned 500, so the companion answered
+      // for days with no recall at all — and nothing alerted, because the chat
+      // treats "no memories" as an ordinary case. Degrade to the first-stage RRF
+      // order (already relevance-ranked) and say so in the response.
+      let reranked;
+      let degraded = false;
+      try {
+        reranked = await rerank(query, toRerank, { rerankFn, topN });
+      } catch (e) {
+        degraded = true;
+        reranked = toRerank.slice(0, topN);
+        console.warn(
+          `[memory-pg-serve] rerank unavailable, serving first-stage order: ${e?.message || e}`,
+        );
+      }
 
       // Post-rerank sharpening: relevance floor + dedup + belt-and-suspenders
       // empty drop, so the companion is grounded only on clean, on-topic hits.
@@ -253,7 +277,22 @@ export function createApp(deps) {
       if (trustedOnly) {
         results = results.filter((r) => r.trust_tier && r.trust_tier !== "unverified");
       }
-      res.json({ ok: true, results });
+
+      // Last step, on the FINAL list only (never on the ~50-candidate pool): widen
+      // each shard back into the scene it was cut from. Fail-soft — an expansion
+      // error must leave the shards, not blank the recall.
+      if (episodeRadius > 0 && results.length) {
+        try {
+          results = await expandFn(pool, results, {
+            radius: episodeRadius,
+            maxChars: episodeMaxChars,
+          });
+        } catch (e) {
+          console.warn(`[memory-pg-serve] episodic expansion skipped: ${e?.message || e}`);
+        }
+      }
+
+      res.json({ ok: true, results, ...(degraded ? { reranked: false } : {}) });
     } catch (e) {
       // Best-effort: never crash the server; surface the error to the caller.
       res.status(500).json({ error: String(e?.message || e) });
@@ -338,7 +377,16 @@ async function main() {
   const app = createApp({
     pool,
     embedFn: makeTeiEmbedFn(embedUrl),
-    rerankFn: makeTeiRerankFn(rerankUrl),
+    // Sub-batch size for the cross-encoder. Default 8 is the SAFE value, sized for the
+    // CPU reranker (single replica, OOM-crashed on 32 long passages). The GPU reranker
+    // is a different machine: it advertises --max-client-batch-size 64 and scored 50
+    // long passages in one 6.5s call. Because the batches run SEQUENTIALLY, a batch of
+    // 8 turned a 50-candidate rerank into 7 round trips — measured 2026-08-02 as the
+    // dominant cost of a 33-40s /query. Raise this only as high as the reranker you are
+    // actually pointing at will accept (over its cap = HTTP 422, or an OOM on CPU).
+    rerankFn: makeTeiRerankFn(rerankUrl, {
+      maxBatch: Number(process.env.MEMORY_PG_RERANK_BATCH) || 8,
+    }),
     queryToken: process.env.MEMORY_PG_QUERY_TOKEN || "",
     ingestToken: process.env.MEMORY_PG_INGEST_TOKEN || "",
     graphEnabled: /^(1|true|on)$/i.test((process.env.MEMORY_PG_GRAPH_ENABLED || "").trim()),

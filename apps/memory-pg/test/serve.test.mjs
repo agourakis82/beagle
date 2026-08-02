@@ -280,3 +280,66 @@ test("POST /query never crashes the server on a failing dep (500)", async () => 
     assert.equal(r2.status, 500);
   });
 });
+
+// --- resilience + warmth (added 2026-08-02 after the silent-recall outage) ---
+
+test("POST /query survives a dead reranker: blunter memory, never no memory", async () => {
+  // The real failure: reranker-gpu sat scaled to 0, rerank threw ECONNREFUSED, and
+  // /query answered 500 to every recall — so the companion ran with no grounding
+  // at all and nothing alerted. First-stage RRF order is a fine fallback.
+  const s = makeStubs();
+  const app = createApp({
+    pool: {},
+    ...s,
+    rerankFn: async () => {
+      throw new Error("fetch failed: ECONNREFUSED 10.96.4.234:80");
+    },
+  });
+  await withServer(app, async (base) => {
+    const r = await jpost(base, "/query", { query: "quantum", k: 3 });
+    assert.equal(r.status, 200, "a dead reranker must not 500 the whole recall");
+    const j = await r.json();
+    assert.equal(j.ok, true);
+    assert.equal(j.reranked, false, "the caller is told the ranking is degraded");
+    assert.equal(j.results.length, 3, "first-stage candidates are served as-is");
+    assert.equal(j.results[0].record_id, "r1", "first-stage RRF order preserved");
+  });
+});
+
+test("POST /query expands surviving hits into episodes", async () => {
+  const s = makeStubs();
+  const expandCalls = [];
+  const app = createApp({
+    pool: {},
+    ...s,
+    expandFn: async (_pool, hits, opts) => {
+      expandCalls.push({ hits, opts });
+      return hits.map((h) => ({ ...h, text: `<<${h.text}>>`, hit_text: h.text, expanded: true }));
+    },
+  });
+  await withServer(app, async (base) => {
+    const r = await jpost(base, "/query", { query: "quantum", k: 3 });
+    const j = await r.json();
+    assert.equal(j.results[0].text, "<<quantum entanglement basics>>", "the scene, not the shard");
+    assert.equal(j.results[0].hit_text, "quantum entanglement basics");
+    assert.equal(expandCalls.length, 1, "expansion runs once, on the final list");
+    assert.ok(expandCalls[0].hits.length <= 3, "never on the full first-stage pool");
+  });
+});
+
+test("POST /query keeps the shards when expansion fails", async () => {
+  const s = makeStubs();
+  const app = createApp({
+    pool: {},
+    ...s,
+    expandFn: async () => {
+      throw new Error("chunks table unavailable");
+    },
+  });
+  await withServer(app, async (base) => {
+    const r = await jpost(base, "/query", { query: "quantum", k: 3 });
+    assert.equal(r.status, 200, "expansion is a bonus; its failure must not blank recall");
+    const j = await r.json();
+    assert.equal(j.results[0].text, "quantum entanglement basics");
+  });
+});
