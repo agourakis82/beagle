@@ -44,21 +44,23 @@ spec:
       securityContext:
         seccompProfile:
           type: Unconfined
-      # dl380 fora: pods nesse no nao alcancam a rede — nem o Postgres do Spark
-      # (192.168.3.24:5433), nem ClusterIP interno. Medido 02-ago-2026: o HOST
-      # alcanca, o POD nao. O no entrou no cluster depois e a rede de pods dele
-      # nunca ficou completa. Sem isto o Deployment cai la e falha em silencio —
-      # foi exatamente o que aconteceu quando o serve foi reagendado.
-      # NAO troque por nodeSelector t560: isso recria o SPOF P0 no t560. A
-      # exclusao deixa 4 nos elegiveis.
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: kubernetes.io/hostname
-                    operator: NotIn
-                    values: ["dl380-proxmox"]
+      # HISTÓRICO — não remova esta nota junto com o código que ela explica.
+      # Em 02-ago-2026 pods no dl380 não alcançavam NADA: nem ClusterIP, nem o
+      # próprio host, nem a rede externa. O HOST alcançava; o POD não. Um rollout
+      # reagendou o memory-pg-serve para lá e o recall inteiro do companion parou,
+      # sem nada indicar a causa.
+      #
+      # Causa raiz: /usr/lib/sysctl.d/pve-firewall.conf (vendor Proxmox) define
+      # net.ipv4.conf.all.rp_filter=2 e, por ordem alfabética, é aplicado DEPOIS de
+      # 99-cilium-*.conf (ASCII: "9" < "p"). O valor do vendor vencia e o reverse
+      # path filtering matava o datapath do Cilium. Os outros nós já sombreavam o
+      # arquivo do vendor com /etc/sysctl.d/pve-firewall.conf; o dl380 não.
+      #
+      # CONSERTADO no nó (sombreamento instalado, sobrevive a restart do
+      # pve-firewall e a sysctl --system). A exclusão por nodeAffinity que existia
+      # aqui foi REMOVIDA depois de o companion-health passar rodando no dl380.
+      # Se um pod voltar a falhar em rede, verifique primeiro:
+      #     sysctl -n net.ipv4.conf.all.rp_filter    # tem que ser 0
       tolerations:
         - effect: NoSchedule
           key: sounio.dev/compute

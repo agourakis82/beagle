@@ -36,20 +36,23 @@ spec:
       template:
         spec:
           restartPolicy: Never
-          # dl380 fora: pods nesse nó não alcançam NEM ClusterIP interno (medido
-          # 02-ago-2026 — a primeira execução desta sonda caiu lá e falhou os dois
-          # checks com "fetch failed"). O nó entrou no cluster depois dos outros e
-          # a rede de pods dele nunca ficou completa. Enquanto isso não for
-          # consertado, a sonda rodando lá reportaria falso positivo — e um alarme
-          # que mente é pior que alarme nenhum.
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: kubernetes.io/hostname
-                        operator: NotIn
-                        values: ["dl380-proxmox"]
+          # HISTÓRICO — não remova esta nota junto com o código que ela explica.
+          # Em 02-ago-2026 pods no dl380 não alcançavam NADA: nem ClusterIP, nem o
+          # próprio host, nem a rede externa. O HOST alcançava; o POD não. Um rollout
+          # reagendou o memory-pg-serve para lá e o recall inteiro do companion parou,
+          # sem nada indicar a causa.
+          #
+          # Causa raiz: /usr/lib/sysctl.d/pve-firewall.conf (vendor Proxmox) define
+          # net.ipv4.conf.all.rp_filter=2 e, por ordem alfabética, é aplicado DEPOIS de
+          # 99-cilium-*.conf (ASCII: "9" < "p"). O valor do vendor vencia e o reverse
+          # path filtering matava o datapath do Cilium. Os outros nós já sombreavam o
+          # arquivo do vendor com /etc/sysctl.d/pve-firewall.conf; o dl380 não.
+          #
+          # CONSERTADO no nó (sombreamento instalado, sobrevive a restart do
+          # pve-firewall e a sysctl --system). A exclusão por nodeAffinity que existia
+          # aqui foi REMOVIDA depois de o companion-health passar rodando no dl380.
+          # Se um pod voltar a falhar em rede, verifique primeiro:
+          #     sysctl -n net.ipv4.conf.all.rp_filter    # tem que ser 0
           tolerations:
             - { effect: NoSchedule, key: sounio.dev/compute, operator: Equal, value: heavy }
             - { effect: NoSchedule, key: sounio.dev/pool, operator: Equal, value: gpu-batch }
