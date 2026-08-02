@@ -1,0 +1,120 @@
+# Companion heartbeat — a sonda que faltava em 02-ago-2026.
+#
+# Naquele dia DUAS falhas rodaram em silêncio ao mesmo tempo, por dias:
+#
+#   1. O reranker-gpu estava escalado a 0, então /query devolvia 500 em TODA
+#      chamada de recall. O chat trata "sem memórias" como caso normal — seguiu
+#      respondendo, sem memória nenhuma.
+#   2. O LiteLLM não conhecia nenhum modelo Claude, então a voz levava HTTP 400,
+#      virava 503, e o CHÃO respondia com presença enlatada.
+#
+# Nenhum alarme disparou. O único sensor foi o usuário dizendo "o chat tá frio".
+# Ambos os componentes pareciam saudáveis: pods Running, endpoints com IP, health
+# checks verdes. A falha só era visível NA EXPERIÊNCIA.
+#
+# Por isso esta sonda não olha componente — ela faz o que o usuário faz, e falha
+# o Job (visível em `kubectl -n beagle get jobs`) quando o companion perde a
+# memória OU perde a voz.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: companion-health
+  namespace: beagle
+  labels:
+    app: memory-pg
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 300
+      # Um companion mudo é alerta determinístico, não falha transitória de execução.
+      # Não crie pods falhos redundantes até o deadline expirar.
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          # dl380 fora: pods nesse nó não alcançam NEM ClusterIP interno (medido
+          # 02-ago-2026 — a primeira execução desta sonda caiu lá e falhou os dois
+          # checks com "fetch failed"). O nó entrou no cluster depois dos outros e
+          # a rede de pods dele nunca ficou completa. Enquanto isso não for
+          # consertado, a sonda rodando lá reportaria falso positivo — e um alarme
+          # que mente é pior que alarme nenhum.
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: NotIn
+                        values: ["dl380-proxmox"]
+          tolerations:
+            - { effect: NoSchedule, key: sounio.dev/compute, operator: Equal, value: heavy }
+            - { effect: NoSchedule, key: sounio.dev/pool, operator: Equal, value: gpu-batch }
+          containers:
+            - name: companion-health
+              image: 192.168.3.207:5003/memory-pg-embed-worker:p13-rerankbatch-e66f10fd
+              env:
+                - name: MEMORY_PG_QUERY_TOKEN
+                  valueFrom:
+                    secretKeyRef: { name: memory-pg, key: QUERY_TOKEN, optional: true }
+                - name: OPERATOR_TOKEN
+                  valueFrom:
+                    secretKeyRef: { name: beagle-core-tokens, key: operator-token }
+              command: ["node", "-e"]
+              args:
+                - |
+                  const QUERY = "http://memory-pg-serve.beagle.svc.cluster.local/query";
+                  const CHAT  = "http://project-cockpit.beagle.svc.cluster.local/api/mobile/v1/chat";
+                  const falhas = [];
+
+                  async function checaMemoria() {
+                    const tok = process.env.MEMORY_PG_QUERY_TOKEN || "";
+                    const r = await fetch(QUERY, {
+                      method: "POST",
+                      headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) },
+                      body: JSON.stringify({ query: "o que me angustia", k: 8, trusted_only: false }),
+                      signal: AbortSignal.timeout(60000),
+                    });
+                    if (!r.ok) return falhas.push(`MEMORIA MORTA: /query HTTP ${r.status} — o companion responde sem lembrar de nada`);
+                    const j = await r.json();
+                    const n = (j.results || []).length;
+                    if (n === 0) return falhas.push("MEMORIA VAZIA: /query devolveu 0 átomos para uma pergunta que sempre teve resposta");
+                    if (j.reranked === false) console.warn(`[aviso] recall degradado (reranker fora), ${n} átomos pela ordem de primeiro estágio`);
+                    console.log(`memoria OK: ${n} átomos`);
+                  }
+
+                  async function checaVoz() {
+                    const tok = process.env.OPERATOR_TOKEN;
+                    const r = await fetch(CHAT, {
+                      method: "POST",
+                      headers: { "content-type": "application/json", "x-cockpit-token": tok, authorization: "Bearer " + tok },
+                      body: JSON.stringify({ space: "personal", prompt: "Está me ouvindo?" }),
+                      signal: AbortSignal.timeout(200000),
+                    });
+                    if (!r.ok) return falhas.push(`VOZ MORTA: chat HTTP ${r.status}`);
+                    const d = (await r.json()).data || {};
+                    // O CHÃO é o modo de falha silenciosa: HTTP 200, texto acolhedor,
+                    // nenhum modelo por trás. É o que fez "está funcionando" parecer verdade.
+                    if (d.model === "floor" || d.source === "floor" || d.degraded === true) {
+                      return falhas.push(`VOZ NO CHAO: model=${d.model} degraded=${d.degraded} — presença enlatada, nenhum LLM respondendo`);
+                    }
+                    if (d.grounded === false) falhas.push("VOZ SEM GROUNDING: respondeu, mas sem a biografia dele");
+                    console.log(`voz OK: model=${d.model} grounded=${d.grounded}`);
+                  }
+
+                  (async () => {
+                    for (const [nome, fn] of [["memoria", checaMemoria], ["voz", checaVoz]]) {
+                      try { await fn(); } catch (e) { falhas.push(`${nome.toUpperCase()}: ${e.message}`); }
+                    }
+                    if (falhas.length) {
+                      console.error("\n=== COMPANION DEGRADADO ===");
+                      for (const f of falhas) console.error("  " + f);
+                      console.error("\nEle continua respondendo — é justamente por isso que ninguém percebe.");
+                      process.exit(1);
+                    }
+                    console.log("companion inteiro: memoria + voz");
+                    process.exit(0);
+                  })();

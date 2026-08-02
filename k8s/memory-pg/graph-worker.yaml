@@ -15,6 +15,21 @@ spec:
     metadata:
       labels: { app: memory-pg, component: graph-worker }
     spec:
+      # dl380 fora: pods nesse no nao alcancam a rede — nem o Postgres do Spark
+      # (192.168.3.24:5433), nem ClusterIP interno. Medido 02-ago-2026: o HOST
+      # alcanca, o POD nao. O no entrou no cluster depois e a rede de pods dele
+      # nunca ficou completa. Sem isto o Deployment cai la e falha em silencio —
+      # foi exatamente o que aconteceu quando o serve foi reagendado.
+      # NAO troque por nodeSelector t560: isso recria o SPOF P0 no t560. A
+      # exclusao deixa 4 nos elegiveis.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: ["dl380-proxmox"]
       tolerations:
         - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
         - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
@@ -23,7 +38,7 @@ spec:
         seccompProfile: { type: Unconfined }
       containers:
         - name: graph-worker
-          image: 192.168.3.207:5003/memory-pg-embed-worker:v4
+          image: 192.168.3.207:5003/memory-pg-embed-worker:p2-ffbb9d6a
           command: ["node", "bin/graph-worker.mjs"]
           env:
             - name: MEMORY_PG_DSN

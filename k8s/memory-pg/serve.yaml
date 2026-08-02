@@ -44,6 +44,21 @@ spec:
       securityContext:
         seccompProfile:
           type: Unconfined
+      # dl380 fora: pods nesse no nao alcancam a rede — nem o Postgres do Spark
+      # (192.168.3.24:5433), nem ClusterIP interno. Medido 02-ago-2026: o HOST
+      # alcanca, o POD nao. O no entrou no cluster depois e a rede de pods dele
+      # nunca ficou completa. Sem isto o Deployment cai la e falha em silencio —
+      # foi exatamente o que aconteceu quando o serve foi reagendado.
+      # NAO troque por nodeSelector t560: isso recria o SPOF P0 no t560. A
+      # exclusao deixa 4 nos elegiveis.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: ["dl380-proxmox"]
       tolerations:
         - effect: NoSchedule
           key: sounio.dev/compute
@@ -58,7 +73,7 @@ spec:
           operator: Exists
       containers:
         - name: serve
-          image: 192.168.3.207:5003/memory-pg-embed-worker:p9-a1429496
+          image: 192.168.3.207:5003/memory-pg-embed-worker:p13-rerankbatch-e66f10fd
           imagePullPolicy: IfNotPresent
           command: ["node", "bin/serve.mjs"]
           env:
@@ -83,6 +98,34 @@ spec:
             # so this is generous (the CPU path needed a tight cap to stay under timeout).
             - name: MEMORY_PG_RERANK_INPUT_CAP
               value: "64"
+            # ---- deriva que vivia SÓ no cluster até 02-ago-2026 ----
+            # Estas quatro estavam aplicadas via `kubectl set env` e não existiam em
+            # YAML nenhum. Uma delas (QUERY_FIRST_STAGE_K=4) estrangulava o recall a 4
+            # candidatos em silêncio, e qualquer `kubectl apply -f` teria revertido as
+            # outras sem aviso. Config que só vive no cluster é config que já está
+            # perdida — só ninguém sabe ainda.
+            #
+            # Recall de primeiro estágio. O default do código é 50; o cluster rodava
+            # com 4, cortando o pool antes de qualquer reranqueamento.
+            - name: QUERY_FIRST_STAGE_K
+              value: "50"
+            # Tamanho do sub-lote do cross-encoder. Os lotes rodam SEQUENCIALMENTE, então
+            # 8 (o default, dimensionado para o reranker CPU) transformava 50 candidatos
+            # em 7 round trips — medido como o custo dominante de um /query de 33-40s.
+            # O reranker GPU anuncia --max-client-batch-size 64. Com 50: 183-374ms.
+            # Só suba isto até o que o reranker apontado aceita.
+            - name: MEMORY_PG_RERANK_BATCH
+              value: "50"
+            # Fusão do canal de grafo.
+            - name: MEMORY_PG_GRAPH_ENABLED
+              value: "1"
+            # Expansão episódica DESLIGADA. O código (src/episode.mjs, 7 testes verdes)
+            # está no repo, mas tanto a v1 (chunk vizinho) quanto a v2 (sessão) foram
+            # medidas e são no-op: 114.957 de 137.000 records têm um único chunk, e os
+            # records com session_id são turnos inteiros de ~1.829 chars, não estilhaços.
+            # Não religue sem uma âncora nova — ver prov_derived_from.
+            - name: MEMORY_PG_EPISODE_RADIUS
+              value: "0"
             # Auth token (optional). secretKeyRef with optional:true so the
             # Deployment applies before the key is patched in (gate open until set).
             - name: MEMORY_PG_QUERY_TOKEN
