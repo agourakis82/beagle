@@ -744,7 +744,7 @@ async function proxyDeepThinkAgentic({ prompt, system = "", history = [], onToke
         "content-type": "application/json"
       },
       body: JSON.stringify({
-        model: "claude-opus-4-8",
+        model: "claude-opus-5",
         stream: true,
         beagle_agentic: true,
         messages
@@ -764,7 +764,7 @@ async function proxyDeepThinkAgentic({ prompt, system = "", history = [], onToke
       );
       if (!text) throw new Error("deep think proxy returned empty completion");
       if (onToken) onToken(text);
-      return { text, model: "claude-opus-4-8", source: "agentic" };
+      return { text, model: "claude-opus-5", source: "agentic" };
     }
 
     const reader = res.body.getReader();
@@ -796,7 +796,7 @@ async function proxyDeepThinkAgentic({ prompt, system = "", history = [], onToke
       }
     }
     if (!fullText) throw new Error("deep think proxy stream returned no tokens");
-    return { text: fullText, model: "claude-opus-4-8", source: "agentic" };
+    return { text: fullText, model: "claude-opus-5", source: "agentic" };
   } finally {
     clearTimeout(timer);
   }

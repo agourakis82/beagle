@@ -1,217 +1,167 @@
+# SOTA 2026 router — Darwin cluster (v3: + ensemble exotico chines)
 model_list:
-- model_name: claude-opus-4-8
-  litellm_params:
-    model: openai/claude-opus-4-8
-    api_base: http://100.103.228.8:9500/v1
-    api_key: noauth
-    rpm: 200
-- model_name: claude-sonnet-5
-  litellm_params:
-    model: openai/claude-sonnet-5
-    api_base: http://100.103.228.8:9500/v1
-    api_key: noauth
-    rpm: 200
-- model_name: gpt-5.5
-  litellm_params:
-    model: openai/gpt-5.5
-    api_base: http://100.103.228.8:9510/v1
-    api_key: noauth
-    rpm: 100
-- model_name: qwen2.5-14b-vllm
-  litellm_params:
-    model: openai/qwen2.5-14b
-    api_base: http://vllm.vllm-r770-eagle3.svc.cluster.local:8000/v1
-    api_key: noauth
-    rpm: 600
-- model_name: glm-air-companion
-  litellm_params:
-    model: openai/glm-air-companion
-    api_base: http://192.168.3.24:11434/v1
-    api_key: noauth
-- model_name: glm-4.5-air
-  litellm_params:
-    model: openai/MichelRosselli/GLM-4.5-Air:Q4_K_M
-    api_base: http://192.168.3.24:11434/v1
-    api_key: noauth
-- model_name: qwq
-  litellm_params:
-    model: openai/qwq:32b
-    api_base: http://192.168.3.24:11434/v1
-    api_key: noauth
-- model_name: qwen2.5-14b
-  litellm_params:
-    model: openai/qwen2.5:14b
-    api_base: http://192.168.3.24:11434/v1
-    api_key: noauth
-    rpm: 600
-- model_name: qwen2.5-coder-32b
-  litellm_params:
-    model: openai/qwen2.5-coder:32b
-    api_base: http://192.168.3.24:11434/v1
-    api_key: noauth
-    rpm: 400
-- model_name: chat-fast
-  litellm_params:
-    model: openai/qwen2.5:14b
-    api_base: http://192.168.3.24:11434/v1
-    api_key: noauth
-- model_name: code
-  litellm_params:
-    model: openai/qwen2.5-coder:32b
-    api_base: http://192.168.3.24:11434/v1
-    api_key: noauth
-- model_name: phi4-reasoning
-  litellm_params:
-    model: openai/phi4-reasoning:14b
-    api_base: http://192.168.3.24:11434/v1
-    api_key: noauth
-    rpm: 100
-- model_name: science
-  litellm_params:
-    model: openai/glm-5.2
-    api_base: https://api.z.ai/api/coding/paas/v4
-    api_key: os.environ/ZAI_API_KEY
-- model_name: r1-distill-70b
-  litellm_params:
-    model: openai/glm-5.2
-    api_base: https://api.z.ai/api/coding/paas/v4
-    api_key: os.environ/ZAI_API_KEY
-- model_name: olmo3-think
-  litellm_params:
-    model: openai/glm-5.2
-    api_base: https://api.z.ai/api/coding/paas/v4
-    api_key: os.environ/ZAI_API_KEY
-- model_name: hermes-4
-  litellm_params:
-    model: openai/hermes-4
-    api_base: http://vllm.vllm-hermes-rtx8000.svc.cluster.local:8000/v1
-    api_key: noauth
-    rpm: 200
-- model_name: mind
-  litellm_params:
-    model: openai/hermes-4
-    api_base: http://vllm.vllm-hermes-rtx8000.svc.cluster.local:8000/v1
-    api_key: noauth
-- model_name: hunyuan-7b
-  litellm_params:
-    model: openai/hunyuan-7b
-    api_base: http://vllm.vllm-hunyuan-a5000.svc.cluster.local:8000/v1
-    api_key: noauth
-    rpm: 300
-- model_name: baichuan-m2-med
-  litellm_params:
-    model: openai/baichuan-m2-med
-    api_base: http://vllm.vllm-baichuan-rtx8000.svc.cluster.local:8000/v1
-    api_key: noauth
-    rpm: 200
-- model_name: med
-  litellm_params:
-    model: openai/baichuan-m2-med
-    api_base: http://vllm.vllm-baichuan-rtx8000.svc.cluster.local:8000/v1
-    api_key: noauth
-- model_name: bge-m3
-  litellm_params:
-    model: openai/bge-m3
-    api_base: http://beagle-sovereign-embeddings.beagle.svc.cluster.local:80
-    api_key: noauth
-- model_name: embed
-  litellm_params:
-    model: openai/bge-m3
-    api_base: http://beagle-sovereign-embeddings.beagle.svc.cluster.local:80
-    api_key: noauth
-- model_name: dynamo-qwen3
-  litellm_params:
-    model: openai/qwen3-0.6b
-    api_base: http://sglang-agg-poc-frontend.beagle.svc.cluster.local:8000/v1
-    api_key: sk-noauth
-- model_name: deepseek-chat
-  litellm_params:
-    model: deepseek/deepseek-chat
-    api_key: os.environ/DEEPSEEK_API_KEY
-    rpm: 500
-- model_name: deepseek-reasoner
-  litellm_params:
-    model: deepseek/deepseek-reasoner
-    api_key: os.environ/DEEPSEEK_API_KEY
-    rpm: 300
-- model_name: minimax-m2.7
-  litellm_params:
-    model: openai/MiniMax-M2.7
-    api_base: https://api.minimax.io/v1
-    api_key: os.environ/MINIMAX_API_KEY
-- model_name: minimax-m3
-  litellm_params:
-    model: openai/MiniMax-M3
-    api_base: https://api.minimax.io/v1
-    api_key: os.environ/MINIMAX_API_KEY
-    rpm: 200
-- model_name: kimi-k2
-  litellm_params:
-    model: openrouter/moonshotai/kimi-k2
-    api_key: os.environ/OPENROUTER_API_KEY
-    rpm: 200
-- model_name: grok
-  litellm_params:
-    model: xai/grok-4.3
-    api_key: os.environ/XAI_API_KEY
-    rpm: 200
-- model_name: groq-llama
-  litellm_params:
-    model: groq/llama-3.3-70b-versatile
-    api_key: os.environ/GROQ_API_KEY
-    rpm: 300
-- model_name: chat
-  litellm_params:
-    model: openai/MiniMax-M3
-    api_base: https://api.minimax.io/v1
-    api_key: os.environ/MINIMAX_API_KEY
-- model_name: kimi-k2.7
-  litellm_params:
-    model: openai/kimi-for-coding
-    api_base: http://kimi-proxy.llm-router.svc.cluster.local:8000/v1
-    api_key: noauth
-    rpm: 200
-- model_name: kimi-k2.6
-  litellm_params:
-    model: openai/kimi-for-coding
-    api_base: http://kimi-proxy.llm-router.svc.cluster.local:8000/v1
-    api_key: noauth
-- model_name: glm-5.2
-  litellm_params:
-    model: openai/glm-5.2
-    api_base: https://api.z.ai/api/coding/paas/v4
-    api_key: os.environ/ZAI_API_KEY
-    rpm: 300
-- model_name: glm-5.1
-  litellm_params:
-    model: openai/glm-5.1
-    api_base: https://api.z.ai/api/coding/paas/v4
-    api_key: os.environ/ZAI_API_KEY
-    rpm: 300
-- model_name: glm-4.7
-  litellm_params:
-    model: openai/glm-4.7
-    api_base: https://api.z.ai/api/coding/paas/v4
-    api_key: os.environ/ZAI_API_KEY
-    rpm: 300
-- model_name: glm
-  litellm_params:
-    model: openai/glm-4.7
-    api_base: https://api.z.ai/api/coding/paas/v4
-    api_key: os.environ/ZAI_API_KEY
-    rpm: 300
-- model_name: falcon-mamba-7b
-  litellm_params:
-    model: openai/falcon-mamba-7b
-    api_base: http://discussion-lab-falcon-mamba.beagle.svc.cluster.local:8000/v1
-    api_key: noauth
-    rpm: 100
-- model_name: internlm2.5-7b
-  litellm_params:
-    model: openai/internlm2.5-7b
-    api_base: http://discussion-lab-internlm.beagle.svc.cluster.local:8000/v1
-    api_key: noauth
-    rpm: 100
+  # === SOTA primary: 14B + EAGLE-3 speculative ===
+  - model_name: qwen2.5-14b
+    litellm_params:
+      model: openai/qwen2.5-14b
+      api_base: http://vllm.vllm-r770-eagle3.svc.cluster.local:8000/v1
+      api_key: noauth
+      rpm: 600
+
+  # === SOTA coder: 32B AWQ RTX 8000 ===
+  - model_name: qwen2.5-coder-32b
+    litellm_params:
+      model: openai/qwen2.5-coder-32b
+      api_base: http://vllm.vllm-coder-rtx8000.svc.cluster.local:8000/v1
+      api_key: noauth
+      rpm: 400
+
+  # === Aliases por GPU/use-case ===
+  - model_name: chat-fast
+    litellm_params:
+      model: openai/qwen2.5-14b
+      api_base: http://vllm.vllm-r770-eagle3.svc.cluster.local:8000/v1
+      api_key: noauth
+
+  - model_name: code
+    litellm_params:
+      model: openai/qwen2.5-coder-32b
+      api_base: http://vllm.vllm-coder-rtx8000.svc.cluster.local:8000/v1
+      api_key: noauth
+
+  # === Qwen3.6 35B-A3B uncensored: RTX 8000, llama.cpp CUDA, NVMe local ===
+  - model_name: qwen3.6-35b-a3b-uncensored
+    litellm_params:
+      model: openai/qwen3.6-35b-a3b-uncensored
+      api_base: https://10.96.58.156:8000/v1
+      api_key: os.environ/QWEN36_API_KEY
+      # ssl_verify: false — endpoint dormente (scale-to-0) em 02-ago-2026, nao deu
+      # para checar se e self-signed. Ao reviver: montar a CA + SSL_CERT_FILE e
+      # REMOVER esta linha, ou trocar api_base para http:// se nao houver TLS real.
+      ssl_verify: false
+      timeout: 1200
+
+  - model_name: uncensored
+    litellm_params:
+      model: openai/qwen3.6-35b-a3b-uncensored
+      api_base: https://10.96.58.156:8000/v1
+      api_key: os.environ/QWEN36_API_KEY
+      # ssl_verify: false — endpoint dormente (scale-to-0) em 02-ago-2026, nao deu
+      # para checar se e self-signed. Ao reviver: montar a CA + SSL_CERT_FILE e
+      # REMOVER esta linha, ou trocar api_base para http:// se nao houver TLS real.
+      ssl_verify: false
+      timeout: 1200
+
+  # === PaddleOCR-VL 1.6 multimodal: A5000, llama.cpp CUDA, NVMe local ===
+  - model_name: paddleocr-vl-1.6
+    litellm_params:
+      model: openai/PaddleOCR-VL-1.6
+      api_base: https://paddleocr-vl.paddleocr-vl.svc.cluster.local:8118/v1
+      api_key: os.environ/PADDLEOCR_VL_API_KEY
+      # ssl_verify: false — endpoint dormente (scale-to-0) em 02-ago-2026, nao deu
+      # para checar se e self-signed. Ao reviver: montar a CA + SSL_CERT_FILE e
+      # REMOVER esta linha, ou trocar api_base para http:// se nao houver TLS real.
+      ssl_verify: false
+      timeout: 600
+
+  - model_name: ocr
+    litellm_params:
+      model: openai/PaddleOCR-VL-1.6
+      api_base: https://paddleocr-vl.paddleocr-vl.svc.cluster.local:8118/v1
+      api_key: os.environ/PADDLEOCR_VL_API_KEY
+      # ssl_verify: false — endpoint dormente (scale-to-0) em 02-ago-2026, nao deu
+      # para checar se e self-signed. Ao reviver: montar a CA + SSL_CERT_FILE e
+      # REMOVER esta linha, ou trocar api_base para http:// se nao houver TLS real.
+      ssl_verify: false
+      timeout: 600
+
+  # === CIENTÍFICOS (RTX 8000 scale-to-0; só 1 ativo por vez via rtx8000-switch.sh) ===
+  - model_name: phi4-reasoning
+    litellm_params: { model: openai/phi4-reasoning, api_base: http://vllm.vllm-phi4-rtx8000.svc.cluster.local:8000/v1, api_key: noauth }
+  - model_name: science                       # alias -> Phi-4 (pick padrão)
+    litellm_params: { model: openai/phi4-reasoning, api_base: http://vllm.vllm-phi4-rtx8000.svc.cluster.local:8000/v1, api_key: noauth }
+  - model_name: r1-distill-70b
+    litellm_params: { model: openai/r1-distill-70b, api_base: http://vllm.vllm-r1-rtx8000.svc.cluster.local:8000/v1, api_key: noauth }
+  - model_name: olmo3-think
+    litellm_params: { model: openai/olmo3-think, api_base: http://vllm.vllm-olmo3-rtx8000.svc.cluster.local:8000/v1, api_key: noauth }
+
+  # === FILOSOFIA/MENTE: Hermes 4.3 36B (Nous, Seed-OSS) — low-sycophancy, RTX 8000 ===
+  - model_name: hermes-4
+    litellm_params:
+      model: openai/hermes-4
+      api_base: http://vllm.vllm-hermes-rtx8000.svc.cluster.local:8000/v1
+      api_key: noauth
+      rpm: 200
+
+  - model_name: mind
+    litellm_params:
+      model: openai/hermes-4
+      api_base: http://vllm.vllm-hermes-rtx8000.svc.cluster.local:8000/v1
+      api_key: noauth
+
+  # === EXOTICO #1: Hunyuan-7B (Tencent) — decorrelacao corpus/lab, A5000 ===
+  - model_name: hunyuan-7b
+    litellm_params:
+      model: openai/hunyuan-7b
+      api_base: http://vllm.vllm-hunyuan-a5000.svc.cluster.local:8000/v1
+      api_key: noauth
+      rpm: 300
+
+  # === EXOTICO #2: Baichuan-M2-32B medico (RTX 8000, scale-to-0) ===
+  - model_name: baichuan-m2-med
+    litellm_params:
+      model: openai/baichuan-m2-med
+      api_base: http://vllm.vllm-baichuan-rtx8000.svc.cluster.local:8000/v1
+      api_key: noauth
+      rpm: 200
+
+  - model_name: med
+    litellm_params:
+      model: openai/baichuan-m2-med
+      api_base: http://vllm.vllm-baichuan-rtx8000.svc.cluster.local:8000/v1
+      api_key: noauth
+
+  # === SOTA embeddings: jina-embeddings-v3 ===
+  - model_name: bge-m3
+    litellm_params:
+      model: openai/bge-m3
+      api_base: http://tei.tei-embeddings.svc.cluster.local:8080
+      api_key: noauth
+
+  - model_name: embed
+    litellm_params:
+      model: openai/bge-m3
+      api_base: http://tei.tei-embeddings.svc.cluster.local:8080
+      api_key: noauth
+
+  # === Claude via proxy OAuth (Max subscription, $0) — t560:9500 ===
+  # 2026-08-02: o router NAO conhecia nenhum modelo claude, entao a voz do
+  # companion pedia claude-opus-4-8, levava HTTP 400 "Invalid model name",
+  # virava 503 e caia no CHAO (presenca enlatada). O usuario sentiu isso como
+  # "chat frio, sem criatividade" — nao havia modelo nenhum respondendo.
+  - model_name: claude-opus-5
+    litellm_params:
+      model: openai/claude-opus-5
+      api_base: http://10.100.100.2:9500/v1
+      api_key: noauth
+      timeout: 600
+      rpm: 200
+
+  - model_name: claude-opus-4-8
+    litellm_params:
+      model: openai/claude-opus-4-8
+      api_base: http://10.100.100.2:9500/v1
+      api_key: noauth
+      timeout: 600
+      rpm: 200
+
+  - model_name: claude-sonnet-5
+    litellm_params:
+      model: openai/claude-sonnet-5
+      api_base: http://10.100.100.2:9500/v1
+      api_key: noauth
+      timeout: 600
+
 router_settings:
   routing_strategy: latency-based-routing
   retry_after: 5
@@ -219,55 +169,10 @@ router_settings:
   timeout: 600
   allowed_fails: 3
   cooldown_time: 30
-  fallbacks:
-  - qwen2.5-14b:
-    - minimax-m3
-  - chat-fast:
-    - minimax-m3
-  - code:
-    - minimax-m3
-  - qwen2.5-coder-32b:
-    - minimax-m3
-  - hermes-4:
-    - minimax-m3
-  - mind:
-    - minimax-m3
-  - hunyuan-7b:
-    - minimax-m3
-  - science:
-    - glm-5.2
-  - r1-distill-70b:
-    - glm-5.2
-  - olmo3-think:
-    - glm-5.2
-  - med:
-    - minimax-m3
-  - baichuan-m2-med:
-    - minimax-m3
-  - kimi-k2.7:
-    - minimax-m3
-  - kimi-k2.6:
-    - minimax-m3
-  - glm-5.2:
-    - glm-4.7
-  - glm-5.1:
-    - minimax-m3
-  - glm-4.7:
-    - minimax-m3
-  - glm:
-    - minimax-m3
-  - deepseek-chat:
-    - minimax-m3
-  - deepseek-reasoner:
-    - glm-5.2
-  - qwq:
-    - glm-5.2
-  - glm-4.5-air:
-    - glm-5.2
-  - glm-air-companion:
-    - glm-5.2
+
 litellm_settings:
   drop_params: true
   set_verbose: false
   json_logs: true
-general_settings: null
+
+general_settings:

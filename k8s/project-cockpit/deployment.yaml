@@ -61,6 +61,21 @@ spec:
           type: Unconfined
       containers:
       - env:
+        - name: BEAGLE_MEMORY_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: beagle-core-tokens
+              key: operator-token
+        - name: PROJECT_COCKPIT_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: cockpit-mobile-auth
+              key: PROJECT_COCKPIT_AUTH_TOKEN
+        - name: PROJECT_COCKPIT_INTERNAL_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: beagle-core-tokens
+              key: operator-token
         - name: PROJECT_COCKPIT_PORT
           value: '4370'
         - name: PROJECT_COCKPIT_ROOT
@@ -106,11 +121,15 @@ spec:
         # Companion (Pessoal) voice: fast, warm, non-reasoning model that streams
         # real content (qwen2.5-14b, warm on DGX Spark). glm-air-companion was a
         # reasoning model → empty stream (503) + 26s latency that broke the cadence.
-        # 2026-07-03: companion voice = Claude Opus 4.8 (LiteLLM router → t560:9500 claude proxy
+        # 2026-07-03: companion voice = Claude Opus (LiteLLM router → t560:9500 claude proxy
         # → real CLI, $0 on Max). Persona rewritten for his register (elevated peer, not the
         # beagle-dog folksy voice); qwen read flat. Overridable via kubectl set env if needed.
+        # 2026-08-02: bumped to Opus 5. This name MUST exist as a model_name in the LiteLLM
+        # router config — the router 400s an unknown model, that 503s the voice, and the chat
+        # silently degrades to the FLOOR (canned presence). It read as "the chat went cold"
+        # with nothing broken-looking anywhere. Change both sides together, never just this.
         - name: PROJECT_COCKPIT_PERSONAL_VOICE_MODEL
-          value: claude-opus-4-8
+          value: claude-opus-5
         - name: PROJECT_COCKPIT_PERSONAL_MUSE_MODEL
           value: qwen2.5-14b
         # Muse creative pre-pass OFF: it added a full non-streaming call before the
