@@ -41,12 +41,24 @@ spec:
         - operator: Exists   # roda mesmo se o nó ganhar taint no futuro
       containers:
         - name: generic-device-plugin
-          image: ghcr.io/squat/generic-device-plugin:latest
+          # pinned by digest (immutable) — supply-chain: no mutable :latest
+          image: ghcr.io/squat/generic-device-plugin@sha256:dc192e164c69b03f156765793a1be62ca437709ae477b27ca7d8f3dcf5021576
           args:
             - --domain=sounio.dev
             - --config=/config/config.yaml
+          # least-privilege: a device plugin only lists /dev + writes its kubelet
+          # socket (both via hostPath) — it does NOT need privileged. kubelet does
+          # the device-cgroup injection into claiming pods.
           securityContext:
-            privileged: true
+            privileged: false
+            allowPrivilegeEscalation: false
+            runAsUser: 0
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: Unconfined   # cluster default seccomp blocks socketpair (see MEMORY seccomp)
+            appArmorProfile:
+              type: Unconfined   # node AppArmor default denies AF_UNIX bind to the kubelet socket (see MEMORY apparmor-unix-socket-denial); dl380 lacks the abi fix
           resources:
             requests: {cpu: 10m, memory: 20Mi}
             limits: {cpu: 50m, memory: 64Mi}
