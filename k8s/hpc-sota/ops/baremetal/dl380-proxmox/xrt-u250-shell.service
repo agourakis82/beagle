@@ -1,0 +1,13 @@
+[Unit]
+Description=Load the AMD Alveo U250 XDMA shell
+After=local-fs.target systemd-modules-load.service
+ConditionPathExists=/opt/xilinx/firmware/u250/gen3x16/xdma-shell/partition.xsabin
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/u250-load-xdma-shell
+RemainAfterExit=yes
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

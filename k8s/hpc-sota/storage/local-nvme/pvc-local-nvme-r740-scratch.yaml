@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: local-nvme-r740-scratch
+  namespace: beagle
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-nvme-r740
+  resources:
+    requests:
+      storage: 500Gi

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run OrangeFS artifact probe on a schedule
+
+[Timer]
+OnCalendar=*-*-* 06,12,18:00:00
+Persistent=true
+Unit=orangefs-artifact-probe.service
+
+[Install]
+WantedBy=timers.target

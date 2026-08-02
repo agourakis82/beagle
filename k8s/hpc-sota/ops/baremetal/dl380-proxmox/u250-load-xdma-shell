@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+export NO_COLOR=1
+
+xrt_bin=/opt/xilinx/xrt/bin
+mgmt_bdf=0000:d8:00.0
+user_bdf=0000:d8:00.1
+shell_image=/opt/xilinx/firmware/u250/gen3x16/xdma-shell/partition.xsabin
+expected_shell=xilinx_u250_gen3x16_xdma_shell_4_1
+
+if [[ ! -x "$xrt_bin/xbmgmt" || ! -x "$xrt_bin/xrt-smi" ]]; then
+  echo "XRT tools are not installed" >&2
+  exit 1
+fi
+
+if [[ ! -r "$shell_image" ]]; then
+  echo "U250 XDMA shell is not installed: $shell_image" >&2
+  exit 1
+fi
+
+modprobe xclmgmt
+modprobe xocl
+udevadm settle
+
+for _ in {1..60}; do
+  if [[ -e "/sys/bus/pci/devices/$mgmt_bdf" && -e "/sys/bus/pci/devices/$user_bdf" ]]; then
+    break
+  fi
+  sleep 1
+done
+
+if [[ ! -e "/sys/bus/pci/devices/$mgmt_bdf" || ! -e "/sys/bus/pci/devices/$user_bdf" ]]; then
+  echo "U250 PCI functions did not appear" >&2
+  exit 1
+fi
+
+if "$xrt_bin/xrt-smi" examine --device "$user_bdf" 2>&1 | grep -q "$expected_shell"; then
+  echo "U250 XDMA shell is already active"
+  exit 0
+fi
+
+"$xrt_bin/xbmgmt" --batch program \
+  --device "$mgmt_bdf" \
+  --shell "$shell_image"
+
+for _ in {1..30}; do
+  if "$xrt_bin/xrt-smi" examine --device "$user_bdf" 2>&1 | grep -q "$expected_shell"; then
+    echo "U250 XDMA shell is active"
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "U250 XDMA shell did not become ready" >&2
+exit 1

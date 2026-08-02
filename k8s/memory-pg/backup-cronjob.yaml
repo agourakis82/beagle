@@ -1,8 +1,9 @@
 # memory-pg durable backups. The live DB is a single Docker container on the DGX Spark (.24) —
 # irreplaceable data on a single node. This CronJob pg_dumps it HOURLY to t560's /data (1.4TB,
 # a SEPARATE physical node, so a Spark/disk death does not take the backups too), with tiered
-# retention, and self-verifies each dump is restorable-shaped (pg_restore --list). Pairs with the
-# live standby (standby StatefulSet) for RPO~0 + point-in-time recovery. See project_memory_pg_wal_stall_20260713.
+# retention, and self-verifies each dump is restorable-shaped (pg_restore --list). The community
+# ParadeDB standby cannot replay pg_search WAL, so these dumps are currently the recoverable
+# second-node copy. See project_memory_pg_wal_stall_20260713.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -17,7 +18,10 @@ spec:
   failedJobsHistoryLimit: 5
   jobTemplate:
     spec:
-      activeDeadlineSeconds: 900
+      # The store outgrew the original 15-minute budget in July 2026. Keep the
+      # deadline below the hourly schedule while allowing a full verified dump.
+      activeDeadlineSeconds: 3600
+      backoffLimit: 1
       template:
         spec:
           restartPolicy: Never
@@ -51,7 +55,7 @@ spec:
                   mv "$TMP" "$OUT"
                   echo "OK: $OUT ($(du -h "$OUT" | cut -f1)) verified restorable-shaped"
                   # Retention: keep the newest 168 (7 days at hourly). Count-based = robust, no date
-                  # parsing. Live standby covers RPO~0; these are the point-in-time / both-nodes-down net.
+                  # parsing. These are the point-in-time / both-nodes-down recovery net.
                   rm -f memory-*.fc.partial 2>/dev/null || true
                   ls -1t memory-*.fc | tail -n +169 | while read old; do rm -f "$old"; done
                   echo "backups on t560:/data/memory-pg-backups (newest first):"; ls -1t memory-*.fc | head -4

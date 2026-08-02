@@ -1,0 +1,10 @@
+[Unit]
+Description=Run OrangeFS single-node CUDA pilot on schedule
+
+[Timer]
+OnCalendar=*-*-* 08,14,20:00:00
+Persistent=true
+Unit=orangefs-cuda-pilot.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,27 @@
+[global]
+keyboard = "en-us"
+country = "br"
+fqdn = "dl380-proxmox.darwin.local"
+mailto = "demetrios@agourakis.med.br"
+timezone = "America/Sao_Paulo"
+root-password-hashed = "$6$Ht2FNxdp.AlemAAG$r2zRFnAu7/.0KcTofBDrIDEJuYD03UOwMi/kgxTETsdpVAMIAMF7OIGh3KdQkcmPN8LShAqVPU31nTBNlOkSD1"
+root-ssh-keys = [
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGmwNq7Cj9UECnacMrmM8ALrkI3uhbOWevGY328C+8j5 devsounio@codex-sounio",
+]
+
+[first-boot]
+source = "from-url"
+url = "http://192.168.3.169:8088/dl380-first-boot.sh"
+ordering = "network-online"
+
+[network]
+source = "from-answer"
+cidr = "192.168.3.155/24"
+dns = "192.168.3.1"
+gateway = "192.168.3.1"
+filter.ID_NET_NAME_MAC = "*5480285835e2"
+
+[disk-setup]
+filesystem = "ext4"
+filter.ID_SERIAL_SHORT = "CVPD7223008K800U"
+

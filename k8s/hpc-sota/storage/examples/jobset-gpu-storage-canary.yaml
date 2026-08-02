@@ -1,0 +1,110 @@
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: gpu-storage-canary
+  namespace: beagle
+  labels:
+    kueue.x-k8s.io/queue-name: hpc-training
+spec:
+  coordinator:
+    replicatedJob: workers
+    jobIndex: 0
+    podIndex: 0
+  network:
+    enableDNSHostnames: true
+    subdomain: gpu-storage-canary
+    publishNotReadyAddresses: true
+  replicatedJobs:
+    - name: workers
+      replicas: 2
+      template:
+        spec:
+          parallelism: 1
+          completions: 1
+          backoffLimit: 0
+          template:
+            metadata:
+              labels:
+                sounio.dev/distributed-group: gpu-storage-canary
+            spec:
+              priorityClassName: hpc-training
+              runtimeClassName: nvidia
+              restartPolicy: Never
+              tolerations:
+                - key: sounio.dev/compute
+                  operator: Equal
+                  value: heavy
+                  effect: NoSchedule
+                - key: sounio.dev/pool
+                  operator: Equal
+                  value: gpu-batch
+                  effect: NoSchedule
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                      - matchExpressions:
+                          - key: sounio.dev/accelerator-class
+                            operator: In
+                            values:
+                              - gpu
+                          - key: sounio.dev/compute
+                            operator: In
+                            values:
+                              - heavy
+                podAntiAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    - labelSelector:
+                        matchExpressions:
+                          - key: sounio.dev/distributed-group
+                            operator: In
+                            values:
+                              - gpu-storage-canary
+                      topologyKey: kubernetes.io/hostname
+              containers:
+                - name: canary
+                  image: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
+                  imagePullPolicy: IfNotPresent
+                  command:
+                    - /bin/bash
+                    - -lc
+                    - |
+                      set -euo pipefail
+                      echo "hostname=$(hostname)"
+                      python - <<'PY'
+                      import torch
+                      print(f"cuda={torch.cuda.is_available()} gpus={torch.cuda.device_count()}", flush=True)
+                      PY
+                      test -d /datasets
+                      test -d /checkpoints
+                      test -d /scratch
+                      echo "$(hostname) $(date -Is)" >> /checkpoints/canary.log
+                      dd if=/dev/zero of=/scratch/throughput.bin bs=1M count=64 status=none
+                      sync
+                      ls -lah /datasets /checkpoints /scratch
+                  resources:
+                    requests:
+                      cpu: "4"
+                      memory: 12Gi
+                      nvidia.com/gpu: "1"
+                    limits:
+                      cpu: "4"
+                      memory: 12Gi
+                      nvidia.com/gpu: "1"
+                  volumeMounts:
+                    - name: datasets
+                      mountPath: /datasets
+                    - name: checkpoints
+                      mountPath: /checkpoints
+                    - name: scratch
+                      mountPath: /scratch
+              volumes:
+                - name: datasets
+                  persistentVolumeClaim:
+                    claimName: training-datasets
+                - name: checkpoints
+                  persistentVolumeClaim:
+                    claimName: training-checkpoints
+                - name: scratch
+                  persistentVolumeClaim:
+                    claimName: training-scratch

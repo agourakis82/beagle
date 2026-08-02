@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: local-ai-runtime-r770
+  namespace: beagle
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-ai-runtime-r770
+  resources:
+    requests:
+      storage: 100Gi

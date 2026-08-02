@@ -10255,6 +10255,13 @@ app.use(express.json());
 // ─── Security middleware ────────────────────────────────────────────
 
 const COCKPIT_AUTH_TOKEN = cleanValue(process.env.PROJECT_COCKPIT_AUTH_TOKEN);
+// Separate service-to-service credential for trusted cluster clients such as
+// beagle-mcp-server. Keep it distinct from the mobile/operator-facing token so
+// neither caller has to impersonate the other auth surface.
+const COCKPIT_INTERNAL_AUTH_TOKEN = cleanValue(process.env.PROJECT_COCKPIT_INTERNAL_AUTH_TOKEN);
+const COCKPIT_AUTH_TOKENS = new Set(
+  [COCKPIT_AUTH_TOKEN, COCKPIT_INTERNAL_AUTH_TOKEN].filter(Boolean)
+);
 
 // Slug validation: reject any :slug param that isn't a safe k8s label value.
 const VALID_SLUG = /^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/;
@@ -10269,10 +10276,10 @@ app.param("slug", (req, res, next, slug) => {
 app.use((req, res, next) => {
   const p = req.path;
   if (p === "/livez" || p === "/healthz" || req.method === "OPTIONS") return next();
-  if (!COCKPIT_AUTH_TOKEN) return next(); // no token configured = open (dev mode)
+  if (COCKPIT_AUTH_TOKENS.size === 0) return next(); // no token configured = open (dev mode)
   const bearer = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   const headerToken = req.headers["x-cockpit-token"] || "";
-  if (bearer === COCKPIT_AUTH_TOKEN || headerToken === COCKPIT_AUTH_TOKEN) return next();
+  if (COCKPIT_AUTH_TOKENS.has(bearer) || COCKPIT_AUTH_TOKENS.has(headerToken)) return next();
   // Allow Tailscale-authenticated requests (operator sidecar sets this header)
   const tsUser = req.headers["tailscale-user-login"];
   if (tsUser) return next();

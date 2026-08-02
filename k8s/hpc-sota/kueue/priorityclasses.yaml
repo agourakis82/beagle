@@ -1,0 +1,27 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: hpc-interactive
+value: 100000
+preemptionPolicy: Never
+globalDefault: false
+description: Interactive development and urgent operator debugging.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: hpc-training
+value: 90000
+preemptionPolicy: Never
+globalDefault: false
+description: Distributed training and long-running GPU jobs.
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: hpc-batch
+value: 80000
+preemptionPolicy: Never
+globalDefault: false
+description: Heavy CPU batch, preprocessing, and offline evaluation.
+

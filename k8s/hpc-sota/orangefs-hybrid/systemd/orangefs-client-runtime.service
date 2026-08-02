@@ -1,0 +1,16 @@
+[Unit]
+Description=OrangeFS client runtime mount
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=FS_URI=tcp://10.100.100.2:3334/orangefs_lab_2n
+ExecStart=/usr/local/sbin/orangefs-client-runtime.sh start
+ExecStop=/usr/local/sbin/orangefs-client-runtime.sh stop
+ExecReload=/usr/local/sbin/orangefs-client-runtime.sh restart
+
+[Install]
+WantedBy=multi-user.target
+

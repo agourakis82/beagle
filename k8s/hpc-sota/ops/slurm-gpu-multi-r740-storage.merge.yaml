@@ -1,0 +1,24 @@
+spec:
+  template:
+    spec:
+      volumes:
+        - name: orangefs-training
+          hostPath:
+            path: /mnt/cephfs-explore/volumes/slurm/training/50385ce0-74ed-41d9-9563-36b88318683b
+            type: Directory
+        - name: host-nvidia-smi
+          hostPath:
+            path: /usr/bin/nvidia-smi
+            type: File
+        - name: host-libnvidia-ml
+          hostPath:
+            path: /lib/x86_64-linux-gnu/libnvidia-ml.so.1
+            type: File
+        - name: host-libcuda
+          hostPath:
+            path: /lib/x86_64-linux-gnu/libcuda.so.1
+            type: File
+        - name: host-libnvidia-ptxjitcompiler
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1
+            type: File

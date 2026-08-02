@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: orangefs-vs-ceph-r740-bench
+  namespace: beagle
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: r740-proxmox
+  tolerations:
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+  containers:
+    - name: bench
+      image: docker.io/library/python:3.11-slim
+      command:
+        - /bin/bash
+        - -lc
+        - |
+          set -euo pipefail
+          python3 -u - <<'PY'
+          import hashlib, os, time
+
+          size_mb = 128
+          file_count = 1000
+          run_id = str(int(time.time()))
+          targets = {
+              "orangefs": f"/orangefs/bench-k8s-run-{run_id}",
+              "ceph": f"/ceph/bench-k8s-run-{run_id}",
+          }
+
+          def run_seq(label, base):
+              os.makedirs(base, exist_ok=True)
+              path = os.path.join(base, f"seq-{size_mb}m.bin")
+              chunk = b"\0" * (1024 * 1024)
+              start = time.time()
+              with open(path, "wb") as f:
+                  for _ in range(size_mb):
+                      f.write(chunk)
+                  f.flush()
+                  os.fsync(f.fileno())
+              write_s = time.time() - start
+              start = time.time()
+              h = hashlib.sha256()
+              with open(path, "rb") as f:
+                  while True:
+                      data = f.read(1024 * 1024)
+                      if not data:
+                          break
+                      h.update(data)
+              read_s = time.time() - start
+              print(f"{label},seq_write_mb_s,{size_mb / write_s:.2f}")
+              print(f"{label},seq_read_mb_s,{size_mb / read_s:.2f}")
+              print(f"{label},sha256,{h.hexdigest()}")
+
+          def run_meta(label, base):
+              d = os.path.join(base, f"meta-{file_count}")
+              if os.path.exists(d):
+                  for name in os.listdir(d):
+                      os.unlink(os.path.join(d, name))
+                  os.rmdir(d)
+              os.makedirs(d, exist_ok=True)
+              start = time.time()
+              for i in range(file_count):
+                  with open(os.path.join(d, f"f{i:05d}.txt"), "w") as f:
+                      f.write("x")
+              create_s = time.time() - start
+              start = time.time()
+              for i in range(file_count):
+                  os.stat(os.path.join(d, f"f{i:05d}.txt"))
+              stat_s = time.time() - start
+              start = time.time()
+              for i in range(file_count):
+                  os.unlink(os.path.join(d, f"f{i:05d}.txt"))
+              remove_s = time.time() - start
+              os.rmdir(d)
+              print(f"{label},create_ops_s,{file_count / create_s:.2f}")
+              print(f"{label},stat_ops_s,{file_count / stat_s:.2f}")
+              print(f"{label},remove_ops_s,{file_count / remove_s:.2f}")
+
+          print("metric_set,path,value")
+          for label, path in targets.items():
+              run_seq(label, path)
+              run_meta(label, path)
+          PY
+      volumeMounts:
+        - name: orangefs
+          mountPath: /orangefs
+        - name: ceph
+          mountPath: /ceph
+  volumes:
+    - name: orangefs
+      hostPath:
+        path: /var/lib/orangefs-lab/client-runtime/mnt
+        type: Directory
+    - name: ceph
+      persistentVolumeClaim:
+        claimName: orangefs-ceph-scratch-bench

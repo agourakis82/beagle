@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sounio-workspace-local
+  namespace: beagle
+  labels:
+    app.kubernetes.io/part-of: beagle
+spec:
+  # Retired after the 2026-05-22 control-workspace migration. Keep the
+  # manifest/PVC for rollback history, but do not run this legacy surface by
+  # default because the stable services now point at sounio-workspace-control.
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sounio-workspace-local
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sounio-workspace-local
+        app.kubernetes.io/part-of: beagle
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: t560-proxmox
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      securityContext:
+        fsGroup: 1000
+        seccompProfile:
+          type: Unconfined
+      initContainers:
+        - name: normalize-permissions
+          image: docker.io/library/debian:bookworm-slim
+          command: ["/bin/bash","-lc","set -euo pipefail; mkdir -p /workspace/.beagle /workspace/.home/openvscode-server; chown -R 1000:1000 /workspace"]
+          volumeMounts:
+            - name: workspace-data
+              mountPath: /workspace
+      containers:
+        - name: workspace-ide
+          image: 192.168.3.207:5003/sounio-lab-sounio-workspace-ide-20260424070010-slurmnative6:stable
+          imagePullPolicy: Always
+          command: ["/bin/sh","/opt/sounio-workspace/bootstrap-workspace.sh"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - { name: BEAGLE_WORKSPACE_ID, value: sounio-cluster-pilot-habitat }
+            - { name: BEAGLE_SESSION_ID, value: ws-cluster-sounio-habitat-vnext }
+            - { name: BEAGLE_WORKSPACE_BROWSER_URL, value: http://sounio-workspace.beagle.svc.cluster.local:8080 }
+          envFrom:
+            - configMapRef: { name: sounio-workspace-config }
+            - secretRef: { name: beagle-core-secrets, optional: true }
+          volumeMounts:
+            - { name: workspace-data, mountPath: /workspace }
+            - { name: workspace-config, mountPath: /opt/sounio-workspace/bootstrap-workspace.sh, subPath: bootstrap-workspace.sh, readOnly: true }
+        - name: workspace-ssh
+          image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260424065320-slurmnative5:stable
+          imagePullPolicy: Always
+          command:
+            - /bin/sh
+            - -lc
+            - passwd -d openvscode-server >/dev/null 2>&1 || true; exec /usr/local/bin/ssh-entrypoint.sh
+          env:
+            - { name: BEAGLE_WORKSPACE_ID, value: sounio-cluster-pilot-habitat }
+            - { name: BEAGLE_SESSION_ID, value: ws-cluster-sounio-habitat-vnext }
+            - { name: BEAGLE_WORKSPACE_BROWSER_URL, value: http://sounio-workspace.beagle.svc.cluster.local:8080 }
+          envFrom:
+            - configMapRef: { name: sounio-workspace-config }
+            - secretRef: { name: beagle-core-secrets, optional: true }
+          ports:
+            - name: ssh
+              containerPort: 2222
+          volumeMounts:
+            - { name: workspace-data, mountPath: /workspace }
+            - { name: workspace-ssh-authorized-keys, mountPath: /var/run/beagle-workspace-ssh, readOnly: true }
+      volumes:
+        - name: workspace-data
+          persistentVolumeClaim:
+            claimName: sounio-workspace-local-data
+        - name: workspace-config
+          configMap:
+            name: sounio-workspace-config
+            defaultMode: 0755
+        - name: workspace-ssh-authorized-keys
+          secret:
+            secretName: sounio-workspace-ssh-authorized-keys
+            optional: true
+            defaultMode: 0600

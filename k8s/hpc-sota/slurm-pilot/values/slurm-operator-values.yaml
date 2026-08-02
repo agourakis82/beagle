@@ -1,0 +1,73 @@
+crds:
+  enabled: true
+
+operator:
+  namespaces: slurm-pilot
+  replicas: 1
+  logLevel: info
+  enableStepmgr: false
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - t560-proxmox
+                  - r770-proxmox
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+webhook:
+  namespaces: slurm-pilot
+  replicas: 1
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - t560-proxmox
+                  - r770-proxmox
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+certManager:
+  enabled: true

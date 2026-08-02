@@ -1,0 +1,20 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: hpc-interactive
+value: 100000
+description: Interactive development and urgent operator debugging.
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: hpc-training
+value: 90000
+description: Distributed training and long-running GPU jobs.
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: hpc-batch
+value: 80000
+description: Heavy CPU batch, preprocessing, and offline evaluation.

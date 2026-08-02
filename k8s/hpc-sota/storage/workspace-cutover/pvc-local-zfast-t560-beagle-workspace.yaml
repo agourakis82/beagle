@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: beagle-workspace-local-data
+  namespace: beagle
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-zfast-t560
+  volumeName: local-zfast-t560-beagle-workspace-pv
+  resources:
+    requests:
+      storage: 120Gi

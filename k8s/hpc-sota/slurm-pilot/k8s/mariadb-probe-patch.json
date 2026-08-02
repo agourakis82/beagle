@@ -1,0 +1,55 @@
+{
+  "spec": {
+    "template": {
+      "spec": {
+        "containers": [
+          {
+            "name": "mariadb",
+            "startupProbe": {
+              "exec": {
+                "command": [
+                  "/bin/bash",
+                  "-ec",
+                  "password_aux=\"${MARIADB_ROOT_PASSWORD:-}\"; if [[ -f \"${MARIADB_ROOT_PASSWORD_FILE:-}\" ]]; then password_aux=$(cat \"${MARIADB_ROOT_PASSWORD_FILE}\"); fi; mariadb-admin ping -h 127.0.0.1 -uroot -p\"${password_aux}\""
+                ]
+              },
+              "initialDelaySeconds": 30,
+              "periodSeconds": 10,
+              "timeoutSeconds": 5,
+              "failureThreshold": 30,
+              "successThreshold": 1
+            },
+            "livenessProbe": {
+              "exec": {
+                "command": [
+                  "/bin/bash",
+                  "-ec",
+                  "password_aux=\"${MARIADB_ROOT_PASSWORD:-}\"; if [[ -f \"${MARIADB_ROOT_PASSWORD_FILE:-}\" ]]; then password_aux=$(cat \"${MARIADB_ROOT_PASSWORD_FILE}\"); fi; mariadb-admin ping -h 127.0.0.1 -uroot -p\"${password_aux}\""
+                ]
+              },
+              "initialDelaySeconds": 120,
+              "periodSeconds": 10,
+              "timeoutSeconds": 5,
+              "failureThreshold": 6,
+              "successThreshold": 1
+            },
+            "readinessProbe": {
+              "exec": {
+                "command": [
+                  "/bin/bash",
+                  "-ec",
+                  "password_aux=\"${MARIADB_ROOT_PASSWORD:-}\"; if [[ -f \"${MARIADB_ROOT_PASSWORD_FILE:-}\" ]]; then password_aux=$(cat \"${MARIADB_ROOT_PASSWORD_FILE}\"); fi; mariadb-admin ping -h 127.0.0.1 -uroot -p\"${password_aux}\""
+                ]
+              },
+              "initialDelaySeconds": 30,
+              "periodSeconds": 10,
+              "timeoutSeconds": 5,
+              "failureThreshold": 12,
+              "successThreshold": 1
+            }
+          }
+        ]
+      }
+    }
+  }
+}

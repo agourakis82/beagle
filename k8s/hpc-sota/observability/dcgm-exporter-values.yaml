@@ -1,0 +1,48 @@
+serviceAccount:
+  create: true
+
+image:
+  repository: nvcr.io/nvidia/k8s/dcgm-exporter
+  tag: 4.5.2-4.8.1-distroless
+  pullPolicy: IfNotPresent
+
+hostPID: true
+runtimeClassName: nvidia
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 128Mi
+  limits:
+    cpu: 100m
+    memory: 512Mi
+
+nodeSelector:
+  sounio.dev/accelerator-class: gpu
+
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+  - key: sounio.dev/compute
+    operator: Exists
+    effect: NoSchedule
+  - key: sounio.dev/pool
+    operator: Exists
+    effect: NoSchedule
+
+podLabels:
+  app.kubernetes.io/part-of: darwin-observability
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 25s
+  additionalLabels:
+    release: darwin-observability
+  relabelings:
+    - sourceLabels: [__meta_kubernetes_pod_node_name]
+      regex: ^(.*)$
+      targetLabel: nodename
+      replacement: $1
+      action: replace

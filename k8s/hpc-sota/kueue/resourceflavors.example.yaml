@@ -1,0 +1,54 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: cpu-batch-r770
+spec:
+  nodeLabels:
+    sounio.dev/pool: cpu-batch
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: cpu-any
+spec:
+  nodeLabels:
+    sounio.dev/compute: heavy
+    sounio.dev/pool: gpu-batch
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: gpu-any
+spec:
+  nodeLabels:
+    sounio.dev/accelerator-class: gpu
+    sounio.dev/compute: heavy
+    sounio.dev/pool: gpu-batch
+  topologyName: gpu-fabric-10-210
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: gpu-l4
+spec:
+  nodeLabels:
+    sounio.dev/accelerator: nvidia-l4
+  topologyName: gpu-fabric-10-210
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: gpu-rtx-a5000
+spec:
+  nodeLabels:
+    sounio.dev/accelerator: nvidia-rtx-a5000
+  topologyName: gpu-fabric-10-210
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: gpu-rtx-4000-ada
+spec:
+  nodeLabels:
+    sounio.dev/accelerator: nvidia-rtx-4000-ada
+  topologyName: gpu-fabric-10-210

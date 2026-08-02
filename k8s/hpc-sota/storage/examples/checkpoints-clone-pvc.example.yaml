@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: training-checkpoints-clone
+  namespace: beagle
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ceph-rbd-ssd-checkpoints
+  resources:
+    requests:
+      storage: 1Ti
+  dataSource:
+    apiGroup: ""
+    kind: PersistentVolumeClaim
+    name: training-checkpoints

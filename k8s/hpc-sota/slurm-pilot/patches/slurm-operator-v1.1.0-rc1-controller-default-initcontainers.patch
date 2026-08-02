@@ -1,0 +1,61 @@
+diff --git a/internal/defaults/controller.go b/internal/defaults/controller.go
+index 92e427b..7f94faf 100644
+--- a/internal/defaults/controller.go
++++ b/internal/defaults/controller.go
+@@ -11,7 +11,9 @@ import (
+ 
+ // Default values for Controller Spec fields when unspecified.
+ const (
+-	DefaultControllerPersistenceEnabled bool = true
++	DefaultControllerPersistenceEnabled bool   = true
++	DefaultControllerReconfigureImage  string = "ghcr.io/slinkyproject/slurmctld:25.11-ubuntu24.04"
++	DefaultControllerLogFileImage      string = "ghcr.io/slinkyproject/slurmctld:25.11-ubuntu24.04"
+ )
+ 
+ // SetControllerDefaults applies default values for Controller spec fields.
+@@ -31,4 +33,12 @@ func SetControllerDefaults(controller *slinkyv1beta1.Controller) {
+ 	if s.Persistence.Enabled == nil {
+ 		s.Persistence.Enabled = ptr.To(DefaultControllerPersistenceEnabled)
+ 	}
++
++	if s.Reconfigure.Image == "" {
++		s.Reconfigure.Image = DefaultControllerReconfigureImage
++	}
++
++	if s.LogFile.Image == "" {
++		s.LogFile.Image = DefaultControllerLogFileImage
++	}
+ }
+diff --git a/internal/defaults/controller_test.go b/internal/defaults/controller_test.go
+index 7447357..c657a22 100644
+--- a/internal/defaults/controller_test.go
++++ b/internal/defaults/controller_test.go
+@@ -22,6 +22,12 @@ func TestSetControllerDefaults(t *testing.T) {
+ 		if c.Spec.Persistence.Enabled == nil || *c.Spec.Persistence.Enabled != DefaultControllerPersistenceEnabled {
+ 			t.Errorf("Persistence.Enabled: want %v, got %v", DefaultControllerPersistenceEnabled, c.Spec.Persistence.Enabled)
+ 		}
++		if c.Spec.Reconfigure.Image != DefaultControllerReconfigureImage {
++			t.Errorf("Reconfigure.Image: want %q, got %q", DefaultControllerReconfigureImage, c.Spec.Reconfigure.Image)
++		}
++		if c.Spec.LogFile.Image != DefaultControllerLogFileImage {
++			t.Errorf("LogFile.Image: want %q, got %q", DefaultControllerLogFileImage, c.Spec.LogFile.Image)
++		}
+ 	})
+ 
+ 	t.Run("explicit values are not overridden", func(t *testing.T) {
+@@ -36,5 +42,15 @@ func TestSetControllerDefaults(t *testing.T) {
+ 		if ptr.Deref(c.Spec.Persistence.Enabled, DefaultControllerPersistenceEnabled) != false {
+ 			t.Errorf("Persistence.Enabled after explicit false: defaulting sets to true, got %v", c.Spec.Persistence.Enabled)
+ 		}
++
++		c.Spec.Reconfigure.Image = "example.invalid/reconfigure:custom"
++		c.Spec.LogFile.Image = "example.invalid/logfile:custom"
++		SetControllerDefaults(c)
++		if c.Spec.Reconfigure.Image != "example.invalid/reconfigure:custom" {
++			t.Errorf("Reconfigure.Image overridden unexpectedly: got %q", c.Spec.Reconfigure.Image)
++		}
++		if c.Spec.LogFile.Image != "example.invalid/logfile:custom" {
++			t.Errorf("LogFile.Image overridden unexpectedly: got %q", c.Spec.LogFile.Image)
++		}
+ 	})
+ }

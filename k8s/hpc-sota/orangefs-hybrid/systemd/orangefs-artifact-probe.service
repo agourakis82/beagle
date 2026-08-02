@@ -1,0 +1,14 @@
+[Unit]
+Description=OrangeFS artifact probe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/devsounio/beagle
+ExecStart=/bin/bash -lc '/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-orangefs-artifact-probe.sh r740-proxmox && /home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-orangefs-artifact-probe.sh r770-proxmox'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

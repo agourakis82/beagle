@@ -1,0 +1,45 @@
+apiVersion: mellanox.com/v1alpha1
+kind: NicClusterPolicy
+metadata:
+  name: nic-cluster-policy
+spec:
+  # Conservative canary for this cluster:
+  # - no OFED takeover
+  # - no Multus/secondary-network takeover
+  # - expose a distinct RDMA resource name so we can compare against the
+  #   existing manual rdma-shared-dev plugin without colliding with it
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: sounio.dev/accelerator-class
+              operator: In
+              values:
+                - gpu
+  tolerations:
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule
+  rdmaSharedDevicePlugin:
+    image: k8s-rdma-shared-dev-plugin
+    repository: nvcr.io/nvidia/mellanox
+    version: network-operator-v26.1.0
+    config: |
+      {
+        "configList": [
+          {
+            "resourceName": "sounio_gpu_fabric_operator_canary",
+            "rdmaHcaMax": 63,
+            "selectors": {
+              "vendors": ["15b3"],
+              "deviceIDs": ["1017", "1019"],
+              "ifNames": ["nic3", "nic4", "ens5f1np1"]
+            }
+          }
+        ]
+      }

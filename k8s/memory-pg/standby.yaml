@@ -1,10 +1,7 @@
-# Live streaming standby of the memory-pg primary (DGX Spark .24). Runs on t560 (a SEPARATE
-# physical node) with its data on t560's /data (1.4TB). It pg_basebackups the primary once, then
-# streams WAL continuously (RPO~0), consuming the physical slot 't560_standby' on the primary.
-# If the Spark dies, this is a hot copy: promote it (`pg_ctl promote` / touch a trigger) and repoint
-# the memory-pg Secret DATABASE_URL at it. Pairs with backup-cronjob.yaml (point-in-time net).
-# See project_memory_pg_wal_stall_20260713. NOTE: paradedb/paradedb:pg16 = same image as primary
-# (binary + extension compat required for a physical replica).
+# Disabled physical-standby experiment for the memory-pg primary on DGX Spark .24.
+# Community ParadeDB refuses pg_search WAL replay on replicas, so this StatefulSet cannot become
+# healthy with the current image. Hourly verified logical dumps in backup-cronjob.yaml are the
+# supported second-node recovery copy until an enterprise-capable or extension-safe standby exists.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -14,7 +11,7 @@ metadata:
     app: memory-pg-standby
 spec:
   serviceName: memory-pg-standby
-  replicas: 1
+  replicas: 0
   selector:
     matchLabels:
       app: memory-pg-standby

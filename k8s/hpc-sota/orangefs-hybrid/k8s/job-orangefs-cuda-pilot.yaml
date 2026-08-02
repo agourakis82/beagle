@@ -1,0 +1,168 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: orangefs-cuda-pilot
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: orangefs-cuda-pilot
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orangefs-cuda-pilot
+      annotations:
+        k8s.v1.cni.cncf.io/networks: beagle/gpu-fabric-10-200-pilot
+    spec:
+      restartPolicy: Never
+      runtimeClassName: nvidia
+      priorityClassName: hpc-training
+      nodeSelector:
+        sounio.dev/accelerator-class: gpu
+        sounio.dev/compute: heavy
+        sounio.dev/pool: gpu-batch
+        sounio.dev/orangefs-client: "true"
+      tolerations:
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+      containers:
+        - name: pilot
+          image: sounio/pytorch-rdma:2.7.1-cuda12.8-rdma
+          imagePullPolicy: Never
+          securityContext:
+            privileged: true
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: LD_LIBRARY_PATH
+              value: /nvidia-host
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              set -euo pipefail
+              mkdir -p /datasets /checkpoints /scratch/pilot-cuda
+              python - <<'PY'
+              import json
+              import os
+              import socket
+              import time
+              from pathlib import Path
+
+              import torch
+
+              ds = Path("/datasets")
+              ck = Path("/checkpoints")
+              sc = Path("/scratch/pilot-cuda")
+
+              def ensure_dir(path: Path) -> None:
+                  path.mkdir(parents=True, exist_ok=True)
+
+              def write_text_retry(path: Path, content: str, attempts: int = 10) -> None:
+                  last_error = None
+                  for _ in range(attempts):
+                      try:
+                          path.parent.mkdir(parents=True, exist_ok=True)
+                          path.write_text(content, encoding="utf-8")
+                          return
+                      except FileNotFoundError as exc:
+                          last_error = exc
+                          time.sleep(0.5)
+                  raise last_error
+
+              ensure_dir(sc)
+
+              if not torch.cuda.is_available():
+                  raise RuntimeError("CUDA is not available inside orangefs-cuda-pilot")
+
+              device = torch.device("cuda:0")
+              torch.manual_seed(7)
+              model = torch.nn.Sequential(
+                  torch.nn.Linear(4096, 4096),
+                  torch.nn.ReLU(),
+                  torch.nn.Linear(4096, 2048),
+              ).to(device)
+              optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+
+              batch = 128
+              x = torch.randn(batch, 4096, device=device)
+              y = torch.randn(batch, 2048, device=device)
+
+              torch.cuda.synchronize()
+              start = time.perf_counter()
+              losses = []
+              for _ in range(12):
+                  optimizer.zero_grad(set_to_none=True)
+                  out = model(x)
+                  loss = torch.nn.functional.mse_loss(out, y)
+                  loss.backward()
+                  optimizer.step()
+                  losses.append(float(loss.detach().cpu()))
+              torch.cuda.synchronize()
+              elapsed = time.perf_counter() - start
+
+              payload = {
+                  "hostname": socket.gethostname(),
+                  "cuda": True,
+                  "device_name": torch.cuda.get_device_name(device),
+                  "gpu_count": torch.cuda.device_count(),
+                  "steps": len(losses),
+                  "final_loss": losses[-1],
+                  "elapsed_seconds": elapsed,
+                  "samples_per_second": round((batch * len(losses)) / elapsed, 2),
+              }
+
+              write_text_retry(ds / "pilot-cuda-metrics.json", json.dumps(payload, indent=2))
+              torch.save({"payload": payload, "model": model.state_dict()}, ck / "pilot-cuda-model.pt")
+              (sc / "throughput.bin").write_bytes(os.urandom(32 * 1024 * 1024))
+              print(json.dumps(payload), flush=True)
+              PY
+          resources:
+            requests:
+              cpu: "4"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+              rdma/sounio_gpu_fabric: "1"
+            limits:
+              cpu: "8"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+              rdma/sounio_gpu_fabric: "1"
+          volumeMounts:
+            - name: host-libcuda
+              mountPath: /nvidia-host/libcuda.so.1
+              readOnly: true
+            - name: host-libnvidia-ml
+              mountPath: /nvidia-host/libnvidia-ml.so.1
+              readOnly: true
+            - name: datasets
+              mountPath: /datasets
+            - name: checkpoints
+              mountPath: /checkpoints
+            - name: scratch
+              mountPath: /scratch
+      volumes:
+        - name: host-libcuda
+          hostPath:
+            path: /lib/x86_64-linux-gnu/libcuda.so.1
+            type: File
+        - name: host-libnvidia-ml
+          hostPath:
+            path: /lib/x86_64-linux-gnu/libnvidia-ml.so.1
+            type: File
+        - name: datasets
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/datasets
+            type: DirectoryOrCreate
+        - name: checkpoints
+          hostPath:
+            path: /var/lib/orangefs-lab/client-runtime/mnt/training-orangefs/checkpoints
+            type: DirectoryOrCreate
+        - name: scratch
+          emptyDir: {}

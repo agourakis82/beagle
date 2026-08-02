@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: local-nvme-r740-canary
+  namespace: beagle
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: r740-proxmox
+  tolerations:
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+  containers:
+    - name: canary
+      image: docker.io/library/debian:bookworm-slim
+      command:
+        - /bin/bash
+        - -lc
+        - |
+          set -euo pipefail
+          mkdir -p /scratch/canary
+          date -Is > /scratch/canary/created-at.txt
+          dd if=/dev/zero of=/scratch/canary/throughput.bin bs=1M count=256 status=progress
+          sync
+          du -sh /scratch/canary
+      volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+  volumes:
+    - name: scratch
+      persistentVolumeClaim:
+        claimName: local-nvme-r740-scratch

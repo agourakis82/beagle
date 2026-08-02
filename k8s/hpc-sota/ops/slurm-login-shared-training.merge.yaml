@@ -1,0 +1,33 @@
+spec:
+  login:
+    image: 192.168.3.207:5003/slurm-login-sounio:25.11-uid1000-20260720
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+  template:
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: null
+        kubernetes.io/os: linux
+        kubernetes.io/hostname: r770-proxmox
+        sounio.dev/compute: heavy
+        sounio.dev/orangefs-client: "true"
+      tolerations:
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+      volumes:
+        - name: orangefs-training
+          hostPath:
+            path: /var/lib/cephfs-slurm/training
+            type: Directory

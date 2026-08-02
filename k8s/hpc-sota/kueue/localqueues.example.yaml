@@ -1,0 +1,16 @@
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: hpc-training
+  namespace: beagle
+spec:
+  clusterQueue: sounio-hpc
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: hpc-batch
+  namespace: beagle
+spec:
+  clusterQueue: sounio-hpc
+

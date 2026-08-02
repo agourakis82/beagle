@@ -1,0 +1,46 @@
+<Defaults>
+    UnexpectedRequests 50
+    EventLogging none
+    EnableTracing no
+    LogStamp datetime
+    BMIModules bmi_tcp
+    FlowModules flowproto_multiqueue
+    PerfUpdateInterval 1000
+    ServerJobBMITimeoutSecs 30
+    ServerJobFlowTimeoutSecs 30
+    ClientJobBMITimeoutSecs 300
+    ClientJobFlowTimeoutSecs 300
+    ClientRetryLimit 5
+    ClientRetryDelayMilliSecs 2000
+    PrecreateBatchSize 0,32,512,32,32,32,0
+    PrecreateLowThreshold 0,16,256,16,16,16,0
+
+    DataStorageSpace /zfast/orangefs-lab/single-node-dyn/data
+    MetadataStorageSpace /zfast/orangefs-lab/single-node-dyn/meta
+    LogFile /zfast/orangefs-lab/single-node-dyn/log/pvfs2-server.log
+</Defaults>
+
+<Aliases>
+    Alias t560-proxmox tcp://10.100.100.2:3334
+</Aliases>
+
+<Filesystem>
+    Name orangefs_lab
+    ID 353983656
+    RootHandle 1048576
+    FileStuffing yes
+    DistrDirServersInitial 1
+    DistrDirServersMax 1
+    DistrDirSplitSize 100
+    <MetaHandleRanges>
+        Range t560-proxmox 3-4611686018427387904
+    </MetaHandleRanges>
+    <DataHandleRanges>
+        Range t560-proxmox 4611686018427387905-9223372036854775806
+    </DataHandleRanges>
+    <StorageHints>
+        TroveSyncMeta yes
+        TroveSyncData no
+        TroveMethod alt-aio
+    </StorageHints>
+</Filesystem>

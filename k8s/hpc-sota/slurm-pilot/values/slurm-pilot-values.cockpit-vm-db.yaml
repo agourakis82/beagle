@@ -1,0 +1,9 @@
+accounting:
+  storageConfig:
+    host: 10.100.100.166
+    port: 3306
+    database: slurm_acct_db
+    username: slurm
+    passwordKeyRef:
+      name: mariadb-password
+      key: password

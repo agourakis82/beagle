@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic Slurm QoS validation for the pilot cluster
+
+[Timer]
+OnCalendar=*-*-* 04:15:00
+Persistent=true
+Unit=slurm-pilot-qos-validation.service
+
+[Install]
+WantedBy=timers.target

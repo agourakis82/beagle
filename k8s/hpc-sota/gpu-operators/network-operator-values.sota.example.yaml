@@ -1,0 +1,24 @@
+# Staging-only values for NVIDIA Network Operator on this cluster.
+#
+# This file is intentionally controller-first:
+# - install CRDs + controller in an isolated namespace
+# - do NOT auto-create a live NicClusterPolicy on first pass
+# - do NOT let the operator take over OFED or secondary networking immediately
+
+deployCR: false
+
+nfd:
+  enabled: false
+
+sriovNetworkOperator:
+  enabled: false
+
+operator:
+  ofedDriver:
+    deploy: false
+  rdmaSharedDevicePlugin:
+    deploy: false
+  secondaryNetwork:
+    deploy: false
+    multus:
+      deploy: false

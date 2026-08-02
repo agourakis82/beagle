@@ -1,0 +1,584 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+if command -v readlink >/dev/null 2>&1; then
+  SCRIPT_PATH="$(readlink -f "$SCRIPT_PATH")"
+fi
+SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)"
+ROOT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+MANAGE_GPU_WORKER="${ROOT_DIR}/slurm-pilot/scripts/68-manage-gpuorangefs-worker.sh"
+STATE_FILE="${GPU_LEASE_STATE_FILE:-/home/devsounio/projects/sounio/GPU_LEASES.json}"
+NS_BEAGLE="${GPU_LEASE_BEAGLE_NS:-beagle}"
+NS_SLURM="${GPU_LEASE_SLURM_NS:-slurm-pilot}"
+HOST_PROCESS_CHECK="${GPU_LEASE_HOST_PROCESS_CHECK:-1}"
+DRY_RUN=0
+OUTPUT_JSON=0
+
+usage() {
+  cat <<'EOF'
+usage: gpu-lease [--dry-run] [--json] <command> [args]
+
+Official Darwin/Sounio GPU lease wrapper.
+
+Commands:
+  status
+      Print physical, Kubernetes, Slurm, serving, and lease state.
+
+  json
+      Emit the same state as JSON.
+
+  refresh
+      Write the current read-only lease snapshot to GPU_LEASES.json.
+
+  serving-to-batch <node>
+      Scale the node's serving deployment to 0, wait for GPU pods to leave,
+      admit the node to Slurm gpu-orangefs, and write GPU_LEASES.json.
+
+  batch-to-serving <node> <deployment>
+      Require the Slurm node to be idle, quarantine it from gpu-orangefs,
+      scale the serving deployment to 1, wait for readiness, and write state.
+
+  admit-batch <node>
+      Admit a node to Slurm batch without changing serving deployments. Use
+      only when serving is already parked.
+
+  quarantine <node>
+      Require no active Slurm job on the node, then remove it from gpu-orangefs.
+
+Options:
+  --dry-run
+      Print planned mutating actions without executing them.
+
+  --json
+      With status, emit JSON.
+
+Environment:
+  GPU_LEASE_STATE_FILE   default /home/devsounio/projects/sounio/GPU_LEASES.json
+  GPU_LEASE_HOST_PROCESS_CHECK
+                         default 1; use SSH to report host-level GPU processes
+EOF
+}
+
+die() {
+  echo "gpu-lease: $*" >&2
+  exit 1
+}
+
+have() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+kctl() {
+  kubectl "$@"
+}
+
+slurm_exec() {
+  kctl -n "${NS_SLURM}" exec deploy/slurm-pilot-login-slinky -- "$@"
+}
+
+node_gpu_model() {
+  local node="$1"
+  case "${node}" in
+    r770-proxmox) printf '%s\n' "NVIDIA L4" ;;
+    r740-proxmox) printf '%s\n' "NVIDIA RTX A5000 + Quadro RTX 8000" ;;
+    5860-proxmox) printf '%s\n' "NVIDIA RTX 4000 Ada" ;;
+    *) printf '%s\n' "unknown" ;;
+  esac
+}
+
+slurm_node_for() {
+  case "$1" in
+    r740-proxmox) printf '%s\n' "gpuorangefs-multi-r740-proxmox" ;;
+    *) printf 'gpuorangefs-%s\n' "$1" ;;
+  esac
+}
+
+host_for_node() {
+  local node="$1"
+  case "${node}" in
+    r770-proxmox) printf '%s\n' "10.100.100.1" ;;
+    5860-proxmox) printf '%s\n' "10.100.100.3" ;;
+    r740-proxmox) printf '%s\n' "10.100.100.4" ;;
+    *) printf '%s\n' "" ;;
+  esac
+}
+
+serving_deployment_for() {
+  local node="$1"
+  case "${node}" in
+    r740-proxmox) printf '%s\n' "sglang-serving" ;;
+    5860-proxmox) printf '%s\n' "ssm-probe-serving" ;;
+    *) printf '%s\n' "" ;;
+  esac
+}
+
+run_or_print() {
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    printf '[dry-run]'
+    printf ' %q' "$@"
+    printf '\n'
+    return 0
+  fi
+  "$@"
+}
+
+manage_gpu_worker() {
+  env NODE= ACTION= "${MANAGE_GPU_WORKER}" "$@"
+}
+
+active_slurm_jobs_for_node() {
+  local node="$1"
+  local slurm_node
+  slurm_node="$(slurm_node_for "${node}")"
+  slurm_exec squeue -h -w "${slurm_node}" -t R,CG,CF,PD -o '%i %T %j' 2>/dev/null || true
+}
+
+require_no_slurm_jobs() {
+  local node="$1"
+  local jobs
+  jobs="$(active_slurm_jobs_for_node "${node}")"
+  if [[ -n "${jobs}" ]]; then
+    echo "${jobs}" >&2
+    die "${node} has active Slurm jobs; refusing disruptive transition"
+  fi
+}
+
+wait_no_gpu_pods_on_node() {
+  local node="$1"
+  local i pods tmp
+  for i in $(seq 1 120); do
+    tmp="$(mktemp /tmp/gpu-lease-pods.XXXXXX)"
+    kctl get pods -A -o json >"${tmp}"
+    pods="$(python3 - "${node}" "${tmp}" <<'PY'
+import json
+import sys
+
+node = sys.argv[1]
+doc = json.load(open(sys.argv[2]))
+for item in doc.get("items", []):
+    if item.get("spec", {}).get("nodeName") != node:
+        continue
+    if item.get("status", {}).get("phase") in {"Succeeded", "Failed"}:
+        continue
+    for container in item.get("spec", {}).get("containers", []):
+        requests = container.get("resources", {}).get("requests", {})
+        limits = container.get("resources", {}).get("limits", {})
+        if requests.get("nvidia.com/gpu") or limits.get("nvidia.com/gpu"):
+            print(f'{item["metadata"]["namespace"]}/{item["metadata"]["name"]}')
+            break
+PY
+)"
+    rm -f "${tmp}"
+    if [[ -z "${pods}" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  printf '%s\n' "${pods}" >&2
+  die "GPU pods are still present on ${node}"
+}
+
+write_state() {
+  local tmp
+  tmp="$(mktemp /tmp/gpu-lease-state.XXXXXX)"
+  collect_json >"${tmp}"
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    echo "[dry-run] would write ${STATE_FILE}"
+    cat "${tmp}"
+    rm -f "${tmp}"
+    return 0
+  fi
+  install -D -m 0644 "${tmp}" "${STATE_FILE}"
+  rm -f "${tmp}"
+  echo "wrote ${STATE_FILE}"
+}
+
+collect_json() {
+  local tmpdir
+  tmpdir="$(mktemp -d /tmp/gpu-lease.XXXXXX)"
+
+  kctl get nodes -o json >"${tmpdir}/nodes.json"
+  kctl get pods -A -o json >"${tmpdir}/pods.json"
+  kctl -n "${NS_BEAGLE}" get deploy -o json >"${tmpdir}/beagle-deployments.json"
+  if slurm_exec sinfo -N -h -o '%N|%t|%G|%C|%m|%f|%E' >"${tmpdir}/sinfo.txt" 2>/dev/null; then
+    :
+  else
+    : >"${tmpdir}/sinfo.txt"
+  fi
+  if slurm_exec squeue -h -o '%i|%T|%j|%M|%D|%R|%b|%N' >"${tmpdir}/squeue.txt" 2>/dev/null; then
+    :
+  else
+    : >"${tmpdir}/squeue.txt"
+  fi
+  : >"${tmpdir}/host-gpu-processes.jsonl"
+  if [[ "${HOST_PROCESS_CHECK}" -eq 1 ]] && have ssh; then
+    local node host output rc
+    for node in r770-proxmox 5860-proxmox r740-proxmox; do
+      host="$(host_for_node "${node}")"
+      [[ -n "${host}" ]] || continue
+      if output="$(
+        timeout 6 ssh \
+          -o BatchMode=yes \
+          -o ConnectTimeout=3 \
+          -o StrictHostKeyChecking=accept-new \
+          "root@${host}" \
+          "nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader,nounits 2>/dev/null || true" \
+          2>&1
+      )"; then
+        rc=0
+      else
+        rc=$?
+      fi
+      NODE="${node}" RC="${rc}" OUTPUT="${output}" python3 - <<'PY' >>"${tmpdir}/host-gpu-processes.jsonl"
+import json
+import os
+
+node = os.environ["NODE"]
+rc = int(os.environ["RC"])
+output = os.environ["OUTPUT"]
+processes = []
+errors = []
+if rc != 0:
+    errors.append(output.strip() or f"ssh exited {rc}")
+else:
+    for line in output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) < 3:
+            continue
+        try:
+            memory_mib = int(float(parts[2]))
+        except ValueError:
+            memory_mib = None
+        processes.append({
+            "pid": parts[0],
+            "process_name": parts[1],
+            "used_memory_mib": memory_mib,
+        })
+print(json.dumps({"node": node, "processes": processes, "errors": errors}))
+PY
+    done
+  fi
+
+  python3 - "${tmpdir}" <<'PY'
+import json
+import pathlib
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+tmp = pathlib.Path(sys.argv[1])
+nodes_doc = json.loads((tmp / "nodes.json").read_text())
+pods_doc = json.loads((tmp / "pods.json").read_text())
+deploy_doc = json.loads((tmp / "beagle-deployments.json").read_text())
+
+known = {
+    "r770-proxmox": {
+        "gpu_model": "NVIDIA L4",
+        "slurm_node": "gpuorangefs-r770-proxmox",
+        "preferred_serving_deployment": "",
+    },
+    "r740-proxmox": {
+        "gpu_model": "NVIDIA RTX A5000 + Quadro RTX 8000",
+        "slurm_node": "gpuorangefs-multi-r740-proxmox",
+        "preferred_serving_deployment": "sglang-serving",
+    },
+    "5860-proxmox": {
+        "gpu_model": "NVIDIA RTX 4000 Ada",
+        "slurm_node": "gpuorangefs-5860-proxmox",
+        "preferred_serving_deployment": "ssm-probe-serving",
+    },
+}
+
+host_gpu = {}
+host_gpu_path = tmp / "host-gpu-processes.jsonl"
+if host_gpu_path.exists():
+    for line in host_gpu_path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        host_gpu[item.get("node", "")] = {
+            "processes": item.get("processes", []),
+            "errors": item.get("errors", []),
+        }
+
+sinfo = {}
+for line in (tmp / "sinfo.txt").read_text().splitlines():
+    parts = line.split("|")
+    if len(parts) >= 7:
+        sinfo[parts[0]] = {
+            "state": parts[1],
+            "gres": parts[2],
+            "cpus": parts[3],
+            "memory_mb": parts[4],
+            "features": parts[5],
+            "reason": parts[6],
+        }
+
+squeue_by_node = {}
+for line in (tmp / "squeue.txt").read_text().splitlines():
+    parts = line.split("|")
+    if len(parts) >= 8:
+        job = {
+            "id": parts[0],
+            "state": parts[1],
+            "name": parts[2],
+            "time": parts[3],
+            "nodes": parts[4],
+            "reason": parts[5],
+            "tres_per_node": parts[6],
+            "nodelist": parts[7],
+        }
+        for node in parts[7].split(","):
+            if node:
+                squeue_by_node.setdefault(node, []).append(job)
+
+deployments = {}
+for item in deploy_doc.get("items", []):
+    deployments[item["metadata"]["name"]] = {
+        "replicas": item.get("spec", {}).get("replicas", 1),
+        "ready": item.get("status", {}).get("readyReplicas", 0),
+        "available": item.get("status", {}).get("availableReplicas", 0),
+    }
+
+gpu_pods = {}
+for item in pods_doc.get("items", []):
+    node = item.get("spec", {}).get("nodeName")
+    if not node:
+        continue
+    if item.get("status", {}).get("phase") in {"Succeeded", "Failed"}:
+        continue
+    uses_gpu = False
+    gpu_amount = []
+    for container in item.get("spec", {}).get("containers", []):
+        resources = container.get("resources", {})
+        for bucket in ("requests", "limits"):
+            val = resources.get(bucket, {}).get("nvidia.com/gpu")
+            if val:
+                uses_gpu = True
+                gpu_amount.append(str(val))
+    if uses_gpu:
+        gpu_pods.setdefault(node, []).append({
+            "namespace": item["metadata"]["namespace"],
+            "name": item["metadata"]["name"],
+            "phase": item.get("status", {}).get("phase", ""),
+            "gpu": ",".join(gpu_amount),
+        })
+
+leases = []
+for item in nodes_doc.get("items", []):
+    name = item["metadata"]["name"]
+    if name not in known:
+        continue
+    labels = item.get("metadata", {}).get("labels", {})
+    annotations = item.get("metadata", {}).get("annotations", {})
+    slurm_node = known[name]["slurm_node"]
+    serving = known[name]["preferred_serving_deployment"]
+    serving_state = deployments.get(serving) if serving else None
+    slurm_info = sinfo.get(slurm_node)
+    slurm_jobs = squeue_by_node.get(slurm_node, [])
+    host_gpu_state = host_gpu.get(name, {"processes": [], "errors": []})
+    host_gpu_processes = host_gpu_state.get("processes", [])
+    admitted = (
+        labels.get("sounio.dev/slurm-worker-gpuorangefs") == "true"
+        or labels.get("sounio.dev/slurm-worker-gpuorangefs-multi") == "true"
+    )
+    pods = gpu_pods.get(name, [])
+    if pods:
+        owner = "kubernetes-gpu-pod"
+    elif slurm_jobs:
+        owner = "slurm-job"
+    elif host_gpu_processes:
+        owner = "host-gpu-process"
+    elif admitted:
+        owner = "batch"
+    elif serving_state and serving_state.get("replicas", 0) > 0:
+        owner = "serving-pending"
+    else:
+        owner = "unleased"
+    if labels.get("sounio.dev/gpu-owner"):
+        declared = labels["sounio.dev/gpu-owner"]
+    elif serving:
+        declared = serving
+    else:
+        declared = ""
+    leases.append({
+        "node": name,
+        "gpu_model": known[name]["gpu_model"],
+        "physical_gpu_allocatable": item.get("status", {}).get("allocatable", {}).get("nvidia.com/gpu", "0"),
+        "slurm_node": slurm_node,
+        "slurm_admitted": admitted,
+        "slurm_admission_id": annotations.get("sounio.dev/gpuorangefs-admission-id", ""),
+        "slurm": slurm_info,
+        "slurm_jobs": slurm_jobs,
+        "kubernetes_gpu_pods": pods,
+        "host_gpu_processes": host_gpu_processes,
+        "host_gpu_process_errors": host_gpu_state.get("errors", []),
+        "preferred_serving_deployment": serving,
+        "serving_deployment": serving_state,
+        "declared_gpu_owner": declared,
+        "observed_owner": owner,
+    })
+
+print(json.dumps({
+    "schema": "darwin.gpu_lease.v1",
+    "generated_at": datetime.now(timezone.utc).isoformat(),
+    "state_file": str(pathlib.Path(__import__("os").environ.get("GPU_LEASE_STATE_FILE", "/home/devsounio/projects/sounio/GPU_LEASES.json"))),
+    "notes": [
+        "Kueue governs Kubernetes workloads only until an explicit Slurm bridge exists.",
+        "Slurm batch admission is controlled by the single- or multi-GPU worker labels and their canonical gates.",
+    ],
+    "leases": leases,
+}, indent=2, sort_keys=True))
+PY
+  rm -rf "${tmpdir}"
+}
+
+print_status() {
+  local json_file
+  json_file="$(mktemp /tmp/gpu-lease-status.XXXXXX)"
+  collect_json >"${json_file}"
+  if [[ "${OUTPUT_JSON}" -eq 1 ]]; then
+    cat "${json_file}"
+    rm -f "${json_file}"
+    return 0
+  fi
+  python3 - "${json_file}" <<'PY'
+import json
+import sys
+
+doc = json.load(open(sys.argv[1]))
+print("GPU lease status")
+print(f"generated_at: {doc['generated_at']}")
+print()
+print(f"{'NODE':<14} {'GPU':<22} {'OWNER':<18} {'SLURM':<9} {'SLURM_JOBS':<24} {'K8S_GPU_PODS':<24} {'HOST_GPU':<24} {'SERVING':<20}")
+for lease in doc["leases"]:
+    slurm_jobs = ",".join(f'{j["id"]}:{j["name"]}:{j["state"]}' for j in lease["slurm_jobs"]) or "-"
+    pods = ",".join(f'{p["namespace"]}/{p["name"]}' for p in lease["kubernetes_gpu_pods"]) or "-"
+    host_gpu = ",".join(
+        f'{p["pid"]}:{p["process_name"]}:{p.get("used_memory_mib", "?")}MiB'
+        for p in lease.get("host_gpu_processes", [])
+    ) or "-"
+    serving = lease["preferred_serving_deployment"] or "-"
+    if lease["serving_deployment"]:
+        serving += f'({lease["serving_deployment"]["replicas"]})'
+    slurm = "admitted" if lease["slurm_admitted"] else "quarantine"
+    print(f'{lease["node"]:<14} {lease["gpu_model"]:<22} {lease["observed_owner"]:<18} {slurm:<9} {slurm_jobs:<24} {pods:<24} {host_gpu:<24} {serving:<20}')
+print()
+print("State file:", doc["state_file"])
+PY
+  rm -f "${json_file}"
+}
+
+serving_to_batch() {
+  local node="$1"
+  local deploy
+  deploy="$(serving_deployment_for "${node}")"
+  [[ -n "${deploy}" ]] || die "no serving deployment mapping for ${node}; use admit-batch if serving is already absent"
+  echo "serving-to-batch ${node}: deployment=${deploy}"
+  run_or_print kctl -n "${NS_BEAGLE}" scale "deploy/${deploy}" --replicas=0
+  if [[ "${DRY_RUN}" -ne 1 ]]; then
+    wait_no_gpu_pods_on_node "${node}"
+  fi
+  run_or_print manage_gpu_worker "${node}" admit
+  write_state
+}
+
+batch_to_serving() {
+  local node="$1"
+  local deploy="$2"
+  echo "batch-to-serving ${node}: deployment=${deploy}"
+  require_no_slurm_jobs "${node}"
+  run_or_print manage_gpu_worker "${node}" quarantine
+  run_or_print kctl -n "${NS_BEAGLE}" scale "deploy/${deploy}" --replicas=1
+  if [[ "${DRY_RUN}" -ne 1 ]]; then
+    kctl -n "${NS_BEAGLE}" rollout status "deploy/${deploy}" --timeout=180s
+  fi
+  write_state
+}
+
+admit_batch() {
+  local node="$1"
+  echo "admit-batch ${node}"
+  run_or_print manage_gpu_worker "${node}" admit
+  write_state
+}
+
+quarantine_node() {
+  local node="$1"
+  echo "quarantine ${node}"
+  require_no_slurm_jobs "${node}"
+  run_or_print manage_gpu_worker "${node}" quarantine
+  write_state
+}
+
+refresh_state() {
+  echo "refresh"
+  write_state
+}
+
+while (($#)); do
+  case "$1" in
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --json)
+      OUTPUT_JSON=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+cmd="${1:-}"
+[[ -n "${cmd}" ]] || {
+  usage >&2
+  exit 2
+}
+shift || true
+
+case "${cmd}" in
+  status)
+    print_status
+    ;;
+  json)
+    OUTPUT_JSON=1
+    print_status
+    ;;
+  refresh)
+    [[ $# -eq 0 ]] || die "refresh takes no args"
+    refresh_state
+    ;;
+  serving-to-batch)
+    [[ $# -eq 1 ]] || die "serving-to-batch requires <node>"
+    serving_to_batch "$1"
+    ;;
+  batch-to-serving)
+    [[ $# -eq 2 ]] || die "batch-to-serving requires <node> <deployment>"
+    batch_to_serving "$1" "$2"
+    ;;
+  admit-batch)
+    [[ $# -eq 1 ]] || die "admit-batch requires <node>"
+    admit_batch "$1"
+    ;;
+  quarantine)
+    [[ $# -eq 1 ]] || die "quarantine requires <node>"
+    quarantine_node "$1"
+    ;;
+  *)
+    die "unknown command: ${cmd}"
+    ;;
+esac

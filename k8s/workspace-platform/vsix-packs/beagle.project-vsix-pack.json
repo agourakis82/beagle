@@ -1,0 +1,17 @@
+{
+  "projectSlug": "beagle",
+  "packVersion": "sov-v1",
+  "extends": "core-sovereign",
+  "required": [
+    "rust-lang.rust-analyzer",
+    "redhat.vscode-yaml",
+    "ms-kubernetes-tools.vscode-kubernetes-tools",
+    "GitHub.vscode-pull-request-github",
+    "ms-python.python"
+  ],
+  "recommended": [
+    "hashicorp.terraform",
+    "ms-azuretools.vscode-docker"
+  ],
+  "experimental": []
+}

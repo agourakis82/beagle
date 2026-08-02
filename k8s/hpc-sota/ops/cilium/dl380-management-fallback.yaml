@@ -1,0 +1,18 @@
+apiVersion: cilium.io/v2
+kind: CiliumNodeConfig
+metadata:
+  name: dl380-management-fallback
+  namespace: kube-system
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: dl380-proxmox
+  defaults:
+    devices: vmbr100
+    direct-routing-device: vmbr100
+    kube-proxy-replacement: "false"
+    # t560 currently advertises 10.100.100.2 but is reached through the
+    # symmetric management fallback at 192.168.3.169. Its pod-CIDR route is
+    # installed persistently by ifupdown, so Cilium must skip only the route
+    # it cannot derive as a directly connected native-routing peer.
+    direct-routing-skip-unreachable: "true"

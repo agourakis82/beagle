@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: orangefs-cephfs-shared-compare
+  namespace: beagle
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: cephfs-shared
+  resources:
+    requests:
+      storage: 100Gi

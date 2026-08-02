@@ -1,0 +1,15 @@
+[Unit]
+Description=OrangeFS proven workflow canary
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/devsounio
+# senha REMOVIDA (vazada em git, rotacionada 02-ago-2026). Forneça via:
+# EnvironmentFile=/etc/orangefs/credentials.env  (modo 600, root:root, fora do git)
+EnvironmentFile=/etc/orangefs/credentials.env
+Environment=DATASET_MB=512
+Environment=CHECKPOINT_MB=512
+ExecStart=/home/devsounio/beagle/k8s/hpc-sota/orangefs-hybrid/run-k8s-orangefs-proven-workflow-canary.sh
+

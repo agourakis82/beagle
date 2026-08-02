@@ -17,9 +17,19 @@ import SwiftUI
 import BeagleCore
 
 struct BeagleSplatView: View {
-    /// The trained goldendoodle splat (TRELLIS, on the cluster A5000) bundled as `.ply`.
-    /// Falls back to the procedural test splat if the asset isn't present.
+    /// The companion's photoreal Gaussian splat. Prefers `plush.splat` — a high-fidelity
+    /// real capture (antimatter15 sample) — over the lower-fidelity TRELLIS-generated doodle,
+    /// then the procedural test splat as a last resort. Swap the bundled file to change the
+    /// mascot (any 3DGS `.splat` or `.ply` MetalSplatter can read).
     static var doodleModel: ModelIdentifier {
+        // Default to the recognizable TRELLIS doodle (canonicalized for the renderer's fixed
+        // camera). The `plush` test capture is kept bundled but off by default — it's low-fidelity
+        // and only loads via --beagle-plush. The real photoreal mascot will be the user's own
+        // captured subject, run through the same canonicalization pipeline as the doodle.
+        if ProcessInfo.processInfo.arguments.contains("--beagle-plush"),
+           let url = Bundle.main.url(forResource: "plush", withExtension: "splat") {
+            return .gaussianSplat(url)
+        }
         if let url = Bundle.main.url(forResource: "trellis_doodle", withExtension: "ply") {
             return .gaussianSplat(url)
         }

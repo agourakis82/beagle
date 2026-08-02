@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beagle-workspace-local
+  namespace: beagle
+  labels:
+    app.kubernetes.io/part-of: workspace-platform
+    sounio.dev/project: beagle
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beagle-workspace-local
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: beagle-workspace-local
+        app.kubernetes.io/part-of: workspace-platform
+        sounio.dev/project: beagle
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: t560-proxmox
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      securityContext:
+        fsGroup: 1000
+        seccompProfile:
+          type: Unconfined
+      initContainers:
+        - name: normalize-permissions
+          image: docker.io/library/debian:bookworm-slim
+          command: ["/bin/bash","-lc","set -euo pipefail; mkdir -p /workspace/.beagle /workspace/.home/openvscode-server; chown -R 1000:1000 /workspace"]
+          volumeMounts:
+            - name: workspace-data
+              mountPath: /workspace
+      containers:
+        - name: workspace-ide
+          image: localhost/sounio-workspace-ide:0406231500
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh","/opt/sounio-workspace/bootstrap-workspace.sh"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - { name: BEAGLE_WORKSTREAM_ID, value: beagle-main }
+            - { name: BEAGLE_WORKSPACE_ID, value: beagle-workspace }
+            - { name: BEAGLE_SESSION_ID, value: beagle-workspace-session }
+            - { name: BEAGLE_WORKSPACE_BROWSER_URL, value: http://beagle-workspace.beagle.svc.cluster.local:8080 }
+            - { name: BEAGLE_WORKSPACE_REPO_URL, value: https://github.com/Agourakis82/Beagle.git }
+            - { name: BEAGLE_WORKSPACE_BRANCH, value: main }
+            - { name: BEAGLE_WORKSPACE_ROOT, value: /workspace/beagle }
+            - { name: BEAGLE_WORKSPACE_CONTEXT_DIR, value: /workspace/beagle/.beagle/context }
+            - { name: BEAGLE_WORKSPACE_CONTEXT_ENV_FILE, value: /workspace/beagle/.beagle/context/beagle-context.env }
+            - { name: BEAGLE_WORKSPACE_CONTEXT_PACKET_FILE, value: /workspace/beagle/.beagle/context/current-context-packet.json }
+            - { name: BEAGLE_WORKSPACE_DEVCONTAINER_DIR, value: /workspace/beagle/.devcontainer }
+            - { name: BEAGLE_EXTERNAL_WORKSPACE_REGISTRATION_FILE, value: /workspace/beagle/.beagle/context/external-workspace-registration.json }
+            - { name: BEAGLE_WORKSPACE_HYDRATION_FILE, value: /workspace/beagle/.beagle/context/workspace-hydration.json }
+            - { name: BEAGLE_WORKSPACE_SUBAGENTS_DIR, value: /workspace/beagle/.beagle/context/subagents }
+            - { name: BEAGLE_WORKSPACE_SUBAGENTS_FILE, value: /workspace/beagle/.beagle/context/workspace-subagents.json }
+            - { name: BEAGLE_WORKSPACE_TEMPLATE_FILE, value: /workspace/beagle/.beagle/context/workspace-template.json }
+            - { name: BEAGLE_WORKSPACE_TEMPLATE_ID, value: beagle-template-beagle-workspace }
+            - { name: BEAGLE_WORKSPACE_TEMPLATE_VERSION, value: beagle-project-workspace-v1 }
+            - { name: BEAGLE_WORKSPACE_SSH_HOST_KEYS_DIR, value: /workspace/.beagle/beagle-ssh-host-keys }
+            - { name: SOUC_BIN, value: /workspace/beagle/bin/souc }
+            - { name: SOUNIO_STDLIB_PATH, value: /workspace/beagle/stdlib }
+          envFrom:
+            - configMapRef: { name: sounio-workspace-config }
+            - secretRef: { name: beagle-core-secrets, optional: true }
+          volumeMounts:
+            - { name: workspace-data, mountPath: /workspace }
+            - { name: workspace-config, mountPath: /opt/sounio-workspace/bootstrap-workspace.sh, subPath: bootstrap-workspace.sh, readOnly: true }
+        - name: workspace-ssh
+          image: localhost/beagle-workspace-ssh:b216
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -lc
+            - passwd -d openvscode-server >/dev/null 2>&1 || true; exec /usr/local/bin/ssh-entrypoint.sh
+          env:
+            - { name: BEAGLE_WORKSTREAM_ID, value: beagle-main }
+            - { name: BEAGLE_WORKSPACE_ID, value: beagle-workspace }
+            - { name: BEAGLE_SESSION_ID, value: beagle-workspace-session }
+            - { name: BEAGLE_WORKSPACE_BROWSER_URL, value: http://beagle-workspace.beagle.svc.cluster.local:8080 }
+            - { name: BEAGLE_WORKSPACE_REPO_URL, value: https://github.com/Agourakis82/Beagle.git }
+            - { name: BEAGLE_WORKSPACE_BRANCH, value: main }
+            - { name: BEAGLE_WORKSPACE_ROOT, value: /workspace/beagle }
+            - { name: BEAGLE_WORKSPACE_CONTEXT_DIR, value: /workspace/beagle/.beagle/context }
+            - { name: BEAGLE_WORKSPACE_CONTEXT_ENV_FILE, value: /workspace/beagle/.beagle/context/beagle-context.env }
+            - { name: BEAGLE_WORKSPACE_CONTEXT_PACKET_FILE, value: /workspace/beagle/.beagle/context/current-context-packet.json }
+            - { name: BEAGLE_WORKSPACE_DEVCONTAINER_DIR, value: /workspace/beagle/.devcontainer }
+            - { name: BEAGLE_EXTERNAL_WORKSPACE_REGISTRATION_FILE, value: /workspace/beagle/.beagle/context/external-workspace-registration.json }
+            - { name: BEAGLE_WORKSPACE_HYDRATION_FILE, value: /workspace/beagle/.beagle/context/workspace-hydration.json }
+            - { name: BEAGLE_WORKSPACE_SUBAGENTS_DIR, value: /workspace/beagle/.beagle/context/subagents }
+            - { name: BEAGLE_WORKSPACE_SUBAGENTS_FILE, value: /workspace/beagle/.beagle/context/workspace-subagents.json }
+            - { name: BEAGLE_WORKSPACE_TEMPLATE_FILE, value: /workspace/beagle/.beagle/context/workspace-template.json }
+            - { name: BEAGLE_WORKSPACE_TEMPLATE_ID, value: beagle-template-beagle-workspace }
+            - { name: BEAGLE_WORKSPACE_TEMPLATE_VERSION, value: beagle-project-workspace-v1 }
+            - { name: BEAGLE_WORKSPACE_SSH_HOST_KEYS_DIR, value: /workspace/.beagle/beagle-ssh-host-keys }
+          envFrom:
+            - configMapRef: { name: sounio-workspace-config }
+            - secretRef: { name: beagle-core-secrets, optional: true }
+          ports:
+            - name: ssh
+              containerPort: 2222
+          volumeMounts:
+            - { name: workspace-data, mountPath: /workspace }
+            - { name: workspace-ssh-authorized-keys, mountPath: /var/run/beagle-workspace-ssh, readOnly: true }
+      volumes:
+        - name: workspace-data
+          persistentVolumeClaim:
+            claimName: beagle-workspace-local-data
+        - name: workspace-config
+          configMap:
+            name: sounio-workspace-config
+            defaultMode: 0755
+        - name: workspace-ssh-authorized-keys
+          secret:
+            secretName: sounio-workspace-ssh-authorized-keys
+            optional: true
+            defaultMode: 0600

@@ -1,0 +1,127 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: __NAME__
+  namespace: beagle
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: __NODE__
+  tolerations:
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+  containers:
+    - name: bench
+      image: docker.io/library/python:3.11-slim
+      env:
+        - name: RUN_ID
+          value: "__RUN_ID__"
+        - name: MODE
+          value: "__MODE__"
+        - name: SIZE_MB
+          value: "__SIZE_MB__"
+      command:
+        - /bin/bash
+        - -lc
+        - |
+          set -euo pipefail
+          python3 -u - <<'PY'
+          import hashlib
+          import os
+          import socket
+          import time
+          from pathlib import Path
+
+          run_id = os.environ["RUN_ID"]
+          mode = os.environ["MODE"]
+          size_mb = int(os.environ["SIZE_MB"])
+          host = socket.gethostname()
+
+          base = Path("/orangefs") / f"multinode-bench-{run_id}"
+          ckpt_base = Path("/orangefs") / f"checkpoint-bench-{run_id}"
+          data_dir = base / "datasets"
+          ckpt_dir = ckpt_base / "checkpoints"
+          ready = data_dir / "dataset.ready"
+          dataset = data_dir / "dataset.bin"
+          result_prefix = f"{mode},{host}"
+
+          base.mkdir(parents=True, exist_ok=True)
+          ckpt_base.mkdir(parents=True, exist_ok=True)
+          data_dir.mkdir(parents=True, exist_ok=True)
+          ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+          def write_file(path: Path, size_mb: int):
+              chunk = b"\0" * (1024 * 1024)
+              start = time.time()
+              with open(path, "wb") as f:
+                  for i in range(size_mb):
+                      f.write(chunk)
+                      if (i + 1) % 64 == 0 or (i + 1) == size_mb:
+                          print(f"{result_prefix},phase,write_progress_mb,{i + 1}", flush=True)
+                  f.flush()
+                  os.fsync(f.fileno())
+              return time.time() - start
+
+          def read_hash(path: Path):
+              h = hashlib.sha256()
+              start = time.time()
+              total_mb = 0
+              with open(path, "rb") as f:
+                  while True:
+                      data = f.read(1024 * 1024)
+                      if not data:
+                          break
+                      h.update(data)
+                      total_mb += 1
+                      if total_mb % 64 == 0:
+                          print(f"{result_prefix},phase,read_progress_mb,{total_mb}", flush=True)
+              return time.time() - start, h.hexdigest()
+
+          if mode == "dataset-write":
+              print(f"{result_prefix},phase,start_dataset_write,{size_mb}", flush=True)
+              write_s = write_file(dataset, size_mb)
+              print(f"{result_prefix},phase,start_dataset_readhash,{size_mb}", flush=True)
+              read_s, digest = read_hash(dataset)
+              ready.write_text(digest + "\n", encoding="utf-8")
+              print(f"{result_prefix},seq_write_mb_s,{size_mb / write_s:.2f}")
+              print(f"{result_prefix},seq_read_mb_s,{size_mb / read_s:.2f}")
+              print(f"{result_prefix},sha256,{digest}")
+          elif mode == "dataset-read":
+              deadline = time.time() + 300
+              while time.time() < deadline and not ready.exists():
+                  time.sleep(1)
+              if not ready.exists():
+                  raise RuntimeError("dataset.ready not found")
+              expected = ready.read_text(encoding="utf-8").strip()
+              print(f"{result_prefix},phase,start_dataset_fanout_read,{size_mb}", flush=True)
+              read_s, digest = read_hash(dataset)
+              if digest != expected:
+                  raise RuntimeError(f"sha mismatch expected={expected} got={digest}")
+              print(f"{result_prefix},seq_read_mb_s,{size_mb / read_s:.2f}")
+              print(f"{result_prefix},sha256,{digest}")
+          elif mode == "checkpoint-write":
+              ckpt = ckpt_dir / f"checkpoint-{host}.bin"
+              print(f"{result_prefix},phase,start_checkpoint_write,{size_mb}", flush=True)
+              write_s = write_file(ckpt, size_mb)
+              print(f"{result_prefix},phase,start_checkpoint_readhash,{size_mb}", flush=True)
+              read_s, digest = read_hash(ckpt)
+              print(f"{result_prefix},seq_write_mb_s,{size_mb / write_s:.2f}")
+              print(f"{result_prefix},seq_read_mb_s,{size_mb / read_s:.2f}")
+              print(f"{result_prefix},sha256,{digest}")
+          else:
+              raise RuntimeError(f"unsupported MODE={mode}")
+          PY
+      volumeMounts:
+        - name: orangefs
+          mountPath: /orangefs
+  volumes:
+    - name: orangefs
+      hostPath:
+        path: /var/lib/orangefs-lab/client-runtime/mnt
+        type: Directory

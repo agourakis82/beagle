@@ -1,0 +1,40 @@
+# kube-vip — VIP HA p/ o control-plane (ARP/L2 no fabric vmbr100)
+# Copiar p/ /etc/kubernetes/manifests/kube-vip.yaml em CADA control-plane (t560, DL380, r740).
+# VIP = 10.100.100.20  ·  interface = vmbr100  ·  modo = ARP (control-plane only, svc desabilitado)
+# NOTA: confirmar a tag mais recente do kube-vip antes (ghcr.io/kube-vip/kube-vip). Pinada abaixo.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kube-vip
+  namespace: kube-system
+spec:
+  hostNetwork: true
+  containers:
+    - name: kube-vip
+      image: ghcr.io/kube-vip/kube-vip:v0.8.7
+      imagePullPolicy: IfNotPresent
+      args: ["manager"]
+      env:
+        - { name: vip_arp,        value: "true" }
+        - { name: port,           value: "6443" }
+        - { name: vip_interface,  value: "vmbr100" }
+        - { name: vip_cidr,       value: "24" }
+        - { name: cp_enable,      value: "true" }
+        - { name: cp_namespace,   value: "kube-system" }
+        - { name: vip_ddns,       value: "false" }
+        - { name: svc_enable,     value: "false" }      # só control-plane VIP, não LB de Services
+        - { name: vip_leaderelection, value: "true" }   # 1 CP segura o VIP por vez; failover automático
+        - { name: vip_leaseduration,  value: "5" }
+        - { name: vip_renewdeadline,  value: "3" }
+        - { name: vip_retryperiod,    value: "1" }
+        - { name: address,        value: "10.100.100.20" }
+        - { name: prometheus_server, value: ":2112" }
+      securityContext:
+        capabilities:
+          add: ["NET_ADMIN", "NET_RAW"]   # ARP/VIP precisa
+      resources:
+        requests: { cpu: 50m, memory: 64Mi }
+  hostAliases:
+    - ip: "127.0.0.1"
+      hostnames: ["kubernetes"]
+  volumes: []

@@ -1,0 +1,22 @@
+diff --git a/internal/utils/objectutils/patch.go b/internal/utils/objectutils/patch.go
+index d63d527..c6a1577 100644
+--- a/internal/utils/objectutils/patch.go
++++ b/internal/utils/objectutils/patch.go
+@@ -99,7 +99,7 @@ func SyncObject(c client.Client, ctx context.Context, newObj client.Object, shou
+ 		obj.Spec = o.Spec
+ 	case *appsv1.Deployment:
+ 		obj := oldObj.(*appsv1.Deployment)
+-		patch = client.MergeFrom(obj.DeepCopy())
++		patch = client.StrategicMergeFrom(obj.DeepCopy())
+ 		obj.Annotations = structutils.MergeMaps(obj.Annotations, o.Annotations)
+ 		obj.Labels = structutils.MergeMaps(obj.Labels, o.Labels)
+ 		obj.Spec.MinReadySeconds = o.Spec.MinReadySeconds
+@@ -109,7 +109,7 @@ func SyncObject(c client.Client, ctx context.Context, newObj client.Object, shou
+ 		obj.Spec.Template = o.Spec.Template
+ 	case *appsv1.StatefulSet:
+ 		obj := oldObj.(*appsv1.StatefulSet)
+-		patch = client.MergeFrom(obj.DeepCopy())
++		patch = client.StrategicMergeFrom(obj.DeepCopy())
+ 		obj.Annotations = structutils.MergeMaps(obj.Annotations, o.Annotations)
+ 		obj.Labels = structutils.MergeMaps(obj.Labels, o.Labels)
+ 		obj.Spec.MinReadySeconds = o.Spec.MinReadySeconds

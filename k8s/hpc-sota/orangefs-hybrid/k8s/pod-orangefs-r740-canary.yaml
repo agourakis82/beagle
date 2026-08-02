@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: orangefs-r740-canary
+  namespace: beagle
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: r740-proxmox
+  tolerations:
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+  containers:
+    - name: canary
+      image: docker.io/library/debian:bookworm-slim
+      command:
+        - /bin/bash
+        - -lc
+        - |
+          set -euo pipefail
+          mkdir -p /orangefs/checkpoints
+          echo "orangefs pod canary on $(hostname)" | tee /orangefs/checkpoints/k8s-orangefs-r740.txt
+          ls -la /orangefs
+          ls -la /orangefs/checkpoints
+          cat /orangefs/checkpoints/k8s-orangefs-r740.txt
+      volumeMounts:
+        - name: orangefs
+          mountPath: /orangefs
+  volumes:
+    - name: orangefs
+      hostPath:
+        path: /var/lib/orangefs-lab/client-runtime/mnt
+        type: Directory

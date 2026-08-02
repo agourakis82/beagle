@@ -1,0 +1,85 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: darwin-gpu-ceph-storage-rules
+  namespace: darwin-platform
+  labels:
+    app.kubernetes.io/part-of: darwin-observability
+    darwin.phase: B7.5
+    release: darwin-observability
+spec:
+  groups:
+    - name: darwin.gpu-ceph-storage
+      rules:
+        - alert: DarwinDcgmExporterTargetsMissing
+          expr: sum(up{job="darwin-dcgm-exporter"}) < 3
+          for: 10m
+          labels:
+            domain: observability
+            severity: warning
+          annotations:
+            summary: GPU telemetry targets are missing
+            description: Fewer than three dcgm-exporter targets have been scrapeable for 10 minutes.
+            dashboard: Darwin GPU Ceph Storage
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: CephMgrPrometheusDown
+          expr: sum(up{job="ceph-mgr-prometheus"}) < 1
+          for: 5m
+          labels:
+            domain: storage
+            severity: critical
+          annotations:
+            summary: Ceph manager metrics endpoint is down
+            description: Prometheus cannot scrape the active Ceph manager prometheus endpoint.
+            dashboard: Darwin GPU Ceph Storage
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: CephHealthWarn
+          expr: max(ceph_health_status) > 0
+          for: 15m
+          labels:
+            domain: storage
+            severity: warning
+          annotations:
+            summary: Ceph health is warning or worse
+            description: Ceph health status has been above HEALTH_OK for at least 15 minutes.
+            dashboard: Darwin GPU Ceph Storage
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: CephMonQuorumReduced
+          expr: sum(ceph_mon_quorum_status) < 3
+          for: 10m
+          labels:
+            domain: storage
+            severity: warning
+          annotations:
+            summary: Ceph monitor quorum is reduced
+            description: Fewer than three monitors are currently in quorum.
+            dashboard: Darwin GPU Ceph Storage
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinR770LocalCachePVUnavailable
+          expr: sum(kube_persistentvolume_status_phase{persistentvolume="local-ai-runtime-r770-pv",phase=~"Available|Bound"}) < 1
+          for: 10m
+          labels:
+            domain: storage
+            severity: warning
+          annotations:
+            summary: r770 local cache PV is unavailable
+            description: The published local PV for /mnt/ai-runtime on r770 is neither Available nor Bound.
+            dashboard: Darwin GPU Ceph Storage
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
+        - alert: DarwinR740LocalNvmePVUnavailable
+          expr: sum(kube_persistentvolume_status_phase{persistentvolume="local-nvme-r740-scratch-pv",phase=~"Available|Bound"}) < 1
+          for: 10m
+          labels:
+            domain: storage
+            severity: warning
+          annotations:
+            summary: r740 local NVMe PV is unavailable
+            description: The published local NVMe PV on r740 is neither Available nor Bound.
+            dashboard: Darwin GPU Ceph Storage
+            runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
+            verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh

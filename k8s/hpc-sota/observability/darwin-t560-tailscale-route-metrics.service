@@ -1,0 +1,8 @@
+[Unit]
+Description=Emit Tailscale route health metrics for node exporter textfile collector
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/darwin-tailscale-route-metrics.sh

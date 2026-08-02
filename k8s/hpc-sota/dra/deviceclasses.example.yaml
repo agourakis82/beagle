@@ -1,0 +1,9 @@
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: sounio-gpu
+  labels:
+    app.kubernetes.io/part-of: darwin-hpc-sota
+    sounio.dev/gpu-authority: dra-canary
+spec:
+  extendedResourceName: nvidia.com/gpu

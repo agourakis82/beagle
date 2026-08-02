@@ -1,0 +1,127 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: darwin-dashboard-sounio-compiler-pipeline
+  namespace: darwin-platform
+  labels:
+    app.kubernetes.io/component: grafana-dashboard
+    app.kubernetes.io/part-of: darwin-observability
+    darwin.observability: sounio-compiler-pipeline
+    darwin.phase: B8
+    grafana_dashboard: "1"
+data:
+  sounio-compiler-pipeline.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": { "type": "datasource", "uid": "grafana" },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "target": { "limit": 100, "matchAny": false, "tags": [], "type": "dashboard" },
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "graphTooltip": 0,
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red" }, { "color": "green", "value": 1 } ] } }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "id": 1,
+          "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [ { "expr": "max(kube_statefulset_status_replicas_ready{namespace=\"beagle\",statefulset=\"sounio-workspace-control\"})", "instant": true, "refId": "A" } ],
+          "title": "Control Workspace Ready",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red" }, { "color": "green", "value": 2 } ] } }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "id": 2,
+          "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [ { "expr": "sum(max by (pod) (kube_pod_status_ready{namespace=\"tailscale\",condition=\"true\",pod=~\"sounio-workspace-ingress-.*\"}))", "instant": true, "refId": "A" } ],
+          "title": "Ingress Proxies Ready",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green" }, { "color": "orange", "value": 1 }, { "color": "red", "value": 3 } ] } }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "id": 3,
+          "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [ { "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"beagle\",pod=\"sounio-workspace-control-0\",container!=\"POD\"}[6h]))", "instant": true, "refId": "A" } ],
+          "title": "Restarts in 6h",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red" }, { "color": "green", "value": 1 } ] } }, "overrides": [] },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "id": 4,
+          "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+          "targets": [ { "expr": "max(kube_persistentvolumeclaim_status_phase{namespace=\"beagle\",persistentvolumeclaim=\"workspace-data-sounio-workspace-habitat-0\",phase=\"Bound\"})", "instant": true, "refId": "A" } ],
+          "title": "Workspace PVC Bound",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }, "unit": "cores" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "id": 5,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [ { "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"beagle\",pod=~\"sounio-workspace-control-0\",container!=\"POD\",image!=\"\"}[5m]))", "legendFormat": "{{pod}}", "refId": "A" } ],
+          "title": "Compiler/Test CPU by Workspace Pod",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }, "unit": "bytes" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "id": 6,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [ { "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"beagle\",pod=~\"sounio-workspace-control-0\",container!=\"POD\",image!=\"\"})", "legendFormat": "{{pod}}", "refId": "A" } ],
+          "title": "Compiler/Test Memory by Workspace Pod",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "id": 7,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [
+            { "expr": "max by (pod) (kube_pod_status_ready{namespace=\"beagle\",condition=\"true\",pod=~\"sounio-workspace-control-0\"})", "legendFormat": "{{pod}}", "refId": "A" },
+            { "expr": "max by (pod) (kube_pod_status_ready{namespace=\"tailscale\",condition=\"true\",pod=~\"sounio-workspace-ingress-.*\"})", "legendFormat": "{{pod}}", "refId": "B" }
+          ],
+          "title": "Workspace / Ingress Readiness",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }, "unit": "short" }, "overrides": [] },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "id": 8,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+          "targets": [ { "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"beagle\",pod=~\"sounio-workspace-control-0\",container!=\"POD\"}[6h]))", "legendFormat": "{{pod}}", "refId": "A" } ],
+          "title": "Restart Drift by Workspace Pod (6h)",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 41,
+      "style": "dark",
+      "tags": ["compiler", "darwin", "pipeline", "sounio", "tests"],
+      "templating": { "list": [] },
+      "time": { "from": "now-6h", "to": "now" },
+      "timezone": "browser",
+      "title": "Darwin Sounio Compiler Pipeline",
+      "uid": "darwin-sounio-compiler-pipeline",
+      "version": 1,
+      "weekStart": ""
+    }

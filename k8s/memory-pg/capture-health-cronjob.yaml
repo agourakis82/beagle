@@ -20,6 +20,9 @@ spec:
   jobTemplate:
     spec:
       activeDeadlineSeconds: 120
+      # Silence is a deterministic alert, not a transient execution failure.
+      # Do not create four redundant failed pods before the deadline expires.
+      backoffLimit: 0
       template:
         spec:
           restartPolicy: Never

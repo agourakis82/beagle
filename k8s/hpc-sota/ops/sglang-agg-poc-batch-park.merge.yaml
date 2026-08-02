@@ -1,0 +1,4 @@
+spec:
+  services:
+    decode:
+      replicas: 0

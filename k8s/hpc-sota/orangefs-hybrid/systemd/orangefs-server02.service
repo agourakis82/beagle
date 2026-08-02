@@ -1,0 +1,14 @@
+[Unit]
+Description=OrangeFS server02 proof island on 5860
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/bash -lc 'fuser -k 3334/tcp >/dev/null 2>&1 || true; sleep 1'
+ExecStart=/var/lib/orangefs-lab/orangefs-build-serveronly-dyn/src/server/pvfs2-server -d -a server02 /var/lib/orangefs-lab/two-node/etc/orangefs_lab_2n.conf
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

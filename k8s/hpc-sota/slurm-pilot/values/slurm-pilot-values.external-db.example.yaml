@@ -1,0 +1,9 @@
+accounting:
+  storageConfig:
+    host: slurmdbd-mariadb-ext.darwin.lan
+    port: 3306
+    database: slurm_acct_db
+    username: slurm
+    passwordKeyRef:
+      name: mariadb-password
+      key: password

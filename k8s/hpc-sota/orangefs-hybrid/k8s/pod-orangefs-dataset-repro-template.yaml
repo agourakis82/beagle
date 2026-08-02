@@ -1,0 +1,106 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: __NAME__
+  namespace: beagle
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: __NODE__
+  tolerations:
+    - key: sounio.dev/compute
+      operator: Equal
+      value: heavy
+      effect: NoSchedule
+    - key: sounio.dev/pool
+      operator: Equal
+      value: gpu-batch
+      effect: NoSchedule
+  containers:
+    - name: repro
+      image: docker.io/library/python:3.11-slim
+      env:
+        - name: RUN_ID
+          value: "__RUN_ID__"
+        - name: SIZE_MB
+          value: "__SIZE_MB__"
+        - name: MODE
+          value: "__MODE__"
+        - name: EXPECTED_DIGEST
+          value: "__EXPECTED_DIGEST__"
+      command:
+        - /bin/bash
+        - -lc
+        - |
+          set -euo pipefail
+          python3 -u - <<'PY'
+          import hashlib
+          import os
+          import socket
+          import time
+          from pathlib import Path
+
+          run_id = os.environ["RUN_ID"]
+          size_mb = int(os.environ["SIZE_MB"])
+          mode = os.environ["MODE"]
+          host = socket.gethostname()
+
+          base = Path("/orangefs") / f"dataset-repro-{run_id}"
+          data_dir = base / "datasets"
+          data_dir.mkdir(parents=True, exist_ok=True)
+          dataset = data_dir / "dataset.bin"
+
+          def write_file(path: Path, size_mb: int):
+              chunk = b"\0" * (1024 * 1024)
+              start = time.time()
+              with open(path, "wb") as f:
+                  for i in range(size_mb):
+                      f.write(chunk)
+                      if (i + 1) % 64 == 0 or (i + 1) == size_mb:
+                          print(f"host={host} phase=write_progress_mb value={i + 1}", flush=True)
+                  f.flush()
+                  os.fsync(f.fileno())
+              return time.time() - start
+
+          def read_hash(path: Path):
+              h = hashlib.sha256()
+              total_mb = 0
+              start = time.time()
+              with open(path, "rb") as f:
+                  while True:
+                      data = f.read(1024 * 1024)
+                      if not data:
+                          break
+                      h.update(data)
+                      total_mb += 1
+                      if total_mb % 64 == 0 or total_mb == size_mb:
+                          print(f"host={host} phase=read_progress_mb value={total_mb}", flush=True)
+              return time.time() - start, h.hexdigest()
+
+          if mode == "writer":
+              print(f"host={host} phase=start_dataset_write size_mb={size_mb}", flush=True)
+              write_s = write_file(dataset, size_mb)
+              print(f"host={host} phase=start_dataset_readhash size_mb={size_mb}", flush=True)
+              read_s, digest = read_hash(dataset)
+              print(f"host={host} phase=write mb_s={size_mb / write_s:.2f}", flush=True)
+              print(f"host={host} phase=read mb_s={size_mb / read_s:.2f} sha256={digest}", flush=True)
+          elif mode == "reader":
+              expected = os.environ["EXPECTED_DIGEST"].strip()
+              if not expected:
+                  raise RuntimeError("EXPECTED_DIGEST is empty")
+              print(f"host={host} phase=start_dataset_fanout_read size_mb={size_mb}", flush=True)
+              read_s, digest = read_hash(dataset)
+              if digest != expected:
+                  raise RuntimeError(f"sha mismatch expected={expected} got={digest}")
+              print(f"host={host} phase=read mb_s={size_mb / read_s:.2f} sha256={digest}", flush=True)
+          else:
+              raise RuntimeError(f"unsupported MODE={mode}")
+          PY
+      volumeMounts:
+        - name: orangefs
+          mountPath: /orangefs
+  volumes:
+    - name: orangefs
+      hostPath:
+        path: /var/lib/orangefs-lab/client-runtime/mnt
+        type: Directory

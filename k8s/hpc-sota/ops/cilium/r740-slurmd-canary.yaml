@@ -1,0 +1,14 @@
+apiVersion: cilium.io/v2
+kind: CiliumNodeConfig
+metadata:
+  name: r740-slurmd-canary
+  namespace: kube-system
+spec:
+  nodeSelector:
+    matchLabels:
+      kubernetes.io/hostname: r740-proxmox
+  defaults:
+    debug: "true"
+    debug-verbose: "flow"
+    enable-tcx: "false"
+    auto-direct-node-routes: "false"

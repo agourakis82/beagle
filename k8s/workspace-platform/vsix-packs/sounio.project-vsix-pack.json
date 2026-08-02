@@ -1,0 +1,30 @@
+{
+  "projectSlug": "sounio",
+  "packVersion": "sov-v1",
+  "extends": "core-sovereign",
+  "required": [
+    "rust-lang.rust-analyzer",
+    "llvm-vs-code-extensions.vscode-clangd",
+    "ms-python.python",
+    "redhat.vscode-yaml"
+  ],
+  "recommended": [
+    "ms-vscode.cpptools",
+    "GitHub.vscode-pull-request-github",
+    "ocamllabs.ocaml-platform",
+    "leanprover.lean4"
+  ],
+  "experimental": [],
+  "aiIdeAgents": [
+    {
+      "name": "codex",
+      "mode": "vsix-first",
+      "status": "runtime-unverified"
+    },
+    {
+      "name": "claude-code",
+      "mode": "hybrid",
+      "status": "hybrid-ready"
+    }
+  ]
+}

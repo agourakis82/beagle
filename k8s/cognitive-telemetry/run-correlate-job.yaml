@@ -30,7 +30,7 @@ spec:
               cd /workspace
               git init -q
               git remote add origin https://github.com/agourakis82/beagle.git
-              git fetch -q --depth=1 origin 588c38da73fadea16cd65e9a7d6bfc59ba0bae68
+              git fetch -q --depth=1 origin ceda08e3a1fa120a984c609815fd8fc1f6293143
               git checkout -q FETCH_HEAD
               cd apps/memory-pg && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1
               cd ../physiome && npm install --omit=dev --no-audit --no-fund >/dev/null 2>&1

@@ -1,0 +1,68 @@
+diff --git a/helm/slurm-operator/templates/operator/deployment.yaml b/helm/slurm-operator/templates/operator/deployment.yaml
+index 230b22d..d03dbe1 100644
+--- a/helm/slurm-operator/templates/operator/deployment.yaml
++++ b/helm/slurm-operator/templates/operator/deployment.yaml
+@@ -76,6 +76,9 @@ spec:
+             {{- end }}{{- /* if .Values.operator.leaderElection */}}
+             - --leader-elect-namespace
+             - {{ include "slurm-operator.namespace" . }}
++          env:
++            - name: SLURM_OPERATOR_ENABLE_STEPMGR
++              value: {{ .Values.operator.enableStepmgr | default false | quote }}
+           livenessProbe:
+             httpGet:
+               path: /healthz
+diff --git a/helm/slurm-operator/values.yaml b/helm/slurm-operator/values.yaml
+index 6ca644b..d0870f9 100644
+--- a/helm/slurm-operator/values.yaml
++++ b/helm/slurm-operator/values.yaml
+@@ -90,6 +90,8 @@ operator:
+   metricsPort: 8080
+   # -- Enable leader election for slurm-operator
+   leaderElection: true
++  # -- Enable Slurm step management globally in rendered controller config.
++  enableStepmgr: false
+ 
+ 
+ # Webhook configurations.
+diff --git a/internal/builder/controllerbuilder/controller_config.go b/internal/builder/controllerbuilder/controller_config.go
+index 1646fd8..110f963 100644
+--- a/internal/builder/controllerbuilder/controller_config.go
++++ b/internal/builder/controllerbuilder/controller_config.go
+@@ -6,6 +6,7 @@ package controllerbuilder
+ import (
+ 	"context"
+ 	"fmt"
++	"os"
+ 	"path"
+ 	"regexp"
+ 	"sort"
+@@ -154,6 +155,15 @@ func (b *ControllerBuilder) BuildControllerConfig(controller *slinkyv1beta1.Cont
+ 	return b.CommonBuilder.BuildConfigMap(opts, controller)
+ }
+ 
++func stepmgrEnabled() bool {
++	switch strings.ToLower(strings.TrimSpace(os.Getenv("SLURM_OPERATOR_ENABLE_STEPMGR"))) {
++	case "1", "true", "yes", "on":
++		return true
++	default:
++		return false
++	}
++}
++
+ // https://slurm.schedmd.com/slurm.conf.html
+ func buildSlurmConf(
+ 	controller *slinkyv1beta1.Controller,
+@@ -204,7 +214,11 @@ func buildSlurmConf(
+ 	conf.AddProperty(config.NewProperty("CommunicationParameters", "block_null_hash"))
+ 	conf.AddProperty(config.NewProperty("SelectTypeParameters", "CR_Core_Memory"))
+ 	if cgroupEnabled {
+-		conf.AddProperty(config.NewProperty("SlurmctldParameters", "enable_configless,enable_stepmgr"))
++		slurmctldParameters := "enable_configless"
++		if stepmgrEnabled() {
++			slurmctldParameters = slurmctldParameters + ",enable_stepmgr"
++		}
++		conf.AddProperty(config.NewProperty("SlurmctldParameters", slurmctldParameters))
+ 		conf.AddProperty(config.NewProperty("ProctrackType", "proctrack/cgroup"))
+ 		conf.AddProperty(config.NewProperty("PrologFlags", "Contain"))
+ 		conf.AddProperty(config.NewProperty("TaskPlugin", "task/affinity,task/cgroup"))

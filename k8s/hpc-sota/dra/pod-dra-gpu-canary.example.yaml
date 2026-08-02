@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sounio-dra-gpu-canary
+  namespace: beagle
+  labels:
+    app.kubernetes.io/part-of: darwin-hpc-sota
+    sounio.dev/gpu-authority: dra-canary
+spec:
+  restartPolicy: Never
+  resourceClaims:
+    - name: gpu
+      resourceClaimTemplateName: sounio-gpu-canary
+  containers:
+    - name: cuda-smoke
+      image: 192.168.3.207:5003/sounio/pytorch-rdma:2.7.1-cuda12.8-rdma
+      imagePullPolicy: IfNotPresent
+      command: ["bash", "-lc"]
+      args:
+        - |
+          set -euo pipefail
+          nvidia-smi
+          python3 - <<'PY'
+          import torch
+          print("cuda_available=", torch.cuda.is_available())
+          print("device_count=", torch.cuda.device_count())
+          PY
+      resources:
+        claims:
+          - name: gpu
+            request: gpu

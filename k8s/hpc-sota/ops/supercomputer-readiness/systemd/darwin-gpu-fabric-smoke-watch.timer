@@ -1,0 +1,13 @@
+[Unit]
+Description=Periodically check Darwin GPU fabric IB smoke readiness
+Documentation=file:/home/devsounio/beagle/k8s/hpc-sota/ops/supercomputer-readiness/GPU_FABRIC_SMOKE_WATCH.md
+
+[Timer]
+OnBootSec=10min
+OnUnitInactiveSec=10min
+AccuracySec=30s
+Persistent=false
+Unit=darwin-gpu-fabric-smoke-watch.service
+
+[Install]
+WantedBy=timers.target
