@@ -96,6 +96,9 @@ dns:
     - name: pve-5860.lab.sounio
       ip: 10.100.100.3
       role: gpu-node
+    - name: dl380.lab.sounio
+      ip: 10.100.100.5
+      role: fpga-worker
     - name: gw-k8s.lab.sounio
       ip: 10.100.100.254
       role: planned-gateway
@@ -176,6 +179,19 @@ nodes:
     service_fabric_ip: 10.30.0.1
     accelerator: nvidia-rtx-4000-ada
     role: gpu-node-and-service-edge
+  dl380-proxmox:
+    kubernetes_internal_ip: 10.100.100.5
+    management_ip: 192.168.3.155
+    bmc_ilo_ip: 192.168.3.153        # HPE iLO 5 v3.17
+    primary_fabric_ip: 10.100.100.5  # VLAN100 vmbr100, ConnectX-5 ens6f0np0
+    gpu_rdma_ip: 10.210.0.5          # VLAN210 vmbr210, RoCEv2, rdma.available
+    secondary_fabric_ip: pending     # 10.200.0.5 storage fabric — not yet configured
+    service_fabric_ip: 10.30.0.6     # VLAN130 ens6f0np0.130, jumbo-9000 clean to edge .1 + SVI .254
+    accelerator: xilinx-alveo-u250-fpga   # xocl/xclmgmt loaded; XRT+device-plugin pending. Radeon(AMD) deferred: no power cable
+    cpu: 2x-xeon-gold-6262v-48c
+    memory_gib: 128
+    role: fpga-worker
+    status: provisioning-by-codex-cordoned  # Ready but SchedulingDisabled; joined 2026-08-01
 
 gpu_fabric:
   preferred_name: gpufabric0
