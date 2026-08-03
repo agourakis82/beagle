@@ -2226,6 +2226,41 @@ export function registerMobileRoutes(app, deps) {
       stopHeartbeat();
       const mapped = mapStatusCodeToErrorCode(error?.statusCode);
       const code = error?.code && ErrorCode[error.code] ? error.code : mapped.code;
+
+      // O CHÃO TAMBÉM AQUI.
+      //
+      // /chat (bufferizado) degrada para presença desde sempre; este endpoint não
+      // degradava — repassava a mensagem crua do upstream e o app a exibia no lugar
+      // da resposta. Ele viu "reautenticar" na voz do companion quando o OAuth do
+      // proxy expirou. Como o app passou a usar ESTE caminho, o chão tinha deixado
+      // de proteger justamente o caminho real.
+      //
+      // Invariante do desenho: se tudo falhar, presença em vez de vazio — e nunca
+      // erro de infraestrutura falando com a voz dele.
+      const pessoal = cleanString(req.body?.space) === "personal";
+      if (pessoal) {
+        const piso = buildPersonalFloor({
+          body: {
+            heartRate: Number(req.body?.heart_rate),
+            stateOfMindLabel: req.body?.state_of_mind_label,
+          },
+          reason: error?.message || "voice unreachable",
+          generatedAt: new Date().toISOString(),
+        });
+        safeWrite({ token: piso.presence });
+        safeWrite({
+          done: true,
+          degraded: true,
+          degradedReason: piso.degradedReason,
+          model: "floor",
+          source: "floor",
+          state: piso.state,
+          code
+        });
+        res.end();
+        return;
+      }
+
       safeWrite({
         done: true,
         error: error?.message || "mobile chat stream failed",
